@@ -1,0 +1,422 @@
+:root {
+  --bg: #0d1117;
+  --bg-raised: #131a24;
+  --bg-hover: #1a2330;
+  --border: #232d3d;
+  --text: #dbe4f0;
+  --text-dim: #7c8b9f;
+  --lapis: #3d6fe0;
+  --lapis-soft: #24406e;
+  --amber: #d9a13d;
+  --red: #d95757;
+  --green: #4fae6d;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.55 -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--lapis);
+}
+
+button.primary {
+  background: var(--lapis);
+  border-color: var(--lapis);
+  color: #fff;
+}
+
+button.stop {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+input,
+textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  outline: none;
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--lapis);
+}
+
+.app {
+  display: flex;
+  height: 100%;
+}
+
+/* ── sidebar ─────────────────────────────── */
+
+.sidebar {
+  width: 250px;
+  min-width: 250px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.conn {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.conn.on {
+  background: var(--green);
+}
+
+.conn.off {
+  background: var(--red);
+}
+
+.project-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.group-label {
+  padding: 10px 8px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.project-row:hover {
+  background: var(--bg-hover);
+}
+
+.project-row.active {
+  background: var(--lapis-soft);
+}
+
+.project-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.dot.working {
+  background: var(--lapis);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.dot.permission {
+  background: var(--amber);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.dot.error {
+  background: var(--red);
+}
+
+.dot.unread {
+  box-shadow: 0 0 0 3px rgba(61, 111, 224, 0.35);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.project-row .remove {
+  visibility: hidden;
+  border: none;
+  background: none;
+  padding: 0 4px;
+  color: var(--text-dim);
+}
+
+.project-row:hover .remove {
+  visibility: visible;
+}
+
+.project-row .remove:hover {
+  color: var(--red);
+}
+
+.add-button {
+  margin: 10px;
+  color: var(--text-dim);
+}
+
+.add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.add-form-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+/* ── chat ────────────────────────────────── */
+
+.chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chat.empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-title {
+  font-weight: 650;
+}
+
+.chat-path {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.status-pill {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.status-pill.working {
+  color: var(--lapis);
+  border-color: var(--lapis);
+}
+
+.status-pill.permission {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.status-pill.error {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.error-bar {
+  padding: 8px 20px;
+  background: rgba(217, 87, 87, 0.12);
+  color: var(--red);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.error-bar .dismiss {
+  color: var(--text-dim);
+}
+
+.transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.msg {
+  max-width: 82%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.msg.user {
+  align-self: flex-end;
+  background: var(--lapis-soft);
+}
+
+.msg.assistant {
+  align-self: flex-start;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+}
+
+.cursor {
+  animation: pulse 0.9s infinite;
+  color: var(--lapis);
+}
+
+.tool-chip {
+  align-self: flex-start;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  max-width: 90%;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-raised);
+  border: 1px dashed var(--border);
+  font-family: "SF Mono", ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.tool-name {
+  color: var(--lapis);
+  font-weight: 600;
+}
+
+.tool-summary {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-line,
+.info-line {
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.result-line.ok {
+  color: var(--green);
+}
+
+.result-line.err {
+  color: var(--red);
+}
+
+.pulse {
+  animation: pulse 1.2s infinite;
+}
+
+.hint {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 14px;
+}
+
+/* ── permissions ─────────────────────────── */
+
+.permission {
+  align-self: stretch;
+  border: 1px solid var(--amber);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: rgba(217, 161, 61, 0.07);
+}
+
+.permission-head {
+  margin-bottom: 8px;
+}
+
+.permission-input {
+  font-family: "SF Mono", ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 10px;
+  max-height: 180px;
+  overflow: auto;
+  margin-bottom: 10px;
+}
+
+.permission-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── composer ────────────────────────────── */
+
+.composer {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.composer textarea {
+  flex: 1;
+  resize: none;
+}
+
+.composer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

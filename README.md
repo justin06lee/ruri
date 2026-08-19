@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/ruri.svg" alt="ruri" width="340" />
+<img src="assets/ruri.png" alt="ruri" width="340" />
 
 # ruri
 

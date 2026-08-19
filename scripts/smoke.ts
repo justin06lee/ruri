@@ -16,7 +16,7 @@ const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-smoke-config-"));
 const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-smoke-project-"));
 fs.writeFileSync(path.join(projectDir, "hello.txt"), "hello from ruri smoke\n");
 
-const server = spawn("npx", ["tsx", "server/index.ts"], {
+const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: path.join(import.meta.dirname, ".."),
   env: { ...process.env, RURI_PORT: String(PORT), RURI_CONFIG_DIR: configDir },
   stdio: ["ignore", "pipe", "inherit"],

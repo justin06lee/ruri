@@ -1,14 +1,23 @@
-# ruri 瑠璃
+<div align="center">
 
-One workspace for all your projects — each with its own live Claude Code session.
+<img src="assets/ruri.svg" alt="ruri" width="340" />
 
-A folder-organized sidebar of projects on the left; a chat pane driving a real Claude Code session on the right. Sessions run through [yagami](../yagami)'s `claudeCodeSession` (the Claude Agent SDK pointed at your installed, signed-in `claude` CLI with the `claude_code` system prompt preset), so behavior, settings, CLAUDE.md, and login are identical to your terminal — just with one UI over all of them. Sessions stay warm per project: switch projects instantly while agents keep working in the background, with activity dots in the sidebar.
+# ruri
+
+**One workspace for all your projects — each with its own live Claude Code session.**<br>
+*A folder-organized sidebar on the left, a real Claude Code session on the right.*
+
+</div>
+
+---
+
+Sessions run through [yagami](../yagami)'s `claudeCodeSession` (the Claude Agent SDK pointed at your installed, signed-in `claude` CLI with the `claude_code` system prompt preset), so behavior, settings, CLAUDE.md, and login are identical to your terminal — just with one UI over all of them. Sessions stay warm per project: switch projects instantly while agents keep working in the background, with activity dots in the sidebar.
 
 ## Run it
 
 ```sh
-pnpm install
-pnpm dev        # server on :7777, UI at http://localhost:5173
+bun install
+bun run dev     # server on :7777, UI at http://localhost:5173
 ```
 
 Requires the sibling `../yagami` repo (linked as a file dependency, pre-built `dist/`) and a signed-in Claude Code CLI.
@@ -38,8 +47,8 @@ server/   Node: SessionManager + ws server     ─┘
 ## Testing
 
 ```sh
-pnpm typecheck && pnpm build:web   # no tokens
-pnpm smoke                         # live E2E: 3 real turns incl. Bash + permission round-trip
+bun run typecheck && bun run build:web   # no tokens
+bun run smoke                            # live E2E: 3 real turns incl. Bash + permission round-trip
 ```
 
 ## Not in v1 (iterate next)

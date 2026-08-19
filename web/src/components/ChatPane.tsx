@@ -92,13 +92,20 @@ function Composer({ projectId, busy }: { projectId: string; busy: boolean }) {
   );
 }
 
+// Stable fallback so selectors never mint a fresh reference per read —
+// an unstable snapshot makes useSyncExternalStore loop (React error #185).
+const NO_EVENTS: TranscriptEvent[] = [];
+
 export function ChatPane() {
   const activeId = useRuri((s) => s.activeId);
   const project = useRuri((s) => s.projects.find((p) => p.id === s.activeId));
-  const transcript = useRuri((s) => (s.activeId ? (s.transcripts[s.activeId] ?? []) : []));
+  const transcript = useRuri((s) =>
+    s.activeId ? (s.transcripts[s.activeId] ?? NO_EVENTS) : NO_EVENTS,
+  );
   const draft = useRuri((s) => (s.activeId ? s.drafts[s.activeId] : undefined));
   const status = useRuri((s) => (s.activeId ? (s.statuses[s.activeId] ?? "idle") : "idle"));
-  const permissions = useRuri((s) => s.permissions.filter((p) => p.projectId === s.activeId));
+  const allPermissions = useRuri((s) => s.permissions);
+  const permissions = allPermissions.filter((p) => p.projectId === activeId);
   const lastError = useRuri((s) => s.lastError);
   const dismissError = useRuri((s) => s.dismissError);
 

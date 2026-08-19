@@ -1,8 +1,12 @@
 /**
  * End-to-end smoke test: boots the ruri server, connects over WebSocket like
- * the UI would, and runs two real Claude Code turns in a scratch project —
- * one plain reply, one that uses Bash (exercising the permission flow).
- * Costs a few real tokens — run manually: pnpm smoke
+ * the UI would, and runs three real Claude Code turns in a scratch project —
+ * a plain reply, a Bash turn, and a WebFetch turn (permission round-trip).
+ * Costs a few real tokens — run manually: bun run smoke
+ *
+ * By default it spawns the standalone dev server. Set RURI_SMOKE_SPAWN to a
+ * command (space-separated) to smoke something else, e.g. the packaged app:
+ *   RURI_SMOKE_SPAWN="dist-app/mac-arm64/ruri.app/Contents/MacOS/ruri" bun run smoke
  */
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
@@ -16,7 +20,8 @@ const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-smoke-config-"));
 const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-smoke-project-"));
 fs.writeFileSync(path.join(projectDir, "hello.txt"), "hello from ruri smoke\n");
 
-const server = spawn("bunx", ["tsx", "server/index.ts"], {
+const spawnCmd = process.env["RURI_SMOKE_SPAWN"]?.split(" ") ?? ["bunx", "tsx", "server/index.ts"];
+const server = spawn(spawnCmd[0]!, spawnCmd.slice(1), {
   cwd: path.join(import.meta.dirname, ".."),
   env: { ...process.env, RURI_PORT: String(PORT), RURI_CONFIG_DIR: configDir },
   stdio: ["ignore", "pipe", "inherit"],

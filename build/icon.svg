@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="ruri app icon">
+  <!-- macOS icon-grid rounded-square tile -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#0C0C0F"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="#1E3B77" stroke-width="6" opacity="0.6"/>
+
+  <!-- faceted lapis stone, lit from upper-left (scaled from the banner art) -->
+  <g transform="translate(512 500) scale(1.62) translate(-350 -262)">
+    <polygon points="283,100 417,100 383,183 317,183" fill="#4A80E8"/>
+    <polygon points="188,195 283,100 317,183 271,229" fill="#3A6BD1"/>
+    <polygon points="417,100 512,195 429,229 383,183" fill="#3161BC"/>
+    <polygon points="188,329 188,195 271,229 271,295" fill="#2A52A4"/>
+    <polygon points="512,195 512,329 429,295 429,229" fill="#24468C"/>
+    <polygon points="283,424 188,329 271,295 317,341" fill="#1E3B77"/>
+    <polygon points="512,329 417,424 383,341 429,295" fill="#182F60"/>
+    <polygon points="417,424 283,424 317,341 383,341" fill="#14264E"/>
+    <polygon points="429,295 383,341 317,341 271,295 271,229 317,183 383,183 429,229" fill="#2E5FC4"/>
+    <polygon points="271,229 317,183 383,183 271,295" fill="#3A6FD6" opacity="0.55"/>
+
+    <!-- calcite vein -->
+    <polyline points="243,378 305,330 352,312 428,272 474,236" fill="none" stroke="#E9EDF5"
+      stroke-width="4" stroke-linecap="square" opacity="0.22"/>
+
+    <!-- pyrite flecks -->
+    <g fill="#D9B552">
+      <circle cx="311" cy="215" r="3.2"/>
+      <circle cx="398" cy="238" r="2.4"/>
+      <circle cx="356" cy="305" r="3.6"/>
+      <circle cx="296" cy="272" r="2.2"/>
+      <circle cx="416" cy="322" r="2.6"/>
+      <circle cx="334" cy="128" r="2.4"/>
+      <rect x="330" y="250" width="5" height="5" transform="rotate(45 332.5 252.5)"/>
+      <rect x="440" y="286" width="4" height="4" transform="rotate(45 442 288)" fill="#C9A23F"/>
+      <rect x="270" y="182" width="4" height="4" transform="rotate(45 272 184)" fill="#C9A23F"/>
+    </g>
+
+    <!-- glint -->
+    <path d="M292 158 L297 173 L312 178 L297 183 L292 198 L287 183 L272 178 L287 173 Z" fill="#EAF1FF" opacity="0.9"/>
+  </g>
+</svg>

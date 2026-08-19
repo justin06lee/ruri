@@ -20,7 +20,7 @@ update: stop
 	$(MAKE) build install launch
 
 launch:
-	open -a $(APP)
+	open $(APP_DST)
 
 stop:
 	-pkill -x $(APP) 2>/dev/null || true

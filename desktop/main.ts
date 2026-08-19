@@ -58,11 +58,14 @@ function createWindow(port: number): BrowserWindow {
   const screenshot = process.env["RURI_SCREENSHOT"];
   if (screenshot) {
     win.webContents.once("did-finish-load", () => {
+      win.show();
+      win.moveTop();
+      win.focus();
       setTimeout(() => {
         void win.webContents
           .capturePage()
           .then((img) => fs.promises.writeFile(screenshot, img.toPNG()));
-      }, 1200);
+      }, 3000);
     });
   }
   return win;

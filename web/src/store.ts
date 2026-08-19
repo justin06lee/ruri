@@ -42,7 +42,10 @@ export const useRuri = create<RuriState>((set) => ({
   dismissError: () => set({ lastError: null }),
 }));
 
-const WS_URL = `ws://${location.hostname}:7777`;
+// Vite dev server (:5173) talks to the standalone server on :7777; when the
+// UI is served by the ruri server itself (desktop app / production), the
+// WebSocket lives on the same origin.
+const WS_URL = import.meta.env.DEV ? `ws://${location.hostname}:7777` : `ws://${location.host}`;
 let ws: WebSocket | null = null;
 
 export function send(message: ClientMessage): void {

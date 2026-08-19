@@ -1,4 +1,8 @@
 node_modules/
 dist-web/
+dist-electron/
+dist-app/
+build/icon.iconset/
+build/icon-1024.png
 *.log
 .DS_Store

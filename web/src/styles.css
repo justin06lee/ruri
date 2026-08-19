@@ -75,6 +75,22 @@ textarea:focus {
   height: 100%;
 }
 
+/* ── desktop shell (Electron, hiddenInset title bar) ── */
+
+.desktop .sidebar-header {
+  padding-left: 84px; /* clear the macOS traffic lights */
+  -webkit-app-region: drag;
+}
+
+.desktop .chat-header {
+  -webkit-app-region: drag;
+}
+
+.desktop .sidebar-header button,
+.desktop .chat-header button {
+  -webkit-app-region: no-drag;
+}
+
 /* ── sidebar ─────────────────────────────── */
 
 .sidebar {

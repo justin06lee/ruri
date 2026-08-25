@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { app, BrowserWindow, Menu, shell } from "electron";
+import { app, BrowserWindow, dialog, Menu, shell } from "electron";
 import { startServer } from "../server/server.js";
 
 /**
@@ -99,6 +99,16 @@ async function main(): Promise<void> {
   const running = await startServer({
     port: Number(process.env["RURI_PORT"] ?? 0),
     staticDir,
+    pickFolder: async () => {
+      const win = BrowserWindow.getAllWindows()[0];
+      const opts = {
+        title: "Add project",
+        buttonLabel: "Add",
+        properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">,
+      };
+      const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
   });
 
   createWindow(running.port);

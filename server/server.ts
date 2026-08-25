@@ -11,6 +11,11 @@ export interface StartServerOptions {
   host?: string;
   /** When set, GET requests are served from this directory (the built web UI). */
   staticDir?: string;
+  /**
+   * Host-provided native folder picker (the Electron shell passes one).
+   * Resolves to the chosen directory, or null if the user cancelled.
+   */
+  pickFolder?: () => Promise<string | null>;
 }
 
 export interface RuriServer {
@@ -82,11 +87,19 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     },
   });
 
-  function handleMessage(msg: ClientMessage): void {
+  function handleMessage(ws: WebSocket, msg: ClientMessage): void {
     switch (msg.type) {
       case "add_project": {
         store.add(msg.name, msg.path, msg.folder);
         broadcast({ type: "projects", projects: store.list() });
+        break;
+      }
+      case "pick_folder": {
+        void (options.pickFolder?.() ?? Promise.resolve(null)).then((path) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "folder_picked", path } satisfies ServerMessage));
+          }
+        });
         break;
       }
       case "remove_project": {
@@ -154,12 +167,13 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       statuses: manager.statuses(),
       permissions: [...permissions.values()],
       models,
+      canPickFolder: options.pickFolder !== undefined,
     };
     ws.send(JSON.stringify(snapshot));
 
     ws.on("message", (raw) => {
       try {
-        handleMessage(JSON.parse(String(raw)) as ClientMessage);
+        handleMessage(ws, JSON.parse(String(raw)) as ClientMessage);
       } catch (err) {
         ws.send(
           JSON.stringify({

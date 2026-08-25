@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Project } from "../../../shared/protocol";
+import { Player } from "./Player";
 import { send, useRuri } from "../store";
 import { applyTheme, getTheme, type Theme } from "../theme";
 
@@ -221,6 +222,8 @@ export function Sidebar() {
           Add project
         </button>
       )}
+
+      <Player />
     </aside>
   );
 }

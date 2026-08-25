@@ -161,11 +161,12 @@ const PERMISSION_MODES: Array<{ value: PermissionMode; label: string }> = [
   { value: "bypassPermissions", label: "Bypass" },
 ];
 
-function HeaderControls({ project }: { project: Project }) {
+function SessionControls({ project }: { project: Project }) {
   const models = useRuri((s) => s.models);
   return (
-    <div className="header-controls">
+    <div className="composer-controls">
       <Dropdown
+        up
         title="Model for this project's sessions"
         value={project.model ?? ""}
         options={[
@@ -175,6 +176,7 @@ function HeaderControls({ project }: { project: Project }) {
         onSelect={(model) => send({ type: "set_model", projectId: project.id, model })}
       />
       <Dropdown
+        up
         title="Permission mode"
         value={project.permissionMode ?? "default"}
         options={PERMISSION_MODES}
@@ -188,7 +190,16 @@ function HeaderControls({ project }: { project: Project }) {
 
 /* ── composer ────────────────────────────────────────────────────── */
 
-function Composer({ projectId, busy }: { projectId: string; busy: boolean }) {
+function Composer({
+  project,
+  busy,
+  showControls = true,
+}: {
+  project: Project;
+  busy: boolean;
+  showControls?: boolean;
+}) {
+  const projectId = project.id;
   const [text, setText] = useState("");
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const composerSeed = useRuri((s) => s.composerSeed);
@@ -242,21 +253,24 @@ function Composer({ projectId, busy }: { projectId: string; busy: boolean }) {
             }
           }}
         />
-        <div className="composer-actions">
-          {busy && (
-            <button
-              className="stop"
-              title="Interrupt the running turn"
-              onClick={() => send({ type: "interrupt", projectId })}
-            >
-              <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
+        <div className="composer-bar">
+          {showControls && <SessionControls project={project} />}
+          <div className="composer-actions">
+            {busy && (
+              <button
+                className="stop"
+                title="Interrupt the running turn"
+                onClick={() => send({ type: "interrupt", projectId })}
+              >
+                <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+            )}
+            <button className="send" title="Send (Enter)" onClick={submit} disabled={!text.trim()}>
+              <Icon d="M12 19V5M5 12l7-7 7 7" />
             </button>
-          )}
-          <button className="send" title="Send (Enter)" onClick={submit} disabled={!text.trim()}>
-            <Icon d="M12 19V5M5 12l7-7 7 7" />
-          </button>
+          </div>
         </div>
       </div>
       <div className="composer-hint">Enter to send · Shift+Enter for a new line</div>
@@ -425,7 +439,7 @@ export function ChatPane() {
             Tell me what we're working on today — I'll open the projects and get them going.
           </div>
           <div className="hero-composer">
-            <Composer projectId={HOME_ID} busy={busy} />
+            <Composer project={project} busy={busy} showControls={false} />
           </div>
           <div className="hero-workspace">
             workspace <code>{workspaceDir}</code>
@@ -462,7 +476,7 @@ export function ChatPane() {
             {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
           </button>
         </div>
-        {isHome ? (
+        {isHome && (
           <button
             className="ghost workspace-btn"
             title="Change the workspace root"
@@ -470,8 +484,6 @@ export function ChatPane() {
           >
             Change workspace
           </button>
-        ) : (
-          <HeaderControls project={project} />
         )}
       </header>
 
@@ -538,7 +550,7 @@ export function ChatPane() {
 
       {trackerOpen && <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />}
 
-      <Composer projectId={activeId} busy={busy} />
+      <Composer project={project} busy={busy} showControls={!isHome} />
     </main>
   );
 }

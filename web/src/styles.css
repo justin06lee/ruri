@@ -12,6 +12,7 @@
   --ink-soft: #464035;
   --ink-faint: #8b8271;
   --edge: #191510;
+  --raised: #f6f1e6;
   --line: #191510;
   --line-soft: rgba(25, 21, 16, 0.28);
   --line-faint: rgba(25, 21, 16, 0.14);
@@ -34,16 +35,17 @@
    every component flips automatically through the tokens */
 :root[data-theme="dark"] {
   --paper: #101010;
-  --paper-dim: #161616;
-  --paper-deep: #1e1e1e;
-  --paper-bright: #0b0b0b;
+  --paper-dim: #181818;
+  --paper-deep: #262626;
+  --paper-bright: #1c1c1c;
   --ink: #ececec;
   --ink-soft: #b4b4b4;
   --ink-faint: #707070;
-  --edge: #3c3c3c;
+  --edge: rgba(236, 236, 236, 0.09);
+  --raised: #1e1e1e;
   --line: #ececec;
-  --line-soft: rgba(236, 236, 236, 0.22);
-  --line-faint: rgba(236, 236, 236, 0.11);
+  --line-soft: rgba(236, 236, 236, 0.13);
+  --line-faint: rgba(236, 236, 236, 0.07);
   --tone: radial-gradient(circle, rgba(236, 236, 236, 0.1) 1px, transparent 1.4px);
   --stripes: repeating-linear-gradient(
     45deg,
@@ -110,7 +112,7 @@ button {
   font: inherit;
   font-weight: 500;
   color: var(--ink);
-  background: var(--paper);
+  background: var(--raised);
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-s);
   padding: 4px 14px;
@@ -302,7 +304,7 @@ textarea::placeholder {
 
 .conn.off {
   background: transparent;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--ink);
   animation: pulse 1.2s ease-in-out infinite;
 }
 
@@ -387,7 +389,7 @@ textarea::placeholder {
 
 .dot.permission {
   background: transparent;
-  border: 2.5px solid var(--edge);
+  border: 2.5px solid var(--ink);
   animation: pulse 1.2s ease-in-out infinite;
 }
 
@@ -828,13 +830,18 @@ input[type="range"]::-webkit-slider-thumb {
   top: calc(100% + 6px);
   right: 0;
   min-width: max(100%, 172px);
-  background: var(--paper);
+  background: var(--raised);
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-m);
   box-shadow: var(--shadow-hard);
   padding: 5px;
   z-index: 30;
   animation: rise 120ms ease-out;
+}
+
+.dropdown-menu.up {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 
 .dropdown-item {
@@ -922,7 +929,7 @@ input[type="range"]::-webkit-slider-thumb {
 .msg.user {
   align-self: flex-end;
   max-width: 76%;
-  background-color: var(--paper);
+  background-color: var(--raised);
   background-image: var(--tone);
   background-size: 5px 5px;
   border: 1.5px solid var(--edge);
@@ -1138,7 +1145,7 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 12px;
   padding: 5px 14px;
   border-radius: 99px;
-  background: var(--paper);
+  background: var(--raised);
   border: 1.5px solid var(--edge);
   color: var(--ink);
   box-shadow: var(--shadow-hard);
@@ -1202,7 +1209,7 @@ input[type="range"]::-webkit-slider-thumb {
   border: 2px solid var(--edge);
   border-radius: var(--radius-m);
   padding: 14px 16px;
-  background: var(--paper);
+  background: var(--raised);
   box-shadow: var(--shadow-hard);
   animation: rise 180ms ease-out;
 }
@@ -1490,20 +1497,32 @@ input[type="range"]::-webkit-slider-thumb {
 
 .composer-box {
   display: flex;
-  align-items: flex-end;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   max-width: 800px;
   margin: 0 auto;
   background: var(--paper-bright);
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-l);
-  padding: 9px 9px 9px 16px;
+  padding: 12px 12px 10px 16px;
   box-shadow: var(--shadow-hard);
   transition: box-shadow 100ms ease-out;
 }
 
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-controls {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
 .composer-box textarea {
-  flex: 1;
+  width: 100%;
   resize: none;
   border: none;
   background: none;
@@ -1519,6 +1538,7 @@ input[type="range"]::-webkit-slider-thumb {
 .composer-actions {
   display: flex;
   gap: 7px;
+  margin-left: auto;
 }
 
 .composer-actions button {

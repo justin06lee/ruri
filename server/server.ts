@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import type { ClientMessage, ModelChoice, PermissionRequest, ServerMessage } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
+import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
 import { isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
 import { SessionManager } from "./sessions.js";
@@ -187,7 +188,32 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       onSessionId: (projectId, sessionId) => archive.setLastSessionId(projectId, sessionId),
     },
     (projectId) => archive.lastSessionId(projectId),
+    (project) =>
+      project.id === HOME_ID ? managerExtras(managerHost, store.workspaceDir()) : undefined,
   );
+
+  // What the Home agent's MCP tools may do to the app: open projects (and
+  // optionally kick their sessions off), and see what's already open.
+  const managerHost: ManagerHost = {
+    openProject: ({ path: projectPath, name, folder, kickoffPrompt }) => {
+      let project = store.findByPath(projectPath);
+      let opened = false;
+      if (!project) {
+        try {
+          project = store.add(name ?? "", projectPath, folder);
+          opened = true;
+        } catch (err) {
+          return `failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+        broadcast({ type: "projects", projects: store.list() });
+      }
+      if (kickoffPrompt) manager.send(project, kickoffPrompt);
+      return `${opened ? "opened" : "already open"}: ${project.name} (${project.path})${
+        kickoffPrompt ? " — session started with the kickoff prompt" : ""
+      }`;
+    },
+    listProjects: () => store.list(),
+  };
 
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
     switch (msg.type) {
@@ -213,7 +239,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "send": {
-        const project = store.get(msg.projectId);
+        const project =
+          msg.projectId === HOME_ID ? homeProject(store.workspaceDir()) : store.get(msg.projectId);
         if (!project) throw new Error("unknown project");
         if (msg.text.trim().length === 0) return;
         manager.send(project, msg.text);
@@ -259,6 +286,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
         break;
       }
+      case "set_workspace": {
+        store.setWorkspaceDir(msg.path);
+        broadcast({ type: "workspace", path: store.workspaceDir() });
+        break;
+      }
       default: {
         const unknown: never = msg;
         throw new Error(`unknown message type: ${JSON.stringify(unknown)}`);
@@ -293,7 +325,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
 
   wss.on("connection", (ws) => {
     clients.add(ws);
-    const projectIds = store.list().map((p) => p.id);
+    const projectIds = [...store.list().map((p) => p.id), HOME_ID];
     const snapshot: ServerMessage = {
       type: "snapshot",
       projects: store.list(),
@@ -304,6 +336,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       summaries: archive.allSummaries(projectIds),
       tracker: tracker.all(projectIds),
       canPickFolder: options.pickFolder !== undefined,
+      workspaceDir: store.workspaceDir(),
     };
     ws.send(JSON.stringify(snapshot));
 

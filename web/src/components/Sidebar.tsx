@@ -1,12 +1,8 @@
-import { useEffect, useState } from "react";
-import type { Project } from "../../../shared/protocol";
+import { useState } from "react";
+import { HOME_ID, type Project } from "../../../shared/protocol";
 import { Player } from "./Player";
 import { send, useRuri } from "../store";
 import { applyTheme, getTheme, type Theme } from "../theme";
-
-function basename(path: string): string {
-  return path.split("/").filter(Boolean).pop() ?? "";
-}
 
 function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(getTheme);
@@ -32,6 +28,26 @@ function ThemeToggle() {
         </svg>
       )}
     </button>
+  );
+}
+
+function HomeRow() {
+  const activeId = useRuri((s) => s.activeId);
+  const status = useRuri((s) => s.statuses[HOME_ID] ?? "idle");
+  const unread = useRuri((s) => s.unread[HOME_ID] ?? false);
+  const setActive = useRuri((s) => s.setActive);
+
+  return (
+    <div
+      className={`project-row home-row ${activeId === HOME_ID ? "active" : ""}`}
+      title="Home — the workspace agent"
+      onClick={() => setActive(HOME_ID)}
+    >
+      <img className="home-face" src="/ruri-face.png" alt="" />
+      <span className="project-name">Home</span>
+      {unread && <span className="unread-pip" title="New activity" />}
+      <span className={`dot ${status}`} title={status} />
+    </div>
   );
 }
 
@@ -68,101 +84,9 @@ function ProjectRow({ project }: { project: Project }) {
   );
 }
 
-function AddProjectForm({
-  path,
-  canPick,
-  onPathChange,
-  onDone,
-}: {
-  path: string;
-  canPick: boolean;
-  onPathChange(path: string): void;
-  onDone(): void;
-}) {
-  const [name, setName] = useState("");
-  const [folder, setFolder] = useState("");
-
-  const submit = () => {
-    if (!path.trim()) return;
-    send({ type: "add_project", name, path, folder: folder || undefined });
-    onDone();
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") submit();
-    if (e.key === "Escape") onDone();
-  };
-
-  return (
-    <div className="add-form">
-      {canPick ? (
-        <div className="picked-path">
-          <span className="picked-path-text" title={path}>
-            {path}
-          </span>
-          <button className="ghost" onClick={() => send({ type: "pick_folder" })}>
-            Change
-          </button>
-        </div>
-      ) : (
-        <input
-          placeholder="/path/to/project"
-          value={path}
-          onChange={(e) => onPathChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          autoFocus
-        />
-      )}
-      <input
-        placeholder={path.trim() ? `Name (default: ${basename(path)})` : "Name (optional)"}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={onKeyDown}
-        autoFocus={canPick}
-      />
-      <input
-        placeholder="Group (optional)"
-        value={folder}
-        onChange={(e) => setFolder(e.target.value)}
-        onKeyDown={onKeyDown}
-      />
-      <div className="add-form-actions">
-        <button className="ghost" onClick={onDone}>
-          Cancel
-        </button>
-        <button className="primary" onClick={submit} disabled={!path.trim()}>
-          Add
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export function Sidebar() {
   const projects = useRuri((s) => s.projects);
   const connected = useRuri((s) => s.connected);
-  const canPickFolder = useRuri((s) => s.canPickFolder);
-  const pickedPath = useRuri((s) => s.pickedPath);
-  const clearPickedPath = useRuri((s) => s.clearPickedPath);
-  const [adding, setAdding] = useState(false);
-  const [path, setPath] = useState("");
-
-  // A native pick finished: prefill the form with the chosen directory.
-  useEffect(() => {
-    if (!pickedPath) return;
-    setPath(pickedPath);
-    setAdding(true);
-    clearPickedPath();
-  }, [pickedPath, clearPickedPath]);
-
-  const startAdd = () => {
-    if (canPickFolder) {
-      send({ type: "pick_folder" });
-    } else {
-      setPath("");
-      setAdding(true);
-    }
-  };
 
   const groups = new Map<string, Project[]>();
   for (const p of projects) {
@@ -190,11 +114,12 @@ export function Sidebar() {
       </div>
 
       <div className="project-list">
-        {projects.length === 0 && !adding && (
+        <HomeRow />
+        {projects.length === 0 && (
           <div className="sidebar-empty">
-            No projects yet.
+            No projects open.
             <br />
-            Add one to get started.
+            Tell Home what to work on.
           </div>
         )}
         {folderNames.map((folder) => (
@@ -206,22 +131,6 @@ export function Sidebar() {
           </div>
         ))}
       </div>
-
-      {adding ? (
-        <AddProjectForm
-          path={path}
-          canPick={canPickFolder}
-          onPathChange={setPath}
-          onDone={() => setAdding(false)}
-        />
-      ) : (
-        <button className="add-button" onClick={startAdd}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          Add project
-        </button>
-      )}
 
       <Player />
     </aside>

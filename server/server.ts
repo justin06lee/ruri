@@ -286,6 +286,14 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
         break;
       }
+      case "toggle_star": {
+        const project = store.get(msg.projectId);
+        if (project) {
+          store.update(msg.projectId, { starred: project.starred ? undefined : true });
+          broadcast({ type: "projects", projects: store.list() });
+        }
+        break;
+      }
       case "set_workspace": {
         store.setWorkspaceDir(msg.path);
         broadcast({ type: "workspace", path: store.workspaceDir() });

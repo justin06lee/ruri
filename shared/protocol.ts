@@ -14,6 +14,8 @@ export interface Project {
   model?: string;
   /** Permission mode for this project's sessions (default "default"). */
   permissionMode?: PermissionMode;
+  /** Bookmarked: shown in the Starred section above the project tree. */
+  starred?: boolean;
 }
 
 export type ProjectStatus = "idle" | "working" | "permission" | "error";
@@ -103,6 +105,7 @@ export type ClientMessage =
       text?: string;
     }
   | { type: "tracker_remove"; projectId: string; itemId: string }
+  | { type: "toggle_star"; projectId: string }
   | { type: "set_workspace"; path: string };
 
 export type ServerMessage =

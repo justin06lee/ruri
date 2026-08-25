@@ -314,6 +314,7 @@ textarea::placeholder {
 .project-list {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 10px;
 }
 
@@ -341,7 +342,7 @@ textarea::placeholder {
   margin-bottom: 7px;
   border: 1.5px solid transparent;
   border-radius: var(--radius-s);
-  background: var(--paper);
+  background: color-mix(in srgb, var(--paper) 42%, var(--paper-dim));
   cursor: pointer;
   user-select: none;
   color: var(--ink-soft);
@@ -352,7 +353,7 @@ textarea::placeholder {
 }
 
 .project-row:hover {
-  background: var(--paper-bright);
+  background: var(--paper);
   color: var(--ink);
 }
 
@@ -405,6 +406,51 @@ textarea::placeholder {
   transform: rotate(45deg);
 }
 
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 10px 4px 6px;
+  margin-bottom: 3px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.folder-row:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--paper) 42%, var(--paper-dim));
+  transform: none;
+}
+
+.folder-row svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.folder-chevron {
+  width: 10px !important;
+  height: 10px !important;
+  transition: transform 120ms ease-out;
+}
+
+.folder-chevron.open {
+  transform: rotate(90deg);
+}
+
+.folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .unread-pip {
   width: 6px;
   height: 6px;
@@ -418,6 +464,37 @@ textarea::placeholder {
   50% {
     opacity: 0.3;
   }
+}
+
+.project-row .star {
+  display: none;
+  border: none;
+  background: none;
+  padding: 2px;
+  color: var(--ink-faint);
+  line-height: 0;
+  box-shadow: none;
+  flex-shrink: 0;
+}
+
+.project-row .star svg {
+  width: 13px;
+  height: 13px;
+}
+
+.project-row:hover .star {
+  display: block;
+}
+
+.project-row .star:hover {
+  color: var(--ink);
+  background: none;
+  transform: none;
+}
+
+.project-row .star.on {
+  display: block;
+  color: var(--ink);
 }
 
 .project-row .remove {

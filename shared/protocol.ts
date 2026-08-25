@@ -51,6 +51,7 @@ export interface PermissionRequest {
 
 export type ClientMessage =
   | { type: "add_project"; name: string; path: string; folder?: string }
+  | { type: "pick_folder" }
   | { type: "remove_project"; projectId: string }
   | { type: "send"; projectId: string; text: string }
   | { type: "interrupt"; projectId: string }
@@ -66,8 +67,11 @@ export type ServerMessage =
       statuses: Record<string, ProjectStatus>;
       permissions: PermissionRequest[];
       models: ModelChoice[];
+      /** Whether the host can show a native folder-picker dialog. */
+      canPickFolder: boolean;
     }
   | { type: "projects"; projects: Project[] }
+  | { type: "folder_picked"; path: string | null }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }
   | { type: "status"; projectId: string; status: ProjectStatus }

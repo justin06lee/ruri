@@ -24,8 +24,13 @@ interface RuriState {
   permissions: PermissionRequest[];
   unread: Record<string, boolean>;
   models: ModelChoice[];
+  /** Whether the host can show a native folder picker (Electron shell). */
+  canPickFolder: boolean;
+  /** Latest native-picker result, consumed by the add-project form. */
+  pickedPath: string | null;
   lastError: string | null;
   setActive(id: string | null): void;
+  clearPickedPath(): void;
   dismissError(): void;
 }
 
@@ -39,9 +44,12 @@ export const useRuri = create<RuriState>((set) => ({
   permissions: [],
   unread: {},
   models: [],
+  canPickFolder: false,
+  pickedPath: null,
   lastError: null,
   setActive: (id) =>
     set((s) => ({ activeId: id, unread: id ? { ...s.unread, [id]: false } : s.unread })),
+  clearPickedPath: () => set({ pickedPath: null }),
   dismissError: () => set({ lastError: null }),
 }));
 
@@ -82,6 +90,7 @@ function apply(msg: ServerMessage): void {
         statuses: msg.statuses,
         permissions: msg.permissions,
         models: msg.models,
+        canPickFolder: msg.canPickFolder,
         drafts: {},
         activeId:
           s.activeId && msg.projects.some((p) => p.id === s.activeId)
@@ -149,6 +158,10 @@ function apply(msg: ServerMessage): void {
     }
     case "models": {
       setState({ models: msg.models });
+      break;
+    }
+    case "folder_picked": {
+      if (msg.path) setState({ pickedPath: msg.path });
       break;
     }
     case "error": {

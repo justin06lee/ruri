@@ -5,6 +5,7 @@ import type {
   Project,
   TranscriptEvent,
 } from "../../../shared/protocol";
+import { Dropdown } from "./Dropdown";
 import { Markdown } from "../markdown";
 import { send, useRuri } from "../store";
 
@@ -74,6 +75,7 @@ function EventView({ event }: { event: TranscriptEvent }) {
         <div className="result-line ok">
           <span className="result-rule" />
           <span className="result-text">
+            <Icon d="M20 6L9 17l-5-5" />
             done
             {event.costUsd !== undefined && ` · $${event.costUsd.toFixed(4)}`}
             {event.durationMs !== undefined && ` · ${(event.durationMs / 1000).toFixed(1)}s`}
@@ -83,7 +85,10 @@ function EventView({ event }: { event: TranscriptEvent }) {
       ) : (
         <div className="result-line err">
           <span className="result-rule" />
-          <span className="result-text">{event.error ?? "error"}</span>
+          <span className="result-text">
+            <Icon d="M18 6L6 18M6 6l12 12" />
+            {event.error ?? "error"}
+          </span>
           <span className="result-rule" />
         </div>
       );
@@ -158,37 +163,23 @@ function HeaderControls({ project }: { project: Project }) {
   const models = useRuri((s) => s.models);
   return (
     <div className="header-controls">
-      <select
-        className="control"
+      <Dropdown
         title="Model for this project's sessions"
         value={project.model ?? ""}
-        onChange={(e) => send({ type: "set_model", projectId: project.id, model: e.target.value })}
-      >
-        <option value="">Default model</option>
-        {models.map((m) => (
-          <option key={m.value} value={m.value}>
-            {m.displayName}
-          </option>
-        ))}
-      </select>
-      <select
-        className="control"
+        options={[
+          { value: "", label: "Default model" },
+          ...models.map((m) => ({ value: m.value, label: m.displayName })),
+        ]}
+        onSelect={(model) => send({ type: "set_model", projectId: project.id, model })}
+      />
+      <Dropdown
         title="Permission mode"
         value={project.permissionMode ?? "default"}
-        onChange={(e) =>
-          send({
-            type: "set_permission_mode",
-            projectId: project.id,
-            mode: e.target.value as PermissionMode,
-          })
+        options={PERMISSION_MODES}
+        onSelect={(mode) =>
+          send({ type: "set_permission_mode", projectId: project.id, mode: mode as PermissionMode })
         }
-      >
-        {PERMISSION_MODES.map((m) => (
-          <option key={m.value} value={m.value}>
-            {m.label}
-          </option>
-        ))}
-      </select>
+      />
     </div>
   );
 }
@@ -326,10 +317,6 @@ export function ChatPane() {
           <div className="chat-path">{project.path}</div>
         </div>
         <HeaderControls project={project} />
-        <div className={`status-pill ${status}`}>
-          <span className="status-dot" />
-          {status}
-        </div>
       </header>
 
       {lastError && (

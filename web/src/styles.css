@@ -186,8 +186,7 @@ textarea::placeholder {
 }
 
 .desktop .sidebar-header button,
-.desktop .chat-header button,
-.desktop .chat-header select {
+.desktop .chat-header button {
   -webkit-app-region: no-drag;
 }
 
@@ -419,6 +418,34 @@ textarea::placeholder {
   font-size: 13px;
 }
 
+.picked-path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--paper-dim);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  padding: 4px 4px 4px 10px;
+}
+
+.picked-path-text {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* keep the tail (project dir) visible when it truncates */
+  text-align: left;
+}
+
+.picked-path .ghost {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+
 .add-form-actions {
   display: flex;
   gap: 8px;
@@ -475,76 +502,109 @@ textarea::placeholder {
   gap: 8px;
 }
 
-.control {
-  font-size: 12px;
-  padding: 3px 8px;
-  color: var(--ink-soft);
-  max-width: 170px;
-  background: var(--paper);
+/* ── dropdown (custom select) ─────────────────────────────────────── */
+
+.dropdown {
+  position: relative;
 }
 
-.control:hover {
-  color: var(--ink);
-  border-color: var(--ink);
-}
-
-/* status pill: working = inverted ink, permission = ringed,
-   error = warning stripes */
-
-.status-pill {
+.dropdown-trigger {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 3px 11px;
-  border-radius: 99px;
-  border: 1.5px solid var(--line-soft);
-  color: var(--ink-faint);
-  text-transform: capitalize;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  color: var(--ink-soft);
+  background: var(--paper);
+  max-width: 190px;
+  box-shadow: none;
+  border-width: 1.5px;
+  border-color: var(--line-soft);
 }
 
-.status-pill .status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ink-faint);
+.dropdown-trigger:hover,
+.dropdown-trigger.open {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: var(--paper);
 }
 
-.status-pill.working {
+.dropdown-trigger.open {
+  box-shadow: var(--shadow-soft);
+}
+
+.dropdown-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-chevron {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  transition: transform 150ms ease-out;
+}
+
+.dropdown-trigger.open .dropdown-chevron {
+  transform: rotate(180deg);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: max(100%, 172px);
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-hard);
+  padding: 5px;
+  z-index: 30;
+  animation: rise 120ms ease-out;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-s);
+  box-shadow: none;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.dropdown-item:hover {
+  background: var(--ink);
   color: var(--paper);
-  background: var(--ink);
-  border-color: var(--ink);
+  transform: none;
 }
 
-.status-pill.working .status-dot {
-  background: var(--paper);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-.status-pill.permission {
+.dropdown-item.selected {
+  font-weight: 700;
   color: var(--ink);
-  border-color: var(--ink);
-  background: var(--paper);
-  box-shadow: inset 0 0 0 1.5px var(--paper), inset 0 0 0 3px var(--ink);
-  padding: 3px 13px;
 }
 
-.status-pill.permission .status-dot {
-  background: var(--ink);
-  animation: pulse 1.2s ease-in-out infinite;
+.dropdown-item.selected:hover {
+  color: var(--paper);
 }
 
-.status-pill.error {
-  color: var(--ink);
-  border-color: var(--ink);
-  background-image: var(--stripes);
+.dropdown-check {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  visibility: hidden;
 }
 
-.status-pill.error .status-dot {
-  background: var(--ink);
-  border-radius: 1px;
-  transform: rotate(45deg);
+.dropdown-item.selected .dropdown-check {
+  visibility: visible;
 }
 
 .error-bar {
@@ -711,19 +771,21 @@ textarea::placeholder {
   background: var(--line-faint);
 }
 
-.result-line.ok .result-text::before {
-  content: "✓ ";
+.result-text {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.result-text .icon {
+  width: 11px;
+  height: 11px;
   color: var(--ink);
-  font-weight: 700;
 }
 
 .result-line.err .result-text {
   color: var(--ink);
   font-weight: 600;
-}
-
-.result-line.err .result-text::before {
-  content: "✗ ";
 }
 
 .result-line.err .result-rule {
@@ -1106,13 +1168,26 @@ button.stop:hover {
 }
 
 .md .code-copy {
-  font-size: 11px;
-  padding: 1px 9px;
-  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 5px;
   background: var(--paper);
   border: 1px solid var(--line-soft);
   color: var(--ink-soft);
   box-shadow: none;
+}
+
+.md .code-copy svg {
+  width: 13px;
+  height: 13px;
+}
+
+.md .code-copy .ic-check {
+  display: none;
 }
 
 .md .code-copy:hover {
@@ -1125,6 +1200,14 @@ button.stop:hover {
   color: var(--paper);
   background: var(--ink);
   border-color: var(--ink);
+}
+
+.md .code-copy.copied .ic-copy {
+  display: none;
+}
+
+.md .code-copy.copied .ic-check {
+  display: block;
 }
 
 .md .codeblock pre {

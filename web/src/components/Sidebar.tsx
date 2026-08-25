@@ -1,35 +1,8 @@
 import { useState } from "react";
 import { HOME_ID, type Project } from "../../../shared/protocol";
 import { Player } from "./Player";
+import { Settings } from "./Settings";
 import { send, useRuri } from "../store";
-import { applyTheme, getTheme, type Theme } from "../theme";
-
-function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(getTheme);
-  const flip = () => {
-    const next: Theme = theme === "dark" ? "light" : "dark";
-    applyTheme(next);
-    setTheme(next);
-  };
-  return (
-    <button
-      className="icon-button"
-      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-      onClick={flip}
-    >
-      {theme === "dark" ? (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-        </svg>
-      ) : (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
-        </svg>
-      )}
-    </button>
-  );
-}
 
 function HomeRow() {
   const activeId = useRuri((s) => s.activeId);
@@ -99,38 +72,7 @@ function ProjectRow({ project, depth = 0 }: { project: Project; depth?: number }
   );
 }
 
-/* ── folder tree ─────────────────────────────────────────────────── */
-
-interface FolderNode {
-  name: string;
-  path: string;
-  folders: Map<string, FolderNode>;
-  projects: Project[];
-}
-
-/** Nest projects by their folder path ("a/b" → a → b). */
-function buildTree(projects: Project[]): FolderNode {
-  const root: FolderNode = { name: "", path: "", folders: new Map(), projects: [] };
-  for (const project of projects) {
-    const parts = (project.folder ?? "").split("/").filter(Boolean);
-    let node = root;
-    for (const part of parts) {
-      let child = node.folders.get(part);
-      if (!child) {
-        child = {
-          name: part,
-          path: node.path ? `${node.path}/${part}` : part,
-          folders: new Map(),
-          projects: [],
-        };
-        node.folders.set(part, child);
-      }
-      node = child;
-    }
-    node.projects.push(project);
-  }
-  return root;
-}
+/* ── folder groups (single level, deliberately non-recursive) ────── */
 
 function loadCollapsed(): Set<string> {
   try {
@@ -141,22 +83,16 @@ function loadCollapsed(): Set<string> {
 }
 
 function FolderRow({
-  node,
-  depth,
+  name,
   collapsed,
   onToggle,
 }: {
-  node: FolderNode;
-  depth: number;
+  name: string;
   collapsed: boolean;
   onToggle(): void;
 }) {
   return (
-    <button
-      className="folder-row"
-      style={depth > 0 ? { marginLeft: depth * 16 } : undefined}
-      onClick={onToggle}
-    >
+    <button className="folder-row" onClick={onToggle}>
       <svg
         className={`folder-chevron ${collapsed ? "" : "open"}`}
         viewBox="0 0 24 24"
@@ -172,45 +108,8 @@ function FolderRow({
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
       </svg>
-      <span className="folder-name">{node.name}</span>
+      <span className="folder-name">{name}</span>
     </button>
-  );
-}
-
-function Tree({
-  node,
-  depth,
-  collapsedSet,
-  onToggle,
-}: {
-  node: FolderNode;
-  depth: number;
-  collapsedSet: Set<string>;
-  onToggle(path: string): void;
-}) {
-  const folders = [...node.folders.values()].sort((a, b) => a.name.localeCompare(b.name));
-  return (
-    <>
-      {folders.map((folder) => {
-        const collapsed = collapsedSet.has(folder.path);
-        return (
-          <div key={folder.path}>
-            <FolderRow
-              node={folder}
-              depth={depth}
-              collapsed={collapsed}
-              onToggle={() => onToggle(folder.path)}
-            />
-            {!collapsed && (
-              <Tree node={folder} depth={depth + 1} collapsedSet={collapsedSet} onToggle={onToggle} />
-            )}
-          </div>
-        );
-      })}
-      {node.projects.map((p) => (
-        <ProjectRow key={p.id} project={p} depth={depth} />
-      ))}
-    </>
   );
 }
 
@@ -218,11 +117,12 @@ export function Sidebar() {
   const projects = useRuri((s) => s.projects);
   const connected = useRuri((s) => s.connected);
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(loadCollapsed);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const toggleFolder = (path: string) => {
+  const toggleFolder = (name: string) => {
     const next = new Set(collapsedSet);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
     setCollapsedSet(next);
     try {
       localStorage.setItem("ruri-collapsed", JSON.stringify([...next]));
@@ -233,7 +133,14 @@ export function Sidebar() {
 
   const starred = projects.filter((p) => p.starred);
   const rest = projects.filter((p) => !p.starred);
-  const tree = buildTree(rest);
+  // One level of grouping only — the whole folder string is the group name.
+  const groups = new Map<string, Project[]>();
+  const ungrouped: Project[] = [];
+  for (const p of rest) {
+    if (p.folder) groups.set(p.folder, [...(groups.get(p.folder) ?? []), p]);
+    else ungrouped.push(p);
+  }
+  const groupNames = [...groups.keys()].sort((a, b) => a.localeCompare(b));
 
   return (
     <aside className="sidebar">
@@ -243,7 +150,12 @@ export function Sidebar() {
           <span className="logo-name">ruri</span>
         </span>
         <span className="sidebar-header-right">
-          <ThemeToggle />
+          <button className="icon-button" title="Settings" onClick={() => setSettingsOpen(true)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
+            </svg>
+          </button>
           <span
             className={`conn ${connected ? "on" : "off"}`}
             title={connected ? "Connected" : "Reconnecting…"}
@@ -269,10 +181,23 @@ export function Sidebar() {
           </>
         )}
         {rest.length > 0 && <div className="group-label">Projects</div>}
-        <Tree node={tree} depth={0} collapsedSet={collapsedSet} onToggle={toggleFolder} />
+        {groupNames.map((name) => {
+          const collapsed = collapsedSet.has(name);
+          return (
+            <div key={name}>
+              <FolderRow name={name} collapsed={collapsed} onToggle={() => toggleFolder(name)} />
+              {!collapsed &&
+                (groups.get(name) ?? []).map((p) => <ProjectRow key={p.id} project={p} depth={1} />)}
+            </div>
+          );
+        })}
+        {ungrouped.map((p) => (
+          <ProjectRow key={p.id} project={p} />
+        ))}
       </div>
 
       <Player />
+      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </aside>
   );
 }

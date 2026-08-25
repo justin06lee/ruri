@@ -13,7 +13,7 @@ import type { SessionExtras } from "./sessions.js";
 export { HOME_ID };
 
 export function homeProject(workspaceDir: string): Project {
-  return { id: HOME_ID, name: "ruri", path: workspaceDir };
+  return { id: HOME_ID, name: "ruri", path: workspaceDir, sessions: [] };
 }
 
 /** What the manager's MCP tools are allowed to do to the app. */

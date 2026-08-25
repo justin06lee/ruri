@@ -443,9 +443,76 @@ textarea::placeholder {
 }
 
 .folder-name {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.folder-actions {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.folder-row:hover .folder-actions {
+  display: flex;
+}
+
+.project-folder {
+  cursor: pointer;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.folder-actions .star,
+.folder-actions .add-session,
+.folder-actions .remove {
+  border: none;
+  background: none;
+  padding: 2px;
+  color: var(--ink-faint);
+  line-height: 0;
+  box-shadow: none;
+}
+
+.folder-actions .star svg,
+.folder-actions .add-session svg,
+.folder-actions .remove svg {
+  width: 12px;
+  height: 12px;
+}
+
+.folder-actions .star:hover,
+.folder-actions .add-session:hover {
+  color: var(--ink);
+  background: none;
+  transform: none;
+}
+
+.folder-actions .remove:hover {
+  color: var(--ink);
+  background: none;
+  transform: none;
+}
+
+.folder-actions .star.on {
+  color: var(--ink);
+}
+
+/* starred folders always show their star */
+.project-folder:has(.star.on) .folder-actions {
+  display: flex;
+}
+
+.project-folder:has(.star.on):not(:hover) .add-session,
+.project-folder:has(.star.on):not(:hover) .remove {
+  display: none;
+}
+
+.folder-children {
+  margin-left: 16px;
 }
 
 .unread-pip {
@@ -905,6 +972,11 @@ input[type="range"]::-webkit-slider-thumb {
 .chat-title {
   font-weight: 700;
   font-size: 14.5px;
+}
+
+.chat-session-title {
+  font-weight: 500;
+  color: var(--ink-soft);
 }
 
 .header-controls {

@@ -102,7 +102,7 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-header">
         <span className="logo">
-          <span className="logo-kanji">瑠璃</span>
+          <img className="logo-face" src="/ruri-face.png" alt="" />
           <span className="logo-name">ruri</span>
         </span>
         <span

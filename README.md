@@ -33,6 +33,7 @@ bun run desktop   # run the desktop app unpackaged (built UI + Electron)
 ## What it does
 
 - **Native desktop app** — `ruri.app` with Dock icon, single-instance, inset title bar; the window serves the UI and WebSocket from one local port picked at launch.
+- **Manga look** — pure black-and-white UI on warm paper (deliberately low blue channel, e-ink vibes): ink borders, screentone shading, hard offset shadows, grayscale syntax highlighting that leans on weight and slant instead of hue. Statuses are shapes, not colors: filled pulse = working, thick ring = waiting on permission, diamond = error/unread.
 - **Projects sidebar** with optional folder grouping, add/remove, status dots (blue pulse = working, amber = waiting on a permission, red = error, ring = unread activity in a background project).
 - **One persistent Claude Code session per project** (streaming input, so you can send follow-ups mid-run to steer). Sessions start lazily on first message, run in the project's directory, and auto-restart with `resume` if they die — context carries over.
 - **Streaming responses** rendered as markdown (GFM, syntax-highlighted code blocks with copy buttons), tool-use chips (`Bash — npm test`), and per-turn result lines with duration and what the turn would have cost at API prices.
@@ -68,7 +69,7 @@ bun run smoke                        # live E2E: 3 real turns incl. Bash + permi
 RURI_SMOKE_SPAWN="dist-app/mac-arm64/ruri.app/Contents/MacOS/ruri" bun run smoke
 ```
 
-For UI work there's a token-free fixture mode — canned transcript, pending permission, folder groups: open `http://localhost:5173/?fixture` in dev, or `RURI_FIXTURE=1` (with `RURI_SCREENSHOT=/path.png`) for the desktop app.
+For UI work there's a token-free fixture mode — canned transcript, pending permission, folder groups: open `http://localhost:5173/?fixture` in dev, or `RURI_FIXTURE=1` (with `RURI_SCREENSHOT=/path.png`) for the desktop app. If the installed ruri.app is running, add `RURI_USER_DATA=/tmp/ruri-dev` so the dev instance doesn't lose the single-instance lock to it.
 
 ## Not yet (iterate next)
 

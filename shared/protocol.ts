@@ -39,6 +39,25 @@ export interface ModelChoice {
   displayName: string;
 }
 
+/** A file attached to a prompt (image or video). */
+export interface Attachment {
+  id: string;
+  kind: "image" | "video";
+  mediaType: string;
+  name: string;
+  /** Marker number as shown in the prompt text ([image #2] → 2). */
+  n: number;
+  /** Streaming URL once the server stored it (/uploads/…). */
+  url?: string;
+}
+
+/** Wire form when sending: base64 payload plus optional region annotations. */
+export interface AttachmentUpload extends Attachment {
+  data: string;
+  /** Region crops of an image, each carrying the user's note. */
+  regions?: Array<{ note: string; data: string; mediaType: string }>;
+}
+
 /** Tick state of a tracker item: open → liked (check) → rejected (x) → open. */
 export type TrackerStatus = "open" | "liked" | "rejected";
 
@@ -72,7 +91,7 @@ export interface Playlist {
 }
 
 export type TranscriptEvent =
-  | { kind: "user"; id: string; text: string; ts: number }
+  | { kind: "user"; id: string; text: string; attachments?: Attachment[]; ts: number }
   | { kind: "assistant"; id: string; text: string; ts: number }
   | { kind: "tool"; id: string; name: string; summary: string; ts: number }
   | {
@@ -103,7 +122,7 @@ export type ClientMessage =
   | { type: "add_project"; name: string; path: string; folder?: string }
   | { type: "pick_folder" }
   | { type: "remove_project"; projectId: string }
-  | { type: "send"; projectId: string; text: string }
+  | { type: "send"; projectId: string; text: string; attachments?: AttachmentUpload[] }
   | { type: "interrupt"; projectId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   | { type: "set_model"; projectId: string; model: string }

@@ -43,7 +43,8 @@ export function installFixture(): void {
       },
       { id: "p3", name: "dotfiles", path: "/Users/you/dotfiles" },
     ],
-    activeId: "p1",
+    activeId: "home",
+    workspaceDir: "/Users/you/Workspace",
     statuses: { p1: "permission", p2: "working", p3: "idle" },
     unread: { p2: true },
     models: [

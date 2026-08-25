@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   AgentSession,
+  type AgentOptions,
   type PermissionDecision,
   type PermissionRequest as YagamiPermissionRequest,
   type SDKMessage,
@@ -25,6 +26,14 @@ export interface SessionEvents {
   onModels(models: ModelChoice[]): void;
   /** The live Claude session id changed (used to resume across restarts). */
   onSessionId(projectId: string, sessionId: string): void;
+}
+
+/** Extra per-project session config (the Home agent's MCP tools live here). */
+export interface SessionExtras {
+  /** Tool names auto-allowed without a permission prompt. */
+  autoAllow?: string[];
+  /** Extra Agent SDK options, merged last. */
+  options?: AgentOptions;
 }
 
 function toolSummary(name: string, input: Record<string, unknown>): string {
@@ -81,6 +90,7 @@ class ProjectSession {
     private readonly project: Project,
     private readonly events: SessionEvents,
     resume?: string,
+    extras?: SessionExtras,
   ) {
     this.lastSessionId = resume;
     this.session = new AgentSession({
@@ -89,9 +99,11 @@ class ProjectSession {
       parity: "terminal",
       ...(project.model ? { model: project.model } : {}),
       onPermission: this.onPermission,
+      ...(extras?.autoAllow ? { permission: { autoAllow: extras.autoAllow } } : {}),
       options: {
         ...(project.permissionMode ? { permissionMode: project.permissionMode } : {}),
         ...(resume ? { resume } : {}),
+        ...extras?.options,
       },
     });
     void this.run();
@@ -282,6 +294,8 @@ export class SessionManager {
     private readonly events: SessionEvents,
     /** Where to find the resumable session id for a project (the archive). */
     private readonly resumeFor: (projectId: string) => string | undefined = () => undefined,
+    /** Per-project session extras (the Home agent's MCP tools and prompt). */
+    private readonly extrasFor: (project: Project) => SessionExtras | undefined = () => undefined,
   ) {}
 
   /** Send a message, starting (or restarting, resuming context) the session as needed. */
@@ -292,6 +306,7 @@ export class SessionManager {
         project,
         this.events,
         session?.lastSessionId ?? this.resumeFor(project.id),
+        this.extrasFor(project),
       );
       this.sessions.set(project.id, session);
     }

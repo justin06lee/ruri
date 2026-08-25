@@ -1,19 +1,20 @@
 import { randomUUID } from "node:crypto";
 import {
-  claudeCodeSession,
-  type CanUseTool,
-  type Query,
+  AgentSession,
+  type PermissionDecision,
+  type PermissionRequest as YagamiPermissionRequest,
   type SDKMessage,
-  type SDKUserMessage,
-} from "yagami";
+} from "@justin06lee/yagami";
 import type {
+  ModelChoice,
+  PermissionMode,
   PermissionRequest,
   Project,
   ProjectStatus,
   TranscriptEvent,
 } from "../shared/protocol.js";
 
-type PermissionResult = Awaited<ReturnType<CanUseTool>>;
+type PermissionUpdate = NonNullable<YagamiPermissionRequest["suggestions"]>[number];
 
 export interface SessionEvents {
   onEvent(projectId: string, event: TranscriptEvent): void;
@@ -21,34 +22,7 @@ export interface SessionEvents {
   onStatus(projectId: string, status: ProjectStatus): void;
   onPermission(request: PermissionRequest): void;
   onPermissionResolved(requestId: string): void;
-}
-
-class AsyncQueue<T> implements AsyncIterable<T> {
-  private buffer: T[] = [];
-  private waiters: Array<(r: IteratorResult<T>) => void> = [];
-  private ended = false;
-
-  push(item: T): void {
-    if (this.ended) return;
-    const waiter = this.waiters.shift();
-    if (waiter) waiter({ value: item, done: false });
-    else this.buffer.push(item);
-  }
-
-  end(): void {
-    this.ended = true;
-    for (const waiter of this.waiters.splice(0)) waiter({ value: undefined as never, done: true });
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<T> {
-    return {
-      next: (): Promise<IteratorResult<T>> => {
-        if (this.buffer.length > 0) return Promise.resolve({ value: this.buffer.shift()!, done: false });
-        if (this.ended) return Promise.resolve({ value: undefined as never, done: true });
-        return new Promise((resolve) => this.waiters.push(resolve));
-      },
-    };
-  }
+  onModels(models: ModelChoice[]): void;
 }
 
 function toolSummary(name: string, input: Record<string, unknown>): string {
@@ -86,16 +60,21 @@ function toolSummary(name: string, input: Record<string, unknown>): string {
   return summary.length > 160 ? `${summary.slice(0, 157)}…` : summary;
 }
 
+interface PendingPermission {
+  resolve(decision: PermissionDecision): void;
+  toolName: string;
+  suggestions?: PermissionUpdate[];
+}
+
 class ProjectSession {
   readonly transcript: TranscriptEvent[];
   status: ProjectStatus = "idle";
   lastSessionId: string | undefined;
   dead = false;
 
-  private readonly queue = new AsyncQueue<SDKUserMessage>();
-  private readonly query: Query;
+  private readonly session: AgentSession;
   private draftId: string | null = null;
-  private readonly pending = new Map<string, (result: PermissionResult) => void>();
+  private readonly pending = new Map<string, PendingPermission>();
 
   constructor(
     private readonly project: Project,
@@ -105,11 +84,14 @@ class ProjectSession {
   ) {
     this.transcript = priorTranscript;
     this.lastSessionId = resume;
-    this.query = claudeCodeSession(this.queue, {
+    this.session = new AgentSession({
+      cwd: project.path,
+      appName: "ruri",
+      parity: "terminal",
+      ...(project.model ? { model: project.model } : {}),
+      onPermission: this.onPermission,
       options: {
-        cwd: project.path,
-        includePartialMessages: true,
-        canUseTool: this.canUseTool,
+        ...(project.permissionMode ? { permissionMode: project.permissionMode } : {}),
         ...(resume ? { resume } : {}),
       },
     });
@@ -119,31 +101,43 @@ class ProjectSession {
   send(text: string): void {
     this.pushEvent({ kind: "user", id: randomUUID(), text, ts: Date.now() });
     this.setStatus("working");
-    this.queue.push({
-      type: "user",
-      message: { role: "user", content: text },
-      parent_tool_use_id: null,
-    });
+    this.session.send(text);
   }
 
   interrupt(): void {
-    void this.query.interrupt().catch(() => {});
+    void this.session.interrupt().catch(() => {});
+  }
+
+  setModel(model: string): void {
+    void this.session.setModel(model).catch(() => {});
+  }
+
+  setPermissionMode(mode: PermissionMode): void {
+    void this.session.setPermissionMode(mode).catch(() => {});
   }
 
   dispose(): void {
     this.dead = true;
-    this.queue.end();
-    void this.query.interrupt().catch(() => {});
+    this.session.close();
     this.rejectAllPending();
   }
 
-  respondPermission(requestId: string, allow: boolean): boolean {
-    const resolve = this.pending.get(requestId);
-    if (!resolve) return false;
+  respondPermission(requestId: string, allow: boolean, always = false): boolean {
+    const pending = this.pending.get(requestId);
+    if (!pending) return false;
     this.pending.delete(requestId);
-    resolve(
+    if (allow && always && !pending.suggestions?.length) {
+      // No CLI-suggested rule to persist — at least stop asking this session.
+      this.session.permissions.allowTool(pending.toolName);
+    }
+    pending.resolve(
       allow
-        ? { behavior: "allow" }
+        ? {
+            behavior: "allow",
+            ...(always && pending.suggestions?.length
+              ? { updatedPermissions: pending.suggestions }
+              : {}),
+          }
         : { behavior: "deny", message: "The user denied this tool use in ruri." },
     );
     this.events.onPermissionResolved(requestId);
@@ -155,19 +149,24 @@ class ProjectSession {
     return [...this.pending.keys()];
   }
 
-  private canUseTool: CanUseTool = (toolName, input, { signal }) =>
-    new Promise<PermissionResult>((resolve) => {
+  private onPermission = (req: YagamiPermissionRequest): Promise<PermissionDecision> =>
+    new Promise<PermissionDecision>((resolve) => {
       const requestId = randomUUID();
-      this.pending.set(requestId, resolve);
+      this.pending.set(requestId, {
+        resolve,
+        toolName: req.toolName,
+        ...(req.suggestions ? { suggestions: req.suggestions } : {}),
+      });
       this.setStatus("permission");
       this.events.onPermission({
         requestId,
         projectId: this.project.id,
-        toolName,
-        input,
+        toolName: req.toolName,
+        input: req.input,
+        ...(req.suggestions ? { suggestions: req.suggestions } : {}),
         ts: Date.now(),
       });
-      signal.addEventListener(
+      req.signal.addEventListener(
         "abort",
         () => {
           if (!this.pending.has(requestId)) return;
@@ -181,7 +180,7 @@ class ProjectSession {
 
   private async run(): Promise<void> {
     try {
-      for await (const msg of this.query) this.handle(msg);
+      for await (const msg of this.session) this.handle(msg);
     } catch (err) {
       this.pushEvent({
         kind: "info",
@@ -199,6 +198,7 @@ class ProjectSession {
   private handle(msg: SDKMessage): void {
     if (msg.type === "system" && msg.subtype === "init") {
       this.lastSessionId = msg.session_id;
+      void this.reportModels();
     } else if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {
       const event = msg.event as { type: string; delta?: { type?: string; text?: string } };
       if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
@@ -247,6 +247,14 @@ class ProjectSession {
     }
   }
 
+  private async reportModels(): Promise<void> {
+    try {
+      this.events.onModels(await this.session.supportedModels());
+    } catch {
+      // model list is a nicety; the picker just stays empty
+    }
+  }
+
   private pushEvent(event: TranscriptEvent): void {
     this.transcript.push(event);
     this.events.onEvent(this.project.id, event);
@@ -259,8 +267,8 @@ class ProjectSession {
   }
 
   private rejectAllPending(): void {
-    for (const [requestId, resolve] of this.pending) {
-      resolve({ behavior: "deny", message: "session ended" });
+    for (const [requestId, pending] of this.pending) {
+      pending.resolve({ behavior: "deny", message: "session ended" });
       this.events.onPermissionResolved(requestId);
     }
     this.pending.clear();
@@ -291,9 +299,20 @@ export class SessionManager {
     this.sessions.get(projectId)?.interrupt();
   }
 
-  respondPermission(requestId: string, allow: boolean): void {
+  /** Apply a model change to the live session, if one is running. An empty
+   *  model means "CLI default", which only takes effect on the next session. */
+  setModel(projectId: string, model: string): void {
+    if (model) this.sessions.get(projectId)?.setModel(model);
+  }
+
+  /** Apply a permission-mode change to the live session, if one is running. */
+  setPermissionMode(projectId: string, mode: PermissionMode): void {
+    this.sessions.get(projectId)?.setPermissionMode(mode);
+  }
+
+  respondPermission(requestId: string, allow: boolean, always = false): void {
     for (const session of this.sessions.values()) {
-      if (session.respondPermission(requestId, allow)) return;
+      if (session.respondPermission(requestId, allow, always)) return;
     }
   }
 

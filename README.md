@@ -11,7 +11,7 @@
 
 ---
 
-ruri is a macOS desktop app (Electron). Sessions run through [yagami](../yagami)'s `claudeCodeSession` (the Claude Agent SDK pointed at your installed, signed-in `claude` CLI with the `claude_code` system prompt preset), so behavior, settings, CLAUDE.md, and login are identical to your terminal — just with one UI over all of them. Sessions stay warm per project: switch projects instantly while agents keep working in the background, with activity dots in the sidebar. Closing the window keeps sessions alive (the Dock icon reopens it); ⌘Q quits and tears them down.
+ruri is a macOS desktop app (Electron). Sessions run through [`@justin06lee/yagami`](https://github.com/justin06lee/yagami)'s `AgentSession` (the Claude Agent SDK pointed at your installed, signed-in `claude` CLI, `claude_code` system prompt preset, terminal parity) — so behavior, settings, CLAUDE.md, skills, hooks, and login are identical to your terminal, just with one UI over all of them. Sessions stay warm per project: switch projects instantly while agents keep working in the background, with activity dots in the sidebar. Closing the window keeps sessions alive (the Dock icon reopens it); ⌘Q quits and tears them down.
 
 ## Run it
 
@@ -20,7 +20,7 @@ make            # build → install ruri.app to /Applications → launch
 make update     # stop the running app, rebuild, reinstall, relaunch
 ```
 
-Requires the sibling `../yagami` repo (linked as a file dependency, pre-built `dist/`) and a signed-in Claude Code CLI. The packaged app bundles the whole backend into one file and ships no node_modules; the Claude engine is your installed `claude` binary, resolved at runtime (with your login shell's PATH, so tools inside sessions behave like your terminal).
+Requires a signed-in Claude Code CLI (yagami comes from npm as `@justin06lee/yagami`). The packaged app bundles the whole backend into one file and ships no node_modules; the Claude engine is your installed `claude` binary, resolved at runtime (with your login shell's PATH, so tools inside sessions behave like your terminal).
 
 For development:
 
@@ -44,13 +44,13 @@ bun run desktop   # run the desktop app unpackaged (built UI + Electron)
 ```
 ruri.app (Electron)
   ├─ main process: startServer() in-process        ─┐
-  │    └─ yagami claudeCodeSession → Agent SDK      ├─ one WebSocket + static UI
+  │    └─ yagami AgentSession → Agent SDK           ├─ one WebSocket + static UI
   │       → your installed claude CLI               │  on one localhost port
   └─ renderer: React + Vite + zustand (dist-web)   ─┘  (shared/protocol.ts)
 ```
 
 - `server/server.ts` — importable `startServer()`: WebSocket hub + static file serving for the built UI; snapshot on connect, broadcasts events/deltas/statuses/permissions, handles client commands.
-- `server/sessions.ts` — per-project session lifecycle: async input queue, SDK message → transcript event translation, permission callback plumbing, resume-on-restart.
+- `server/sessions.ts` — per-project session lifecycle on yagami's `AgentSession` (warm process, terminal parity, `appName: "ruri"`): SDK message → transcript event translation, permission plumbing (with the CLI's suggested "always allow" rules), model/permission-mode switching, resume-on-restart.
 - `server/index.ts` — standalone entry for dev/smoke (same server, no Electron).
 - `desktop/main.ts` — Electron main: login-shell PATH recovery, window/menu/lifecycle; esbuild bundles it together with the server, yagami, and the Agent SDK into a single file (`scripts/build-main.ts`).
 - `web/src/store.ts` — zustand store fed by the socket; drafts (streaming text) are kept separately from finalized transcript events.

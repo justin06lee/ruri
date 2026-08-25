@@ -6,6 +6,15 @@ import {
   type Project,
   type TranscriptEvent,
 } from "../../../shared/protocol";
+import {
+  AttachmentStrip,
+  cropRegion,
+  fileToBase64,
+  Viewer,
+  TranscriptAttachments,
+  type ComposerAttachment,
+  type Region,
+} from "./Attachments";
 import { Dropdown } from "./Dropdown";
 import { Tracker } from "./Tracker";
 import { Markdown } from "../markdown";
@@ -56,6 +65,9 @@ function EventView({ event }: { event: TranscriptEvent }) {
       return (
         <div className="msg user">
           <Markdown text={event.text} />
+          {event.attachments && event.attachments.length > 0 && (
+            <TranscriptAttachments attachments={event.attachments} />
+          )}
         </div>
       );
     case "assistant":
@@ -204,9 +216,55 @@ function Composer({
 }) {
   const projectId = channelId;
   const [text, setText] = useState("");
+  const [atts, setAtts] = useState<ComposerAttachment[]>([]);
+  const [viewing, setViewing] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const counter = useRef({ image: 0, video: 0 });
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const composerSeed = useRuri((s) => s.composerSeed);
   const clearComposerSeed = useRuri((s) => s.clearComposerSeed);
+
+  const addFiles = (files: FileList | File[]) => {
+    const added: ComposerAttachment[] = [];
+    for (const file of files) {
+      const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : null;
+      if (!kind) continue;
+      if (file.size > 25 * 1024 * 1024) {
+        alert(`${file.name} is over 25MB — too big to attach.`);
+        continue;
+      }
+      const n = ++counter.current[kind];
+      added.push({
+        id: crypto.randomUUID(),
+        file,
+        kind,
+        mediaType: file.type,
+        name: file.name,
+        n,
+        objectUrl: URL.createObjectURL(file),
+        regions: [],
+      });
+    }
+    if (added.length === 0) return;
+    setAtts((prev) => [...prev, ...added]);
+    setText((prev) => {
+      const markers = added.map((a) => `[${a.kind} #${a.n}]`).join(" ");
+      return prev.trim() ? `${prev} ${markers}` : markers;
+    });
+    requestAnimationFrame(autosize);
+  };
+
+  const removeAtt = (id: string) => {
+    setAtts((prev) => {
+      const target = prev.find((a) => a.id === id);
+      if (target) URL.revokeObjectURL(target.objectUrl);
+      return prev.filter((a) => a.id !== id);
+    });
+  };
+
+  const setRegions = (id: string, regions: Region[]) => {
+    setAtts((prev) => prev.map((a) => (a.id === id ? { ...a, regions } : a)));
+  };
 
   const autosize = () => {
     const area = areaRef.current;
@@ -226,10 +284,38 @@ function Composer({
     });
   }, [composerSeed, clearComposerSeed]);
 
-  const submit = () => {
+  const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    send({ type: "send", projectId, text: trimmed });
+    if (!trimmed && atts.length === 0) return;
+    const uploads = await Promise.all(
+      atts.map(async (att) => ({
+        id: att.id,
+        kind: att.kind,
+        mediaType: att.mediaType,
+        name: att.name,
+        n: att.n,
+        data: await fileToBase64(att.file),
+        ...(att.regions.length
+          ? {
+              regions: await Promise.all(
+                att.regions.map(async (region) => ({
+                  note: region.note,
+                  data: await cropRegion(att.objectUrl, region),
+                  mediaType: "image/png",
+                })),
+              ),
+            }
+          : {}),
+      })),
+    );
+    send({
+      type: "send",
+      projectId,
+      text: trimmed,
+      ...(uploads.length ? { attachments: uploads } : {}),
+    });
+    for (const att of atts) URL.revokeObjectURL(att.objectUrl);
+    setAtts([]);
     setText("");
     requestAnimationFrame(autosize);
   };
@@ -237,9 +323,24 @@ function Composer({
   // Reset height when switching projects clears the draft.
   useEffect(autosize, [projectId]);
 
+  const viewingAtt = atts.find((a) => a.id === viewing);
+
   return (
     <div className="composer">
-      <div className="composer-box">
+      <div
+        className={`composer-box ${dragOver ? "drag-over" : ""}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          addFiles(e.dataTransfer.files);
+        }}
+      >
+        <AttachmentStrip attachments={atts} onRemove={removeAtt} onView={(a) => setViewing(a.id)} />
         <textarea
           ref={areaRef}
           rows={1}
@@ -252,7 +353,14 @@ function Composer({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              submit();
+              void submit();
+            }
+          }}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files];
+            if (files.length > 0) {
+              e.preventDefault();
+              addFiles(files);
             }
           }}
         />
@@ -270,13 +378,30 @@ function Composer({
                 </svg>
               </button>
             )}
-            <button className="send" title="Send (Enter)" onClick={submit} disabled={!text.trim()}>
+            <button
+              className="send"
+              title="Send (Enter)"
+              onClick={() => void submit()}
+              disabled={!text.trim() && atts.length === 0}
+            >
               <Icon d="M12 19V5M5 12l7-7 7 7" />
             </button>
           </div>
         </div>
       </div>
-      <div className="composer-hint">Enter to send · Shift+Enter for a new line</div>
+      <div className="composer-hint">Enter to send · Shift+Enter for a new line · drop images or videos to attach</div>
+      {viewingAtt && (
+        <Viewer
+          target={{
+            kind: viewingAtt.kind,
+            src: viewingAtt.objectUrl,
+            label: `${viewingAtt.kind} #${viewingAtt.n} — ${viewingAtt.name}`,
+            attachment: viewingAtt,
+          }}
+          onClose={() => setViewing(null)}
+          onRegions={setRegions}
+        />
+      )}
     </div>
   );
 }

@@ -11,11 +11,14 @@ export function Dropdown({
   options,
   onSelect,
   title,
+  up = false,
 }: {
   value: string;
   options: DropdownOption[];
   onSelect(value: string): void;
   title?: string;
+  /** Open the menu above the trigger (for triggers near the bottom edge). */
+  up?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -60,7 +63,7 @@ export function Dropdown({
         </svg>
       </button>
       {open && (
-        <div className="dropdown-menu" role="listbox">
+        <div className={`dropdown-menu ${up ? "up" : ""}`} role="listbox">
           {options.map((option) => (
             <button
               key={option.value}

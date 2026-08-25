@@ -33,15 +33,24 @@ export function installFixture(): void {
   useRuri.setState({
     connected: true,
     projects: [
-      { id: "p1", name: "ruri", path: "/Users/you/Workspace/ruri", folder: "github.com/justin06lee", starred: true },
       {
-        id: "p2",
+        id: "prj1",
+        name: "ruri",
+        path: "/Users/you/Workspace/ruri",
+        starred: true,
+        sessions: [
+          { id: "p1", title: "Frontend UI" },
+          { id: "p1b", title: "Backend API" },
+        ],
+      },
+      {
+        id: "prj2",
         name: "yagami",
         path: "/Users/you/Workspace/yagami",
-        folder: "github.com/justin06lee",
         model: "claude-sonnet-5",
+        sessions: [{ id: "p2", title: "Session Layer" }],
       },
-      { id: "p3", name: "dotfiles", path: "/Users/you/dotfiles" },
+      { id: "prj3", name: "dotfiles", path: "/Users/you/dotfiles", sessions: [{ id: "p3" }] },
     ],
     activeId: "home",
     workspaceDir: "/Users/you/Workspace",

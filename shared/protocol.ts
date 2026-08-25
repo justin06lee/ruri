@@ -3,6 +3,17 @@
 /** The pseudo-project id of the Home view — the workspace-manager agent. */
 export const HOME_ID = "home";
 
+/**
+ * One live Claude Code session inside a project. Transcripts, statuses,
+ * drafts, summaries, and tracker items are keyed by the session id (the
+ * protocol's `projectId` fields carry session ids for project sessions).
+ */
+export interface SessionInfo {
+  id: string;
+  /** Role title, auto-named by the small model ("Frontend UI", …). */
+  title?: string;
+}
+
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 
 export interface Project {
@@ -16,6 +27,8 @@ export interface Project {
   permissionMode?: PermissionMode;
   /** Bookmarked: shown in the Starred section above the project tree. */
   starred?: boolean;
+  /** The project's sessions (at least one). */
+  sessions: SessionInfo[];
 }
 
 export type ProjectStatus = "idle" | "working" | "permission" | "error";
@@ -106,6 +119,8 @@ export type ClientMessage =
     }
   | { type: "tracker_remove"; projectId: string; itemId: string }
   | { type: "toggle_star"; projectId: string }
+  | { type: "new_session"; projectId: string }
+  | { type: "remove_session"; sessionId: string }
   | { type: "set_workspace"; path: string };
 
 export type ServerMessage =

@@ -33,7 +33,7 @@ export function installFixture(): void {
   useRuri.setState({
     connected: true,
     projects: [
-      { id: "p1", name: "ruri", path: "/Users/you/Workspace/ruri", folder: "github.com/justin06lee" },
+      { id: "p1", name: "ruri", path: "/Users/you/Workspace/ruri", folder: "github.com/justin06lee", starred: true },
       {
         id: "p2",
         name: "yagami",

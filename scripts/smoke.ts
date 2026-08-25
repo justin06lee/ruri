@@ -86,7 +86,7 @@ ws.on("message", (raw) => {
     }
     case "projects": {
       if (!projectId && msg.projects.length > 0) {
-        projectId = msg.projects[msg.projects.length - 1]!.id;
+        projectId = msg.projects[msg.projects.length - 1]!.sessions[0]!.id;
         console.log(`[client] project added (${projectId}); sending turn 1`);
         send({ type: "send", projectId, text: "Reply with exactly: pong. Do not use any tools." });
       }

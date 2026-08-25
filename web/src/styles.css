@@ -12,6 +12,7 @@
   --ink-soft: #464035;
   --ink-faint: #8b8271;
   --edge: #191510;
+  --hairline: #191510;
   --raised: #f6f1e6;
   --line: #191510;
   --line-soft: rgba(25, 21, 16, 0.28);
@@ -41,7 +42,8 @@
   --ink: #ececec;
   --ink-soft: #b4b4b4;
   --ink-faint: #707070;
-  --edge: rgba(236, 236, 236, 0.09);
+  --edge: transparent;
+  --hairline: rgba(236, 236, 236, 0.08);
   --raised: #1e1e1e;
   --line: #ececec;
   --line-soft: rgba(236, 236, 236, 0.13);
@@ -72,7 +74,8 @@ body {
   background: var(--paper);
   color: var(--ink);
   font:
-    14px/1.6 -apple-system,
+    14px/1.6 "Space Grotesk Variable",
+    -apple-system,
     "SF Pro Text",
     "Segoe UI",
     sans-serif;
@@ -206,8 +209,20 @@ textarea::placeholder {
 
 /* desktop shell (Electron, hiddenInset title bar) */
 
+.titlebar-spacer {
+  display: none;
+}
+
+.desktop .titlebar-spacer {
+  /* the macOS traffic lights live here; the logo row sits below, hard left */
+  display: block;
+  height: 30px;
+  background-image: var(--tone);
+  background-size: 6px 6px;
+  -webkit-app-region: drag;
+}
+
 .desktop .sidebar-header {
-  padding-left: 84px; /* clear the macOS traffic lights */
   -webkit-app-region: drag;
 }
 
@@ -235,8 +250,8 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px 11px;
-  border-bottom: 1.5px solid var(--edge);
+  padding: 10px 12px;
+  border-bottom: 1.5px solid var(--hairline);
   background-image: var(--tone);
   background-size: 6px 6px;
 }
@@ -443,7 +458,7 @@ textarea::placeholder {
 /* ── music player ─────────────────────────────────────────────────── */
 
 .player {
-  border-top: 1.5px solid var(--edge);
+  border-top: 1.5px solid var(--hairline);
 }
 
 .player-toggle {
@@ -492,6 +507,7 @@ textarea::placeholder {
   width: 100%;
   max-width: none;
   justify-content: space-between;
+  background: var(--paper);
 }
 
 .player-panel .dropdown-menu {
@@ -748,7 +764,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 16px;
   padding: 10px 20px;
-  border-bottom: 1.5px solid var(--edge);
+  border-bottom: 1.5px solid var(--hairline);
   background: var(--paper);
 }
 
@@ -790,21 +806,21 @@ input[type="range"]::-webkit-slider-thumb {
   font-weight: 500;
   padding: 4px 10px;
   color: var(--ink-soft);
-  background: var(--paper);
+  background: transparent;
+  border-color: transparent;
   max-width: 190px;
   box-shadow: none;
-  border-width: 1.5px;
-  border-color: var(--line-soft);
 }
 
 .dropdown-trigger:hover,
 .dropdown-trigger.open {
   color: var(--ink);
-  border-color: var(--ink);
-  background: var(--paper);
+  border-color: transparent;
+  background: var(--paper-dim);
 }
 
 .dropdown-trigger.open {
+  background: var(--raised);
   box-shadow: var(--shadow-soft);
 }
 
@@ -1193,6 +1209,7 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 13px;
 }
 
+.hero-hint code,
 .empty-hint code {
   font-family: var(--mono);
   font-size: 12px;
@@ -1302,7 +1319,7 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   flex-direction: column;
   background: var(--paper-dim);
-  border-left: 1.5px solid var(--edge);
+  border-left: 1.5px solid var(--hairline);
   box-shadow: -4px 0 0 rgba(25, 21, 16, 0.08);
   z-index: 5;
   animation: slide-in 180ms ease-out;
@@ -1324,7 +1341,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 8px;
   padding: 12px 14px;
-  border-bottom: 1.5px solid var(--edge);
+  border-bottom: 1.5px solid var(--hairline);
   background-image: var(--tone);
   background-size: 6px 6px;
 }
@@ -1618,7 +1635,7 @@ button.stop:hover {
 
 .md h1 {
   font-size: 1.3em;
-  border-bottom: 1.5px solid var(--edge);
+  border-bottom: 1.5px solid var(--hairline);
   padding-bottom: 0.2em;
 }
 
@@ -1662,14 +1679,14 @@ button.stop:hover {
 }
 
 .md blockquote {
-  border-left: 3px solid var(--edge);
+  border-left: 3px solid var(--hairline);
   padding: 2px 0 2px 14px;
   color: var(--ink-soft);
 }
 
 .md hr {
   border: none;
-  border-top: 1.5px solid var(--edge);
+  border-top: 1.5px solid var(--hairline);
   margin: 1.2em 0;
 }
 
@@ -1682,7 +1699,7 @@ button.stop:hover {
 
 .md th,
 .md td {
-  border: 1px solid var(--edge);
+  border: 1px solid var(--hairline);
   padding: 5px 11px;
   text-align: left;
 }
@@ -1719,7 +1736,7 @@ button.stop:hover {
   background-color: var(--paper-dim);
   background-image: var(--tone);
   background-size: 5px 5px;
-  border-bottom: 1.5px solid var(--edge);
+  border-bottom: 1.5px solid var(--hairline);
 }
 
 .md .code-lang {

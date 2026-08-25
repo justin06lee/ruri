@@ -11,10 +11,12 @@ function ProjectRow({ project }: { project: Project }) {
   return (
     <div
       className={`project-row ${activeId === project.id ? "active" : ""}`}
+      title={project.path}
       onClick={() => setActive(project.id)}
     >
       <span className={`dot ${status} ${unread ? "unread" : ""}`} title={status} />
       <span className="project-name">{project.name}</span>
+      {unread && <span className="unread-pip" title="New activity" />}
       <button
         className="remove"
         title="Remove project"
@@ -25,7 +27,9 @@ function ProjectRow({ project }: { project: Project }) {
           }
         }}
       >
-        ×
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
       </button>
     </div>
   );
@@ -42,14 +46,39 @@ function AddProjectForm({ onDone }: { onDone: () => void }) {
     onDone();
   };
 
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") submit();
+    if (e.key === "Escape") onDone();
+  };
+
   return (
     <div className="add-form">
-      <input placeholder="/path/to/project" value={path} onChange={(e) => setPath(e.target.value)} autoFocus />
-      <input placeholder="name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
-      <input placeholder="folder (optional)" value={folder} onChange={(e) => setFolder(e.target.value)} />
+      <input
+        placeholder="/path/to/project"
+        value={path}
+        onChange={(e) => setPath(e.target.value)}
+        onKeyDown={onKeyDown}
+        autoFocus
+      />
+      <input
+        placeholder="Name (optional)"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={onKeyDown}
+      />
+      <input
+        placeholder="Folder (optional)"
+        value={folder}
+        onChange={(e) => setFolder(e.target.value)}
+        onKeyDown={onKeyDown}
+      />
       <div className="add-form-actions">
-        <button className="primary" onClick={submit}>Add</button>
-        <button onClick={onDone}>Cancel</button>
+        <button className="ghost" onClick={onDone}>
+          Cancel
+        </button>
+        <button className="primary" onClick={submit} disabled={!path.trim()}>
+          Add
+        </button>
       </div>
     </div>
   );
@@ -65,18 +94,30 @@ export function Sidebar() {
     const key = p.folder ?? "";
     groups.set(key, [...(groups.get(key) ?? []), p]);
   }
-  const folderNames = [...groups.keys()].sort((a, b) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
+  const folderNames = [...groups.keys()].sort((a, b) =>
+    a === "" ? -1 : b === "" ? 1 : a.localeCompare(b),
+  );
 
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <span className="logo">瑠璃 ruri</span>
-        <span className={`conn ${connected ? "on" : "off"}`} title={connected ? "connected" : "reconnecting…"} />
+        <span className="logo">
+          <span className="logo-kanji">瑠璃</span>
+          <span className="logo-name">ruri</span>
+        </span>
+        <span
+          className={`conn ${connected ? "on" : "off"}`}
+          title={connected ? "Connected" : "Reconnecting…"}
+        />
       </div>
 
       <div className="project-list">
         {projects.length === 0 && !adding && (
-          <div className="hint">No projects yet.<br />Add one to get started.</div>
+          <div className="sidebar-empty">
+            No projects yet.
+            <br />
+            Add one to get started.
+          </div>
         )}
         {folderNames.map((folder) => (
           <div key={folder || "(root)"} className="group">
@@ -91,7 +132,12 @@ export function Sidebar() {
       {adding ? (
         <AddProjectForm onDone={() => setAdding(false)} />
       ) : (
-        <button className="add-button" onClick={() => setAdding(true)}>+ Add project</button>
+        <button className="add-button" onClick={() => setAdding(true)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          Add project
+        </button>
       )}
     </aside>
   );

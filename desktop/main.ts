@@ -53,7 +53,7 @@ function createWindow(port: number): BrowserWindow {
     void shell.openExternal(url);
     return { action: "deny" };
   });
-  void win.loadURL(`http://127.0.0.1:${port}/`);
+  void win.loadURL(`http://127.0.0.1:${port}/${process.env["RURI_FIXTURE"] ? "?fixture" : ""}`);
 
   const screenshot = process.env["RURI_SCREENSHOT"];
   if (screenshot) {

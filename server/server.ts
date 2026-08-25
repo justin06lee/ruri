@@ -8,7 +8,7 @@ import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager
 import { isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
 import { SessionManager } from "./sessions.js";
-import { extractTrackerItems, smallModelEnabled, summarizeTurn, TurnTracker } from "./smallmodel.js";
+import { extractTrackerItems, sessionRoleTitle, smallModelEnabled, summarizeTurn, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
 
 export interface StartServerOptions {
@@ -142,11 +142,30 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     }
   }
 
+  // A "channel" id is HOME_ID or a session id; sessions run with their
+  // parent project's cwd/model/permission mode but keep their own state.
+  function channelProject(channelId: string) {
+    if (channelId === HOME_ID) return homeProject(store.workspaceDir());
+    const found = store.findSession(channelId);
+    if (!found) return undefined;
+    return { ...found.project, id: channelId };
+  }
+
   // Every finished turn goes to the small model in the background, twice:
   // a recall note (instant compaction) and a tracker extraction (new features
   // the user should test by hand). Failures are silent — both are niceties.
   const turns = new TurnTracker((projectId, turn) => {
     if (!smallModelEnabled()) return;
+    const found = store.findSession(projectId);
+    if (found && !found.session.title) {
+      sessionRoleTitle(turn)
+        .then((title) => {
+          if (!title) return;
+          store.setSessionTitle(projectId, title);
+          broadcast({ type: "projects", projects: store.list() });
+        })
+        .catch(() => {});
+    }
     summarizeTurn(turn)
       .then((summary) => {
         if (!summary) return;
@@ -207,7 +226,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         }
         broadcast({ type: "projects", projects: store.list() });
       }
-      if (kickoffPrompt) manager.send(project, kickoffPrompt);
+      const sessionId = project.sessions[0]?.id;
+      if (kickoffPrompt && sessionId) manager.send({ ...project, id: sessionId }, kickoffPrompt);
       return `${opened ? "opened" : "already open"}: ${project.name} (${project.path})${
         kickoffPrompt ? " — session started with the kickoff prompt" : ""
       }`;
@@ -231,19 +251,33 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "remove_project": {
-        manager.dispose(msg.projectId);
+        for (const sessionId of store.get(msg.projectId)?.sessions.map((s) => s.id) ?? []) {
+          manager.dispose(sessionId);
+          archive.remove(sessionId);
+          tracker.removeProject(sessionId);
+        }
         store.remove(msg.projectId);
-        archive.remove(msg.projectId);
-        tracker.removeProject(msg.projectId);
         broadcast({ type: "projects", projects: store.list() });
         break;
       }
       case "send": {
-        const project =
-          msg.projectId === HOME_ID ? homeProject(store.workspaceDir()) : store.get(msg.projectId);
-        if (!project) throw new Error("unknown project");
+        const project = channelProject(msg.projectId);
+        if (!project) throw new Error("unknown session");
         if (msg.text.trim().length === 0) return;
         manager.send(project, msg.text);
+        break;
+      }
+      case "new_session": {
+        store.newSession(msg.projectId);
+        broadcast({ type: "projects", projects: store.list() });
+        break;
+      }
+      case "remove_session": {
+        manager.dispose(msg.sessionId);
+        archive.remove(msg.sessionId);
+        tracker.removeProject(msg.sessionId);
+        store.removeSession(msg.sessionId);
+        broadcast({ type: "projects", projects: store.list() });
         break;
       }
       case "interrupt": {
@@ -333,7 +367,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
 
   wss.on("connection", (ws) => {
     clients.add(ws);
-    const projectIds = [...store.list().map((p) => p.id), HOME_ID];
+    const projectIds = [...store.sessionIds(), HOME_ID];
     const snapshot: ServerMessage = {
       type: "snapshot",
       projects: store.list(),

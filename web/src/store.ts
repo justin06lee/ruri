@@ -117,7 +117,9 @@ function apply(msg: ServerMessage): void {
         workspaceDir: msg.workspaceDir,
         drafts: {},
         activeId:
-          s.activeId && (s.activeId === HOME_ID || msg.projects.some((p) => p.id === s.activeId))
+          s.activeId &&
+          (s.activeId === HOME_ID ||
+            msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
             ? s.activeId
             : HOME_ID,
       }));
@@ -127,7 +129,9 @@ function apply(msg: ServerMessage): void {
       setState((s) => ({
         projects: msg.projects,
         activeId:
-          s.activeId && (s.activeId === HOME_ID || msg.projects.some((p) => p.id === s.activeId))
+          s.activeId &&
+          (s.activeId === HOME_ID ||
+            msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
             ? s.activeId
             : HOME_ID,
       }));

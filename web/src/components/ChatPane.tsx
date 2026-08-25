@@ -191,15 +191,18 @@ function SessionControls({ project }: { project: Project }) {
 /* ── composer ────────────────────────────────────────────────────── */
 
 function Composer({
+  channelId,
   project,
   busy,
   showControls = true,
 }: {
+  /** The session (or Home) this composer sends to. */
+  channelId: string;
   project: Project;
   busy: boolean;
   showControls?: boolean;
 }) {
-  const projectId = project.id;
+  const projectId = channelId;
   const [text, setText] = useState("");
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const composerSeed = useRuri((s) => s.composerSeed);
@@ -325,11 +328,14 @@ const NO_SUMMARIES: Record<string, string> = {};
 
 export function ChatPane() {
   const activeId = useRuri((s) => s.activeId);
-  const storeProject = useRuri((s) => s.projects.find((p) => p.id === s.activeId));
+  const storeProject = useRuri((s) =>
+    s.activeId ? s.projects.find((p) => p.sessions.some((x) => x.id === s.activeId)) : undefined,
+  );
   const workspaceDir = useRuri((s) => s.workspaceDir);
   const isHome = activeId === HOME_ID;
+  const session = storeProject?.sessions.find((x) => x.id === activeId);
   const project: Project | undefined = isHome
-    ? { id: HOME_ID, name: "ruri", path: workspaceDir }
+    ? { id: HOME_ID, name: "ruri", path: workspaceDir, sessions: [] }
     : storeProject;
   const transcript = useRuri((s) =>
     s.activeId ? (s.transcripts[s.activeId] ?? NO_EVENTS) : NO_EVENTS,
@@ -434,9 +440,9 @@ export function ChatPane() {
         )}
         <div className="hero">
           <img className="hero-face" src="/ruri-face.png" alt="" />
-          <div className="hero-title">{isHome ? "sup." : project.name}</div>
+          <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
           <div className="hero-composer">
-            <Composer project={project} busy={busy} showControls={!isHome} />
+            <Composer channelId={activeId} project={project} busy={busy} showControls={!isHome} />
           </div>
 
         </div>
@@ -448,7 +454,10 @@ export function ChatPane() {
     <main className="chat">
       <header className="chat-header">
         <div className="chat-id">
-          <div className="chat-title">{project.name}</div>
+          <div className="chat-title">
+            {project.name}
+            {session?.title && <span className="chat-session-title"> · {session.title}</span>}
+          </div>
         </div>
         <div className="header-controls">
           <button
@@ -523,7 +532,7 @@ export function ChatPane() {
 
       {trackerOpen && <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />}
 
-      <Composer project={project} busy={busy} showControls={!isHome} />
+      <Composer channelId={activeId} project={project} busy={busy} showControls={!isHome} />
     </main>
   );
 }

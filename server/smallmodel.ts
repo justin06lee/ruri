@@ -85,6 +85,20 @@ export async function extractTrackerItems(turn: Turn, existing: string[]): Promi
   }
 }
 
+const ROLE_SYSTEM = `You name coding-agent sessions by the ROLE they serve inside a project.
+Given the session's first exchange, output a 2-4 word Title Case role name — what this session is FOR, not what was literally asked.
+Examples: Frontend UI, Backend API, Test Infra, Release Prep, Bug Triage, Docs.
+Output only the title — no quotes, no punctuation.`;
+
+/** Name a session's role from its first exchange (sidebar titles). */
+export async function sessionRoleTitle(turn: Turn): Promise<string> {
+  const prompt =
+    `FIRST PROMPT:\n${turn.user.slice(0, 3000)}\n\n` +
+    `RESPONSE (truncated):\n${turn.assistant.slice(0, 2000)}`;
+  const title = (await complete(ROLE_SYSTEM, prompt, 40)).replace(/["'.]/g, "").trim();
+  return title.length > 0 && title.length <= 40 ? title : "";
+}
+
 /**
  * Assembles turns from the transcript event stream: a turn opens at a user
  * event and closes at its result event, collecting assistant text and tool

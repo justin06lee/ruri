@@ -7,6 +7,7 @@
   --paper: #f6f1e6;
   --paper-dim: #efe9da;
   --paper-deep: #e7e0cf;
+  --paper-bright: #fdfaf3;
   --ink: #191510;
   --ink-soft: #464035;
   --ink-faint: #8b8271;
@@ -25,6 +26,31 @@
   --radius-l: 13px;
   --shadow-hard: 3px 3px 0 var(--ink);
   --shadow-soft: 2px 2px 0 rgba(25, 21, 16, 0.22);
+  color-scheme: light;
+}
+
+/* dark mode: the same manga page at night — ink and paper swap roles,
+   every component flips automatically through the tokens */
+:root[data-theme="dark"] {
+  --paper: #14110c;
+  --paper-dim: #1a1712;
+  --paper-deep: #211d17;
+  --paper-bright: #0f0d0a;
+  --ink: #e9e2d2;
+  --ink-soft: #b3aa97;
+  --ink-faint: #776f60;
+  --line: #e9e2d2;
+  --line-soft: rgba(233, 226, 210, 0.3);
+  --line-faint: rgba(233, 226, 210, 0.15);
+  --tone: radial-gradient(circle, rgba(233, 226, 210, 0.13) 1px, transparent 1.4px);
+  --stripes: repeating-linear-gradient(
+    45deg,
+    transparent 0 5px,
+    rgba(233, 226, 210, 0.1) 5px 10px
+  );
+  --shadow-hard: 3px 3px 0 rgba(233, 226, 210, 0.85);
+  --shadow-soft: 2px 2px 0 rgba(233, 226, 210, 0.2);
+  color-scheme: dark;
 }
 
 * {
@@ -139,7 +165,7 @@ textarea,
 select {
   font: inherit;
   color: var(--ink);
-  background: #fdfaf3;
+  background: var(--paper-bright);
   border: 1.5px solid var(--line-soft);
   border-radius: var(--radius-s);
   padding: 6px 10px;
@@ -229,6 +255,36 @@ textarea::placeholder {
 .logo-name {
   font-weight: 700;
   letter-spacing: 0.03em;
+}
+
+.sidebar-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-faint);
+  border-radius: var(--radius-s);
+}
+
+.icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.icon-button:hover {
+  color: var(--ink);
+  background: var(--paper);
 }
 
 .conn {
@@ -949,7 +1005,7 @@ textarea::placeholder {
   gap: 10px;
   max-width: 800px;
   margin: 0 auto;
-  background: #fdfaf3;
+  background: var(--paper-bright);
   border: 1.5px solid var(--ink);
   border-radius: var(--radius-l);
   padding: 9px 9px 9px 16px;
@@ -1141,7 +1197,7 @@ button.stop:hover {
   margin: 0 0 0.8em;
   border: 1.5px solid var(--ink);
   border-radius: var(--radius-s);
-  background: #fdfaf3;
+  background: var(--paper-bright);
   overflow: hidden;
 }
 

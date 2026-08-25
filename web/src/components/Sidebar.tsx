@@ -88,15 +88,6 @@ export function Sidebar() {
   const projects = useRuri((s) => s.projects);
   const connected = useRuri((s) => s.connected);
 
-  const groups = new Map<string, Project[]>();
-  for (const p of projects) {
-    const key = p.folder ?? "";
-    groups.set(key, [...(groups.get(key) ?? []), p]);
-  }
-  const folderNames = [...groups.keys()].sort((a, b) =>
-    a === "" ? -1 : b === "" ? 1 : a.localeCompare(b),
-  );
-
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -122,13 +113,9 @@ export function Sidebar() {
             Tell Home what to work on.
           </div>
         )}
-        {folderNames.map((folder) => (
-          <div key={folder || "(root)"} className="group">
-            {folder && <div className="group-label">{folder}</div>}
-            {(groups.get(folder) ?? []).map((p) => (
-              <ProjectRow key={p.id} project={p} />
-            ))}
-          </div>
+        {projects.length > 0 && <div className="group-label">Projects</div>}
+        {projects.map((p) => (
+          <ProjectRow key={p.id} project={p} />
         ))}
       </div>
 

@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type {
-  PermissionMode,
-  PermissionRequest,
-  Project,
-  TranscriptEvent,
+import {
+  HOME_ID,
+  type PermissionMode,
+  type PermissionRequest,
+  type Project,
+  type TranscriptEvent,
 } from "../../../shared/protocol";
 import { Dropdown } from "./Dropdown";
 import { Tracker } from "./Tracker";
@@ -310,7 +311,12 @@ const NO_SUMMARIES: Record<string, string> = {};
 
 export function ChatPane() {
   const activeId = useRuri((s) => s.activeId);
-  const project = useRuri((s) => s.projects.find((p) => p.id === s.activeId));
+  const storeProject = useRuri((s) => s.projects.find((p) => p.id === s.activeId));
+  const workspaceDir = useRuri((s) => s.workspaceDir);
+  const isHome = activeId === HOME_ID;
+  const project: Project | undefined = isHome
+    ? { id: HOME_ID, name: "ruri", path: workspaceDir }
+    : storeProject;
   const transcript = useRuri((s) =>
     s.activeId ? (s.transcripts[s.activeId] ?? NO_EVENTS) : NO_EVENTS,
   );
@@ -323,6 +329,15 @@ export function ChatPane() {
   const permissions = allPermissions.filter((p) => p.projectId === activeId);
   const lastError = useRuri((s) => s.lastError);
   const dismissError = useRuri((s) => s.dismissError);
+
+  // The native picker is only launched from Home (workspace change).
+  const pickedPath = useRuri((s) => s.pickedPath);
+  const clearPickedPath = useRuri((s) => s.clearPickedPath);
+  useEffect(() => {
+    if (!pickedPath) return;
+    send({ type: "set_workspace", path: pickedPath });
+    clearPickedPath();
+  }, [pickedPath, clearPickedPath]);
 
   const trackerItems = useRuri((s) => (s.activeId ? s.tracker[s.activeId] : undefined));
   const [trackerOpen, setTrackerOpen] = useState(false);
@@ -388,18 +403,40 @@ export function ChatPane() {
   }, [activeId]);
 
   if (!project || !activeId) {
+    return <main className="chat empty" />;
+  }
+
+  const busy = status === "working" || status === "permission";
+
+  // Home with no conversation yet: the hero — face, "sup.", composer front
+  // and center. The workspace agent takes it from there.
+  if (isHome && transcript.length === 0 && !draft && permissions.length === 0) {
     return (
-      <main className="chat empty">
-        <div className="empty-state">
-          <img className="empty-face" src="/ruri-face.png" alt="" />
-          <div className="empty-title">No project selected</div>
-          <div className="empty-hint">Add a project on the left, then talk to Claude Code here.</div>
+      <main className="chat home-hero">
+        {lastError && (
+          <div className="error-bar" onClick={dismissError}>
+            {lastError} <span className="dismiss">dismiss</span>
+          </div>
+        )}
+        <div className="hero">
+          <img className="hero-face" src="/ruri-face.png" alt="" />
+          <div className="hero-title">sup.</div>
+          <div className="hero-hint">
+            Tell me what we're working on today — I'll open the projects and get them going.
+          </div>
+          <div className="hero-composer">
+            <Composer projectId={HOME_ID} busy={busy} />
+          </div>
+          <div className="hero-workspace">
+            workspace <code>{workspaceDir}</code>
+            <button className="ghost" onClick={() => send({ type: "pick_folder" })}>
+              Change
+            </button>
+          </div>
         </div>
       </main>
     );
   }
-
-  const busy = status === "working" || status === "permission";
 
   return (
     <main className="chat">
@@ -425,7 +462,17 @@ export function ChatPane() {
             {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
           </button>
         </div>
-        <HeaderControls project={project} />
+        {isHome ? (
+          <button
+            className="ghost workspace-btn"
+            title="Change the workspace root"
+            onClick={() => send({ type: "pick_folder" })}
+          >
+            Change workspace
+          </button>
+        ) : (
+          <HeaderControls project={project} />
+        )}
       </header>
 
       {lastError && (

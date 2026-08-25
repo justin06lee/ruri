@@ -14,16 +14,44 @@ function projectsFile(): string {
 
 export class ProjectStore {
   private projects: Project[] = [];
+  private workspace: string | undefined;
 
   constructor() {
     try {
-      const raw = JSON.parse(fs.readFileSync(projectsFile(), "utf8")) as { projects?: Project[] };
+      const raw = JSON.parse(fs.readFileSync(projectsFile(), "utf8")) as {
+        projects?: Project[];
+        workspaceDir?: string;
+      };
       this.projects = (raw.projects ?? []).filter(
         (p) => typeof p?.id === "string" && typeof p?.name === "string" && typeof p?.path === "string",
       );
+      if (typeof raw.workspaceDir === "string") this.workspace = raw.workspaceDir;
     } catch {
       // first run
     }
+  }
+
+  /** The workspace root the Home agent manages. Defaults to ~/Workspace when it exists. */
+  workspaceDir(): string {
+    if (this.workspace) return this.workspace;
+    const conventional = path.join(os.homedir(), "Workspace");
+    return fs.existsSync(conventional) ? conventional : os.homedir();
+  }
+
+  setWorkspaceDir(dir: string): void {
+    const resolved = path.resolve(dir.startsWith("~/") ? path.join(os.homedir(), dir.slice(2)) : dir);
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+      throw new Error(`not a directory: ${resolved}`);
+    }
+    this.workspace = resolved;
+    this.save();
+  }
+
+  findByPath(projectPath: string): Project | undefined {
+    const resolved = path.resolve(
+      projectPath.startsWith("~/") ? path.join(os.homedir(), projectPath.slice(2)) : projectPath,
+    );
+    return this.projects.find((p) => p.path === resolved);
   }
 
   list(): Project[] {
@@ -72,6 +100,13 @@ export class ProjectStore {
 
   private save(): void {
     fs.mkdirSync(configDir(), { recursive: true });
-    fs.writeFileSync(projectsFile(), `${JSON.stringify({ projects: this.projects }, null, 2)}\n`);
+    fs.writeFileSync(
+      projectsFile(),
+      `${JSON.stringify(
+        { projects: this.projects, ...(this.workspace ? { workspaceDir: this.workspace } : {}) },
+        null,
+        2,
+      )}\n`,
+    );
   }
 }

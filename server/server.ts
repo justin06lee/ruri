@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
-import type { ClientMessage, PermissionRequest, ServerMessage } from "../shared/protocol.js";
+import type { ClientMessage, ModelChoice, PermissionRequest, ServerMessage } from "../shared/protocol.js";
 import { ProjectStore } from "./projects.js";
 import { SessionManager } from "./sessions.js";
 
@@ -54,6 +54,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const store = new ProjectStore();
   const clients = new Set<WebSocket>();
   const permissions = new Map<string, PermissionRequest>();
+  let models: ModelChoice[] = [];
 
   function broadcast(message: ServerMessage): void {
     const payload = JSON.stringify(message);
@@ -73,6 +74,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     onPermissionResolved: (requestId) => {
       permissions.delete(requestId);
       broadcast({ type: "permission_resolved", requestId });
+    },
+    onModels: (list) => {
+      if (list.length === 0 || JSON.stringify(list) === JSON.stringify(models)) return;
+      models = list;
+      broadcast({ type: "models", models });
     },
   });
 
@@ -101,7 +107,19 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "permission_response": {
-        manager.respondPermission(msg.requestId, msg.allow);
+        manager.respondPermission(msg.requestId, msg.allow, msg.always ?? false);
+        break;
+      }
+      case "set_model": {
+        store.update(msg.projectId, { model: msg.model });
+        manager.setModel(msg.projectId, msg.model);
+        broadcast({ type: "projects", projects: store.list() });
+        break;
+      }
+      case "set_permission_mode": {
+        store.update(msg.projectId, { permissionMode: msg.mode });
+        manager.setPermissionMode(msg.projectId, msg.mode);
+        broadcast({ type: "projects", projects: store.list() });
         break;
       }
       default: {
@@ -135,6 +153,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       transcripts: manager.transcripts(),
       statuses: manager.statuses(),
       permissions: [...permissions.values()],
+      models,
     };
     ws.send(JSON.stringify(snapshot));
 

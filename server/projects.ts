@@ -52,6 +52,19 @@ export class ProjectStore {
     return project;
   }
 
+  /** Patch a project's settings (model, permission mode, …) and persist. */
+  update(id: string, patch: Partial<Omit<Project, "id" | "path">>): Project | undefined {
+    const project = this.projects.find((p) => p.id === id);
+    if (!project) return undefined;
+    const record = project as unknown as Record<string, unknown>;
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined || value === "") delete record[key];
+      else record[key] = value;
+    }
+    this.save();
+    return project;
+  }
+
   remove(id: string): void {
     this.projects = this.projects.filter((p) => p.id !== id);
     this.save();

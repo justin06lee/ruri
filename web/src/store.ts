@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   ClientMessage,
+  ModelChoice,
   PermissionRequest,
   Project,
   ProjectStatus,
@@ -22,6 +23,7 @@ interface RuriState {
   statuses: Record<string, ProjectStatus>;
   permissions: PermissionRequest[];
   unread: Record<string, boolean>;
+  models: ModelChoice[];
   lastError: string | null;
   setActive(id: string | null): void;
   dismissError(): void;
@@ -36,6 +38,7 @@ export const useRuri = create<RuriState>((set) => ({
   statuses: {},
   permissions: [],
   unread: {},
+  models: [],
   lastError: null,
   setActive: (id) =>
     set((s) => ({ activeId: id, unread: id ? { ...s.unread, [id]: false } : s.unread })),
@@ -72,6 +75,7 @@ function apply(msg: ServerMessage): void {
         transcripts: msg.transcripts,
         statuses: msg.statuses,
         permissions: msg.permissions,
+        models: msg.models,
         drafts: {},
         activeId:
           s.activeId && msg.projects.some((p) => p.id === s.activeId)
@@ -135,6 +139,10 @@ function apply(msg: ServerMessage): void {
       setState((s) => ({
         permissions: s.permissions.filter((p) => p.requestId !== msg.requestId),
       }));
+      break;
+    }
+    case "models": {
+      setState({ models: msg.models });
       break;
     }
     case "error": {

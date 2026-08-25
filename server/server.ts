@@ -10,6 +10,7 @@ import { ProjectStore } from "./projects.js";
 import { SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, smallModelEnabled, summarizeTurn, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
+import { processAttachments, serveUpload } from "./uploads.js";
 
 export interface StartServerOptions {
   port: number;
@@ -263,8 +264,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       case "send": {
         const project = channelProject(msg.projectId);
         if (!project) throw new Error("unknown session");
-        if (msg.text.trim().length === 0) return;
-        manager.send(project, msg.text);
+        if (msg.text.trim().length === 0 && !msg.attachments?.length) return;
+        const processed = processAttachments(msg.text, msg.attachments ?? []);
+        manager.send(project, processed.text, processed.images, processed.attachments);
         break;
       }
       case "new_session": {
@@ -353,6 +355,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     }
     if (req.url?.startsWith("/music/track?")) {
       serveTrack(req, res);
+      return;
+    }
+    if (req.url?.startsWith("/uploads/")) {
+      serveUpload(req, res);
       return;
     }
     if (options.staticDir && (req.method === "GET" || req.method === "HEAD")) {

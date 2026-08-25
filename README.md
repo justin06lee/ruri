@@ -40,6 +40,8 @@ bun run desktop   # run the desktop app unpackaged (built UI + Electron)
 - **Permission prompts**: when Claude Code would ask in the terminal, ruri shows an Allow / Always allow / Deny card instead (your `~/.claude/settings.json` allow-rules apply exactly as in the CLI; "Always allow" persists the CLI's own suggested rule). Plan-mode approvals render the plan as markdown.
 - **Per-project model and permission mode** in the chat header — pick any model the CLI reports, and switch between ask-first / accept-edits / plan / bypass, live mid-session; both persist per project.
 - **Interrupt** button to stop a running turn, and a transcript that follows output only while you're at the bottom (jump-to-latest pill otherwise).
+- **Music player** in the sidebar (ported from [home](../home)): drop folders of tracks into `~/Music/ruri` (override with `RURI_MUSIC_DIR`) — each folder is a playlist, loose files are "Unsorted". Two-deck Web Audio engine with 6s equal-power crossfade, shuffle, seek, volume; tracks stream from ruri's own server with Range support.
+- **Dark mode** — the same manga page at night (ink and paper swap roles); sun/moon toggle in the sidebar, persisted per machine.
 
 ## Architecture
 

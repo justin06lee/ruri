@@ -21,6 +21,22 @@ export interface ModelChoice {
   displayName: string;
 }
 
+/** Tick state of a tracker item: open → liked (check) → rejected (x) → open. */
+export type TrackerStatus = "open" | "liked" | "rejected";
+
+/** One entry on the feature/prompt tracker checklist. */
+export interface TrackerItem {
+  id: string;
+  text: string;
+  note: string;
+  status: TrackerStatus;
+  /** "auto" = extracted from a turn by the small model; "manual" = user-added. */
+  source: "auto" | "manual";
+  /** Turn (user-event id) this item was extracted from, when auto. */
+  turnId?: string;
+  ts: number;
+}
+
 /** A playable track in the music library (served by GET /music/track). */
 export interface Track {
   id: string;
@@ -73,7 +89,17 @@ export type ClientMessage =
   | { type: "interrupt"; projectId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   | { type: "set_model"; projectId: string; model: string }
-  | { type: "set_permission_mode"; projectId: string; mode: PermissionMode };
+  | { type: "set_permission_mode"; projectId: string; mode: PermissionMode }
+  | { type: "tracker_add"; projectId: string; text: string; note?: string }
+  | {
+      type: "tracker_update";
+      projectId: string;
+      itemId: string;
+      status?: TrackerStatus;
+      note?: string;
+      text?: string;
+    }
+  | { type: "tracker_remove"; projectId: string; itemId: string };
 
 export type ServerMessage =
   | {
@@ -85,12 +111,15 @@ export type ServerMessage =
       models: ModelChoice[];
       /** Turn summaries per project, keyed by the turn's user-event id. */
       summaries: Record<string, Record<string, string>>;
+      /** Feature-tracker checklists per project. */
+      tracker: Record<string, TrackerItem[]>;
       /** Whether the host can show a native folder-picker dialog. */
       canPickFolder: boolean;
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null }
   | { type: "turn_summary"; projectId: string; turnId: string; summary: string }
+  | { type: "tracker"; projectId: string; items: TrackerItem[] }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }
   | { type: "status"; projectId: string; status: ProjectStatus }

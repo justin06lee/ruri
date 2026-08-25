@@ -83,11 +83,14 @@ export type ServerMessage =
       statuses: Record<string, ProjectStatus>;
       permissions: PermissionRequest[];
       models: ModelChoice[];
+      /** Turn summaries per project, keyed by the turn's user-event id. */
+      summaries: Record<string, Record<string, string>>;
       /** Whether the host can show a native folder-picker dialog. */
       canPickFolder: boolean;
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null }
+  | { type: "turn_summary"; projectId: string; turnId: string; summary: string }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }
   | { type: "status"; projectId: string; status: ProjectStatus }

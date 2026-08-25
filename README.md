@@ -42,6 +42,7 @@ bun run desktop   # run the desktop app unpackaged (built UI + Electron)
 - **Interrupt** button to stop a running turn, and a transcript that follows output only while you're at the bottom (jump-to-latest pill otherwise).
 - **Music player** in the sidebar (ported from [home](../home)): drop folders of tracks into `~/Music/ruri` (override with `RURI_MUSIC_DIR`) — each folder is a playlist, loose files are "Unsorted". Two-deck Web Audio engine with 6s equal-power crossfade, shuffle, seek, volume; tracks stream from ruri's own server with Range support.
 - **Dark mode** — the same manga page at night (ink and paper swap roles); sun/moon toggle in the sidebar, persisted per machine.
+- **Turn memory & instant compaction** — after every finished turn, a small model (Haiku through yagami's completions client, `RURI_SMALL_MODEL` to override, `RURI_NO_MEMORY=1` to disable) writes a terse recall note for that prompt/response pair. With compact history on (toggle in the chat header), older turns fold to their notes; clicking one pulls the full turn back. Because notes are precomputed per turn, "compaction" costs nothing at read time. Transcripts, notes, and the resumable session id persist in `~/.config/ruri/sessions/`, so history and context survive app restarts.
 
 ## Architecture
 

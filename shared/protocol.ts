@@ -21,6 +21,22 @@ export interface ModelChoice {
   displayName: string;
 }
 
+/** A playable track in the music library (served by GET /music/track). */
+export interface Track {
+  id: string;
+  title: string;
+  filename: string;
+  /** Same-origin streaming URL (/music/track?p=…). */
+  url: string;
+}
+
+/** A folder of tracks (served by GET /music/playlists). */
+export interface Playlist {
+  id: string;
+  name: string;
+  tracks: Track[];
+}
+
 export type TranscriptEvent =
   | { kind: "user"; id: string; text: string; ts: number }
   | { kind: "assistant"; id: string; text: string; ts: number }

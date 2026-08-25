@@ -57,6 +57,9 @@ export const useRuri = create<RuriState>((set) => ({
 // UI is served by the ruri server itself (desktop app / production), the
 // WebSocket lives on the same origin.
 const WS_URL = import.meta.env.DEV ? `ws://${location.hostname}:7777` : `ws://${location.host}`;
+
+/** Base for the server's HTTP endpoints (music etc.) — empty when same-origin. */
+export const HTTP_BASE = import.meta.env.DEV ? `http://${location.hostname}:7777` : "";
 let ws: WebSocket | null = null;
 
 export function send(message: ClientMessage): void {

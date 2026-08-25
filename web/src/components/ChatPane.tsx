@@ -6,6 +6,7 @@ import type {
   TranscriptEvent,
 } from "../../../shared/protocol";
 import { Dropdown } from "./Dropdown";
+import { Tracker } from "./Tracker";
 import { Markdown } from "../markdown";
 import { send, useRuri } from "../store";
 
@@ -189,6 +190,8 @@ function HeaderControls({ project }: { project: Project }) {
 function Composer({ projectId, busy }: { projectId: string; busy: boolean }) {
   const [text, setText] = useState("");
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const composerSeed = useRuri((s) => s.composerSeed);
+  const clearComposerSeed = useRuri((s) => s.clearComposerSeed);
 
   const autosize = () => {
     const area = areaRef.current;
@@ -196,6 +199,17 @@ function Composer({ projectId, busy }: { projectId: string; busy: boolean }) {
     area.style.height = "auto";
     area.style.height = `${Math.min(area.scrollHeight, 220)}px`;
   };
+
+  // Tracker "send as prompt": append the seeded text and focus.
+  useEffect(() => {
+    if (!composerSeed) return;
+    setText((prev) => (prev.trim() ? `${prev}\n${composerSeed}` : composerSeed));
+    clearComposerSeed();
+    requestAnimationFrame(() => {
+      autosize();
+      areaRef.current?.focus();
+    });
+  }, [composerSeed, clearComposerSeed]);
 
   const submit = () => {
     const trimmed = text.trim();
@@ -310,6 +324,24 @@ export function ChatPane() {
   const lastError = useRuri((s) => s.lastError);
   const dismissError = useRuri((s) => s.dismissError);
 
+  const trackerItems = useRuri((s) => (s.activeId ? s.tracker[s.activeId] : undefined));
+  const [trackerOpen, setTrackerOpen] = useState(false);
+  const openCount = (trackerItems ?? []).filter((i) => i.status === "open").length;
+
+  // New auto-extracted items for the active project pop the drawer open.
+  const prevAutoRef = useRef(0);
+  const autoCount = (trackerItems ?? []).filter((i) => i.source === "auto").length;
+  useEffect(() => {
+    if (autoCount > prevAutoRef.current) setTrackerOpen(true);
+    prevAutoRef.current = autoCount;
+  }, [autoCount]);
+  useEffect(() => {
+    prevAutoRef.current = (useRuri.getState().activeId &&
+      useRuri.getState().tracker[useRuri.getState().activeId!]?.filter((i) => i.source === "auto")
+        .length) || 0;
+    setTrackerOpen(false);
+  }, [activeId]);
+
   const [compact, setCompact] = useState(() => {
     try {
       return localStorage.getItem("ruri-compact") !== "0";
@@ -384,6 +416,14 @@ export function ChatPane() {
           >
             <Icon d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
           </button>
+          <button
+            className={`icon-button tracker-toggle ${trackerOpen ? "active" : ""}`}
+            title="Feature tracker — things to test by hand"
+            onClick={() => setTrackerOpen(!trackerOpen)}
+          >
+            <Icon d="M9 11l3 3 8-8M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" />
+            {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
+          </button>
         </div>
         <HeaderControls project={project} />
       </header>
@@ -448,6 +488,8 @@ export function ChatPane() {
           <Icon d="M12 5v14M5 12l7 7 7-7" /> Latest
         </button>
       )}
+
+      {trackerOpen && <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />}
 
       <Composer projectId={activeId} busy={busy} />
     </main>

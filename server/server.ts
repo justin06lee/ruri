@@ -7,7 +7,8 @@ import { SessionArchive } from "./archive.js";
 import { isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
 import { SessionManager } from "./sessions.js";
-import { smallModelEnabled, summarizeTurn, TurnTracker } from "./smallmodel.js";
+import { extractTrackerItems, smallModelEnabled, summarizeTurn, TurnTracker } from "./smallmodel.js";
+import { TrackerStore } from "./tracker.js";
 
 export interface StartServerOptions {
   port: number;
@@ -128,6 +129,7 @@ function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.Ser
 export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const store = new ProjectStore();
   const archive = new SessionArchive();
+  const tracker = new TrackerStore();
   const clients = new Set<WebSocket>();
   const permissions = new Map<string, PermissionRequest>();
   let models: ModelChoice[] = [];
@@ -139,8 +141,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     }
   }
 
-  // Every finished turn is summarized in the background by the small model,
-  // so the transcript can compact instantly — the full events stay archived.
+  // Every finished turn goes to the small model in the background, twice:
+  // a recall note (instant compaction) and a tracker extraction (new features
+  // the user should test by hand). Failures are silent — both are niceties.
   const turns = new TurnTracker((projectId, turn) => {
     if (!smallModelEnabled()) return;
     summarizeTurn(turn)
@@ -148,6 +151,13 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (!summary) return;
         archive.setSummary(projectId, turn.turnId, summary);
         broadcast({ type: "turn_summary", projectId, turnId: turn.turnId, summary });
+      })
+      .catch(() => {});
+    extractTrackerItems(turn, tracker.openTexts(projectId))
+      .then((items) => {
+        if (items.length === 0) return;
+        for (const text of items) tracker.add(projectId, text, "auto", turn.turnId);
+        broadcast({ type: "tracker", projectId, items: tracker.items(projectId) });
       })
       .catch(() => {});
   });
@@ -198,6 +208,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         manager.dispose(msg.projectId);
         store.remove(msg.projectId);
         archive.remove(msg.projectId);
+        tracker.removeProject(msg.projectId);
         broadcast({ type: "projects", projects: store.list() });
         break;
       }
@@ -226,6 +237,26 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         store.update(msg.projectId, { permissionMode: msg.mode });
         manager.setPermissionMode(msg.projectId, msg.mode);
         broadcast({ type: "projects", projects: store.list() });
+        break;
+      }
+      case "tracker_add": {
+        if (!msg.text.trim()) return;
+        tracker.add(msg.projectId, msg.text.trim(), "manual", undefined, msg.note ?? "");
+        broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+        break;
+      }
+      case "tracker_update": {
+        tracker.update(msg.projectId, msg.itemId, {
+          ...(msg.status !== undefined ? { status: msg.status } : {}),
+          ...(msg.note !== undefined ? { note: msg.note } : {}),
+          ...(msg.text !== undefined ? { text: msg.text } : {}),
+        });
+        broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+        break;
+      }
+      case "tracker_remove": {
+        tracker.remove(msg.projectId, msg.itemId);
+        broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
         break;
       }
       default: {
@@ -271,6 +302,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       permissions: [...permissions.values()],
       models,
       summaries: archive.allSummaries(projectIds),
+      tracker: tracker.all(projectIds),
       canPickFolder: options.pickFolder !== undefined,
     };
     ws.send(JSON.stringify(snapshot));

@@ -249,11 +249,50 @@ function Composer({ projectId, busy }: { projectId: string; busy: boolean }) {
   );
 }
 
+/* ── turns & instant compaction ──────────────────────────────────── */
+
+interface Turn {
+  /** The opening user-event id, or "pre" for events before any prompt. */
+  turnId: string;
+  events: TranscriptEvent[];
+}
+
+/** Group the flat event stream into prompt→result turns. */
+function groupTurns(events: TranscriptEvent[]): Turn[] {
+  const turns: Turn[] = [];
+  for (const event of events) {
+    const last = turns[turns.length - 1];
+    if (event.kind === "user" || !last) {
+      turns.push({ turnId: event.kind === "user" ? event.id : "pre", events: [event] });
+    } else {
+      last.events.push(event);
+    }
+  }
+  return turns;
+}
+
+/**
+ * A summarized turn, folded to its precomputed recall note. Clicking it pulls
+ * the full prompt/response back — the archive keeps everything.
+ */
+function CompactTurn({ summary, count, onExpand }: { summary: string; count: number; onExpand(): void }) {
+  return (
+    <button className="turn-compact" title="Show the full turn" onClick={onExpand}>
+      <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M9 6l6 6-6 6" />
+      </svg>
+      <span className="turn-compact-summary">{summary}</span>
+      <span className="turn-compact-count">{count}</span>
+    </button>
+  );
+}
+
 /* ── chat pane ───────────────────────────────────────────────────── */
 
 // Stable fallback so selectors never mint a fresh reference per read —
 // an unstable snapshot makes useSyncExternalStore loop (React error #185).
 const NO_EVENTS: TranscriptEvent[] = [];
+const NO_SUMMARIES: Record<string, string> = {};
 
 export function ChatPane() {
   const activeId = useRuri((s) => s.activeId);
@@ -263,10 +302,31 @@ export function ChatPane() {
   );
   const draft = useRuri((s) => (s.activeId ? s.drafts[s.activeId] : undefined));
   const status = useRuri((s) => (s.activeId ? (s.statuses[s.activeId] ?? "idle") : "idle"));
+  const summaries = useRuri((s) =>
+    s.activeId ? (s.summaries[s.activeId] ?? NO_SUMMARIES) : NO_SUMMARIES,
+  );
   const allPermissions = useRuri((s) => s.permissions);
   const permissions = allPermissions.filter((p) => p.projectId === activeId);
   const lastError = useRuri((s) => s.lastError);
   const dismissError = useRuri((s) => s.dismissError);
+
+  const [compact, setCompact] = useState(() => {
+    try {
+      return localStorage.getItem("ruri-compact") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  useEffect(() => setExpanded(new Set()), [activeId]);
+  const toggleCompact = () => {
+    setCompact(!compact);
+    try {
+      localStorage.setItem("ruri-compact", compact ? "0" : "1");
+    } catch {
+      // fine
+    }
+  };
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
@@ -316,6 +376,15 @@ export function ChatPane() {
           <div className="chat-title">{project.name}</div>
           <div className="chat-path">{project.path}</div>
         </div>
+        <div className="header-controls">
+          <button
+            className={`icon-button ${compact ? "active" : ""}`}
+            title={compact ? "Compact history: on — older turns fold to their summaries" : "Compact history: off"}
+            onClick={toggleCompact}
+          >
+            <Icon d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+          </button>
+        </div>
         <HeaderControls project={project} />
       </header>
 
@@ -336,9 +405,25 @@ export function ChatPane() {
               </div>
             </div>
           )}
-          {transcript.map((event) => (
-            <EventView key={event.id} event={event} />
-          ))}
+          {(() => {
+            const turns = groupTurns(transcript);
+            return turns.map((turn, i) => {
+              const summary = summaries[turn.turnId];
+              const fold =
+                compact && summary !== undefined && i < turns.length - 1 && !expanded.has(turn.turnId);
+              if (fold) {
+                return (
+                  <CompactTurn
+                    key={turn.turnId}
+                    summary={summary}
+                    count={turn.events.length}
+                    onExpand={() => setExpanded(new Set(expanded).add(turn.turnId))}
+                  />
+                );
+              }
+              return turn.events.map((event) => <EventView key={event.id} event={event} />);
+            });
+          })()}
           {draft && (
             <div className="msg assistant streaming">
               <Markdown text={draft.text} />

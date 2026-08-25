@@ -24,6 +24,8 @@ interface RuriState {
   permissions: PermissionRequest[];
   unread: Record<string, boolean>;
   models: ModelChoice[];
+  /** Turn summaries per project, keyed by the turn's user-event id. */
+  summaries: Record<string, Record<string, string>>;
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
   /** Latest native-picker result, consumed by the add-project form. */
@@ -44,6 +46,7 @@ export const useRuri = create<RuriState>((set) => ({
   permissions: [],
   unread: {},
   models: [],
+  summaries: {},
   canPickFolder: false,
   pickedPath: null,
   lastError: null,
@@ -93,6 +96,7 @@ function apply(msg: ServerMessage): void {
         statuses: msg.statuses,
         permissions: msg.permissions,
         models: msg.models,
+        summaries: msg.summaries,
         canPickFolder: msg.canPickFolder,
         drafts: {},
         activeId:
@@ -165,6 +169,15 @@ function apply(msg: ServerMessage): void {
     }
     case "folder_picked": {
       if (msg.path) setState({ pickedPath: msg.path });
+      break;
+    }
+    case "turn_summary": {
+      setState((s) => ({
+        summaries: {
+          ...s.summaries,
+          [msg.projectId]: { ...s.summaries[msg.projectId], [msg.turnId]: msg.summary },
+        },
+      }));
       break;
     }
     case "error": {

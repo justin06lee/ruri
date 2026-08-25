@@ -51,6 +51,14 @@ export function installFixture(): void {
       { value: "claude-opus-5", displayName: "Opus 5" },
       { value: "claude-sonnet-5", displayName: "Sonnet 5" },
     ],
+    tracker: {
+      p1: [
+        { id: "t1", text: "Check reconnect backs off after killing the server", note: "", status: "open", source: "auto", turnId: "e1", ts: now - 48_000 },
+        { id: "t2", text: "Verify retry delay caps at 30s", note: "", status: "open", source: "auto", turnId: "e1", ts: now - 48_000 },
+        { id: "t3", text: "Unread dot clears when opening the project", note: "still sticks after a fresh launch — check ordering", status: "rejected", source: "auto", turnId: "e0", ts: now - 180_000 },
+        { id: "t4", text: "Try the new sidebar folder grouping", note: "", status: "liked", source: "manual", ts: now - 300_000 },
+      ],
+    },
     summaries: {
       p1: {
         e0: "Investigated flaky sidebar unread dot: race between snapshot and event broadcast in server.ts; fixed by ordering broadcasts after archive append. Tests green.",

@@ -6,6 +6,7 @@ import type {
   Project,
   ProjectStatus,
   ServerMessage,
+  TrackerItem,
   TranscriptEvent,
 } from "../../shared/protocol";
 
@@ -26,12 +27,18 @@ interface RuriState {
   models: ModelChoice[];
   /** Turn summaries per project, keyed by the turn's user-event id. */
   summaries: Record<string, Record<string, string>>;
+  /** Feature-tracker checklists per project. */
+  tracker: Record<string, TrackerItem[]>;
+  /** Text waiting to be inserted into the composer (tracker "send as prompt"). */
+  composerSeed: string | null;
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
   /** Latest native-picker result, consumed by the add-project form. */
   pickedPath: string | null;
   lastError: string | null;
   setActive(id: string | null): void;
+  seedComposer(text: string): void;
+  clearComposerSeed(): void;
   clearPickedPath(): void;
   dismissError(): void;
 }
@@ -47,11 +54,15 @@ export const useRuri = create<RuriState>((set) => ({
   unread: {},
   models: [],
   summaries: {},
+  tracker: {},
+  composerSeed: null,
   canPickFolder: false,
   pickedPath: null,
   lastError: null,
   setActive: (id) =>
     set((s) => ({ activeId: id, unread: id ? { ...s.unread, [id]: false } : s.unread })),
+  seedComposer: (text) => set({ composerSeed: text }),
+  clearComposerSeed: () => set({ composerSeed: null }),
   clearPickedPath: () => set({ pickedPath: null }),
   dismissError: () => set({ lastError: null }),
 }));
@@ -97,6 +108,7 @@ function apply(msg: ServerMessage): void {
         permissions: msg.permissions,
         models: msg.models,
         summaries: msg.summaries,
+        tracker: msg.tracker,
         canPickFolder: msg.canPickFolder,
         drafts: {},
         activeId:
@@ -169,6 +181,10 @@ function apply(msg: ServerMessage): void {
     }
     case "folder_picked": {
       if (msg.path) setState({ pickedPath: msg.path });
+      break;
+    }
+    case "tracker": {
+      setState((s) => ({ tracker: { ...s.tracker, [msg.projectId]: msg.items } }));
       break;
     }
     case "turn_summary": {

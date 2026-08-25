@@ -435,15 +435,11 @@ export function ChatPane() {
         <div className="hero">
           <img className="hero-face" src="/ruri-face.png" alt="" />
           <div className="hero-title">{isHome ? "sup." : project.name}</div>
-          <div className="hero-hint">
-            {isHome ? (
-              <>Tell me what we're working on today — I'll open the projects and get them going.</>
-            ) : (
-              <>
-                Fresh session — starts in <code>{project.path}</code> with your first message.
-              </>
-            )}
-          </div>
+          {isHome && (
+            <div className="hero-hint">
+              Tell me what we're working on today — I'll open the projects and get them going.
+            </div>
+          )}
           <div className="hero-composer">
             <Composer project={project} busy={busy} showControls={!isHome} />
           </div>
@@ -465,7 +461,6 @@ export function ChatPane() {
       <header className="chat-header">
         <div className="chat-id">
           <div className="chat-title">{project.name}</div>
-          <div className="chat-path">{project.path}</div>
         </div>
         <div className="header-controls">
           <button

@@ -209,20 +209,8 @@ textarea::placeholder {
 
 /* desktop shell (Electron, hiddenInset title bar) */
 
-.titlebar-spacer {
-  display: none;
-}
-
-.desktop .titlebar-spacer {
-  /* the macOS traffic lights live here; the logo row sits below, hard left */
-  display: block;
-  height: 30px;
-  background-image: var(--tone);
-  background-size: 6px 6px;
-  -webkit-app-region: drag;
-}
-
 .desktop .sidebar-header {
+  padding-left: 84px; /* clear the macOS traffic lights */
   -webkit-app-region: drag;
 }
 
@@ -350,8 +338,10 @@ textarea::placeholder {
   align-items: center;
   gap: 9px;
   padding: 7px 10px;
+  margin-bottom: 4px;
   border: 1.5px solid transparent;
   border-radius: var(--radius-s);
+  background: var(--paper);
   cursor: pointer;
   user-select: none;
   color: var(--ink-soft);
@@ -362,7 +352,7 @@ textarea::placeholder {
 }
 
 .project-row:hover {
-  background: var(--paper);
+  background: var(--paper-bright);
   color: var(--ink);
 }
 
@@ -682,14 +672,18 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 34px;
   font-weight: 750;
   letter-spacing: 0.01em;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .hero-hint {
   color: var(--ink-soft);
   font-size: 13.5px;
   text-align: center;
-  margin-bottom: 26px;
+  margin-bottom: 12px;
+}
+
+.hero-composer {
+  margin-top: 14px;
 }
 
 .hero-composer {
@@ -776,15 +770,6 @@ input[type="range"]::-webkit-slider-thumb {
 .chat-title {
   font-weight: 700;
   font-size: 14.5px;
-}
-
-.chat-path {
-  font-size: 11.5px;
-  font-family: var(--mono);
-  color: var(--ink-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .header-controls {

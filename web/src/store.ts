@@ -56,6 +56,12 @@ export function send(message: ClientMessage): void {
 }
 
 export function connect(): void {
+  // Dev-only fixture mode (?fixture): canned data instead of a live server,
+  // so the UI can be screenshotted deterministically without spending tokens.
+  if (new URLSearchParams(location.search).has("fixture")) {
+    void import("./fixture").then((m) => m.installFixture());
+    return;
+  }
   ws = new WebSocket(WS_URL);
   ws.onopen = () => useRuri.setState({ connected: true });
   ws.onmessage = (raw) => apply(JSON.parse(raw.data as string) as ServerMessage);

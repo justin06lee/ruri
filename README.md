@@ -35,9 +35,10 @@ bun run desktop   # run the desktop app unpackaged (built UI + Electron)
 - **Native desktop app** — `ruri.app` with Dock icon, single-instance, inset title bar; the window serves the UI and WebSocket from one local port picked at launch.
 - **Projects sidebar** with optional folder grouping, add/remove, status dots (blue pulse = working, amber = waiting on a permission, red = error, ring = unread activity in a background project).
 - **One persistent Claude Code session per project** (streaming input, so you can send follow-ups mid-run to steer). Sessions start lazily on first message, run in the project's directory, and auto-restart with `resume` if they die — context carries over.
-- **Streaming responses** (token deltas), tool-use chips (`Bash — npm test`), and per-turn result lines with duration and what the turn would have cost at API prices.
-- **Permission prompts**: when Claude Code would ask in the terminal, ruri shows an Allow/Deny banner instead (your `~/.claude/settings.json` allow-rules apply exactly as in the CLI).
-- **Interrupt** button to stop a running turn.
+- **Streaming responses** rendered as markdown (GFM, syntax-highlighted code blocks with copy buttons), tool-use chips (`Bash — npm test`), and per-turn result lines with duration and what the turn would have cost at API prices.
+- **Permission prompts**: when Claude Code would ask in the terminal, ruri shows an Allow / Always allow / Deny card instead (your `~/.claude/settings.json` allow-rules apply exactly as in the CLI; "Always allow" persists the CLI's own suggested rule). Plan-mode approvals render the plan as markdown.
+- **Per-project model and permission mode** in the chat header — pick any model the CLI reports, and switch between ask-first / accept-edits / plan / bypass, live mid-session; both persist per project.
+- **Interrupt** button to stop a running turn, and a transcript that follows output only while you're at the bottom (jump-to-latest pill otherwise).
 
 ## Architecture
 
@@ -54,6 +55,7 @@ ruri.app (Electron)
 - `server/index.ts` — standalone entry for dev/smoke (same server, no Electron).
 - `desktop/main.ts` — Electron main: login-shell PATH recovery, window/menu/lifecycle; esbuild bundles it together with the server, yagami, and the Agent SDK into a single file (`scripts/build-main.ts`).
 - `web/src/store.ts` — zustand store fed by the socket; drafts (streaming text) are kept separately from finalized transcript events.
+- `web/src/markdown.tsx` — marked + DOMPurify + highlight.js markdown renderer shared by messages, streaming drafts, and plan cards.
 - Projects persist in `~/.config/ruri/projects.json`. Chat transcripts are in-memory for now (Claude Code's own session files in `~/.claude` persist, and sessions resume across restarts).
 
 ## Testing
@@ -66,6 +68,8 @@ bun run smoke                        # live E2E: 3 real turns incl. Bash + permi
 RURI_SMOKE_SPAWN="dist-app/mac-arm64/ruri.app/Contents/MacOS/ruri" bun run smoke
 ```
 
+For UI work there's a token-free fixture mode — canned transcript, pending permission, folder groups: open `http://localhost:5173/?fixture` in dev, or `RURI_FIXTURE=1` (with `RURI_SCREENSHOT=/path.png`) for the desktop app.
+
 ## Not yet (iterate next)
 
-Markdown rendering, tool results/diffs in the transcript, plan-mode & model/effort controls, transcript persistence, session history browser, drag-and-drop folder management, git status in the sidebar, worktree support for parallel agents in one repo, notifications, Windows/Linux packaging.
+Tool results/diffs in the transcript, effort controls, transcript persistence, session history browser, drag-and-drop folder management, git status in the sidebar, worktree support for parallel agents in one repo, notifications, Windows/Linux packaging.

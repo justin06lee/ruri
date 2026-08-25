@@ -435,11 +435,6 @@ export function ChatPane() {
         <div className="hero">
           <img className="hero-face" src="/ruri-face.png" alt="" />
           <div className="hero-title">{isHome ? "sup." : project.name}</div>
-          {isHome && (
-            <div className="hero-hint">
-              Tell me what we're working on today — I'll open the projects and get them going.
-            </div>
-          )}
           <div className="hero-composer">
             <Composer project={project} busy={busy} showControls={!isHome} />
           </div>

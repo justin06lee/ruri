@@ -443,14 +443,7 @@ export function ChatPane() {
           <div className="hero-composer">
             <Composer project={project} busy={busy} showControls={!isHome} />
           </div>
-          {isHome && (
-            <div className="hero-workspace">
-              workspace <code>{workspaceDir}</code>
-              <button className="ghost" onClick={() => send({ type: "pick_folder" })}>
-                Change
-              </button>
-            </div>
-          )}
+
         </div>
       </main>
     );
@@ -479,15 +472,6 @@ export function ChatPane() {
             {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
           </button>
         </div>
-        {isHome && (
-          <button
-            className="ghost workspace-btn"
-            title="Change the workspace root"
-            onClick={() => send({ type: "pick_folder" })}
-          >
-            Change workspace
-          </button>
-        )}
       </header>
 
       {lastError && (

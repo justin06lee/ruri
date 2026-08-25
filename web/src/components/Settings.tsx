@@ -60,7 +60,9 @@ export function Settings({ onClose }: { onClose(): void }) {
           <span className="settings-label">Workspace</span>
           <div className="settings-value">
             {/* LRM anchors keep the leading slash in place inside the rtl-ellipsis trick */}
-            <code title={workspaceDir}>{workspaceDir ? `‎${workspaceDir}‎` : "—"}</code>
+            <span className="settings-path" title={workspaceDir}>
+              {workspaceDir ? `‎${workspaceDir}‎` : "—"}
+            </span>
             <button
               className="ghost"
               disabled={!canPickFolder}

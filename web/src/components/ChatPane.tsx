@@ -308,7 +308,7 @@ export function ChatPane() {
     return (
       <main className="chat empty">
         <div className="empty-state">
-          <div className="empty-mark">瑠璃</div>
+          <img className="empty-face" src="/ruri-face.png" alt="" />
           <div className="empty-title">No project selected</div>
           <div className="empty-hint">Add a project on the left, then talk to Claude Code here.</div>
         </div>
@@ -342,7 +342,7 @@ export function ChatPane() {
         <div className="transcript-inner">
           {transcript.length === 0 && !draft && (
             <div className="empty-state">
-              <div className="empty-mark">瑠璃</div>
+              <img className="empty-face" src="/ruri-face.png" alt="" />
               <div className="empty-title">Fresh session</div>
               <div className="empty-hint">
                 Starts in <code>{project.path}</code> with your first message.

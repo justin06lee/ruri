@@ -1,6 +1,6 @@
 {
   "name": "ruri",
-  "version": "0.8.4",
+  "version": "0.9.0",
   "description": "One desktop workspace for all your projects, each with its own live Claude Code session.",
   "private": true,
   "type": "module",

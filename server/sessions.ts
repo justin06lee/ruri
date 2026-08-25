@@ -7,6 +7,7 @@ import {
   type SDKMessage,
 } from "@justin06lee/yagami";
 import type {
+  Attachment,
   ModelChoice,
   PermissionMode,
   PermissionRequest,
@@ -109,10 +110,16 @@ class ProjectSession {
     void this.run();
   }
 
-  send(text: string): void {
-    this.pushEvent({ kind: "user", id: randomUUID(), text, ts: Date.now() });
+  send(text: string, images?: Array<{ data: string; mediaType?: string }>, attachments?: Attachment[]): void {
+    this.pushEvent({
+      kind: "user",
+      id: randomUUID(),
+      text,
+      ...(attachments?.length ? { attachments } : {}),
+      ts: Date.now(),
+    });
     this.setStatus("working");
-    this.session.send(text);
+    this.session.send(text, images?.length ? { images } : {});
   }
 
   interrupt(): void {
@@ -299,7 +306,12 @@ export class SessionManager {
   ) {}
 
   /** Send a message, starting (or restarting, resuming context) the session as needed. */
-  send(project: Project, text: string): void {
+  send(
+    project: Project,
+    text: string,
+    images?: Array<{ data: string; mediaType?: string }>,
+    attachments?: Attachment[],
+  ): void {
     let session = this.sessions.get(project.id);
     if (!session || session.dead) {
       session = new ProjectSession(
@@ -310,7 +322,7 @@ export class SessionManager {
       );
       this.sessions.set(project.id, session);
     }
-    session.send(text);
+    session.send(text, images, attachments);
   }
 
   interrupt(projectId: string): void {

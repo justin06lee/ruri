@@ -422,9 +422,9 @@ export function ChatPane() {
 
   const busy = status === "working" || status === "permission";
 
-  // Home with no conversation yet: the hero — face, "sup.", composer front
-  // and center. The workspace agent takes it from there.
-  if (isHome && transcript.length === 0 && !draft && permissions.length === 0) {
+  // No conversation yet (Home or a fresh project): the hero — face, a big
+  // title, and the composer front and center.
+  if (transcript.length === 0 && !draft && permissions.length === 0) {
     return (
       <main className="chat home-hero">
         {lastError && (
@@ -434,19 +434,27 @@ export function ChatPane() {
         )}
         <div className="hero">
           <img className="hero-face" src="/ruri-face.png" alt="" />
-          <div className="hero-title">sup.</div>
+          <div className="hero-title">{isHome ? "sup." : project.name}</div>
           <div className="hero-hint">
-            Tell me what we're working on today — I'll open the projects and get them going.
+            {isHome ? (
+              <>Tell me what we're working on today — I'll open the projects and get them going.</>
+            ) : (
+              <>
+                Fresh session — starts in <code>{project.path}</code> with your first message.
+              </>
+            )}
           </div>
           <div className="hero-composer">
-            <Composer project={project} busy={busy} showControls={false} />
+            <Composer project={project} busy={busy} showControls={!isHome} />
           </div>
-          <div className="hero-workspace">
-            workspace <code>{workspaceDir}</code>
-            <button className="ghost" onClick={() => send({ type: "pick_folder" })}>
-              Change
-            </button>
-          </div>
+          {isHome && (
+            <div className="hero-workspace">
+              workspace <code>{workspaceDir}</code>
+              <button className="ghost" onClick={() => send({ type: "pick_folder" })}>
+                Change
+              </button>
+            </div>
+          )}
         </div>
       </main>
     );
@@ -495,15 +503,6 @@ export function ChatPane() {
 
       <div className="transcript" ref={scrollRef} onScroll={onScroll}>
         <div className="transcript-inner">
-          {transcript.length === 0 && !draft && (
-            <div className="empty-state">
-              <img className="empty-face" src="/ruri-face.png" alt="" />
-              <div className="empty-title">Fresh session</div>
-              <div className="empty-hint">
-                Starts in <code>{project.path}</code> with your first message.
-              </div>
-            </div>
-          )}
           {(() => {
             const turns = groupTurns(transcript);
             return turns.map((turn, i) => {

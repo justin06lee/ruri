@@ -99,6 +99,7 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar">
+      <div className="titlebar-spacer" />
       <div className="sidebar-header">
         <span className="logo">
           <img className="logo-face" src="/ruri-face.png" alt="" />

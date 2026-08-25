@@ -23,6 +23,8 @@ export interface SessionEvents {
   onPermission(request: PermissionRequest): void;
   onPermissionResolved(requestId: string): void;
   onModels(models: ModelChoice[]): void;
+  /** The live Claude session id changed (used to resume across restarts). */
+  onSessionId(projectId: string, sessionId: string): void;
 }
 
 function toolSummary(name: string, input: Record<string, unknown>): string {
@@ -67,7 +69,6 @@ interface PendingPermission {
 }
 
 class ProjectSession {
-  readonly transcript: TranscriptEvent[];
   status: ProjectStatus = "idle";
   lastSessionId: string | undefined;
   dead = false;
@@ -79,10 +80,8 @@ class ProjectSession {
   constructor(
     private readonly project: Project,
     private readonly events: SessionEvents,
-    priorTranscript: TranscriptEvent[] = [],
     resume?: string,
   ) {
-    this.transcript = priorTranscript;
     this.lastSessionId = resume;
     this.session = new AgentSession({
       cwd: project.path,
@@ -198,6 +197,7 @@ class ProjectSession {
   private handle(msg: SDKMessage): void {
     if (msg.type === "system" && msg.subtype === "init") {
       this.lastSessionId = msg.session_id;
+      this.events.onSessionId(this.project.id, msg.session_id);
       void this.reportModels();
     } else if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {
       const event = msg.event as { type: string; delta?: { type?: string; text?: string } };
@@ -232,6 +232,7 @@ class ProjectSession {
       }
     } else if (msg.type === "result") {
       this.lastSessionId = msg.session_id;
+      this.events.onSessionId(this.project.id, msg.session_id);
       this.draftId = null;
       const ok = msg.subtype === "success";
       this.pushEvent({
@@ -256,7 +257,6 @@ class ProjectSession {
   }
 
   private pushEvent(event: TranscriptEvent): void {
-    this.transcript.push(event);
     this.events.onEvent(this.project.id, event);
   }
 
@@ -278,7 +278,11 @@ class ProjectSession {
 export class SessionManager {
   private readonly sessions = new Map<string, ProjectSession>();
 
-  constructor(private readonly events: SessionEvents) {}
+  constructor(
+    private readonly events: SessionEvents,
+    /** Where to find the resumable session id for a project (the archive). */
+    private readonly resumeFor: (projectId: string) => string | undefined = () => undefined,
+  ) {}
 
   /** Send a message, starting (or restarting, resuming context) the session as needed. */
   send(project: Project, text: string): void {
@@ -287,8 +291,7 @@ export class SessionManager {
       session = new ProjectSession(
         project,
         this.events,
-        session?.transcript ?? [],
-        session?.lastSessionId,
+        session?.lastSessionId ?? this.resumeFor(project.id),
       );
       this.sessions.set(project.id, session);
     }
@@ -323,10 +326,6 @@ export class SessionManager {
 
   disposeAll(): void {
     for (const id of [...this.sessions.keys()]) this.dispose(id);
-  }
-
-  transcripts(): Record<string, TranscriptEvent[]> {
-    return Object.fromEntries([...this.sessions].map(([id, s]) => [id, s.transcript]));
   }
 
   statuses(): Record<string, ProjectStatus> {

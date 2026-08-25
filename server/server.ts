@@ -3,9 +3,11 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import type { ClientMessage, ModelChoice, PermissionRequest, ServerMessage } from "../shared/protocol.js";
+import { SessionArchive } from "./archive.js";
 import { isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
 import { SessionManager } from "./sessions.js";
+import { smallModelEnabled, summarizeTurn, TurnTracker } from "./smallmodel.js";
 
 export interface StartServerOptions {
   port: number;
@@ -125,6 +127,7 @@ function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.Ser
 
 export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const store = new ProjectStore();
+  const archive = new SessionArchive();
   const clients = new Set<WebSocket>();
   const permissions = new Map<string, PermissionRequest>();
   let models: ModelChoice[] = [];
@@ -136,24 +139,45 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     }
   }
 
-  const manager = new SessionManager({
-    onEvent: (projectId, event) => broadcast({ type: "event", projectId, event }),
-    onDelta: (projectId, messageId, delta) => broadcast({ type: "delta", projectId, messageId, delta }),
-    onStatus: (projectId, status) => broadcast({ type: "status", projectId, status }),
-    onPermission: (request) => {
-      permissions.set(request.requestId, request);
-      broadcast({ type: "permission_request", request });
-    },
-    onPermissionResolved: (requestId) => {
-      permissions.delete(requestId);
-      broadcast({ type: "permission_resolved", requestId });
-    },
-    onModels: (list) => {
-      if (list.length === 0 || JSON.stringify(list) === JSON.stringify(models)) return;
-      models = list;
-      broadcast({ type: "models", models });
-    },
+  // Every finished turn is summarized in the background by the small model,
+  // so the transcript can compact instantly — the full events stay archived.
+  const turns = new TurnTracker((projectId, turn) => {
+    if (!smallModelEnabled()) return;
+    summarizeTurn(turn)
+      .then((summary) => {
+        if (!summary) return;
+        archive.setSummary(projectId, turn.turnId, summary);
+        broadcast({ type: "turn_summary", projectId, turnId: turn.turnId, summary });
+      })
+      .catch(() => {});
   });
+
+  const manager = new SessionManager(
+    {
+      onEvent: (projectId, event) => {
+        archive.append(projectId, event);
+        turns.observe(projectId, event);
+        broadcast({ type: "event", projectId, event });
+      },
+      onDelta: (projectId, messageId, delta) => broadcast({ type: "delta", projectId, messageId, delta }),
+      onStatus: (projectId, status) => broadcast({ type: "status", projectId, status }),
+      onPermission: (request) => {
+        permissions.set(request.requestId, request);
+        broadcast({ type: "permission_request", request });
+      },
+      onPermissionResolved: (requestId) => {
+        permissions.delete(requestId);
+        broadcast({ type: "permission_resolved", requestId });
+      },
+      onModels: (list) => {
+        if (list.length === 0 || JSON.stringify(list) === JSON.stringify(models)) return;
+        models = list;
+        broadcast({ type: "models", models });
+      },
+      onSessionId: (projectId, sessionId) => archive.setLastSessionId(projectId, sessionId),
+    },
+    (projectId) => archive.lastSessionId(projectId),
+  );
 
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
     switch (msg.type) {
@@ -173,6 +197,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       case "remove_project": {
         manager.dispose(msg.projectId);
         store.remove(msg.projectId);
+        archive.remove(msg.projectId);
         broadcast({ type: "projects", projects: store.list() });
         break;
       }
@@ -237,13 +262,15 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
 
   wss.on("connection", (ws) => {
     clients.add(ws);
+    const projectIds = store.list().map((p) => p.id);
     const snapshot: ServerMessage = {
       type: "snapshot",
       projects: store.list(),
-      transcripts: manager.transcripts(),
+      transcripts: archive.transcripts(projectIds),
       statuses: manager.statuses(),
       permissions: [...permissions.values()],
       models,
+      summaries: archive.allSummaries(projectIds),
       canPickFolder: options.pickFolder !== undefined,
     };
     ws.send(JSON.stringify(snapshot));
@@ -274,6 +301,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         close: () =>
           new Promise<void>((done) => {
             manager.disposeAll();
+            archive.flushAll();
             for (const client of clients) client.close();
             wss.close(() => server.close(() => done()));
           }),

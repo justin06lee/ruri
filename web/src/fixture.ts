@@ -51,8 +51,18 @@ export function installFixture(): void {
       { value: "claude-opus-5", displayName: "Opus 5" },
       { value: "claude-sonnet-5", displayName: "Sonnet 5" },
     ],
+    summaries: {
+      p1: {
+        e0: "Investigated flaky sidebar unread dot: race between snapshot and event broadcast in server.ts; fixed by ordering broadcasts after archive append. Tests green.",
+        e1: "Fixed ws reconnect backoff in web/src/store.ts: moved state out of connect(), capped 30s, added jitter; typecheck+tests pass.",
+      },
+    },
     transcripts: {
       p1: [
+        { kind: "user", id: "e0", text: "The unread dot sometimes sticks — look into it?", ts: now - 200_000 },
+        { kind: "tool", id: "e0a", name: "Grep", summary: "unread in server", ts: now - 195_000 },
+        { kind: "assistant", id: "e0b", text: "Found a race — fixed by reordering broadcasts.", ts: now - 190_000 },
+        { kind: "result", id: "e0c", ok: true, costUsd: 0.21, durationMs: 30_000, ts: now - 189_000 },
         { kind: "user", id: "e1", text: "The websocket reconnect logic seems broken — can you look at `store.ts` and fix it?", ts: now - 90_000 },
         { kind: "tool", id: "e2", name: "Read", summary: "/Users/you/Workspace/ruri/web/src/store.ts", ts: now - 80_000 },
         { kind: "tool", id: "e3", name: "Grep", summary: "setTimeout(connect in web/src", ts: now - 75_000 },

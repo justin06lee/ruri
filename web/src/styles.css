@@ -302,10 +302,6 @@ textarea::placeholder {
   transition: background 200ms ease-out;
 }
 
-.conn.on {
-  background: var(--ink);
-}
-
 .conn.off {
   background: transparent;
   border: 2px solid var(--ink);
@@ -753,13 +749,6 @@ input[type="range"]::-webkit-slider-thumb {
   margin-bottom: 4px;
 }
 
-.hero-hint {
-  color: var(--ink-soft);
-  font-size: 13.5px;
-  text-align: center;
-  margin-bottom: 12px;
-}
-
 .hero-composer {
   margin-top: 8px;
 }
@@ -844,15 +833,11 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 8px;
 }
 
-.settings-value code {
+.settings-path {
   flex: 1;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--ink-soft);
-  background: var(--paper-dim);
-  border: 1px solid var(--line-soft);
-  border-radius: 4px;
-  padding: 3px 8px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1344,7 +1329,6 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 13px;
 }
 
-.hero-hint code,
 .empty-hint code {
   font-family: var(--mono);
   font-size: 12px;

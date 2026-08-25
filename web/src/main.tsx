@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { initTheme } from "./theme";
+import "@fontsource-variable/space-grotesk";
 import "./styles.css";
 
 initTheme();

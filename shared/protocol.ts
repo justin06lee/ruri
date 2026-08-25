@@ -1,4 +1,7 @@
-/** Types shared between the ruri server and the web UI. Type-only module. */
+/** Types (and the one shared constant) between the ruri server and the web UI. */
+
+/** The pseudo-project id of the Home view — the workspace-manager agent. */
+export const HOME_ID = "home";
 
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 
@@ -99,7 +102,8 @@ export type ClientMessage =
       note?: string;
       text?: string;
     }
-  | { type: "tracker_remove"; projectId: string; itemId: string };
+  | { type: "tracker_remove"; projectId: string; itemId: string }
+  | { type: "set_workspace"; path: string };
 
 export type ServerMessage =
   | {
@@ -115,11 +119,14 @@ export type ServerMessage =
       tracker: Record<string, TrackerItem[]>;
       /** Whether the host can show a native folder-picker dialog. */
       canPickFolder: boolean;
+      /** The workspace root the Home agent manages (where projects live). */
+      workspaceDir: string;
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null }
   | { type: "turn_summary"; projectId: string; turnId: string; summary: string }
   | { type: "tracker"; projectId: string; items: TrackerItem[] }
+  | { type: "workspace"; path: string }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }
   | { type: "status"; projectId: string; status: ProjectStatus }

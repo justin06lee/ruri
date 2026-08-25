@@ -1,13 +1,14 @@
 import { create } from "zustand";
-import type {
-  ClientMessage,
-  ModelChoice,
-  PermissionRequest,
-  Project,
-  ProjectStatus,
-  ServerMessage,
-  TrackerItem,
-  TranscriptEvent,
+import {
+  HOME_ID,
+  type ClientMessage,
+  type ModelChoice,
+  type PermissionRequest,
+  type Project,
+  type ProjectStatus,
+  type ServerMessage,
+  type TrackerItem,
+  type TranscriptEvent,
 } from "../../shared/protocol";
 
 export interface Draft {
@@ -31,6 +32,8 @@ interface RuriState {
   tracker: Record<string, TrackerItem[]>;
   /** Text waiting to be inserted into the composer (tracker "send as prompt"). */
   composerSeed: string | null;
+  /** The workspace root the Home agent manages. */
+  workspaceDir: string;
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
   /** Latest native-picker result, consumed by the add-project form. */
@@ -46,7 +49,7 @@ interface RuriState {
 export const useRuri = create<RuriState>((set) => ({
   connected: false,
   projects: [],
-  activeId: null,
+  activeId: HOME_ID,
   transcripts: {},
   drafts: {},
   statuses: {},
@@ -56,6 +59,7 @@ export const useRuri = create<RuriState>((set) => ({
   summaries: {},
   tracker: {},
   composerSeed: null,
+  workspaceDir: "",
   canPickFolder: false,
   pickedPath: null,
   lastError: null,
@@ -110,11 +114,12 @@ function apply(msg: ServerMessage): void {
         summaries: msg.summaries,
         tracker: msg.tracker,
         canPickFolder: msg.canPickFolder,
+        workspaceDir: msg.workspaceDir,
         drafts: {},
         activeId:
-          s.activeId && msg.projects.some((p) => p.id === s.activeId)
+          s.activeId && (s.activeId === HOME_ID || msg.projects.some((p) => p.id === s.activeId))
             ? s.activeId
-            : (msg.projects[0]?.id ?? null),
+            : HOME_ID,
       }));
       break;
     }
@@ -122,10 +127,14 @@ function apply(msg: ServerMessage): void {
       setState((s) => ({
         projects: msg.projects,
         activeId:
-          s.activeId && msg.projects.some((p) => p.id === s.activeId)
+          s.activeId && (s.activeId === HOME_ID || msg.projects.some((p) => p.id === s.activeId))
             ? s.activeId
-            : (msg.projects[0]?.id ?? null),
+            : HOME_ID,
       }));
+      break;
+    }
+    case "workspace": {
+      setState({ workspaceDir: msg.path });
       break;
     }
     case "event": {

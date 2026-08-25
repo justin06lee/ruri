@@ -41,7 +41,7 @@ function createWindow(port: number): BrowserWindow {
     height: 850,
     minWidth: 880,
     minHeight: 560,
-    backgroundColor: "#0d1117",
+    backgroundColor: "#f6f1e6",
     titleBarStyle: "hiddenInset",
     title: "ruri",
     webPreferences: {
@@ -83,6 +83,10 @@ function buildMenu(): void {
 }
 
 async function main(): Promise<void> {
+  // Dev/screenshot runs: an isolated userData keeps the single-instance lock
+  // (and caches) from colliding with an installed ruri.app that's running.
+  const userData = process.env["RURI_USER_DATA"];
+  if (userData) app.setPath("userData", userData);
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;

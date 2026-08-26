@@ -199,8 +199,10 @@ function SessionControls({ project }: { project: Project }) {
         title="Model for this project's sessions — star models in Settings to curate this list"
         value={current}
         options={models.map((m) => ({
+          // the model's own name only — which harness serves it is the
+          // Settings catalog's business, not the picker's
           value: m.value,
-          label: m.provider ? `${m.displayName} — ${m.providerLabel}` : m.displayName,
+          label: m.displayName,
         }))}
         onSelect={(model) => send({ type: "set_model", projectId: project.id, model })}
       />

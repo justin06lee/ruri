@@ -140,6 +140,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const store = new ProjectStore();
   setSmallModel(store.smallModel());
   const archive = new SessionArchive();
+  // Home is ephemeral — it exists to open projects, not to accumulate
+  // context. Every launch starts it blank (no transcript, no resume).
+  archive.remove(HOME_ID);
   const tracker = new TrackerStore();
   const clients = new Set<WebSocket>();
   const permissions = new Map<string, PermissionRequest>();
@@ -454,6 +457,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         setSmallModel(small);
         broadcast({ type: "starred_models", models: starred });
         broadcast({ type: "small_model", model: small ?? "" });
+        break;
+      }
+      case "reset_home": {
+        // Skipped while a turn is in flight — it may still be opening
+        // projects; the next navigation resets it once it's quiet.
+        const status = manager.statuses()[HOME_ID];
+        if (status === "working" || status === "permission") break;
+        manager.dispose(HOME_ID);
+        archive.remove(HOME_ID);
+        broadcast({ type: "home_reset" });
         break;
       }
       case "refresh_models": {

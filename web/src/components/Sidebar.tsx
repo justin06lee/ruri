@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HOME_ID, type Project, type SessionInfo } from "../../../shared/protocol";
 import { Player } from "./Player";
 import { Settings } from "./Settings";
@@ -167,6 +167,29 @@ export function Sidebar() {
   const user = useRuri((s) => s.user);
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(loadCollapsed);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Desktop hover-over-drag: the titlebar drag region never delivers mouse
+  // events to the page, so Electron's main process polls the cursor and
+  // calls this hook — we lift whichever head sits under it. (:hover still
+  // covers browser dev, where there are no drag regions.)
+  useEffect(() => {
+    let lifted: Element | null = null;
+    (window as unknown as Record<string, unknown>)["__ruriPeekCursor"] = (
+      x: number,
+      y: number,
+      inBand: boolean,
+    ) => {
+      const el = inBand ? document.elementFromPoint(x, y) : null;
+      const head = el?.classList.contains("peek-head") ? el : null;
+      if (head === lifted) return;
+      lifted?.classList.remove("lift");
+      head?.classList.add("lift");
+      lifted = head;
+    };
+    return () => {
+      delete (window as unknown as Record<string, unknown>)["__ruriPeekCursor"];
+    };
+  }, []);
 
   const toggleFolder = (name: string) => {
     const next = new Set(collapsedSet);

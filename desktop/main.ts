@@ -47,6 +47,9 @@ function createWindow(port: number): BrowserWindow {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // the attachment viewer previews PDFs in an iframe via Chromium's
+      // built-in PDF plugin, which is off by default
+      plugins: true,
     },
   });
   win.webContents.setWindowOpenHandler(({ url }) => {

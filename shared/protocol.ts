@@ -186,6 +186,8 @@ export type ServerMessage =
       home: HomeSettings;
       /** Starred model ids — the composer picker shows only these. */
       starredModels: string[];
+      /** The local account name shown on the sidebar's account bar. */
+      user: string;
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }

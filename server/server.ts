@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as http from "node:http";
+import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import type {
@@ -487,6 +488,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       musicDir: musicRoot(),
       home: store.homeSettings(),
       starredModels: store.starredModels(),
+      user: os.userInfo().username,
     };
     ws.send(JSON.stringify(snapshot));
 

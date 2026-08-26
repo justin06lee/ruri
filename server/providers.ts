@@ -21,8 +21,10 @@ import type { ModelChoice } from "../shared/protocol.js";
  */
 export class ProviderRegistry {
   private readonly config: Record<string, ProviderConfigEntry>;
-  /** Installed providers, detected once at startup (claude excluded). */
+  /** Installed non-Claude providers, detected once at startup. */
   private readonly installed = new Map<string, Provider>();
+  /** Claude itself — only used to list its models before a session runs. */
+  private claude: Provider | undefined;
 
   constructor() {
     let host: ReturnType<typeof loadHostEngineConfig>;
@@ -35,7 +37,8 @@ export class ProviderRegistry {
     try {
       const { providers } = loadProviders(this.config, { appName: "ruri" });
       for (const [id, provider] of providers) {
-        if (id !== "claude") this.installed.set(id, provider);
+        if (id === "claude") this.claude = provider;
+        else this.installed.set(id, provider);
       }
     } catch {
       // no providers is fine — ruri just stays Claude-only
@@ -44,7 +47,7 @@ export class ProviderRegistry {
 
   /** Split a model id into provider + native model (Claude when no prefix). */
   parse(model: string | undefined): ModelRef {
-    return parseModelRef(model, this.installed.keys());
+    return parseModelRef(model, [...this.installed.keys(), "claude"]);
   }
 
   /** Build a provider instance working in the given project directory. */
@@ -58,32 +61,50 @@ export class ProviderRegistry {
   }
 
   /**
-   * Model choices across every installed harness, qualified ids ready for
-   * the picker. listModels can spawn a short-lived process per provider, so
-   * this runs once in the background with a timeout; a harness that won't
-   * answer still contributes its default-model entry.
+   * Model choices across every installed harness, ready for the picker:
+   * Claude's own models (bare ids — the same list a live session reports,
+   * so the picker is full before any session has run) and every other
+   * harness's models as qualified ids. listModels can spawn a short-lived
+   * process per provider, so this runs once in the background with a
+   * timeout; a harness that won't answer still contributes its
+   * default-model entry.
    */
-  async modelChoices(): Promise<ModelChoice[]> {
-    const choices = await Promise.all(
-      [...this.installed.entries()].map(async ([id, provider]) => {
+  async modelChoices(): Promise<{ claude: ModelChoice[]; harnesses: ModelChoice[] }> {
+    const probe = (provider: Provider) =>
+      Promise.race([
+        provider.listModels(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15_000)),
+      ]);
+    const [claude, harnesses] = await Promise.all([
+      (async () => {
         try {
-          const models = await Promise.race([
-            provider.listModels(),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 10_000)),
-          ]);
-          if (models.length > 0) {
-            return models.map((m) => ({
-              value: `${id}:${m.id}`,
-              displayName: `${provider.label} · ${m.display_name}`,
-              provider: id,
-            }));
-          }
+          if (!this.claude) return [];
+          return (await probe(this.claude)).map((m) => ({
+            value: m.id,
+            displayName: m.display_name,
+          }));
         } catch {
-          // fall through to the default-model entry
+          return [];
         }
-        return [{ value: id, displayName: `${provider.label} · default`, provider: id }];
-      }),
-    );
-    return choices.flat();
+      })(),
+      Promise.all(
+        [...this.installed.entries()].map(async ([id, provider]) => {
+          try {
+            const models = await probe(provider);
+            if (models.length > 0) {
+              return models.map((m) => ({
+                value: `${id}:${m.id}`,
+                displayName: `${provider.label} · ${m.display_name}`,
+                provider: id,
+              }));
+            }
+          } catch {
+            // fall through to the default-model entry
+          }
+          return [{ value: id, displayName: `${provider.label} · default`, provider: id }];
+        }),
+      ).then((lists) => lists.flat()),
+    ]);
+    return { claude, harnesses };
   }
 }

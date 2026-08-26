@@ -151,16 +151,17 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     }
   }
 
-  // The model picker: Claude models (reported by live sessions) plus every
-  // installed non-Claude harness, detected once at startup.
+  // The model picker: Claude models plus every installed non-Claude harness,
+  // probed once at startup so the list is full before any session has run.
+  // A live session's own report replaces the probed Claude list when it lands.
   const registry = new ProviderRegistry();
   let claudeModels: ModelChoice[] = [];
   let providerModels: ModelChoice[] = [];
   const allModels = () => [...claudeModels, ...providerModels];
-  void registry.modelChoices().then((list) => {
-    if (list.length === 0) return;
-    providerModels = list;
-    broadcast({ type: "models", models: allModels() });
+  void registry.modelChoices().then(({ claude, harnesses }) => {
+    if (claudeModels.length === 0 && claude.length > 0) claudeModels = claude;
+    providerModels = harnesses;
+    if (allModels().length > 0) broadcast({ type: "models", models: allModels() });
   });
 
   // A "channel" id is HOME_ID or a session id; sessions run with their

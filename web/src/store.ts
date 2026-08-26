@@ -30,6 +30,8 @@ interface RuriState {
   summaries: Record<string, Record<string, string>>;
   /** Feature-tracker checklists per project. */
   tracker: Record<string, TrackerItem[]>;
+  /** Split-send queue depth per channel. */
+  queue: Record<string, number>;
   /** Text waiting to be inserted into the composer (tracker "send as prompt"). */
   composerSeed: string | null;
   /** The workspace root the Home agent manages. */
@@ -58,6 +60,7 @@ export const useRuri = create<RuriState>((set) => ({
   models: [],
   summaries: {},
   tracker: {},
+  queue: {},
   composerSeed: null,
   workspaceDir: "",
   canPickFolder: false,
@@ -135,6 +138,10 @@ function apply(msg: ServerMessage): void {
             ? s.activeId
             : HOME_ID,
       }));
+      break;
+    }
+    case "queue": {
+      setState((s) => ({ queue: { ...s.queue, [msg.projectId]: msg.remaining } }));
       break;
     }
     case "workspace": {

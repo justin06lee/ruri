@@ -2,14 +2,20 @@ import { randomUUID } from "node:crypto";
 import {
   AgentSession,
   AuthRequiredError,
+  isSessionProvider,
   ProviderNotInstalledError,
+  type AgentEvent,
   type AgentOptions,
   type ContentBlockParam,
   type ModelRef,
   type PermissionDecision,
   type PermissionRequest as YagamiPermissionRequest,
   type Provider,
+  type ProviderSession,
   type SDKMessage,
+  type SessionPermissionDecision,
+  type SessionPermissionRequest,
+  type SessionProvider,
 } from "@justin06lee/yagami";
 import {
   DEFAULT_MODEL,
@@ -41,9 +47,9 @@ export interface SessionExtras {
   autoAllow?: string[];
   /** Extra Agent SDK options, merged last. */
   options?: AgentOptions;
-  /** System prompt for non-Claude harness sessions. The harnesses can't
-   *  take one natively, so it rides the first prompt as a <system> block
-   *  (yagami's own emulation shape) and resume carries it from there. */
+  /** System prompt for non-Claude harness sessions. Codex takes it natively
+   *  (developer instructions on the thread); ACP agents can't, so it rides
+   *  the first prompt of each app run as a <system> block. */
   providerSystem?: string;
   /** Runs when a non-Claude turn finishes (Home's drop-file pickup). */
   onProviderTurnEnd?: () => void;
@@ -506,6 +512,241 @@ class ProviderTurnSession implements ChannelSession {
   }
 }
 
+/** A provider tool_call, shaped for a ruri transcript chip. */
+function providerToolEvent(ev: Extract<AgentEvent, { type: "tool_call" }>): { name: string; summary: string } {
+  const name = ev.name.length > 0 ? ev.name[0]!.toUpperCase() + ev.name.slice(1) : "Tool";
+  const summary = ev.title ?? (ev.input !== undefined ? JSON.stringify(ev.input) : "");
+  return { name, summary: summary.length > 160 ? `${summary.slice(0, 157)}…` : summary };
+}
+
+/**
+ * A session on a non-Claude harness that supports yagami's agentic session
+ * layer (Codex via app-server, every ACP agent): the harness runs VERBATIM —
+ * its own config, sandbox, and approval flow — warm across turns, with tool
+ * calls streamed as transcript chips and approval requests surfaced as ruri
+ * permission cards ("Always allow" maps to the harness's own
+ * approve-for-session answer).
+ */
+class ProviderAgentSession implements ChannelSession {
+  status: ProjectStatus = "idle";
+  /** Prefixed "<provider>:<session>", so a Claude resume can never eat it. */
+  lastSessionId: string | undefined;
+  dead = false;
+
+  private readonly session: ProviderSession;
+  private nativeModel: string | undefined;
+  private running = false;
+  private readonly backlog: Array<{
+    text: string;
+    images?: Array<{ data: string; mediaType?: string }>;
+  }> = [];
+  private readonly pending = new Map<string, { resolve(d: SessionPermissionDecision): void }>();
+  /** ACP can't take a system prompt natively — the first turn of each app
+   *  run carries it as a <system> block (codex gets developerInstructions). */
+  private sentSystem = false;
+
+  constructor(
+    private readonly project: Project,
+    private readonly events: SessionEvents,
+    readonly providerId: string,
+    provider: SessionProvider,
+    nativeModel: string | undefined,
+    resume: string | undefined,
+    private readonly extras?: SessionExtras,
+  ) {
+    this.nativeModel = nativeModel;
+    if (resume?.startsWith(`${providerId}:`)) this.lastSessionId = resume;
+    const nativeResume = this.lastSessionId?.slice(providerId.length + 1);
+    this.session = provider.openSession({
+      cwd: project.path,
+      appName: "ruri",
+      ...(nativeModel ? { model: nativeModel } : {}),
+      ...(nativeResume ? { resume: nativeResume } : {}),
+      ...(extras?.providerSystem ? { systemPrompt: extras.providerSystem } : {}),
+      permissions: { decide: (req) => this.decide(req) },
+    });
+  }
+
+  send(
+    text: string,
+    images?: Array<{ data: string; mediaType?: string }>,
+    attachments?: Attachment[],
+  ): void {
+    this.pushEvent({
+      kind: "user",
+      id: randomUUID(),
+      text,
+      ...(attachments?.length ? { attachments: attachments } : {}),
+      ts: Date.now(),
+    });
+    this.setStatus("working");
+    if (this.running) {
+      this.backlog.push({ text, ...(images ? { images } : {}) });
+      return;
+    }
+    void this.run(text, images);
+  }
+
+  private async run(
+    text: string,
+    images?: Array<{ data: string; mediaType?: string }>,
+  ): Promise<void> {
+    this.running = true;
+    const started = Date.now();
+    const draftId = randomUUID();
+    let acc = "";
+    let costUsd: number | undefined;
+    let error: string | undefined;
+    let interrupted = false;
+    const toolsSeen = new Set<string>();
+    try {
+      let prompt = text;
+      if (this.extras?.providerSystem && this.providerId !== "codex" && !this.sentSystem) {
+        prompt = `<system>\n${this.extras.providerSystem}\n</system>\n\n${text}`;
+        this.sentSystem = true;
+      }
+      const input: string | ContentBlockParam[] = images?.length
+        ? ([
+            ...images.map((img) => ({
+              type: "image",
+              source: { type: "base64", data: img.data, media_type: img.mediaType ?? "image/png" },
+            })),
+            { type: "text", text: prompt },
+          ] as ContentBlockParam[])
+        : prompt;
+      for await (const event of this.session.send(input)) {
+        if (event.type === "session") {
+          this.lastSessionId = `${this.providerId}:${event.sessionId}`;
+          this.events.onSessionId(this.project.id, this.lastSessionId);
+        } else if (event.type === "text") {
+          acc += event.text;
+          this.events.onDelta(this.project.id, draftId, event.text);
+        } else if (event.type === "tool_call") {
+          if (event.status !== "started" || toolsSeen.has(event.id)) continue;
+          toolsSeen.add(event.id);
+          const { name, summary } = providerToolEvent(event);
+          this.pushEvent({ kind: "tool", id: randomUUID(), name, summary, ts: Date.now() });
+        } else if (event.type === "done") {
+          costUsd = event.costUsd;
+          interrupted = event.stopReason === "interrupted";
+        }
+      }
+    } catch (err) {
+      if (err instanceof AuthRequiredError) {
+        error = err.message;
+      } else if (err instanceof ProviderNotInstalledError) {
+        error = err.message;
+      } else {
+        error = err instanceof Error ? err.message : String(err);
+      }
+    }
+    this.rejectPending();
+    if (acc) this.pushEvent({ kind: "assistant", id: draftId, text: acc, ts: Date.now() });
+    // pick up anything the turn dropped for the app (Home's open requests)
+    try {
+      this.extras?.onProviderTurnEnd?.();
+    } catch {
+      // a bad drop file must not kill the turn pipeline
+    }
+    this.pushEvent({
+      kind: "result",
+      id: randomUUID(),
+      ok: error === undefined,
+      ...(costUsd !== undefined ? { costUsd } : {}),
+      durationMs: Date.now() - started,
+      ...(error !== undefined ? { error } : interrupted ? { error: "interrupted" } : {}),
+      ts: Date.now(),
+    });
+    this.running = false;
+    const next = this.backlog.shift();
+    if (next && !this.dead) {
+      void this.run(next.text, next.images);
+    } else {
+      this.setStatus(error === undefined ? "idle" : "error");
+    }
+  }
+
+  /** The harness asked to do something — show ruri's permission card. */
+  private decide(req: SessionPermissionRequest): Promise<SessionPermissionDecision> {
+    return new Promise((resolve) => {
+      const requestId = randomUUID();
+      this.pending.set(requestId, { resolve });
+      this.events.onPermission({
+        requestId,
+        projectId: this.project.id,
+        toolName: req.tool,
+        input: req.input ?? (req.title ? { request: req.title } : {}),
+        ts: Date.now(),
+      });
+      this.setStatus("permission");
+    });
+  }
+
+  respondPermission(requestId: string, allow: boolean, always = false): boolean {
+    const pending = this.pending.get(requestId);
+    if (!pending) return false;
+    this.pending.delete(requestId);
+    pending.resolve(allow ? (always ? "allow_always" : "allow") : "deny");
+    this.events.onPermissionResolved(requestId);
+    if (this.running && this.pending.size === 0) this.setStatus("working");
+    return true;
+  }
+
+  pendingRequests(): string[] {
+    return [...this.pending.keys()];
+  }
+
+  private rejectPending(): void {
+    for (const [requestId, pending] of this.pending) {
+      pending.resolve("deny");
+      this.events.onPermissionResolved(requestId);
+    }
+    this.pending.clear();
+  }
+
+  interrupt(): void {
+    this.backlog.length = 0;
+    void this.session.interrupt();
+  }
+
+  /** A model change re-opens the session on the same thread via resume. */
+  setModel(model: string): void {
+    if ((model || undefined) === this.nativeModel) return;
+    this.nativeModel = model || undefined;
+    this.dead = true;
+    void this.session.close();
+  }
+
+  setPermissionMode(): void {
+    // permission modes are a Claude concept; the harness's own flow stands in
+  }
+
+  dispose(): void {
+    this.dead = true;
+    this.backlog.length = 0;
+    this.rejectPending();
+    void this.session.close();
+  }
+
+  private pushEvent(event: TranscriptEvent): void {
+    this.events.onEvent(this.project.id, event);
+  }
+
+  private setStatus(status: ProjectStatus): void {
+    if (this.status === status) return;
+    this.status = status;
+    this.events.onStatus(this.project.id, status);
+  }
+}
+
+/** The non-Claude provider id a live session runs on, if any. */
+function providerSessionId(session: ChannelSession): string | undefined {
+  if (session instanceof ProviderTurnSession || session instanceof ProviderAgentSession) {
+    return session.providerId;
+  }
+  return undefined;
+}
+
 export class SessionManager {
   private readonly sessions = new Map<string, ChannelSession>();
 
@@ -540,9 +781,8 @@ export class SessionManager {
     // The model moved to a different harness: retire the live session. The
     // transcript and archive are per-channel and survive; only warm state goes.
     if (session && !session.dead) {
-      const mismatch = route.providerId
-        ? !(session instanceof ProviderTurnSession && session.providerId === route.providerId)
-        : session instanceof ProviderTurnSession;
+      const providerOf = providerSessionId(session);
+      const mismatch = route.providerId ? providerOf !== route.providerId : providerOf !== undefined;
       if (mismatch) {
         session.dispose();
         session = undefined;
@@ -552,15 +792,28 @@ export class SessionManager {
     if (!session || session.dead) {
       const resume = session?.lastSessionId ?? this.resumeFor(project.id);
       if (route.providerId && this.providers) {
-        session = new ProviderTurnSession(
-          project,
-          this.events,
-          route.providerId,
-          this.providers.create(route.providerId, project.path),
-          route.model,
-          resume,
-          this.extrasFor(project),
-        );
+        const provider = this.providers.create(route.providerId, project.path);
+        // the agentic path (Codex app-server, ACP) is the harness verbatim;
+        // run()-per-turn stays as the fallback for anything without it
+        session = isSessionProvider(provider)
+          ? new ProviderAgentSession(
+              project,
+              this.events,
+              route.providerId,
+              provider,
+              route.model,
+              resume,
+              this.extrasFor(project),
+            )
+          : new ProviderTurnSession(
+              project,
+              this.events,
+              route.providerId,
+              provider,
+              route.model,
+              resume,
+              this.extrasFor(project),
+            );
       } else {
         // provider-prefixed resume ids never feed a Claude session
         const claudeResume = resume && !resume.includes(":") ? resume : undefined;
@@ -588,14 +841,15 @@ export class SessionManager {
     const session = this.sessions.get(projectId);
     if (!session || session.dead) return;
     const route = this.routeOf(model);
+    const providerOf = providerSessionId(session);
     if (route.providerId) {
-      if (session instanceof ProviderTurnSession && session.providerId === route.providerId) {
+      if (providerOf === route.providerId) {
         session.setModel(route.model ?? "");
       } else {
         session.dispose();
         this.sessions.delete(projectId);
       }
-    } else if (session instanceof ProviderTurnSession) {
+    } else if (providerOf !== undefined) {
       session.dispose();
       this.sessions.delete(projectId);
     } else if (model) {

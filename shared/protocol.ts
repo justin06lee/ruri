@@ -49,10 +49,11 @@ export interface ModelChoice {
   providerLabel?: string;
 }
 
-/** A file attached to a prompt (image or video). */
+/** A file attached to a prompt — image, video, or any other file (pdf,
+ *  text, source, …); "file" kinds are saved to disk and read via tools. */
 export interface Attachment {
   id: string;
-  kind: "image" | "video";
+  kind: "image" | "video" | "file";
   mediaType: string;
   name: string;
   /** Marker number as shown in the prompt text ([image #2] → 2). */

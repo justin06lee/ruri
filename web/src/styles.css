@@ -1996,6 +1996,31 @@ input[type="range"]::-webkit-slider-thumb {
   color: #fff;
 }
 
+/* non-media attachment tile: doc glyph + extension badge */
+
+.att-file {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--ink-soft);
+}
+
+.att-file svg {
+  width: 20px;
+  height: 20px;
+}
+
+.att-ext {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
 .att-regions {
   position: absolute;
   top: 2px;
@@ -2102,6 +2127,43 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 100%;
   max-height: 62vh;
   user-select: none;
+}
+
+/* file previews: pdf frame, scrolling text body, or a plain shrug */
+
+.viewer-stage.file {
+  align-self: stretch;
+  overflow: auto;
+}
+
+.viewer-pdf {
+  display: block;
+  width: min(860px, 88vw);
+  height: 70vh;
+  border: none;
+  background: var(--paper-dim);
+}
+
+.viewer-text {
+  margin: 0;
+  width: min(820px, 86vw);
+  max-height: 62vh;
+  overflow: auto;
+  padding: 12px 14px;
+  background: var(--paper-dim);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.viewer-nopreview {
+  width: min(560px, 80vw);
+  padding: 36px 20px;
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 12.5px;
 }
 
 .region-box {

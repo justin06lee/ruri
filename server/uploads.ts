@@ -5,9 +5,10 @@ import * as path from "node:path";
 import type { Attachment, AttachmentUpload } from "../shared/protocol.js";
 
 /**
- * Prompt attachments: incoming base64 images/videos are persisted under
- * ~/.config/ruri/uploads and served back over /uploads/<file>, so transcript
- * events carry small URLs instead of megabytes of base64.
+ * Prompt attachments: incoming base64 files (images, videos, pdfs, text,
+ * anything) are persisted under ~/.config/ruri/uploads and served back over
+ * /uploads/<file>, so transcript events carry small URLs instead of
+ * megabytes of base64.
  */
 
 const EXT: Record<string, string> = {
@@ -18,11 +19,18 @@ const EXT: Record<string, string> = {
   "video/mp4": "mp4",
   "video/quicktime": "mov",
   "video/webm": "webm",
+  "application/pdf": "pdf",
 };
 
-const MIME: Record<string, string> = Object.fromEntries(
-  Object.entries(EXT).map(([mime, ext]) => [ext, mime]),
-);
+const MIME: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(EXT).map(([mime, ext]) => [ext, mime])),
+  // preview types for common "file" attachments; anything else streams as
+  // octet-stream (the viewer fetches text previews itself, so that's fine)
+  txt: "text/plain; charset=utf-8",
+  md: "text/plain; charset=utf-8",
+  json: "application/json",
+  csv: "text/csv; charset=utf-8",
+};
 
 function uploadsDir(): string {
   return path.join(
@@ -33,7 +41,10 @@ function uploadsDir(): string {
 
 /** Persist one upload; returns its serving URL and absolute file path. */
 export function storeUpload(upload: AttachmentUpload): { url: string; filePath: string } {
-  const ext = EXT[upload.mediaType] ?? "bin";
+  // arbitrary files keep their own extension (browsers often report no or
+  // bogus MIME types for source files), sanitized down to alphanumerics
+  const nameExt = path.extname(upload.name).slice(1).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const ext = EXT[upload.mediaType] ?? (nameExt || "bin");
   const filename = `${upload.id}.${ext}`;
   fs.mkdirSync(uploadsDir(), { recursive: true });
   const filePath = path.join(uploadsDir(), filename);
@@ -64,8 +75,10 @@ export function processAttachments(
         images.push({ data: region.data, mediaType: region.mediaType });
         outText += `\n[image #${upload.n}, region ${i + 1} — attached as its own image] ${region.note}`;
       });
-    } else {
+    } else if (upload.kind === "video") {
       outText += `\n[video #${upload.n}] saved at ${filePath} — inspect it with tools if needed.`;
+    } else {
+      outText += `\n[file #${upload.n}: ${upload.name}] saved at ${filePath} — read it with tools if needed.`;
     }
   }
   return { text: outText, images, attachments };
@@ -73,7 +86,7 @@ export function processAttachments(
 
 const CORS: Record<string, string> = { "access-control-allow-origin": "*" };
 
-/** GET /uploads/<file> — images and videos for transcript previews. */
+/** GET /uploads/<file> — attachment payloads for transcript previews. */
 export function serveUpload(req: http.IncomingMessage, res: http.ServerResponse): void {
   const name = (req.url ?? "").replace("/uploads/", "").split("?")[0] ?? "";
   const filePath = path.join(uploadsDir(), path.basename(name));

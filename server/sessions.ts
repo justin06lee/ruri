@@ -77,7 +77,15 @@ interface ChannelSession {
   pendingRequests(): string[];
 }
 
-function toolSummary(name: string, input: Record<string, unknown>): string {
+/** Collapse absolute paths inside the project down to "name/relative" —
+ *  paths outside the project keep their full string, which is the signal. */
+function shortenPaths(text: string, project: Project): string {
+  const root = project.path.replace(/\/+$/, "");
+  if (!root) return text;
+  return text.replaceAll(`${root}/`, `${project.name}/`).replaceAll(root, project.name);
+}
+
+function toolSummary(name: string, input: Record<string, unknown>, project: Project): string {
   const str = (key: string) => (typeof input[key] === "string" ? (input[key] as string) : undefined);
   let summary: string | undefined;
   switch (name) {
@@ -109,6 +117,7 @@ function toolSummary(name: string, input: Record<string, unknown>): string {
       break;
   }
   summary ??= JSON.stringify(input);
+  summary = shortenPaths(summary, project);
   return summary.length > 160 ? `${summary.slice(0, 157)}…` : summary;
 }
 
@@ -284,7 +293,7 @@ class ProjectSession implements ChannelSession {
             kind: "tool",
             id: randomUUID(),
             name,
-            summary: toolSummary(name, input),
+            summary: toolSummary(name, input, this.project),
             ts: Date.now(),
           });
         }
@@ -513,9 +522,12 @@ class ProviderTurnSession implements ChannelSession {
 }
 
 /** A provider tool_call, shaped for a ruri transcript chip. */
-function providerToolEvent(ev: Extract<AgentEvent, { type: "tool_call" }>): { name: string; summary: string } {
+function providerToolEvent(
+  ev: Extract<AgentEvent, { type: "tool_call" }>,
+  project: Project,
+): { name: string; summary: string } {
   const name = ev.name.length > 0 ? ev.name[0]!.toUpperCase() + ev.name.slice(1) : "Tool";
-  const summary = ev.title ?? (ev.input !== undefined ? JSON.stringify(ev.input) : "");
+  const summary = shortenPaths(ev.title ?? (ev.input !== undefined ? JSON.stringify(ev.input) : ""), project);
   return { name, summary: summary.length > 160 ? `${summary.slice(0, 157)}…` : summary };
 }
 
@@ -624,7 +636,7 @@ class ProviderAgentSession implements ChannelSession {
         } else if (event.type === "tool_call") {
           if (event.status !== "started" || toolsSeen.has(event.id)) continue;
           toolsSeen.add(event.id);
-          const { name, summary } = providerToolEvent(event);
+          const { name, summary } = providerToolEvent(event, this.project);
           this.pushEvent({ kind: "tool", id: randomUUID(), name, summary, ts: Date.now() });
         } else if (event.type === "done") {
           costUsd = event.costUsd;

@@ -223,6 +223,26 @@ function SessionControls({ project }: { project: Project }) {
 
 /* ── composer ────────────────────────────────────────────────────── */
 
+/** Unsent composer state, kept per channel so switching sessions (the
+ *  component remounts via key={channelId}) never loses a draft in progress.
+ *  Object URLs stay alive until the draft is sent or the tab closes. */
+interface ComposerDraft {
+  text: string;
+  atts: ComposerAttachment[];
+  counter: { image: number; video: number; file: number };
+}
+const composerDrafts = new Map<string, ComposerDraft>();
+
+/** Real video containers only — browsers call .ts (TypeScript) "video/mp2t". */
+const VIDEO_EXT = new Set(["mp4", "mov", "webm", "m4v", "avi", "mkv", "mpg", "mpeg", "ogv"]);
+
+function fileKind(file: File): "image" | "video" | "file" {
+  if (file.type.startsWith("image/")) return "image";
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (file.type.startsWith("video/") && VIDEO_EXT.has(ext)) return "video";
+  return "file";
+}
+
 function Composer({
   channelId,
   project,
@@ -234,31 +254,36 @@ function Composer({
   busy: boolean;
 }) {
   const projectId = channelId;
-  const [text, setText] = useState("");
-  const [atts, setAtts] = useState<ComposerAttachment[]>([]);
+  const saved = composerDrafts.get(channelId);
+  const [text, setText] = useState(saved?.text ?? "");
+  const [atts, setAtts] = useState<ComposerAttachment[]>(saved?.atts ?? []);
   const [viewing, setViewing] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const counter = useRef({ image: 0, video: 0 });
+  const counter = useRef(saved?.counter ?? { image: 0, video: 0, file: 0 });
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const composerSeed = useRuri((s) => s.composerSeed);
   const clearComposerSeed = useRuri((s) => s.clearComposerSeed);
   const queued = useRuri((s) => s.queue[channelId] ?? 0);
 
+  // Every keystroke and attachment change lands in the per-channel draft.
+  useEffect(() => {
+    composerDrafts.set(channelId, { text, atts, counter: counter.current });
+  }, [channelId, text, atts]);
+
   const addFiles = (files: FileList | File[]) => {
     const added: ComposerAttachment[] = [];
     for (const file of files) {
-      const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : null;
-      if (!kind) continue;
       if (file.size > 25 * 1024 * 1024) {
         alert(`${file.name} is over 25MB — too big to attach.`);
         continue;
       }
+      const kind = fileKind(file);
       const n = ++counter.current[kind];
       added.push({
         id: crypto.randomUUID(),
         file,
         kind,
-        mediaType: file.type,
+        mediaType: file.type || "application/octet-stream",
         name: file.name,
         n,
         objectUrl: URL.createObjectURL(file),
@@ -268,8 +293,9 @@ function Composer({
     if (added.length === 0) return;
     setAtts((prev) => [...prev, ...added]);
     setText((prev) => {
+      // trailing space so typing right after a drop never sticks to the "]"
       const markers = added.map((a) => `[${a.kind} #${a.n}]`).join(" ");
-      return prev.trim() ? `${prev} ${markers}` : markers;
+      return prev.trim() ? `${prev.replace(/\s+$/, "")} ${markers} ` : `${markers} `;
     });
     requestAnimationFrame(autosize);
   };
@@ -335,12 +361,13 @@ function Composer({
       ...(uploads.length ? { attachments: uploads } : {}),
     });
     for (const att of atts) URL.revokeObjectURL(att.objectUrl);
+    composerDrafts.delete(channelId);
     setAtts([]);
     setText("");
     requestAnimationFrame(autosize);
   };
 
-  // Reset height when switching projects clears the draft.
+  // Fit the restored draft's height on mount (remounts on session switch).
   useEffect(autosize, [projectId]);
 
   const viewingAtt = atts.find((a) => a.id === viewing);
@@ -420,7 +447,7 @@ function Composer({
       <div className="composer-hint">
         {queued > 0
           ? `${queued} prompt${queued === 1 ? "" : "s"} queued — sent one by one as turns finish · Stop clears the queue`
-          : "Enter to send · Shift+Enter for a new line · drop images or videos to attach · scissors to split a long prompt"}
+          : "Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach · scissors to split a long prompt"}
       </div>
       {viewingAtt && (
         <Viewer
@@ -428,6 +455,8 @@ function Composer({
             kind: viewingAtt.kind,
             src: viewingAtt.objectUrl,
             label: `${viewingAtt.kind} #${viewingAtt.n} — ${viewingAtt.name}`,
+            name: viewingAtt.name,
+            mediaType: viewingAtt.mediaType,
             attachment: viewingAtt,
           }}
           onClose={() => setViewing(null)}
@@ -608,7 +637,7 @@ export function ChatPane() {
           />
           <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
           <div className="hero-composer">
-            <Composer channelId={activeId} project={project} busy={busy} />
+            <Composer key={activeId} channelId={activeId} project={project} busy={busy} />
           </div>
 
         </div>
@@ -702,7 +731,7 @@ export function ChatPane() {
 
       {trackerOpen && <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />}
 
-      <Composer channelId={activeId} project={project} busy={busy} />
+      <Composer key={activeId} channelId={activeId} project={project} busy={busy} />
     </main>
   );
 }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Project, SessionInfo } from "../shared/protocol.js";
+import type { HomeSettings, Project, SessionInfo } from "../shared/protocol.js";
 
 function configDir(): string {
   return process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri");
@@ -15,12 +15,16 @@ function projectsFile(): string {
 export class ProjectStore {
   private projects: Project[] = [];
   private workspace: string | undefined;
+  private music: string | undefined;
+  private home: HomeSettings = {};
 
   constructor() {
     try {
       const raw = JSON.parse(fs.readFileSync(projectsFile(), "utf8")) as {
         projects?: Project[];
         workspaceDir?: string;
+        musicDir?: string;
+        home?: HomeSettings;
       };
       this.projects = (raw.projects ?? []).filter(
         (p) => typeof p?.id === "string" && typeof p?.name === "string" && typeof p?.path === "string",
@@ -33,6 +37,8 @@ export class ProjectStore {
         }
       }
       if (typeof raw.workspaceDir === "string") this.workspace = raw.workspaceDir;
+      if (typeof raw.musicDir === "string") this.music = raw.musicDir;
+      if (raw.home && typeof raw.home === "object") this.home = raw.home;
     } catch {
       // first run
     }
@@ -51,6 +57,34 @@ export class ProjectStore {
       throw new Error(`not a directory: ${resolved}`);
     }
     this.workspace = resolved;
+    this.save();
+  }
+
+  /** The user's chosen music library root; undefined = the built-in default. */
+  customMusicDir(): string | undefined {
+    return this.music;
+  }
+
+  setMusicDir(dir: string): void {
+    const resolved = path.resolve(dir.startsWith("~/") ? path.join(os.homedir(), dir.slice(2)) : dir);
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+      throw new Error(`not a directory: ${resolved}`);
+    }
+    this.music = resolved;
+    this.save();
+  }
+
+  homeSettings(): HomeSettings {
+    return { ...this.home };
+  }
+
+  /** Patch the Home agent's settings; "" clears a field back to the default. */
+  setHomeSettings(patch: HomeSettings): void {
+    const record = this.home as Record<string, unknown>;
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined || value === "") delete record[key];
+      else record[key] = value;
+    }
     this.save();
   }
 
@@ -152,7 +186,12 @@ export class ProjectStore {
     fs.writeFileSync(
       projectsFile(),
       `${JSON.stringify(
-        { projects: this.projects, ...(this.workspace ? { workspaceDir: this.workspace } : {}) },
+        {
+          projects: this.projects,
+          ...(this.workspace ? { workspaceDir: this.workspace } : {}),
+          ...(this.music ? { musicDir: this.music } : {}),
+          ...(Object.keys(this.home).length ? { home: this.home } : {}),
+        },
         null,
         2,
       )}\n`,

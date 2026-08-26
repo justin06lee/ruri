@@ -1,6 +1,6 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { HOME_ID, type Project } from "../shared/protocol.js";
+import { HOME_ID, type HomeSettings, type Project } from "../shared/protocol.js";
 import type { SessionExtras } from "./sessions.js";
 
 /**
@@ -12,8 +12,15 @@ import type { SessionExtras } from "./sessions.js";
 
 export { HOME_ID };
 
-export function homeProject(workspaceDir: string): Project {
-  return { id: HOME_ID, name: "ruri", path: workspaceDir, sessions: [] };
+export function homeProject(workspaceDir: string, settings: HomeSettings = {}): Project {
+  return {
+    id: HOME_ID,
+    name: "ruri",
+    path: workspaceDir,
+    sessions: [],
+    ...(settings.model ? { model: settings.model } : {}),
+    ...(settings.permissionMode ? { permissionMode: settings.permissionMode } : {}),
+  };
 }
 
 /** What the manager's MCP tools are allowed to do to the app. */

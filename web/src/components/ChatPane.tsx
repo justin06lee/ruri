@@ -207,13 +207,11 @@ function Composer({
   channelId,
   project,
   busy,
-  showControls = true,
 }: {
   /** The session (or Home) this composer sends to. */
   channelId: string;
   project: Project;
   busy: boolean;
-  showControls?: boolean;
 }) {
   const projectId = channelId;
   const [text, setText] = useState("");
@@ -367,7 +365,7 @@ function Composer({
           }}
         />
         <div className="composer-bar">
-          {showControls && <SessionControls project={project} />}
+          <SessionControls project={project} />
           <div className="composer-actions">
             {busy && (
               <button
@@ -471,10 +469,11 @@ export function ChatPane() {
     s.activeId ? s.projects.find((p) => p.sessions.some((x) => x.id === s.activeId)) : undefined,
   );
   const workspaceDir = useRuri((s) => s.workspaceDir);
+  const home = useRuri((s) => s.home);
   const isHome = activeId === HOME_ID;
   const session = storeProject?.sessions.find((x) => x.id === activeId);
   const project: Project | undefined = isHome
-    ? { id: HOME_ID, name: "ruri", path: workspaceDir, sessions: [] }
+    ? { id: HOME_ID, name: "ruri", path: workspaceDir, sessions: [], ...home }
     : storeProject;
   const transcript = useRuri((s) =>
     s.activeId ? (s.transcripts[s.activeId] ?? NO_EVENTS) : NO_EVENTS,
@@ -489,14 +488,18 @@ export function ChatPane() {
   const lastError = useRuri((s) => s.lastError);
   const dismissError = useRuri((s) => s.dismissError);
 
-  // The native picker is only launched from Home (workspace change).
-  const pickedPath = useRuri((s) => s.pickedPath);
-  const clearPickedPath = useRuri((s) => s.clearPickedPath);
+  // Native-picker results land here (always mounted) and route by target.
+  const picked = useRuri((s) => s.picked);
+  const clearPicked = useRuri((s) => s.clearPicked);
   useEffect(() => {
-    if (!pickedPath) return;
-    send({ type: "set_workspace", path: pickedPath });
-    clearPickedPath();
-  }, [pickedPath, clearPickedPath]);
+    if (!picked) return;
+    send(
+      picked.target === "music"
+        ? { type: "set_music_dir", path: picked.path }
+        : { type: "set_workspace", path: picked.path },
+    );
+    clearPicked();
+  }, [picked, clearPicked]);
 
   const trackerItems = useRuri((s) => (s.activeId ? s.tracker[s.activeId] : undefined));
   const [trackerOpen, setTrackerOpen] = useState(false);
@@ -585,7 +588,7 @@ export function ChatPane() {
           />
           <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
           <div className="hero-composer">
-            <Composer channelId={activeId} project={project} busy={busy} showControls={!isHome} />
+            <Composer channelId={activeId} project={project} busy={busy} />
           </div>
 
         </div>
@@ -675,7 +678,7 @@ export function ChatPane() {
 
       {trackerOpen && <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />}
 
-      <Composer channelId={activeId} project={project} busy={busy} showControls={!isHome} />
+      <Composer channelId={activeId} project={project} busy={busy} />
     </main>
   );
 }

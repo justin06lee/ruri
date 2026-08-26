@@ -2,8 +2,10 @@ import { create } from "zustand";
 import {
   HOME_ID,
   type ClientMessage,
+  type HomeSettings,
   type ModelChoice,
   type PermissionRequest,
+  type PickTarget,
   type Project,
   type ProjectStatus,
   type ServerMessage,
@@ -36,15 +38,21 @@ interface RuriState {
   composerSeed: string | null;
   /** The workspace root the Home agent manages. */
   workspaceDir: string;
+  /** Where the music player's playlists live. */
+  musicDir: string;
+  /** Bumped when the music dir changes, so the player rescans. */
+  musicEpoch: number;
+  /** The Home agent's model/permission settings. */
+  home: HomeSettings;
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
-  /** Latest native-picker result, consumed by the add-project form. */
-  pickedPath: string | null;
+  /** Latest native-picker result, tagged with what the pick was for. */
+  picked: { path: string; target: PickTarget } | null;
   lastError: string | null;
   setActive(id: string | null): void;
   seedComposer(text: string): void;
   clearComposerSeed(): void;
-  clearPickedPath(): void;
+  clearPicked(): void;
   dismissError(): void;
 }
 
@@ -63,14 +71,17 @@ export const useRuri = create<RuriState>((set) => ({
   queue: {},
   composerSeed: null,
   workspaceDir: "",
+  musicDir: "",
+  musicEpoch: 0,
+  home: {},
   canPickFolder: false,
-  pickedPath: null,
+  picked: null,
   lastError: null,
   setActive: (id) =>
     set((s) => ({ activeId: id, unread: id ? { ...s.unread, [id]: false } : s.unread })),
   seedComposer: (text) => set({ composerSeed: text }),
   clearComposerSeed: () => set({ composerSeed: null }),
-  clearPickedPath: () => set({ pickedPath: null }),
+  clearPicked: () => set({ picked: null }),
   dismissError: () => set({ lastError: null }),
 }));
 
@@ -118,6 +129,8 @@ function apply(msg: ServerMessage): void {
         tracker: msg.tracker,
         canPickFolder: msg.canPickFolder,
         workspaceDir: msg.workspaceDir,
+        musicDir: msg.musicDir,
+        home: msg.home,
         drafts: {},
         activeId:
           s.activeId &&
@@ -146,6 +159,14 @@ function apply(msg: ServerMessage): void {
     }
     case "workspace": {
       setState({ workspaceDir: msg.path });
+      break;
+    }
+    case "music_dir": {
+      setState((s) => ({ musicDir: msg.path, musicEpoch: s.musicEpoch + 1 }));
+      break;
+    }
+    case "home_settings": {
+      setState({ home: msg.home });
       break;
     }
     case "event": {
@@ -200,7 +221,7 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "folder_picked": {
-      if (msg.path) setState({ pickedPath: msg.path });
+      if (msg.path) setState({ picked: { path: msg.path, target: msg.target ?? "workspace" } });
       break;
     }
     case "tracker": {

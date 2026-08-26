@@ -29,13 +29,14 @@ export const MIME: Record<string, string> = {
   ".webm": "audio/webm",
 };
 
-export function musicDir(): string {
+/** Where the library lives when the user hasn't pointed it elsewhere. */
+export function defaultMusicDir(): string {
   return process.env["RURI_MUSIC_DIR"] ?? path.join(os.homedir(), "Music", "ruri");
 }
 
 /** Only files under the music dir are ever served. */
-export function isAllowed(target: string): boolean {
-  const rel = path.relative(path.resolve(musicDir()), path.resolve(target));
+export function isAllowed(target: string, root: string = defaultMusicDir()): boolean {
+  const rel = path.relative(path.resolve(root), path.resolve(target));
   return !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
@@ -90,8 +91,7 @@ Files sitting loose at the top level are grouped as "Unsorted".
 Supported: mp3, m4a, mp4, aac, flac, wav, ogg, opus, webm.
 `;
 
-export function scan(): Playlist[] {
-  const root = musicDir();
+export function scan(root: string = defaultMusicDir()): Playlist[] {
   try {
     if (!fs.existsSync(root)) {
       fs.mkdirSync(root, { recursive: true });

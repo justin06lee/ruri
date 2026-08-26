@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Playlist, Track } from "../../../shared/protocol";
 import { AudioEngine, type PlayerState } from "../lib/audio";
-import { HTTP_BASE } from "../store";
+import { HTTP_BASE, useRuri } from "../store";
 import { Dropdown } from "./Dropdown";
 
 const EMPTY: PlayerState = {
@@ -80,13 +80,15 @@ export function Player() {
     };
   }, []);
 
+  // Rescan when opened, and again whenever the music dir changes in Settings.
+  const musicEpoch = useRuri((s) => s.musicEpoch);
   useEffect(() => {
     if (!open) return;
     void fetch(`${HTTP_BASE}/music/playlists`)
       .then((r) => r.json())
       .then((data: { playlists: Playlist[] }) => setPlaylists(data.playlists))
       .catch(() => setPlaylists([]));
-  }, [open]);
+  }, [open, musicEpoch]);
 
   const playlist = playlists.find((p) => p.id === playlistId) ?? playlists[0] ?? null;
 

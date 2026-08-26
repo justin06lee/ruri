@@ -186,8 +186,11 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-header">
         <span className="logo-peeks" aria-hidden>
-          {["p4", "p2", "p5", "p3"].map((p) => (
-            <img key={p} src={`/peek/${p}.png`} alt="" />
+          {/* the peek piano: hover a chip and she rises to face you */}
+          {Array.from({ length: 10 }, (_, i) => (
+            <span key={i} className="peek-chip">
+              <img src={`/peek/c${i + 1}.png`} alt="" />
+            </span>
           ))}
         </span>
         <span className="sidebar-header-right">

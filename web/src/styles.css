@@ -275,12 +275,15 @@ textarea::placeholder {
   top: var(--drop, 0px);
   height: auto;
   transition: transform 180ms cubic-bezier(0.3, 0.9, 0.3, 1);
-  /* the header is a window-drag region, and drag regions swallow mouse
-     events — without this, hover never fires in the real app */
-  -webkit-app-region: no-drag;
+  /* the heads stay part of the header's window-drag region (no no-drag) so
+     the bar always moves the window. Drag regions swallow real mouse events,
+     so in the desktop app :hover can never fire here — the Electron main
+     process polls the cursor instead and toggles .lift (see desktop/main.ts
+     + the __ruriPeekCursor hook in Sidebar). :hover stays for browser dev. */
 }
 
-.peek-head:hover {
+.peek-head:hover,
+.peek-head.lift {
   transform: translateY(var(--lift, -14px));
 }
 

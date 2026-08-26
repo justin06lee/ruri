@@ -86,7 +86,12 @@ export const useRuri = create<RuriState>((set) => ({
   picked: null,
   lastError: null,
   setActive: (id) =>
-    set((s) => ({ activeId: id, unread: id ? { ...s.unread, [id]: false } : s.unread })),
+    set((s) => {
+      // Home is ephemeral: crossing its boundary (either direction) asks the
+      // server to wipe it — ignored server-side while a turn is running.
+      if ((s.activeId === HOME_ID) !== (id === HOME_ID)) send({ type: "reset_home" });
+      return { activeId: id, unread: id ? { ...s.unread, [id]: false } : s.unread };
+    }),
   seedComposer: (text) => set({ composerSeed: text }),
   clearComposerSeed: () => set({ composerSeed: null }),
   clearPicked: () => set({ picked: null }),
@@ -186,6 +191,17 @@ function apply(msg: ServerMessage): void {
     }
     case "small_model": {
       setState({ smallModel: msg.model });
+      break;
+    }
+    case "home_reset": {
+      setState((s) => ({
+        transcripts: { ...s.transcripts, [HOME_ID]: [] },
+        summaries: { ...s.summaries, [HOME_ID]: {} },
+        drafts: { ...s.drafts, [HOME_ID]: undefined },
+        statuses: { ...s.statuses, [HOME_ID]: "idle" },
+        unread: { ...s.unread, [HOME_ID]: false },
+        queue: { ...s.queue, [HOME_ID]: 0 },
+      }));
       break;
     }
     case "event": {

@@ -258,12 +258,12 @@ textarea::placeholder {
   background-size: 6px 6px;
 }
 
-/* The peek skyline: five raw panels collaged across the whole header,
-   tucked into both corners (traffic lights and gear just sit on top).
-   Only the tops of their heads show — horns pointing inward from the
-   edges — until hovering a panel pops it down over the sidebar to
-   reveal the face. Pure background: nothing here is clickable, window
-   dragging works right through it. */
+/* The peek skyline: five transparent head cutouts collaged across the
+   whole header, tucked into both corners (traffic lights and gear just
+   sit on top). Only the tops of their heads peek over the halftone —
+   horns pointing inward from the edges — until hovering one pops her
+   down over the sidebar to reveal the face. Pure background: nothing
+   here is clickable, window dragging works right through it. */
 .logo-peeks {
   position: absolute;
   inset: 0;
@@ -276,12 +276,16 @@ textarea::placeholder {
   display: block;
   flex: none;
   overflow: hidden;
-  background: #fff;
   margin-top: var(--drop, 0px);
   height: calc(100% - var(--drop, 0px));
   transition:
     height 200ms cubic-bezier(0.3, 0.9, 0.3, 1),
     margin-top 200ms cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+
+/* ink cutouts swap with the theme; `plain` (colored art) stays put */
+[data-theme="dark"] .peek-panel:not(.plain) img {
+  filter: invert(1);
 }
 
 .peek-panel:hover {

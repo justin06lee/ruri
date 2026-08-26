@@ -5,6 +5,7 @@ import { applyTheme, getTheme, type Theme } from "../theme";
 /** The settings panel: theme, workspace root — the little options live here. */
 export function Settings({ onClose }: { onClose(): void }) {
   const workspaceDir = useRuri((s) => s.workspaceDir);
+  const musicDir = useRuri((s) => s.musicDir);
   const canPickFolder = useRuri((s) => s.canPickFolder);
   const [theme, setTheme] = useState<Theme>(getTheme);
 
@@ -67,7 +68,24 @@ export function Settings({ onClose }: { onClose(): void }) {
               className="ghost"
               disabled={!canPickFolder}
               title={canPickFolder ? "Pick the folder your projects live in" : "Available in the desktop app"}
-              onClick={() => send({ type: "pick_folder" })}
+              onClick={() => send({ type: "pick_folder", target: "workspace" })}
+            >
+              Change
+            </button>
+          </div>
+        </div>
+
+        <div className="settings-row">
+          <span className="settings-label">Music</span>
+          <div className="settings-value">
+            <span className="settings-path" title={musicDir}>
+              {musicDir ? `‎${musicDir}‎` : "—"}
+            </span>
+            <button
+              className="ghost"
+              disabled={!canPickFolder}
+              title={canPickFolder ? "Pick the folder your music lives in (each subfolder is a playlist)" : "Available in the desktop app"}
+              onClick={() => send({ type: "pick_folder", target: "music" })}
             >
               Change
             </button>

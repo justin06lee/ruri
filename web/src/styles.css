@@ -296,6 +296,7 @@ textarea::placeholder {
 }
 
 /* the account bar: local user + settings, pinned under the music player */
+
 .account-bar {
   display: flex;
   align-items: center;
@@ -1369,6 +1370,16 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── transcript ───────────────────────────────────────────────────── */
 
+/* wraps the scrolling transcript so absolute children (the jump pill) are
+   anchored to the region ABOVE the composer, however tall the composer is */
+.transcript-holder {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .transcript {
   flex: 1;
   overflow-y: auto;
@@ -1689,7 +1700,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .jump-latest {
   position: absolute;
-  bottom: 118px;
+  bottom: 14px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;

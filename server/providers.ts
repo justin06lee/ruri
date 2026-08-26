@@ -33,10 +33,12 @@ export function bareModelName(name: string): string {
 /**
  * Non-Claude coding harnesses (Codex, OpenCode, Gemini, any ACP agent),
  * driven through yagami's provider layer. Claude sessions keep the full
- * AgentSession treatment (tools, permissions, streaming); everything else
- * runs sandboxed completion turns with resume — see ProviderTurnSession.
+ * AgentSession treatment (tools, permissions, streaming); every other
+ * harness runs verbatim through its own agentic session — see
+ * ProviderAgentSession, with ProviderTurnSession as the fallback for
+ * providers yagami can't open a session on.
  *
- * Model ids follow yagami's convention: "codex:gpt-5.3" routes to Codex,
+ * Model ids follow yagami's convention: "codex:gpt-5.6-sol" routes to Codex,
  * a bare "codex" means that harness's default model, and anything else is
  * a Claude model.
  */

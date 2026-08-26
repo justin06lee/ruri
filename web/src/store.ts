@@ -44,6 +44,8 @@ interface RuriState {
   musicEpoch: number;
   /** The Home agent's model/permission settings. */
   home: HomeSettings;
+  /** Starred model ids — the composer picker shows only these. */
+  starredModels: string[];
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
   /** Latest native-picker result, tagged with what the pick was for. */
@@ -74,6 +76,7 @@ export const useRuri = create<RuriState>((set) => ({
   musicDir: "",
   musicEpoch: 0,
   home: {},
+  starredModels: [],
   canPickFolder: false,
   picked: null,
   lastError: null,
@@ -131,6 +134,7 @@ function apply(msg: ServerMessage): void {
         workspaceDir: msg.workspaceDir,
         musicDir: msg.musicDir,
         home: msg.home,
+        starredModels: msg.starredModels,
         drafts: {},
         activeId:
           s.activeId &&
@@ -167,6 +171,10 @@ function apply(msg: ServerMessage): void {
     }
     case "home_settings": {
       setState({ home: msg.home });
+      break;
+    }
+    case "starred_models": {
+      setState({ starredModels: msg.models });
       break;
     }
     case "event": {

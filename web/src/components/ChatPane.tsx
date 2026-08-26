@@ -176,21 +176,31 @@ const PERMISSION_MODES: Array<{ value: PermissionMode; label: string }> = [
 
 function SessionControls({ project }: { project: Project }) {
   const allModels = useRuri((s) => s.models);
+  const starredIds = useRuri((s) => s.starredModels);
   // The Home agent needs its MCP tools, so it only offers Claude models.
-  const models = project.id === HOME_ID ? allModels.filter((m) => !m.provider) : allModels;
+  const catalog = project.id === HOME_ID ? allModels.filter((m) => !m.provider) : allModels;
+  // The picker shows starred models only (Settings holds the full catalog);
+  // with nothing starred yet it falls back to everything. The current pick
+  // stays listed even if it was unstarred since.
+  const starred = catalog.filter((m) => starredIds.includes(m.value));
+  const models = [...(starred.length > 0 ? starred : catalog)];
+  const selected = allModels.find((m) => m.value === project.model);
+  if (selected && !models.includes(selected)) models.push(selected);
   // Permission modes are a Claude concept — other harnesses bring their own
   // sandbox, so the dropdown hides when the model routes elsewhere.
-  const selected = allModels.find((m) => m.value === project.model);
   const claudeRoute = !selected?.provider;
   return (
     <div className="composer-controls">
       <Dropdown
         up
-        title="Model for this project's sessions"
+        title="Model for this project's sessions — star models in Settings to curate this list"
         value={project.model ?? ""}
         options={[
-          { value: "", label: "Default model" },
-          ...models.map((m) => ({ value: m.value, label: m.displayName })),
+          { value: "", label: "default" },
+          ...models.map((m) => ({
+            value: m.value,
+            label: m.provider ? `${m.displayName} — ${m.providerLabel}` : m.displayName,
+          })),
         ]}
         onSelect={(model) => send({ type: "set_model", projectId: project.id, model })}
       />
@@ -233,7 +243,7 @@ function Composer({
   const queued = useRuri((s) => s.queue[channelId] ?? 0);
   // "Message Codex CLI…" when the model routes to another harness.
   const harness = useRuri((s) =>
-    s.models.find((m) => m.value === project.model && m.provider)?.displayName.split(" · ")[0],
+    s.models.find((m) => m.value === project.model && m.provider)?.providerLabel,
   );
 
   const addFiles = (files: FileList | File[]) => {

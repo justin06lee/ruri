@@ -21,6 +21,16 @@ export function cleanClaudeModels(list: ModelChoice[]): ModelChoice[] {
 }
 
 /**
+ * A model's own name, nothing else: ACP harnesses group their catalogs and
+ * prepend the group to the label ("OpenCode Zen/Big Pickle") — display
+ * names carry no provenance, so everything up to the last "/" comes off.
+ */
+export function bareModelName(name: string): string {
+  const last = name.split("/").pop()?.trim();
+  return last || name;
+}
+
+/**
  * Non-Claude coding harnesses (Codex, OpenCode, Gemini, any ACP agent),
  * driven through yagami's provider layer. Claude sessions keep the full
  * AgentSession treatment (tools, permissions, streaming); everything else
@@ -104,7 +114,7 @@ export class ProviderRegistry {
             if (models.length > 0) {
               return models.map((m) => ({
                 value: `${id}:${m.id}`,
-                displayName: m.display_name,
+                displayName: bareModelName(m.display_name),
                 provider: id,
                 providerLabel: provider.label,
               }));

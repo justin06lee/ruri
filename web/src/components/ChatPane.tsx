@@ -288,7 +288,6 @@ function Composer({
       const markers = added.map((a) => `[${a.kind} #${a.n}]`).join(" ");
       return prev.trim() ? `${prev.replace(/\s+$/, "")} ${markers} ` : `${markers} `;
     });
-    requestAnimationFrame(autosize);
   };
 
   const removeAtt = (id: string) => {
@@ -315,10 +314,7 @@ function Composer({
     if (!composerSeed) return;
     setText((prev) => (prev.trim() ? `${prev}\n${composerSeed}` : composerSeed));
     clearComposerSeed();
-    requestAnimationFrame(() => {
-      autosize();
-      areaRef.current?.focus();
-    });
+    requestAnimationFrame(() => areaRef.current?.focus());
   }, [composerSeed, clearComposerSeed]);
 
   const submit = async (mode: "send" | "send_split" = "send") => {
@@ -355,11 +351,14 @@ function Composer({
     composerDrafts.delete(channelId);
     setAtts([]);
     setText("");
-    requestAnimationFrame(autosize);
   };
 
-  // Fit the restored draft's height on mount (remounts on session switch).
-  useEffect(autosize, [projectId]);
+  // Fit the height after every committed text change — mount (restored
+  // drafts), typing, marker drops, seeds, and the post-send clear. A layout
+  // effect, so it measures the DOM *after* React writes the new value (a
+  // rAF here could fire first and measure the stale text, leaving a sent
+  // long prompt's height behind).
+  useLayoutEffect(autosize, [text]);
 
   const viewingAtt = atts.find((a) => a.id === viewing);
 
@@ -384,10 +383,7 @@ function Composer({
           rows={1}
           placeholder="Message ruri…"
           value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            autosize();
-          }}
+          onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();

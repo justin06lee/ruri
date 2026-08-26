@@ -2,13 +2,19 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
-import type { ClientMessage, ModelChoice, PermissionRequest, ServerMessage } from "../shared/protocol.js";
+import type {
+  AttachmentUpload,
+  ClientMessage,
+  ModelChoice,
+  PermissionRequest,
+  ServerMessage,
+} from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
 import { isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
 import { SessionManager } from "./sessions.js";
-import { extractTrackerItems, sessionRoleTitle, smallModelEnabled, summarizeTurn, TurnTracker } from "./smallmodel.js";
+import { extractTrackerItems, sessionRoleTitle, smallModelEnabled, splitPrompt, summarizeTurn, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
 import { processAttachments, serveUpload } from "./uploads.js";
 
@@ -152,6 +158,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     return { ...found.project, id: channelId };
   }
 
+  // Split-send queues: sub-prompts waiting for the previous turn to finish.
+  const sendQueues = new Map<string, Array<{ text: string; attachments: AttachmentUpload[] }>>();
+
+  function dispatch(channelId: string, text: string, attachments: AttachmentUpload[]): void {
+    const project = channelProject(channelId);
+    if (!project) throw new Error("unknown session");
+    const processed = processAttachments(text, attachments);
+    manager.send(project, processed.text, processed.images, processed.attachments);
+  }
+
   // Every finished turn goes to the small model in the background, twice:
   // a recall note (instant compaction) and a tracker extraction (new features
   // the user should test by hand). Failures are silent — both are niceties.
@@ -189,6 +205,15 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         archive.append(projectId, event);
         turns.observe(projectId, event);
         broadcast({ type: "event", projectId, event });
+        if (event.kind === "result") {
+          const queue = sendQueues.get(projectId);
+          const next = queue?.shift();
+          if (next) {
+            if (queue!.length === 0) sendQueues.delete(projectId);
+            broadcast({ type: "queue", projectId, remaining: queue!.length });
+            dispatch(projectId, next.text, next.attachments);
+          }
+        }
       },
       onDelta: (projectId, messageId, delta) => broadcast({ type: "delta", projectId, messageId, delta }),
       onStatus: (projectId, status) => broadcast({ type: "status", projectId, status }),
@@ -262,11 +287,40 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "send": {
-        const project = channelProject(msg.projectId);
-        if (!project) throw new Error("unknown session");
         if (msg.text.trim().length === 0 && !msg.attachments?.length) return;
-        const processed = processAttachments(msg.text, msg.attachments ?? []);
-        manager.send(project, processed.text, processed.images, processed.attachments);
+        dispatch(msg.projectId, msg.text, msg.attachments ?? []);
+        break;
+      }
+      case "send_split": {
+        if (msg.text.trim().length === 0) return;
+        const channelId = msg.projectId;
+        const uploads = msg.attachments ?? [];
+        void splitPrompt(msg.text)
+          .then((prompts) => {
+            // route each attachment to the sub-prompt carrying its marker
+            const parts = prompts.map((text) => ({ text, attachments: [] as AttachmentUpload[] }));
+            for (const upload of uploads) {
+              const marker = `[${upload.kind} #${upload.n}]`;
+              const target = parts.find((p) => p.text.includes(marker)) ?? parts[0]!;
+              target.attachments.push(upload);
+            }
+            const [first, ...rest] = parts;
+            if (rest.length > 0) {
+              sendQueues.set(channelId, rest);
+              broadcast({ type: "queue", projectId: channelId, remaining: rest.length });
+            }
+            dispatch(channelId, first!.text, first!.attachments);
+          })
+          .catch((err) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: `split failed: ${err instanceof Error ? err.message : String(err)}`,
+                } satisfies ServerMessage),
+              );
+            }
+          });
         break;
       }
       case "new_session": {
@@ -283,6 +337,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "interrupt": {
+        if (sendQueues.delete(msg.projectId)) {
+          broadcast({ type: "queue", projectId: msg.projectId, remaining: 0 });
+        }
         manager.interrupt(msg.projectId);
         break;
       }

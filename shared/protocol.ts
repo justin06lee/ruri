@@ -123,6 +123,7 @@ export type ClientMessage =
   | { type: "pick_folder" }
   | { type: "remove_project"; projectId: string }
   | { type: "send"; projectId: string; text: string; attachments?: AttachmentUpload[] }
+  | { type: "send_split"; projectId: string; text: string; attachments?: AttachmentUpload[] }
   | { type: "interrupt"; projectId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   | { type: "set_model"; projectId: string; model: string }
@@ -164,6 +165,7 @@ export type ServerMessage =
   | { type: "turn_summary"; projectId: string; turnId: string; summary: string }
   | { type: "tracker"; projectId: string; items: TrackerItem[] }
   | { type: "workspace"; path: string }
+  | { type: "queue"; projectId: string; remaining: number }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }
   | { type: "status"; projectId: string; status: ProjectStatus }

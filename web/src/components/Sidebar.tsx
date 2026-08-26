@@ -185,7 +185,11 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <img className="logo-peek" src="/ruri-peek.png" alt="" />
+        <span className="logo-peeks" aria-hidden>
+          {["p4", "p2", "p5", "p3"].map((p) => (
+            <img key={p} src={`/peek/${p}.png`} alt="" />
+          ))}
+        </span>
         <span className="sidebar-header-right">
           <button className="icon-button" title="Settings" onClick={() => setSettingsOpen(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

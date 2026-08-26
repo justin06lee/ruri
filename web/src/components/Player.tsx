@@ -34,6 +34,51 @@ function mmss(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/** Five tiny bars fed by the engine's analyser — the note icon, alive. */
+function Waveform({ engineRef }: { engineRef: React.RefObject<AudioEngine | null> }) {
+  const barsRef = useRef<Array<HTMLSpanElement | null>>([]);
+  useEffect(() => {
+    let raf = 0;
+    const step = () => {
+      const levels = engineRef.current?.levels(5);
+      levels?.forEach((v, i) => {
+        const bar = barsRef.current[i];
+        if (bar) bar.style.transform = `scaleY(${Math.max(0.15, Math.min(1, v * 1.6)).toFixed(3)})`;
+      });
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [engineRef]);
+  return (
+    <span className="wave" aria-hidden>
+      {Array.from({ length: 5 }, (_, i) => (
+        <span
+          key={i}
+          ref={(el) => {
+            barsRef.current[i] = el;
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** Faint little notes wobbling upward while music plays. */
+function FloatingNotes() {
+  return (
+    <span className="note-float" aria-hidden>
+      {[0, 1, 2].map((i) => (
+        <svg key={i} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 18V5l12-2v13" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="18" cy="16" r="3" />
+        </svg>
+      ))}
+    </span>
+  );
+}
+
 function CtlIcon({ d, filled = false }: { d: string; filled?: boolean }) {
   return (
     <svg
@@ -120,12 +165,17 @@ export function Player() {
 
   return (
     <div className="player">
+      {state.playing && <FloatingNotes />}
       <button className="player-toggle" onClick={toggleOpen}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M9 18V5l12-2v13" />
-          <circle cx="6" cy="18" r="3" />
-          <circle cx="18" cy="16" r="3" />
-        </svg>
+        {state.playing ? (
+          <Waveform engineRef={engineRef} />
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
+          </svg>
+        )}
         <span className="player-toggle-label">
           {state.track ? state.track.title : "Music"}
         </span>

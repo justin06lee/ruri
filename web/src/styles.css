@@ -813,6 +813,12 @@ input[type="range"]::-webkit-slider-thumb {
   margin-bottom: 12px;
 }
 
+/* In dark mode --edge is transparent, so the white image ground would
+   bleed through the border ring — pin an opaque dark-gray ring instead. */
+[data-theme="dark"] .hero-face {
+  border-color: color-mix(in srgb, var(--ink) 28%, var(--paper));
+}
+
 .hero-title {
   font-size: 34px;
   font-weight: 750;

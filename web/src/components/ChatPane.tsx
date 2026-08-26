@@ -177,13 +177,11 @@ const PERMISSION_MODES: Array<{ value: PermissionMode; label: string }> = [
 function SessionControls({ project }: { project: Project }) {
   const allModels = useRuri((s) => s.models);
   const starredIds = useRuri((s) => s.starredModels);
-  // The Home agent needs its MCP tools, so it only offers Claude models.
-  const catalog = project.id === HOME_ID ? allModels.filter((m) => !m.provider) : allModels;
   // The picker shows starred models only (Settings holds the full catalog);
   // with nothing starred yet it falls back to everything. The current pick
   // stays listed even if it was unstarred since.
-  const starred = catalog.filter((m) => starredIds.includes(m.value));
-  const models = [...(starred.length > 0 ? starred : catalog)];
+  const starred = allModels.filter((m) => starredIds.includes(m.value));
+  const models = [...(starred.length > 0 ? starred : allModels)];
   const selected = allModels.find((m) => m.value === project.model);
   if (selected && !models.includes(selected)) models.push(selected);
   // Permission modes are a Claude concept — other harnesses bring their own

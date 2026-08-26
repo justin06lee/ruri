@@ -17,7 +17,8 @@ export class ProjectStore {
   private workspace: string | undefined;
   private music: string | undefined;
   private home: HomeSettings = {};
-  private starredModelIds: string[] = [];
+  // The out-of-the-box favourites; a saved list (even an empty one) wins.
+  private starredModelIds: string[] = ["claude-fable-5[1m]", "codex:gpt-5.6-sol"];
 
   constructor() {
     try {
@@ -209,7 +210,8 @@ export class ProjectStore {
           ...(this.workspace ? { workspaceDir: this.workspace } : {}),
           ...(this.music ? { musicDir: this.music } : {}),
           ...(Object.keys(this.home).length ? { home: this.home } : {}),
-          ...(this.starredModelIds.length ? { starredModels: this.starredModelIds } : {}),
+          // always written, so "deliberately none" survives restarts
+          starredModels: this.starredModelIds,
         },
         null,
         2,

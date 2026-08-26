@@ -70,6 +70,68 @@ function SessionRow({ project, session }: { project: Project; session: SessionIn
   );
 }
 
+/** "812k" / "1.0M" for a token count. */
+function fmtTokens(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`;
+}
+
+/** One little vial: fill level = what's LEFT, number underneath. */
+function Vial({ label, frac, text, title }: { label: string; frac?: number; text: string; title: string }) {
+  return (
+    <div className="gauge" title={title}>
+      <span className="gauge-label">{label}</span>
+      <span className="vial">
+        <span
+          className="vial-fill"
+          style={{ height: `${Math.round(Math.min(1, Math.max(0, frac ?? 0)) * 100)}%` }}
+        />
+      </span>
+      <span className="gauge-num">{text}</span>
+    </div>
+  );
+}
+
+/**
+ * The usage gauges: what's LEFT of the account's 5-hour and weekly limit
+ * windows, and of the active session's context window (remaining tokens).
+ */
+function Gauges() {
+  const usage = useRuri((s) => s.usage);
+  const context = useRuri((s) => (s.activeId ? s.contexts[s.activeId] : undefined));
+
+  const left = (used?: number) => (used === undefined ? undefined : Math.max(0, 100 - used));
+  const fiveHour = left(usage.fiveHour);
+  const weekly = left(usage.weekly);
+  const ctxLeft = context ? Math.max(0, context.window - context.tokens) : undefined;
+
+  return (
+    <div className="gauges">
+      <Vial
+        label="5h"
+        {...(fiveHour !== undefined ? { frac: fiveHour / 100 } : {})}
+        text={fiveHour !== undefined ? `${Math.round(fiveHour)}%` : "—"}
+        title="5-hour limit window — how much is left"
+      />
+      <Vial
+        label="wk"
+        {...(weekly !== undefined ? { frac: weekly / 100 } : {})}
+        text={weekly !== undefined ? `${Math.round(weekly)}%` : "—"}
+        title="Weekly limit window — how much is left"
+      />
+      <Vial
+        label="ctx"
+        {...(context && ctxLeft !== undefined ? { frac: ctxLeft / context.window } : {})}
+        text={ctxLeft !== undefined ? fmtTokens(ctxLeft) : "—"}
+        title={
+          context
+            ? `Context window — ${fmtTokens(ctxLeft ?? 0)} of ${fmtTokens(context.window)} tokens left in this session`
+            : "Context window — no session data yet"
+        }
+      />
+    </div>
+  );
+}
+
 function loadCollapsed(): Set<string> {
   try {
     return new Set(JSON.parse(localStorage.getItem("ruri-collapsed") ?? "[]") as string[]);
@@ -267,6 +329,8 @@ export function Sidebar() {
       </div>
 
       <Player />
+
+      <Gauges />
 
       {/* the account bar — a stub for real accounts later; for now it names
           the local user and houses the settings gear */}

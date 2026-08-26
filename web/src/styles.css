@@ -295,6 +295,56 @@ textarea::placeholder {
   filter: invert(1);
 }
 
+/* usage gauges: three little vials — 5h / weekly / context, fill = what's left */
+
+.gauges {
+  display: flex;
+  justify-content: center;
+  gap: 22px;
+  padding: 10px 12px 8px;
+  border-top: 1.5px solid var(--hairline);
+  user-select: none;
+}
+
+.gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.gauge-label {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+
+.vial {
+  position: relative;
+  width: 10px;
+  height: 26px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: 4px 4px 5px 5px;
+  overflow: hidden;
+}
+
+.vial-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--ink-soft);
+  transition: height 600ms ease;
+}
+
+.gauge-num {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-soft);
+}
+
 /* the account bar: local user + settings, pinned under the music player */
 
 .account-bar {

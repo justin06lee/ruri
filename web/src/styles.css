@@ -258,43 +258,47 @@ textarea::placeholder {
   background-size: 6px 6px;
 }
 
-/* The peek parade: a line of little heads over the header's bottom edge,
-   centred in the band between the traffic lights and the gear. */
+/* The peek piano: a filmstrip of little manga-panel chips along the
+   header's bottom edge. Each chip is a window onto a tall portrait crop
+   showing only horns and hair; hovering slides the image up (--reveal,
+   set per chip) so she rises to face you. Sweep the mouse across to
+   play them like keys. */
 .logo-peeks {
   position: absolute;
   bottom: 0;
-  left: 12px;
-  right: 44px;
+  left: 8px;
+  right: 44px; /* the gear stays clickable */
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  gap: 5px;
-  pointer-events: none;
+  gap: 2px;
 }
 
-.desktop .logo-peeks {
-  left: 84px; /* clear the macOS traffic lights */
+.peek-chip {
+  display: block;
+  width: 19px;
+  height: 26px;
+  overflow: hidden;
+  background: #fff;
+  border: 1.5px solid var(--ink);
+  border-bottom: none;
+  border-radius: 3px 3px 0 0;
+  -webkit-app-region: no-drag;
 }
 
-.logo-peeks img {
-  height: 19px;
-  width: auto;
+.peek-chip img {
+  display: block;
+  width: 200%;
+  margin-left: -50%;
+  height: auto;
+  transform: translateY(0);
+  transition: transform 220ms cubic-bezier(0.3, 0.9, 0.3, 1);
 }
 
-.logo-peeks img:nth-child(2) {
-  height: 24px; /* the original face stands a little taller */
-}
-
-.logo-peeks img:nth-child(3) {
-  height: 20px;
-}
-
-.logo-peeks img:nth-child(4) {
-  height: 21px;
-}
-
-[data-theme="dark"] .logo-peeks {
-  filter: invert(1); /* ink and paper swap with the theme */
+/* crops are normalized (eyes at 55%), so one offset reveals every face */
+.peek-chip:hover img,
+.peek-chip.play img {
+  transform: translateY(-45%);
 }
 
 .sidebar-header-right {

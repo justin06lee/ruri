@@ -728,6 +728,9 @@ export function ChatPane() {
         </div>
       )}
 
+      {/* the holder ends where the composer begins, so the jump pill always
+          floats just above the composer no matter how tall it grows */}
+      <div className="transcript-holder">
       <div className="transcript" ref={scrollRef} onScroll={onScroll}>
         <div className="transcript-inner">
           {(() => {
@@ -770,6 +773,7 @@ export function ChatPane() {
           <Icon d="M12 5v14M5 12l7 7 7-7" /> Latest
         </button>
       )}
+      </div>
 
       {trackerOpen && <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />}
 

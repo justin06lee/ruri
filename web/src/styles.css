@@ -88,6 +88,18 @@ body {
   color: var(--paper);
 }
 
+/* Chrome art (the hero face, thumbnails) is not selectable or draggable —
+   a drag-select across the page must never paint over the images. */
+img,
+video {
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.hero {
+  user-select: none;
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -828,14 +840,11 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 0;
 }
 
-.home-face {
-  width: 20px;
-  height: 20px;
-  min-width: 20px;
-  border-radius: 5px;
-  border: 1px solid var(--edge);
-  background: #fff;
-  object-fit: cover;
+.home-icon {
+  width: 17px;
+  height: 17px;
+  min-width: 17px;
+  stroke-width: 2.2;
 }
 
 .home-row {

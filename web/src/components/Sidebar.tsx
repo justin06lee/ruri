@@ -16,7 +16,18 @@ function HomeRow() {
       title="Home — the workspace agent"
       onClick={() => setActive(HOME_ID)}
     >
-      <img className="home-face" src="/ruri-face.png" alt="" />
+      <svg
+        className="home-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M3 10.5L12 3l9 7.5M5 9.5V21h14V9.5M9 21v-6h6v6" />
+      </svg>
       <span className="project-name">Home</span>
       {unread && <span className="unread-pip" title="New activity" />}
       <span className={`dot ${status}`} title={status} />

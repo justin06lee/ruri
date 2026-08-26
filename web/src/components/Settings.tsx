@@ -13,6 +13,12 @@ function ModelCatalog() {
   const starredIds = useRuri((s) => s.starredModels);
   const [query, setQuery] = useState("");
 
+  // Ask the harnesses for their current catalogs whenever the catalog is
+  // looked at (the server throttles, so this is free on quick re-opens).
+  useEffect(() => {
+    send({ type: "refresh_models" });
+  }, []);
+
   const q = query.trim().toLowerCase();
   const matches = models.filter((m) =>
     `${m.displayName} ${m.value} ${m.providerLabel ?? "claude code"}`.toLowerCase().includes(q),

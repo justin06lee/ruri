@@ -153,17 +153,34 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   }
 
   // The model picker: Claude models plus every installed non-Claude harness,
-  // probed once at startup so the list is full before any session has run.
-  // A live session's own report replaces the probed Claude list when it lands.
-  const registry = new ProviderRegistry();
+  // probed at startup so the list is full before any session has run, and
+  // re-probed on demand (opening Settings asks) so it tracks what the
+  // harnesses actually serve. A live session's own report replaces the
+  // probed Claude list when it lands, so a refresh never clobbers it.
+  let registry = new ProviderRegistry();
   let claudeModels: ModelChoice[] = [];
   let providerModels: ModelChoice[] = [];
   const allModels = () => [...claudeModels, ...providerModels];
-  void registry.modelChoices().then(({ claude, harnesses }) => {
-    if (claudeModels.length === 0 && claude.length > 0) claudeModels = claude;
-    providerModels = harnesses;
-    if (allModels().length > 0) broadcast({ type: "models", models: allModels() });
-  });
+  let probing = false;
+  let probedAt = 0;
+  function probeModels(redetect = false) {
+    if (probing) return;
+    probing = true;
+    probedAt = Date.now();
+    // a fresh registry also picks up harnesses installed since launch
+    if (redetect) registry = new ProviderRegistry();
+    void registry
+      .modelChoices()
+      .then(({ claude, harnesses }) => {
+        if (claudeModels.length === 0 && claude.length > 0) claudeModels = claude;
+        providerModels = harnesses;
+        if (allModels().length > 0) broadcast({ type: "models", models: allModels() });
+      })
+      .finally(() => {
+        probing = false;
+      });
+  }
+  probeModels();
 
   // A "channel" id is HOME_ID or a session id; sessions run with their
   // parent project's cwd/model/permission mode but keep their own state.
@@ -433,6 +450,12 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       }
       case "toggle_model_star": {
         broadcast({ type: "starred_models", models: store.toggleModelStar(msg.model) });
+        break;
+      }
+      case "refresh_models": {
+        // Probing spawns a short-lived process per harness, so back-to-back
+        // Settings opens within half a minute reuse the last answer.
+        if (Date.now() - probedAt > 30_000) probeModels(true);
         break;
       }
       default: {

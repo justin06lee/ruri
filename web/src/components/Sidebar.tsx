@@ -189,11 +189,11 @@ export function Sidebar() {
           {/* hand-placed by the user via the peek tuner (scratchpad) —
               x/w/drop position each head, lift is the hover rise */}
           {[
-            { n: 1, x: 10, w: 48, drop: 16, lift: -18 },
-            { n: 2, x: 61, w: 48, drop: 28, lift: -22 },
-            { n: 3, x: 112, w: 48, drop: 30, lift: -24 },
-            { n: 4, x: 163, w: 48, drop: 30, lift: -22 },
-            { n: 5, x: 214, w: 58, drop: 16, lift: -20 },
+            { n: 1, x: 1, w: 65, drop: 4, lift: -18 },
+            { n: 2, x: 56, w: 63, drop: 18, lift: -22 },
+            { n: 3, x: 89, w: 78, drop: 20, lift: -24 },
+            { n: 4, x: 138, w: 89, drop: 17, lift: -22 },
+            { n: 5, x: 210, w: 88, drop: 4, lift: -20 },
           ].map((p) => (
             <img
               key={p.n}

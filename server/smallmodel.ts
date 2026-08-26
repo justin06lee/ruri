@@ -2,21 +2,29 @@ import { Yagami } from "@justin06lee/yagami";
 import type { TranscriptEvent } from "../shared/protocol.js";
 
 /**
- * The "small model" behind turn summaries and the feature tracker: yagami's
- * zero-config completions client over the user's signed-in CLI, pointed at a
- * cheap model. One call per finished turn, so cost stays in fractions of a
- * cent; RURI_SMALL_MODEL overrides the model, RURI_NO_MEMORY=1 disables the
- * whole layer.
+ * The "small model" behind turn summaries, session titles, prompt splitting,
+ * and the feature tracker: yagami's zero-config completions client over the
+ * user's signed-in CLIs, pointed at a cheap model. One call per finished
+ * turn, so cost stays in fractions of a cent. The double-starred model from
+ * the Settings catalog wins (any harness — yagami routes qualified ids);
+ * RURI_SMALL_MODEL is the fallback override, then "haiku". RURI_NO_MEMORY=1
+ * disables the whole layer.
  */
 
 let client: Yagami | null = null;
+let configured: string | undefined;
 
 export function smallModelEnabled(): boolean {
   return process.env["RURI_NO_MEMORY"] !== "1";
 }
 
+/** Point the layer at the user's double-starred model ("" or undefined clears). */
+export function setSmallModel(model: string | undefined): void {
+  configured = model || undefined;
+}
+
 function model(): string {
-  return process.env["RURI_SMALL_MODEL"] ?? "haiku";
+  return configured ?? process.env["RURI_SMALL_MODEL"] ?? "haiku";
 }
 
 async function complete(system: string, prompt: string, maxTokens: number): Promise<string> {

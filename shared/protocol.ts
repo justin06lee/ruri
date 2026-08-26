@@ -162,6 +162,7 @@ export type ClientMessage =
   | { type: "remove_session"; sessionId: string }
   | { type: "set_workspace"; path: string }
   | { type: "set_music_dir"; path: string }
+  /** Cycle a model's star: none → starred → small-tasks model → none. */
   | { type: "toggle_model_star"; model: string }
   /** Re-probe every installed harness's live model catalog. */
   | { type: "refresh_models" };
@@ -188,6 +189,8 @@ export type ServerMessage =
       home: HomeSettings;
       /** Starred model ids — the composer picker shows only these. */
       starredModels: string[];
+      /** The double-starred small-tasks model ("" = the built-in default). */
+      smallModel: string;
       /** The local account name shown on the sidebar's account bar. */
       user: string;
     }
@@ -199,6 +202,7 @@ export type ServerMessage =
   | { type: "music_dir"; path: string }
   | { type: "home_settings"; home: HomeSettings }
   | { type: "starred_models"; models: string[] }
+  | { type: "small_model"; model: string }
   | { type: "queue"; projectId: string; remaining: number }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }

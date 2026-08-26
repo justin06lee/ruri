@@ -1145,6 +1145,18 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
 }
 
+/* the double-star role: this model runs the small tasks */
+.model-small-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 1px 6px 2px;
+  border-radius: 3px;
+  background: var(--ink);
+  color: var(--paper);
+}
+
 .model-empty,
 .model-hint {
   font-size: 11.5px;

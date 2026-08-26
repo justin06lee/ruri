@@ -33,13 +33,16 @@ export interface Project {
 
 export type ProjectStatus = "idle" | "working" | "permission" | "error";
 
-/** A model available in the picker. Claude models are bare ids; other
+/** A model in the device-wide catalog. Claude models are bare ids; other
  *  harnesses use yagami's "provider:model" convention. */
 export interface ModelChoice {
   value: string;
+  /** The model's own name, no provider prefix ("Opus", "GPT-5.6-Sol"). */
   displayName: string;
   /** Provider id when the model belongs to a non-Claude harness. */
   provider?: string;
+  /** Human name of that harness ("Codex CLI"), for tags and placeholders. */
+  providerLabel?: string;
 }
 
 /** A file attached to a prompt (image or video). */
@@ -154,7 +157,8 @@ export type ClientMessage =
   | { type: "new_session"; projectId: string }
   | { type: "remove_session"; sessionId: string }
   | { type: "set_workspace"; path: string }
-  | { type: "set_music_dir"; path: string };
+  | { type: "set_music_dir"; path: string }
+  | { type: "toggle_model_star"; model: string };
 
 export type ServerMessage =
   | {
@@ -176,6 +180,8 @@ export type ServerMessage =
       musicDir: string;
       /** The Home agent's model/permission settings. */
       home: HomeSettings;
+      /** Starred model ids — the composer picker shows only these. */
+      starredModels: string[];
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
@@ -184,6 +190,7 @@ export type ServerMessage =
   | { type: "workspace"; path: string }
   | { type: "music_dir"; path: string }
   | { type: "home_settings"; home: HomeSettings }
+  | { type: "starred_models"; models: string[] }
   | { type: "queue"; projectId: string; remaining: number }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }

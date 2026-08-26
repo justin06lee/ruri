@@ -17,6 +17,7 @@ export class ProjectStore {
   private workspace: string | undefined;
   private music: string | undefined;
   private home: HomeSettings = {};
+  private starredModelIds: string[] = [];
 
   constructor() {
     try {
@@ -25,6 +26,7 @@ export class ProjectStore {
         workspaceDir?: string;
         musicDir?: string;
         home?: HomeSettings;
+        starredModels?: string[];
       };
       this.projects = (raw.projects ?? []).filter(
         (p) => typeof p?.id === "string" && typeof p?.name === "string" && typeof p?.path === "string",
@@ -39,6 +41,9 @@ export class ProjectStore {
       if (typeof raw.workspaceDir === "string") this.workspace = raw.workspaceDir;
       if (typeof raw.musicDir === "string") this.music = raw.musicDir;
       if (raw.home && typeof raw.home === "object") this.home = raw.home;
+      if (Array.isArray(raw.starredModels)) {
+        this.starredModelIds = raw.starredModels.filter((m) => typeof m === "string");
+      }
     } catch {
       // first run
     }
@@ -72,6 +77,19 @@ export class ProjectStore {
     }
     this.music = resolved;
     this.save();
+  }
+
+  /** Starred model ids — the composer picker shows only these. */
+  starredModels(): string[] {
+    return [...this.starredModelIds];
+  }
+
+  toggleModelStar(model: string): string[] {
+    this.starredModelIds = this.starredModelIds.includes(model)
+      ? this.starredModelIds.filter((m) => m !== model)
+      : [...this.starredModelIds, model];
+    this.save();
+    return this.starredModels();
   }
 
   homeSettings(): HomeSettings {
@@ -191,6 +209,7 @@ export class ProjectStore {
           ...(this.workspace ? { workspaceDir: this.workspace } : {}),
           ...(this.music ? { musicDir: this.music } : {}),
           ...(Object.keys(this.home).length ? { home: this.home } : {}),
+          ...(this.starredModelIds.length ? { starredModels: this.starredModelIds } : {}),
         },
         null,
         2,

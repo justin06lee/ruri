@@ -13,6 +13,7 @@ import { SessionArchive } from "./archive.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
 import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
+import { ProviderRegistry } from "./providers.js";
 import { SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, smallModelEnabled, splitPrompt, summarizeTurn, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
@@ -140,7 +141,6 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const tracker = new TrackerStore();
   const clients = new Set<WebSocket>();
   const permissions = new Map<string, PermissionRequest>();
-  let models: ModelChoice[] = [];
 
   const musicRoot = () => store.customMusicDir() ?? defaultMusicDir();
 
@@ -150,6 +150,18 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       if (client.readyState === WebSocket.OPEN) client.send(payload);
     }
   }
+
+  // The model picker: Claude models (reported by live sessions) plus every
+  // installed non-Claude harness, detected once at startup.
+  const registry = new ProviderRegistry();
+  let claudeModels: ModelChoice[] = [];
+  let providerModels: ModelChoice[] = [];
+  const allModels = () => [...claudeModels, ...providerModels];
+  void registry.modelChoices().then((list) => {
+    if (list.length === 0) return;
+    providerModels = list;
+    broadcast({ type: "models", models: allModels() });
+  });
 
   // A "channel" id is HOME_ID or a session id; sessions run with their
   // parent project's cwd/model/permission mode but keep their own state.
@@ -228,15 +240,19 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "permission_resolved", requestId });
       },
       onModels: (list) => {
-        if (list.length === 0 || JSON.stringify(list) === JSON.stringify(models)) return;
-        models = list;
-        broadcast({ type: "models", models });
+        if (list.length === 0 || JSON.stringify(list) === JSON.stringify(claudeModels)) return;
+        claudeModels = list;
+        broadcast({ type: "models", models: allModels() });
       },
       onSessionId: (projectId, sessionId) => archive.setLastSessionId(projectId, sessionId),
     },
     (projectId) => archive.lastSessionId(projectId),
     (project) =>
       project.id === HOME_ID ? managerExtras(managerHost, store.workspaceDir()) : undefined,
+    {
+      parse: (model) => registry.parse(model),
+      create: (id, workDir) => registry.createFor(id, workDir),
+    },
   );
 
   // What the Home agent's MCP tools may do to the app: open projects (and
@@ -352,6 +368,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       }
       case "set_model": {
         if (msg.projectId === HOME_ID) {
+          // the Home agent needs its MCP tools, so it stays on Claude
+          const ref = registry.parse(msg.model);
+          if (ref.providerId && ref.providerId !== "claude") {
+            throw new Error("the Home agent runs on Claude Code");
+          }
           store.setHomeSettings({ model: msg.model });
           manager.setModel(HOME_ID, msg.model);
           broadcast({ type: "home_settings", home: store.homeSettings() });
@@ -457,7 +478,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       transcripts: archive.transcripts(projectIds),
       statuses: manager.statuses(),
       permissions: [...permissions.values()],
-      models,
+      models: allModels(),
       summaries: archive.allSummaries(projectIds),
       tracker: tracker.all(projectIds),
       canPickFolder: options.pickFolder !== undefined,

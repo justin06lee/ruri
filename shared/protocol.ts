@@ -33,10 +33,13 @@ export interface Project {
 
 export type ProjectStatus = "idle" | "working" | "permission" | "error";
 
-/** A model the CLI reports as available (for the picker). */
+/** A model available in the picker. Claude models are bare ids; other
+ *  harnesses use yagami's "provider:model" convention. */
 export interface ModelChoice {
   value: string;
   displayName: string;
+  /** Provider id when the model belongs to a non-Claude harness. */
+  provider?: string;
 }
 
 /** A file attached to a prompt (image or video). */

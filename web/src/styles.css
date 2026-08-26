@@ -248,6 +248,7 @@ textarea::placeholder {
 }
 
 .sidebar-header {
+  position: relative; /* the logo peek anchors to this box's bottom */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -263,13 +264,22 @@ textarea::placeholder {
   gap: 9px;
 }
 
-.logo-face {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  border: 1.5px solid var(--edge);
-  background: #fff;
-  object-fit: cover;
+/* Ruri peeking over the header's bottom edge: a transparent horns+head
+   crop. The slot holds her place in the row; the image itself anchors to
+   the header's bottom so the crop's cut lands exactly on the border. */
+.logo-peek-slot {
+  width: 38px;
+}
+
+.logo-peek {
+  position: absolute;
+  bottom: 0;
+  height: 34px;
+  width: auto;
+}
+
+[data-theme="dark"] .logo-peek {
+  filter: invert(1); /* ink and paper swap with the theme */
 }
 
 .logo-name {
@@ -741,10 +751,6 @@ textarea::placeholder {
 .player-controls .icon-button.active {
   color: var(--paper);
   background: var(--ink);
-}
-
-.player-play {
-  border: 1.5px solid var(--edge);
 }
 
 .player-volume {

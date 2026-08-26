@@ -194,7 +194,7 @@ export function Player() {
                 <button className="icon-button" title="Previous" onClick={() => engine().prev()}>
                   <CtlIcon d="M19 20L9 12l10-8v16zM5 19V5" />
                 </button>
-                <button className="icon-button player-play" title={state.playing ? "Pause" : "Play"} onClick={togglePlay}>
+                <button className="icon-button" title={state.playing ? "Pause" : "Play"} onClick={togglePlay}>
                   {state.playing ? (
                     <CtlIcon d="M10 4H6v16h4V4zM18 4h-4v16h4V4z" filled />
                   ) : (

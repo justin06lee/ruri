@@ -164,6 +164,8 @@ export type ClientMessage =
   | { type: "set_music_dir"; path: string }
   /** Cycle a model's star: none → starred → small-tasks model → none. */
   | { type: "toggle_model_star"; model: string }
+  /** Wipe the Home chat (transcript + session) — it's ephemeral. */
+  | { type: "reset_home" }
   /** Re-probe every installed harness's live model catalog. */
   | { type: "refresh_models" };
 
@@ -203,6 +205,7 @@ export type ServerMessage =
   | { type: "home_settings"; home: HomeSettings }
   | { type: "starred_models"; models: string[] }
   | { type: "small_model"; model: string }
+  | { type: "home_reset" }
   | { type: "queue"; projectId: string; remaining: number }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }

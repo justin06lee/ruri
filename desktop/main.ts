@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, Menu, shell } from "electron";
+import { app, BrowserWindow, dialog, Menu, screen, shell } from "electron";
 import { startServer } from "../server/server.js";
 
 /**
@@ -71,6 +71,36 @@ function createWindow(port: number): BrowserWindow {
   return win;
 }
 
+/** Height of the titlebar band the peek skyline lives in (see styles.css). */
+const PEEK_BAND = 46;
+
+/**
+ * Hover for the titlebar skyline. The whole bar is a window-drag region, so
+ * the page never sees mouse events there — instead main polls the cursor
+ * and hands window-relative coordinates to the page's __ruriPeekCursor
+ * hook, which lifts the head under it. Quiet when the cursor is elsewhere.
+ */
+function watchPeeks(): void {
+  let active = false;
+  setInterval(() => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (!win || win.isDestroyed()) return;
+    const point = screen.getCursorScreenPoint();
+    const bounds = win.getContentBounds();
+    const x = point.x - bounds.x;
+    const y = point.y - bounds.y;
+    const inBand =
+      win.isFocused() && x >= 0 && x <= bounds.width && y >= 0 && y <= PEEK_BAND;
+    if (!inBand && !active) return;
+    active = inBand;
+    win.webContents
+      .executeJavaScript(`window.__ruriPeekCursor?.(${x},${y},${inBand})`)
+      .catch(() => {
+        // page mid-navigation — next tick catches up
+      });
+  }, 66);
+}
+
 function buildMenu(): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
@@ -112,6 +142,7 @@ async function main(): Promise<void> {
   });
 
   createWindow(running.port);
+  watchPeeks();
 
   app.on("second-instance", () => {
     const win = BrowserWindow.getAllWindows()[0];

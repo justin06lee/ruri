@@ -370,11 +370,6 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       }
       case "set_model": {
         if (msg.projectId === HOME_ID) {
-          // the Home agent needs its MCP tools, so it stays on Claude
-          const ref = registry.parse(msg.model);
-          if (ref.providerId && ref.providerId !== "claude") {
-            throw new Error("the Home agent runs on Claude Code");
-          }
           store.setHomeSettings({ model: msg.model });
           manager.setModel(HOME_ID, msg.model);
           broadcast({ type: "home_settings", home: store.homeSettings() });

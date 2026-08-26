@@ -2,6 +2,61 @@ import { useEffect, useState } from "react";
 import { send, useRuri } from "../store";
 import { applyTheme, getTheme, type Theme } from "../theme";
 
+const STAR_PATH = "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9 2.9-6z";
+
+/**
+ * The device-wide model catalog: every model every installed harness can
+ * serve, searchable; starring pins a model into the composer's picker.
+ */
+function ModelCatalog() {
+  const models = useRuri((s) => s.models);
+  const starredIds = useRuri((s) => s.starredModels);
+  const [query, setQuery] = useState("");
+
+  const q = query.trim().toLowerCase();
+  const matches = models.filter((m) =>
+    `${m.displayName} ${m.value} ${m.providerLabel ?? "claude code"}`.toLowerCase().includes(q),
+  );
+  // starred float to the top, catalog order within each half
+  const rows = [
+    ...matches.filter((m) => starredIds.includes(m.value)),
+    ...matches.filter((m) => !starredIds.includes(m.value)),
+  ];
+
+  return (
+    <div className="settings-models">
+      <input
+        className="model-search"
+        placeholder="Search models…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      <div className="model-list">
+        {rows.length === 0 && <div className="model-empty">Nothing matches.</div>}
+        {rows.map((m) => {
+          const starred = starredIds.includes(m.value);
+          return (
+            <div key={m.value} className="model-row">
+              <button
+                className={`model-star ${starred ? "on" : ""}`}
+                title={starred ? "Unstar — remove from the picker" : "Star — pin into the picker"}
+                onClick={() => send({ type: "toggle_model_star", model: m.value })}
+              >
+                <svg viewBox="0 0 24 24" fill={starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
+                  <path d={STAR_PATH} />
+                </svg>
+              </button>
+              <span className="model-name" title={m.value}>{m.displayName}</span>
+              <span className="model-tag">{m.providerLabel ?? "Claude Code"}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="model-hint">Starred models are what the composer's model picker offers.</div>
+    </div>
+  );
+}
+
 /** The settings panel: theme, workspace root — the little options live here. */
 export function Settings({ onClose }: { onClose(): void }) {
   const workspaceDir = useRuri((s) => s.workspaceDir);
@@ -90,6 +145,11 @@ export function Settings({ onClose }: { onClose(): void }) {
               Change
             </button>
           </div>
+        </div>
+
+        <div className="settings-row models-row">
+          <span className="settings-label">Models</span>
+          <ModelCatalog />
         </div>
       </div>
     </div>

@@ -10,6 +10,17 @@ import {
 import type { ModelChoice } from "../shared/protocol.js";
 
 /**
+ * Claude's supportedModels list, cleaned for the catalog: the "default"
+ * alias goes (the picker has its own quiet default row), and marketing
+ * parentheticals ("(recommended)", "(1M context)") come off the names.
+ */
+export function cleanClaudeModels(list: ModelChoice[]): ModelChoice[] {
+  return list
+    .filter((m) => m.value !== "default")
+    .map((m) => ({ ...m, displayName: m.displayName.replace(/\s*\(.*\)\s*$/, "") }));
+}
+
+/**
  * Non-Claude coding harnesses (Codex, OpenCode, Gemini, any ACP agent),
  * driven through yagami's provider layer. Claude sessions keep the full
  * AgentSession treatment (tools, permissions, streaming); everything else
@@ -79,10 +90,9 @@ export class ProviderRegistry {
       (async () => {
         try {
           if (!this.claude) return [];
-          return (await probe(this.claude)).map((m) => ({
-            value: m.id,
-            displayName: m.display_name,
-          }));
+          return cleanClaudeModels(
+            (await probe(this.claude)).map((m) => ({ value: m.id, displayName: m.display_name })),
+          );
         } catch {
           return [];
         }
@@ -94,14 +104,15 @@ export class ProviderRegistry {
             if (models.length > 0) {
               return models.map((m) => ({
                 value: `${id}:${m.id}`,
-                displayName: `${provider.label} · ${m.display_name}`,
+                displayName: m.display_name,
                 provider: id,
+                providerLabel: provider.label,
               }));
             }
           } catch {
             // fall through to the default-model entry
           }
-          return [{ value: id, displayName: `${provider.label} · default`, provider: id }];
+          return [{ value: id, displayName: provider.label, provider: id, providerLabel: provider.label }];
         }),
       ).then((lists) => lists.flat()),
     ]);

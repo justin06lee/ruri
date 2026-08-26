@@ -13,7 +13,7 @@ import { SessionArchive } from "./archive.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
 import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
-import { ProviderRegistry } from "./providers.js";
+import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, smallModelEnabled, splitPrompt, summarizeTurn, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
@@ -241,8 +241,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "permission_resolved", requestId });
       },
       onModels: (list) => {
-        if (list.length === 0 || JSON.stringify(list) === JSON.stringify(claudeModels)) return;
-        claudeModels = list;
+        const cleaned = cleanClaudeModels(list);
+        if (cleaned.length === 0 || JSON.stringify(cleaned) === JSON.stringify(claudeModels)) return;
+        claudeModels = cleaned;
         broadcast({ type: "models", models: allModels() });
       },
       onSessionId: (projectId, sessionId) => archive.setLastSessionId(projectId, sessionId),
@@ -434,6 +435,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "music_dir", path: musicRoot() });
         break;
       }
+      case "toggle_model_star": {
+        broadcast({ type: "starred_models", models: store.toggleModelStar(msg.model) });
+        break;
+      }
       default: {
         const unknown: never = msg;
         throw new Error(`unknown message type: ${JSON.stringify(unknown)}`);
@@ -486,6 +491,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       workspaceDir: store.workspaceDir(),
       musicDir: musicRoot(),
       home: store.homeSettings(),
+      starredModels: store.starredModels(),
     };
     ws.send(JSON.stringify(snapshot));
 

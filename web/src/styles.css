@@ -251,40 +251,26 @@ textarea::placeholder {
   position: relative; /* the logo peek anchors to this box's bottom */
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 10px 12px;
   border-bottom: 1.5px solid var(--hairline);
   background-image: var(--tone);
   background-size: 6px 6px;
 }
 
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-/* Ruri peeking over the header's bottom edge: a transparent horns+head
-   crop. The slot holds her place in the row; the image itself anchors to
-   the header's bottom so the crop's cut lands exactly on the border. */
-.logo-peek-slot {
-  width: 38px;
-}
-
+/* Ruri peeking over the header's bottom edge, centred: a transparent
+   horns+head crop anchored so the cut lands exactly on the border. */
 .logo-peek {
   position: absolute;
   bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
   height: 34px;
   width: auto;
 }
 
 [data-theme="dark"] .logo-peek {
   filter: invert(1); /* ink and paper swap with the theme */
-}
-
-.logo-name {
-  font-weight: 700;
-  letter-spacing: 0.03em;
 }
 
 .sidebar-header-right {

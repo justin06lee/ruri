@@ -188,16 +188,18 @@ export function Sidebar() {
         <span className="logo-peeks" aria-hidden>
           {/* the peek skyline: five panels collaged edge to edge, tops of
               heads only — hovering one pops it down to reveal the face */}
+          {/* pops stop where each source's real art ends — no floating cut edges;
+              `plain` = colored art that must not invert in dark mode */}
           {[
             { n: 1, w: 66, drop: 0, pop: 170 },
-            { n: 2, w: 50, drop: 12, pop: 150 },
-            { n: 3, w: 50, drop: 6, pop: 150 },
-            { n: 4, w: 50, drop: 16, pop: 150 },
-            { n: 5, w: 48, drop: 3, pop: 125 },
+            { n: 2, w: 50, drop: 12, pop: 115 },
+            { n: 3, w: 50, drop: 6, pop: 102, plain: true },
+            { n: 4, w: 50, drop: 16, pop: 115 },
+            { n: 5, w: 48, drop: 3, pop: 80 },
           ].map((p) => (
             <span
               key={p.n}
-              className="peek-panel"
+              className={`peek-panel ${p.plain ? "plain" : ""}`}
               style={{ width: p.w, "--drop": `${p.drop}px`, "--pop": `${p.pop}px` } as React.CSSProperties}
             >
               <img src={`/peek/s${p.n}.png`} alt="" />

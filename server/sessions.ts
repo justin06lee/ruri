@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
   AgentSession,
+  AuthRequiredError,
+  ProviderNotInstalledError,
   type AgentOptions,
+  type ContentBlockParam,
+  type ModelRef,
   type PermissionDecision,
   type PermissionRequest as YagamiPermissionRequest,
+  type Provider,
   type SDKMessage,
 } from "@justin06lee/yagami";
 import type {
@@ -35,6 +40,28 @@ export interface SessionExtras {
   autoAllow?: string[];
   /** Extra Agent SDK options, merged last. */
   options?: AgentOptions;
+}
+
+/** How the manager reaches non-Claude harnesses (see server/providers.ts). */
+export interface ProviderHooks {
+  /** Split a model id into provider + native model. */
+  parse(model: string | undefined): ModelRef;
+  /** Build a provider instance working in the given project directory. */
+  create(id: string, workDir: string): Provider;
+}
+
+/** What the manager needs from a live session, whichever harness runs it. */
+interface ChannelSession {
+  status: ProjectStatus;
+  lastSessionId: string | undefined;
+  dead: boolean;
+  send(text: string, images?: Array<{ data: string; mediaType?: string }>, attachments?: Attachment[]): void;
+  interrupt(): void;
+  setModel(model: string): void;
+  setPermissionMode(mode: PermissionMode): void;
+  dispose(): void;
+  respondPermission(requestId: string, allow: boolean, always?: boolean): boolean;
+  pendingRequests(): string[];
 }
 
 function toolSummary(name: string, input: Record<string, unknown>): string {
@@ -78,7 +105,7 @@ interface PendingPermission {
   suggestions?: PermissionUpdate[];
 }
 
-class ProjectSession {
+class ProjectSession implements ChannelSession {
   status: ProjectStatus = "idle";
   lastSessionId: string | undefined;
   dead = false;
@@ -294,8 +321,166 @@ class ProjectSession {
   }
 }
 
+/**
+ * A session on a non-Claude harness (Codex, OpenCode, …): each turn is one
+ * sandboxed provider.run() with resume, streamed into the same event shapes
+ * ProjectSession emits. No tool events or permission prompts — those stay
+ * inside the harness; the sandbox is the safety boundary instead.
+ */
+class ProviderTurnSession implements ChannelSession {
+  status: ProjectStatus = "idle";
+  /** Prefixed "<provider>:<session>", so a Claude resume can never eat it. */
+  lastSessionId: string | undefined;
+  dead = false;
+
+  private model: string | undefined;
+  private abort: AbortController | null = null;
+  private running = false;
+  private readonly backlog: Array<{
+    text: string;
+    images?: Array<{ data: string; mediaType?: string }>;
+  }> = [];
+
+  constructor(
+    private readonly project: Project,
+    private readonly events: SessionEvents,
+    readonly providerId: string,
+    private readonly provider: Provider,
+    nativeModel: string | undefined,
+    resume: string | undefined,
+  ) {
+    this.model = nativeModel;
+    if (resume?.startsWith(`${providerId}:`)) this.lastSessionId = resume;
+  }
+
+  send(
+    text: string,
+    images?: Array<{ data: string; mediaType?: string }>,
+    attachments?: Attachment[],
+  ): void {
+    this.pushEvent({
+      kind: "user",
+      id: randomUUID(),
+      text,
+      ...(attachments?.length ? { attachments } : {}),
+      ts: Date.now(),
+    });
+    this.setStatus("working");
+    if (this.running) {
+      // the harness runs one turn at a time — later sends wait their turn
+      this.backlog.push({ text, ...(images ? { images } : {}) });
+      return;
+    }
+    void this.run(text, images);
+  }
+
+  private async run(
+    text: string,
+    images?: Array<{ data: string; mediaType?: string }>,
+  ): Promise<void> {
+    this.running = true;
+    const started = Date.now();
+    const draftId = randomUUID();
+    this.abort = new AbortController();
+    let acc = "";
+    let costUsd: number | undefined;
+    let error: string | undefined;
+    try {
+      const media: ContentBlockParam[] = (images ?? []).map((img) => ({
+        type: "image",
+        source: { type: "base64", data: img.data, media_type: img.mediaType ?? "image/png" },
+      })) as ContentBlockParam[];
+      const resume = this.lastSessionId?.slice(this.providerId.length + 1);
+      for await (const event of this.provider.run({
+        prompt: text,
+        ...(media.length ? { media } : {}),
+        ...(this.model ? { model: this.model } : {}),
+        ...(resume ? { resume } : {}),
+        signal: this.abort.signal,
+      })) {
+        if (event.type === "session") {
+          this.lastSessionId = `${this.providerId}:${event.sessionId}`;
+          this.events.onSessionId(this.project.id, this.lastSessionId);
+        } else if (event.type === "text") {
+          acc += event.text;
+          this.events.onDelta(this.project.id, draftId, event.text);
+        } else if (event.type === "done") {
+          costUsd = event.costUsd;
+        }
+      }
+    } catch (err) {
+      if (this.abort?.signal.aborted) {
+        error = "interrupted";
+      } else if (err instanceof AuthRequiredError) {
+        error = `${this.provider.label} needs a sign-in — run: ${this.provider.loginCommand}`;
+      } else if (err instanceof ProviderNotInstalledError) {
+        error = err.message;
+      } else {
+        error = err instanceof Error ? err.message : String(err);
+      }
+    } finally {
+      this.abort = null;
+    }
+    if (acc) this.pushEvent({ kind: "assistant", id: draftId, text: acc, ts: Date.now() });
+    this.pushEvent({
+      kind: "result",
+      id: randomUUID(),
+      ok: error === undefined,
+      ...(costUsd !== undefined ? { costUsd } : {}),
+      durationMs: Date.now() - started,
+      ...(error !== undefined ? { error } : {}),
+      ts: Date.now(),
+    });
+    this.running = false;
+    const next = this.backlog.shift();
+    if (next && !this.dead) {
+      void this.run(next.text, next.images);
+    } else {
+      this.setStatus(error === undefined || error === "interrupted" ? "idle" : "error");
+    }
+  }
+
+  interrupt(): void {
+    this.backlog.length = 0;
+    this.abort?.abort();
+  }
+
+  /** The native model for the next turn ("" = the harness's default). */
+  setModel(model: string): void {
+    this.model = model || undefined;
+  }
+
+  setPermissionMode(): void {
+    // permission modes are a Claude concept; the harness sandbox stands in
+  }
+
+  dispose(): void {
+    this.dead = true;
+    this.backlog.length = 0;
+    this.abort?.abort();
+  }
+
+  respondPermission(): boolean {
+    return false;
+  }
+
+  pendingRequests(): string[] {
+    return [];
+  }
+
+  private pushEvent(event: TranscriptEvent): void {
+    this.events.onEvent(this.project.id, event);
+  }
+
+  private setStatus(status: ProjectStatus): void {
+    if (this.status === status) return;
+    this.status = status;
+    this.events.onStatus(this.project.id, status);
+  }
+}
+
 export class SessionManager {
-  private readonly sessions = new Map<string, ProjectSession>();
+  private readonly sessions = new Map<string, ChannelSession>();
 
   constructor(
     private readonly events: SessionEvents,
@@ -303,7 +488,16 @@ export class SessionManager {
     private readonly resumeFor: (projectId: string) => string | undefined = () => undefined,
     /** Per-project session extras (the Home agent's MCP tools and prompt). */
     private readonly extrasFor: (project: Project) => SessionExtras | undefined = () => undefined,
+    /** Non-Claude harness support; omitted = Claude-only. */
+    private readonly providers?: ProviderHooks,
   ) {}
+
+  /** The non-Claude provider id a model routes to, if any. */
+  private routeOf(model: string | undefined): { providerId?: string; model?: string } {
+    const ref = this.providers ? this.providers.parse(model) : { model };
+    if (ref.providerId && ref.providerId !== "claude") return ref;
+    return { ...(ref.model !== undefined ? { model: ref.model } : {}) };
+  }
 
   /** Send a message, starting (or restarting, resuming context) the session as needed. */
   send(
@@ -312,14 +506,41 @@ export class SessionManager {
     images?: Array<{ data: string; mediaType?: string }>,
     attachments?: Attachment[],
   ): void {
+    const route = this.routeOf(project.model);
     let session = this.sessions.get(project.id);
+    // The model moved to a different harness: retire the live session. The
+    // transcript and archive are per-channel and survive; only warm state goes.
+    if (session && !session.dead) {
+      const mismatch = route.providerId
+        ? !(session instanceof ProviderTurnSession && session.providerId === route.providerId)
+        : session instanceof ProviderTurnSession;
+      if (mismatch) {
+        session.dispose();
+        session = undefined;
+        this.sessions.delete(project.id);
+      }
+    }
     if (!session || session.dead) {
-      session = new ProjectSession(
-        project,
-        this.events,
-        session?.lastSessionId ?? this.resumeFor(project.id),
-        this.extrasFor(project),
-      );
+      const resume = session?.lastSessionId ?? this.resumeFor(project.id);
+      if (route.providerId && this.providers) {
+        session = new ProviderTurnSession(
+          project,
+          this.events,
+          route.providerId,
+          this.providers.create(route.providerId, project.path),
+          route.model,
+          resume,
+        );
+      } else {
+        // provider-prefixed resume ids never feed a Claude session
+        const claudeResume = resume && !resume.includes(":") ? resume : undefined;
+        session = new ProjectSession(
+          { ...project, ...(route.model !== undefined ? { model: route.model } : {}) },
+          this.events,
+          claudeResume,
+          this.extrasFor(project),
+        );
+      }
       this.sessions.set(project.id, session);
     }
     session.send(text, images, attachments);
@@ -330,9 +551,26 @@ export class SessionManager {
   }
 
   /** Apply a model change to the live session, if one is running. An empty
-   *  model means "CLI default", which only takes effect on the next session. */
+   *  model means "CLI default", which only takes effect on the next session.
+   *  A change that moves to a different harness retires the live session —
+   *  the next send rebuilds it on the right provider. */
   setModel(projectId: string, model: string): void {
-    if (model) this.sessions.get(projectId)?.setModel(model);
+    const session = this.sessions.get(projectId);
+    if (!session || session.dead) return;
+    const route = this.routeOf(model);
+    if (route.providerId) {
+      if (session instanceof ProviderTurnSession && session.providerId === route.providerId) {
+        session.setModel(route.model ?? "");
+      } else {
+        session.dispose();
+        this.sessions.delete(projectId);
+      }
+    } else if (session instanceof ProviderTurnSession) {
+      session.dispose();
+      this.sessions.delete(projectId);
+    } else if (model) {
+      session.setModel(route.model ?? model);
+    }
   }
 
   /** Apply a permission-mode change to the live session, if one is running. */

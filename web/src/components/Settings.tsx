@@ -75,7 +75,7 @@ function ModelCatalog() {
   );
 }
 
-/** The settings panel: theme, workspace root — the little options live here. */
+/** The settings panel: theme, workspace root, music folder, model catalog. */
 export function Settings({ onClose }: { onClose(): void }) {
   const workspaceDir = useRuri((s) => s.workspaceDir);
   const musicDir = useRuri((s) => s.musicDir);

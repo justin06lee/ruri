@@ -1,7 +1,7 @@
 {
   "name": "ruri",
   "version": "0.21.1",
-  "description": "One desktop workspace for all your projects, each with its own live Claude Code session.",
+  "description": "One desktop workspace for all your projects, each a folder of live coding sessions.",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.mjs",

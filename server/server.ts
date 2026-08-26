@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { DEFAULT_MODEL } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -8,11 +9,13 @@ import type {
   Attachment,
   AttachmentUpload,
   ClientMessage,
+  ContextUsage,
   ModelChoice,
   PermissionRequest,
   QueuedPrompt,
   ServerMessage,
   TranscriptEvent,
+  UsageLimits,
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
@@ -23,6 +26,7 @@ import { SessionManager } from "./sessions.js";
 import { extractTrackerItems, reviewPrompt, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizeTurn, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments } from "./uploads.js";
+import { fetchUsageLimits } from "./usage.js";
 
 export interface StartServerOptions {
   port: number;
@@ -190,6 +194,29 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   }
   probeModels();
 
+  // The usage gauges: account limit windows (5h / weekly), fetched from the
+  // Claude usage endpoint on a slow poll and nudged after every turn; and
+  // per-channel context occupancy, reported by the live sessions.
+  let usageLimits: UsageLimits = {};
+  let lastUsageFetch = 0;
+  function pushUsage(force = false): void {
+    if (!force && Date.now() - lastUsageFetch < 60_000) return;
+    lastUsageFetch = Date.now();
+    void fetchUsageLimits().then((limits) => {
+      if (!limits) return;
+      usageLimits = limits;
+      broadcast({ type: "usage", limits });
+    });
+  }
+  pushUsage(true);
+  const usageTimer = setInterval(() => pushUsage(true), 5 * 60_000);
+  const contexts = new Map<string, ContextUsage>();
+  /** The context window a channel's model gets (1M with the [1m] flag). */
+  function contextWindow(channelId: string): number {
+    const model = channelProject(channelId)?.model || DEFAULT_MODEL;
+    return model.includes("[1m]") ? 1_000_000 : 200_000;
+  }
+
   // A "channel" id is HOME_ID or a session id; sessions run with their
   // parent project's cwd/model/permission mode but keep their own state.
   function channelProject(channelId: string) {
@@ -307,6 +334,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         turns.observe(projectId, event);
         broadcast({ type: "event", projectId, event });
         if (event.kind === "result") {
+          pushUsage();
           const queue = sendQueues.get(projectId);
           const next = queue?.shift();
           if (next) {
@@ -341,6 +369,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "models", models: allModels() });
       },
       onSessionId: (projectId, sessionId) => archive.setLastSessionId(projectId, sessionId),
+      onContext: (projectId, tokens) => {
+        const context: ContextUsage = { tokens, window: contextWindow(projectId) };
+        contexts.set(projectId, context);
+        broadcast({ type: "context", projectId, context });
+      },
     },
     (projectId) => archive.lastSessionId(projectId),
     (project) =>
@@ -396,6 +429,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           manager.dispose(sessionId);
           archive.remove(sessionId);
           tracker.removeProject(sessionId);
+          contexts.delete(sessionId);
         }
         store.remove(msg.projectId);
         broadcast({ type: "projects", projects: store.list() });
@@ -502,6 +536,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         manager.dispose(msg.sessionId);
         archive.remove(msg.sessionId);
         tracker.removeProject(msg.sessionId);
+        contexts.delete(msg.sessionId);
         store.removeSession(msg.sessionId);
         broadcast({ type: "projects", projects: store.list() });
         break;
@@ -626,6 +661,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         manager.dispose(HOME_ID);
         archive.remove(HOME_ID);
         sendQueues.delete(HOME_ID);
+        contexts.delete(HOME_ID);
         broadcast({ type: "home_reset" });
         break;
       }
@@ -684,6 +720,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       summaries: archive.allSummaries(projectIds),
       tracker: tracker.all(projectIds),
       queued: Object.fromEntries(projectIds.map((id) => [id, visibleQueue(id)])),
+      usage: usageLimits,
+      contexts: Object.fromEntries(contexts),
       canPickFolder: options.pickFolder !== undefined,
       workspaceDir: store.workspaceDir(),
       musicDir: musicRoot(),
@@ -719,6 +757,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         port,
         close: () =>
           new Promise<void>((done) => {
+            clearInterval(usageTimer);
             manager.disposeAll();
             archive.flushAll();
             for (const client of clients) client.close();

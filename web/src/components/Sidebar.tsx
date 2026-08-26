@@ -186,22 +186,26 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-header">
         <span className="logo-peeks" aria-hidden>
-          {/* the user's own hand-cut peeks: heads resting low in the bar,
-              hover lifts one slightly so the face shows. `plain` = colored
-              art that must not invert in dark mode. */}
+          {/* hand-placed by the user via the peek tuner (scratchpad) —
+              x/w/drop position each head, lift is the hover rise */}
           {[
-            { n: 1, w: 64, drop: 20, lift: -32 },
-            { n: 2, w: 48, drop: 22, lift: -19 },
-            { n: 3, w: 52, drop: 26, lift: -22, plain: true },
-            { n: 4, w: 52, drop: 24, lift: -16 },
-            { n: 5, w: 46, drop: 25, lift: -22 },
+            { n: 1, x: 10, w: 48, drop: 16, lift: -18 },
+            { n: 2, x: 61, w: 48, drop: 28, lift: -22 },
+            { n: 3, x: 112, w: 48, drop: 30, lift: -24 },
+            { n: 4, x: 163, w: 48, drop: 30, lift: -22 },
+            { n: 5, x: 214, w: 58, drop: 16, lift: -20 },
           ].map((p) => (
             <img
               key={p.n}
-              className={`peek-head ${p.plain ? "plain" : ""}`}
+              className="peek-head"
               src={`/peek/u${p.n}.png`}
               alt=""
-              style={{ width: p.w, "--drop": `${p.drop}px`, "--lift": `${p.lift}px` } as React.CSSProperties}
+              style={{
+                left: p.x,
+                width: p.w,
+                "--drop": `${p.drop}px`,
+                "--lift": `${p.lift}px`,
+              } as React.CSSProperties}
             />
           ))}
         </span>

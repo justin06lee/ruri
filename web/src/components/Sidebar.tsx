@@ -186,7 +186,9 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-header">
         <span className="logo">
-          <img className="logo-face" src="/ruri-face.png" alt="" />
+          <span className="logo-peek-slot">
+            <img className="logo-peek" src="/ruri-peek.png" alt="" />
+          </span>
           <span className="logo-name">ruri</span>
         </span>
         <span className="sidebar-header-right">

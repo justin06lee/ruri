@@ -11,6 +11,7 @@ const STAR_PATH = "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L
 function ModelCatalog() {
   const models = useRuri((s) => s.models);
   const starredIds = useRuri((s) => s.starredModels);
+  const smallModel = useRuri((s) => s.smallModel);
   const [query, setQuery] = useState("");
 
   // Ask the harnesses for their current catalogs whenever the catalog is
@@ -41,11 +42,18 @@ function ModelCatalog() {
         {rows.length === 0 && <div className="model-empty">Nothing matches.</div>}
         {rows.map((m) => {
           const starred = starredIds.includes(m.value);
+          const small = smallModel === m.value;
           return (
             <div key={m.value} className="model-row">
               <button
                 className={`model-star ${starred ? "on" : ""}`}
-                title={starred ? "Unstar — remove from the picker" : "Star — pin into the picker"}
+                title={
+                  small
+                    ? "Small-tasks model — click to clear"
+                    : starred
+                      ? "Starred — click again to make this the small-tasks model"
+                      : "Star — pin into the picker"
+                }
                 onClick={() => send({ type: "toggle_model_star", model: m.value })}
               >
                 <svg viewBox="0 0 24 24" fill={starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
@@ -53,12 +61,16 @@ function ModelCatalog() {
                 </svg>
               </button>
               <span className="model-name" title={m.value}>{m.displayName}</span>
+              {small && <span className="model-small-tag">small tasks</span>}
               <span className="model-tag">{m.providerLabel ?? "Claude Code"}</span>
             </div>
           );
         })}
       </div>
-      <div className="model-hint">Starred models are what the composer's model picker offers.</div>
+      <div className="model-hint">
+        Starred models are what the composer's model picker offers. Star one twice to make it the
+        small-tasks model — session titles, turn summaries, prompt splitting, the tracker.
+      </div>
     </div>
   );
 }

@@ -19,6 +19,8 @@ export class ProjectStore {
   private home: HomeSettings = {};
   // The out-of-the-box favourites; a saved list (even an empty one) wins.
   private starredModelIds: string[] = ["claude-fable-5[1m]", "codex:gpt-5.6-sol"];
+  /** The double-starred small-tasks model; undefined = built-in default. */
+  private smallModelId: string | undefined;
 
   constructor() {
     try {
@@ -28,6 +30,7 @@ export class ProjectStore {
         musicDir?: string;
         home?: HomeSettings;
         starredModels?: string[];
+        smallModel?: string;
       };
       this.projects = (raw.projects ?? []).filter(
         (p) => typeof p?.id === "string" && typeof p?.name === "string" && typeof p?.path === "string",
@@ -45,6 +48,7 @@ export class ProjectStore {
       if (Array.isArray(raw.starredModels)) {
         this.starredModelIds = raw.starredModels.filter((m) => typeof m === "string");
       }
+      if (typeof raw.smallModel === "string" && raw.smallModel) this.smallModelId = raw.smallModel;
     } catch {
       // first run
     }
@@ -85,12 +89,27 @@ export class ProjectStore {
     return [...this.starredModelIds];
   }
 
-  toggleModelStar(model: string): string[] {
-    this.starredModelIds = this.starredModelIds.includes(model)
-      ? this.starredModelIds.filter((m) => m !== model)
-      : [...this.starredModelIds, model];
+  /** The model the small-tasks layer runs on, when the user picked one. */
+  smallModel(): string | undefined {
+    return this.smallModelId;
+  }
+
+  /**
+   * The star's three-state cycle: none → starred → small-tasks → none.
+   * Only one model holds the small role; a newcomer demotes the old holder
+   * back to plain starred.
+   */
+  cycleModelStar(model: string): { starred: string[]; small: string | undefined } {
+    if (this.smallModelId === model) {
+      this.smallModelId = undefined;
+      this.starredModelIds = this.starredModelIds.filter((m) => m !== model);
+    } else if (this.starredModelIds.includes(model)) {
+      this.smallModelId = model;
+    } else {
+      this.starredModelIds = [...this.starredModelIds, model];
+    }
     this.save();
-    return this.starredModels();
+    return { starred: this.starredModels(), small: this.smallModelId };
   }
 
   homeSettings(): HomeSettings {
@@ -212,6 +231,7 @@ export class ProjectStore {
           ...(Object.keys(this.home).length ? { home: this.home } : {}),
           // always written, so "deliberately none" survives restarts
           starredModels: this.starredModelIds,
+          ...(this.smallModelId ? { smallModel: this.smallModelId } : {}),
         },
         null,
         2,

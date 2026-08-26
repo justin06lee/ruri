@@ -175,7 +175,13 @@ const PERMISSION_MODES: Array<{ value: PermissionMode; label: string }> = [
 ];
 
 function SessionControls({ project }: { project: Project }) {
-  const models = useRuri((s) => s.models);
+  const allModels = useRuri((s) => s.models);
+  // The Home agent needs its MCP tools, so it only offers Claude models.
+  const models = project.id === HOME_ID ? allModels.filter((m) => !m.provider) : allModels;
+  // Permission modes are a Claude concept — other harnesses bring their own
+  // sandbox, so the dropdown hides when the model routes elsewhere.
+  const selected = allModels.find((m) => m.value === project.model);
+  const claudeRoute = !selected?.provider;
   return (
     <div className="composer-controls">
       <Dropdown
@@ -188,15 +194,17 @@ function SessionControls({ project }: { project: Project }) {
         ]}
         onSelect={(model) => send({ type: "set_model", projectId: project.id, model })}
       />
-      <Dropdown
-        up
-        title="Permission mode"
-        value={project.permissionMode ?? "default"}
-        options={PERMISSION_MODES}
-        onSelect={(mode) =>
-          send({ type: "set_permission_mode", projectId: project.id, mode: mode as PermissionMode })
-        }
-      />
+      {claudeRoute && (
+        <Dropdown
+          up
+          title="Permission mode"
+          value={project.permissionMode ?? "default"}
+          options={PERMISSION_MODES}
+          onSelect={(mode) =>
+            send({ type: "set_permission_mode", projectId: project.id, mode: mode as PermissionMode })
+          }
+        />
+      )}
     </div>
   );
 }
@@ -223,6 +231,10 @@ function Composer({
   const composerSeed = useRuri((s) => s.composerSeed);
   const clearComposerSeed = useRuri((s) => s.clearComposerSeed);
   const queued = useRuri((s) => s.queue[channelId] ?? 0);
+  // "Message Codex CLI…" when the model routes to another harness.
+  const harness = useRuri((s) =>
+    s.models.find((m) => m.value === project.model && m.provider)?.displayName.split(" · ")[0],
+  );
 
   const addFiles = (files: FileList | File[]) => {
     const added: ComposerAttachment[] = [];
@@ -344,7 +356,7 @@ function Composer({
         <textarea
           ref={areaRef}
           rows={1}
-          placeholder="Message Claude Code…"
+          placeholder={`Message ${harness ?? "Claude Code"}…`}
           value={text}
           onChange={(e) => {
             setText(e.target.value);

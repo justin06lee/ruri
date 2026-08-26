@@ -50,7 +50,7 @@ export function installFixture(): void {
         model: "claude-sonnet-5",
         sessions: [{ id: "p2", title: "Session Layer" }],
       },
-      { id: "prj3", name: "dotfiles", path: "/Users/you/dotfiles", sessions: [{ id: "p3" }] },
+      { id: "prj3", name: "dotfiles", path: "/Users/you/dotfiles", model: "codex:gpt-5.3-codex", sessions: [{ id: "p3" }] },
     ],
     activeId: "home",
     workspaceDir: "/Users/you/Workspace",
@@ -61,6 +61,8 @@ export function installFixture(): void {
       { value: "claude-fable-5", displayName: "Fable 5" },
       { value: "claude-opus-5", displayName: "Opus 5" },
       { value: "claude-sonnet-5", displayName: "Sonnet 5" },
+      { value: "codex:gpt-5.3-codex", displayName: "Codex CLI · gpt-5.3-codex", provider: "codex" },
+      { value: "opencode", displayName: "OpenCode · default", provider: "opencode" },
     ],
     tracker: {
       p1: [

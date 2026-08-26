@@ -8,7 +8,7 @@ export const HOME_ID = "home";
 export const DEFAULT_MODEL = "claude-fable-5[1m]";
 
 /**
- * One live Claude Code session inside a project. Transcripts, statuses,
+ * One live coding session inside a project. Transcripts, statuses,
  * drafts, summaries, and tracker items are keyed by the session id (the
  * protocol's `projectId` fields carry session ids for project sessions).
  */

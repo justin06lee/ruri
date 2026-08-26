@@ -186,24 +186,23 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-header">
         <span className="logo-peeks" aria-hidden>
-          {/* the peek skyline: five panels collaged edge to edge, tops of
-              heads only — hovering one pops it down to reveal the face */}
-          {/* pops stop where each source's real art ends — no floating cut edges;
-              `plain` = colored art that must not invert in dark mode */}
+          {/* the user's own hand-cut peeks: heads resting low in the bar,
+              hover lifts one slightly so the face shows. `plain` = colored
+              art that must not invert in dark mode. */}
           {[
-            { n: 1, w: 66, drop: 0, pop: 170 },
-            { n: 2, w: 50, drop: 12, pop: 115 },
-            { n: 3, w: 50, drop: 6, pop: 102, plain: true },
-            { n: 4, w: 50, drop: 16, pop: 115 },
-            { n: 5, w: 48, drop: 3, pop: 80 },
+            { n: 1, w: 64, drop: 20, lift: -32 },
+            { n: 2, w: 48, drop: 22, lift: -19 },
+            { n: 3, w: 52, drop: 26, lift: -22, plain: true },
+            { n: 4, w: 52, drop: 24, lift: -16 },
+            { n: 5, w: 46, drop: 25, lift: -22 },
           ].map((p) => (
-            <span
+            <img
               key={p.n}
-              className={`peek-panel ${p.plain ? "plain" : ""}`}
-              style={{ width: p.w, "--drop": `${p.drop}px`, "--pop": `${p.pop}px` } as React.CSSProperties}
-            >
-              <img src={`/peek/s${p.n}.png`} alt="" />
-            </span>
+              className={`peek-head ${p.plain ? "plain" : ""}`}
+              src={`/peek/u${p.n}.png`}
+              alt=""
+              style={{ width: p.w, "--drop": `${p.drop}px`, "--lift": `${p.lift}px` } as React.CSSProperties}
+            />
           ))}
         </span>
         <span className="sidebar-header-right">

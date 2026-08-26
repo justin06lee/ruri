@@ -5,6 +5,7 @@ import {
   type PermissionMode,
   type PermissionRequest,
   type Project,
+  type QueuedPrompt,
   type TranscriptEvent,
 } from "../../../shared/protocol";
 import {
@@ -17,10 +18,11 @@ import {
   type Region,
 } from "./Attachments";
 import { Dropdown } from "./Dropdown";
+import { Thinking } from "./Thinking";
 import { Tracker } from "./Tracker";
 import { heroFor, heroUrl, launchHero } from "../hero";
 import { Markdown } from "../markdown";
-import { send, useRuri } from "../store";
+import { composerDrafts, send, useRuri } from "../store";
 
 /* ── small inline icons (stroke: currentColor, 14px) ─────────────── */
 
@@ -223,16 +225,6 @@ function SessionControls({ project }: { project: Project }) {
 
 /* ── composer ────────────────────────────────────────────────────── */
 
-/** Unsent composer state, kept per channel so switching sessions (the
- *  component remounts via key={channelId}) never loses a draft in progress.
- *  Object URLs stay alive until the draft is sent or the tab closes. */
-interface ComposerDraft {
-  text: string;
-  atts: ComposerAttachment[];
-  counter: { image: number; video: number; file: number };
-}
-const composerDrafts = new Map<string, ComposerDraft>();
-
 /** Real video containers only — browsers call .ts (TypeScript) "video/mp2t". */
 const VIDEO_EXT = new Set(["mp4", "mov", "webm", "m4v", "avi", "mkv", "mpg", "mpeg", "ogv"]);
 
@@ -263,7 +255,6 @@ function Composer({
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const composerSeed = useRuri((s) => s.composerSeed);
   const clearComposerSeed = useRuri((s) => s.clearComposerSeed);
-  const queued = useRuri((s) => s.queue[channelId] ?? 0);
 
   // Every keystroke and attachment change lands in the per-channel draft.
   useEffect(() => {
@@ -445,9 +436,8 @@ function Composer({
         </div>
       </div>
       <div className="composer-hint">
-        {queued > 0
-          ? `${queued} prompt${queued === 1 ? "" : "s"} queued — sent one by one as turns finish · Stop clears the queue`
-          : "Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach · scissors to split a long prompt"}
+        Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach ·
+        scissors to split a long prompt
       </div>
       {viewingAtt && (
         <Viewer
@@ -462,6 +452,83 @@ function Composer({
           onClose={() => setViewing(null)}
           onRegions={setRegions}
         />
+      )}
+    </div>
+  );
+}
+
+/* ── queued prompts ──────────────────────────────────────────────── */
+
+/**
+ * A prompt held app-side while a turn runs — nothing reaches the harness
+ * until its turn comes. Editable and removable right up to dispatch.
+ */
+function QueuedCard({ projectId, item }: { projectId: string; item: QueuedPrompt }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(item.text);
+
+  const save = () => {
+    setEditing(false);
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== item.text) {
+      send({ type: "queue_edit", projectId, itemId: item.id, text: draft });
+    } else {
+      setDraft(item.text);
+    }
+  };
+
+  return (
+    <div className="queued-card">
+      <div className="queued-head">
+        <span className="queued-label">queued</span>
+        <span className="queued-actions">
+          <button
+            className="icon-button"
+            title="Edit before it sends"
+            onClick={() => {
+              setDraft(item.text);
+              setEditing(true);
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+            </svg>
+          </button>
+          <button
+            className="icon-button"
+            title="Remove from the queue"
+            onClick={() => send({ type: "queue_remove", projectId, itemId: item.id })}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </span>
+      </div>
+      {editing ? (
+        <textarea
+          className="queued-edit"
+          rows={3}
+          value={draft}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              save();
+            }
+            if (e.key === "Escape") {
+              setDraft(item.text);
+              setEditing(false);
+            }
+          }}
+        />
+      ) : (
+        <div className="queued-text">{item.text}</div>
+      )}
+      {!editing && item.attachments && item.attachments.length > 0 && (
+        <TranscriptAttachments attachments={item.attachments} />
       )}
     </div>
   );
@@ -511,6 +578,7 @@ function CompactTurn({ summary, count, onExpand }: { summary: string; count: num
 // an unstable snapshot makes useSyncExternalStore loop (React error #185).
 const NO_EVENTS: TranscriptEvent[] = [];
 const NO_SUMMARIES: Record<string, string> = {};
+const NO_QUEUED: QueuedPrompt[] = [];
 
 export function ChatPane() {
   const activeId = useRuri((s) => s.activeId);
@@ -532,6 +600,7 @@ export function ChatPane() {
   const summaries = useRuri((s) =>
     s.activeId ? (s.summaries[s.activeId] ?? NO_SUMMARIES) : NO_SUMMARIES,
   );
+  const queuedItems = useRuri((s) => (s.activeId ? (s.queued[s.activeId] ?? NO_QUEUED) : NO_QUEUED));
   const allPermissions = useRuri((s) => s.permissions);
   const permissions = allPermissions.filter((p) => p.projectId === activeId);
   const lastError = useRuri((s) => s.lastError);
@@ -568,23 +637,10 @@ export function ChatPane() {
     setTrackerOpen(false);
   }, [activeId]);
 
-  const [compact, setCompact] = useState(() => {
-    try {
-      return localStorage.getItem("ruri-compact") !== "0";
-    } catch {
-      return true;
-    }
-  });
+  // Compact history is always on: older turns fold to their recall notes
+  // once summaries exist, and clicking a folded turn pulls it back.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   useEffect(() => setExpanded(new Set()), [activeId]);
-  const toggleCompact = () => {
-    setCompact(!compact);
-    try {
-      localStorage.setItem("ruri-compact", compact ? "0" : "1");
-    } catch {
-      // fine
-    }
-  };
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
@@ -606,7 +662,7 @@ export function ChatPane() {
   // Follow the conversation only while the user is at the bottom.
   useLayoutEffect(() => {
     if (pinnedRef.current) scrollToBottom();
-  }, [transcript.length, draft?.text, permissions.length, status]);
+  }, [transcript.length, draft?.text, permissions.length, status, queuedItems.length]);
   useLayoutEffect(() => {
     pinnedRef.current = true;
     setShowJump(false);
@@ -659,13 +715,6 @@ export function ChatPane() {
           </div>
           <div className="header-controls">
             <button
-              className={`icon-button ${compact ? "active" : ""}`}
-              title={compact ? "Compact history: on — older turns fold to their summaries" : "Compact history: off"}
-              onClick={toggleCompact}
-            >
-              <Icon d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-            </button>
-            <button
               className={`icon-button tracker-toggle ${trackerOpen ? "active" : ""}`}
               title="Feature tracker — things to test by hand"
               onClick={() => setTrackerOpen(!trackerOpen)}
@@ -690,7 +739,7 @@ export function ChatPane() {
             return turns.map((turn, i) => {
               const summary = summaries[turn.turnId];
               const fold =
-                compact && summary !== undefined && i < turns.length - 1 && !expanded.has(turn.turnId);
+                summary !== undefined && i < turns.length - 1 && !expanded.has(turn.turnId);
               if (fold) {
                 return (
                   <CompactTurn
@@ -710,15 +759,12 @@ export function ChatPane() {
               <span className="cursor" />
             </div>
           )}
-          {status === "working" && !draft && (
-            <div className="thinking">
-              <span />
-              <span />
-              <span />
-            </div>
-          )}
+          {status === "working" && !draft && <Thinking />}
           {permissions.map((request) => (
             <PermissionBanner key={request.requestId} request={request} />
+          ))}
+          {queuedItems.map((item) => (
+            <QueuedCard key={item.id} projectId={activeId} item={item} />
           ))}
         </div>
       </div>

@@ -82,7 +82,16 @@ export interface TrackerItem {
   source: "auto" | "manual";
   /** Turn (user-event id) this item was extracted from, when auto. */
   turnId?: string;
+  /** Marked needs-work in a past review — shown pinned with a repeat mark. */
+  repeat?: boolean;
   ts: number;
+}
+
+/** A prompt held app-side until the running turn finishes (editable). */
+export interface QueuedPrompt {
+  id: string;
+  text: string;
+  attachments?: Attachment[];
 }
 
 /** A playable track in the music library (served by GET /music/track). */
@@ -144,6 +153,9 @@ export type ClientMessage =
   | { type: "remove_project"; projectId: string }
   | { type: "send"; projectId: string; text: string; attachments?: AttachmentUpload[] }
   | { type: "send_split"; projectId: string; text: string; attachments?: AttachmentUpload[] }
+  /** Edit / drop a prompt still waiting in the app-side queue. */
+  | { type: "queue_edit"; projectId: string; itemId: string; text: string }
+  | { type: "queue_remove"; projectId: string; itemId: string }
   | { type: "interrupt"; projectId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   | { type: "set_model"; projectId: string; model: string }
@@ -158,6 +170,9 @@ export type ClientMessage =
       text?: string;
     }
   | { type: "tracker_remove"; projectId: string; itemId: string }
+  /** Finish a tracker review: liked items clear, needs-work become repeats,
+   *  and the small model writes a fix-it prompt for the composer. */
+  | { type: "tracker_review"; projectId: string }
   | { type: "toggle_star"; projectId: string }
   | { type: "new_session"; projectId: string }
   | { type: "remove_session"; sessionId: string }
@@ -182,6 +197,8 @@ export type ServerMessage =
       summaries: Record<string, Record<string, string>>;
       /** Feature-tracker checklists per project. */
       tracker: Record<string, TrackerItem[]>;
+      /** App-side prompt queues per channel (visible entries only). */
+      queued: Record<string, QueuedPrompt[]>;
       /** Whether the host can show a native folder-picker dialog. */
       canPickFolder: boolean;
       /** The workspace root the Home agent manages (where projects live). */
@@ -207,7 +224,10 @@ export type ServerMessage =
   | { type: "starred_models"; models: string[] }
   | { type: "small_model"; model: string }
   | { type: "home_reset" }
-  | { type: "queue"; projectId: string; remaining: number }
+  /** The app-side prompt queue for a channel (visible, editable entries). */
+  | { type: "queued"; projectId: string; items: QueuedPrompt[] }
+  /** A finished tracker review's generated prompt, for the composer. */
+  | { type: "review_prompt"; projectId: string; text: string }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }
   | { type: "status"; projectId: string; status: ProjectStatus }

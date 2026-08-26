@@ -1420,39 +1420,127 @@ input[type="range"]::-webkit-slider-thumb {
   animation: pulse 0.9s ease-in-out infinite;
 }
 
+/* thinking: the two-frame hand-drawn doodle, flipping poses every 0.5s */
+
 .thinking {
-  display: flex;
-  gap: 5px;
-  padding: 8px 2px;
+  position: relative;
+  width: 46px;
+  height: 46px;
+  margin: 6px 0;
+  color: var(--ink-soft);
 }
 
-.thinking span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ink-soft);
-  animation: thinking 1.2s ease-in-out infinite;
+.thinking-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
-.thinking span:nth-child(2) {
-  animation-delay: 0.15s;
+.thinking-frame.f1 {
+  animation: think-frame-a 1s linear infinite;
 }
 
-.thinking span:nth-child(3) {
-  animation-delay: 0.3s;
+.thinking-frame.f2 {
+  opacity: 0;
+  animation: think-frame-b 1s linear infinite;
 }
 
-@keyframes thinking {
+/* flat opacity segments — a hard frame swap, no crossfade */
+@keyframes think-frame-a {
   0%,
-  60%,
-  100% {
-    opacity: 0.25;
-    transform: translateY(0);
-  }
-  30% {
+  49.9% {
     opacity: 1;
-    transform: translateY(-3px);
   }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes think-frame-b {
+  0%,
+  49.9% {
+    opacity: 0;
+  }
+  50%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-frame {
+    animation: none;
+  }
+
+  .thinking-frame.f2 {
+    opacity: 0;
+  }
+}
+
+/* queued prompts: user-bubble look, dashed — waiting for their turn */
+
+.queued-card {
+  align-self: flex-end;
+  width: 76%;
+  background: var(--raised);
+  border: 1.5px dashed var(--edge);
+  border-radius: var(--radius-l);
+  border-bottom-right-radius: 3px;
+  padding: 7px 12px 9px;
+  animation: rise 180ms ease-out;
+}
+
+.queued-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.queued-label {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.queued-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.queued-card:hover .queued-actions,
+.queued-actions:focus-within {
+  opacity: 1;
+}
+
+.queued-actions .icon-button {
+  width: 20px;
+  height: 20px;
+}
+
+.queued-actions .icon-button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.queued-text {
+  font-size: 13.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.queued-edit {
+  width: 100%;
+  font-size: 13px;
+  resize: none;
 }
 
 @keyframes rise {
@@ -1804,15 +1892,6 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
 }
 
-.tracker-add {
-  padding: 10px 12px 0;
-}
-
-.tracker-add input {
-  width: 100%;
-  font-size: 12.5px;
-}
-
 .tracker-list {
   flex: 1;
   overflow-y: auto;
@@ -1829,18 +1908,16 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 8px 2px;
 }
 
-.tracker-divider {
-  height: 1px;
-  background: var(--line-soft);
-  margin: 4px 0;
-}
-
 .tracker-item {
   background: var(--paper);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-s);
   padding: 8px 10px;
   animation: rise 160ms ease-out;
+  transition:
+    opacity 220ms ease,
+    border-color 220ms ease,
+    background-color 220ms ease;
 }
 
 .tracker-item.liked {
@@ -1895,14 +1972,18 @@ input[type="range"]::-webkit-slider-thumb {
   text-decoration-thickness: 1px;
 }
 
+/* actions keep their footprint and fade in — no layout snap on hover */
 .tracker-item-actions {
-  display: none;
+  display: flex;
   gap: 2px;
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 160ms ease;
 }
 
-.tracker-item:hover .tracker-item-actions {
-  display: flex;
+.tracker-item:hover .tracker-item-actions,
+.tracker-item-actions:focus-within {
+  opacity: 1;
 }
 
 .tracker-item-actions .icon-button {
@@ -1915,43 +1996,66 @@ input[type="range"]::-webkit-slider-thumb {
   height: 12px;
 }
 
-.tracker-note {
-  display: block;
-  width: 100%;
-  margin-top: 5px;
-  padding: 3px 6px;
-  text-align: left;
-  font-size: 11.5px;
-  color: var(--ink-soft);
-  background: var(--paper-dim);
-  border: none;
-  border-left: 2px solid var(--line-soft);
-  border-radius: 0 4px 4px 0;
-  box-shadow: none;
+.tracker-fold svg {
+  transition: transform 200ms ease;
 }
 
-.tracker-note:hover {
-  color: var(--ink);
-  border-left-color: var(--ink);
-  background: var(--paper-dim);
-  transform: none;
+.tracker-fold.open svg {
+  transform: rotate(180deg);
 }
 
-.tracker-note.empty {
-  display: none;
+.tracker-repeat {
+  flex-shrink: 0;
+  margin-top: 2px;
   color: var(--ink-faint);
-  font-style: italic;
 }
 
-.tracker-item:hover .tracker-note.empty {
-  display: block;
+.tracker-repeat svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* the note folds out under a crossed item; everything below glides down */
+.tracker-note-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 240ms ease;
+}
+
+.tracker-note-wrap.open {
+  grid-template-rows: 1fr;
+}
+
+.tracker-note-inner {
+  overflow: hidden;
+  min-height: 0;
 }
 
 .tracker-note-edit {
   width: 100%;
-  margin-top: 5px;
+  margin-top: 6px;
   font-size: 11.5px;
   resize: none;
+}
+
+.tracker-finish {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 0 12px 12px;
+  padding: 8px 12px;
+  font-weight: 600;
+}
+
+.tracker-finish svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tracker-finish:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* ── attachments ──────────────────────────────────────────────────── */

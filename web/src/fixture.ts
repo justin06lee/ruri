@@ -55,6 +55,7 @@ export function installFixture(): void {
     activeId: "home",
     workspaceDir: "/Users/you/Workspace",
     musicDir: "/Users/you/Music/ruri",
+    user: "you",
     statuses: { p1: "permission", p2: "working", p3: "idle" },
     unread: { p2: true },
     models: [

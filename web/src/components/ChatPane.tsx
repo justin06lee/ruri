@@ -243,10 +243,6 @@ function Composer({
   const composerSeed = useRuri((s) => s.composerSeed);
   const clearComposerSeed = useRuri((s) => s.clearComposerSeed);
   const queued = useRuri((s) => s.queue[channelId] ?? 0);
-  // "Message Codex CLI…" when the model routes to another harness.
-  const harness = useRuri((s) =>
-    s.models.find((m) => m.value === project.model && m.provider)?.providerLabel,
-  );
 
   const addFiles = (files: FileList | File[]) => {
     const added: ComposerAttachment[] = [];
@@ -368,7 +364,7 @@ function Composer({
         <textarea
           ref={areaRef}
           rows={1}
-          placeholder={`Message ${harness ?? "Claude Code"}…`}
+          placeholder="Message ruri…"
           value={text}
           onChange={(e) => {
             setText(e.target.value);

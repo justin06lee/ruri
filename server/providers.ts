@@ -74,8 +74,10 @@ export class ProviderRegistry {
   /** Build a provider instance working in the given project directory. */
   createFor(id: string, workDir: string): Provider {
     const entry = this.config[id] ?? {};
-    // Codex defaults to read-only in yagami (API safety); a ruri session is
-    // a coding session, so it gets workspace-write unless config says else.
+    // Only affects the run()-per-turn FALLBACK path: codex defaults to
+    // read-only there (API safety), and a ruri session is a coding session.
+    // The agentic openSession path ignores this — the harness's own config
+    // governs, verbatim.
     const patched: ProviderConfigEntry =
       id === "codex" && !entry.sandbox ? { ...entry, sandbox: "workspace-write" } : entry;
     return createProvider(id, patched, { workDir, appName: "ruri" });

@@ -331,9 +331,9 @@ function Composer({
         ...(att.regions.length
           ? {
               regions: await Promise.all(
-                att.regions.map(async (region) => ({
+                att.regions.map(async (region, i) => ({
                   note: region.note,
-                  data: await cropRegion(att.objectUrl, region),
+                  data: await cropRegion(att.objectUrl, region, i + 1),
                   mediaType: "image/png",
                 })),
               ),

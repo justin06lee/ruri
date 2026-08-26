@@ -82,7 +82,7 @@ export function modelPayload(
       images.push({ data: upload.data, mediaType: upload.mediaType });
       (upload.regions ?? []).forEach((region, i) => {
         images.push({ data: region.data, mediaType: region.mediaType });
-        outText += `\n[image #${upload.n}, region ${i + 1} — attached as its own image] ${region.note}`;
+        outText += `\n[image #${upload.n}, region ${i + 1} — attached as its own image: the numbered white box marks the exact region, with surrounding context around it] ${region.note}`;
       });
     } else if (upload.kind === "video") {
       outText += `\n[video #${upload.n}] saved at ${uploadPath(upload)} — inspect it with tools if needed.`;

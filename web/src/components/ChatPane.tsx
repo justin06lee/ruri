@@ -17,6 +17,7 @@ import {
 } from "./Attachments";
 import { Dropdown } from "./Dropdown";
 import { Tracker } from "./Tracker";
+import { heroFor, heroUrl, launchHero } from "../hero";
 import { Markdown } from "../markdown";
 import { send, useRuri } from "../store";
 
@@ -577,7 +578,11 @@ export function ChatPane() {
           </div>
         )}
         <div className="hero">
-          <img className="hero-face" src="/ruri-face.png" alt="" />
+          <img
+            className="hero-face"
+            src={heroUrl(isHome ? launchHero : heroFor(storeProject?.id ?? activeId))}
+            alt=""
+          />
           <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
           <div className="hero-composer">
             <Composer channelId={activeId} project={project} busy={busy} showControls={!isHome} />

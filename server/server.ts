@@ -1,14 +1,18 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import type {
+  Attachment,
   AttachmentUpload,
   ClientMessage,
   ModelChoice,
   PermissionRequest,
+  QueuedPrompt,
   ServerMessage,
+  TranscriptEvent,
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
@@ -16,9 +20,9 @@ import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } fro
 import { ProjectStore } from "./projects.js";
 import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { SessionManager } from "./sessions.js";
-import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizeTurn, TurnTracker } from "./smallmodel.js";
+import { extractTrackerItems, reviewPrompt, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizeTurn, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
-import { processAttachments, serveUpload } from "./uploads.js";
+import { modelPayload, processAttachments, serveUpload, storeAttachments } from "./uploads.js";
 
 export interface StartServerOptions {
   port: number;
@@ -195,14 +199,74 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     return { ...found.project, id: channelId };
   }
 
-  // Split-send queues: sub-prompts waiting for the previous turn to finish.
-  const sendQueues = new Map<string, Array<{ text: string; attachments: AttachmentUpload[] }>>();
+  // The app-side prompt queue: everything waiting for the running turn to
+  // finish. Visible entries are user prompts sent while busy (shown and
+  // editable in the UI); silent entries are split sub-prompts riding under
+  // the original prompt the user already sees.
+  interface QueueEntry {
+    id: string;
+    text: string;
+    uploads: AttachmentUpload[];
+    silent: boolean;
+    /** Stored attachment meta, for displaying visible entries. */
+    attachments?: Attachment[];
+  }
+  const sendQueues = new Map<string, QueueEntry[]>();
+  // Bumped on interrupt so an in-flight split resolution knows to stand down.
+  const interruptEpochs = new Map<string, number>();
 
-  function dispatch(channelId: string, text: string, attachments: AttachmentUpload[]): void {
+  function visibleQueue(channelId: string): QueuedPrompt[] {
+    return (sendQueues.get(channelId) ?? [])
+      .filter((entry) => !entry.silent)
+      .map((entry) => ({
+        id: entry.id,
+        text: entry.text,
+        ...(entry.attachments?.length ? { attachments: entry.attachments } : {}),
+      }));
+  }
+
+  function broadcastQueue(channelId: string): void {
+    broadcast({ type: "queued", projectId: channelId, items: visibleQueue(channelId) });
+  }
+
+  /** A turn is running (or blocked on permission), or prompts are queued. */
+  function busy(channelId: string): boolean {
+    const status = manager.statuses()[channelId];
+    return (
+      status === "working" ||
+      status === "permission" ||
+      (sendQueues.get(channelId)?.length ?? 0) > 0
+    );
+  }
+
+  // Sessions get their role title the moment their first prompt goes out —
+  // in parallel with the turn, not after it. (TurnTracker's post-turn call
+  // stays as the fallback if this pass fails or returns nothing.)
+  function titleSession(channelId: string, text: string): void {
+    if (!smallModelEnabled()) return;
+    const found = store.findSession(channelId);
+    if (!found || found.session.title) return;
+    sessionRoleTitle({ turnId: "", user: text, assistant: "", tools: [] })
+      .then((title) => {
+        if (!title || store.findSession(channelId)?.session.title) return;
+        store.setSessionTitle(channelId, title);
+        broadcast({ type: "projects", projects: store.list() });
+      })
+      .catch(() => {});
+  }
+
+  function dispatch(channelId: string, text: string, uploads: AttachmentUpload[], silent = false): void {
     const project = channelProject(channelId);
     if (!project) throw new Error("unknown session");
-    const processed = processAttachments(text, attachments);
-    manager.send(project, processed.text, processed.images, processed.attachments);
+    titleSession(channelId, text);
+    if (silent) {
+      // a split sub-prompt: files are already stored, no new user event
+      const payload = modelPayload(text, uploads);
+      manager.send(project, payload.text, payload.images, undefined, true);
+    } else {
+      const processed = processAttachments(text, uploads);
+      manager.send(project, processed.text, processed.images, processed.attachments);
+    }
   }
 
   // Every finished turn goes to the small model in the background, twice:
@@ -247,8 +311,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           const next = queue?.shift();
           if (next) {
             if (queue!.length === 0) sendQueues.delete(projectId);
-            broadcast({ type: "queue", projectId, remaining: queue!.length });
-            dispatch(projectId, next.text, next.attachments);
+            if (!next.silent) broadcastQueue(projectId);
+            // after the session settles this result (it flips to idle right
+            // after emitting it) — so the queued turn's "working" sticks
+            queueMicrotask(() => {
+              try {
+                dispatch(projectId, next.text, next.uploads, next.silent);
+              } catch {
+                // the channel vanished mid-queue; drop the prompt
+              }
+            });
           }
         }
       },
@@ -331,39 +403,94 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       }
       case "send": {
         if (msg.text.trim().length === 0 && !msg.attachments?.length) return;
-        dispatch(msg.projectId, msg.text, msg.attachments ?? []);
+        const channelId = msg.projectId;
+        const uploads = msg.attachments ?? [];
+        if (busy(channelId)) {
+          // hold it app-side — nothing reaches the harness until the
+          // running turn (and everything queued before it) finishes
+          const queue = sendQueues.get(channelId) ?? [];
+          queue.push({
+            id: randomUUID(),
+            text: msg.text,
+            uploads,
+            silent: false,
+            ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
+          });
+          sendQueues.set(channelId, queue);
+          broadcastQueue(channelId);
+          return;
+        }
+        dispatch(channelId, msg.text, uploads);
         break;
       }
       case "send_split": {
         if (msg.text.trim().length === 0) return;
         const channelId = msg.projectId;
         const uploads = msg.attachments ?? [];
-        void splitPrompt(msg.text)
-          .then((prompts) => {
+        if (!channelProject(channelId)) throw new Error("unknown session");
+        // The user sees exactly one thing: their prompt, sent now. The
+        // split and the turn-by-turn feed happen entirely out of sight.
+        const attachments = storeAttachments(uploads);
+        const userEvent: TranscriptEvent = {
+          kind: "user",
+          id: randomUUID(),
+          text: msg.text,
+          ...(attachments.length ? { attachments } : {}),
+          ts: Date.now(),
+        };
+        archive.append(channelId, userEvent);
+        turns.observe(channelId, userEvent);
+        broadcast({ type: "event", projectId: channelId, event: userEvent });
+        broadcast({ type: "status", projectId: channelId, status: "working" });
+        titleSession(channelId, msg.text);
+        const epoch = interruptEpochs.get(channelId) ?? 0;
+        void (smallModelEnabled() ? splitPrompt(msg.text).catch(() => [msg.text]) : Promise.resolve([msg.text])).then(
+          (prompts) => {
+            if ((interruptEpochs.get(channelId) ?? 0) !== epoch) return; // stopped meanwhile
             // route each attachment to the sub-prompt carrying its marker
-            const parts = prompts.map((text) => ({ text, attachments: [] as AttachmentUpload[] }));
+            const parts = prompts.map((text) => ({ text, uploads: [] as AttachmentUpload[] }));
             for (const upload of uploads) {
               const marker = `[${upload.kind} #${upload.n}]`;
               const target = parts.find((p) => p.text.includes(marker)) ?? parts[0]!;
-              target.attachments.push(upload);
+              target.uploads.push(upload);
             }
-            const [first, ...rest] = parts;
-            if (rest.length > 0) {
-              sendQueues.set(channelId, rest);
-              broadcast({ type: "queue", projectId: channelId, remaining: rest.length });
+            const entries: QueueEntry[] = parts.map((part) => ({
+              id: randomUUID(),
+              text: part.text,
+              uploads: part.uploads,
+              silent: true,
+            }));
+            const idle = !busy(channelId);
+            const first = idle ? entries.shift() : undefined;
+            if (entries.length > 0) {
+              const queue = sendQueues.get(channelId) ?? [];
+              queue.push(...entries);
+              sendQueues.set(channelId, queue);
             }
-            dispatch(channelId, first!.text, first!.attachments);
-          })
-          .catch((err) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: `split failed: ${err instanceof Error ? err.message : String(err)}`,
-                } satisfies ServerMessage),
-              );
-            }
-          });
+            if (first) dispatch(channelId, first.text, first.uploads, true);
+          },
+        );
+        break;
+      }
+      case "queue_edit": {
+        const entry = sendQueues
+          .get(msg.projectId)
+          ?.find((e) => e.id === msg.itemId && !e.silent);
+        if (entry && msg.text.trim()) {
+          entry.text = msg.text;
+          broadcastQueue(msg.projectId);
+        }
+        break;
+      }
+      case "queue_remove": {
+        const queue = sendQueues.get(msg.projectId);
+        if (!queue) break;
+        const kept = queue.filter((e) => e.id !== msg.itemId || e.silent);
+        if (kept.length !== queue.length) {
+          if (kept.length === 0) sendQueues.delete(msg.projectId);
+          else sendQueues.set(msg.projectId, kept);
+          broadcastQueue(msg.projectId);
+        }
         break;
       }
       case "new_session": {
@@ -380,10 +507,15 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "interrupt": {
-        if (sendQueues.delete(msg.projectId)) {
-          broadcast({ type: "queue", projectId: msg.projectId, remaining: 0 });
-        }
+        interruptEpochs.set(msg.projectId, (interruptEpochs.get(msg.projectId) ?? 0) + 1);
+        if (sendQueues.delete(msg.projectId)) broadcastQueue(msg.projectId);
         manager.interrupt(msg.projectId);
+        // settle the optimistic "working" a pending split may have shown
+        broadcast({
+          type: "status",
+          projectId: msg.projectId,
+          status: manager.statuses()[msg.projectId] ?? "idle",
+        });
         break;
       }
       case "permission_response": {
@@ -434,6 +566,33 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
         break;
       }
+      case "tracker_review": {
+        const channelId = msg.projectId;
+        const items = tracker.items(channelId);
+        if (!items.some((i) => i.status !== "open")) return;
+        const rejected = items
+          .filter((i) => i.status === "rejected")
+          .map((i) => ({ text: i.text, note: i.note }));
+        // outcomes apply immediately: liked verified → gone, rejected → repeats
+        tracker.finishReview(channelId);
+        broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
+        if (rejected.length === 0) break;
+        // the composer gets a prompt either way — mechanical if the small
+        // model is unavailable or fails
+        const fallback = `Fix these issues found while reviewing:\n${rejected
+          .map((r) => `- ${r.text}${r.note.trim() ? ` — ${r.note.trim()}` : ""}`)
+          .join("\n")}`;
+        void (smallModelEnabled() ? reviewPrompt(rejected).catch(() => fallback) : Promise.resolve(fallback)).then(
+          (text) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({ type: "review_prompt", projectId: channelId, text } satisfies ServerMessage),
+              );
+            }
+          },
+        );
+        break;
+      }
       case "toggle_star": {
         const project = store.get(msg.projectId);
         if (project) {
@@ -466,6 +625,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (status === "working" || status === "permission") break;
         manager.dispose(HOME_ID);
         archive.remove(HOME_ID);
+        sendQueues.delete(HOME_ID);
         broadcast({ type: "home_reset" });
         break;
       }
@@ -523,6 +683,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       models: allModels(),
       summaries: archive.allSummaries(projectIds),
       tracker: tracker.all(projectIds),
+      queued: Object.fromEntries(projectIds.map((id) => [id, visibleQueue(id)])),
       canPickFolder: options.pickFolder !== undefined,
       workspaceDir: store.workspaceDir(),
       musicDir: musicRoot(),

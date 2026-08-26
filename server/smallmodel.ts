@@ -94,17 +94,39 @@ export async function extractTrackerItems(turn: Turn, existing: string[]): Promi
 }
 
 const ROLE_SYSTEM = `You name coding-agent sessions by the ROLE they serve inside a project.
-Given the session's first exchange, output a 2-4 word Title Case role name — what this session is FOR, not what was literally asked.
+Given the session's first prompt (and response, if one exists yet), output a 2-4 word Title Case role name — what this session is FOR, not what was literally asked.
 Examples: Frontend UI, Backend API, Test Infra, Release Prep, Bug Triage, Docs.
 Output only the title — no quotes, no punctuation.`;
 
-/** Name a session's role from its first exchange (sidebar titles). */
+/** Name a session's role from its first prompt — fired the moment the prompt
+ *  is sent (the response, when present, is extra context, not a requirement). */
 export async function sessionRoleTitle(turn: Turn): Promise<string> {
   const prompt =
-    `FIRST PROMPT:\n${turn.user.slice(0, 3000)}\n\n` +
-    `RESPONSE (truncated):\n${turn.assistant.slice(0, 2000)}`;
+    `FIRST PROMPT:\n${turn.user.slice(0, 3000)}` +
+    (turn.assistant ? `\n\nRESPONSE (truncated):\n${turn.assistant.slice(0, 2000)}` : "");
   const title = (await complete(ROLE_SYSTEM, prompt, 40)).replace(/["'.]/g, "").trim();
   return title.length > 0 && title.length <= 40 ? title : "";
+}
+
+const REVIEW_SYSTEM = `You turn a reviewed feature checklist into ONE follow-up prompt for a coding agent.
+Input: items the user marked needs-work during manual testing, each with an optional note about what's wrong.
+Rules:
+- Write in the user's plain voice, addressed to the agent ("Fix ...", "The X still does Y ...").
+- Cover EVERY item; keep each item's own wording and note as faithfully as possible.
+- Never invent problems, solutions, or details the items don't state.
+- Plain text, one item per line or short paragraph. No preamble, no headings.
+Output only the prompt text.`;
+
+/** Write the fix-it prompt for a finished tracker review. */
+export async function reviewPrompt(
+  items: Array<{ text: string; note: string }>,
+): Promise<string> {
+  const list = items
+    .map((item) => `- ${item.text}${item.note.trim() ? ` — note: ${item.note.trim()}` : ""}`)
+    .join("\n");
+  const result = await complete(REVIEW_SYSTEM, `NEEDS-WORK ITEMS:\n${list}`, 1200);
+  if (!result) throw new Error("empty review prompt");
+  return result;
 }
 
 const SPLIT_SYSTEM = `You split one user message into its separate, independent requests.

@@ -88,6 +88,20 @@ export class TrackerStore {
     return true;
   }
 
+  /** Apply a finished review: liked items verified → gone; needs-work items
+   *  reopen flagged as repeats (they'll pin above whatever lands next). */
+  finishReview(projectId: string): void {
+    const kept = this.load(projectId).filter((item) => item.status !== "liked");
+    for (const item of kept) {
+      if (item.status === "rejected") {
+        item.status = "open";
+        item.repeat = true;
+      }
+    }
+    this.data.set(projectId, kept);
+    this.save(projectId);
+  }
+
   remove(projectId: string, itemId: string): void {
     this.data.set(
       projectId,

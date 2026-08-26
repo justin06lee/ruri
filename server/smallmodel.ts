@@ -99,6 +99,33 @@ export async function sessionRoleTitle(turn: Turn): Promise<string> {
   return title.length > 0 && title.length <= 40 ? title : "";
 }
 
+const SPLIT_SYSTEM = `You split one user message into its separate, independent requests.
+Rules:
+- Preserve the user's wording as faithfully as possible; trim only connective tissue ("also", "and then").
+- NEVER invent, infer, or add anything the user did not say. No guessed intentions, no new content.
+- Keep any [image #N] / [video #N] markers inside the request they belong with.
+- Keep fragments that only make sense together in one request.
+- If the message is really one request, return it alone.
+Output STRICT JSON: {"prompts": ["...", "..."]} in the original order.`;
+
+/** Split a long multi-request prompt into separate prompts (verbatim-ish). */
+export async function splitPrompt(text: string): Promise<string[]> {
+  const raw = await complete(SPLIT_SYSTEM, text.slice(0, 24000), 8000);
+  try {
+    const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "")) as {
+      prompts?: unknown;
+    };
+    if (!Array.isArray(parsed.prompts)) return [text];
+    const prompts = parsed.prompts
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    return prompts.length > 0 ? prompts : [text];
+  } catch {
+    return [text];
+  }
+}
+
 /**
  * Assembles turns from the transcript event stream: a turn opens at a user
  * event and closes at its result event, collecting assistant text and tool

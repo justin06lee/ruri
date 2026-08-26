@@ -4,7 +4,7 @@
 
 # ruri
 
-**One desktop workspace for all your projects — each with its own live Claude Code session.**<br>
+**One desktop workspace for all your projects — each with its own live Claude Code sessions.**<br>
 *A folder-organized sidebar on the left, a real Claude Code session on the right.*
 
 </div>
@@ -35,8 +35,10 @@ bun run desktop   # run the desktop app unpackaged (built UI + Electron)
 - **Native desktop app** — `ruri.app` with Dock icon, single-instance, inset title bar; the window serves the UI and WebSocket from one local port picked at launch.
 - **Home — the workspace agent.** The default view (and the pinned Home row) is a Claude Code session that manages the app itself: tell it "today let's work on X, Y, Z" and it finds the matching directories under your workspace root, opens them in the sidebar via its `open_project` MCP tool, and can kick each session off with a delegated first prompt. The workspace root is configurable from the Home view; deep work happens in each project's own session, Home just orchestrates.
 - **Manga look** — Space Grotesk type, pure black-and-white UI on warm paper (deliberately low blue channel, e-ink vibes): ink borders, screentone shading, hard offset shadows, grayscale syntax highlighting that leans on weight and slant instead of hue. Statuses are shapes, not colors: filled pulse = working, thick ring = waiting on permission, diamond = error/unread.
-- **Projects sidebar** with optional group labels and status dots (filled pulse = working, thick ring = waiting on a permission, diamond = error/unread). Projects are opened by asking Home (any path works, not just the workspace); remove with the x on hover.
-- **One persistent Claude Code session per project** (streaming input, so you can send follow-ups mid-run to steer). Sessions start lazily on first message, run in the project's directory, and auto-restart with `resume` if they die — context carries over.
+- **Projects sidebar as folders of sessions**: each project is a collapsible folder holding any number of parallel sessions, and each session is auto-named by the small model after its first turn — by the ROLE it serves ("Frontend UI", "Backend API"), not the literal prompt. Status dots per session (filled pulse = working, thick ring = waiting on a permission, diamond = error/unread); star projects to pin them into a Starred section; + on a folder adds a session. Projects are opened by asking Home.
+- **Persistent Claude Code sessions** (streaming input, so you can send follow-ups mid-run to steer). Sessions start lazily on first message, run in their project's directory, and auto-restart with `resume` if they die — context carries over.
+- **Prompt splitting** — the scissors button hands a long many-asks-in-one message to the small model, which splits it into separate near-verbatim prompts (strictly no invented intentions) and feeds them to the session one by one as turns finish; attachments follow their `[image #N]` markers into the right sub-prompt. Stop clears the queue.
+- **Attachments** — drop or paste images and videos into the composer: a `[image #N]`/`[video #N]` marker lands in the text with thumbnails above it; click one for the full-size view. Drag on a full-size image to mark regions and attach a note to each — every region is cropped and sent as its own image so the model sees exactly the part you meant. Images go to the model directly; videos are saved to disk and referenced by path for tool-based inspection. Uploads persist under `~/.config/ruri/uploads/`.
 - **Streaming responses** rendered as markdown (GFM, syntax-highlighted code blocks with copy buttons), tool-use chips (`Bash — npm test`), and per-turn result lines with duration and what the turn would have cost at API prices.
 - **Permission prompts**: when Claude Code would ask in the terminal, ruri shows an Allow / Always allow / Deny card instead (your `~/.claude/settings.json` allow-rules apply exactly as in the CLI; "Always allow" persists the CLI's own suggested rule). Plan-mode approvals render the plan as markdown.
 - **Per-project model and permission mode** in the chat header — pick any model the CLI reports, and switch between ask-first / accept-edits / plan / bypass, live mid-session; both persist per project.

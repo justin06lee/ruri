@@ -37,6 +37,8 @@ function fadeCurves(): { out: Float32Array; in: Float32Array } {
 export class AudioEngine {
   private ctx: AudioContext;
   private master: GainNode;
+  private analyser: AnalyserNode;
+  private freq: Uint8Array<ArrayBuffer> | null = null;
   private decks: [Deck, Deck];
   private active = 0;
 
@@ -64,7 +66,13 @@ export class AudioEngine {
     this.resolveUrl = resolveUrl;
     this.ctx = new AudioContext();
     this.master = this.ctx.createGain();
-    this.master.connect(this.ctx.destination);
+    // master → analyser → speakers, so the mini waveform sees exactly
+    // what's audible (post-crossfade, post-volume)
+    this.analyser = this.ctx.createAnalyser();
+    this.analyser.fftSize = 256;
+    this.analyser.smoothingTimeConstant = 0.75;
+    this.master.connect(this.analyser);
+    this.analyser.connect(this.ctx.destination);
     this.decks = [this.makeDeck(), this.makeDeck()];
     this.tick();
     // Deciding *when* to crossfade must not depend on animation frames:
@@ -323,6 +331,23 @@ export class AudioEngine {
   setVolume(v: number): void {
     const clamped = Math.max(0, Math.min(1, v));
     this.master.gain.setTargetAtTime(clamped, this.ctx.currentTime, 0.02);
+  }
+
+  /** Coarse spectrum levels (0..1), low to high, for the mini waveform. */
+  levels(bands: number): number[] {
+    this.freq ??= new Uint8Array(this.analyser.frequencyBinCount);
+    this.analyser.getByteFrequencyData(this.freq);
+    // the top third of the spectrum is usually dead air — skip it
+    const usable = Math.floor(this.freq.length * 0.66);
+    const out: number[] = [];
+    for (let i = 0; i < bands; i++) {
+      const a = Math.floor((i / bands) * usable);
+      const b = Math.max(a + 1, Math.floor(((i + 1) / bands) * usable));
+      let sum = 0;
+      for (let j = a; j < b; j++) sum += this.freq[j]!;
+      out.push(sum / ((b - a) * 255));
+    }
+    return out;
   }
 
   setShuffle(on: boolean): void {

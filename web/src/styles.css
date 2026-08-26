@@ -248,11 +248,11 @@ textarea::placeholder {
 }
 
 .sidebar-header {
-  position: relative; /* the logo peek anchors to this box's bottom */
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 10px 12px;
+  position: relative; /* the peek skyline fills this box */
+  /* fixed: nothing lives in flow here any more, and the peek layout was
+     hand-tuned against exactly this height */
+  height: 46px;
+  flex-shrink: 0;
   border-bottom: 1.5px solid var(--hairline);
   background-image: var(--tone);
   background-size: 6px 6px;
@@ -289,12 +289,31 @@ textarea::placeholder {
   filter: invert(1);
 }
 
-.sidebar-header-right {
-  position: relative; /* rides above the peek skyline, stays clickable */
-  z-index: 40;
+/* the account bar: local user + settings, pinned under the music player */
+.account-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1.5px solid var(--hairline);
+}
+
+.account-avatar {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  color: var(--ink-soft);
+}
+
+.account-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .icon-button {

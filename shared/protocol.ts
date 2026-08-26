@@ -162,7 +162,9 @@ export type ClientMessage =
   | { type: "remove_session"; sessionId: string }
   | { type: "set_workspace"; path: string }
   | { type: "set_music_dir"; path: string }
-  | { type: "toggle_model_star"; model: string };
+  | { type: "toggle_model_star"; model: string }
+  /** Re-probe every installed harness's live model catalog. */
+  | { type: "refresh_models" };
 
 export type ServerMessage =
   | {

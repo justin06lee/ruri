@@ -41,6 +41,12 @@ export interface SessionExtras {
   autoAllow?: string[];
   /** Extra Agent SDK options, merged last. */
   options?: AgentOptions;
+  /** System prompt for non-Claude harness sessions. The harnesses can't
+   *  take one natively, so it rides the first prompt as a <system> block
+   *  (yagami's own emulation shape) and resume carries it from there. */
+  providerSystem?: string;
+  /** Runs when a non-Claude turn finishes (Home's drop-file pickup). */
+  onProviderTurnEnd?: () => void;
 }
 
 /** How the manager reaches non-Claude harnesses (see server/providers.ts). */
@@ -342,6 +348,11 @@ class ProviderTurnSession implements ChannelSession {
     images?: Array<{ data: string; mediaType?: string }>;
   }> = [];
 
+  /** Whether the system block already rode a prompt this app run. Sent on
+   *  the first turn even when resuming, so updated instructions reach
+   *  sessions that predate them. */
+  private sentSystem = false;
+
   constructor(
     private readonly project: Project,
     private readonly events: SessionEvents,
@@ -349,6 +360,7 @@ class ProviderTurnSession implements ChannelSession {
     private readonly provider: Provider,
     nativeModel: string | undefined,
     resume: string | undefined,
+    private readonly extras?: SessionExtras,
   ) {
     this.model = nativeModel;
     if (resume?.startsWith(`${providerId}:`)) this.lastSessionId = resume;
@@ -392,8 +404,15 @@ class ProviderTurnSession implements ChannelSession {
         source: { type: "base64", data: img.data, media_type: img.mediaType ?? "image/png" },
       })) as ContentBlockParam[];
       const resume = this.lastSessionId?.slice(this.providerId.length + 1);
+      // system emulation, mirroring yagami's engine: the block prefixes the
+      // prompt once, then lives on in the harness's own resumed context
+      let prompt = text;
+      if (this.extras?.providerSystem && !this.sentSystem) {
+        prompt = `<system>\n${this.extras.providerSystem}\n</system>\n\n${text}`;
+        this.sentSystem = true;
+      }
       for await (const event of this.provider.run({
-        prompt: text,
+        prompt,
         ...(media.length ? { media } : {}),
         ...(this.model ? { model: this.model } : {}),
         ...(resume ? { resume } : {}),
@@ -423,6 +442,13 @@ class ProviderTurnSession implements ChannelSession {
       this.abort = null;
     }
     if (acc) this.pushEvent({ kind: "assistant", id: draftId, text: acc, ts: Date.now() });
+    // pick up anything the turn dropped for the app (Home's open requests)
+    // before the result lands, so the sidebar is current when "done" shows
+    try {
+      this.extras?.onProviderTurnEnd?.();
+    } catch {
+      // a bad drop file must not kill the turn pipeline
+    }
     this.pushEvent({
       kind: "result",
       id: randomUUID(),
@@ -533,6 +559,7 @@ export class SessionManager {
           this.providers.create(route.providerId, project.path),
           route.model,
           resume,
+          this.extrasFor(project),
         );
       } else {
         // provider-prefixed resume ids never feed a Claude session

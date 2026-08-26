@@ -621,7 +621,92 @@ textarea::placeholder {
 /* ── music player ─────────────────────────────────────────────────── */
 
 .player {
+  position: relative; /* anchors the floating notes */
   border-top: 1.5px solid var(--hairline);
+}
+
+/* ── while music plays: a live mini waveform + drifting notes ────── */
+
+.wave {
+  display: flex;
+  align-items: center;
+  gap: 1.5px;
+  width: 14px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.wave span {
+  flex: 1;
+  height: 100%;
+  background: currentColor;
+  border-radius: 1px;
+  transform: scaleY(0.15);
+  transform-origin: center;
+}
+
+.note-float {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 80px;
+  height: 0;
+  pointer-events: none;
+}
+
+.note-float svg {
+  position: absolute;
+  bottom: 0;
+  width: 9px;
+  height: 9px;
+  color: var(--ink-faint);
+  opacity: 0;
+  animation: note-rise 5.2s linear infinite;
+}
+
+.note-float svg:nth-child(1) {
+  left: 16px;
+}
+
+.note-float svg:nth-child(2) {
+  left: 34px;
+  width: 7px;
+  height: 7px;
+  animation-delay: 1.8s;
+  animation-duration: 5.8s;
+}
+
+.note-float svg:nth-child(3) {
+  left: 52px;
+  width: 8px;
+  height: 8px;
+  animation-delay: 3.2s;
+  animation-duration: 4.7s;
+}
+
+/* a slow rise with a side-to-side wobble, fading in and out */
+@keyframes note-rise {
+  0% {
+    transform: translate(0, 0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.32;
+  }
+  30% {
+    transform: translate(4px, -15px);
+  }
+  50% {
+    transform: translate(-3px, -27px);
+    opacity: 0.26;
+  }
+  70% {
+    transform: translate(3px, -39px);
+  }
+  100% {
+    transform: translate(-2px, -52px);
+    opacity: 0;
+  }
 }
 
 .player-toggle {

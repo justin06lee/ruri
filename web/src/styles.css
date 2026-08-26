@@ -267,26 +267,25 @@ textarea::placeholder {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
   z-index: 30;
 }
 
 .peek-head {
-  display: block;
-  flex: none;
+  position: absolute;
+  top: var(--drop, 0px);
   height: auto;
-  margin-top: var(--drop, 0px);
   transition: transform 180ms cubic-bezier(0.3, 0.9, 0.3, 1);
+  /* the header is a window-drag region, and drag regions swallow mouse
+     events — without this, hover never fires in the real app */
+  -webkit-app-region: no-drag;
 }
 
 .peek-head:hover {
-  transform: translateY(var(--lift, -18px));
+  transform: translateY(var(--lift, -14px));
 }
 
-/* ink cutouts swap with the theme; `plain` (colored art) stays put */
-[data-theme="dark"] .peek-head:not(.plain) {
+/* the cutouts swap ink and paper with the theme */
+[data-theme="dark"] .peek-head {
   filter: invert(1);
 }
 

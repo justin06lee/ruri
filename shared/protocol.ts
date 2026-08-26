@@ -94,6 +94,23 @@ export interface QueuedPrompt {
   attachments?: Attachment[];
 }
 
+/** Account limit windows from the Claude usage endpoint (percent USED, 0-100).
+ *  A missing field means the window couldn't be read. */
+export interface UsageLimits {
+  /** The 5-hour session window. */
+  fiveHour?: number;
+  /** The 7-day window. */
+  weekly?: number;
+}
+
+/** Context-window occupancy of a channel's live session, from the last call. */
+export interface ContextUsage {
+  /** Tokens in the window right now (input + cache + output of last call). */
+  tokens: number;
+  /** The window size for the session's model (1M with [1m], else 200k). */
+  window: number;
+}
+
 /** A playable track in the music library (served by GET /music/track). */
 export interface Track {
   id: string;
@@ -199,6 +216,10 @@ export type ServerMessage =
       tracker: Record<string, TrackerItem[]>;
       /** App-side prompt queues per channel (visible entries only). */
       queued: Record<string, QueuedPrompt[]>;
+      /** Account limit windows (empty until the first successful fetch). */
+      usage: UsageLimits;
+      /** Context occupancy per channel (Claude sessions that have run). */
+      contexts: Record<string, ContextUsage>;
       /** Whether the host can show a native folder-picker dialog. */
       canPickFolder: boolean;
       /** The workspace root the Home agent manages (where projects live). */
@@ -228,6 +249,10 @@ export type ServerMessage =
   | { type: "queued"; projectId: string; items: QueuedPrompt[] }
   /** A finished tracker review's generated prompt, for the composer. */
   | { type: "review_prompt"; projectId: string; text: string }
+  /** Fresh account limit windows (the usage gauges). */
+  | { type: "usage"; limits: UsageLimits }
+  /** A channel's context occupancy changed (after an API call). */
+  | { type: "context"; projectId: string; context: ContextUsage }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }
   | { type: "status"; projectId: string; status: ProjectStatus }

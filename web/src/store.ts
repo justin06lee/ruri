@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   HOME_ID,
   type ClientMessage,
+  type ContextUsage,
   type HomeSettings,
   type ModelChoice,
   type PermissionRequest,
@@ -12,6 +13,7 @@ import {
   type ServerMessage,
   type TrackerItem,
   type TranscriptEvent,
+  type UsageLimits,
 } from "../../shared/protocol";
 import type { ComposerAttachment } from "./components/Attachments";
 
@@ -57,6 +59,10 @@ interface RuriState {
   tracker: Record<string, TrackerItem[]>;
   /** App-side prompt queue per channel — held until the running turn ends. */
   queued: Record<string, QueuedPrompt[]>;
+  /** Account limit windows (percent used) for the usage gauges. */
+  usage: UsageLimits;
+  /** Context-window occupancy per channel. */
+  contexts: Record<string, ContextUsage>;
   /** Text waiting to be inserted into the composer (tracker "send as prompt"). */
   composerSeed: string | null;
   /** The workspace root the Home agent manages. */
@@ -97,6 +103,8 @@ export const useRuri = create<RuriState>((set) => ({
   summaries: {},
   tracker: {},
   queued: {},
+  usage: {},
+  contexts: {},
   composerSeed: null,
   workspaceDir: "",
   musicDir: "",
@@ -164,6 +172,8 @@ function apply(msg: ServerMessage): void {
         summaries: msg.summaries,
         tracker: msg.tracker,
         queued: msg.queued,
+        usage: msg.usage,
+        contexts: msg.contexts,
         canPickFolder: msg.canPickFolder,
         workspaceDir: msg.workspaceDir,
         musicDir: msg.musicDir,
@@ -195,6 +205,14 @@ function apply(msg: ServerMessage): void {
     }
     case "queued": {
       setState((s) => ({ queued: { ...s.queued, [msg.projectId]: msg.items } }));
+      break;
+    }
+    case "usage": {
+      setState({ usage: msg.limits });
+      break;
+    }
+    case "context": {
+      setState((s) => ({ contexts: { ...s.contexts, [msg.projectId]: msg.context } }));
       break;
     }
     case "review_prompt": {
@@ -234,6 +252,7 @@ function apply(msg: ServerMessage): void {
         statuses: { ...s.statuses, [HOME_ID]: "idle" },
         unread: { ...s.unread, [HOME_ID]: false },
         queued: { ...s.queued, [HOME_ID]: [] },
+        contexts: Object.fromEntries(Object.entries(s.contexts).filter(([k]) => k !== HOME_ID)),
       }));
       break;
     }

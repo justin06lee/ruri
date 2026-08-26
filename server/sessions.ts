@@ -39,6 +39,8 @@ export interface SessionEvents {
   onModels(models: ModelChoice[]): void;
   /** The live Claude session id changed (used to resume across restarts). */
   onSessionId(projectId: string, sessionId: string): void;
+  /** Context-window occupancy after the session's latest API call. */
+  onContext(projectId: string, tokens: number): void;
 }
 
 /** Extra per-project session config (the Home agent's MCP tools live here). */
@@ -288,6 +290,26 @@ class ProjectSession implements ChannelSession {
         this.events.onDelta(this.project.id, this.draftId, event.delta.text);
       }
     } else if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
+      // Each main-loop API call's usage tells us how full the context window
+      // is right now: everything sent (fresh + cached) plus what came back.
+      const usage = (
+        msg.message as unknown as {
+          usage?: {
+            input_tokens?: number;
+            output_tokens?: number;
+            cache_read_input_tokens?: number;
+            cache_creation_input_tokens?: number;
+          };
+        }
+      ).usage;
+      if (usage) {
+        const tokens =
+          (usage.input_tokens ?? 0) +
+          (usage.cache_read_input_tokens ?? 0) +
+          (usage.cache_creation_input_tokens ?? 0) +
+          (usage.output_tokens ?? 0);
+        if (tokens > 0) this.events.onContext(this.project.id, tokens);
+      }
       const blocks =
         (msg.message as unknown as { content?: Array<Record<string, unknown> & { type: string }> })
           .content ?? [];

@@ -618,31 +618,35 @@ export function ChatPane() {
 
   return (
     <main className="chat">
-      <header className="chat-header">
-        <div className="chat-id">
-          <div className="chat-title">
-            {project.name}
-            {session?.title && <span className="chat-session-title"> · {session.title}</span>}
+      {/* Home keeps no header bar — the transcript starts at the top; the
+          tracker drawer still auto-opens there and closes from inside */}
+      {!isHome && (
+        <header className="chat-header">
+          <div className="chat-id">
+            <div className="chat-title">
+              {project.name}
+              {session?.title && <span className="chat-session-title"> · {session.title}</span>}
+            </div>
           </div>
-        </div>
-        <div className="header-controls">
-          <button
-            className={`icon-button ${compact ? "active" : ""}`}
-            title={compact ? "Compact history: on — older turns fold to their summaries" : "Compact history: off"}
-            onClick={toggleCompact}
-          >
-            <Icon d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-          </button>
-          <button
-            className={`icon-button tracker-toggle ${trackerOpen ? "active" : ""}`}
-            title="Feature tracker — things to test by hand"
-            onClick={() => setTrackerOpen(!trackerOpen)}
-          >
-            <Icon d="M9 11l3 3 8-8M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" />
-            {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
-          </button>
-        </div>
-      </header>
+          <div className="header-controls">
+            <button
+              className={`icon-button ${compact ? "active" : ""}`}
+              title={compact ? "Compact history: on — older turns fold to their summaries" : "Compact history: off"}
+              onClick={toggleCompact}
+            >
+              <Icon d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+            </button>
+            <button
+              className={`icon-button tracker-toggle ${trackerOpen ? "active" : ""}`}
+              title="Feature tracker — things to test by hand"
+              onClick={() => setTrackerOpen(!trackerOpen)}
+            >
+              <Icon d="M9 11l3 3 8-8M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" />
+              {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
+            </button>
+          </div>
+        </header>
+      )}
 
       {lastError && (
         <div className="error-bar" onClick={dismissError}>

@@ -16,7 +16,7 @@ import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } fro
 import { ProjectStore } from "./projects.js";
 import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { SessionManager } from "./sessions.js";
-import { extractTrackerItems, sessionRoleTitle, smallModelEnabled, splitPrompt, summarizeTurn, TurnTracker } from "./smallmodel.js";
+import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizeTurn, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
 import { processAttachments, serveUpload } from "./uploads.js";
 
@@ -138,6 +138,7 @@ function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.Ser
 
 export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const store = new ProjectStore();
+  setSmallModel(store.smallModel());
   const archive = new SessionArchive();
   const tracker = new TrackerStore();
   const clients = new Set<WebSocket>();
@@ -449,7 +450,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "toggle_model_star": {
-        broadcast({ type: "starred_models", models: store.toggleModelStar(msg.model) });
+        const { starred, small } = store.cycleModelStar(msg.model);
+        setSmallModel(small);
+        broadcast({ type: "starred_models", models: starred });
+        broadcast({ type: "small_model", model: small ?? "" });
         break;
       }
       case "refresh_models": {
@@ -511,6 +515,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       musicDir: musicRoot(),
       home: store.homeSettings(),
       starredModels: store.starredModels(),
+      smallModel: store.smallModel() ?? "",
       user: os.userInfo().username,
     };
     ws.send(JSON.stringify(snapshot));

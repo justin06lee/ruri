@@ -46,6 +46,7 @@ interface RuriState {
   home: HomeSettings;
   /** Starred model ids — the composer picker shows only these. */
   starredModels: string[];
+  smallModel: string;
   /** The local account name shown on the sidebar's account bar. */
   user: string;
   /** Whether the host can show a native folder picker (Electron shell). */
@@ -79,6 +80,7 @@ export const useRuri = create<RuriState>((set) => ({
   musicEpoch: 0,
   home: {},
   starredModels: [],
+  smallModel: "",
   user: "",
   canPickFolder: false,
   picked: null,
@@ -138,6 +140,7 @@ function apply(msg: ServerMessage): void {
         musicDir: msg.musicDir,
         home: msg.home,
         starredModels: msg.starredModels,
+        smallModel: msg.smallModel,
         user: msg.user,
         drafts: {},
         activeId:
@@ -179,6 +182,10 @@ function apply(msg: ServerMessage): void {
     }
     case "starred_models": {
       setState({ starredModels: msg.models });
+      break;
+    }
+    case "small_model": {
+      setState({ smallModel: msg.model });
       break;
     }
     case "event": {

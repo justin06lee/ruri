@@ -65,7 +65,9 @@ export function installFixture(): void {
       { value: "codex:gpt-5.3-codex", displayName: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI" },
       { value: "opencode", displayName: "OpenCode", provider: "opencode", providerLabel: "OpenCode" },
     ],
-    starredModels: ["claude-fable-5[1m]", "codex:gpt-5.3-codex"],
+    // small implies starred, matching the real cycle
+    starredModels: ["claude-fable-5[1m]", "codex:gpt-5.3-codex", "claude-sonnet-5"],
+    smallModel: "claude-sonnet-5",
     tracker: {
       p1: [
         { id: "t1", text: "Check reconnect backs off after killing the server", note: "", status: "open", source: "auto", turnId: "e1", ts: now - 48_000 },
@@ -81,6 +83,16 @@ export function installFixture(): void {
       },
     },
     transcripts: {
+      home: [
+        { kind: "user", id: "h1", text: "yo open up alpha and beta", ts: now - 400_000 },
+        {
+          kind: "assistant",
+          id: "h2",
+          text: "hm. queued alpha and beta — they'll open when this turn ends.",
+          ts: now - 395_000,
+        },
+        { kind: "result", id: "h3", ok: true, durationMs: 21_000, ts: now - 394_000 },
+      ],
       p1: [
         { kind: "user", id: "e0", text: "The unread dot sometimes sticks — look into it?", ts: now - 200_000 },
         { kind: "tool", id: "e0a", name: "Grep", summary: "unread in server", ts: now - 195_000 },

@@ -186,10 +186,21 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-header">
         <span className="logo-peeks" aria-hidden>
-          {/* the peek piano: hover a chip and she rises to face you */}
-          {Array.from({ length: 10 }, (_, i) => (
-            <span key={i} className="peek-chip">
-              <img src={`/peek/c${i + 1}.png`} alt="" />
+          {/* the peek skyline: five panels collaged edge to edge, tops of
+              heads only — hovering one pops it down to reveal the face */}
+          {[
+            { n: 1, w: 66, drop: 0, pop: 170 },
+            { n: 2, w: 50, drop: 12, pop: 150 },
+            { n: 3, w: 50, drop: 6, pop: 150 },
+            { n: 4, w: 50, drop: 16, pop: 150 },
+            { n: 5, w: 48, drop: 3, pop: 125 },
+          ].map((p) => (
+            <span
+              key={p.n}
+              className="peek-panel"
+              style={{ width: p.w, "--drop": `${p.drop}px`, "--pop": `${p.pop}px` } as React.CSSProperties}
+            >
+              <img src={`/peek/s${p.n}.png`} alt="" />
             </span>
           ))}
         </span>

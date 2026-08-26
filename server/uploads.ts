@@ -39,36 +39,45 @@ function uploadsDir(): string {
   );
 }
 
-/** Persist one upload; returns its serving URL and absolute file path. */
-export function storeUpload(upload: AttachmentUpload): { url: string; filePath: string } {
+/** Where an upload lands on disk (pure — storeUpload does the writing). */
+function uploadPath(upload: AttachmentUpload): string {
   // arbitrary files keep their own extension (browsers often report no or
   // bogus MIME types for source files), sanitized down to alphanumerics
   const nameExt = path.extname(upload.name).slice(1).toLowerCase().replace(/[^a-z0-9]/g, "");
   const ext = EXT[upload.mediaType] ?? (nameExt || "bin");
-  const filename = `${upload.id}.${ext}`;
+  return path.join(uploadsDir(), `${upload.id}.${ext}`);
+}
+
+/** Persist one upload; returns its serving URL and absolute file path. */
+export function storeUpload(upload: AttachmentUpload): { url: string; filePath: string } {
   fs.mkdirSync(uploadsDir(), { recursive: true });
-  const filePath = path.join(uploadsDir(), filename);
+  const filePath = uploadPath(upload);
   fs.writeFileSync(filePath, Buffer.from(upload.data, "base64"));
-  return { url: `/uploads/${filename}`, filePath };
+  return { url: `/uploads/${path.basename(filePath)}`, filePath };
+}
+
+/** Persist every upload; returns the archived attachment list (small URLs). */
+export function storeAttachments(uploads: AttachmentUpload[]): Attachment[] {
+  return uploads.map((upload) => {
+    const { url } = storeUpload(upload);
+    const { data: _data, regions: _regions, ...meta } = upload;
+    return { ...meta, url };
+  });
 }
 
 /**
- * Turn wire uploads into (a) model-visible images, (b) text additions for
- * things the model can't see directly, and (c) the archived attachment list.
+ * The model-facing form of a prompt: images to send along, plus text
+ * additions for what the model can't see directly (region crops become their
+ * own images; videos and other files are referenced by their stored path —
+ * call storeAttachments first so those paths exist).
  */
-export function processAttachments(
+export function modelPayload(
   text: string,
   uploads: AttachmentUpload[],
-): { text: string; images: Array<{ data: string; mediaType?: string }>; attachments: Attachment[] } {
+): { text: string; images: Array<{ data: string; mediaType?: string }> } {
   const images: Array<{ data: string; mediaType?: string }> = [];
-  const attachments: Attachment[] = [];
   let outText = text;
-
   for (const upload of uploads) {
-    const { url, filePath } = storeUpload(upload);
-    const { data: _data, regions: _regions, ...meta } = upload;
-    attachments.push({ ...meta, url });
-
     if (upload.kind === "image") {
       images.push({ data: upload.data, mediaType: upload.mediaType });
       (upload.regions ?? []).forEach((region, i) => {
@@ -76,12 +85,21 @@ export function processAttachments(
         outText += `\n[image #${upload.n}, region ${i + 1} — attached as its own image] ${region.note}`;
       });
     } else if (upload.kind === "video") {
-      outText += `\n[video #${upload.n}] saved at ${filePath} — inspect it with tools if needed.`;
+      outText += `\n[video #${upload.n}] saved at ${uploadPath(upload)} — inspect it with tools if needed.`;
     } else {
-      outText += `\n[file #${upload.n}: ${upload.name}] saved at ${filePath} — read it with tools if needed.`;
+      outText += `\n[file #${upload.n}: ${upload.name}] saved at ${uploadPath(upload)} — read it with tools if needed.`;
     }
   }
-  return { text: outText, images, attachments };
+  return { text: outText, images };
+}
+
+/** Store + payload in one go — the plain non-split send path. */
+export function processAttachments(
+  text: string,
+  uploads: AttachmentUpload[],
+): { text: string; images: Array<{ data: string; mediaType?: string }>; attachments: Attachment[] } {
+  const attachments = storeAttachments(uploads);
+  return { ...modelPayload(text, uploads), attachments };
 }
 
 const CORS: Record<string, string> = { "access-control-allow-origin": "*" };

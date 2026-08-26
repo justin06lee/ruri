@@ -8,14 +8,37 @@ import {
   type PickTarget,
   type Project,
   type ProjectStatus,
+  type QueuedPrompt,
   type ServerMessage,
   type TrackerItem,
   type TranscriptEvent,
 } from "../../shared/protocol";
+import type { ComposerAttachment } from "./components/Attachments";
 
 export interface Draft {
   messageId: string;
   text: string;
+}
+
+/** Unsent composer state, kept per channel so switching sessions never loses
+ *  a draft in progress. Module-level (not zustand): the composer remounts per
+ *  channel and reads it on mount; a tracker review's generated prompt lands
+ *  here too when its channel isn't the active one. */
+export interface ComposerDraft {
+  text: string;
+  atts: ComposerAttachment[];
+  counter: { image: number; video: number; file: number };
+}
+export const composerDrafts = new Map<string, ComposerDraft>();
+
+/** Append text to a channel's saved draft (async prompt arrivals). */
+function appendDraft(channelId: string, text: string): void {
+  const prev = composerDrafts.get(channelId);
+  composerDrafts.set(channelId, {
+    text: prev?.text.trim() ? `${prev.text.replace(/\s+$/, "")}\n${text}` : text,
+    atts: prev?.atts ?? [],
+    counter: prev?.counter ?? { image: 0, video: 0, file: 0 },
+  });
 }
 
 interface RuriState {
@@ -32,8 +55,8 @@ interface RuriState {
   summaries: Record<string, Record<string, string>>;
   /** Feature-tracker checklists per project. */
   tracker: Record<string, TrackerItem[]>;
-  /** Split-send queue depth per channel. */
-  queue: Record<string, number>;
+  /** App-side prompt queue per channel — held until the running turn ends. */
+  queued: Record<string, QueuedPrompt[]>;
   /** Text waiting to be inserted into the composer (tracker "send as prompt"). */
   composerSeed: string | null;
   /** The workspace root the Home agent manages. */
@@ -73,7 +96,7 @@ export const useRuri = create<RuriState>((set) => ({
   models: [],
   summaries: {},
   tracker: {},
-  queue: {},
+  queued: {},
   composerSeed: null,
   workspaceDir: "",
   musicDir: "",
@@ -140,6 +163,7 @@ function apply(msg: ServerMessage): void {
         models: msg.models,
         summaries: msg.summaries,
         tracker: msg.tracker,
+        queued: msg.queued,
         canPickFolder: msg.canPickFolder,
         workspaceDir: msg.workspaceDir,
         musicDir: msg.musicDir,
@@ -169,8 +193,17 @@ function apply(msg: ServerMessage): void {
       }));
       break;
     }
-    case "queue": {
-      setState((s) => ({ queue: { ...s.queue, [msg.projectId]: msg.remaining } }));
+    case "queued": {
+      setState((s) => ({ queued: { ...s.queued, [msg.projectId]: msg.items } }));
+      break;
+    }
+    case "review_prompt": {
+      // The generated fix-it prompt goes into the composer of the channel
+      // that was reviewed — live-seeded if it's still active, otherwise into
+      // its saved draft for the next visit.
+      const state = useRuri.getState();
+      if (msg.projectId === state.activeId) state.seedComposer(msg.text);
+      else appendDraft(msg.projectId, msg.text);
       break;
     }
     case "workspace": {
@@ -200,7 +233,7 @@ function apply(msg: ServerMessage): void {
         drafts: { ...s.drafts, [HOME_ID]: undefined },
         statuses: { ...s.statuses, [HOME_ID]: "idle" },
         unread: { ...s.unread, [HOME_ID]: false },
-        queue: { ...s.queue, [HOME_ID]: 0 },
+        queued: { ...s.queued, [HOME_ID]: [] },
       }));
       break;
     }

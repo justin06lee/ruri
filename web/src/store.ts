@@ -214,8 +214,12 @@ function apply(msg: ServerMessage): void {
         return {
           transcripts: { ...s.transcripts, [msg.projectId]: transcript },
           drafts,
+          // The diamond pip marks a FINISHED turn elsewhere — not every
+          // event that trickles in while a background session works.
           unread:
-            msg.projectId === s.activeId ? s.unread : { ...s.unread, [msg.projectId]: true },
+            msg.projectId === s.activeId || msg.event.kind !== "result"
+              ? s.unread
+              : { ...s.unread, [msg.projectId]: true },
         };
       });
       break;
@@ -236,13 +240,7 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "permission_request": {
-      setState((s) => ({
-        permissions: [...s.permissions, msg.request],
-        unread:
-          msg.request.projectId === s.activeId
-            ? s.unread
-            : { ...s.unread, [msg.request.projectId]: true },
-      }));
+      setState((s) => ({ permissions: [...s.permissions, msg.request] }));
       break;
     }
     case "permission_resolved": {

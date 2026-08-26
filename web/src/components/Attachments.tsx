@@ -5,7 +5,8 @@ import { HTTP_BASE } from "../store";
 /**
  * Prompt attachments: composer previews, the full-size viewer, and — for
  * images — drag-to-select region annotations whose crops ride along with the
- * prompt as extra images.
+ * prompt as extra images. Non-media files (pdf, text, source, …) get an
+ * extension tile and, in the viewer, an inline pdf/text preview.
  */
 
 export interface Region {
@@ -20,12 +21,35 @@ export interface Region {
 export interface ComposerAttachment {
   id: string;
   file: File;
-  kind: "image" | "video";
+  kind: "image" | "video" | "file";
   mediaType: string;
   name: string;
   n: number;
   objectUrl: string;
   regions: Region[];
+}
+
+/** The file's extension, for the tile badge ("PDF", "TS", …). */
+function extOf(name: string): string {
+  const ext = name.includes(".") ? (name.split(".").pop() ?? "") : "";
+  return (ext || "file").slice(0, 5).toUpperCase();
+}
+
+const TEXT_EXT = new Set([
+  "txt", "md", "markdown", "csv", "tsv", "log", "json", "jsonl", "xml", "yml", "yaml", "toml",
+  "ini", "cfg", "conf", "env", "ts", "tsx", "js", "jsx", "mjs", "cjs", "css", "scss", "html",
+  "svg", "py", "rs", "go", "c", "h", "cpp", "hpp", "java", "kt", "swift", "rb", "php", "sh",
+  "zsh", "bash", "sql", "lock", "diff", "patch", "gitignore", "makefile",
+]);
+
+function isTextLike(name: string, mediaType?: string): boolean {
+  if (mediaType?.startsWith("text/")) return true;
+  if (["application/json", "application/xml", "application/javascript", "application/x-sh", "application/x-yaml"].includes(mediaType ?? "")) return true;
+  return TEXT_EXT.has(name.split(".").pop()?.toLowerCase() ?? name.toLowerCase());
+}
+
+function isPdf(name: string, mediaType?: string): boolean {
+  return mediaType === "application/pdf" || name.toLowerCase().endsWith(".pdf");
 }
 
 export async function fileToBase64(file: File): Promise<string> {
@@ -61,11 +85,43 @@ export function cropRegion(objectUrl: string, region: Region): Promise<string> {
 /* ── viewer (full size + region editing for images) ──────────────── */
 
 interface ViewTarget {
-  kind: "image" | "video";
+  kind: "image" | "video" | "file";
   src: string;
   label: string;
+  /** Original filename — picks the preview mode for "file" kinds. */
+  name?: string;
+  mediaType?: string;
   /** Editable regions (composer); undefined = read-only view. */
   attachment?: ComposerAttachment;
+}
+
+/** Inline preview for a non-media file: pdf frame, text body, or a shrug. */
+function FilePreview({ src, name, mediaType }: { src: string; name: string; mediaType?: string }) {
+  const texty = !isPdf(name, mediaType) && isTextLike(name, mediaType);
+  const [text, setText] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!texty) return;
+    let gone = false;
+    fetch(src)
+      .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`${res.status}`))))
+      .then((body) => {
+        if (gone) return;
+        setText(body.length > 200_000 ? `${body.slice(0, 200_000)}\n… (truncated)` : body);
+      })
+      .catch(() => {
+        if (!gone) setFailed(true);
+      });
+    return () => {
+      gone = true;
+    };
+  }, [src, texty]);
+
+  if (isPdf(name, mediaType)) return <iframe className="viewer-pdf" src={src} title={name} />;
+  if (texty && text !== null) return <pre className="viewer-text">{text}</pre>;
+  if (texty && !failed) return <div className="viewer-nopreview">loading…</div>;
+  return <div className="viewer-nopreview">{name} — no preview for this file type</div>;
 }
 
 export function Viewer({
@@ -200,9 +256,17 @@ export function Viewer({
               />
             )}
           </div>
-        ) : (
+        ) : target.kind === "video" ? (
           <div className="viewer-stage">
             <video src={target.src} controls />
+          </div>
+        ) : (
+          <div className="viewer-stage file">
+            <FilePreview
+              src={target.src}
+              name={target.name ?? target.label}
+              {...(target.mediaType ? { mediaType: target.mediaType } : {})}
+            />
           </div>
         )}
 
@@ -233,6 +297,20 @@ export function Viewer({
 
 /* ── composer preview strip ──────────────────────────────────────── */
 
+const SHORT_KIND = { image: "img", video: "vid", file: "file" } as const;
+
+/** Thumbnail body for a non-media attachment: doc glyph + extension badge. */
+function FileTile({ name }: { name: string }) {
+  return (
+    <div className="att-file">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M14 3v5h5M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" />
+      </svg>
+      <span className="att-ext">{extOf(name)}</span>
+    </div>
+  );
+}
+
 export function AttachmentStrip({
   attachments,
   onRemove,
@@ -249,10 +327,12 @@ export function AttachmentStrip({
         <div key={att.id} className="att-thumb" title={att.name} onClick={() => onView(att)}>
           {att.kind === "image" ? (
             <img src={att.objectUrl} alt="" />
-          ) : (
+          ) : att.kind === "video" ? (
             <video src={att.objectUrl} muted />
+          ) : (
+            <FileTile name={att.name} />
           )}
-          <span className="att-n">{`${att.kind === "image" ? "img" : "vid"} #${att.n}`}</span>
+          <span className="att-n">{`${SHORT_KIND[att.kind]} #${att.n}`}</span>
           {att.regions.length > 0 && <span className="att-regions">{att.regions.length}</span>}
           <button
             className="att-remove"
@@ -287,11 +367,23 @@ export function TranscriptAttachments({ attachments }: { attachments: Attachment
               className="att-thumb"
               title={att.name}
               onClick={() =>
-                setView({ kind: att.kind, src, label: `${att.kind} #${att.n} — ${att.name}` })
+                setView({
+                  kind: att.kind,
+                  src,
+                  label: `${att.kind} #${att.n} — ${att.name}`,
+                  name: att.name,
+                  mediaType: att.mediaType,
+                })
               }
             >
-              {att.kind === "image" ? <img src={src} alt="" /> : <video src={src} muted />}
-              <span className="att-n">{`${att.kind === "image" ? "img" : "vid"} #${att.n}`}</span>
+              {att.kind === "image" ? (
+                <img src={src} alt="" />
+              ) : att.kind === "video" ? (
+                <video src={src} muted />
+              ) : (
+                <FileTile name={att.name} />
+              )}
+              <span className="att-n">{`${SHORT_KIND[att.kind]} #${att.n}`}</span>
             </div>
           );
         })}

@@ -29,7 +29,7 @@ function HomeRow() {
         <path d="M3 10.5L12 3l9 7.5M5 9.5V21h14V9.5M9 21v-6h6v6" />
       </svg>
       <span className="project-name">Home</span>
-      {unread && <span className="unread-pip" title="New activity" />}
+      {unread && <span className="unread-pip" title="Turn finished" />}
       <span className={`dot ${status}`} title={status} />
     </div>
   );
@@ -39,7 +39,6 @@ const STAR_PATH = "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L
 
 function SessionRow({ project, session }: { project: Project; session: SessionInfo }) {
   const activeId = useRuri((s) => s.activeId);
-  const status = useRuri((s) => s.statuses[session.id] ?? "idle");
   const unread = useRuri((s) => s.unread[session.id] ?? false);
   const setActive = useRuri((s) => s.setActive);
   const last = project.sessions.length === 1;
@@ -50,9 +49,8 @@ function SessionRow({ project, session }: { project: Project; session: SessionIn
       title={session.title ?? "New session"}
       onClick={() => setActive(session.id)}
     >
-      <span className={`dot ${status} ${unread ? "unread" : ""}`} title={status} />
       <span className="project-name">{session.title ?? "new session"}</span>
-      {unread && <span className="unread-pip" title="New activity" />}
+      {unread && <span className="unread-pip" title="Turn finished" />}
       <button
         className="remove"
         title={last ? "Remove session (and the project)" : "Remove session"}

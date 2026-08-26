@@ -62,19 +62,61 @@ export async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
-/** Crop a region out of an image at natural resolution → base64 PNG. */
-export function cropRegion(objectUrl: string, region: Region): Promise<string> {
+/**
+ * Render a region as its own image WITH spatial context: the crop takes
+ * generous breathing room around the region, and the region itself is drawn
+ * on it as a numbered white box (matching the composer's region UI) — a tight
+ * crop of, say, empty space is meaningless without the surroundings.
+ * Returns base64 PNG at natural resolution.
+ */
+export function cropRegion(objectUrl: string, region: Region, n: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const sx = region.x * img.naturalWidth;
-      const sy = region.y * img.naturalHeight;
-      const sw = Math.max(1, region.w * img.naturalWidth);
-      const sh = Math.max(1, region.h * img.naturalHeight);
+      const rx = region.x * img.naturalWidth;
+      const ry = region.y * img.naturalHeight;
+      const rw = Math.max(1, region.w * img.naturalWidth);
+      const rh = Math.max(1, region.h * img.naturalHeight);
+      // breathing room: at least 60% of the region's own size and 8% of the
+      // image on every side, clamped to the image bounds
+      const padX = Math.max(rw * 0.6, img.naturalWidth * 0.08);
+      const padY = Math.max(rh * 0.6, img.naturalHeight * 0.08);
+      const cx = Math.max(0, Math.round(rx - padX));
+      const cy = Math.max(0, Math.round(ry - padY));
+      const cw = Math.round(Math.min(img.naturalWidth, rx + rw + padX)) - cx;
+      const ch = Math.round(Math.min(img.naturalHeight, ry + rh + padY)) - cy;
       const canvas = document.createElement("canvas");
-      canvas.width = sw;
-      canvas.height = sh;
-      canvas.getContext("2d")!.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, cx, cy, cw, ch, 0, 0, cw, ch);
+
+      // the marker: white box with a dark rim, readable on any background
+      const lw = Math.max(2, Math.round(Math.min(cw, ch) * 0.008));
+      ctx.lineWidth = lw * 2;
+      ctx.strokeStyle = "rgba(17, 17, 17, 0.9)";
+      ctx.strokeRect(rx - cx, ry - cy, rw, rh);
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = "#fff";
+      ctx.strokeRect(rx - cx, ry - cy, rw, rh);
+
+      // numbered badge on the region's top-left corner (kept inside the crop)
+      const r = Math.max(10, Math.round(Math.min(cw, ch) * 0.035));
+      const bx = Math.min(Math.max(rx - cx, r + 1), cw - r - 1);
+      const by = Math.min(Math.max(ry - cy, r + 1), ch - r - 1);
+      ctx.beginPath();
+      ctx.arc(bx, by, r, 0, Math.PI * 2);
+      ctx.fillStyle = "#fff";
+      ctx.fill();
+      ctx.lineWidth = Math.max(1, Math.round(lw / 2));
+      ctx.strokeStyle = "rgba(17, 17, 17, 0.9)";
+      ctx.stroke();
+      ctx.fillStyle = "#111";
+      ctx.font = `700 ${Math.round(r * 1.1)}px "Space Grotesk", sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(n), bx, by + Math.round(r * 0.06));
+
       resolve(canvas.toDataURL("image/png").split(",")[1] ?? "");
     };
     img.onerror = reject;

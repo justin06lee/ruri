@@ -3,6 +3,10 @@
 /** The pseudo-project id of the Home view — the workspace-manager agent. */
 export const HOME_ID = "home";
 
+/** The model a session runs on when none is picked — no ambiguous
+ *  "default" entries anywhere; unset simply means Fable. */
+export const DEFAULT_MODEL = "claude-fable-5[1m]";
+
 /**
  * One live Claude Code session inside a project. Transcripts, statuses,
  * drafts, summaries, and tracker items are keyed by the session id (the

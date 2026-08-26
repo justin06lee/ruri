@@ -11,14 +11,15 @@ import {
   type Provider,
   type SDKMessage,
 } from "@justin06lee/yagami";
-import type {
-  Attachment,
-  ModelChoice,
-  PermissionMode,
-  PermissionRequest,
-  Project,
-  ProjectStatus,
-  TranscriptEvent,
+import {
+  DEFAULT_MODEL,
+  type Attachment,
+  type ModelChoice,
+  type PermissionMode,
+  type PermissionRequest,
+  type Project,
+  type ProjectStatus,
+  type TranscriptEvent,
 } from "../shared/protocol.js";
 
 type PermissionUpdate = NonNullable<YagamiPermissionRequest["suggestions"]>[number];
@@ -492,9 +493,11 @@ export class SessionManager {
     private readonly providers?: ProviderHooks,
   ) {}
 
-  /** The non-Claude provider id a model routes to, if any. */
+  /** The non-Claude provider id a model routes to, if any. An unset model
+   *  means the app default (Fable) — never the CLI's own notion of default. */
   private routeOf(model: string | undefined): { providerId?: string; model?: string } {
-    const ref = this.providers ? this.providers.parse(model) : { model };
+    const effective = model || DEFAULT_MODEL;
+    const ref = this.providers ? this.providers.parse(effective) : { model: effective };
     if (ref.providerId && ref.providerId !== "claude") return ref;
     return { ...(ref.model !== undefined ? { model: ref.model } : {}) };
   }

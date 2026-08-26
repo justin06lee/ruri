@@ -58,13 +58,13 @@ export function installFixture(): void {
     statuses: { p1: "permission", p2: "working", p3: "idle" },
     unread: { p2: true },
     models: [
-      { value: "claude-fable-5", displayName: "Fable 5" },
-      { value: "claude-opus-5", displayName: "Opus 5" },
-      { value: "claude-sonnet-5", displayName: "Sonnet 5" },
+      { value: "claude-fable-5[1m]", displayName: "Fable" },
+      { value: "claude-opus-5", displayName: "Opus" },
+      { value: "claude-sonnet-5", displayName: "Sonnet" },
       { value: "codex:gpt-5.3-codex", displayName: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI" },
       { value: "opencode", displayName: "OpenCode", provider: "opencode", providerLabel: "OpenCode" },
     ],
-    starredModels: ["claude-fable-5", "codex:gpt-5.3-codex"],
+    starredModels: ["claude-fable-5[1m]", "codex:gpt-5.3-codex"],
     tracker: {
       p1: [
         { id: "t1", text: "Check reconnect backs off after killing the server", note: "", status: "open", source: "auto", turnId: "e1", ts: now - 48_000 },

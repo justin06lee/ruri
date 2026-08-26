@@ -644,9 +644,10 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   gap: 1.5px;
-  width: 14px;
+  width: 16px;
   height: 13px;
   flex-shrink: 0;
+  margin-right: 2px;
 }
 
 .wave span {
@@ -670,9 +671,9 @@ textarea::placeholder {
 .note-float svg {
   position: absolute;
   bottom: 0;
-  width: 9px;
-  height: 9px;
-  color: var(--ink-faint);
+  width: 11px;
+  height: 11px;
+  color: var(--ink-soft);
   opacity: 0;
   animation: note-rise 5.2s linear infinite;
 }
@@ -683,16 +684,16 @@ textarea::placeholder {
 
 .note-float svg:nth-child(2) {
   left: 34px;
-  width: 7px;
-  height: 7px;
+  width: 9px;
+  height: 9px;
   animation-delay: 1.8s;
   animation-duration: 5.8s;
 }
 
 .note-float svg:nth-child(3) {
   left: 52px;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   animation-delay: 3.2s;
   animation-duration: 4.7s;
 }
@@ -704,14 +705,14 @@ textarea::placeholder {
     opacity: 0;
   }
   12% {
-    opacity: 0.32;
+    opacity: 0.55;
   }
   30% {
     transform: translate(4px, -15px);
   }
   50% {
     transform: translate(-3px, -27px);
-    opacity: 0.26;
+    opacity: 0.45;
   }
   70% {
     transform: translate(3px, -39px);

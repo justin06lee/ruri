@@ -1973,6 +1973,17 @@ input[type="range"]::-webkit-slider-thumb {
   height: 15px;
 }
 
+button.split-send {
+  background: var(--paper);
+  border-color: var(--edge);
+  color: var(--ink-soft);
+}
+
+button.split-send:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
 button.send {
   background: var(--ink);
   border-color: var(--edge);

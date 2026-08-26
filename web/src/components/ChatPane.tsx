@@ -223,6 +223,7 @@ function Composer({
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const composerSeed = useRuri((s) => s.composerSeed);
   const clearComposerSeed = useRuri((s) => s.clearComposerSeed);
+  const queued = useRuri((s) => s.queue[channelId] ?? 0);
 
   const addFiles = (files: FileList | File[]) => {
     const added: ComposerAttachment[] = [];
@@ -284,7 +285,7 @@ function Composer({
     });
   }, [composerSeed, clearComposerSeed]);
 
-  const submit = async () => {
+  const submit = async (mode: "send" | "send_split" = "send") => {
     const trimmed = text.trim();
     if (!trimmed && atts.length === 0) return;
     const uploads = await Promise.all(
@@ -309,7 +310,7 @@ function Composer({
       })),
     );
     send({
-      type: "send",
+      type: mode,
       projectId,
       text: trimmed,
       ...(uploads.length ? { attachments: uploads } : {}),
@@ -379,6 +380,14 @@ function Composer({
               </button>
             )}
             <button
+              className="split-send"
+              title="Split into separate prompts and send them one by one"
+              onClick={() => void submit("send_split")}
+              disabled={!text.trim()}
+            >
+              <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
+            </button>
+            <button
               className="send"
               title="Send (Enter)"
               onClick={() => void submit()}
@@ -389,7 +398,11 @@ function Composer({
           </div>
         </div>
       </div>
-      <div className="composer-hint">Enter to send · Shift+Enter for a new line · drop images or videos to attach</div>
+      <div className="composer-hint">
+        {queued > 0
+          ? `${queued} prompt${queued === 1 ? "" : "s"} queued — sent one by one as turns finish · Stop clears the queue`
+          : "Enter to send · Shift+Enter for a new line · drop images or videos to attach · scissors to split a long prompt"}
+      </div>
       {viewingAtt && (
         <Viewer
           target={{

@@ -258,18 +258,42 @@ textarea::placeholder {
   background-size: 6px 6px;
 }
 
-/* Ruri peeking over the header's bottom edge, centred: a transparent
-   horns+head crop anchored so the cut lands exactly on the border. */
-.logo-peek {
+/* The peek parade: a line of little heads over the header's bottom edge,
+   centred in the band between the traffic lights and the gear. */
+.logo-peeks {
   position: absolute;
   bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  height: 34px;
+  left: 12px;
+  right: 44px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.desktop .logo-peeks {
+  left: 84px; /* clear the macOS traffic lights */
+}
+
+.logo-peeks img {
+  height: 19px;
   width: auto;
 }
 
-[data-theme="dark"] .logo-peek {
+.logo-peeks img:nth-child(2) {
+  height: 24px; /* the original face stands a little taller */
+}
+
+.logo-peeks img:nth-child(3) {
+  height: 20px;
+}
+
+.logo-peeks img:nth-child(4) {
+  height: 21px;
+}
+
+[data-theme="dark"] .logo-peeks {
   filter: invert(1); /* ink and paper swap with the theme */
 }
 

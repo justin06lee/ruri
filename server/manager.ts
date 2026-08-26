@@ -6,10 +6,11 @@ import { HOME_ID, type HomeSettings, type Project } from "../shared/protocol.js"
 import type { SessionExtras } from "./sessions.js";
 
 /**
- * The Home agent: a normal Claude Code session that lives at the workspace
- * root and manages the rest of the app through an in-process MCP server —
- * "open these projects, kick off that work". It is the default view when
- * nothing is selected, and always reachable via the Home row.
+ * The Home agent: a normal session that lives at the workspace root and
+ * manages the rest of the app — "open these projects, kick off that work".
+ * On Claude that runs through an in-process MCP server; on every other
+ * harness through the .ruri/open.jsonl drop file below. It is the default
+ * view when nothing is selected, and always reachable via the Home row.
  */
 
 export { HOME_ID };
@@ -127,7 +128,7 @@ export function managerExtras(host: ManagerHost, workspaceDir: string): SessionE
     tools: [
       tool(
         "open_project",
-        "Open a project in ruri's sidebar, creating its own live Claude Code session. Optionally start it working right away with kickoff_prompt.",
+        "Open a project in ruri's sidebar, creating its own live coding session. Optionally start it working right away with kickoff_prompt.",
         {
           path: z.string().describe("Absolute path (or ~/...) of the project directory"),
           name: z.string().optional().describe("Display name (defaults to the directory name)"),

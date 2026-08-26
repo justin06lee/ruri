@@ -11,7 +11,7 @@ import type {
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
-import { isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
+import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
 import { SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, smallModelEnabled, splitPrompt, summarizeTurn, TurnTracker } from "./smallmodel.js";
@@ -62,10 +62,10 @@ const MUSIC_CORS: Record<string, string> = {
  * Streams one audio file, honouring Range requests so seeking in a long track
  * is instant. Only paths inside the music dir are served (see music.ts).
  */
-function serveTrack(req: http.IncomingMessage, res: http.ServerResponse): void {
+function serveTrack(req: http.IncomingMessage, res: http.ServerResponse, root: string): void {
   const url = new URL(req.url ?? "/", "http://localhost");
   const filePath = url.searchParams.get("p") ?? "";
-  if (!filePath || !isAllowed(filePath)) {
+  if (!filePath || !isAllowed(filePath, root)) {
     res.writeHead(403, MUSIC_CORS);
     res.end();
     return;
@@ -142,6 +142,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const permissions = new Map<string, PermissionRequest>();
   let models: ModelChoice[] = [];
 
+  const musicRoot = () => store.customMusicDir() ?? defaultMusicDir();
+
   function broadcast(message: ServerMessage): void {
     const payload = JSON.stringify(message);
     for (const client of clients) {
@@ -152,7 +154,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // A "channel" id is HOME_ID or a session id; sessions run with their
   // parent project's cwd/model/permission mode but keep their own state.
   function channelProject(channelId: string) {
-    if (channelId === HOME_ID) return homeProject(store.workspaceDir());
+    if (channelId === HOME_ID) return homeProject(store.workspaceDir(), store.homeSettings());
     const found = store.findSession(channelId);
     if (!found) return undefined;
     return { ...found.project, id: channelId };
@@ -269,9 +271,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "pick_folder": {
+        const target = msg.target ?? "workspace";
         void (options.pickFolder?.() ?? Promise.resolve(null)).then((path) => {
           if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "folder_picked", path } satisfies ServerMessage));
+            ws.send(JSON.stringify({ type: "folder_picked", path, target } satisfies ServerMessage));
           }
         });
         break;
@@ -348,12 +351,24 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "set_model": {
+        if (msg.projectId === HOME_ID) {
+          store.setHomeSettings({ model: msg.model });
+          manager.setModel(HOME_ID, msg.model);
+          broadcast({ type: "home_settings", home: store.homeSettings() });
+          break;
+        }
         store.update(msg.projectId, { model: msg.model });
         manager.setModel(msg.projectId, msg.model);
         broadcast({ type: "projects", projects: store.list() });
         break;
       }
       case "set_permission_mode": {
+        if (msg.projectId === HOME_ID) {
+          store.setHomeSettings({ permissionMode: msg.mode });
+          manager.setPermissionMode(HOME_ID, msg.mode);
+          broadcast({ type: "home_settings", home: store.homeSettings() });
+          break;
+        }
         store.update(msg.projectId, { permissionMode: msg.mode });
         manager.setPermissionMode(msg.projectId, msg.mode);
         broadcast({ type: "projects", projects: store.list() });
@@ -392,6 +407,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "workspace", path: store.workspaceDir() });
         break;
       }
+      case "set_music_dir": {
+        store.setMusicDir(msg.path);
+        broadcast({ type: "music_dir", path: musicRoot() });
+        break;
+      }
       default: {
         const unknown: never = msg;
         throw new Error(`unknown message type: ${JSON.stringify(unknown)}`);
@@ -407,11 +427,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     }
     if (req.url === "/music/playlists") {
       res.writeHead(200, { ...MUSIC_CORS, "content-type": "application/json" });
-      res.end(JSON.stringify({ playlists: scanMusic() }));
+      res.end(JSON.stringify({ playlists: scanMusic(musicRoot()) }));
       return;
     }
     if (req.url?.startsWith("/music/track?")) {
-      serveTrack(req, res);
+      serveTrack(req, res, musicRoot());
       return;
     }
     if (req.url?.startsWith("/uploads/")) {
@@ -442,6 +462,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       tracker: tracker.all(projectIds),
       canPickFolder: options.pickFolder !== undefined,
       workspaceDir: store.workspaceDir(),
+      musicDir: musicRoot(),
+      home: store.homeSettings(),
     };
     ws.send(JSON.stringify(snapshot));
 

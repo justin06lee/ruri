@@ -118,9 +118,18 @@ export interface PermissionRequest {
   ts: number;
 }
 
+/** What a native folder pick is for — routed back with the result. */
+export type PickTarget = "workspace" | "music";
+
+/** Home-agent settings (the Home composer's model/permission dropdowns). */
+export interface HomeSettings {
+  model?: string;
+  permissionMode?: PermissionMode;
+}
+
 export type ClientMessage =
   | { type: "add_project"; name: string; path: string; folder?: string }
-  | { type: "pick_folder" }
+  | { type: "pick_folder"; target?: PickTarget }
   | { type: "remove_project"; projectId: string }
   | { type: "send"; projectId: string; text: string; attachments?: AttachmentUpload[] }
   | { type: "send_split"; projectId: string; text: string; attachments?: AttachmentUpload[] }
@@ -141,7 +150,8 @@ export type ClientMessage =
   | { type: "toggle_star"; projectId: string }
   | { type: "new_session"; projectId: string }
   | { type: "remove_session"; sessionId: string }
-  | { type: "set_workspace"; path: string };
+  | { type: "set_workspace"; path: string }
+  | { type: "set_music_dir"; path: string };
 
 export type ServerMessage =
   | {
@@ -159,12 +169,18 @@ export type ServerMessage =
       canPickFolder: boolean;
       /** The workspace root the Home agent manages (where projects live). */
       workspaceDir: string;
+      /** Where the music player's playlists live. */
+      musicDir: string;
+      /** The Home agent's model/permission settings. */
+      home: HomeSettings;
     }
   | { type: "projects"; projects: Project[] }
-  | { type: "folder_picked"; path: string | null }
+  | { type: "folder_picked"; path: string | null; target?: PickTarget }
   | { type: "turn_summary"; projectId: string; turnId: string; summary: string }
   | { type: "tracker"; projectId: string; items: TrackerItem[] }
   | { type: "workspace"; path: string }
+  | { type: "music_dir"; path: string }
+  | { type: "home_settings"; home: HomeSettings }
   | { type: "queue"; projectId: string; remaining: number }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }

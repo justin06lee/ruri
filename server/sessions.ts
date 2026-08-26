@@ -68,7 +68,14 @@ interface ChannelSession {
   status: ProjectStatus;
   lastSessionId: string | undefined;
   dead: boolean;
-  send(text: string, images?: Array<{ data: string; mediaType?: string }>, attachments?: Attachment[]): void;
+  /** silent = no user transcript event (split sub-prompts ride under the
+   *  original prompt the user already sees). */
+  send(
+    text: string,
+    images?: Array<{ data: string; mediaType?: string }>,
+    attachments?: Attachment[],
+    silent?: boolean,
+  ): void;
   interrupt(): void;
   setModel(model: string): void;
   setPermissionMode(mode: PermissionMode): void;
@@ -159,14 +166,21 @@ class ProjectSession implements ChannelSession {
     void this.run();
   }
 
-  send(text: string, images?: Array<{ data: string; mediaType?: string }>, attachments?: Attachment[]): void {
-    this.pushEvent({
-      kind: "user",
-      id: randomUUID(),
-      text,
-      ...(attachments?.length ? { attachments } : {}),
-      ts: Date.now(),
-    });
+  send(
+    text: string,
+    images?: Array<{ data: string; mediaType?: string }>,
+    attachments?: Attachment[],
+    silent = false,
+  ): void {
+    if (!silent) {
+      this.pushEvent({
+        kind: "user",
+        id: randomUUID(),
+        text,
+        ...(attachments?.length ? { attachments } : {}),
+        ts: Date.now(),
+      });
+    }
     this.setStatus("working");
     this.session.send(text, images?.length ? { images } : {});
   }
@@ -385,14 +399,17 @@ class ProviderTurnSession implements ChannelSession {
     text: string,
     images?: Array<{ data: string; mediaType?: string }>,
     attachments?: Attachment[],
+    silent = false,
   ): void {
-    this.pushEvent({
-      kind: "user",
-      id: randomUUID(),
-      text,
-      ...(attachments?.length ? { attachments } : {}),
-      ts: Date.now(),
-    });
+    if (!silent) {
+      this.pushEvent({
+        kind: "user",
+        id: randomUUID(),
+        text,
+        ...(attachments?.length ? { attachments } : {}),
+        ts: Date.now(),
+      });
+    }
     this.setStatus("working");
     if (this.running) {
       // the harness runs one turn at a time — later sends wait their turn
@@ -583,14 +600,17 @@ class ProviderAgentSession implements ChannelSession {
     text: string,
     images?: Array<{ data: string; mediaType?: string }>,
     attachments?: Attachment[],
+    silent = false,
   ): void {
-    this.pushEvent({
-      kind: "user",
-      id: randomUUID(),
-      text,
-      ...(attachments?.length ? { attachments: attachments } : {}),
-      ts: Date.now(),
-    });
+    if (!silent) {
+      this.pushEvent({
+        kind: "user",
+        id: randomUUID(),
+        text,
+        ...(attachments?.length ? { attachments: attachments } : {}),
+        ts: Date.now(),
+      });
+    }
     this.setStatus("working");
     if (this.running) {
       this.backlog.push({ text, ...(images ? { images } : {}) });
@@ -781,12 +801,14 @@ export class SessionManager {
     return { ...(ref.model !== undefined ? { model: ref.model } : {}) };
   }
 
-  /** Send a message, starting (or restarting, resuming context) the session as needed. */
+  /** Send a message, starting (or restarting, resuming context) the session
+   *  as needed. silent = no user transcript event (split sub-prompts). */
   send(
     project: Project,
     text: string,
     images?: Array<{ data: string; mediaType?: string }>,
     attachments?: Attachment[],
+    silent?: boolean,
   ): void {
     const route = this.routeOf(project.model);
     let session = this.sessions.get(project.id);
@@ -838,7 +860,7 @@ export class SessionManager {
       }
       this.sessions.set(project.id, session);
     }
-    session.send(text, images, attachments);
+    session.send(text, images, attachments, silent);
   }
 
   interrupt(projectId: string): void {

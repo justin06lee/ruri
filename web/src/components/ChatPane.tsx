@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  DEFAULT_MODEL,
   HOME_ID,
   type PermissionMode,
   type PermissionRequest,
@@ -177,13 +178,17 @@ const PERMISSION_MODES: Array<{ value: PermissionMode; label: string }> = [
 function SessionControls({ project }: { project: Project }) {
   const allModels = useRuri((s) => s.models);
   const starredIds = useRuri((s) => s.starredModels);
+  // An unset model IS Fable — there is no ambiguous "default" entry.
+  const current = project.model || DEFAULT_MODEL;
   // The picker shows starred models only (Settings holds the full catalog);
   // with nothing starred yet it falls back to everything. The current pick
   // stays listed even if it was unstarred since.
   const starred = allModels.filter((m) => starredIds.includes(m.value));
   const models = [...(starred.length > 0 ? starred : allModels)];
-  const selected = allModels.find((m) => m.value === project.model);
+  const selected = allModels.find((m) => m.value === current);
   if (selected && !models.includes(selected)) models.push(selected);
+  // before the catalog arrives, the trigger still needs a label
+  if (!selected) models.push({ value: DEFAULT_MODEL, displayName: "Fable" });
   // Permission modes are a Claude concept — other harnesses bring their own
   // sandbox, so the dropdown hides when the model routes elsewhere.
   const claudeRoute = !selected?.provider;
@@ -192,14 +197,11 @@ function SessionControls({ project }: { project: Project }) {
       <Dropdown
         up
         title="Model for this project's sessions — star models in Settings to curate this list"
-        value={project.model ?? ""}
-        options={[
-          { value: "", label: "default" },
-          ...models.map((m) => ({
-            value: m.value,
-            label: m.provider ? `${m.displayName} — ${m.providerLabel}` : m.displayName,
-          })),
-        ]}
+        value={current}
+        options={models.map((m) => ({
+          value: m.value,
+          label: m.provider ? `${m.displayName} — ${m.providerLabel}` : m.displayName,
+        }))}
         onSelect={(model) => send({ type: "set_model", projectId: project.id, model })}
       />
       {claudeRoute && (

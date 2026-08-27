@@ -82,7 +82,12 @@ function isCommand(text: string): boolean {
   return t.length <= 80 && !t.includes("\n") && /^\/[a-z0-9_:-]+(\s|$)/i.test(t);
 }
 
-/** A uniform zigzag rule — the compaction separator's tear line. */
+/**
+ * A uniform zigzag rule — the compaction separator's tear line. Weighted to
+ * read as the same hairline as the result lines' rule: 1px there is crisp,
+ * but a diagonal of the same width gets spread across ~1.4 device pixels by
+ * antialiasing, so the stroke is nudged up to land at the same density.
+ */
 function ZigzagRule() {
   const id = useId();
   return (
@@ -93,7 +98,7 @@ function ZigzagRule() {
             d="M0 7 L6 2 L12 7"
             fill="none"
             stroke="currentColor"
-            strokeWidth="1.4"
+            strokeWidth="1.15"
             strokeLinejoin="round"
           />
         </pattern>

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { TrackerItem, TrackerStatus } from "../shared/protocol.js";
+import type { Attachment, TrackerItem, TrackerStatus } from "../shared/protocol.js";
 
 /**
  * Feature/prompt tracker: a per-project checklist of things the user should
@@ -84,6 +84,25 @@ export class TrackerStore {
     if (patch.status !== undefined) item.status = patch.status;
     if (patch.note !== undefined) item.note = patch.note;
     if (patch.text !== undefined && patch.text.trim()) item.text = patch.text.trim();
+    this.save(projectId);
+    return true;
+  }
+
+  /** Attach a stored upload's meta to an item's note. */
+  attach(projectId: string, itemId: string, attachment: Attachment): boolean {
+    const item = this.load(projectId).find((i) => i.id === itemId);
+    if (!item) return false;
+    item.attachments = [...(item.attachments ?? []), attachment];
+    this.save(projectId);
+    return true;
+  }
+
+  /** Remove one note attachment again. */
+  detach(projectId: string, itemId: string, attachmentId: string): boolean {
+    const item = this.load(projectId).find((i) => i.id === itemId);
+    if (!item?.attachments?.length) return false;
+    item.attachments = item.attachments.filter((a) => a.id !== attachmentId);
+    if (item.attachments.length === 0) delete item.attachments;
     this.save(projectId);
     return true;
   }

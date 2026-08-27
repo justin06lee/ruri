@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
+  DEFAULT_EFFORT,
   DEFAULT_MODEL,
   EFFORT_LEVELS,
   HOME_ID,
@@ -189,7 +190,7 @@ export function EventView({
           {onRewind && (
             <button
               className="icon-button rewind-pencil"
-              title="Edit and rewind — conversation and code return to just before this prompt"
+              title="Edit & rewind — conversation and code return to just before this prompt, then your edit sends"
               onClick={() => onRewind(event)}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -327,14 +328,11 @@ const PERMISSION_MODES: Array<{ value: PermissionMode; label: string }> = [
   { value: "bypassPermissions", label: "Bypass" },
 ];
 
-// "" = the harness's own default effort
-const EFFORT_OPTIONS = [
-  { value: "", label: "Default" },
-  ...EFFORT_LEVELS.map((level) => ({
-    value: level,
-    label: level === "xhigh" ? "XHigh" : level[0]!.toUpperCase() + level.slice(1),
-  })),
-];
+// no "default" entry — an unset effort simply IS xhigh (DEFAULT_EFFORT)
+const EFFORT_OPTIONS = EFFORT_LEVELS.map((level) => ({
+  value: level,
+  label: level === "xhigh" ? "XHigh" : level[0]!.toUpperCase() + level.slice(1),
+}));
 
 function SessionControls({ project }: { project: Project }) {
   const allModels = useRuri((s) => s.models);
@@ -369,8 +367,8 @@ function SessionControls({ project }: { project: Project }) {
       />
       <Dropdown
         up
-        title="Reasoning effort — Default follows the harness's own setting; a change reaches warm sessions on their next prompt (context resumes)"
-        value={project.effort ?? ""}
+        title="Reasoning effort — reaches warm sessions on their next prompt (context resumes)"
+        value={project.effort || DEFAULT_EFFORT}
         options={EFFORT_OPTIONS}
         onSelect={(effort) => send({ type: "set_effort", projectId: project.id, effort })}
       />
@@ -836,11 +834,12 @@ export function ChatPane() {
   const [folded, setFolded] = useState<Set<string>>(new Set());
   useEffect(() => setFolded(new Set()), [activeId]);
 
-  // Rewind: pencil on a past prompt → confirm → conversation and code both
-  // return to just before it ran. Claude sessions only (file checkpoints),
-  // and only while nothing is running.
+  // Rewind: pencil on a past prompt → the prompt opens in an editable card →
+  // confirming rewinds conversation and code to just before it ran, then
+  // sends the edit as the next turn. Claude sessions only (file
+  // checkpoints), and only while nothing is running.
   const models = useRuri((s) => s.models);
-  const [rewindTarget, setRewindTarget] = useState<{ id: string; preview: string } | null>(null);
+  const [rewindTarget, setRewindTarget] = useState<{ id: string; text: string } | null>(null);
   useEffect(() => setRewindTarget(null), [activeId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -897,10 +896,7 @@ export function ChatPane() {
   const canRewind = !isHome && !busy && claudeRoute;
   const askRewind = canRewind
     ? (event: Extract<TranscriptEvent, { kind: "user" }>) =>
-        setRewindTarget({
-          id: event.id,
-          preview: event.text.length > 120 ? `${event.text.slice(0, 117)}…` : event.text,
-        })
+        setRewindTarget({ id: event.id, text: event.text })
     : undefined;
 
   // No conversation yet (Home or a fresh project): the hero — face, a big
@@ -1043,12 +1039,31 @@ export function ChatPane() {
       {rewindTarget && (
         <div className="confirm-overlay" onClick={() => setRewindTarget(null)}>
           <div className="confirm-card" onClick={(e) => e.stopPropagation()}>
-            <div className="confirm-title">Rewind to this prompt?</div>
-            <div className="confirm-quote">{rewindTarget.preview}</div>
+            <div className="confirm-title">Edit & rewind</div>
+            <textarea
+              className="confirm-edit"
+              rows={5}
+              value={rewindTarget.text}
+              autoFocus
+              onChange={(e) => setRewindTarget({ ...rewindTarget, text: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setRewindTarget(null);
+                if (e.key === "Enter" && !e.shiftKey && rewindTarget.text.trim()) {
+                  e.preventDefault();
+                  send({
+                    type: "rewind",
+                    projectId: activeId,
+                    eventId: rewindTarget.id,
+                    text: rewindTarget.text,
+                  });
+                  setRewindTarget(null);
+                }
+              }}
+            />
             <div className="confirm-body">
-              The conversation and the project's files both return to the moment before this
-              prompt ran. Everything after it is discarded, and the prompt lands back in the
-              composer for editing.
+              Sending rewinds the conversation and the project's files to the moment before
+              this prompt ran — everything after it is discarded — then sends your edit as
+              the next prompt.
             </div>
             <div className="confirm-actions">
               <button className="ghost" onClick={() => setRewindTarget(null)}>
@@ -1056,12 +1071,18 @@ export function ChatPane() {
               </button>
               <button
                 className="primary"
+                disabled={!rewindTarget.text.trim()}
                 onClick={() => {
-                  send({ type: "rewind", projectId: activeId, eventId: rewindTarget.id });
+                  send({
+                    type: "rewind",
+                    projectId: activeId,
+                    eventId: rewindTarget.id,
+                    text: rewindTarget.text,
+                  });
                   setRewindTarget(null);
                 }}
               >
-                Rewind
+                Rewind & send
               </button>
             </div>
           </div>

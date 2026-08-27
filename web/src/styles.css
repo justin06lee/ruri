@@ -1483,6 +1483,16 @@ input[type="range"]::-webkit-slider-thumb {
   overflow-wrap: break-word;
 }
 
+/* the rewind card's editable prompt */
+.confirm-edit {
+  width: 100%;
+  min-height: 96px;
+  max-height: 40vh;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
 .confirm-body {
   font-size: 13px;
   line-height: 1.55;

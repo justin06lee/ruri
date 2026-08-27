@@ -18,6 +18,7 @@ import {
   type SessionProvider,
 } from "@justin06lee/yagami";
 import {
+  DEFAULT_EFFORT,
   DEFAULT_MODEL,
   type Attachment,
   type ModelChoice,
@@ -182,7 +183,7 @@ class ProjectSession implements ChannelSession {
         // snapshot files before edits, so a rewind can restore them
         enableFileCheckpointing: true,
         ...(project.permissionMode ? { permissionMode: project.permissionMode } : {}),
-        ...(project.effort ? { effort: project.effort as AgentOptions["effort"] } : {}),
+        effort: (project.effort || DEFAULT_EFFORT) as AgentOptions["effort"],
         ...(resume ? { resume } : {}),
         // a rewind resumes truncated at the kept turn's last chain entry,
         // forked so the original chain stays intact on disk
@@ -463,7 +464,7 @@ class ProviderTurnSession implements ChannelSession {
   dead = false;
 
   private model: string | undefined;
-  private effort: string | undefined;
+  private effort: string;
   private abort: AbortController | null = null;
   private running = false;
   private readonly backlog: Array<{
@@ -486,7 +487,7 @@ class ProviderTurnSession implements ChannelSession {
     private readonly extras?: SessionExtras,
   ) {
     this.model = nativeModel;
-    this.effort = project.effort;
+    this.effort = project.effort || DEFAULT_EFFORT;
     if (resume?.startsWith(`${providerId}:`)) this.lastSessionId = resume;
   }
 
@@ -543,7 +544,7 @@ class ProviderTurnSession implements ChannelSession {
         prompt,
         ...(media.length ? { media } : {}),
         ...(this.model ? { model: this.model } : {}),
-        ...(this.effort ? { effort: this.effort } : {}),
+        effort: this.effort,
         ...(resume ? { resume } : {}),
         signal: this.abort.signal,
       })) {
@@ -617,7 +618,7 @@ class ProviderTurnSession implements ChannelSession {
 
   /** Each turn is its own run — the new effort simply rides the next one. */
   setEffort(effort: string): void {
-    this.effort = effort || undefined;
+    this.effort = effort || DEFAULT_EFFORT;
   }
 
   dispose(): void {
@@ -697,7 +698,7 @@ class ProviderAgentSession implements ChannelSession {
       cwd: project.path,
       appName: "ruri",
       ...(nativeModel ? { model: nativeModel } : {}),
-      ...(project.effort ? { effort: project.effort } : {}),
+      effort: project.effort || DEFAULT_EFFORT,
       ...(nativeResume ? { resume: nativeResume } : {}),
       ...(extras?.providerSystem ? { systemPrompt: extras.providerSystem } : {}),
       permissions: { decide: (req) => this.decide(req) },

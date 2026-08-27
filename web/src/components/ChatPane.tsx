@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   DEFAULT_MODEL,
+  EFFORT_LEVELS,
   HOME_ID,
   type PermissionMode,
   type PermissionRequest,
@@ -227,7 +228,6 @@ export function EventView({
           <div className="result-line stopped">
             <span className="result-rule" />
             <span className="result-text">
-              <Icon d="M8 8h8v8H8z" />
               you stopped this response
               {event.costUsd !== undefined && ` · $${event.costUsd.toFixed(4)}`}
               {event.durationMs !== undefined && ` · ${(event.durationMs / 1000).toFixed(1)}s`}
@@ -327,6 +327,15 @@ const PERMISSION_MODES: Array<{ value: PermissionMode; label: string }> = [
   { value: "bypassPermissions", label: "Bypass" },
 ];
 
+// "" = the harness's own default effort
+const EFFORT_OPTIONS = [
+  { value: "", label: "Default" },
+  ...EFFORT_LEVELS.map((level) => ({
+    value: level,
+    label: level === "xhigh" ? "XHigh" : level[0]!.toUpperCase() + level.slice(1),
+  })),
+];
+
 function SessionControls({ project }: { project: Project }) {
   const allModels = useRuri((s) => s.models);
   const starredIds = useRuri((s) => s.starredModels);
@@ -357,6 +366,13 @@ function SessionControls({ project }: { project: Project }) {
           label: m.displayName,
         }))}
         onSelect={(model) => send({ type: "set_model", projectId: project.id, model })}
+      />
+      <Dropdown
+        up
+        title="Reasoning effort — Default follows the harness's own setting; a change reaches warm sessions on their next prompt (context resumes)"
+        value={project.effort ?? ""}
+        options={EFFORT_OPTIONS}
+        onSelect={(effort) => send({ type: "set_effort", projectId: project.id, effort })}
       />
       {claudeRoute && (
         <Dropdown
@@ -429,14 +445,13 @@ export function Composer({
     if (added.length === 0) return;
     setAtts((prev) => [...prev, ...added]);
     setText((prev) => {
-      // spaces around the markers so typing (or the neighboring words)
-      // never sticks to a "]" or "["
+      // pure insertion: the prompt's own text — trailing newlines included —
+      // is never trimmed or reflowed; only spaces around the markers, so
+      // typing (or the neighboring words) never sticks to a "]" or "["
       const markers = added.map((a) => `[${a.kind} #${a.n}]`).join(" ");
-      if (at === undefined || at >= prev.length) {
-        return prev.trim() ? `${prev.replace(/\s+$/, "")} ${markers} ` : `${markers} `;
-      }
-      const before = prev.slice(0, at);
-      const after = prev.slice(at);
+      const idx = at === undefined ? prev.length : Math.min(at, prev.length);
+      const before = prev.slice(0, idx);
+      const after = prev.slice(idx);
       const lead = before && !/\s$/.test(before) ? " " : "";
       const tail = /^\s/.test(after) ? "" : " ";
       return `${before}${lead}${markers}${tail}${after}`;

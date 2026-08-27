@@ -20,6 +20,11 @@ export interface SessionInfo {
 
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 
+/** Reasoning-effort levels, yagami's shared vocabulary: Claude takes them
+ *  natively, Codex maps them to model_reasoning_effort; harnesses without
+ *  the knob ignore them. "" (unset) = the harness's own default. */
+export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+
 export interface Project {
   id: string;
   name: string;
@@ -29,9 +34,12 @@ export interface Project {
   model?: string;
   /** Permission mode for this project's sessions (default "default"). */
   permissionMode?: PermissionMode;
+  /** Reasoning effort for this project's sessions (EFFORT_LEVELS); the
+   *  harness's own default when unset. */
+  effort?: string;
   /** Bookmarked: shown in the Starred section above the project tree. */
   starred?: boolean;
-  /** The project's sessions (at least one). */
+  /** The project's sessions (possibly none — an empty folder is fine). */
   sessions: SessionInfo[];
 }
 
@@ -174,10 +182,11 @@ export interface PermissionRequest {
 /** What a native folder pick is for — routed back with the result. */
 export type PickTarget = "workspace" | "music";
 
-/** Home-agent settings (the Home composer's model/permission dropdowns). */
+/** Home-agent settings (the Home composer's model/effort/permission dropdowns). */
 export interface HomeSettings {
   model?: string;
   permissionMode?: PermissionMode;
+  effort?: string;
 }
 
 export type ClientMessage =
@@ -199,6 +208,8 @@ export type ClientMessage =
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   | { type: "set_model"; projectId: string; model: string }
   | { type: "set_permission_mode"; projectId: string; mode: PermissionMode }
+  /** Set a project's reasoning effort ("" = the harness default). */
+  | { type: "set_effort"; projectId: string; effort: string }
   | { type: "tracker_add"; projectId: string; text: string; note?: string }
   | {
       type: "tracker_update";

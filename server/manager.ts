@@ -23,6 +23,7 @@ export function homeProject(workspaceDir: string, settings: HomeSettings = {}): 
     sessions: [],
     ...(settings.model ? { model: settings.model } : {}),
     ...(settings.permissionMode ? { permissionMode: settings.permissionMode } : {}),
+    ...(settings.effort ? { effort: settings.effort } : {}),
   };
 }
 

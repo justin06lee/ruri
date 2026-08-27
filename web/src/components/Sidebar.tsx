@@ -63,11 +63,10 @@ function RapidRow() {
 
 const STAR_PATH = "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9 2.9-6z";
 
-function SessionRow({ project, session }: { project: Project; session: SessionInfo }) {
+function SessionRow({ session }: { session: SessionInfo }) {
   const activeId = useRuri((s) => s.activeId);
   const unread = useRuri((s) => s.unread[session.id] ?? false);
   const setActive = useRuri((s) => s.setActive);
-  const last = project.sessions.length === 1;
 
   return (
     <div
@@ -79,13 +78,12 @@ function SessionRow({ project, session }: { project: Project; session: SessionIn
       {unread && <span className="unread-pip" title="Turn finished" />}
       <button
         className="remove"
-        title={last ? "Remove session (and the project)" : "Remove session"}
+        title="Remove session"
         onClick={(e) => {
           e.stopPropagation();
-          const warning = last
-            ? `Remove the last session and close "${project.name}"? (files are untouched)`
-            : "Remove this session? Its transcript is deleted; files are untouched.";
-          if (confirm(warning)) send({ type: "remove_session", sessionId: session.id });
+          if (confirm("Remove this session? Its transcript is deleted; files are untouched.")) {
+            send({ type: "remove_session", sessionId: session.id });
+          }
         }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -178,7 +176,7 @@ function ProjectFolder({
       {!collapsed && (
         <div className="folder-children">
           {project.sessions.map((session) => (
-            <SessionRow key={session.id} project={project} session={session} />
+            <SessionRow key={session.id} session={session} />
           ))}
         </div>
       )}

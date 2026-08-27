@@ -408,7 +408,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (note) noteSummary(projectId, turn.turnId, "reply", note);
       })
       .catch(() => {});
-    extractTrackerItems(turn, tracker.openTexts(projectId))
+    extractTrackerItems(turn.user, tracker.openTexts(projectId))
       .then((items) => {
         if (items.length === 0) return;
         for (const text of items) tracker.add(projectId, text, "auto", turn.turnId);

@@ -76,20 +76,21 @@ export async function summarizeReply(turn: Turn): Promise<string> {
   return complete(REPLY_SUMMARY_SYSTEM, prompt, 120);
 }
 
-const TRACKER_SYSTEM = `You watch a coding-agent session and maintain the user's manual test checklist.
-Given one finished turn, list NEW user-visible features, behaviors, or changes the user should verify by hand.
+const TRACKER_SYSTEM = `You maintain the user's manual test checklist for a coding-agent session, working from the user's own prompts alone.
+Given one prompt the user sent, list the features, changes, or fixes the USER ASKED FOR — the things they'll want to verify by hand once the agent is done.
 Rules:
-- Only include things this turn actually added or changed (code/UI/behavior). Questions, discussion, or read-only turns yield nothing.
+- Only explicit requests to add, change, or fix something make items. Questions, discussion, opinions, and look-at/analyze asks yield nothing.
+- One item per distinct request, faithful to the user's own wording — never invent or interpret beyond what they said.
 - Skip anything already covered by the EXISTING ITEMS list.
 - Each item: one short imperative line ("Check the dark-mode toggle persists"), max 12 words.
-- Output STRICT JSON: {"items": ["...", "..."]} — empty array if nothing new.`;
+- Output STRICT JSON: {"items": ["...", "..."]} — empty array if nothing.`;
 
-export async function extractTrackerItems(turn: Turn, existing: string[]): Promise<string[]> {
+/** Checklist items from ONE user prompt — the reply never feeds this: the
+ *  checklist mirrors what the user asked for, not what the agent narrates. */
+export async function extractTrackerItems(userText: string, existing: string[]): Promise<string[]> {
   const prompt =
     `EXISTING ITEMS:\n${existing.length ? existing.map((t) => `- ${t}`).join("\n") : "(none)"}\n\n` +
-    `USER PROMPT:\n${turn.user.slice(0, 4000)}\n\n` +
-    (turn.tools.length ? `TOOLS USED: ${turn.tools.slice(0, 20).join(", ")}\n\n` : "") +
-    `ASSISTANT RESPONSE:\n${turn.assistant.slice(0, 6000)}`;
+    `USER PROMPT:\n${userText.slice(0, 6000)}`;
   const raw = await complete(TRACKER_SYSTEM, prompt, 400);
   try {
     const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "")) as {

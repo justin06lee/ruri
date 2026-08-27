@@ -126,6 +126,65 @@ function serveTrack(req: http.IncomingMessage, res: http.ServerResponse, root: s
   fs.createReadStream(filePath).pipe(res);
 }
 
+/**
+ * Images a Read tool event pointed at, and so the only local paths the
+ * transcript may ask for. The agent can read anything, but the HTTP server
+ * hands back nothing that a recorded tool event did not already name.
+ */
+const readable = new Set<string>();
+
+/** Register a whole snapshot's worth of transcripts, then hand them back. */
+function allowArchived(
+  transcripts: Record<string, TranscriptEvent[]>,
+): Record<string, TranscriptEvent[]> {
+  for (const events of Object.values(transcripts)) allowReadImages(events);
+  return transcripts;
+}
+
+/** Register any image paths carried by these events (fresh or archived). */
+function allowReadImages(events: TranscriptEvent[]): void {
+  for (const event of events) {
+    if (event.kind !== "tool" || !event.image) continue;
+    const p = new URL(event.image.url, "http://localhost").searchParams.get("p");
+    if (p) readable.add(p);
+  }
+}
+
+const IMAGE_MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".svg": "image/svg+xml",
+  ".avif": "image/avif",
+};
+
+/** Serve one image a tool event read. Anything unregistered is a 403. */
+function serveReadFile(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const filePath = new URL(req.url ?? "/", "http://localhost").searchParams.get("p") ?? "";
+  if (!filePath || !readable.has(filePath)) {
+    res.writeHead(403);
+    res.end();
+    return;
+  }
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) throw new Error("not a file");
+    res.writeHead(200, {
+      "content-type": IMAGE_MIME[path.extname(filePath).toLowerCase()] ?? "application/octet-stream",
+      "content-length": stat.size,
+      // the file can be overwritten in place between reads
+      "cache-control": "no-cache",
+    });
+    fs.createReadStream(filePath).pipe(res);
+  } catch {
+    res.writeHead(404);
+    res.end();
+  }
+}
+
 function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.ServerResponse): void {
   const url = (req.url ?? "/").split("?")[0] ?? "/";
   const rel = url === "/" ? "index.html" : url.replace(/^\/+/, "");
@@ -441,6 +500,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const manager = new SessionManager(
     {
       onEvent: (projectId, event) => {
+        allowReadImages([event]);
         recordEvent(projectId, event);
         if (event.kind === "result") {
           pushUsage();
@@ -953,6 +1013,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       serveUpload(req, res);
       return;
     }
+    if (req.url?.startsWith("/readfile?")) {
+      serveReadFile(req, res);
+      return;
+    }
     if (options.staticDir && (req.method === "GET" || req.method === "HEAD")) {
       serveStatic(options.staticDir, req, res);
       return;
@@ -969,7 +1033,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     const snapshot: ServerMessage = {
       type: "snapshot",
       projects: store.list(),
-      transcripts: archive.transcripts(projectIds),
+      transcripts: allowArchived(archive.transcripts(projectIds)),
       statuses: manager.statuses(),
       permissions: [...permissions.values()],
       models: allModels(),

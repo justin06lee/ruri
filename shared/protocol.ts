@@ -84,6 +84,8 @@ export interface TrackerItem {
   turnId?: string;
   /** Marked needs-work in a past review — shown pinned with a repeat mark. */
   repeat?: boolean;
+  /** Files pasted into the note — referenced by path in the review prompt. */
+  attachments?: Attachment[];
   ts: number;
 }
 
@@ -187,6 +189,9 @@ export type ClientMessage =
       text?: string;
     }
   | { type: "tracker_remove"; projectId: string; itemId: string }
+  /** Attach a pasted file to a tracker item's note / remove one again. */
+  | { type: "tracker_attach"; projectId: string; itemId: string; upload: AttachmentUpload }
+  | { type: "tracker_detach"; projectId: string; itemId: string; attachmentId: string }
   /** Finish a tracker review: liked items clear, needs-work become repeats,
    *  and the small model writes a fix-it prompt for the composer. */
   | { type: "tracker_review"; projectId: string }

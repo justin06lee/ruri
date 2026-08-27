@@ -367,8 +367,8 @@ export function Composer({
   const [dragOver, setDragOver] = useState(false);
   const counter = useRef(saved?.counter ?? { image: 0, video: 0, file: 0 });
   const areaRef = useRef<HTMLTextAreaElement>(null);
-  const composerSeed = useRuri((s) => s.composerSeed);
-  const clearComposerSeed = useRuri((s) => s.clearComposerSeed);
+  const draftBump = useRuri((s) => s.draftBumps[channelId] ?? 0);
+  const bumpSeen = useRef(draftBump);
 
   // Every keystroke and attachment change lands in the per-channel draft.
   useEffect(() => {
@@ -414,22 +414,27 @@ export function Composer({
     });
   };
 
-  // Where a drag hovers inside the textarea, as a text index — so a dropped
-  // image's marker lands where the pointer was, not at the end of the prompt.
-  const dropPosRef = useRef<number | null>(null);
+  // The drop point as a text index — computed ONCE, at drop time. (Never
+  // call this from dragover: hit-testing on every drag frame can wedge
+  // Chromium's drag session so the drop never fires at all.)
   const caretFromPoint = (x: number, y: number): number | null => {
-    const area = areaRef.current;
-    const doc = document as Document & {
-      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
-    };
-    if (!area || !doc.caretPositionFromPoint) return null;
-    const pos = doc.caretPositionFromPoint(x, y);
-    if (!pos) return null;
-    // Chromium reports a caret inside a text control as (the control, offset)
-    if (pos.offsetNode === area || area.contains(pos.offsetNode)) {
-      return Math.min(pos.offset, area.value.length);
+    try {
+      const area = areaRef.current;
+      const doc = document as Document & {
+        caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+      };
+      if (!area || !doc.caretPositionFromPoint) return null;
+      const pos = doc.caretPositionFromPoint(x, y);
+      if (!pos) return null;
+      // Chromium reports a caret inside a text control as (the control, offset)
+      if (pos.offsetNode === area || area.contains(pos.offsetNode)) {
+        return Math.min(pos.offset, area.value.length);
+      }
+      return null;
+    } catch {
+      // best-effort — a failed lookup just appends at the end
+      return null;
     }
-    return null;
   };
 
   const removeAtt = (id: string) => {
@@ -451,13 +456,15 @@ export function Composer({
     area.style.height = `${Math.min(area.scrollHeight, 220)}px`;
   };
 
-  // Tracker "send as prompt": append the seeded text and focus.
+  // Text arrived in this channel's draft from outside (a review's fix-it
+  // prompt, a rewound prompt): the map is the source of truth — re-read it.
   useEffect(() => {
-    if (!composerSeed) return;
-    setText((prev) => (prev.trim() ? `${prev}\n${composerSeed}` : composerSeed));
-    clearComposerSeed();
+    if (draftBump === bumpSeen.current) return;
+    bumpSeen.current = draftBump;
+    const fresh = composerDrafts.get(channelId);
+    if (fresh && fresh.text !== text) setText(fresh.text);
     requestAnimationFrame(() => areaRef.current?.focus());
-  }, [composerSeed, clearComposerSeed]);
+  }, [draftBump, channelId, text]);
 
   const submit = async (mode: "send" | "send_split" = "send") => {
     const trimmed = text.trim();
@@ -512,17 +519,12 @@ export function Composer({
         onDragOver={(e) => {
           e.preventDefault();
           setDragOver(true);
-          dropPosRef.current = caretFromPoint(e.clientX, e.clientY);
         }}
-        onDragLeave={() => {
-          setDragOver(false);
-          dropPosRef.current = null;
-        }}
+        onDragLeave={() => setDragOver(false)}
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          addFiles(e.dataTransfer.files, dropPosRef.current ?? undefined);
-          dropPosRef.current = null;
+          addFiles(e.dataTransfer.files, caretFromPoint(e.clientX, e.clientY) ?? undefined);
         }}
       >
         <AttachmentStrip attachments={atts} onRemove={removeAtt} onView={(a) => setViewing(a.id)} />
@@ -867,30 +869,43 @@ export function ChatPane() {
     );
   }
 
+  // Home keeps no header bar — the transcript starts at the top; the
+  // tracker page still auto-opens there and closes from its own X.
+  const header = !isHome && (
+    <header className="chat-header">
+      <div className="chat-id">
+        <div className="chat-title">
+          {project.name}
+          {session?.title && <span className="chat-session-title"> · {session.title}</span>}
+        </div>
+      </div>
+      <div className="header-controls">
+        <button
+          className={`icon-button tracker-toggle ${trackerOpen ? "active" : ""}`}
+          title={trackerOpen ? "Back to the chat" : "Feature tracker — things to test by hand"}
+          onClick={() => setTrackerOpen(!trackerOpen)}
+        >
+          <Icon d="M9 11l3 3 8-8M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" />
+          {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
+        </button>
+      </div>
+    </header>
+  );
+
+  // The tracker button swaps the whole pane for the todo page — no
+  // navigation, just this branch; the same button (or its X) swaps back.
+  if (trackerOpen) {
+    return (
+      <main className="chat">
+        {header}
+        <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />
+      </main>
+    );
+  }
+
   return (
     <main className="chat">
-      {/* Home keeps no header bar — the transcript starts at the top; the
-          tracker drawer still auto-opens there and closes from inside */}
-      {!isHome && (
-        <header className="chat-header">
-          <div className="chat-id">
-            <div className="chat-title">
-              {project.name}
-              {session?.title && <span className="chat-session-title"> · {session.title}</span>}
-            </div>
-          </div>
-          <div className="header-controls">
-            <button
-              className={`icon-button tracker-toggle ${trackerOpen ? "active" : ""}`}
-              title="Feature tracker — things to test by hand"
-              onClick={() => setTrackerOpen(!trackerOpen)}
-            >
-              <Icon d="M9 11l3 3 8-8M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" />
-              {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
-            </button>
-          </div>
-        </header>
-      )}
+      {header}
 
       {lastError && (
         <div className="error-bar" onClick={dismissError}>
@@ -964,8 +979,6 @@ export function ChatPane() {
         </button>
       )}
       </div>
-
-      {trackerOpen && <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />}
 
       {rewindTarget && (
         <div className="confirm-overlay" onClick={() => setRewindTarget(null)}>

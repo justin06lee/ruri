@@ -65,8 +65,9 @@ interface RuriState {
   contexts: Record<string, ContextUsage>;
   /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
   rapid: boolean;
-  /** Text waiting to be inserted into the composer (tracker "send as prompt"). */
-  composerSeed: string | null;
+  /** Bumped per channel when text lands in its draft from outside (a review
+   *  prompt, a rewound prompt) — a mounted composer re-reads the draft map. */
+  draftBumps: Record<string, number>;
   /** The workspace root the Home agent manages. */
   workspaceDir: string;
   /** Where the music player's playlists live. */
@@ -87,8 +88,6 @@ interface RuriState {
   lastError: string | null;
   setActive(id: string | null): void;
   setRapid(on: boolean): void;
-  seedComposer(text: string): void;
-  clearComposerSeed(): void;
   clearPicked(): void;
   dismissError(): void;
 }
@@ -109,7 +108,7 @@ export const useRuri = create<RuriState>((set) => ({
   usage: {},
   contexts: {},
   rapid: false,
-  composerSeed: null,
+  draftBumps: {},
   workspaceDir: "",
   musicDir: "",
   musicEpoch: 0,
@@ -128,8 +127,6 @@ export const useRuri = create<RuriState>((set) => ({
       return { activeId: id, rapid: false, unread: id ? { ...s.unread, [id]: false } : s.unread };
     }),
   setRapid: (on) => set({ rapid: on }),
-  seedComposer: (text) => set({ composerSeed: text }),
-  clearComposerSeed: () => set({ composerSeed: null }),
   clearPicked: () => set({ picked: null }),
   dismissError: () => set({ lastError: null }),
 }));
@@ -233,11 +230,16 @@ function apply(msg: ServerMessage): void {
     case "review_prompt":
     case "compose": {
       // Text bound for a channel's composer (a review's fix-it prompt, a
-      // rewound prompt back for editing) — live-seeded if the channel is
-      // active, otherwise into its saved draft for the next visit.
-      const state = useRuri.getState();
-      if (msg.projectId === state.activeId) state.seedComposer(msg.text);
-      else appendDraft(msg.projectId, msg.text);
+      // rewound prompt back for editing) goes straight into the persistent
+      // draft map — never through component state, so switching sessions
+      // can't lose it — and the bump tells a mounted composer to re-read.
+      appendDraft(msg.projectId, msg.text);
+      setState((s) => ({
+        draftBumps: {
+          ...s.draftBumps,
+          [msg.projectId]: (s.draftBumps[msg.projectId] ?? 0) + 1,
+        },
+      }));
       break;
     }
     case "workspace": {

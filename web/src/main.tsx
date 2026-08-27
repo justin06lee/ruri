@@ -7,4 +7,10 @@ import "./styles.css";
 initTheme();
 if (navigator.userAgent.includes("Electron")) document.body.classList.add("desktop");
 
+// A file dropped outside a drop zone must never navigate the window to the
+// file (which would blank the whole app); targeted handlers run first and
+// this only eats what they didn't take.
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
+
 createRoot(document.getElementById("root")!).render(<App />);

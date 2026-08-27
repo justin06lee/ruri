@@ -2239,6 +2239,51 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 10px;
 }
 
+/* a Read of an image brings the image with it */
+
+.tool-read {
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 100%;
+}
+
+/* bounded so a tall screenshot cannot push the conversation off screen —
+   the viewer is one click away for the full size */
+.tool-image {
+  padding: 3px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background: var(--paper-dim);
+  box-shadow: none;
+  line-height: 0;
+  cursor: zoom-in;
+  animation: rise 180ms ease-out;
+}
+
+.tool-image:hover {
+  border-color: var(--edge);
+  background: var(--paper-bright);
+}
+
+.tool-image:active {
+  transform: none;
+}
+
+.tool-image img {
+  display: block;
+  max-width: min(320px, 100%);
+  max-height: 140px;
+  width: auto;
+  height: auto;
+  border-radius: 3px;
+  /* screenshots are usually pale — a ground keeps a white png from vanishing
+     into the page in light mode and glaring in dark */
+  background: var(--paper-bright);
+}
+
 /* ── the dragon gauges ────────────────────────────────────────────── */
 
 /* Four dragons flanking the composer, each filling from his feet. Below the

@@ -1563,7 +1563,7 @@ input[type="range"]::-webkit-slider-thumb {
   height: 13px;
 }
 
-/* the compaction point: a torn edge across the transcript — the model got
+/* the compaction point: a zigzag tear across the transcript — the model got
    a fresh session with the brief; the label unfolds it for curious eyes */
 
 .compaction {
@@ -1576,7 +1576,7 @@ input[type="range"]::-webkit-slider-thumb {
 .compaction-line {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   color: var(--ink-faint);
 }
 
@@ -1585,12 +1585,12 @@ input[type="range"]::-webkit-slider-thumb {
   height: 9px;
 }
 
+/* same voice as the result lines ("done · $… · …s") */
 .compaction-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
   color: var(--ink-faint);
   background: none;
   border: none;
@@ -1599,25 +1599,79 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: none;
 }
 
+.compaction-label .icon {
+  width: 11px;
+  height: 11px;
+  color: var(--ink);
+}
+
 .compaction-label:hover {
   color: var(--ink);
   background: none;
 }
 
+/* the unfolded brief: one row per exchange — your prompt's note in ink,
+   the reply's note underneath in soft */
 .compaction-brief {
   margin: 0;
+  background: var(--paper-dim);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  max-height: 340px;
+  overflow: auto;
+}
+
+.compaction-turn {
+  display: flex;
+  gap: 10px;
+  padding: 9px 12px;
+}
+
+.compaction-turn + .compaction-turn {
+  border-top: 1px solid var(--line-faint);
+}
+
+.compaction-n {
+  flex-shrink: 0;
+  min-width: 16px;
+  padding-top: 1px;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: right;
+  color: var(--ink-faint);
+}
+
+.compaction-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.compaction-you {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  overflow-wrap: break-word;
+}
+
+.compaction-reply {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  overflow-wrap: break-word;
+}
+
+/* compactions recorded before the structured pairs: the raw model brief */
+.compaction-brief.raw {
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.6;
   color: var(--ink-soft);
-  background: var(--paper-dim);
-  border: 1px dashed var(--line-soft);
-  border-radius: var(--radius-s);
+  border-style: dashed;
   padding: 10px 12px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  max-height: 320px;
-  overflow: auto;
 }
 
 .cursor {

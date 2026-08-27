@@ -129,6 +129,13 @@ export interface Playlist {
   tracks: Track[];
 }
 
+/** One exchange inside a compaction brief: the prompt and the reply, each
+ *  compressed to a terse recall note by the small model. */
+export interface CompactionEntry {
+  user: string;
+  reply: string;
+}
+
 export type TranscriptEvent =
   | { kind: "user"; id: string; text: string; attachments?: Attachment[]; ts: number }
   | { kind: "assistant"; id: string; text: string; ts: number }
@@ -146,9 +153,10 @@ export type TranscriptEvent =
     }
   | { kind: "info"; id: string; text: string; ts: number }
   /** A /compact point: the session restarted fresh here; `text` is the
-   *  model-facing brief (summaries + full-turn file hooks), hidden from the
-   *  user behind the jagged separator unless they unfold it. */
-  | { kind: "compaction"; id: string; text: string; ts: number };
+   *  model-facing brief (summaries + full-turn file hooks) and `entries` its
+   *  structured prompt/reply pairs, hidden behind the zigzag separator
+   *  unless the user unfolds it. */
+  | { kind: "compaction"; id: string; text: string; entries?: CompactionEntry[]; ts: number };
 
 export interface PermissionRequest {
   requestId: string;

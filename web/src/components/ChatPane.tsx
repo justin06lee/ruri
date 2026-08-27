@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   DEFAULT_MODEL,
   HOME_ID,
@@ -80,19 +80,18 @@ function isCommand(text: string): boolean {
   return t.length <= 80 && !t.includes("\n") && /^\/[a-z0-9_:-]+(\s|$)/i.test(t);
 }
 
-/** A jagged tear line — the compaction separator's hand-drawn rule. */
-function JaggedRule() {
+/** A uniform zigzag rule — the compaction separator's tear line. */
+function ZigzagRule() {
   const id = useId();
   return (
     <svg className="jag" aria-hidden>
       <defs>
-        <pattern id={id} width="16" height="9" patternUnits="userSpaceOnUse">
+        <pattern id={id} width="12" height="9" patternUnits="userSpaceOnUse">
           <path
-            d="M0 6 L3.5 1.5 L6.5 6.5 L10 2 L13 7 L16 6"
+            d="M0 7 L6 2 L12 7"
             fill="none"
             stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
+            strokeWidth="1.4"
             strokeLinejoin="round"
           />
         </pattern>
@@ -104,25 +103,55 @@ function JaggedRule() {
 
 /**
  * The compaction point: everything above went into a fresh session as a
- * brief only the model reads. The user just sees the torn line — the label
- * unfolds what the model was handed, for the curious.
+ * brief only the model reads. The user just sees the zigzag line — the
+ * label unfolds the prompt/reply notes the model was handed.
  */
 function CompactionMark({ event }: { event: Extract<TranscriptEvent, { kind: "compaction" }> }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="compaction">
       <div className="compaction-line">
-        <JaggedRule />
+        <ZigzagRule />
         <button
           className="compaction-label"
           title={open ? "Hide what the model was handed" : "Show what the model was handed"}
           onClick={() => setOpen(!open)}
         >
+          <svg
+            className="icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <circle cx="6" cy="6" r="3" />
+            <circle cx="6" cy="18" r="3" />
+            <path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12" />
+          </svg>
           compacted
         </button>
-        <JaggedRule />
+        <ZigzagRule />
       </div>
-      {open && <pre className="compaction-brief">{event.text}</pre>}
+      {open &&
+        (event.entries?.length ? (
+          <div className="compaction-brief">
+            {event.entries.map((entry, i) => (
+              <div className="compaction-turn" key={i}>
+                <span className="compaction-n">{i + 1}</span>
+                <div className="compaction-pair">
+                  <div className="compaction-you">{entry.user}</div>
+                  <div className="compaction-reply">{entry.reply}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          // compactions from before the structured entries: the raw brief
+          <pre className="compaction-brief raw">{event.text}</pre>
+        ))}
     </div>
   );
 }
@@ -826,6 +855,22 @@ export function ChatPane() {
     scrollToBottom();
   }, [activeId]);
 
+  // Content keeps growing after the render-time scroll (images decode,
+  // markdown settles) — while pinned, any growth re-bottoms the view, so a
+  // relaunch opens at the latest message instead of partway up.
+  const innerObserver = useRef<ResizeObserver | null>(null);
+  const observeInner = useCallback((node: HTMLDivElement | null) => {
+    innerObserver.current?.disconnect();
+    innerObserver.current = null;
+    if (!node) return;
+    const observer = new ResizeObserver(() => {
+      const el = scrollRef.current;
+      if (el && pinnedRef.current) el.scrollTo({ top: el.scrollHeight });
+    });
+    observer.observe(node);
+    innerObserver.current = observer;
+  }, []);
+
   if (!project || !activeId) {
     return <main className="chat empty" />;
   }
@@ -917,7 +962,7 @@ export function ChatPane() {
           floats just above the composer no matter how tall it grows */}
       <div className="transcript-holder">
       <div className="transcript" ref={scrollRef} onScroll={onScroll}>
-        <div className="transcript-inner">
+        <div className="transcript-inner" ref={observeInner}>
           {groupTurns(transcript).map((turn) => {
             const summary = summaries[turn.turnId];
             if (summary !== undefined && folded.has(turn.turnId)) {

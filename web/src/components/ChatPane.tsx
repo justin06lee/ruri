@@ -429,14 +429,13 @@ export function Composer({
     if (added.length === 0) return;
     setAtts((prev) => [...prev, ...added]);
     setText((prev) => {
-      // spaces around the markers so typing (or the neighboring words)
-      // never sticks to a "]" or "["
+      // pure insertion: the prompt's own text — trailing newlines included —
+      // is never trimmed or reflowed; only spaces around the markers, so
+      // typing (or the neighboring words) never sticks to a "]" or "["
       const markers = added.map((a) => `[${a.kind} #${a.n}]`).join(" ");
-      if (at === undefined || at >= prev.length) {
-        return prev.trim() ? `${prev.replace(/\s+$/, "")} ${markers} ` : `${markers} `;
-      }
-      const before = prev.slice(0, at);
-      const after = prev.slice(at);
+      const idx = at === undefined ? prev.length : Math.min(at, prev.length);
+      const before = prev.slice(0, idx);
+      const after = prev.slice(idx);
       const lead = before && !/\s$/.test(before) ? " " : "";
       const tail = /^\s/.test(after) ? "" : " ";
       return `${before}${lead}${markers}${tail}${after}`;

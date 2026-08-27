@@ -10,10 +10,17 @@ import type { TranscriptEvent } from "../shared/protocol.js";
  * restarts and compaction can be instant (summaries are precomputed).
  */
 
+/** A turn's recall notes: the prompt's and the reply's, each written by the
+ *  small model the moment its half exists. */
+export interface TurnSummary {
+  user?: string;
+  reply?: string;
+}
+
 interface ArchiveData {
   events: TranscriptEvent[];
   /** Turn summaries keyed by the turn's opening user-event id. */
-  summaries: Record<string, string>;
+  summaries: Record<string, TurnSummary>;
   lastSessionId?: string;
   /** A finished compaction's brief, waiting to ride the next prompt into the
    *  fresh session (persisted so a restart in between loses nothing). */
@@ -24,6 +31,14 @@ interface ArchiveData {
   chain?: Record<string, { user?: string; last?: string }>;
   /** A rewind's fork point: the next Claude session resumes truncated here. */
   resumeAt?: string;
+}
+
+/** Collapse a turn's two notes into the single fold-note string the UI shows. */
+function displaySummary(note: TurnSummary | undefined): string {
+  const user = note?.user?.trim();
+  const reply = note?.reply?.trim();
+  if (user && reply) return `${user} — ${reply}`;
+  return user || reply || "";
 }
 
 function archiveDir(): string {
@@ -46,9 +61,18 @@ export class SessionArchive {
       const raw = JSON.parse(
         fs.readFileSync(path.join(archiveDir(), `${projectId}.json`), "utf8"),
       ) as Partial<ArchiveData>;
+      // summaries were single combined strings before the prompt/reply
+      // split — an old note covered the whole turn, so it lands as `reply`
+      const summaries: Record<string, TurnSummary> = {};
+      if (raw.summaries && typeof raw.summaries === "object") {
+        for (const [turnId, value] of Object.entries(raw.summaries)) {
+          if (typeof value === "string") summaries[turnId] = { reply: value };
+          else if (value && typeof value === "object") summaries[turnId] = value as TurnSummary;
+        }
+      }
       entry = {
         events: Array.isArray(raw.events) ? raw.events : [],
-        summaries: raw.summaries && typeof raw.summaries === "object" ? raw.summaries : {},
+        summaries,
         ...(typeof raw.lastSessionId === "string" ? { lastSessionId: raw.lastSessionId } : {}),
         ...(typeof raw.pendingBrief === "string" ? { pendingBrief: raw.pendingBrief } : {}),
         ...(raw.chain && typeof raw.chain === "object" ? { chain: raw.chain } : {}),
@@ -118,13 +142,19 @@ export class SessionArchive {
     return removed;
   }
 
-  summaries(projectId: string): Record<string, string> {
+  summaries(projectId: string): Record<string, TurnSummary> {
     return this.load(projectId).summaries;
   }
 
-  setSummary(projectId: string, turnId: string, summary: string): void {
-    this.load(projectId).summaries[turnId] = summary;
+  setSummary(projectId: string, turnId: string, part: keyof TurnSummary, note: string): void {
+    const entry = this.load(projectId);
+    (entry.summaries[turnId] ??= {})[part] = note;
     this.scheduleWrite(projectId);
+  }
+
+  /** A turn's fold note for the UI: "prompt — reply", whichever halves exist. */
+  summaryDisplay(projectId: string, turnId: string): string {
+    return displaySummary(this.load(projectId).summaries[turnId]);
   }
 
   lastSessionId(projectId: string): string | undefined {
@@ -219,8 +249,18 @@ export class SessionArchive {
     return Object.fromEntries([...projectIds].map((id) => [id, this.events(id)]));
   }
 
+  /** Fold notes for the connect snapshot — the wire keeps single strings. */
   allSummaries(projectIds: Iterable<string>): Record<string, Record<string, string>> {
-    return Object.fromEntries([...projectIds].map((id) => [id, this.summaries(id)]));
+    return Object.fromEntries(
+      [...projectIds].map((id) => [
+        id,
+        Object.fromEntries(
+          Object.entries(this.summaries(id))
+            .map(([turnId, note]) => [turnId, displaySummary(note)])
+            .filter(([, display]) => display !== ""),
+        ),
+      ]),
+    );
   }
 
   flushAll(): void {

@@ -4,8 +4,9 @@ import type { TranscriptEvent } from "../shared/protocol.js";
 /**
  * The "small model" behind turn summaries, session titles, prompt splitting,
  * and the feature tracker: yagami's zero-config completions client over the
- * user's signed-in CLIs, pointed at a cheap model. One call per finished
- * turn, so cost stays in fractions of a cent. The double-starred model from
+ * user's signed-in CLIs, pointed at a cheap model. One call per sent prompt
+ * and per finished reply, so cost stays in fractions of a cent. The
+ * double-starred model from
  * the Settings catalog wins (any harness — yagami routes qualified ids);
  * RURI_SMALL_MODEL is the fallback override, then "haiku". RURI_NO_MEMORY=1
  * disables the whole layer.
@@ -49,18 +50,30 @@ export interface Turn {
   tools: string[];
 }
 
-const SUMMARY_SYSTEM = `You compress coding-agent conversation turns into terse recall notes.
-Style: telegraphic, dense, no filler — like a skill cheat-sheet. 1-2 sentences, max ~45 words.
-Always keep: file/function/command names, decisions made, errors hit, what changed.
-Drop: pleasantries, restatements, markdown.
-Output only the note text.`;
+const PROMPT_SUMMARY_SYSTEM = `You compress messages a user sent to a coding agent into the fewest words that lose no detail.
+Telegraphic fragments, almost caveman: drop greetings, filler, hedging, politeness; keep every concrete thing — feature/file/function names, symptoms, constraints, counts.
+Never invent or interpret; only compress what is there. Plain text, one line, no markdown, no quotes, no trailing period.
+Degree of compression: "hey so when I scroll down the page the header kind of flickers? oh and could we maybe make the logo a bit smaller too" becomes "header flickers on scroll; shrink logo".
+Aim for under 15 words; one clause per request.`;
 
-export async function summarizeTurn(turn: Turn): Promise<string> {
+/** Compress one user prompt to a terse recall note — fired at send time. */
+export async function summarizePrompt(text: string): Promise<string> {
+  return complete(PROMPT_SUMMARY_SYSTEM, text.slice(0, 6000), 80);
+}
+
+const REPLY_SUMMARY_SYSTEM = `You compress a coding agent's reply into the fewest words that lose no outcome.
+Telegraphic fragments, almost caveman: keep what changed and where (files, functions, commands), decisions, errors hit, test/build results; drop narration, reasoning, filler.
+Never invent; only compress. Plain text, one line, no markdown, no trailing period.
+Degree of compression: a long reply about moving date parsing into a helper, fixing a type error, and the build passing becomes "date parsing moved to utils.ts; Form.tsx type error fixed; build passes".
+Aim for under 25 words.`;
+
+/** Compress one finished turn's reply to a terse recall note. */
+export async function summarizeReply(turn: Turn): Promise<string> {
   const prompt =
-    `USER PROMPT:\n${turn.user.slice(0, 4000)}\n\n` +
-    (turn.tools.length ? `TOOLS USED: ${turn.tools.slice(0, 20).join(", ")}\n\n` : "") +
-    `ASSISTANT RESPONSE:\n${turn.assistant.slice(0, 6000)}`;
-  return complete(SUMMARY_SYSTEM, prompt, 220);
+    `CONTEXT — WHAT THE USER HAD ASKED:\n${turn.user.slice(0, 1500)}\n\n` +
+    (turn.tools.length ? `TOOLS THE AGENT USED: ${turn.tools.slice(0, 20).join(", ")}\n\n` : "") +
+    `AGENT REPLY TO COMPRESS:\n${turn.assistant.slice(0, 6000)}`;
+  return complete(REPLY_SUMMARY_SYSTEM, prompt, 120);
 }
 
 const TRACKER_SYSTEM = `You watch a coding-agent session and maintain the user's manual test checklist.

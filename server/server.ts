@@ -25,7 +25,7 @@ import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } fro
 import { ProjectStore } from "./projects.js";
 import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { SessionManager } from "./sessions.js";
-import { extractTrackerItems, reviewPrompt, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizeTurn, TurnTracker } from "./smallmodel.js";
+import { extractTrackerItems, reviewPrompt, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
 import { fetchUsageLimits } from "./usage.js";
@@ -290,7 +290,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
 
   function dispatch(channelId: string, text: string, uploads: AttachmentUpload[], silent = false): void {
     // /compact is ruri's own, not the harness's: summaries + full-turn file
-    // hooks into a fresh session, with the jagged mark in the transcript
+    // hooks into a fresh session, with the zigzag mark in the transcript
     if (!silent && text.trim() === "/compact" && uploads.length === 0) {
       compactChannel(channelId);
       return;
@@ -344,12 +344,12 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   /**
    * ruri's custom /compact: retire the live session and its resume id, stash
    * the brief (turn summaries + full-record file paths) for the next prompt,
-   * and drop the jagged compaction mark into the transcript. No model call —
+   * and drop the zigzag compaction mark into the transcript. No model call —
    * the summaries are precomputed, so this is instant.
    */
   function compactChannel(channelId: string): void {
-    const brief = buildCompaction(channelId, archive.events(channelId), archive.summaries(channelId));
-    if (brief === null) {
+    const built = buildCompaction(channelId, archive.events(channelId), archive.summaries(channelId));
+    if (built === null) {
       const event: TranscriptEvent = {
         kind: "info",
         id: randomUUID(),
@@ -363,22 +363,34 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     }
     manager.dispose(channelId);
     archive.clearLastSessionId(channelId);
-    archive.setPendingBrief(channelId, brief);
+    archive.setPendingBrief(channelId, built.brief);
     contexts.delete(channelId);
     broadcast({
       type: "context",
       projectId: channelId,
       context: { tokens: 0, window: contextWindow(channelId) },
     });
-    const event: TranscriptEvent = { kind: "compaction", id: randomUUID(), text: brief, ts: Date.now() };
+    const event: TranscriptEvent = {
+      kind: "compaction",
+      id: randomUUID(),
+      text: built.brief,
+      entries: built.entries,
+      ts: Date.now(),
+    };
     archive.append(channelId, event);
     broadcast({ type: "event", projectId: channelId, event });
     drainQueue(channelId);
   }
 
+  /** Store one half of a turn's recall note and push the fold note it makes. */
+  function noteSummary(projectId: string, turnId: string, part: "user" | "reply", note: string): void {
+    archive.setSummary(projectId, turnId, part, note);
+    broadcast({ type: "turn_summary", projectId, turnId, summary: archive.summaryDisplay(projectId, turnId) });
+  }
+
   // Every finished turn goes to the small model in the background, twice:
-  // a recall note (instant compaction) and a tracker extraction (new features
-  // the user should test by hand). Failures are silent — both are niceties.
+  // a reply recall note (instant compaction) and a tracker extraction (new
+  // features to test by hand). Failures are silent — both are niceties.
   const turns = new TurnTracker((projectId, turn) => {
     if (!smallModelEnabled()) return;
     const found = store.findSession(projectId);
@@ -391,11 +403,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         })
         .catch(() => {});
     }
-    summarizeTurn(turn)
-      .then((summary) => {
-        if (!summary) return;
-        archive.setSummary(projectId, turn.turnId, summary);
-        broadcast({ type: "turn_summary", projectId, turnId: turn.turnId, summary });
+    summarizeReply(turn)
+      .then((note) => {
+        if (note) noteSummary(projectId, turn.turnId, "reply", note);
       })
       .catch(() => {});
     extractTrackerItems(turn, tracker.openTexts(projectId))
@@ -413,6 +423,15 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     turns.observe(projectId, event);
     if (projectId === HOME_ID) homeLog.observe(event);
     broadcast({ type: "event", projectId, event });
+    // every prompt gets its recall note the moment it's sent — the reply's
+    // half lands separately when the turn finishes
+    if (event.kind === "user" && smallModelEnabled()) {
+      summarizePrompt(event.text)
+        .then((note) => {
+          if (note) noteSummary(projectId, event.id, "user", note);
+        })
+        .catch(() => {});
+    }
   }
 
   const manager = new SessionManager(

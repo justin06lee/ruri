@@ -1550,7 +1550,9 @@ input[type="range"]::-webkit-slider-thumb {
   animation: pulse 0.9s ease-in-out infinite;
 }
 
-/* thinking: the two-frame hand-drawn doodle, flipping poses every 0.5s */
+/* thinking: the two-frame hand-drawn doodle, flipping poses every 0.5s —
+   mirrored, and wiggling between tilts in hard 0.5s steps, synced with the
+   pose swaps (1s pose cycle, 4s pseudo-random tilt cycle — both align) */
 
 .thinking {
   position: relative;
@@ -1558,6 +1560,43 @@ input[type="range"]::-webkit-slider-thumb {
   height: 46px;
   margin: 6px 0;
   color: var(--ink-soft);
+  transform: scaleX(-1);
+  animation: think-wiggle 4s linear infinite;
+}
+
+@keyframes think-wiggle {
+  0%,
+  12.4% {
+    transform: scaleX(-1) rotate(-5deg);
+  }
+  12.5%,
+  24.9% {
+    transform: scaleX(-1) rotate(6deg);
+  }
+  25%,
+  37.4% {
+    transform: scaleX(-1) rotate(-7deg);
+  }
+  37.5%,
+  49.9% {
+    transform: scaleX(-1) rotate(4deg);
+  }
+  50%,
+  62.4% {
+    transform: scaleX(-1) rotate(-6deg);
+  }
+  62.5%,
+  74.9% {
+    transform: scaleX(-1) rotate(7deg);
+  }
+  75%,
+  87.4% {
+    transform: scaleX(-1) rotate(-4deg);
+  }
+  87.5%,
+  100% {
+    transform: scaleX(-1) rotate(5deg);
+  }
 }
 
 .thinking-frame {
@@ -1600,6 +1639,10 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .thinking {
+    animation: none;
+  }
+
   .thinking-frame {
     animation: none;
   }

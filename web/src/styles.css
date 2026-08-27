@@ -2032,11 +2032,16 @@ input[type="range"]::-webkit-slider-thumb {
   font-style: italic;
 }
 
+/* centered by margins, not translateX — the rise keyframes animate
+   transform, which would replace a translateX(-50%) base and slide the
+   pill in from the right when the animation ended */
 .jump-latest {
   position: absolute;
   bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  width: fit-content;
+  margin-inline: auto;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2052,7 +2057,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .jump-latest:active {
-  transform: translateX(-50%) translate(2px, 2px);
+  transform: translate(2px, 2px);
 }
 
 .jump-latest .icon {

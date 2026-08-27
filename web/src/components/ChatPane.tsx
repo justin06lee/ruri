@@ -227,7 +227,6 @@ export function EventView({
           <div className="result-line stopped">
             <span className="result-rule" />
             <span className="result-text">
-              <Icon d="M8 8h8v8H8z" />
               you stopped this response
               {event.costUsd !== undefined && ` · $${event.costUsd.toFixed(4)}`}
               {event.durationMs !== undefined && ` · ${(event.durationMs / 1000).toFixed(1)}s`}

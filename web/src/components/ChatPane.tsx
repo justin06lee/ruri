@@ -21,6 +21,7 @@ import {
   type ComposerAttachment,
   type Region,
 } from "./Attachments";
+import { DiffView } from "./Diff";
 import { DragonGauges } from "./Dragon";
 import { Dropdown } from "./Dropdown";
 import { QuestionCard } from "./Questions";
@@ -227,13 +228,14 @@ export function EventView({
           <span className="tool-summary">{summary}</span>
         </div>
       );
-      // a read image rides under its own chip, so the path and the picture
-      // read as one event
-      if (!event.image) return chip;
+      // what the tool read or changed rides under its own chip, so the path
+      // and the thing it names read as one event
+      if (!event.image && !event.diff) return chip;
       return (
-        <div className="tool-read">
+        <div className="tool-block">
           {chip}
-          <ToolImage image={event.image} />
+          {event.image && <ToolImage image={event.image} />}
+          {event.diff && <DiffView diff={event.diff} />}
         </div>
       );
     }
@@ -836,19 +838,10 @@ export function ChatPane() {
   const [trackerOpen, setTrackerOpen] = useState(false);
   const openCount = (trackerItems ?? []).filter((i) => i.status === "open").length;
 
-  // New auto-extracted items for the active project pop the drawer open.
-  const prevAutoRef = useRef(0);
-  const autoCount = (trackerItems ?? []).filter((i) => i.source === "auto").length;
-  useEffect(() => {
-    if (autoCount > prevAutoRef.current) setTrackerOpen(true);
-    prevAutoRef.current = autoCount;
-  }, [autoCount]);
-  useEffect(() => {
-    prevAutoRef.current = (useRuri.getState().activeId &&
-      useRuri.getState().tracker[useRuri.getState().activeId!]?.filter((i) => i.source === "auto")
-        .length) || 0;
-    setTrackerOpen(false);
-  }, [activeId]);
+  // Sending a prompt extracts tracker items, but it does not yank you onto
+  // the tracker page to look at them — the toggle's badge is the whole
+  // notification. Switching channels still lands you back on the chat.
+  useEffect(() => setTrackerOpen(false), [activeId]);
 
   // Turns show in full — the summaries are the model's memory aid, not the
   // user's view. A hover chevron folds a turn to its note when wanted.

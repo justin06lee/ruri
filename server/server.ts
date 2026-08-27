@@ -19,6 +19,7 @@ import type {
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
 import { buildCompaction, removeTurnFiles } from "./compaction.js";
+import { HomeLog } from "./homelog.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
 import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
@@ -153,6 +154,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // context. Every launch starts it blank (no transcript, no resume).
   archive.remove(HOME_ID);
   removeTurnFiles(HOME_ID);
+  // Home's chat is ephemeral, but its activity persists in the write-ahead
+  // log — appended programmatically per event, grepped by the model.
+  const homeLog = new HomeLog();
   const tracker = new TrackerStore();
   const clients = new Set<WebSocket>();
   const permissions = new Map<string, PermissionRequest>();
@@ -311,9 +315,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         ...(processed.attachments.length ? { attachments: processed.attachments } : {}),
         ts: Date.now(),
       };
-      archive.append(channelId, userEvent);
-      turns.observe(channelId, userEvent);
-      broadcast({ type: "event", projectId: channelId, event: userEvent });
+      recordEvent(channelId, userEvent);
       manager.send(project, brief + processed.text, processed.images, undefined, true);
     } else {
       const processed = processAttachments(text, uploads);
@@ -405,12 +407,18 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       .catch(() => {});
   });
 
+  /** Archive, observe, log (Home), and broadcast one transcript event. */
+  function recordEvent(projectId: string, event: TranscriptEvent): void {
+    archive.append(projectId, event);
+    turns.observe(projectId, event);
+    if (projectId === HOME_ID) homeLog.observe(event);
+    broadcast({ type: "event", projectId, event });
+  }
+
   const manager = new SessionManager(
     {
       onEvent: (projectId, event) => {
-        archive.append(projectId, event);
-        turns.observe(projectId, event);
-        broadcast({ type: "event", projectId, event });
+        recordEvent(projectId, event);
         if (event.kind === "result") {
           pushUsage();
           drainQueue(projectId);
@@ -441,15 +449,31 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     },
     (projectId) => archive.lastSessionId(projectId),
     (project) =>
-      project.id === HOME_ID ? managerExtras(managerHost, store.workspaceDir()) : undefined,
+      project.id === HOME_ID
+        ? managerExtras(managerHost, store.workspaceDir(), homeLog.path())
+        : undefined,
     {
       parse: (model) => registry.parse(model),
       create: (id, workDir) => registry.createFor(id, workDir),
     },
   );
 
+  /** Tear down one project and everything its sessions accumulated. */
+  function closeProjectById(projectId: string): void {
+    for (const sessionId of store.get(projectId)?.sessions.map((s) => s.id) ?? []) {
+      manager.dispose(sessionId);
+      archive.remove(sessionId);
+      removeTurnFiles(sessionId);
+      tracker.removeProject(sessionId);
+      contexts.delete(sessionId);
+      sendQueues.delete(sessionId);
+    }
+    store.remove(projectId);
+    broadcast({ type: "projects", projects: store.list() });
+  }
+
   // What the Home agent's MCP tools may do to the app: open projects (and
-  // optionally kick their sessions off), and see what's already open.
+  // optionally kick their sessions off), close them again, and see what's open.
   const managerHost: ManagerHost = {
     openProject: ({ path: projectPath, name, folder, kickoffPrompt }) => {
       let project = store.findByPath(projectPath);
@@ -468,6 +492,20 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       return `${opened ? "opened" : "already open"}: ${project.name} (${project.path})${
         kickoffPrompt ? " — session started with the kickoff prompt" : ""
       }`;
+    },
+    closeProject: (query) => {
+      const q = query.trim().replace(/\/+$/, "");
+      const project = store
+        .list()
+        .find(
+          (p) =>
+            p.id === q ||
+            p.path.replace(/\/+$/, "") === q ||
+            p.name.toLowerCase() === q.toLowerCase(),
+        );
+      if (!project) return `no open project matches "${query}"`;
+      closeProjectById(project.id);
+      return `closed: ${project.name} (${project.path}) — files untouched`;
     },
     listProjects: () => store.list(),
   };
@@ -489,15 +527,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "remove_project": {
-        for (const sessionId of store.get(msg.projectId)?.sessions.map((s) => s.id) ?? []) {
-          manager.dispose(sessionId);
-          archive.remove(sessionId);
-          removeTurnFiles(sessionId);
-          tracker.removeProject(sessionId);
-          contexts.delete(sessionId);
-        }
-        store.remove(msg.projectId);
-        broadcast({ type: "projects", projects: store.list() });
+        closeProjectById(msg.projectId);
         break;
       }
       case "send": {
@@ -537,9 +567,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           ...(attachments.length ? { attachments } : {}),
           ts: Date.now(),
         };
-        archive.append(channelId, userEvent);
-        turns.observe(channelId, userEvent);
-        broadcast({ type: "event", projectId: channelId, event: userEvent });
+        recordEvent(channelId, userEvent);
         broadcast({ type: "status", projectId: channelId, status: "working" });
         titleSession(channelId, msg.text);
         const epoch = interruptEpochs.get(channelId) ?? 0;
@@ -759,6 +787,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         manager.dispose(HOME_ID);
         archive.remove(HOME_ID);
         removeTurnFiles(HOME_ID);
+        homeLog.endSession();
         sendQueues.delete(HOME_ID);
         contexts.delete(HOME_ID);
         broadcast({ type: "home_reset" });

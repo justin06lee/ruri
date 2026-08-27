@@ -58,10 +58,27 @@ export async function fetchUsageLimits(): Promise<UsageLimits | null> {
     const data = (await res.json()) as {
       five_hour?: { utilization?: number | null } | null;
       seven_day?: { utilization?: number | null } | null;
+      /** The modern shape: one entry per window, the scoped one self-naming. */
+      limits?: Array<{
+        kind?: string;
+        percent?: number | null;
+        scope?: { model?: { display_name?: string | null } | null } | null;
+      }> | null;
     };
     const limits: UsageLimits = {};
+    // the legacy top-level fields first, so an endpoint that drops `limits`
+    // still lights the gauges
     if (typeof data.five_hour?.utilization === "number") limits.fiveHour = data.five_hour.utilization;
     if (typeof data.seven_day?.utilization === "number") limits.weekly = data.seven_day.utilization;
+    for (const entry of data.limits ?? []) {
+      if (typeof entry.percent !== "number") continue;
+      if (entry.kind === "session") limits.fiveHour = entry.percent;
+      else if (entry.kind === "weekly_all") limits.weekly = entry.percent;
+      else if (entry.kind === "weekly_scoped") {
+        const label = entry.scope?.model?.display_name;
+        if (label) limits.scoped = { label, percent: entry.percent };
+      }
+    }
     return limits;
   } catch {
     return null;

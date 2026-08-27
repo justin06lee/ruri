@@ -20,6 +20,7 @@ import {
   type ComposerAttachment,
   type Region,
 } from "./Attachments";
+import { DragonGauges } from "./Dragon";
 import { Dropdown } from "./Dropdown";
 import { QuestionCard } from "./Questions";
 import { Thinking } from "./Thinking";
@@ -562,72 +563,76 @@ export function Composer({
 
   return (
     <div className="composer">
-      <div
-        className={`composer-box ${dragOver ? "drag-over" : ""}`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          addFiles(e.dataTransfer.files, caretFromPoint(e.clientX, e.clientY) ?? undefined);
-        }}
-      >
-        <AttachmentStrip attachments={atts} onRemove={removeAtt} onView={(a) => setViewing(a.id)} />
-        <textarea
-          ref={areaRef}
-          rows={1}
-          placeholder="Message ruri…"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void submit();
-            }
+      <div className="composer-row">
+        <DragonGauges channelId={channelId} side="left" />
+        <div
+          className={`composer-box ${dragOver ? "drag-over" : ""}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
           }}
-          onPaste={(e) => {
-            const files = [...e.clipboardData.files];
-            if (files.length > 0) {
-              e.preventDefault();
-              addFiles(files, areaRef.current?.selectionStart ?? undefined);
-            }
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            addFiles(e.dataTransfer.files, caretFromPoint(e.clientX, e.clientY) ?? undefined);
           }}
-        />
-        <div className="composer-bar">
-          <SessionControls project={project} />
-          <div className="composer-actions">
-            {busy && (
+        >
+          <AttachmentStrip attachments={atts} onRemove={removeAtt} onView={(a) => setViewing(a.id)} />
+          <textarea
+            ref={areaRef}
+            rows={1}
+            placeholder="Message ruri…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+            onPaste={(e) => {
+              const files = [...e.clipboardData.files];
+              if (files.length > 0) {
+                e.preventDefault();
+                addFiles(files, areaRef.current?.selectionStart ?? undefined);
+              }
+            }}
+          />
+          <div className="composer-bar">
+            <SessionControls project={project} />
+            <div className="composer-actions">
+              {busy && (
+                <button
+                  className="stop"
+                  title="Interrupt the running turn"
+                  onClick={() => send({ type: "interrupt", projectId })}
+                >
+                  <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                </button>
+              )}
               <button
-                className="stop"
-                title="Interrupt the running turn"
-                onClick={() => send({ type: "interrupt", projectId })}
+                className="split-send"
+                title="Split into separate prompts and send them one by one"
+                onClick={() => void submit("send_split")}
+                disabled={!text.trim()}
               >
-                <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
-                </svg>
+                <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
               </button>
-            )}
-            <button
-              className="split-send"
-              title="Split into separate prompts and send them one by one"
-              onClick={() => void submit("send_split")}
-              disabled={!text.trim()}
-            >
-              <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
-            </button>
-            <button
-              className="send"
-              title="Send (Enter)"
-              onClick={() => void submit()}
-              disabled={!text.trim() && atts.length === 0}
-            >
-              <Icon d="M12 19V5M5 12l7-7 7 7" />
-            </button>
+              <button
+                className="send"
+                title="Send (Enter)"
+                onClick={() => void submit()}
+                disabled={!text.trim() && atts.length === 0}
+              >
+                <Icon d="M12 19V5M5 12l7-7 7 7" />
+              </button>
+            </div>
           </div>
         </div>
+        <DragonGauges channelId={channelId} side="right" />
       </div>
       <div className="composer-hint">
         Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach ·

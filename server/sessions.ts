@@ -17,9 +17,15 @@ import {
   type SessionPermissionRequest,
   type SessionProvider,
 } from "@justin06lee/yagami";
+import type {
+  HookInput,
+  PreToolUseHookSpecificOutput,
+} from "@anthropic-ai/claude-agent-sdk";
 import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
+  type AskAnswers,
+  type AskQuestions,
   type Attachment,
   type ModelChoice,
   type PermissionMode,
@@ -95,6 +101,9 @@ interface ChannelSession {
   rewindFiles(uuid: string): Promise<{ canRewind: boolean; error?: string }>;
   dispose(): void;
   respondPermission(requestId: string, allow: boolean, always?: boolean): boolean;
+  /** Answer an AskUserQuestion card. Omitted answers = the user dismissed it,
+   *  which the tool reports to the model as "no answer" rather than failing. */
+  respondQuestion(requestId: string, answers?: AskAnswers): boolean;
   pendingRequests(): string[];
 }
 
@@ -110,6 +119,13 @@ function toolSummary(name: string, input: Record<string, unknown>, project: Proj
   const str = (key: string) => (typeof input[key] === "string" ? (input[key] as string) : undefined);
   let summary: string | undefined;
   switch (name) {
+    case "AskUserQuestion":
+      // the chip is the transcript's record of what was asked — the raw
+      // options JSON says nothing a reader wants
+      summary = readQuestions(input)
+        ?.questions.map((q) => q.question)
+        .join(" · ");
+      break;
     case "Bash":
       summary = str("command");
       break;
@@ -148,6 +164,49 @@ interface PendingPermission {
   suggestions?: PermissionUpdate[];
 }
 
+/** An AskUserQuestion card waiting on the user; resolving it unblocks the
+ *  PreToolUse hook, which hands the answers to the tool as its input. */
+interface PendingQuestion {
+  resolve(answers: AskAnswers | undefined): void;
+}
+
+/** How long a question card may sit unanswered before the CLI gives up on
+ *  the hook. A question is a conversation, not a prompt — an hour is the
+ *  point past which the session has been abandoned anyway. */
+const QUESTION_TIMEOUT_S = 3600;
+
+/** Read an AskUserQuestion tool input, keeping only what the card renders.
+ *  Anything malformed answers `null` and the tool runs untouched. */
+function readQuestions(input: unknown): AskQuestions | null {
+  const raw = (input as { questions?: unknown })?.questions;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const questions = raw.flatMap((q) => {
+    const { question, header, options, multiSelect } = (q ?? {}) as Record<string, unknown>;
+    if (typeof question !== "string" || !Array.isArray(options)) return [];
+    const picks = options.flatMap((o) => {
+      const { label, description, preview } = (o ?? {}) as Record<string, unknown>;
+      if (typeof label !== "string") return [];
+      return [
+        {
+          label,
+          description: typeof description === "string" ? description : "",
+          ...(typeof preview === "string" ? { preview } : {}),
+        },
+      ];
+    });
+    if (picks.length === 0) return [];
+    return [
+      {
+        question,
+        header: typeof header === "string" ? header : "",
+        options: picks,
+        multiSelect: multiSelect === true,
+      },
+    ];
+  });
+  return questions.length > 0 ? { questions } : null;
+}
+
 class ProjectSession implements ChannelSession {
   status: ProjectStatus = "idle";
   lastSessionId: string | undefined;
@@ -163,6 +222,7 @@ class ProjectSession implements ChannelSession {
   /** The user event whose turn the incoming chain uuids belong to. */
   private turnEventId: string | undefined;
   private readonly pending = new Map<string, PendingPermission>();
+  private readonly pendingQuestions = new Map<string, PendingQuestion>();
 
   constructor(
     private readonly project: Project,
@@ -182,6 +242,19 @@ class ProjectSession implements ChannelSession {
       options: {
         // snapshot files before edits, so a rewind can restore them
         enableFileCheckpointing: true,
+        // AskUserQuestion is a question, not a permission — it has to reach
+        // the user in every mode, and bypassPermissions skips canUseTool
+        // entirely. A PreToolUse hook fires regardless of mode, and its
+        // updatedInput is exactly how the tool receives an answer.
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: "AskUserQuestion",
+              timeout: QUESTION_TIMEOUT_S,
+              hooks: [this.askUserQuestion],
+            },
+          ],
+        },
         ...(project.permissionMode ? { permissionMode: project.permissionMode } : {}),
         effort: (project.effort || DEFAULT_EFFORT) as AgentOptions["effort"],
         ...(resume ? { resume } : {}),
@@ -270,12 +343,74 @@ class ProjectSession implements ChannelSession {
         : { behavior: "deny", message: "The user denied this tool use in ruri." },
     );
     this.events.onPermissionResolved(requestId);
-    if (this.pending.size === 0 && this.status === "permission") this.setStatus("working");
+    if (this.pending.size === 0 && this.pendingQuestions.size === 0 && this.status === "permission") {
+      this.setStatus("working");
+    }
+    return true;
+  }
+
+  /**
+   * The model asked the user something. Park the tool call, show the card,
+   * and hand the picks back as the tool's own input — `answers` is a field
+   * of AskUserQuestion's schema, so the tool reads them and reports them to
+   * the model itself. A dismissed card allows the call untouched, which the
+   * tool renders as "the user did not answer".
+   */
+  private askUserQuestion = async (
+    input: HookInput,
+  ): Promise<{ hookSpecificOutput: PreToolUseHookSpecificOutput }> => {
+    const allow = {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        permissionDecisionReason: "ruri asked the user",
+      } as PreToolUseHookSpecificOutput,
+    };
+    if (input.hook_event_name !== "PreToolUse") return allow;
+    const asked = readQuestions(input.tool_input);
+    if (!asked) return allow;
+
+    const requestId = randomUUID();
+    const answers = await new Promise<AskAnswers | undefined>((resolve) => {
+      this.pendingQuestions.set(requestId, { resolve });
+      this.setStatus("permission");
+      this.events.onPermission({
+        requestId,
+        projectId: this.project.id,
+        toolName: "AskUserQuestion",
+        kind: "question",
+        input: asked,
+        ts: Date.now(),
+      });
+    });
+    if (!answers) return allow;
+    return {
+      hookSpecificOutput: {
+        ...allow.hookSpecificOutput,
+        updatedInput: {
+          ...(input.tool_input as Record<string, unknown>),
+          answers: answers.answers,
+          ...(answers.annotations ? { annotations: answers.annotations } : {}),
+          ...(answers.response ? { response: answers.response } : {}),
+        },
+      },
+    };
+  };
+
+  respondQuestion(requestId: string, answers?: AskAnswers): boolean {
+    const pending = this.pendingQuestions.get(requestId);
+    if (!pending) return false;
+    this.pendingQuestions.delete(requestId);
+    pending.resolve(answers);
+    this.events.onPermissionResolved(requestId);
+    if (this.pending.size === 0 && this.pendingQuestions.size === 0 && this.status === "permission") {
+      this.setStatus("working");
+    }
     return true;
   }
 
   pendingRequests(): string[] {
-    return [...this.pending.keys()];
+    return [...this.pending.keys(), ...this.pendingQuestions.keys()];
   }
 
   private onPermission = (req: YagamiPermissionRequest): Promise<PermissionDecision> =>
@@ -448,6 +583,13 @@ class ProjectSession implements ChannelSession {
       this.events.onPermissionResolved(requestId);
     }
     this.pending.clear();
+    // An unanswered question just goes unanswered — the tool call is already
+    // gone with the session, so there is nothing to deny.
+    for (const [requestId, pending] of this.pendingQuestions) {
+      pending.resolve(undefined);
+      this.events.onPermissionResolved(requestId);
+    }
+    this.pendingQuestions.clear();
   }
 }
 
@@ -628,6 +770,11 @@ class ProviderTurnSession implements ChannelSession {
   }
 
   respondPermission(): boolean {
+    return false;
+  }
+
+  /** Other harnesses have no AskUserQuestion — nothing ever parks a card. */
+  respondQuestion(): boolean {
     return false;
   }
 
@@ -821,6 +968,11 @@ class ProviderAgentSession implements ChannelSession {
       });
       this.setStatus("permission");
     });
+  }
+
+  /** Other harnesses have no AskUserQuestion — nothing ever parks a card. */
+  respondQuestion(): boolean {
+    return false;
   }
 
   respondPermission(requestId: string, allow: boolean, always = false): boolean {
@@ -1042,6 +1194,12 @@ export class SessionManager {
   respondPermission(requestId: string, allow: boolean, always = false): void {
     for (const session of this.sessions.values()) {
       if (session.respondPermission(requestId, allow, always)) return;
+    }
+  }
+
+  respondQuestion(requestId: string, answers?: AskAnswers): void {
+    for (const session of this.sessions.values()) {
+      if (session.respondQuestion(requestId, answers)) return;
     }
   }
 

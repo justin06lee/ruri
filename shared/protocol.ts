@@ -182,7 +182,47 @@ export interface PermissionRequest {
    * Agent SDK `PermissionUpdate` objects, echoed back verbatim on always-allow).
    */
   suggestions?: unknown[];
+  /**
+   * "question" means this isn't an allow/deny at all — the model called
+   * AskUserQuestion and `input` is an {@link AskQuestions}. It rides the
+   * permission channel because that channel already survives reconnects,
+   * but it answers with `question_response`, never `permission_response`.
+   */
+  kind?: "permission" | "question";
   ts: number;
+}
+
+/** One choice in an {@link AskQuestion}. */
+export interface AskOption {
+  label: string;
+  description: string;
+  /** Mockup/snippet shown while this option is the focused one. */
+  preview?: string;
+}
+
+/** A single question from AskUserQuestion. */
+export interface AskQuestion {
+  question: string;
+  /** Short chip label (≤12 chars) — "Surfaces", "Approach". */
+  header: string;
+  options: AskOption[];
+  multiSelect: boolean;
+}
+
+/** The AskUserQuestion tool input, as the card needs it. */
+export interface AskQuestions {
+  questions: AskQuestion[];
+}
+
+/** What the user picked, keyed by question text — the shape the tool's
+ *  own output expects, so it goes back verbatim as `updatedInput`. */
+export interface AskAnswers {
+  /** question text → chosen label(s); multi-select joined with ", ". */
+  answers: Record<string, string>;
+  /** Per-question extras: the focused option's preview, and free notes. */
+  annotations?: Record<string, { preview?: string; notes?: string }>;
+  /** Freeform text typed instead of picking anything. */
+  response?: string;
 }
 
 /** What a native folder pick is for — routed back with the result. */
@@ -214,6 +254,9 @@ export type ClientMessage =
   | { type: "rewind"; projectId: string; eventId: string; text?: string }
   | { type: "interrupt"; projectId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
+  /** The answer to an AskUserQuestion card. `answers` absent = dismissed,
+   *  which lets the turn continue with the model told nothing was chosen. */
+  | { type: "question_response"; requestId: string; answers?: AskAnswers }
   | { type: "set_model"; projectId: string; model: string }
   | { type: "set_permission_mode"; projectId: string; mode: PermissionMode }
   /** Set a project's reasoning effort (one of EFFORT_LEVELS). */

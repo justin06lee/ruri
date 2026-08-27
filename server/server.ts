@@ -757,7 +757,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           break;
         }
         store.update(msg.projectId, { model: msg.model });
-        manager.setModel(msg.projectId, msg.model);
+        // live sessions are keyed by session id, not project id
+        for (const s of store.get(msg.projectId)?.sessions ?? []) manager.setModel(s.id, msg.model);
         broadcast({ type: "projects", projects: store.list() });
         break;
       }
@@ -769,7 +770,23 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           break;
         }
         store.update(msg.projectId, { permissionMode: msg.mode });
-        manager.setPermissionMode(msg.projectId, msg.mode);
+        for (const s of store.get(msg.projectId)?.sessions ?? []) {
+          manager.setPermissionMode(s.id, msg.mode);
+        }
+        broadcast({ type: "projects", projects: store.list() });
+        break;
+      }
+      case "set_effort": {
+        if (msg.projectId === HOME_ID) {
+          if ((store.homeSettings().effort ?? "") === msg.effort) break;
+          store.setHomeSettings({ effort: msg.effort });
+          manager.setEffort(HOME_ID, msg.effort);
+          broadcast({ type: "home_settings", home: store.homeSettings() });
+          break;
+        }
+        if ((store.get(msg.projectId)?.effort ?? "") === msg.effort) break;
+        store.update(msg.projectId, { effort: msg.effort });
+        for (const s of store.get(msg.projectId)?.sessions ?? []) manager.setEffort(s.id, msg.effort);
         broadcast({ type: "projects", projects: store.list() });
         break;
       }

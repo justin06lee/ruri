@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   DEFAULT_MODEL,
+  EFFORT_LEVELS,
   HOME_ID,
   type PermissionMode,
   type PermissionRequest,
@@ -326,6 +327,15 @@ const PERMISSION_MODES: Array<{ value: PermissionMode; label: string }> = [
   { value: "bypassPermissions", label: "Bypass" },
 ];
 
+// "" = the harness's own default effort
+const EFFORT_OPTIONS = [
+  { value: "", label: "Default" },
+  ...EFFORT_LEVELS.map((level) => ({
+    value: level,
+    label: level === "xhigh" ? "XHigh" : level[0]!.toUpperCase() + level.slice(1),
+  })),
+];
+
 function SessionControls({ project }: { project: Project }) {
   const allModels = useRuri((s) => s.models);
   const starredIds = useRuri((s) => s.starredModels);
@@ -356,6 +366,13 @@ function SessionControls({ project }: { project: Project }) {
           label: m.displayName,
         }))}
         onSelect={(model) => send({ type: "set_model", projectId: project.id, model })}
+      />
+      <Dropdown
+        up
+        title="Reasoning effort — Default follows the harness's own setting; a change reaches warm sessions on their next prompt (context resumes)"
+        value={project.effort ?? ""}
+        options={EFFORT_OPTIONS}
+        onSelect={(effort) => send({ type: "set_effort", projectId: project.id, effort })}
       />
       {claudeRoute && (
         <Dropdown

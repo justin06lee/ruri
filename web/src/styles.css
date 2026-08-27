@@ -1816,6 +1816,88 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--ink);
 }
 
+/* rapid fire: one card at a time — whichever session is ready for a prompt */
+
+.rapid-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: rise 180ms ease-out;
+}
+
+.rapid-session {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 18px 24px 6px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.rapid-project {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.rapid-role {
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
+.rapid-skip {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 12px;
+}
+
+.rapid-skip svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* the session's last exchange, rendered with the real transcript pieces */
+.rapid-context {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 6px 24px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rapid-fresh {
+  color: var(--ink-faint);
+  font-size: 13.5px;
+  font-style: italic;
+  padding: 8px 0;
+}
+
+.rapid-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: var(--ink-faint);
+}
+
+.rapid-empty-text {
+  font-size: 13px;
+  max-width: 340px;
+  text-align: center;
+  line-height: 1.6;
+}
+
 .result-line {
   display: flex;
   align-items: center;

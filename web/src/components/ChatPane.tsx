@@ -127,7 +127,7 @@ function CompactionMark({ event }: { event: Extract<TranscriptEvent, { kind: "co
   );
 }
 
-function EventView({
+export function EventView({
   event,
   project,
   channelId,
@@ -248,7 +248,7 @@ function permissionSummary(request: PermissionRequest): { title: string; body: R
   };
 }
 
-function PermissionBanner({ request }: { request: PermissionRequest }) {
+export function PermissionBanner({ request }: { request: PermissionRequest }) {
   const { title, body } = permissionSummary(request);
   const respond = (allow: boolean, always = false) =>
     send({ type: "permission_response", requestId: request.requestId, allow, always });
@@ -332,15 +332,18 @@ function SessionControls({ project }: { project: Project }) {
 
 /* ── composer ────────────────────────────────────────────────────── */
 
-function Composer({
+export function Composer({
   channelId,
   project,
   busy,
+  onSent,
 }: {
   /** The session (or Home) this composer sends to. */
   channelId: string;
   project: Project;
   busy: boolean;
+  /** Fires right after a prompt goes out (rapid fire advances on it). */
+  onSent?: () => void;
 }) {
   const projectId = channelId;
   const saved = composerDrafts.get(channelId);
@@ -476,6 +479,7 @@ function Composer({
     composerDrafts.delete(channelId);
     setAtts([]);
     setText("");
+    onSent?.();
   };
 
   // Fit the height after every committed text change — mount (restored

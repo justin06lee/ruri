@@ -33,6 +33,34 @@ function HomeRow() {
   );
 }
 
+/** Rapid fire: the pane that always shows whichever session is ready. */
+function RapidRow() {
+  const rapid = useRuri((s) => s.rapid);
+  const setRapid = useRuri((s) => s.setRapid);
+
+  return (
+    <div
+      className={`project-row rapid-row ${rapid ? "active" : ""}`}
+      title="Rapid fire — prompt whichever session is ready, one after another"
+      onClick={() => setRapid(!rapid)}
+    >
+      <svg
+        className="home-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M13 2L4.5 13h6L9.5 22 19.5 10h-6L13 2z" />
+      </svg>
+      <span className="project-name">Rapid fire</span>
+    </div>
+  );
+}
+
 const STAR_PATH = "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9 2.9-6z";
 
 function SessionRow({ project, session }: { project: Project; session: SessionInfo }) {
@@ -235,6 +263,7 @@ export function Sidebar() {
 
       <div className="project-list">
         <HomeRow />
+        <RapidRow />
         {projects.length === 0 && (
           <div className="sidebar-empty">
             No projects open.

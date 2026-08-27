@@ -6,7 +6,6 @@ import { send, useRuri } from "../store";
 
 function HomeRow() {
   const activeId = useRuri((s) => s.activeId);
-  const status = useRuri((s) => s.statuses[HOME_ID] ?? "idle");
   const unread = useRuri((s) => s.unread[HOME_ID] ?? false);
   const setActive = useRuri((s) => s.setActive);
 
@@ -30,7 +29,6 @@ function HomeRow() {
       </svg>
       <span className="project-name">Home</span>
       {unread && <span className="unread-pip" title="Turn finished" />}
-      <span className={`dot ${status}`} title={status} />
     </div>
   );
 }
@@ -70,9 +68,10 @@ function SessionRow({ project, session }: { project: Project; session: SessionIn
   );
 }
 
-function loadCollapsed(): Set<string> {
+/** Folders are folded by default — only ones the user opened are stored. */
+function loadExpanded(): Set<string> {
   try {
-    return new Set(JSON.parse(localStorage.getItem("ruri-collapsed") ?? "[]") as string[]);
+    return new Set(JSON.parse(localStorage.getItem("ruri-expanded") ?? "[]") as string[]);
   } catch {
     return new Set();
   }
@@ -163,7 +162,7 @@ export function Sidebar() {
   const projects = useRuri((s) => s.projects);
   const connected = useRuri((s) => s.connected);
   const user = useRuri((s) => s.user);
-  const [collapsedSet, setCollapsedSet] = useState<Set<string>>(loadCollapsed);
+  const [expandedSet, setExpandedSet] = useState<Set<string>>(loadExpanded);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Desktop hover-over-drag: the titlebar drag region never delivers mouse
@@ -190,19 +189,20 @@ export function Sidebar() {
   }, []);
 
   const toggleFolder = (name: string) => {
-    const next = new Set(collapsedSet);
+    const next = new Set(expandedSet);
     if (next.has(name)) next.delete(name);
     else next.add(name);
-    setCollapsedSet(next);
+    setExpandedSet(next);
     try {
-      localStorage.setItem("ruri-collapsed", JSON.stringify([...next]));
+      localStorage.setItem("ruri-expanded", JSON.stringify([...next]));
     } catch {
       // preference just won't persist
     }
   };
 
-  const starred = projects.filter((p) => p.starred);
-  const rest = projects.filter((p) => !p.starred);
+  // Starred projects pin to the top of the one Projects list — no separate
+  // section, the filled star on the row is the marker.
+  const ordered = [...projects.filter((p) => p.starred), ...projects.filter((p) => !p.starred)];
 
   return (
     <aside className="sidebar">
@@ -242,25 +242,12 @@ export function Sidebar() {
             Tell Home what to work on.
           </div>
         )}
-        {starred.length > 0 && (
-          <>
-            <div className="group-label">Starred</div>
-            {starred.map((p) => (
-              <ProjectFolder
-                key={p.id}
-                project={p}
-                collapsed={collapsedSet.has(p.id)}
-                onToggle={() => toggleFolder(p.id)}
-              />
-            ))}
-          </>
-        )}
-        {rest.length > 0 && <div className="group-label">Projects</div>}
-        {rest.map((p) => (
+        {ordered.length > 0 && <div className="group-label">Projects</div>}
+        {ordered.map((p) => (
           <ProjectFolder
             key={p.id}
             project={p}
-            collapsed={collapsedSet.has(p.id)}
+            collapsed={!expandedSet.has(p.id)}
             onToggle={() => toggleFolder(p.id)}
           />
         ))}

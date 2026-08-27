@@ -22,8 +22,12 @@ export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermiss
 
 /** Reasoning-effort levels, yagami's shared vocabulary: Claude takes them
  *  natively, Codex maps them to model_reasoning_effort; harnesses without
- *  the knob ignore them. "" (unset) = the harness's own default. */
+ *  the knob ignore them. */
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+
+/** The effort a session runs at when none is picked — same philosophy as
+ *  DEFAULT_MODEL: no ambiguous "default" entry; unset simply means xhigh. */
+export const DEFAULT_EFFORT = "xhigh";
 
 export interface Project {
   id: string;
@@ -34,8 +38,8 @@ export interface Project {
   model?: string;
   /** Permission mode for this project's sessions (default "default"). */
   permissionMode?: PermissionMode;
-  /** Reasoning effort for this project's sessions (EFFORT_LEVELS); the
-   *  harness's own default when unset. */
+  /** Reasoning effort for this project's sessions (EFFORT_LEVELS);
+   *  DEFAULT_EFFORT (xhigh) when unset. */
   effort?: string;
   /** Bookmarked: shown in the Starred section above the project tree. */
   starred?: boolean;
@@ -208,7 +212,7 @@ export type ClientMessage =
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   | { type: "set_model"; projectId: string; model: string }
   | { type: "set_permission_mode"; projectId: string; mode: PermissionMode }
-  /** Set a project's reasoning effort ("" = the harness default). */
+  /** Set a project's reasoning effort (one of EFFORT_LEVELS). */
   | { type: "set_effort"; projectId: string; effort: string }
   | { type: "tracker_add"; projectId: string; text: string; note?: string }
   | {

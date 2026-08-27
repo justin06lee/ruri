@@ -76,22 +76,23 @@ export async function summarizeReply(turn: Turn): Promise<string> {
   return complete(REPLY_SUMMARY_SYSTEM, prompt, 120);
 }
 
-const TRACKER_SYSTEM = `You maintain the user's manual test checklist for a coding-agent session, working from the user's own prompts alone.
-Given one prompt the user sent, list the features, changes, or fixes the USER ASKED FOR — the things they'll want to verify by hand once the agent is done.
+const TRACKER_SYSTEM = `You turn one user prompt to a coding agent into checklist items — a splitter, nothing more.
+Split the prompt into its distinct requests: exactly one item per request, in the prompt's order.
 Rules:
-- Only explicit requests to add, change, or fix something make items. Questions, discussion, opinions, and look-at/analyze asks yield nothing.
-- One item per distinct request, faithful to the user's own wording — never invent or interpret beyond what they said.
+- Use the user's own words, shortened only to fit the line. NEVER invent, infer, generalize, or add details, conditions, or test steps the user did not literally say.
+- Only requests to add, change, or fix something become items. Questions, discussion, opinions, and look-at/analyze asks yield nothing.
 - Skip anything already covered by the EXISTING ITEMS list.
-- Each item: one short imperative line ("Check the dark-mode toggle persists"), max 12 words.
+- Each item: one short line, max 12 words.
 - Output STRICT JSON: {"items": ["...", "..."]} — empty array if nothing.`;
 
-/** Checklist items from ONE user prompt — the reply never feeds this: the
- *  checklist mirrors what the user asked for, not what the agent narrates. */
+/** Checklist items from ONE user prompt, split the moment it's sent — the
+ *  reply never feeds this: the checklist mirrors what the user asked for,
+ *  in their own words, never what the agent narrates or embellishes. */
 export async function extractTrackerItems(userText: string, existing: string[]): Promise<string[]> {
   const prompt =
     `EXISTING ITEMS:\n${existing.length ? existing.map((t) => `- ${t}`).join("\n") : "(none)"}\n\n` +
     `USER PROMPT:\n${userText.slice(0, 6000)}`;
-  const raw = await complete(TRACKER_SYSTEM, prompt, 400);
+  const raw = await complete(TRACKER_SYSTEM, prompt, 600);
   try {
     const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "")) as {
       items?: unknown;
@@ -101,7 +102,7 @@ export async function extractTrackerItems(userText: string, existing: string[]):
       .filter((item): item is string => typeof item === "string")
       .map((item) => item.trim())
       .filter((item) => item.length > 0 && item.length < 200)
-      .slice(0, 8);
+      .slice(0, 16);
   } catch {
     return [];
   }
@@ -120,27 +121,6 @@ export async function sessionRoleTitle(turn: Turn): Promise<string> {
     (turn.assistant ? `\n\nRESPONSE (truncated):\n${turn.assistant.slice(0, 2000)}` : "");
   const title = (await complete(ROLE_SYSTEM, prompt, 40)).replace(/["'.]/g, "").trim();
   return title.length > 0 && title.length <= 40 ? title : "";
-}
-
-const REVIEW_SYSTEM = `You turn a reviewed feature checklist into ONE follow-up prompt for a coding agent.
-Input: items the user marked needs-work during manual testing, each with an optional note about what's wrong.
-Rules:
-- Write in the user's plain voice, addressed to the agent ("Fix ...", "The X still does Y ...").
-- Cover EVERY item; keep each item's own wording and note as faithfully as possible.
-- Never invent problems, solutions, or details the items don't state.
-- Plain text, one item per line or short paragraph. No preamble, no headings.
-Output only the prompt text.`;
-
-/** Write the fix-it prompt for a finished tracker review. */
-export async function reviewPrompt(
-  items: Array<{ text: string; note: string }>,
-): Promise<string> {
-  const list = items
-    .map((item) => `- ${item.text}${item.note.trim() ? ` — note: ${item.note.trim()}` : ""}`)
-    .join("\n");
-  const result = await complete(REVIEW_SYSTEM, `NEEDS-WORK ITEMS:\n${list}`, 1200);
-  if (!result) throw new Error("empty review prompt");
-  return result;
 }
 
 const SPLIT_SYSTEM = `You split one user message into its separate, independent requests.

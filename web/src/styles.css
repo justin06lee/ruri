@@ -295,56 +295,6 @@ textarea::placeholder {
   filter: invert(1);
 }
 
-/* usage gauges: three little vials — 5h / weekly / context, fill = what's left */
-
-.gauges {
-  display: flex;
-  justify-content: center;
-  gap: 22px;
-  padding: 10px 12px 8px;
-  border-top: 1.5px solid var(--hairline);
-  user-select: none;
-}
-
-.gauge {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-}
-
-.gauge-label {
-  font-family: var(--mono);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--ink-faint);
-}
-
-.vial {
-  position: relative;
-  width: 10px;
-  height: 26px;
-  border: 1.5px solid var(--line-soft);
-  border-radius: 4px 4px 5px 5px;
-  overflow: hidden;
-}
-
-.vial-fill {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--ink-soft);
-  transition: height 600ms ease;
-}
-
-.gauge-num {
-  font-family: var(--mono);
-  font-size: 9px;
-  color: var(--ink-soft);
-}
-
 /* the account bar: local user + settings, pinned under the music player */
 
 .account-bar {
@@ -1470,6 +1420,125 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 2px 0;
 }
 
+/* a sent slash command: an inverted tag where the bubble would be — a
+   button, really; clicking it clears the command from the transcript */
+
+.msg.command-chip {
+  align-self: flex-end;
+  width: auto;
+  max-width: 76%;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 99px;
+  padding: 4px 15px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+}
+
+.msg.command-chip:hover {
+  background: var(--ink);
+  color: var(--paper);
+  opacity: 0.82;
+  text-decoration: line-through;
+}
+
+/* a turn: one prompt→result block; hovering reveals its fold chevron */
+
+.turn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.turn-fold {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 22px;
+  height: 22px;
+  color: var(--ink-faint);
+  opacity: 0;
+  transition: opacity 140ms ease;
+  z-index: 1;
+}
+
+.turn:hover > .turn-fold {
+  opacity: 0.7;
+}
+
+.turn > .turn-fold:hover {
+  opacity: 1;
+  color: var(--ink);
+}
+
+.turn-fold .icon {
+  width: 13px;
+  height: 13px;
+}
+
+/* the compaction point: a torn edge across the transcript — the model got
+   a fresh session with the brief; the label unfolds it for curious eyes */
+
+.compaction {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.compaction-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-faint);
+}
+
+.jag {
+  flex: 1;
+  height: 9px;
+}
+
+.compaction-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 2px 4px;
+  box-shadow: none;
+}
+
+.compaction-label:hover {
+  color: var(--ink);
+  background: none;
+}
+
+.compaction-brief {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  background: var(--paper-dim);
+  border: 1px dashed var(--line-soft);
+  border-radius: var(--radius-s);
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+
 .cursor {
   display: inline-block;
   width: 7px;
@@ -1734,6 +1803,15 @@ input[type="range"]::-webkit-slider-thumb {
 .result-line.err .result-text {
   color: var(--ink);
   font-weight: 600;
+}
+
+/* the user pressed stop — a quiet note, not an error */
+.result-line.stopped .result-text {
+  color: var(--ink-soft);
+}
+
+.result-line.stopped .result-text .icon {
+  color: var(--ink-soft);
 }
 
 .result-line.err .result-rule {

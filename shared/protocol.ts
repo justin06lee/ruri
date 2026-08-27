@@ -140,9 +140,15 @@ export type TranscriptEvent =
       costUsd?: number;
       durationMs?: number;
       error?: string;
+      /** The turn ended because the user pressed stop — not an error. */
+      stopped?: boolean;
       ts: number;
     }
-  | { kind: "info"; id: string; text: string; ts: number };
+  | { kind: "info"; id: string; text: string; ts: number }
+  /** A /compact point: the session restarted fresh here; `text` is the
+   *  model-facing brief (summaries + full-turn file hooks), hidden from the
+   *  user behind the jagged separator unless they unfold it. */
+  | { kind: "compaction"; id: string; text: string; ts: number };
 
 export interface PermissionRequest {
   requestId: string;
@@ -175,6 +181,9 @@ export type ClientMessage =
   /** Edit / drop a prompt still waiting in the app-side queue. */
   | { type: "queue_edit"; projectId: string; itemId: string; text: string }
   | { type: "queue_remove"; projectId: string; itemId: string }
+  /** Remove a transcript event (a clicked command chip). A user event takes
+   *  the rest of its turn with it. */
+  | { type: "remove_event"; projectId: string; eventId: string }
   | { type: "interrupt"; projectId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   | { type: "set_model"; projectId: string; model: string }
@@ -252,6 +261,8 @@ export type ServerMessage =
   | { type: "home_reset" }
   /** The app-side prompt queue for a channel (visible, editable entries). */
   | { type: "queued"; projectId: string; items: QueuedPrompt[] }
+  /** Transcript events were removed (a command chip was clicked away). */
+  | { type: "events_removed"; projectId: string; eventIds: string[] }
   /** A finished tracker review's generated prompt, for the composer. */
   | { type: "review_prompt"; projectId: string; text: string }
   /** Fresh account limit windows (the usage gauges). */

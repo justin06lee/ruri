@@ -18,6 +18,7 @@ import type {
   UsageLimits,
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
+import { buildCompaction, removeTurnFiles } from "./compaction.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
 import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
@@ -151,6 +152,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // Home is ephemeral — it exists to open projects, not to accumulate
   // context. Every launch starts it blank (no transcript, no resume).
   archive.remove(HOME_ID);
+  removeTurnFiles(HOME_ID);
   const tracker = new TrackerStore();
   const clients = new Set<WebSocket>();
   const permissions = new Map<string, PermissionRequest>();
@@ -283,17 +285,93 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   }
 
   function dispatch(channelId: string, text: string, uploads: AttachmentUpload[], silent = false): void {
+    // /compact is ruri's own, not the harness's: summaries + full-turn file
+    // hooks into a fresh session, with the jagged mark in the transcript
+    if (!silent && text.trim() === "/compact" && uploads.length === 0) {
+      compactChannel(channelId);
+      return;
+    }
     const project = channelProject(channelId);
     if (!project) throw new Error("unknown session");
     titleSession(channelId, text);
+    // the first prompt after a compaction carries the brief, invisibly
+    const brief = archive.takePendingBrief(channelId) ?? "";
     if (silent) {
       // a split sub-prompt: files are already stored, no new user event
       const payload = modelPayload(text, uploads);
-      manager.send(project, payload.text, payload.images, undefined, true);
+      manager.send(project, brief + payload.text, payload.images, undefined, true);
+    } else if (brief) {
+      // the brief is the model's memory, not the user's view: show the
+      // plain prompt, send the briefed one silently underneath
+      const processed = processAttachments(text, uploads);
+      const userEvent: TranscriptEvent = {
+        kind: "user",
+        id: randomUUID(),
+        text: processed.text,
+        ...(processed.attachments.length ? { attachments: processed.attachments } : {}),
+        ts: Date.now(),
+      };
+      archive.append(channelId, userEvent);
+      turns.observe(channelId, userEvent);
+      broadcast({ type: "event", projectId: channelId, event: userEvent });
+      manager.send(project, brief + processed.text, processed.images, undefined, true);
     } else {
       const processed = processAttachments(text, uploads);
       manager.send(project, processed.text, processed.images, processed.attachments);
     }
+  }
+
+  /** Send the next queued prompt, once the channel settles. */
+  function drainQueue(channelId: string): void {
+    const queue = sendQueues.get(channelId);
+    const next = queue?.shift();
+    if (!next) return;
+    if (queue!.length === 0) sendQueues.delete(channelId);
+    if (!next.silent) broadcastQueue(channelId);
+    // after the session settles its result (it flips to idle right after
+    // emitting it) — so the queued turn's "working" sticks
+    queueMicrotask(() => {
+      try {
+        dispatch(channelId, next.text, next.uploads, next.silent);
+      } catch {
+        // the channel vanished mid-queue; drop the prompt
+      }
+    });
+  }
+
+  /**
+   * ruri's custom /compact: retire the live session and its resume id, stash
+   * the brief (turn summaries + full-record file paths) for the next prompt,
+   * and drop the jagged compaction mark into the transcript. No model call —
+   * the summaries are precomputed, so this is instant.
+   */
+  function compactChannel(channelId: string): void {
+    const brief = buildCompaction(channelId, archive.events(channelId), archive.summaries(channelId));
+    if (brief === null) {
+      const event: TranscriptEvent = {
+        kind: "info",
+        id: randomUUID(),
+        text: "nothing to compact yet",
+        ts: Date.now(),
+      };
+      archive.append(channelId, event);
+      broadcast({ type: "event", projectId: channelId, event });
+      drainQueue(channelId);
+      return;
+    }
+    manager.dispose(channelId);
+    archive.clearLastSessionId(channelId);
+    archive.setPendingBrief(channelId, brief);
+    contexts.delete(channelId);
+    broadcast({
+      type: "context",
+      projectId: channelId,
+      context: { tokens: 0, window: contextWindow(channelId) },
+    });
+    const event: TranscriptEvent = { kind: "compaction", id: randomUUID(), text: brief, ts: Date.now() };
+    archive.append(channelId, event);
+    broadcast({ type: "event", projectId: channelId, event });
+    drainQueue(channelId);
   }
 
   // Every finished turn goes to the small model in the background, twice:
@@ -335,21 +413,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "event", projectId, event });
         if (event.kind === "result") {
           pushUsage();
-          const queue = sendQueues.get(projectId);
-          const next = queue?.shift();
-          if (next) {
-            if (queue!.length === 0) sendQueues.delete(projectId);
-            if (!next.silent) broadcastQueue(projectId);
-            // after the session settles this result (it flips to idle right
-            // after emitting it) — so the queued turn's "working" sticks
-            queueMicrotask(() => {
-              try {
-                dispatch(projectId, next.text, next.uploads, next.silent);
-              } catch {
-                // the channel vanished mid-queue; drop the prompt
-              }
-            });
-          }
+          drainQueue(projectId);
         }
       },
       onDelta: (projectId, messageId, delta) => broadcast({ type: "delta", projectId, messageId, delta }),
@@ -428,6 +492,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         for (const sessionId of store.get(msg.projectId)?.sessions.map((s) => s.id) ?? []) {
           manager.dispose(sessionId);
           archive.remove(sessionId);
+          removeTurnFiles(sessionId);
           tracker.removeProject(sessionId);
           contexts.delete(sessionId);
         }
@@ -527,6 +592,13 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         }
         break;
       }
+      case "remove_event": {
+        const removed = archive.removeTurn(msg.projectId, msg.eventId);
+        if (removed.length > 0) {
+          broadcast({ type: "events_removed", projectId: msg.projectId, eventIds: removed });
+        }
+        break;
+      }
       case "new_session": {
         store.newSession(msg.projectId);
         broadcast({ type: "projects", projects: store.list() });
@@ -535,6 +607,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       case "remove_session": {
         manager.dispose(msg.sessionId);
         archive.remove(msg.sessionId);
+        removeTurnFiles(msg.sessionId);
         tracker.removeProject(msg.sessionId);
         contexts.delete(msg.sessionId);
         store.removeSession(msg.sessionId);
@@ -685,6 +758,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (status === "working" || status === "permission") break;
         manager.dispose(HOME_ID);
         archive.remove(HOME_ID);
+        removeTurnFiles(HOME_ID);
         sendQueues.delete(HOME_ID);
         contexts.delete(HOME_ID);
         broadcast({ type: "home_reset" });

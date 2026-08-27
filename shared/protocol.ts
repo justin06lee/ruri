@@ -92,7 +92,9 @@ export interface TrackerItem {
   status: TrackerStatus;
   /** "auto" = extracted from a turn by the small model; "manual" = user-added. */
   source: "auto" | "manual";
-  /** Turn (user-event id) this item was extracted from, when auto. */
+  /** Prompt (user-event id) this item was split from, when auto — the item
+   *  follows its prompt: a rewind/edit that discards the prompt takes the
+   *  item with it, and the edited prompt re-extracts fresh ones. */
   turnId?: string;
   /** Marked needs-work in a past review — shown pinned with a repeat mark. */
   repeat?: boolean;

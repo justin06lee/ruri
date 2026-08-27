@@ -143,6 +143,9 @@ class ProjectSession implements ChannelSession {
 
   private readonly session: AgentSession;
   private draftId: string | null = null;
+  /** The user pressed stop — the next result reads "stopped", not as an
+   *  error (the CLI reports an abort as a diagnostic-soup failure). */
+  private interrupted = false;
   private readonly pending = new Map<string, PendingPermission>();
 
   constructor(
@@ -184,10 +187,12 @@ class ProjectSession implements ChannelSession {
       });
     }
     this.setStatus("working");
+    this.interrupted = false;
     this.session.send(text, images?.length ? { images } : {});
   }
 
   interrupt(): void {
+    this.interrupted = true;
     void this.session.interrupt().catch(() => {});
   }
 
@@ -338,14 +343,19 @@ class ProjectSession implements ChannelSession {
       this.lastSessionId = msg.session_id;
       this.events.onSessionId(this.project.id, msg.session_id);
       this.draftId = null;
+      const stopped = this.interrupted;
+      this.interrupted = false;
       const ok = msg.subtype === "success";
       this.pushEvent({
         kind: "result",
         id: randomUUID(),
-        ok,
+        ok: ok || stopped,
         costUsd: msg.total_cost_usd,
         durationMs: msg.duration_ms,
-        ...(ok ? {} : { error: "errors" in msg && msg.errors.length > 0 ? msg.errors.join("; ") : msg.subtype }),
+        ...(stopped ? { stopped: true } : {}),
+        ...(ok || stopped
+          ? {}
+          : { error: "errors" in msg && msg.errors.length > 0 ? msg.errors.join("; ") : msg.subtype }),
         ts: Date.now(),
       });
       this.setStatus("idle");
@@ -452,6 +462,7 @@ class ProviderTurnSession implements ChannelSession {
     let acc = "";
     let costUsd: number | undefined;
     let error: string | undefined;
+    let stopped = false;
     try {
       const media: ContentBlockParam[] = (images ?? []).map((img) => ({
         type: "image",
@@ -484,7 +495,7 @@ class ProviderTurnSession implements ChannelSession {
       }
     } catch (err) {
       if (this.abort?.signal.aborted) {
-        error = "interrupted";
+        stopped = true;
       } else if (err instanceof AuthRequiredError) {
         error = `${this.provider.label} needs a sign-in — run: ${this.provider.loginCommand}`;
       } else if (err instanceof ProviderNotInstalledError) {
@@ -509,6 +520,7 @@ class ProviderTurnSession implements ChannelSession {
       ok: error === undefined,
       ...(costUsd !== undefined ? { costUsd } : {}),
       durationMs: Date.now() - started,
+      ...(stopped ? { stopped: true } : {}),
       ...(error !== undefined ? { error } : {}),
       ts: Date.now(),
     });
@@ -517,7 +529,7 @@ class ProviderTurnSession implements ChannelSession {
     if (next && !this.dead) {
       void this.run(next.text, next.images);
     } else {
-      this.setStatus(error === undefined || error === "interrupted" ? "idle" : "error");
+      this.setStatus(error === undefined ? "idle" : "error");
     }
   }
 
@@ -708,7 +720,7 @@ class ProviderAgentSession implements ChannelSession {
       ok: error === undefined,
       ...(costUsd !== undefined ? { costUsd } : {}),
       durationMs: Date.now() - started,
-      ...(error !== undefined ? { error } : interrupted ? { error: "interrupted" } : {}),
+      ...(error !== undefined ? { error } : interrupted ? { stopped: true } : {}),
       ts: Date.now(),
     });
     this.running = false;

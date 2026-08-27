@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Playlist, Track } from "../../../shared/protocol";
-import { AudioEngine, type PlayerState } from "../lib/audio";
+import { AudioEngine, type PlayerState, type RepeatMode } from "../lib/audio";
 import { HTTP_BASE, useRuri } from "../store";
 import { Dropdown } from "./Dropdown";
 
@@ -102,6 +102,10 @@ export function Player() {
   const [playlistId, setPlaylistId] = useState<string>(ls("ruri-music-playlist") ?? "");
   const [state, setState] = useState<PlayerState>(EMPTY);
   const [shuffle, setShuffleState] = useState(ls("ruri-music-shuffle") === "1");
+  const [repeat, setRepeatState] = useState<RepeatMode>(() => {
+    const v = ls("ruri-music-repeat");
+    return v === "all" || v === "one" ? v : "off";
+  });
   const [volume, setVolumeState] = useState(() => {
     const v = Number(ls("ruri-music-volume"));
     return Number.isFinite(v) && v > 0 ? v : 0.6;
@@ -114,6 +118,7 @@ export function Player() {
       e.onState = setState;
       e.setVolume(volume);
       e.setShuffle(shuffle);
+      e.setRepeat(repeat);
       engineRef.current = e;
     }
     return engineRef.current;
@@ -162,6 +167,14 @@ export function Player() {
     setVolumeState(v);
     lsSet("ruri-music-volume", String(v));
     engine().setVolume(v);
+  };
+
+  // off → loop the playlist → loop the current track → off
+  const cycleRepeat = () => {
+    const next: RepeatMode = repeat === "off" ? "all" : repeat === "all" ? "one" : "off";
+    setRepeatState(next);
+    lsSet("ruri-music-repeat", next);
+    engine().setRepeat(next);
   };
 
   return (
@@ -258,6 +271,42 @@ export function Player() {
                   onClick={() => setShuffle(!shuffle)}
                 >
                   <CtlIcon d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+                </button>
+                <button
+                  className={`icon-button ${repeat !== "off" ? "active" : ""}`}
+                  title={
+                    repeat === "off"
+                      ? "Repeat off — click to loop the playlist"
+                      : repeat === "all"
+                        ? "Looping the playlist — click to loop this track"
+                        : "Looping this track — click to turn repeat off"
+                  }
+                  onClick={cycleRepeat}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <path d="M17 2l4 4-4 4M3 12v-2a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 12v2a4 4 0 0 1-4 4H3" />
+                    {repeat === "one" && (
+                      <text
+                        x="12"
+                        y="15"
+                        textAnchor="middle"
+                        fontSize="9"
+                        fontWeight="700"
+                        fill="currentColor"
+                        stroke="none"
+                      >
+                        1
+                      </text>
+                    )}
+                  </svg>
                 </button>
                 <input
                   className="player-volume"

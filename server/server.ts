@@ -408,7 +408,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (note) noteSummary(projectId, turn.turnId, "reply", note);
       })
       .catch(() => {});
-    extractTrackerItems(turn, tracker.openTexts(projectId))
+    extractTrackerItems(turn.user, tracker.openTexts(projectId))
       .then((items) => {
         if (items.length === 0) return;
         for (const text of items) tracker.add(projectId, text, "auto", turn.turnId);
@@ -508,7 +508,12 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         }
         broadcast({ type: "projects", projects: store.list() });
       }
-      const sessionId = project.sessions[0]?.id;
+      let sessionId = project.sessions[0]?.id;
+      // an emptied folder (all sessions closed) gets a fresh session on reopen
+      if (!sessionId) {
+        sessionId = store.newSession(project.id)?.id;
+        broadcast({ type: "projects", projects: store.list() });
+      }
       if (kickoffPrompt && sessionId) manager.send({ ...project, id: sessionId }, kickoffPrompt);
       return `${opened ? "opened" : "already open"}: ${project.name} (${project.path})${
         kickoffPrompt ? " — session started with the kickoff prompt" : ""
@@ -752,7 +757,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           break;
         }
         store.update(msg.projectId, { model: msg.model });
-        manager.setModel(msg.projectId, msg.model);
+        // live sessions are keyed by session id, not project id
+        for (const s of store.get(msg.projectId)?.sessions ?? []) manager.setModel(s.id, msg.model);
         broadcast({ type: "projects", projects: store.list() });
         break;
       }
@@ -764,7 +770,23 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           break;
         }
         store.update(msg.projectId, { permissionMode: msg.mode });
-        manager.setPermissionMode(msg.projectId, msg.mode);
+        for (const s of store.get(msg.projectId)?.sessions ?? []) {
+          manager.setPermissionMode(s.id, msg.mode);
+        }
+        broadcast({ type: "projects", projects: store.list() });
+        break;
+      }
+      case "set_effort": {
+        if (msg.projectId === HOME_ID) {
+          if ((store.homeSettings().effort ?? "") === msg.effort) break;
+          store.setHomeSettings({ effort: msg.effort });
+          manager.setEffort(HOME_ID, msg.effort);
+          broadcast({ type: "home_settings", home: store.homeSettings() });
+          break;
+        }
+        if ((store.get(msg.projectId)?.effort ?? "") === msg.effort) break;
+        store.update(msg.projectId, { effort: msg.effort });
+        for (const s of store.get(msg.projectId)?.sessions ?? []) manager.setEffort(s.id, msg.effort);
         broadcast({ type: "projects", projects: store.list() });
         break;
       }

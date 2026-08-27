@@ -85,6 +85,10 @@ interface ChannelSession {
   interrupt(): void;
   setModel(model: string): void;
   setPermissionMode(mode: PermissionMode): void;
+  /** Apply a new reasoning effort. No harness changes it on a warm session,
+   *  so implementations either take it for their next turn (run-per-turn)
+   *  or retire themselves — the next send rebuilds with resume. */
+  setEffort(effort: string): void;
   /** Restore tracked files to their state at a user message's chain uuid
    *  (Claude only — other harnesses answer canRewind: false). */
   rewindFiles(uuid: string): Promise<{ canRewind: boolean; error?: string }>;
@@ -178,6 +182,7 @@ class ProjectSession implements ChannelSession {
         // snapshot files before edits, so a rewind can restore them
         enableFileCheckpointing: true,
         ...(project.permissionMode ? { permissionMode: project.permissionMode } : {}),
+        ...(project.effort ? { effort: project.effort as AgentOptions["effort"] } : {}),
         ...(resume ? { resume } : {}),
         // a rewind resumes truncated at the kept turn's last chain entry,
         // forked so the original chain stays intact on disk
@@ -218,18 +223,9 @@ class ProjectSession implements ChannelSession {
   }
 
   async rewindFiles(uuid: string): Promise<{ canRewind: boolean; error?: string }> {
-    // feature-detected: present from yagami 0.6.1 (typed against 0.6.0)
-    const session = this.session as unknown as {
-      rewindFiles?: (u: string) => Promise<{ canRewind: boolean; error?: string }>;
-    };
-    if (!session.rewindFiles) {
-      return {
-        canRewind: false,
-        error: "file rewind needs yagami 0.6.1+ — update the dependency and rebuild",
-      };
-    }
     try {
-      return await session.rewindFiles(uuid);
+      const result = await this.session.rewindFiles(uuid);
+      return { canRewind: result.canRewind, ...(result.error ? { error: result.error } : {}) };
     } catch (err) {
       return { canRewind: false, error: err instanceof Error ? err.message : String(err) };
     }
@@ -241,6 +237,11 @@ class ProjectSession implements ChannelSession {
 
   setPermissionMode(mode: PermissionMode): void {
     void this.session.setPermissionMode(mode).catch(() => {});
+  }
+
+  /** Effort is a construction-time SDK option — retire; resume carries on. */
+  setEffort(): void {
+    this.dispose();
   }
 
   dispose(): void {
@@ -462,6 +463,7 @@ class ProviderTurnSession implements ChannelSession {
   dead = false;
 
   private model: string | undefined;
+  private effort: string | undefined;
   private abort: AbortController | null = null;
   private running = false;
   private readonly backlog: Array<{
@@ -484,6 +486,7 @@ class ProviderTurnSession implements ChannelSession {
     private readonly extras?: SessionExtras,
   ) {
     this.model = nativeModel;
+    this.effort = project.effort;
     if (resume?.startsWith(`${providerId}:`)) this.lastSessionId = resume;
   }
 
@@ -540,6 +543,7 @@ class ProviderTurnSession implements ChannelSession {
         prompt,
         ...(media.length ? { media } : {}),
         ...(this.model ? { model: this.model } : {}),
+        ...(this.effort ? { effort: this.effort } : {}),
         ...(resume ? { resume } : {}),
         signal: this.abort.signal,
       })) {
@@ -609,6 +613,11 @@ class ProviderTurnSession implements ChannelSession {
 
   setPermissionMode(): void {
     // permission modes are a Claude concept; the harness sandbox stands in
+  }
+
+  /** Each turn is its own run — the new effort simply rides the next one. */
+  setEffort(effort: string): void {
+    this.effort = effort || undefined;
   }
 
   dispose(): void {
@@ -688,6 +697,7 @@ class ProviderAgentSession implements ChannelSession {
       cwd: project.path,
       appName: "ruri",
       ...(nativeModel ? { model: nativeModel } : {}),
+      ...(project.effort ? { effort: project.effort } : {}),
       ...(nativeResume ? { resume: nativeResume } : {}),
       ...(extras?.providerSystem ? { systemPrompt: extras.providerSystem } : {}),
       permissions: { decide: (req) => this.decide(req) },
@@ -855,6 +865,12 @@ class ProviderAgentSession implements ChannelSession {
     // permission modes are a Claude concept; the harness's own flow stands in
   }
 
+  /** Effort is fixed at session open — retire; the rebuild resumes the thread. */
+  setEffort(): void {
+    this.dead = true;
+    void this.session.close();
+  }
+
   dispose(): void {
     this.dead = true;
     this.backlog.length = 0;
@@ -1011,6 +1027,15 @@ export class SessionManager {
   /** Apply a permission-mode change to the live session, if one is running. */
   setPermissionMode(projectId: string, mode: PermissionMode): void {
     this.sessions.get(projectId)?.setPermissionMode(mode);
+  }
+
+  /** Apply an effort change to the live session, if one is running. Only the
+   *  run-per-turn path takes it live; warm sessions retire and rebuild
+   *  (resuming their context) on the next send. */
+  setEffort(projectId: string, effort: string): void {
+    const session = this.sessions.get(projectId);
+    if (!session || session.dead) return;
+    session.setEffort(effort);
   }
 
   respondPermission(requestId: string, allow: boolean, always = false): void {

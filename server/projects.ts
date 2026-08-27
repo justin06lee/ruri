@@ -36,9 +36,10 @@ export class ProjectStore {
         (p) => typeof p?.id === "string" && typeof p?.name === "string" && typeof p?.path === "string",
       );
       // migration: pre-session projects get one session whose id equals the
-      // project id, so their archives/transcripts keep working untouched
+      // project id, so their archives/transcripts keep working untouched.
+      // An empty array is NOT migrated — that's a deliberately empty folder.
       for (const project of this.projects) {
-        if (!Array.isArray(project.sessions) || project.sessions.length === 0) {
+        if (!Array.isArray(project.sessions)) {
           project.sessions = [{ id: project.id }];
         }
       }
@@ -191,14 +192,12 @@ export class ProjectStore {
     return session;
   }
 
-  /** Remove a session; removing the last one removes the project too. */
+  /** Remove a session; the project stays (an empty folder), even when it
+   *  was the last one — only removing the project itself closes the folder. */
   removeSession(sessionId: string): void {
     const found = this.findSession(sessionId);
     if (!found) return;
     found.project.sessions = found.project.sessions.filter((s) => s.id !== sessionId);
-    if (found.project.sessions.length === 0) {
-      this.projects = this.projects.filter((p) => p.id !== found.project.id);
-    }
     this.save();
   }
 

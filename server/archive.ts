@@ -31,6 +31,10 @@ interface ArchiveData {
   chain?: Record<string, { user?: string; last?: string }>;
   /** A rewind's fork point: the next Claude session resumes truncated here. */
   resumeAt?: string;
+  /** Tokens in the window after the channel's last API call. Persisted so the
+   *  context gauge reads the real occupancy on launch instead of zero until
+   *  the next turn happens to refill it. */
+  contextTokens?: number;
 }
 
 /** Collapse a turn's two notes into the single fold-note string the UI shows. */
@@ -155,6 +159,15 @@ export class SessionArchive {
   /** A turn's fold note for the UI: "prompt — reply", whichever halves exist. */
   summaryDisplay(projectId: string, turnId: string): string {
     return displaySummary(this.load(projectId).summaries[turnId]);
+  }
+
+  contextTokens(projectId: string): number | undefined {
+    return this.load(projectId).contextTokens;
+  }
+
+  setContextTokens(projectId: string, tokens: number): void {
+    this.load(projectId).contextTokens = tokens;
+    this.scheduleWrite(projectId);
   }
 
   lastSessionId(projectId: string): string | undefined {

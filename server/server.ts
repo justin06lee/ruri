@@ -766,6 +766,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         manager.respondPermission(msg.requestId, msg.allow, msg.always ?? false);
         break;
       }
+      case "question_response": {
+        manager.respondQuestion(msg.requestId, msg.answers);
+        break;
+      }
       case "set_model": {
         if (msg.projectId === HOME_ID) {
           store.setHomeSettings({ model: msg.model });

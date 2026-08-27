@@ -5,6 +5,10 @@
  */
 import type { Track } from "../../../shared/protocol";
 
+/** off = play the queue through once; all = loop the playlist; one = loop
+ *  the current track (automatic advancement only — next/prev still move). */
+export type RepeatMode = "off" | "all" | "one";
+
 export interface PlayerState {
   playing: boolean;
   track: Track | null;
@@ -49,7 +53,7 @@ export class AudioEngine {
 
   private crossfadeSeconds = 6;
   private shuffle = false;
-  private repeat = true;
+  private repeat: RepeatMode = "off";
   private fading = false;
   private fadeTimer = 0;
   private fadeFrom: Deck | null = null;
@@ -106,6 +110,13 @@ export class AudioEngine {
   private onDeckEnded(el: HTMLAudioElement): void {
     if (el !== this.current.el) return;
     if (this.fading) return;
+    // repeat-one normally loops via el.loop and never gets here; this covers
+    // a toggle landing in the last instant before "ended" fires
+    if (this.repeat === "one") {
+      el.currentTime = 0;
+      void this.play();
+      return;
+    }
     this.advance(1, true);
   }
 
@@ -139,13 +150,15 @@ export class AudioEngine {
 
   /** Starts the next track early enough to overlap by `crossfadeSeconds`. */
   private schedule = (): void => {
+    // repeat-one loops the element natively — no crossfade, no advancement
+    if (this.repeat === "one") return;
     const el = this.current.el;
     if (el.paused || this.crossfadeSeconds <= 0 || this.fading) return;
     const d = el.duration;
     if (!Number.isFinite(d) || d <= 0) return;
     if (d - el.currentTime > this.crossfadeSeconds) return;
     const isLast = this.cursor === this.order.length - 1;
-    if (!isLast || this.repeat) this.advance(1, true);
+    if (!isLast || this.repeat === "all") this.advance(1, true);
   };
 
   private tick = (): void => {
@@ -190,6 +203,7 @@ export class AudioEngine {
   private async loadInto(deck: Deck, track: Track, play: boolean): Promise<void> {
     if (!track) return;
     deck.el.src = this.resolveUrl(track);
+    deck.el.loop = this.repeat === "one";
     deck.el.currentTime = 0;
     deck.gain.gain.cancelScheduledValues(this.ctx.currentTime);
     deck.gain.gain.setValueAtTime(1, this.ctx.currentTime);
@@ -255,13 +269,13 @@ export class AudioEngine {
 
     let next = this.cursor + delta;
     if (next >= this.order.length) {
-      if (!this.repeat) {
+      if (this.repeat === "off") {
         this.pause();
         return;
       }
       next = 0;
     }
-    if (next < 0) next = this.repeat ? this.order.length - 1 : 0;
+    if (next < 0) next = this.repeat !== "off" ? this.order.length - 1 : 0;
 
     const track = this.queue[this.order[next]!];
     if (!track) return;
@@ -287,6 +301,7 @@ export class AudioEngine {
     const { out, in: incoming } = fadeCurves();
 
     to.el.src = this.resolveUrl(track);
+    to.el.loop = this.repeat === "one";
     to.el.currentTime = 0;
     to.gain.gain.cancelScheduledValues(now);
     to.gain.gain.setValueAtTime(0, now);
@@ -354,6 +369,13 @@ export class AudioEngine {
     this.shuffle = on;
     this.buildOrder(true);
     this.emit();
+  }
+
+  setRepeat(mode: RepeatMode): void {
+    this.repeat = mode;
+    // both decks: the current one takes effect now, the idle one is either
+    // silent or mid-fade-out (finalizeFade pauses it regardless)
+    for (const deck of this.decks) deck.el.loop = mode === "one";
   }
 
   dispose(): void {

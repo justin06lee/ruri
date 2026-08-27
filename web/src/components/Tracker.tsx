@@ -4,13 +4,14 @@ import { fileKind, fileToBase64 } from "./Attachments";
 import { send, useRuri } from "../store";
 
 /**
- * The feature tracker drawer: a checklist of things worth testing by hand,
- * extracted from each turn by the small model. Reviewing is one pass over
- * the list — click an item once for "works", twice for "needs fixing"
- * (which folds a note field out; paste files straight into it); items never
- * move while you review. "Finish review" clears the checked ones, pins the
- * crossed ones as repeats, and drops a small-model-written fix-it prompt
- * straight into the composer. Clicking anywhere outside closes the drawer.
+ * The feature tracker page: a checklist of things worth testing by hand,
+ * extracted from each turn by the small model. The header's tracker button
+ * swaps the whole chat pane for this page (and back). Reviewing is one pass
+ * over the list — click an item once for "works", twice for "needs fixing"
+ * (which folds a note field out; paste or drop files straight into it);
+ * items never move while you review. "Finish review" clears the checked
+ * ones, pins the crossed ones as repeats, and drops a small-model-written
+ * fix-it prompt straight into the composer.
  */
 
 const NEXT_STATUS: Record<TrackerStatus, TrackerStatus> = {
@@ -82,6 +83,20 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
       send({ type: "tracker_update", projectId, itemId: item.id, note: noteDraft });
     }
   };
+
+  // Closing the page unmounts the textarea before its blur can fire — an
+  // unsaved note draft would silently vanish. Save it on the way out.
+  const latest = useRef({ note: noteDraft, saved: item.note });
+  latest.current = { note: noteDraft, saved: item.note };
+  useEffect(
+    () => () => {
+      const { note, saved } = latest.current;
+      if (note !== saved) {
+        send({ type: "tracker_update", projectId, itemId: item.id, note });
+      }
+    },
+    [projectId, item.id],
+  );
 
   const attachFiles = async (files: File[]) => {
     for (const [i, file] of files.entries()) {
@@ -181,7 +196,7 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
             className="tracker-note-edit"
             rows={2}
             value={noteDraft}
-            placeholder="What to fix or change… (paste files here too)"
+            placeholder="What to fix or change… (paste or drop files here too)"
             tabIndex={open ? 0 : -1}
             onChange={(e) => setNoteDraft(e.target.value)}
             onBlur={saveNote}
@@ -191,6 +206,12 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
                 e.preventDefault();
                 void attachFiles(files);
               }
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const files = [...e.dataTransfer.files];
+              if (files.length > 0) void attachFiles(files);
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -211,20 +232,6 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
 
 export function Tracker({ projectId, onClose }: { projectId: string; onClose(): void }) {
   const items = useRuri((s) => s.tracker[projectId]) ?? [];
-  const drawerRef = useRef<HTMLElement>(null);
-
-  // Clicking anywhere outside the drawer closes it. The header toggle is
-  // excluded — it flips the drawer itself and would instantly reopen it.
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as Element | null;
-      if (!target || drawerRef.current?.contains(target)) return;
-      if (target.closest(".tracker-toggle")) return;
-      onClose();
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [onClose]);
 
   // Repeats pin to the top; everything else keeps its order. Checking or
   // crossing an item never moves it — order only changes between reviews.
@@ -233,46 +240,48 @@ export function Tracker({ projectId, onClose }: { projectId: string; onClose(): 
   const reviewed = items.length - openCount;
 
   return (
-    <aside className="tracker-drawer" ref={drawerRef}>
-      <div className="tracker-head">
-        <span className="tracker-title">Tracker</span>
-        <span className="tracker-sub">
-          {openCount} to check
-        </span>
-        <button className="icon-button" title="Close" onClick={onClose}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
-        </button>
-      </div>
+    <section className="tracker-page">
+      <div className="tracker-inner">
+        <div className="tracker-head">
+          <span className="tracker-title">Tracker</span>
+          <span className="tracker-sub">
+            {openCount} to check
+          </span>
+          <button className="icon-button" title="Back to the chat" onClick={onClose}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
 
-      <div className="tracker-list">
-        {items.length === 0 && (
-          <div className="tracker-empty">
-            Nothing tracked yet. New features from each turn land here automatically.
-          </div>
+        <div className="tracker-list">
+          {items.length === 0 && (
+            <div className="tracker-empty">
+              Nothing tracked yet. New features from each turn land here automatically.
+            </div>
+          )}
+          {ordered.map((item) => (
+            <ItemRow key={item.id} projectId={projectId} item={item} />
+          ))}
+        </div>
+
+        {items.length > 0 && (
+          <button
+            className="tracker-finish"
+            disabled={reviewed === 0}
+            title="Checked items clear, crossed ones pin as repeats, and a fix-it prompt lands in the composer"
+            onClick={() => {
+              send({ type: "tracker_review", projectId });
+              onClose();
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+            Finish review
+          </button>
         )}
-        {ordered.map((item) => (
-          <ItemRow key={item.id} projectId={projectId} item={item} />
-        ))}
       </div>
-
-      {items.length > 0 && (
-        <button
-          className="tracker-finish"
-          disabled={reviewed === 0}
-          title="Checked items clear, crossed ones pin as repeats, and a fix-it prompt lands in the composer"
-          onClick={() => {
-            send({ type: "tracker_review", projectId });
-            onClose();
-          }}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M20 6L9 17l-5-5" />
-          </svg>
-          Finish review
-        </button>
-      )}
-    </aside>
+    </section>
   );
 }

@@ -63,6 +63,8 @@ interface RuriState {
   usage: UsageLimits;
   /** Context-window occupancy per channel. */
   contexts: Record<string, ContextUsage>;
+  /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
+  rapid: boolean;
   /** Text waiting to be inserted into the composer (tracker "send as prompt"). */
   composerSeed: string | null;
   /** The workspace root the Home agent manages. */
@@ -84,6 +86,7 @@ interface RuriState {
   picked: { path: string; target: PickTarget } | null;
   lastError: string | null;
   setActive(id: string | null): void;
+  setRapid(on: boolean): void;
   seedComposer(text: string): void;
   clearComposerSeed(): void;
   clearPicked(): void;
@@ -105,6 +108,7 @@ export const useRuri = create<RuriState>((set) => ({
   queued: {},
   usage: {},
   contexts: {},
+  rapid: false,
   composerSeed: null,
   workspaceDir: "",
   musicDir: "",
@@ -121,8 +125,9 @@ export const useRuri = create<RuriState>((set) => ({
       // Home is ephemeral: crossing its boundary (either direction) asks the
       // server to wipe it — ignored server-side while a turn is running.
       if ((s.activeId === HOME_ID) !== (id === HOME_ID)) send({ type: "reset_home" });
-      return { activeId: id, unread: id ? { ...s.unread, [id]: false } : s.unread };
+      return { activeId: id, rapid: false, unread: id ? { ...s.unread, [id]: false } : s.unread };
     }),
+  setRapid: (on) => set({ rapid: on }),
   seedComposer: (text) => set({ composerSeed: text }),
   clearComposerSeed: () => set({ composerSeed: null }),
   clearPicked: () => set({ picked: null }),

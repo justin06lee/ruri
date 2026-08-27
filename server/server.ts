@@ -25,7 +25,7 @@ import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } fro
 import { ProjectStore } from "./projects.js";
 import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { SessionManager } from "./sessions.js";
-import { extractTrackerItems, reviewPrompt, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker } from "./smallmodel.js";
+import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
 import { fetchUsageLimits } from "./usage.js";
@@ -836,9 +836,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         const items = tracker.items(channelId);
         if (!items.some((i) => i.status !== "open")) return;
         const rejectedItems = items.filter((i) => i.status === "rejected");
-        const rejected = rejectedItems.map((i) => ({ text: i.text, note: i.note }));
-        // note attachments ride the prompt as stored paths, appended
-        // mechanically so the small model can't garble them
+        // note attachments ride the prompt as stored paths
         const attachLines = rejectedItems
           .filter((i) => i.attachments?.length)
           .map(
@@ -851,22 +849,21 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         // outcomes apply immediately: liked verified → gone, rejected → repeats
         tracker.finishReview(channelId);
         broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
-        if (rejected.length === 0) break;
-        // the composer gets a prompt either way — mechanical if the small
-        // model is unavailable or fails
-        const fallback = `Fix these issues found while reviewing:\n${rejected
-          .map((r) => `- ${r.text}${r.note.trim() ? ` — ${r.note.trim()}` : ""}`)
-          .join("\n")}`;
-        void (smallModelEnabled() ? reviewPrompt(rejected).catch(() => fallback) : Promise.resolve(fallback)).then(
-          (text) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              const full = attachLines ? `${text}\n\n${attachLines}` : text;
-              ws.send(
-                JSON.stringify({ type: "review_prompt", projectId: channelId, text: full } satisfies ServerMessage),
-              );
-            }
-          },
-        );
+        if (rejectedItems.length === 0) break;
+        // the fix-it prompt is assembled mechanically — each crossed item's
+        // title with the user's note verbatim under it. No model call:
+        // instant, and exactly what the user wrote.
+        const lines = rejectedItems.map((i) => {
+          const note = i.note.trim();
+          return `- ${i.text}${note ? `\n${note.split("\n").map((l) => `  ${l}`).join("\n")}` : ""}`;
+        });
+        const text = `Fix these issues found while reviewing:\n${lines.join("\n")}`;
+        if (ws.readyState === WebSocket.OPEN) {
+          const full = attachLines ? `${text}\n\n${attachLines}` : text;
+          ws.send(
+            JSON.stringify({ type: "review_prompt", projectId: channelId, text: full } satisfies ServerMessage),
+          );
+        }
         break;
       }
       case "toggle_star": {

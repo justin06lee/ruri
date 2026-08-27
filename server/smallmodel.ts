@@ -123,27 +123,6 @@ export async function sessionRoleTitle(turn: Turn): Promise<string> {
   return title.length > 0 && title.length <= 40 ? title : "";
 }
 
-const REVIEW_SYSTEM = `You turn a reviewed feature checklist into ONE follow-up prompt for a coding agent.
-Input: items the user marked needs-work during manual testing, each with an optional note about what's wrong.
-Rules:
-- Write in the user's plain voice, addressed to the agent ("Fix ...", "The X still does Y ...").
-- Cover EVERY item; keep each item's own wording and note as faithfully as possible.
-- Never invent problems, solutions, or details the items don't state.
-- Plain text, one item per line or short paragraph. No preamble, no headings.
-Output only the prompt text.`;
-
-/** Write the fix-it prompt for a finished tracker review. */
-export async function reviewPrompt(
-  items: Array<{ text: string; note: string }>,
-): Promise<string> {
-  const list = items
-    .map((item) => `- ${item.text}${item.note.trim() ? ` — note: ${item.note.trim()}` : ""}`)
-    .join("\n");
-  const result = await complete(REVIEW_SYSTEM, `NEEDS-WORK ITEMS:\n${list}`, 1200);
-  if (!result) throw new Error("empty review prompt");
-  return result;
-}
-
 const SPLIT_SYSTEM = `You split one user message into its separate, independent requests.
 Rules:
 - Preserve the user's wording as faithfully as possible; trim only connective tissue ("also", "and then").

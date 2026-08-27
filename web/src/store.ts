@@ -207,6 +207,16 @@ function apply(msg: ServerMessage): void {
       setState((s) => ({ queued: { ...s.queued, [msg.projectId]: msg.items } }));
       break;
     }
+    case "events_removed": {
+      const gone = new Set(msg.eventIds);
+      setState((s) => ({
+        transcripts: {
+          ...s.transcripts,
+          [msg.projectId]: (s.transcripts[msg.projectId] ?? []).filter((e) => !gone.has(e.id)),
+        },
+      }));
+      break;
+    }
     case "usage": {
       setState({ usage: msg.limits });
       break;

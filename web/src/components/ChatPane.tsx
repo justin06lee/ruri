@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   DEFAULT_MODEL,
   HOME_ID,
@@ -73,9 +73,84 @@ function shortenDisplay(text: string, project?: Project): string {
   return text.split(`${root}/`).join(`${project.name}/`).split(root).join(project.name);
 }
 
-function EventView({ event, project }: { event: TranscriptEvent; project?: Project }) {
+/** A sent slash command ("/compact", "/clear", …) — one short line, nothing
+ *  but the command and its arguments. */
+function isCommand(text: string): boolean {
+  const t = text.trim();
+  return t.length <= 80 && !t.includes("\n") && /^\/[a-z0-9_:-]+(\s|$)/i.test(t);
+}
+
+/** A jagged tear line — the compaction separator's hand-drawn rule. */
+function JaggedRule() {
+  const id = useId();
+  return (
+    <svg className="jag" aria-hidden>
+      <defs>
+        <pattern id={id} width="16" height="9" patternUnits="userSpaceOnUse">
+          <path
+            d="M0 6 L3.5 1.5 L6.5 6.5 L10 2 L13 7 L16 6"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill={`url(#${id})`} />
+    </svg>
+  );
+}
+
+/**
+ * The compaction point: everything above went into a fresh session as a
+ * brief only the model reads. The user just sees the torn line — the label
+ * unfolds what the model was handed, for the curious.
+ */
+function CompactionMark({ event }: { event: Extract<TranscriptEvent, { kind: "compaction" }> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="compaction">
+      <div className="compaction-line">
+        <JaggedRule />
+        <button
+          className="compaction-label"
+          title={open ? "Hide what the model was handed" : "Show what the model was handed"}
+          onClick={() => setOpen(!open)}
+        >
+          compacted
+        </button>
+        <JaggedRule />
+      </div>
+      {open && <pre className="compaction-brief">{event.text}</pre>}
+    </div>
+  );
+}
+
+function EventView({
+  event,
+  project,
+  channelId,
+}: {
+  event: TranscriptEvent;
+  project?: Project;
+  channelId?: string;
+}) {
   switch (event.kind) {
     case "user":
+      if (isCommand(event.text) && !event.attachments?.length) {
+        return (
+          <button
+            className="msg command-chip"
+            title="A command you ran — click to clear it from the transcript"
+            onClick={() => {
+              if (channelId) send({ type: "remove_event", projectId: channelId, eventId: event.id });
+            }}
+          >
+            {event.text.trim()}
+          </button>
+        );
+      }
       return (
         <div className="msg user">
           <Markdown text={event.text} />
@@ -100,7 +175,24 @@ function EventView({ event, project }: { event: TranscriptEvent; project?: Proje
         </div>
       );
     }
-    case "result":
+    case "result": {
+      // the CLI reports a user abort as diagnostic soup — archived events
+      // predating the server-side flag still deserve the plain reading
+      const stopped = event.stopped || (event.error?.includes("[ede_diagnostic]") ?? false);
+      if (stopped) {
+        return (
+          <div className="result-line stopped">
+            <span className="result-rule" />
+            <span className="result-text">
+              <Icon d="M8 8h8v8H8z" />
+              you stopped this response
+              {event.costUsd !== undefined && ` · $${event.costUsd.toFixed(4)}`}
+              {event.durationMs !== undefined && ` · ${(event.durationMs / 1000).toFixed(1)}s`}
+            </span>
+            <span className="result-rule" />
+          </div>
+        );
+      }
       return event.ok ? (
         <div className="result-line ok">
           <span className="result-rule" />
@@ -122,8 +214,11 @@ function EventView({ event, project }: { event: TranscriptEvent; project?: Proje
           <span className="result-rule" />
         </div>
       );
+    }
     case "info":
       return <div className="info-line">{event.text}</div>;
+    case "compaction":
+      return <CompactionMark event={event} />;
   }
 }
 
@@ -263,7 +358,9 @@ function Composer({
     composerDrafts.set(channelId, { text, atts, counter: counter.current });
   }, [channelId, text, atts]);
 
-  const addFiles = (files: FileList | File[]) => {
+  /** Attach files; `at` places the [markers] at that text index (a drop's
+   *  caret position or the paste caret) instead of the end. */
+  const addFiles = (files: FileList | File[], at?: number) => {
     const added: ComposerAttachment[] = [];
     for (const file of files) {
       if (file.size > 25 * 1024 * 1024) {
@@ -286,10 +383,36 @@ function Composer({
     if (added.length === 0) return;
     setAtts((prev) => [...prev, ...added]);
     setText((prev) => {
-      // trailing space so typing right after a drop never sticks to the "]"
+      // spaces around the markers so typing (or the neighboring words)
+      // never sticks to a "]" or "["
       const markers = added.map((a) => `[${a.kind} #${a.n}]`).join(" ");
-      return prev.trim() ? `${prev.replace(/\s+$/, "")} ${markers} ` : `${markers} `;
+      if (at === undefined || at >= prev.length) {
+        return prev.trim() ? `${prev.replace(/\s+$/, "")} ${markers} ` : `${markers} `;
+      }
+      const before = prev.slice(0, at);
+      const after = prev.slice(at);
+      const lead = before && !/\s$/.test(before) ? " " : "";
+      const tail = /^\s/.test(after) ? "" : " ";
+      return `${before}${lead}${markers}${tail}${after}`;
     });
+  };
+
+  // Where a drag hovers inside the textarea, as a text index — so a dropped
+  // image's marker lands where the pointer was, not at the end of the prompt.
+  const dropPosRef = useRef<number | null>(null);
+  const caretFromPoint = (x: number, y: number): number | null => {
+    const area = areaRef.current;
+    const doc = document as Document & {
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    };
+    if (!area || !doc.caretPositionFromPoint) return null;
+    const pos = doc.caretPositionFromPoint(x, y);
+    if (!pos) return null;
+    // Chromium reports a caret inside a text control as (the control, offset)
+    if (pos.offsetNode === area || area.contains(pos.offsetNode)) {
+      return Math.min(pos.offset, area.value.length);
+    }
+    return null;
   };
 
   const removeAtt = (id: string) => {
@@ -371,12 +494,17 @@ function Composer({
         onDragOver={(e) => {
           e.preventDefault();
           setDragOver(true);
+          dropPosRef.current = caretFromPoint(e.clientX, e.clientY);
         }}
-        onDragLeave={() => setDragOver(false)}
+        onDragLeave={() => {
+          setDragOver(false);
+          dropPosRef.current = null;
+        }}
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          addFiles(e.dataTransfer.files);
+          addFiles(e.dataTransfer.files, dropPosRef.current ?? undefined);
+          dropPosRef.current = null;
         }}
       >
         <AttachmentStrip attachments={atts} onRemove={removeAtt} onView={(a) => setViewing(a.id)} />
@@ -396,7 +524,7 @@ function Composer({
             const files = [...e.clipboardData.files];
             if (files.length > 0) {
               e.preventDefault();
-              addFiles(files);
+              addFiles(files, areaRef.current?.selectionStart ?? undefined);
             }
           }}
         />
@@ -538,6 +666,8 @@ interface Turn {
   /** The opening user-event id, or "pre" for events before any prompt. */
   turnId: string;
   events: TranscriptEvent[];
+  /** A compaction mark stands alone — it never folds or hosts other events. */
+  solo?: boolean;
 }
 
 /** Group the flat event stream into prompt→result turns. */
@@ -545,8 +675,10 @@ function groupTurns(events: TranscriptEvent[]): Turn[] {
   const turns: Turn[] = [];
   for (const event of events) {
     const last = turns[turns.length - 1];
-    if (event.kind === "user" || !last) {
-      turns.push({ turnId: event.kind === "user" ? event.id : "pre", events: [event] });
+    if (event.kind === "compaction") {
+      turns.push({ turnId: `compaction-${event.id}`, events: [event], solo: true });
+    } else if (event.kind === "user" || !last || last.solo) {
+      turns.push({ turnId: event.kind === "user" ? event.id : `pre-${event.id}`, events: [event] });
     } else {
       last.events.push(event);
     }
@@ -555,8 +687,8 @@ function groupTurns(events: TranscriptEvent[]): Turn[] {
 }
 
 /**
- * A summarized turn, folded to its precomputed recall note. Clicking it pulls
- * the full prompt/response back — the archive keeps everything.
+ * A turn folded down to its recall note — only ever by the user's hand (the
+ * hover chevron); clicking it pulls the full prompt/response back.
  */
 function CompactTurn({ summary, count, onExpand }: { summary: string; count: number; onExpand(): void }) {
   return (
@@ -635,10 +767,10 @@ export function ChatPane() {
     setTrackerOpen(false);
   }, [activeId]);
 
-  // Compact history is always on: older turns fold to their recall notes
-  // once summaries exist, and clicking a folded turn pulls it back.
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  useEffect(() => setExpanded(new Set()), [activeId]);
+  // Turns show in full — the summaries are the model's memory aid, not the
+  // user's view. A hover chevron folds a turn to its note when wanted.
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  useEffect(() => setFolded(new Set()), [activeId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
@@ -735,27 +867,39 @@ export function ChatPane() {
       <div className="transcript-holder">
       <div className="transcript" ref={scrollRef} onScroll={onScroll}>
         <div className="transcript-inner">
-          {(() => {
-            const turns = groupTurns(transcript);
-            return turns.map((turn, i) => {
-              const summary = summaries[turn.turnId];
-              const fold =
-                summary !== undefined && i < turns.length - 1 && !expanded.has(turn.turnId);
-              if (fold) {
-                return (
-                  <CompactTurn
-                    key={turn.turnId}
-                    summary={summary}
-                    count={turn.events.length}
-                    onExpand={() => setExpanded(new Set(expanded).add(turn.turnId))}
-                  />
-                );
-              }
-              return turn.events.map((event) => (
-                <EventView key={event.id} event={event} project={project} />
-              ));
-            });
-          })()}
+          {groupTurns(transcript).map((turn) => {
+            const summary = summaries[turn.turnId];
+            if (summary !== undefined && folded.has(turn.turnId)) {
+              return (
+                <CompactTurn
+                  key={turn.turnId}
+                  summary={summary}
+                  count={turn.events.length}
+                  onExpand={() => {
+                    const next = new Set(folded);
+                    next.delete(turn.turnId);
+                    setFolded(next);
+                  }}
+                />
+              );
+            }
+            return (
+              <div className="turn" key={turn.turnId}>
+                {summary !== undefined && !turn.solo && (
+                  <button
+                    className="icon-button turn-fold"
+                    title="Fold this exchange to its summary"
+                    onClick={() => setFolded(new Set(folded).add(turn.turnId))}
+                  >
+                    <Icon d="M6 15l6-6 6 6" />
+                  </button>
+                )}
+                {turn.events.map((event) => (
+                  <EventView key={event.id} event={event} project={project} channelId={activeId} />
+                ))}
+              </div>
+            );
+          })}
           {draft && (
             <div className="msg assistant streaming">
               <Markdown text={draft.text} />

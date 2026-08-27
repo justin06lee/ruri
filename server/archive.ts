@@ -15,6 +15,9 @@ interface ArchiveData {
   /** Turn summaries keyed by the turn's opening user-event id. */
   summaries: Record<string, string>;
   lastSessionId?: string;
+  /** A finished compaction's brief, waiting to ride the next prompt into the
+   *  fresh session (persisted so a restart in between loses nothing). */
+  pendingBrief?: string;
 }
 
 function archiveDir(): string {
@@ -41,6 +44,7 @@ export class SessionArchive {
         events: Array.isArray(raw.events) ? raw.events : [],
         summaries: raw.summaries && typeof raw.summaries === "object" ? raw.summaries : {},
         ...(typeof raw.lastSessionId === "string" ? { lastSessionId: raw.lastSessionId } : {}),
+        ...(typeof raw.pendingBrief === "string" ? { pendingBrief: raw.pendingBrief } : {}),
       };
     } catch {
       entry = { events: [], summaries: {} };
@@ -83,6 +87,29 @@ export class SessionArchive {
     this.scheduleWrite(projectId);
   }
 
+  /** Remove one event; a user event takes the rest of its turn (everything
+   *  up to the next user/compaction event) with it. Returns removed ids. */
+  removeTurn(projectId: string, eventId: string): string[] {
+    const entry = this.load(projectId);
+    const start = entry.events.findIndex((e) => e.id === eventId);
+    if (start === -1) return [];
+    let end = start + 1;
+    if (entry.events[start]!.kind === "user") {
+      while (
+        end < entry.events.length &&
+        entry.events[end]!.kind !== "user" &&
+        entry.events[end]!.kind !== "compaction"
+      ) {
+        end++;
+      }
+    }
+    const removed = entry.events.slice(start, end).map((e) => e.id);
+    entry.events.splice(start, end - start);
+    delete entry.summaries[eventId];
+    this.scheduleWrite(projectId);
+    return removed;
+  }
+
   summaries(projectId: string): Record<string, string> {
     return this.load(projectId).summaries;
   }
@@ -99,6 +126,28 @@ export class SessionArchive {
   setLastSessionId(projectId: string, sessionId: string): void {
     this.load(projectId).lastSessionId = sessionId;
     this.scheduleWrite(projectId);
+  }
+
+  /** Forget the resumable session id — the next send starts a fresh one. */
+  clearLastSessionId(projectId: string): void {
+    delete this.load(projectId).lastSessionId;
+    this.scheduleWrite(projectId);
+  }
+
+  setPendingBrief(projectId: string, brief: string): void {
+    this.load(projectId).pendingBrief = brief;
+    this.scheduleWrite(projectId);
+  }
+
+  /** Claim the pending compaction brief (cleared once taken). */
+  takePendingBrief(projectId: string): string | undefined {
+    const entry = this.load(projectId);
+    const brief = entry.pendingBrief;
+    if (brief !== undefined) {
+      delete entry.pendingBrief;
+      this.scheduleWrite(projectId);
+    }
+    return brief;
   }
 
   /** Forget a removed project entirely (memory + file). */

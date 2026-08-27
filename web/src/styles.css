@@ -2239,9 +2239,9 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 10px;
 }
 
-/* a Read of an image brings the image with it */
+/* a tool that read or changed something carries it under its own chip */
 
-.tool-read {
+.tool-block {
   align-self: flex-start;
   display: flex;
   flex-direction: column;
@@ -2282,6 +2282,156 @@ input[type="range"]::-webkit-slider-thumb {
   /* screenshots are usually pale — a ground keeps a white png from vanishing
      into the page in light mode and glaring in dark */
   background: var(--paper-bright);
+}
+
+/* ── the patch under a Write or Edit ──────────────────────────────── */
+
+/* Monochrome everywhere else, but a diff without add/remove color is a
+   puzzle — these two tints are the quietest ones that still separate at a
+   glance on cream and on near-black. */
+:root {
+  --diff-add-bg: rgba(74, 124, 89, 0.14);
+  --diff-add-ink: #3f6b4b;
+  --diff-del-bg: rgba(168, 71, 60, 0.12);
+  --diff-del-ink: #8f3f34;
+}
+
+:root[data-theme="dark"] {
+  --diff-add-bg: rgba(110, 180, 130, 0.15);
+  --diff-add-ink: #83c795;
+  --diff-del-bg: rgba(220, 110, 95, 0.14);
+  --diff-del-ink: #e08a7c;
+}
+
+.diff {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  max-width: 100%;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background: var(--paper-dim);
+  overflow: hidden;
+  animation: rise 180ms ease-out;
+}
+
+.diff-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.diff-head:hover {
+  background: var(--paper-bright);
+}
+
+.diff-head:active {
+  transform: none;
+}
+
+.diff-chevron {
+  width: 11px;
+  height: 11px;
+  transition: transform 120ms ease-out;
+}
+
+.diff-chevron.open {
+  transform: rotate(90deg);
+}
+
+.diff-new {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+.diff-added {
+  color: var(--diff-add-ink);
+}
+
+.diff-removed {
+  color: var(--diff-del-ink);
+}
+
+/* capped so a big rewrite cannot swallow the conversation — the patch
+   scrolls inside its own frame */
+.diff-body {
+  max-height: 260px;
+  overflow: auto;
+  border-top: 1px solid var(--line-faint);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.diff-hunk + .diff-hunk {
+  border-top: 1px dashed var(--line-soft);
+}
+
+.diff-line {
+  display: flex;
+  align-items: baseline;
+  white-space: pre;
+  min-width: min-content;
+}
+
+.diff-line.add {
+  background: var(--diff-add-bg);
+}
+
+.diff-line.del {
+  background: var(--diff-del-bg);
+}
+
+/* the gutter does not scroll away horizontally — a long line still shows
+   which line it is */
+.diff-n {
+  position: sticky;
+  left: 0;
+  flex-shrink: 0;
+  width: 42px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--ink-faint);
+  background: inherit;
+  user-select: none;
+}
+
+.diff-sign {
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+  user-select: none;
+}
+
+.diff-line.add .diff-sign {
+  color: var(--diff-add-ink);
+}
+
+.diff-line.del .diff-sign {
+  color: var(--diff-del-ink);
+}
+
+.diff-text {
+  padding-right: 12px;
+  color: var(--ink);
+}
+
+.diff-more {
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  border-top: 1px solid var(--line-faint);
 }
 
 /* ── the dragon gauges ────────────────────────────────────────────── */

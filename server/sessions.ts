@@ -22,12 +22,14 @@ import type {
   HookInput,
   PreToolUseHookSpecificOutput,
 } from "@anthropic-ai/claude-agent-sdk";
+import { buildDiff, readBefore } from "./diff.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
   type AskAnswers,
   type AskQuestions,
   type Attachment,
+  type FileDiff,
   type ModelChoice,
   type PermissionMode,
   type PermissionRequest,
@@ -114,6 +116,46 @@ function shortenPaths(text: string, project: Project): string {
   const root = project.path.replace(/\/+$/, "");
   if (!root) return text;
   return text.replaceAll(`${root}/`, `${project.name}/`).replaceAll(root, project.name);
+}
+
+/**
+ * The patch a Write or Edit is about to apply. Called as the tool_use block
+ * arrives, which is before the CLI runs the tool — so the file on disk is
+ * still the pre-image. An Edit's post-image is that pre-image with the
+ * replacement applied, so both tools go through one diff path and get real
+ * line numbers and context.
+ */
+function toolDiff(
+  name: string,
+  input: Record<string, unknown>,
+  project: Project,
+  /** The hook's capture, when it got there first; undefined = read it now. */
+  captured?: string | null,
+): FileDiff | undefined {
+  const file = input["file_path"];
+  if (typeof file !== "string" || !path.isAbsolute(file)) return undefined;
+  const display = shortenPaths(file, project);
+  const preimage = () => (captured !== undefined ? captured : readBefore(file));
+
+  if (name === "Write") {
+    const content = input["content"];
+    if (typeof content !== "string") return undefined;
+    return buildDiff(display, preimage(), content) ?? undefined;
+  }
+  if (name !== "Edit") return undefined;
+
+  const oldStr = input["old_string"];
+  const newStr = input["new_string"];
+  if (typeof oldStr !== "string" || typeof newStr !== "string") return undefined;
+  const before = preimage();
+  if (before === null || !before.includes(oldStr)) {
+    // no pre-image to anchor against (a brand-new file, or the edit already
+    // landed) — the strings still describe the change on their own
+    return buildDiff(display, oldStr, newStr) ?? undefined;
+  }
+  const after =
+    input["replace_all"] === true ? before.replaceAll(oldStr, newStr) : before.replace(oldStr, newStr);
+  return buildDiff(display, before, after) ?? undefined;
 }
 
 /** Extensions the transcript will show inline — what Read itself can take. */
@@ -244,6 +286,8 @@ class ProjectSession implements ChannelSession {
   private turnEventId: string | undefined;
   private readonly pending = new Map<string, PendingPermission>();
   private readonly pendingQuestions = new Map<string, PendingQuestion>();
+  /** File bytes captured by captureBefore, keyed by tool_use_id. */
+  private readonly preimages = new Map<string, string | null>();
 
   constructor(
     private readonly project: Project,
@@ -274,6 +318,10 @@ class ProjectSession implements ChannelSession {
               timeout: QUESTION_TIMEOUT_S,
               hooks: [this.askUserQuestion],
             },
+            // Not a decision — a barrier. The diff under a Write or Edit
+            // needs the file as it was, and a PreToolUse hook is the one
+            // point the CLI is required to wait at before touching it.
+            { matcher: "Write|Edit", hooks: [this.captureBefore] },
           ],
         },
         ...(project.permissionMode ? { permissionMode: project.permissionMode } : {}),
@@ -418,6 +466,23 @@ class ProjectSession implements ChannelSession {
     };
   };
 
+  /**
+   * Stash a file's bytes before the tool rewrites them. Whichever of this
+   * hook and the tool_use block arrives first, the pre-image is right: if
+   * the hook won, the diff reads it from here; if the block won, its own
+   * disk read still beat the write, because the CLI is waiting on us.
+   */
+  private captureBefore = async (input: HookInput): Promise<{ continue: true }> => {
+    if (input.hook_event_name !== "PreToolUse") return { continue: true };
+    const file = (input.tool_input as { file_path?: unknown } | undefined)?.file_path;
+    if (typeof file === "string" && path.isAbsolute(file)) {
+      // one turn's worth of edits at most; the turn end clears it
+      if (this.preimages.size > 200) this.preimages.clear();
+      this.preimages.set(input.tool_use_id, readBefore(file));
+    }
+    return { continue: true };
+  };
+
   respondQuestion(requestId: string, answers?: AskAnswers): boolean {
     const pending = this.pendingQuestions.get(requestId);
     if (!pending) return false;
@@ -549,12 +614,17 @@ class ProjectSession implements ChannelSession {
           const name = typeof block["name"] === "string" ? (block["name"] as string) : "tool";
           const input = (block["input"] ?? {}) as Record<string, unknown>;
           const image = readImage(name, input);
+          const useId = typeof block["id"] === "string" ? (block["id"] as string) : "";
+          const captured = this.preimages.get(useId);
+          this.preimages.delete(useId);
+          const diff = toolDiff(name, input, this.project, captured);
           this.pushEvent({
             kind: "tool",
             id: randomUUID(),
             name,
             summary: toolSummary(name, input, this.project),
             ...(image ? { image } : {}),
+            ...(diff ? { diff } : {}),
             ts: Date.now(),
           });
         }

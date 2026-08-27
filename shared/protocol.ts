@@ -165,6 +165,8 @@ export type TranscriptEvent =
       summary: string;
       /** Set when the tool read an image — the transcript shows it inline. */
       image?: { url: string; name: string };
+      /** Set when the tool changed a file — the transcript shows the patch. */
+      diff?: FileDiff;
       ts: number;
     }
   | {
@@ -184,6 +186,33 @@ export type TranscriptEvent =
    *  structured prompt/reply pairs, hidden behind the zigzag separator
    *  unless the user unfolds it. */
   | { kind: "compaction"; id: string; text: string; entries?: CompactionEntry[]; ts: number };
+
+/** One line of a patch, in git's three flavours. */
+export interface DiffLine {
+  kind: "add" | "del" | "ctx";
+  text: string;
+}
+
+/** A run of changed lines with its surrounding context. */
+export interface DiffHunk {
+  /** 1-based first line of the hunk on each side (git's @@ header). */
+  oldStart: number;
+  newStart: number;
+  lines: DiffLine[];
+}
+
+/** What a Write or Edit did to one file, as the transcript renders it. */
+export interface FileDiff {
+  /** Project-relative where possible — the same shortening tool chips use. */
+  path: string;
+  added: number;
+  removed: number;
+  hunks: DiffHunk[];
+  /** The file did not exist beforehand. */
+  created?: boolean;
+  /** Hunks were dropped to keep the transcript small. */
+  truncated?: boolean;
+}
 
 export interface PermissionRequest {
   requestId: string;

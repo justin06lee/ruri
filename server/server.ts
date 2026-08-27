@@ -388,9 +388,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     broadcast({ type: "turn_summary", projectId, turnId, summary: archive.summaryDisplay(projectId, turnId) });
   }
 
-  // Every finished turn goes to the small model in the background, twice:
-  // a reply recall note (instant compaction) and a tracker extraction (new
-  // features to test by hand). Failures are silent — both are niceties.
+  // Every finished turn goes to the small model in the background for a
+  // reply recall note (instant compaction). Failures are silent — a nicety.
   const turns = new TurnTracker((projectId, turn) => {
     if (!smallModelEnabled()) return;
     const found = store.findSession(projectId);
@@ -408,13 +407,6 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (note) noteSummary(projectId, turn.turnId, "reply", note);
       })
       .catch(() => {});
-    extractTrackerItems(turn.user, tracker.openTexts(projectId))
-      .then((items) => {
-        if (items.length === 0) return;
-        for (const text of items) tracker.add(projectId, text, "auto", turn.turnId);
-        broadcast({ type: "tracker", projectId, items: tracker.items(projectId) });
-      })
-      .catch(() => {});
   });
 
   /** Archive, observe, log (Home), and broadcast one transcript event. */
@@ -423,14 +415,25 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     turns.observe(projectId, event);
     if (projectId === HOME_ID) homeLog.observe(event);
     broadcast({ type: "event", projectId, event });
-    // every prompt gets its recall note the moment it's sent — the reply's
-    // half lands separately when the turn finishes
+    // every prompt gets its recall note AND its tracker split the moment
+    // it's sent — neither waits on (or survives only with) a finished turn,
+    // so interrupted turns and "continue" follow-ups can't lose requests.
+    // The reply's recall half lands separately when the turn finishes.
     if (event.kind === "user" && smallModelEnabled()) {
       summarizePrompt(event.text)
         .then((note) => {
           if (note) noteSummary(projectId, event.id, "user", note);
         })
         .catch(() => {});
+      if (projectId !== HOME_ID) {
+        extractTrackerItems(event.text, tracker.openTexts(projectId))
+          .then((items) => {
+            if (items.length === 0) return;
+            for (const text of items) tracker.add(projectId, text, "auto", event.id);
+            broadcast({ type: "tracker", projectId, items: tracker.items(projectId) });
+          })
+          .catch(() => {});
+      }
     }
   }
 

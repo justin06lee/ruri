@@ -1590,17 +1590,21 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
 }
 
+/* the tear line borrows the result rule's color so both read as one hairline */
 .jag {
   flex: 1;
   height: 9px;
+  color: var(--line-faint);
 }
 
-/* same voice as the result lines ("done · $… · …s") */
+/* same voice as the result lines ("done · $… · …s") — including the
+   weight, which buttons would otherwise bump to 500 */
 .compaction-label {
   display: flex;
   align-items: center;
   gap: 5px;
   font-size: 11.5px;
+  font-weight: 400;
   color: var(--ink-faint);
   background: none;
   border: none;
@@ -2231,6 +2235,200 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .permission-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* ── the question card (AskUserQuestion) ──────────────────────────── */
+
+/* Not a permission card: the model is asking, so this reads as a form the
+   conversation is waiting on rather than a gate you clear. */
+
+.ask-card {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border: 2px solid var(--edge);
+  border-radius: var(--radius-m);
+  padding: 15px 16px 14px;
+  background: var(--raised);
+  box-shadow: var(--shadow-hard);
+  animation: rise 180ms ease-out;
+}
+
+.ask-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ask-title .icon {
+  width: 15px;
+  height: 15px;
+  color: var(--ink-soft);
+}
+
+.ask-question {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* a second question is a second thing being asked — give it its own field */
+.ask-question + .ask-question {
+  border-top: 1px solid var(--line-faint);
+  padding-top: 15px;
+}
+
+.ask-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ask-chip {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--paper);
+  background: var(--ink);
+  border-radius: var(--radius-s);
+  padding: 2px 7px;
+}
+
+.ask-prompt {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.ask-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* every option is a full-width target — the label carries the choice, the
+   description carries the consequence */
+.ask-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  font-weight: 400;
+  padding: 9px 11px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background: var(--paper-dim);
+  box-shadow: none;
+}
+
+.ask-option:hover {
+  border-color: var(--edge);
+  background: var(--paper-bright);
+}
+
+.ask-option:active {
+  transform: none;
+}
+
+.ask-option.on {
+  border-color: var(--ink);
+  background: var(--paper-bright);
+}
+
+.ask-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ask-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ask-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+/* square for multi-select, round for single — the shape says how many you
+   may pick before you have tried to pick two */
+.ask-mark {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border: 1.5px solid var(--edge);
+  color: var(--paper);
+}
+
+.ask-mark.multi {
+  border-radius: 4px;
+}
+
+.ask-mark.single {
+  border-radius: 50%;
+}
+
+.ask-mark.on {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.ask-mark svg {
+  width: 11px;
+  height: 11px;
+}
+
+.ask-other {
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--paper-bright);
+  border: 1.5px solid var(--edge);
+  border-radius: var(--radius-s);
+  padding: 8px 11px;
+  resize: vertical;
+  outline: none;
+}
+
+/* the focused option's mockup — monospace so box-drawing previews line up.
+   Dashed, like the raw compaction brief: quoted material, not chrome, and
+   not another option row for the eye to try clicking. */
+.ask-preview {
+  margin: 2px 0 0 25px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  background: var(--paper-dim);
+  border: 1px dashed var(--line-soft);
+  border-radius: var(--radius-s);
+  padding: 10px 12px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre;
+}
+
+.ask-actions {
   display: flex;
   gap: 10px;
 }

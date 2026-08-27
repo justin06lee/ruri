@@ -102,10 +102,8 @@ export function Player() {
   const [playlistId, setPlaylistId] = useState<string>(ls("ruri-music-playlist") ?? "");
   const [state, setState] = useState<PlayerState>(EMPTY);
   const [shuffle, setShuffleState] = useState(ls("ruri-music-shuffle") === "1");
-  const [repeat, setRepeatState] = useState<RepeatMode>(() => {
-    const v = ls("ruri-music-repeat");
-    return v === "all" || v === "one" ? v : "off";
-  });
+  // deliberately not persisted — every launch starts with repeat off
+  const [repeat, setRepeatState] = useState<RepeatMode>("off");
   const [volume, setVolumeState] = useState(() => {
     const v = Number(ls("ruri-music-volume"));
     return Number.isFinite(v) && v > 0 ? v : 0.6;
@@ -173,7 +171,6 @@ export function Player() {
   const cycleRepeat = () => {
     const next: RepeatMode = repeat === "off" ? "all" : repeat === "all" ? "one" : "off";
     setRepeatState(next);
-    lsSet("ruri-music-repeat", next);
     engine().setRepeat(next);
   };
 

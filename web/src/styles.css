@@ -1990,25 +1990,24 @@ input[type="range"]::-webkit-slider-thumb {
   background-image: var(--stripes);
 }
 
+/* the whole row is the click target — anywhere on it cycles the status */
 .tracker-item-main {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tracker-item-main:hover .tracker-box {
+  color: var(--ink);
 }
 
 .tracker-check {
-  padding: 0;
-  border: none;
-  background: none;
-  box-shadow: none;
+  position: relative;
   line-height: 0;
   flex-shrink: 0;
   margin-top: 1px;
-}
-
-.tracker-check:hover {
-  background: none;
-  transform: scale(1.1);
 }
 
 .tracker-box {
@@ -2065,22 +2064,34 @@ input[type="range"]::-webkit-slider-thumb {
   transform: rotate(180deg);
 }
 
+/* repeat badge rides the checkbox corner */
 .tracker-repeat {
-  flex-shrink: 0;
-  margin-top: 2px;
-  color: var(--ink-faint);
+  position: absolute;
+  top: -6px;
+  left: -7px;
+  width: 13px;
+  height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 99px;
+  background: var(--paper);
+  border: 1px solid var(--line-soft);
+  color: var(--ink-soft);
 }
 
 .tracker-repeat svg {
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
 }
 
-/* the note folds out under a crossed item; everything below glides down */
+/* The note folds out under a crossed item and everything below glides
+   down. The height opens on a soft ease-out while the content itself
+   fades and settles in just behind it — no uncovered-from-behind look. */
 .tracker-note-wrap {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 240ms ease;
+  transition: grid-template-rows 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .tracker-note-wrap.open {
@@ -2090,6 +2101,19 @@ input[type="range"]::-webkit-slider-thumb {
 .tracker-note-inner {
   overflow: hidden;
   min-height: 0;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition:
+    opacity 160ms ease,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tracker-note-wrap.open .tracker-note-inner {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 200ms ease 90ms,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1) 60ms;
 }
 
 .tracker-note-edit {
@@ -2097,6 +2121,49 @@ input[type="range"]::-webkit-slider-thumb {
   margin-top: 6px;
   font-size: 11.5px;
   resize: none;
+}
+
+/* pasted note attachments: little numbered bumps on the textbox's top edge */
+.note-atts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 0 8px;
+}
+
+.note-att {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: var(--paper-dim);
+  border: 1.5px solid var(--line-soft);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+  box-shadow: none;
+}
+
+.note-att svg {
+  width: 10px;
+  height: 10px;
+}
+
+.note-att:hover {
+  color: var(--ink);
+  border-color: var(--edge);
+  background: var(--paper-dim);
+  transform: none;
+}
+
+.note-atts + .tracker-note-edit {
+  margin-top: 0;
+  border-top-left-radius: 0;
 }
 
 .tracker-finish {

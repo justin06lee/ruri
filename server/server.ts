@@ -25,7 +25,7 @@ import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { SessionManager } from "./sessions.js";
 import { extractTrackerItems, reviewPrompt, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizeTurn, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
-import { modelPayload, processAttachments, serveUpload, storeAttachments } from "./uploads.js";
+import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
 import { fetchUsageLimits } from "./usage.js";
 
 export interface StartServerOptions {
@@ -601,13 +601,37 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
         break;
       }
+      case "tracker_attach": {
+        const { url } = storeUpload(msg.upload);
+        const { data: _d, regions: _r, ...meta } = msg.upload;
+        if (tracker.attach(msg.projectId, msg.itemId, { ...meta, url })) {
+          broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+        }
+        break;
+      }
+      case "tracker_detach": {
+        if (tracker.detach(msg.projectId, msg.itemId, msg.attachmentId)) {
+          broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+        }
+        break;
+      }
       case "tracker_review": {
         const channelId = msg.projectId;
         const items = tracker.items(channelId);
         if (!items.some((i) => i.status !== "open")) return;
-        const rejected = items
-          .filter((i) => i.status === "rejected")
-          .map((i) => ({ text: i.text, note: i.note }));
+        const rejectedItems = items.filter((i) => i.status === "rejected");
+        const rejected = rejectedItems.map((i) => ({ text: i.text, note: i.note }));
+        // note attachments ride the prompt as stored paths, appended
+        // mechanically so the small model can't garble them
+        const attachLines = rejectedItems
+          .filter((i) => i.attachments?.length)
+          .map(
+            (i) =>
+              `[attached for "${i.text}" — view with tools: ${i
+                .attachments!.map((a) => storedFilePath(a.url ?? ""))
+                .join(", ")}]`,
+          )
+          .join("\n");
         // outcomes apply immediately: liked verified → gone, rejected → repeats
         tracker.finishReview(channelId);
         broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
@@ -620,8 +644,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         void (smallModelEnabled() ? reviewPrompt(rejected).catch(() => fallback) : Promise.resolve(fallback)).then(
           (text) => {
             if (ws.readyState === WebSocket.OPEN) {
+              const full = attachLines ? `${text}\n\n${attachLines}` : text;
               ws.send(
-                JSON.stringify({ type: "review_prompt", projectId: channelId, text } satisfies ServerMessage),
+                JSON.stringify({ type: "review_prompt", projectId: channelId, text: full } satisfies ServerMessage),
               );
             }
           },

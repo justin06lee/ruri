@@ -48,6 +48,11 @@ function uploadPath(upload: AttachmentUpload): string {
   return path.join(uploadsDir(), `${upload.id}.${ext}`);
 }
 
+/** Absolute on-disk path of a stored upload, from its /uploads/<file> URL. */
+export function storedFilePath(url: string): string {
+  return path.join(uploadsDir(), path.basename(url));
+}
+
 /** Persist one upload; returns its serving URL and absolute file path. */
 export function storeUpload(upload: AttachmentUpload): { url: string; filePath: string } {
   fs.mkdirSync(uploadsDir(), { recursive: true });

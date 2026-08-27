@@ -17,6 +17,7 @@ import {
   fileToBase64,
   Viewer,
   TranscriptAttachments,
+  ToolImage,
   type ComposerAttachment,
   type Region,
 } from "./Attachments";
@@ -219,11 +220,20 @@ export function EventView({
       );
     case "tool": {
       const summary = shortenDisplay(event.summary, project);
-      return (
+      const chip = (
         <div className="tool-chip" title={summary}>
           <Icon d={toolIcon(event.name)} />
           <span className="tool-name">{event.name}</span>
           <span className="tool-summary">{summary}</span>
+        </div>
+      );
+      // a read image rides under its own chip, so the path and the picture
+      // read as one event
+      if (!event.image) return chip;
+      return (
+        <div className="tool-read">
+          {chip}
+          <ToolImage image={event.image} />
         </div>
       );
     }

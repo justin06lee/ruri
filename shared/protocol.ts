@@ -158,7 +158,15 @@ export interface CompactionEntry {
 export type TranscriptEvent =
   | { kind: "user"; id: string; text: string; attachments?: Attachment[]; ts: number }
   | { kind: "assistant"; id: string; text: string; ts: number }
-  | { kind: "tool"; id: string; name: string; summary: string; ts: number }
+  | {
+      kind: "tool";
+      id: string;
+      name: string;
+      summary: string;
+      /** Set when the tool read an image — the transcript shows it inline. */
+      image?: { url: string; name: string };
+      ts: number;
+    }
   | {
       kind: "result";
       id: string;

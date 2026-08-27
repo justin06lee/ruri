@@ -406,6 +406,37 @@ export function AttachmentStrip({
 
 /* ── transcript thumbnails ───────────────────────────────────────── */
 
+/**
+ * The thumbnail under a Read chip. Reading a screenshot and getting only its
+ * path back hides the one thing you wanted to see — so the image comes with
+ * it, and clicking opens the same viewer attachments use. A file that has
+ * since been deleted simply drops the preview rather than showing a broken
+ * frame.
+ */
+export function ToolImage({ image }: { image: { url: string; name: string } }) {
+  const [open, setOpen] = useState(false);
+  const [gone, setGone] = useState(false);
+  const src = HTTP_BASE + image.url;
+  if (gone) return null;
+  return (
+    <>
+      <button
+        className="tool-image"
+        title={`${image.name} — click to expand`}
+        onClick={() => setOpen(true)}
+      >
+        <img src={src} alt={image.name} onError={() => setGone(true)} />
+      </button>
+      {open && (
+        <Viewer
+          target={{ kind: "image", src, label: image.name, name: image.name }}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
 export function TranscriptAttachments({ attachments }: { attachments: Attachment[] }) {
   const [view, setView] = useState<ViewTarget | null>(null);
   return (

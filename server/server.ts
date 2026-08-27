@@ -696,7 +696,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
               broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
             }
             broadcast({ type: "status", projectId: channelId, status: "idle" });
-            if (ws.readyState === WebSocket.OPEN) {
+            const edited = msg.text?.trim();
+            if (edited) {
+              // the edited prompt goes straight out as the next turn
+              dispatch(channelId, edited, []);
+            } else if (ws.readyState === WebSocket.OPEN) {
               ws.send(
                 JSON.stringify({
                   type: "compose",

@@ -41,6 +41,10 @@ export interface SessionEvents {
   onSessionId(projectId: string, sessionId: string): void;
   /** Context-window occupancy after the session's latest API call. */
   onContext(projectId: string, tokens: number): void;
+  /** A turn's SDK chain uuid landed: the prompt's own uuid ("user", the
+   *  file-rewind target) or the turn's latest entry ("last", the fork
+   *  point for rewinding past it). Claude sessions only. */
+  onChain(projectId: string, eventId: string, kind: "user" | "last", uuid: string): void;
 }
 
 /** Extra per-project session config (the Home agent's MCP tools live here). */
@@ -81,6 +85,9 @@ interface ChannelSession {
   interrupt(): void;
   setModel(model: string): void;
   setPermissionMode(mode: PermissionMode): void;
+  /** Restore tracked files to their state at a user message's chain uuid
+   *  (Claude only — other harnesses answer canRewind: false). */
+  rewindFiles(uuid: string): Promise<{ canRewind: boolean; error?: string }>;
   dispose(): void;
   respondPermission(requestId: string, allow: boolean, always?: boolean): boolean;
   pendingRequests(): string[];
@@ -146,12 +153,17 @@ class ProjectSession implements ChannelSession {
   /** The user pressed stop — the next result reads "stopped", not as an
    *  error (the CLI reports an abort as a diagnostic-soup failure). */
   private interrupted = false;
+  /** Sent prompts awaiting their SDK echo, to map event id → chain uuid. */
+  private readonly pendingUserEvents: string[] = [];
+  /** The user event whose turn the incoming chain uuids belong to. */
+  private turnEventId: string | undefined;
   private readonly pending = new Map<string, PendingPermission>();
 
   constructor(
     private readonly project: Project,
     private readonly events: SessionEvents,
     resume?: string,
+    resumeAt?: string,
     extras?: SessionExtras,
   ) {
     this.lastSessionId = resume;
@@ -163,8 +175,13 @@ class ProjectSession implements ChannelSession {
       onPermission: this.onPermission,
       ...(extras?.autoAllow ? { permission: { autoAllow: extras.autoAllow } } : {}),
       options: {
+        // snapshot files before edits, so a rewind can restore them
+        enableFileCheckpointing: true,
         ...(project.permissionMode ? { permissionMode: project.permissionMode } : {}),
         ...(resume ? { resume } : {}),
+        // a rewind resumes truncated at the kept turn's last chain entry,
+        // forked so the original chain stays intact on disk
+        ...(resume && resumeAt ? { resumeSessionAt: resumeAt, forkSession: true } : {}),
         ...extras?.options,
       },
     });
@@ -178,9 +195,13 @@ class ProjectSession implements ChannelSession {
     silent = false,
   ): void {
     if (!silent) {
+      const id = randomUUID();
+      // the SDK echoes the prompt back with its chain uuid; this queue
+      // pairs that echo with the transcript event it belongs to
+      this.pendingUserEvents.push(id);
       this.pushEvent({
         kind: "user",
-        id: randomUUID(),
+        id,
         text,
         ...(attachments?.length ? { attachments } : {}),
         ts: Date.now(),
@@ -194,6 +215,24 @@ class ProjectSession implements ChannelSession {
   interrupt(): void {
     this.interrupted = true;
     void this.session.interrupt().catch(() => {});
+  }
+
+  async rewindFiles(uuid: string): Promise<{ canRewind: boolean; error?: string }> {
+    // feature-detected: present from yagami 0.6.1 (typed against 0.6.0)
+    const session = this.session as unknown as {
+      rewindFiles?: (u: string) => Promise<{ canRewind: boolean; error?: string }>;
+    };
+    if (!session.rewindFiles) {
+      return {
+        canRewind: false,
+        error: "file rewind needs yagami 0.6.1+ — update the dependency and rebuild",
+      };
+    }
+    try {
+      return await session.rewindFiles(uuid);
+    } catch (err) {
+      return { canRewind: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   setModel(model: string): void {
@@ -294,7 +333,28 @@ class ProjectSession implements ChannelSession {
         this.draftId ??= randomUUID();
         this.events.onDelta(this.project.id, this.draftId, event.delta.text);
       }
+    } else if (msg.type === "user" && msg.parent_tool_use_id === null) {
+      // The prompt's echo carries its chain uuid — pair it with the queued
+      // transcript event; tool results and synthetic messages only extend
+      // the running turn's "last" entry.
+      const uuid = (msg as { uuid?: string }).uuid;
+      if (uuid) {
+        const content = (msg.message as { content?: unknown }).content;
+        const toolResult =
+          Array.isArray(content) &&
+          content.some((block) => (block as { type?: string }).type === "tool_result");
+        const synthetic = (msg as { isSynthetic?: boolean }).isSynthetic === true;
+        if (!toolResult && !synthetic && this.pendingUserEvents.length > 0) {
+          this.turnEventId = this.pendingUserEvents.shift()!;
+          this.events.onChain(this.project.id, this.turnEventId, "user", uuid);
+        }
+        if (this.turnEventId) this.events.onChain(this.project.id, this.turnEventId, "last", uuid);
+      }
     } else if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
+      const chainUuid = (msg as { uuid?: string }).uuid;
+      if (chainUuid && this.turnEventId) {
+        this.events.onChain(this.project.id, this.turnEventId, "last", chainUuid);
+      }
       // Each main-loop API call's usage tells us how full the context window
       // is right now: everything sent (fresh + cached) plus what came back.
       const usage = (
@@ -538,6 +598,10 @@ class ProviderTurnSession implements ChannelSession {
     this.abort?.abort();
   }
 
+  rewindFiles(): Promise<{ canRewind: boolean; error?: string }> {
+    return Promise.resolve({ canRewind: false, error: "rewind is a Claude-session feature" });
+  }
+
   /** The native model for the next turn ("" = the harness's default). */
   setModel(model: string): void {
     this.model = model || undefined;
@@ -775,6 +839,10 @@ class ProviderAgentSession implements ChannelSession {
     void this.session.interrupt();
   }
 
+  rewindFiles(): Promise<{ canRewind: boolean; error?: string }> {
+    return Promise.resolve({ canRewind: false, error: "rewind is a Claude-session feature" });
+  }
+
   /** A model change re-opens the session on the same thread via resume. */
   setModel(model: string): void {
     if ((model || undefined) === this.nativeModel) return;
@@ -824,6 +892,9 @@ export class SessionManager {
     private readonly extrasFor: (project: Project) => SessionExtras | undefined = () => undefined,
     /** Non-Claude harness support; omitted = Claude-only. */
     private readonly providers?: ProviderHooks,
+    /** A pending rewind's fork point, claimed when a Claude session builds
+     *  (the archive's take-once resumeAt). */
+    private readonly resumeAtFor: (projectId: string) => string | undefined = () => undefined,
   ) {}
 
   /** The non-Claude provider id a model routes to, if any. An unset model
@@ -844,6 +915,17 @@ export class SessionManager {
     attachments?: Attachment[],
     silent?: boolean,
   ): void {
+    this.acquire(project).send(text, images, attachments, silent);
+  }
+
+  /** Restore the project's files to a user message's checkpoint, starting
+   *  (or resuming) the session if needed — Claude sessions only. */
+  rewindFiles(project: Project, uuid: string): Promise<{ canRewind: boolean; error?: string }> {
+    return this.acquire(project).rewindFiles(uuid);
+  }
+
+  /** The live session for a channel, built (with resume) when missing. */
+  private acquire(project: Project): ChannelSession {
     const route = this.routeOf(project.model);
     let session = this.sessions.get(project.id);
     // The model moved to a different harness: retire the live session. The
@@ -889,12 +971,13 @@ export class SessionManager {
           { ...project, ...(route.model !== undefined ? { model: route.model } : {}) },
           this.events,
           claudeResume,
+          claudeResume ? this.resumeAtFor(project.id) : undefined,
           this.extrasFor(project),
         );
       }
       this.sessions.set(project.id, session);
     }
-    session.send(text, images, attachments, silent);
+    return session;
   }
 
   interrupt(projectId: string): void {

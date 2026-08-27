@@ -18,6 +18,12 @@ interface ArchiveData {
   /** A finished compaction's brief, waiting to ride the next prompt into the
    *  fresh session (persisted so a restart in between loses nothing). */
   pendingBrief?: string;
+  /** SDK chain uuids per turn (keyed by the opening user-event id): the
+   *  prompt's own uuid (`user` — the file-rewind target) and the turn's
+   *  latest chain uuid (`last` — the fork point when rewinding PAST it). */
+  chain?: Record<string, { user?: string; last?: string }>;
+  /** A rewind's fork point: the next Claude session resumes truncated here. */
+  resumeAt?: string;
 }
 
 function archiveDir(): string {
@@ -45,6 +51,8 @@ export class SessionArchive {
         summaries: raw.summaries && typeof raw.summaries === "object" ? raw.summaries : {},
         ...(typeof raw.lastSessionId === "string" ? { lastSessionId: raw.lastSessionId } : {}),
         ...(typeof raw.pendingBrief === "string" ? { pendingBrief: raw.pendingBrief } : {}),
+        ...(raw.chain && typeof raw.chain === "object" ? { chain: raw.chain } : {}),
+        ...(typeof raw.resumeAt === "string" ? { resumeAt: raw.resumeAt } : {}),
       };
     } catch {
       entry = { events: [], summaries: {} };
@@ -132,6 +140,49 @@ export class SessionArchive {
   clearLastSessionId(projectId: string): void {
     delete this.load(projectId).lastSessionId;
     this.scheduleWrite(projectId);
+  }
+
+  /** Record a turn's SDK chain uuid (see ArchiveData.chain). */
+  setChain(projectId: string, eventId: string, kind: "user" | "last", uuid: string): void {
+    const entry = this.load(projectId);
+    entry.chain ??= {};
+    (entry.chain[eventId] ??= {})[kind] = uuid;
+    this.scheduleWrite(projectId);
+  }
+
+  chain(projectId: string): Record<string, { user?: string; last?: string }> {
+    return this.load(projectId).chain ?? {};
+  }
+
+  setResumeAt(projectId: string, uuid: string): void {
+    this.load(projectId).resumeAt = uuid;
+    this.scheduleWrite(projectId);
+  }
+
+  /** Claim the pending rewind fork point (cleared once taken). */
+  takeResumeAt(projectId: string): string | undefined {
+    const entry = this.load(projectId);
+    const at = entry.resumeAt;
+    if (at !== undefined) {
+      delete entry.resumeAt;
+      this.scheduleWrite(projectId);
+    }
+    return at;
+  }
+
+  /** Drop everything from this event to the end (a rewind's discard),
+   *  along with the dropped turns' summaries and chain uuids. */
+  truncateFrom(projectId: string, eventId: string): string[] {
+    const entry = this.load(projectId);
+    const start = entry.events.findIndex((e) => e.id === eventId);
+    if (start === -1) return [];
+    const removed = entry.events.splice(start).map((e) => e.id);
+    for (const id of removed) {
+      delete entry.summaries[id];
+      if (entry.chain) delete entry.chain[id];
+    }
+    this.scheduleWrite(projectId);
+    return removed;
   }
 
   setPendingBrief(projectId: string, brief: string): void {

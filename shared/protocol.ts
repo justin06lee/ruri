@@ -184,6 +184,9 @@ export type ClientMessage =
   /** Remove a transcript event (a clicked command chip). A user event takes
    *  the rest of its turn with it. */
   | { type: "remove_event"; projectId: string; eventId: string }
+  /** Rewind conversation AND code to just before this user event ran
+   *  (Claude sessions only — rides the CLI's file checkpoints). */
+  | { type: "rewind"; projectId: string; eventId: string }
   | { type: "interrupt"; projectId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   | { type: "set_model"; projectId: string; model: string }
@@ -265,6 +268,8 @@ export type ServerMessage =
   | { type: "events_removed"; projectId: string; eventIds: string[] }
   /** A finished tracker review's generated prompt, for the composer. */
   | { type: "review_prompt"; projectId: string; text: string }
+  /** Text for a channel's composer (a rewound prompt, back for editing). */
+  | { type: "compose"; projectId: string; text: string }
   /** Fresh account limit windows (the usage gauges). */
   | { type: "usage"; limits: UsageLimits }
   /** A channel's context occupancy changed (after an API call). */

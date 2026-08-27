@@ -131,10 +131,13 @@ export function EventView({
   event,
   project,
   channelId,
+  onRewind,
 }: {
   event: TranscriptEvent;
   project?: Project;
   channelId?: string;
+  /** Present when this prompt can be rewound to — renders the pencil. */
+  onRewind?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
 }) {
   switch (event.kind) {
     case "user":
@@ -153,6 +156,17 @@ export function EventView({
       }
       return (
         <div className="msg user">
+          {onRewind && (
+            <button
+              className="icon-button rewind-pencil"
+              title="Edit and rewind — conversation and code return to just before this prompt"
+              onClick={() => onRewind(event)}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+            </button>
+          )}
           <Markdown text={event.text} />
           {event.attachments && event.attachments.length > 0 && (
             <TranscriptAttachments attachments={event.attachments} />
@@ -776,6 +790,13 @@ export function ChatPane() {
   const [folded, setFolded] = useState<Set<string>>(new Set());
   useEffect(() => setFolded(new Set()), [activeId]);
 
+  // Rewind: pencil on a past prompt → confirm → conversation and code both
+  // return to just before it ran. Claude sessions only (file checkpoints),
+  // and only while nothing is running.
+  const models = useRuri((s) => s.models);
+  const [rewindTarget, setRewindTarget] = useState<{ id: string; preview: string } | null>(null);
+  useEffect(() => setRewindTarget(null), [activeId]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
@@ -808,6 +829,17 @@ export function ChatPane() {
   }
 
   const busy = status === "working" || status === "permission";
+
+  // Rewind rides the CLI's checkpoints — only when the model routes to Claude.
+  const claudeRoute = !models.find((m) => m.value === (project.model || DEFAULT_MODEL))?.provider;
+  const canRewind = !isHome && !busy && claudeRoute;
+  const askRewind = canRewind
+    ? (event: Extract<TranscriptEvent, { kind: "user" }>) =>
+        setRewindTarget({
+          id: event.id,
+          preview: event.text.length > 120 ? `${event.text.slice(0, 117)}…` : event.text,
+        })
+    : undefined;
 
   // No conversation yet (Home or a fresh project): the hero — face, a big
   // title, and the composer front and center.
@@ -899,7 +931,13 @@ export function ChatPane() {
                   </button>
                 )}
                 {turn.events.map((event) => (
-                  <EventView key={event.id} event={event} project={project} channelId={activeId} />
+                  <EventView
+                    key={event.id}
+                    event={event}
+                    project={project}
+                    channelId={activeId}
+                    onRewind={askRewind}
+                  />
                 ))}
               </div>
             );
@@ -928,6 +966,34 @@ export function ChatPane() {
       </div>
 
       {trackerOpen && <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />}
+
+      {rewindTarget && (
+        <div className="confirm-overlay" onClick={() => setRewindTarget(null)}>
+          <div className="confirm-card" onClick={(e) => e.stopPropagation()}>
+            <div className="confirm-title">Rewind to this prompt?</div>
+            <div className="confirm-quote">{rewindTarget.preview}</div>
+            <div className="confirm-body">
+              The conversation and the project's files both return to the moment before this
+              prompt ran. Everything after it is discarded, and the prompt lands back in the
+              composer for editing.
+            </div>
+            <div className="confirm-actions">
+              <button className="ghost" onClick={() => setRewindTarget(null)}>
+                Cancel
+              </button>
+              <button
+                className="primary"
+                onClick={() => {
+                  send({ type: "rewind", projectId: activeId, eventId: rewindTarget.id });
+                  setRewindTarget(null);
+                }}
+              >
+                Rewind
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Composer key={activeId} channelId={activeId} project={project} busy={busy} />
     </main>

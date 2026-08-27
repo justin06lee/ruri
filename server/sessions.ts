@@ -218,18 +218,9 @@ class ProjectSession implements ChannelSession {
   }
 
   async rewindFiles(uuid: string): Promise<{ canRewind: boolean; error?: string }> {
-    // feature-detected: present from yagami 0.6.1 (typed against 0.6.0)
-    const session = this.session as unknown as {
-      rewindFiles?: (u: string) => Promise<{ canRewind: boolean; error?: string }>;
-    };
-    if (!session.rewindFiles) {
-      return {
-        canRewind: false,
-        error: "file rewind needs yagami 0.6.1+ — update the dependency and rebuild",
-      };
-    }
     try {
-      return await session.rewindFiles(uuid);
+      const result = await this.session.rewindFiles(uuid);
+      return { canRewind: result.canRewind, ...(result.error ? { error: result.error } : {}) };
     } catch (err) {
       return { canRewind: false, error: err instanceof Error ? err.message : String(err) };
     }

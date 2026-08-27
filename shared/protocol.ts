@@ -206,8 +206,10 @@ export type ClientMessage =
    *  the rest of its turn with it. */
   | { type: "remove_event"; projectId: string; eventId: string }
   /** Rewind conversation AND code to just before this user event ran
-   *  (Claude sessions only — rides the CLI's file checkpoints). */
-  | { type: "rewind"; projectId: string; eventId: string }
+   *  (Claude sessions only — rides the CLI's file checkpoints). With
+   *  `text`, the edited prompt goes out as the next turn once the rewind
+   *  lands; without it, the original text returns to the composer. */
+  | { type: "rewind"; projectId: string; eventId: string; text?: string }
   | { type: "interrupt"; projectId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   | { type: "set_model"; projectId: string; model: string }

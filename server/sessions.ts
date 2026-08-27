@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import * as path from "node:path";
 import {
   AgentSession,
   AuthRequiredError,
@@ -113,6 +114,26 @@ function shortenPaths(text: string, project: Project): string {
   const root = project.path.replace(/\/+$/, "");
   if (!root) return text;
   return text.replaceAll(`${root}/`, `${project.name}/`).replaceAll(root, project.name);
+}
+
+/** Extensions the transcript will show inline — what Read itself can take. */
+const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif"]);
+
+/**
+ * A Read of an image earns a thumbnail in the transcript: reading a
+ * screenshot and only seeing its path back is the one case where the tool
+ * chip hides the thing you actually wanted to look at. Served through
+ * /readfile, which only answers for paths a tool event recorded.
+ */
+export function readImage(
+  name: string,
+  input: Record<string, unknown>,
+): { url: string; name: string } | undefined {
+  if (name !== "Read" && name !== "NotebookRead") return undefined;
+  const file = input["file_path"];
+  if (typeof file !== "string" || !path.isAbsolute(file)) return undefined;
+  if (!IMAGE_EXTS.has(path.extname(file).toLowerCase())) return undefined;
+  return { url: `/readfile?p=${encodeURIComponent(file)}`, name: path.basename(file) };
 }
 
 function toolSummary(name: string, input: Record<string, unknown>, project: Project): string {
@@ -527,11 +548,13 @@ class ProjectSession implements ChannelSession {
         if (block.type === "tool_use") {
           const name = typeof block["name"] === "string" ? (block["name"] as string) : "tool";
           const input = (block["input"] ?? {}) as Record<string, unknown>;
+          const image = readImage(name, input);
           this.pushEvent({
             kind: "tool",
             id: randomUUID(),
             name,
             summary: toolSummary(name, input, this.project),
+            ...(image ? { image } : {}),
             ts: Date.now(),
           });
         }

@@ -653,6 +653,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         const removed = archive.removeTurn(msg.projectId, msg.eventId);
         if (removed.length > 0) {
           broadcast({ type: "events_removed", projectId: msg.projectId, eventIds: removed });
+          // a removed turn takes its extracted checklist items with it
+          if (tracker.removeForTurns(msg.projectId, removed)) {
+            broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+          }
         }
         break;
       }
@@ -697,6 +701,12 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             const removed = archive.truncateFrom(channelId, eventId);
             if (removed.length > 0) {
               broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
+              // items are tied to the prompts they were split from — the
+              // rewound prompt's items (and every discarded later prompt's)
+              // go too; the edited prompt re-extracts fresh ones on send
+              if (tracker.removeForTurns(channelId, removed)) {
+                broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
+              }
             }
             broadcast({ type: "status", projectId: channelId, status: "idle" });
             const edited = msg.text?.trim();

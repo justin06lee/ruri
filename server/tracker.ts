@@ -121,6 +121,22 @@ export class TrackerStore {
     this.save(projectId);
   }
 
+  /** Drop the auto items extracted from discarded prompts (a rewind, a
+   *  removed turn) — the edited prompt re-extracts fresh ones the moment
+   *  it sends, so its checklist follows the edit. Manual items are the
+   *  user's own and always stay. */
+  removeForTurns(projectId: string, turnIds: Iterable<string>): boolean {
+    const gone = new Set(turnIds);
+    const items = this.load(projectId);
+    const kept = items.filter(
+      (item) => !(item.source === "auto" && item.turnId && gone.has(item.turnId)),
+    );
+    if (kept.length === items.length) return false;
+    this.data.set(projectId, kept);
+    this.save(projectId);
+    return true;
+  }
+
   remove(projectId: string, itemId: string): void {
     this.data.set(
       projectId,

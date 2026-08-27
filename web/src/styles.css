@@ -2065,12 +2065,9 @@ input[type="range"]::-webkit-slider-thumb {
   font-weight: 600;
 }
 
-/* the user pressed stop — a quiet note, not an error */
+/* the user pressed stop — a quiet note, not an error (and no icon:
+   words alone read calmer than a stop-square) */
 .result-line.stopped .result-text {
-  color: var(--ink-soft);
-}
-
-.result-line.stopped .result-text .icon {
   color: var(--ink-soft);
 }
 

@@ -508,7 +508,12 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         }
         broadcast({ type: "projects", projects: store.list() });
       }
-      const sessionId = project.sessions[0]?.id;
+      let sessionId = project.sessions[0]?.id;
+      // an emptied folder (all sessions closed) gets a fresh session on reopen
+      if (!sessionId) {
+        sessionId = store.newSession(project.id)?.id;
+        broadcast({ type: "projects", projects: store.list() });
+      }
       if (kickoffPrompt && sessionId) manager.send({ ...project, id: sessionId }, kickoffPrompt);
       return `${opened ? "opened" : "already open"}: ${project.name} (${project.path})${
         kickoffPrompt ? " — session started with the kickoff prompt" : ""

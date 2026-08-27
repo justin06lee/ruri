@@ -31,7 +31,7 @@ export interface Project {
   permissionMode?: PermissionMode;
   /** Bookmarked: shown in the Starred section above the project tree. */
   starred?: boolean;
-  /** The project's sessions (at least one). */
+  /** The project's sessions (possibly none — an empty folder is fine). */
   sessions: SessionInfo[];
 }
 

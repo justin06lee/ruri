@@ -21,6 +21,7 @@ import {
   type Region,
 } from "./Attachments";
 import { Dropdown } from "./Dropdown";
+import { QuestionCard } from "./Questions";
 import { Thinking } from "./Thinking";
 import { Tracker } from "./Tracker";
 import { heroFor, heroUrl, launchHero } from "../hero";
@@ -1025,9 +1026,14 @@ export function ChatPane() {
             </div>
           )}
           {status === "working" && !draft && <Thinking />}
-          {permissions.map((request) => (
-            <PermissionBanner key={request.requestId} request={request} />
-          ))}
+          {permissions.map((request) =>
+            // a question is not an allow/deny — it gets the picker, not the card
+            request.kind === "question" ? (
+              <QuestionCard key={request.requestId} request={request} />
+            ) : (
+              <PermissionBanner key={request.requestId} request={request} />
+            ),
+          )}
           {queuedItems.map((item) => (
             <QueuedCard key={item.id} projectId={activeId} item={item} />
           ))}

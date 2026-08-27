@@ -230,10 +230,11 @@ function apply(msg: ServerMessage): void {
       setState((s) => ({ contexts: { ...s.contexts, [msg.projectId]: msg.context } }));
       break;
     }
-    case "review_prompt": {
-      // The generated fix-it prompt goes into the composer of the channel
-      // that was reviewed — live-seeded if it's still active, otherwise into
-      // its saved draft for the next visit.
+    case "review_prompt":
+    case "compose": {
+      // Text bound for a channel's composer (a review's fix-it prompt, a
+      // rewound prompt back for editing) — live-seeded if the channel is
+      // active, otherwise into its saved draft for the next visit.
       const state = useRuri.getState();
       if (msg.projectId === state.activeId) state.seedComposer(msg.text);
       else appendDraft(msg.projectId, msg.text);

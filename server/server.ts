@@ -446,6 +446,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         contexts.set(projectId, context);
         broadcast({ type: "context", projectId, context });
       },
+      onChain: (projectId, eventId, kind, uuid) => archive.setChain(projectId, eventId, kind, uuid),
     },
     (projectId) => archive.lastSessionId(projectId),
     (project) =>
@@ -456,6 +457,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       parse: (model) => registry.parse(model),
       create: (id, workDir) => registry.createFor(id, workDir),
     },
+    (projectId) => archive.takeResumeAt(projectId),
   );
 
   /** Tear down one project and everything its sessions accumulated. */
@@ -625,6 +627,71 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (removed.length > 0) {
           broadcast({ type: "events_removed", projectId: msg.projectId, eventIds: removed });
         }
+        break;
+      }
+      case "rewind": {
+        // Conversation AND code, back to just before this prompt ran: the
+        // CLI restores its file checkpoints, then the session resumes
+        // truncated (forked) at the kept turn's last chain entry. The
+        // prompt itself lands back in the composer for editing.
+        const channelId = msg.projectId;
+        const eventId = msg.eventId;
+        void (async () => {
+          try {
+            if (busy(channelId)) throw new Error("stop the running turn first");
+            const events = archive.events(channelId);
+            const idx = events.findIndex((e) => e.id === eventId);
+            const target = idx >= 0 ? events[idx] : undefined;
+            if (!target || target.kind !== "user") throw new Error("that prompt is gone");
+            const chain = archive.chain(channelId);
+            const userUuid = chain[eventId]?.user;
+            if (!userUuid) throw new Error("no checkpoint recorded for that prompt");
+            // the fork point: the latest checkpointed turn before the target
+            // (a compaction boundary means a different session — no crossing)
+            let resumeAt: string | undefined;
+            for (let i = idx - 1; i >= 0; i--) {
+              const ev = events[i]!;
+              if (ev.kind === "compaction") throw new Error("can't rewind across a compaction");
+              if (ev.kind === "user" && chain[ev.id]?.last) {
+                resumeAt = chain[ev.id]!.last;
+                break;
+              }
+            }
+            if (events.some((e, i) => i > idx && e.kind === "compaction")) {
+              throw new Error("can't rewind across a compaction");
+            }
+            const project = channelProject(channelId);
+            if (!project) throw new Error("unknown session");
+            const result = await manager.rewindFiles(project, userUuid);
+            if (!result.canRewind) throw new Error(result.error ?? "the CLI couldn't restore the files");
+            manager.dispose(channelId);
+            if (resumeAt) archive.setResumeAt(channelId, resumeAt);
+            else archive.clearLastSessionId(channelId);
+            const removed = archive.truncateFrom(channelId, eventId);
+            if (removed.length > 0) {
+              broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
+            }
+            broadcast({ type: "status", projectId: channelId, status: "idle" });
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: "compose",
+                  projectId: channelId,
+                  text: target.text,
+                } satisfies ServerMessage),
+              );
+            }
+          } catch (err) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: `rewind failed: ${err instanceof Error ? err.message : String(err)}`,
+                } satisfies ServerMessage),
+              );
+            }
+          }
+        })();
         break;
       }
       case "new_session": {

@@ -34,6 +34,9 @@ export interface ManagerHost {
     folder?: string;
     kickoffPrompt?: string;
   }): string;
+  /** Close an open project (matched by name, path, or id) — sidebar entry
+   *  and transcripts go; files on disk are never touched. */
+  closeProject(query: string): string;
   listProjects(): Project[];
 }
 
@@ -44,7 +47,12 @@ export interface ManagerHost {
  */
 const PERSONALITY = `Personality: you're Ruri — think Aoki Ruri from RuriDragon. Half-dragon, woke up with horns one day, went to school anyway. Low-energy and a little sleepy, deadpan, casually blunt but never mean; nothing really fazes you. A big pile of work earns a quiet "what a drag" — and then you just do it, properly. Talk casual, keep it short, skip the exclamation marks. Underneath it all you're warm and you quietly look out for the user.`;
 
-function managerAppend(workspaceDir: string): string {
+/** The shared note about the programmatic activity log (see homelog.ts). */
+function logNote(logPath: string): string {
+  return `Your past activity is logged programmatically at ${logPath} — every prompt, tool call, and reply from every Home session, in blocks headed "SESSION <n> — YYYY-MM-DD (Day) HH:MM". This chat resets constantly; that file is your memory. When the user refers to something from earlier ("that project from yesterday", "what did we do Monday"), grep the log for dates, project names, or keywords and read the matching lines — do NOT read the whole file. You never write to it; it writes itself.`;
+}
+
+function managerAppend(workspaceDir: string, logPath: string): string {
   return `
 
 You are also ruri's workspace manager — the Home agent of a desktop app whose sidebar holds one live coding session per project.
@@ -55,7 +63,9 @@ When the user names projects they want to work on, that IS the request to open t
 2. Call mcp__ruri__open_project for each one. This is the ONLY way a project opens in ruri's sidebar — never open folders in Finder or an editor instead. When the user described concrete work for a project, pass it as kickoff_prompt so that project's session starts working immediately.
 3. Confirm briefly what you opened and what each session is doing.
 
-mcp__ruri__list_projects shows what's already open. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's own session. Keep replies short.
+mcp__ruri__list_projects shows what's already open. mcp__ruri__close_project closes one (by name or path) when the user is done with it — transcripts go, files on disk are untouched. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's own session. Keep replies short.
+
+${logNote(logPath)}
 
 ${PERSONALITY}`;
 }
@@ -67,7 +77,7 @@ ${PERSONALITY}`;
  * own working directory — writable under every harness's sandbox), and ruri
  * applies the file the moment the turn ends.
  */
-export function managerProviderSystem(workspaceDir: string): string {
+export function managerProviderSystem(workspaceDir: string, logPath: string): string {
   return `You are ruri's Home agent — the workspace manager of a desktop app whose sidebar holds one live coding session per project.
 The user's workspace root (your working directory, where their projects live): ${workspaceDir}
 
@@ -75,9 +85,12 @@ You have no direct tool for the sidebar; ruri watches a drop file instead. When 
 1. Find the matching project directories right away (list the workspace root; fuzzy-match what they said — workspaces are often nested like github.com/<user>/<repo>).
 2. Append one JSON line per project to the file .ruri/open.jsonl in the workspace root, creating it if missing:
    {"path": "/absolute/path/to/project", "name": "optional display name", "folder": "optional sidebar group", "kickoff": "optional first prompt — pass the user's described work so the project's session starts on it immediately"}
-3. ruri opens everything in that file the moment your turn ends. Confirm briefly what you queued.
+   To close an open project instead, append: {"close": "project name or path"}
+3. ruri applies everything in that file the moment your turn ends. Confirm briefly what you queued.
 
 Never open folders in Finder or an editor — opening means the drop file, nothing else. Deep work belongs in each project's own ruri session; prefer delegating via kickoff over doing project work yourself. Keep replies short.
+
+${logNote(logPath)}
 
 ${PERSONALITY}`;
 }
@@ -104,7 +117,17 @@ export function drainOpenRequests(workspaceDir: string, host: ManagerHost): stri
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      const req = JSON.parse(trimmed) as { path?: string; name?: string; folder?: string; kickoff?: string };
+      const req = JSON.parse(trimmed) as {
+        path?: string;
+        name?: string;
+        folder?: string;
+        kickoff?: string;
+        close?: string;
+      };
+      if (req.close) {
+        results.push(host.closeProject(req.close));
+        continue;
+      }
       if (!req.path) continue;
       results.push(
         host.openProject({
@@ -121,7 +144,7 @@ export function drainOpenRequests(workspaceDir: string, host: ManagerHost): stri
   return results;
 }
 
-export function managerExtras(host: ManagerHost, workspaceDir: string): SessionExtras {
+export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: string): SessionExtras {
   const ruri = createSdkMcpServer({
     name: "ruri",
     version: "1.0.0",
@@ -152,6 +175,16 @@ export function managerExtras(host: ManagerHost, workspaceDir: string): SessionE
           ],
         }),
       ),
+      tool(
+        "close_project",
+        "Close an open project in ruri's sidebar — its sessions and transcripts go; files on disk are never touched.",
+        {
+          project: z.string().describe("Name or path of the open project to close"),
+        },
+        async (args) => ({
+          content: [{ type: "text", text: host.closeProject(args.project) }],
+        }),
+      ),
       tool("list_projects", "List the projects currently open in ruri's sidebar.", {}, async () => ({
         content: [
           {
@@ -168,13 +201,17 @@ export function managerExtras(host: ManagerHost, workspaceDir: string): SessionE
   });
 
   return {
-    autoAllow: ["mcp__ruri__open_project", "mcp__ruri__list_projects"],
+    autoAllow: ["mcp__ruri__open_project", "mcp__ruri__close_project", "mcp__ruri__list_projects"],
     options: {
       mcpServers: { ruri },
-      systemPrompt: { type: "preset", preset: "claude_code", append: managerAppend(workspaceDir) },
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        append: managerAppend(workspaceDir, logPath),
+      },
     },
     // Home on a non-Claude harness: same manager duties via the drop file.
-    providerSystem: managerProviderSystem(workspaceDir),
+    providerSystem: managerProviderSystem(workspaceDir, logPath),
     onProviderTurnEnd: () => drainOpenRequests(workspaceDir, host),
   };
 }

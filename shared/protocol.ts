@@ -115,8 +115,13 @@ export interface QueuedPrompt {
 export interface UsageLimits {
   /** The 5-hour session window. */
   fiveHour?: number;
-  /** The 7-day window. */
+  /** The 7-day window, across every model. */
   weekly?: number;
+  /**
+   * The weekly window scoped to one model — the account's premium tier, which
+   * the endpoint names itself ("Fable", "Opus"). Absent on plans without one.
+   */
+  scoped?: { label: string; percent: number };
 }
 
 /** Context-window occupancy of a channel's live session, from the last call. */

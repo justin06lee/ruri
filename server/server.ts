@@ -365,6 +365,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     archive.clearLastSessionId(channelId);
     archive.setPendingBrief(channelId, built.brief);
     contexts.delete(channelId);
+    archive.setContextTokens(channelId, 0);
     broadcast({
       type: "context",
       projectId: channelId,
@@ -466,6 +467,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       onContext: (projectId, tokens) => {
         const context: ContextUsage = { tokens, window: contextWindow(projectId) };
         contexts.set(projectId, context);
+        archive.setContextTokens(projectId, tokens);
         broadcast({ type: "context", projectId, context });
       },
       onChain: (projectId, eventId, kind, uuid) => archive.setChain(projectId, eventId, kind, uuid),
@@ -975,7 +977,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       tracker: tracker.all(projectIds),
       queued: Object.fromEntries(projectIds.map((id) => [id, visibleQueue(id)])),
       usage: usageLimits,
-      contexts: Object.fromEntries(contexts),
+      // live figures first; anything not yet seen this run falls back to the
+      // last one the archive recorded, so a relaunch shows real occupancy
+      contexts: Object.fromEntries(
+        projectIds.flatMap((id) => {
+          const live = contexts.get(id);
+          if (live) return [[id, live] as const];
+          const tokens = archive.contextTokens(id);
+          return tokens === undefined ? [] : [[id, { tokens, window: contextWindow(id) }] as const];
+        }),
+      ),
       canPickFolder: options.pickFolder !== undefined,
       workspaceDir: store.workspaceDir(),
       musicDir: musicRoot(),

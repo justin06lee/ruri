@@ -2239,6 +2239,124 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 10px;
 }
 
+/* ── the dragon gauges ────────────────────────────────────────────── */
+
+/* Four dragons flanking the composer, each filling from his feet. Below the
+   waterline the body is solid ink with the outline inverted to paper; above
+   it, the plain drawing. Both halves are alpha masks tinted with theme
+   colors, so dark mode gets a white dragon filling white for free. */
+
+.dragons {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-shrink: 0;
+  /* the composer keeps the keyboard; a dragon is a readout, not a control */
+  user-select: none;
+}
+
+/* a fixed column width keeps both pairs the same size whatever their labels
+   say, so the composer between them stays optically centered */
+.dragon-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 46px;
+  cursor: default;
+}
+
+/* 167 × 380 is the trimmed art — the box holds that ratio so the drawing is
+   never stretched, only scaled */
+.dragon {
+  position: relative;
+  width: 32px;
+  height: 73px;
+}
+
+.dragon-layer {
+  position: absolute;
+  inset: 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  transition: clip-path 320ms ease-out;
+}
+
+.dragon-layer.solid.calm {
+  -webkit-mask-image: url(/dragon/calm-solid.png);
+  mask-image: url(/dragon/calm-solid.png);
+}
+
+.dragon-layer.solid.sweat {
+  -webkit-mask-image: url(/dragon/sweat-solid.png);
+  mask-image: url(/dragon/sweat-solid.png);
+}
+
+.dragon-layer.outline.calm,
+.dragon-layer.outline-inv.calm {
+  -webkit-mask-image: url(/dragon/calm-outline.png);
+  mask-image: url(/dragon/calm-outline.png);
+}
+
+.dragon-layer.outline.sweat,
+.dragon-layer.outline-inv.sweat {
+  -webkit-mask-image: url(/dragon/sweat-outline.png);
+  mask-image: url(/dragon/sweat-outline.png);
+}
+
+/* the body below the line, and the strokes crossing it inverted out of that
+   body — which is what makes the filled half read as a negative */
+.dragon-layer.solid {
+  background: var(--ink);
+}
+
+.dragon-layer.outline-inv {
+  background: var(--paper);
+}
+
+.dragon-layer.outline {
+  background: var(--ink);
+}
+
+/* the waterline itself — where the number is, read straight off the drawing */
+.dragon-level {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1.5px;
+  background: var(--ink);
+  transition: bottom 320ms ease-out;
+}
+
+.dragon-value {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.dragon-name {
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+}
+
+/* the empty state is a narrow centered column with nothing to report yet —
+   the dragons arrive with the conversation */
+.hero-composer .dragons {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .dragons {
+    display: none;
+  }
+}
+
 /* ── the question card (AskUserQuestion) ──────────────────────────── */
 
 /* Not a permission card: the model is asking, so this reads as a form the
@@ -3003,12 +3121,24 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 8px 24px 10px;
 }
 
+/* the composer and its four dragons on one line, the box centered between
+   them — the pairs are equal-width so the box stays optically centered */
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 14px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
 .composer-box {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: 800px;
-  margin: 0 auto;
+  flex: 1;
+  min-width: 0;
+  max-width: 680px;
   background: var(--paper-bright);
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-l);

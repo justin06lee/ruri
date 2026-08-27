@@ -76,22 +76,23 @@ export async function summarizeReply(turn: Turn): Promise<string> {
   return complete(REPLY_SUMMARY_SYSTEM, prompt, 120);
 }
 
-const TRACKER_SYSTEM = `You maintain the user's manual test checklist for a coding-agent session, working from the user's own prompts alone.
-Given one prompt the user sent, list the features, changes, or fixes the USER ASKED FOR — the things they'll want to verify by hand once the agent is done.
+const TRACKER_SYSTEM = `You turn one user prompt to a coding agent into checklist items — a splitter, nothing more.
+Split the prompt into its distinct requests: exactly one item per request, in the prompt's order.
 Rules:
-- Only explicit requests to add, change, or fix something make items. Questions, discussion, opinions, and look-at/analyze asks yield nothing.
-- One item per distinct request, faithful to the user's own wording — never invent or interpret beyond what they said.
+- Use the user's own words, shortened only to fit the line. NEVER invent, infer, generalize, or add details, conditions, or test steps the user did not literally say.
+- Only requests to add, change, or fix something become items. Questions, discussion, opinions, and look-at/analyze asks yield nothing.
 - Skip anything already covered by the EXISTING ITEMS list.
-- Each item: one short imperative line ("Check the dark-mode toggle persists"), max 12 words.
+- Each item: one short line, max 12 words.
 - Output STRICT JSON: {"items": ["...", "..."]} — empty array if nothing.`;
 
-/** Checklist items from ONE user prompt — the reply never feeds this: the
- *  checklist mirrors what the user asked for, not what the agent narrates. */
+/** Checklist items from ONE user prompt, split the moment it's sent — the
+ *  reply never feeds this: the checklist mirrors what the user asked for,
+ *  in their own words, never what the agent narrates or embellishes. */
 export async function extractTrackerItems(userText: string, existing: string[]): Promise<string[]> {
   const prompt =
     `EXISTING ITEMS:\n${existing.length ? existing.map((t) => `- ${t}`).join("\n") : "(none)"}\n\n` +
     `USER PROMPT:\n${userText.slice(0, 6000)}`;
-  const raw = await complete(TRACKER_SYSTEM, prompt, 400);
+  const raw = await complete(TRACKER_SYSTEM, prompt, 600);
   try {
     const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "")) as {
       items?: unknown;
@@ -101,7 +102,7 @@ export async function extractTrackerItems(userText: string, existing: string[]):
       .filter((item): item is string => typeof item === "string")
       .map((item) => item.trim())
       .filter((item) => item.length > 0 && item.length < 200)
-      .slice(0, 8);
+      .slice(0, 16);
   } catch {
     return [];
   }

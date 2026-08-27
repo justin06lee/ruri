@@ -52,6 +52,16 @@ function isPdf(name: string, mediaType?: string): boolean {
   return mediaType === "application/pdf" || name.toLowerCase().endsWith(".pdf");
 }
 
+/** Real video containers only — browsers call .ts (TypeScript) "video/mp2t". */
+const VIDEO_EXT = new Set(["mp4", "mov", "webm", "m4v", "avi", "mkv", "mpg", "mpeg", "ogv"]);
+
+export function fileKind(file: File): "image" | "video" | "file" {
+  if (file.type.startsWith("image/")) return "image";
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (file.type.startsWith("video/") && VIDEO_EXT.has(ext)) return "video";
+  return "file";
+}
+
 export async function fileToBase64(file: File): Promise<string> {
   const buffer = new Uint8Array(await file.arrayBuffer());
   let binary = "";

@@ -11,6 +11,7 @@ import {
 import {
   AttachmentStrip,
   cropRegion,
+  fileKind,
   fileToBase64,
   Viewer,
   TranscriptAttachments,
@@ -63,7 +64,16 @@ function toolIcon(name: string): string {
 
 /* ── transcript events ───────────────────────────────────────────── */
 
-function EventView({ event }: { event: TranscriptEvent }) {
+/** Collapse absolute in-project paths to "name/relative" at render time —
+ *  the server shortens new events, but archived ones predate that, and this
+ *  keeps every chip short regardless of when it was written. */
+function shortenDisplay(text: string, project?: Project): string {
+  const root = project?.path.replace(/\/+$/, "");
+  if (!root || !project) return text;
+  return text.split(`${root}/`).join(`${project.name}/`).split(root).join(project.name);
+}
+
+function EventView({ event, project }: { event: TranscriptEvent; project?: Project }) {
   switch (event.kind) {
     case "user":
       return (
@@ -80,14 +90,16 @@ function EventView({ event }: { event: TranscriptEvent }) {
           <Markdown text={event.text} />
         </div>
       );
-    case "tool":
+    case "tool": {
+      const summary = shortenDisplay(event.summary, project);
       return (
-        <div className="tool-chip" title={event.summary}>
+        <div className="tool-chip" title={summary}>
           <Icon d={toolIcon(event.name)} />
           <span className="tool-name">{event.name}</span>
-          <span className="tool-summary">{event.summary}</span>
+          <span className="tool-summary">{summary}</span>
         </div>
       );
+    }
     case "result":
       return event.ok ? (
         <div className="result-line ok">
@@ -224,16 +236,6 @@ function SessionControls({ project }: { project: Project }) {
 }
 
 /* ── composer ────────────────────────────────────────────────────── */
-
-/** Real video containers only — browsers call .ts (TypeScript) "video/mp2t". */
-const VIDEO_EXT = new Set(["mp4", "mov", "webm", "m4v", "avi", "mkv", "mpg", "mpeg", "ogv"]);
-
-function fileKind(file: File): "image" | "video" | "file" {
-  if (file.type.startsWith("image/")) return "image";
-  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-  if (file.type.startsWith("video/") && VIDEO_EXT.has(ext)) return "video";
-  return "file";
-}
 
 function Composer({
   channelId,
@@ -749,7 +751,9 @@ export function ChatPane() {
                   />
                 );
               }
-              return turn.events.map((event) => <EventView key={event.id} event={event} />);
+              return turn.events.map((event) => (
+                <EventView key={event.id} event={event} project={project} />
+              ));
             });
           })()}
           {draft && (

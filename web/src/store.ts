@@ -3,6 +3,8 @@ import {
   HOME_ID,
   type ClientMessage,
   type ContextUsage,
+  type DraftAttachment,
+  type DraftAttachmentUpload,
   type HomeSettings,
   type ModelChoice,
   type PermissionRequest,
@@ -16,6 +18,7 @@ import {
   type UsageLimits,
 } from "../../shared/protocol";
 import type { ComposerAttachment } from "./components/Attachments";
+import { fileToBase64 } from "./lib/files";
 
 export interface Draft {
   messageId: string;
@@ -33,47 +36,117 @@ export interface ComposerDraft {
 }
 export const composerDrafts = new Map<string, ComposerDraft>();
 
-/* A half-written prompt outlives the app. The server holds it (the window's
-   own storage cannot: the app serves itself on a fresh port every launch, so
-   localStorage lands under a different origin each time). Text only — an
-   attachment is a live File handle nothing can carry across a quit, so its
-   [markers] come back as words and the files go back in by hand. */
+/* A half-written prompt outlives the app, attachments included. The server
+   holds it — the window's own storage cannot: the app serves itself on a
+   fresh port every launch, so localStorage lands under a different origin
+   each time. */
 const draftTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** Channels this window has actually had a draft for. A composer mounts
  *  empty and immediately saves that emptiness; without this, that first
  *  write would race the snapshot and wipe the very draft it is about to
- *  restore. Only a channel we know had text can clear itself. */
+ *  restore. Only a channel we know had something can clear itself. */
 const draftedChannels = new Set<string>();
+/** Attachment ids the server already has bytes for — everything after the
+ *  first save is metadata, so editing a caption never re-uploads a video. */
+const storedAttachments = new Set<string>();
 
-/** Hand the channel's text to the server, a beat after typing stops. */
-function persistDraft(channelId: string, text: string): void {
+/** Hand the channel's draft to the server, a beat after typing stops. */
+function persistDraft(channelId: string, draft: ComposerDraft): void {
   clearTimeout(draftTimers.get(channelId));
   draftTimers.set(
     channelId,
     setTimeout(() => {
       draftTimers.delete(channelId);
-      send({ type: "draft", projectId: channelId, text });
+      void (async () => {
+        const attachments: DraftAttachmentUpload[] = await Promise.all(
+          draft.atts.map(async (att) => {
+            const fresh = !storedAttachments.has(att.id);
+            storedAttachments.add(att.id);
+            return {
+              id: att.id,
+              kind: att.kind,
+              mediaType: att.mediaType,
+              name: att.name,
+              n: att.n,
+              ...(att.regions.length ? { regions: att.regions } : {}),
+              ...(fresh ? { data: await fileToBase64(att.file) } : {}),
+            };
+          }),
+        );
+        send({ type: "draft", projectId: channelId, text: draft.text, attachments });
+      })();
     }, 400),
   );
+}
+
+/** Whether a channel is holding anything worth keeping. */
+function hasDraft(draft: ComposerDraft | undefined): boolean {
+  return Boolean(draft && (draft.text.trim() || draft.atts.length > 0));
 }
 
 /** Write a channel's draft — the one door every composer change goes
  *  through, so what's on screen is what a relaunch brings back. */
 export function setComposerDraft(channelId: string, draft: ComposerDraft): void {
   composerDrafts.set(channelId, draft);
-  if (draft.text.trim()) draftedChannels.add(channelId);
+  if (draft.text.trim() || draft.atts.length > 0) draftedChannels.add(channelId);
   else if (!draftedChannels.has(channelId)) return;
-  persistDraft(channelId, draft.text);
+  persistDraft(channelId, draft);
 }
 
 /** The prompt went out (or was thrown away) — the draft goes with it, and
  *  the server hears about that immediately rather than on the debounce. */
 export function clearComposerDraft(channelId: string): void {
+  for (const att of composerDrafts.get(channelId)?.atts ?? []) storedAttachments.delete(att.id);
   composerDrafts.delete(channelId);
   draftedChannels.delete(channelId);
   clearTimeout(draftTimers.get(channelId));
   draftTimers.delete(channelId);
-  send({ type: "draft", projectId: channelId, text: "" });
+  send({ type: "draft", projectId: channelId, text: "", attachments: [] });
+}
+
+/**
+ * Bring a saved draft's attachments back as live files: the bytes are where
+ * every other attachment lives, so fetching each one gives the composer a
+ * real File again — previews, region crops, and the send path all work on it
+ * exactly as they did before the quit. Anything whose file is gone is
+ * dropped; its [marker] stays in the text as words.
+ */
+async function restoreAttachments(
+  channelId: string,
+  saved: DraftAttachment[],
+): Promise<void> {
+  const atts: ComposerAttachment[] = [];
+  for (const att of saved) {
+    if (!att.url) continue;
+    try {
+      const res = await fetch(`${HTTP_BASE}${att.url}`);
+      if (!res.ok) continue;
+      const file = new File([await res.blob()], att.name, { type: att.mediaType });
+      storedAttachments.add(att.id);
+      atts.push({
+        id: att.id,
+        file,
+        kind: att.kind,
+        mediaType: att.mediaType,
+        name: att.name,
+        n: att.n,
+        objectUrl: URL.createObjectURL(file),
+        regions: att.regions ?? [],
+      });
+    } catch {
+      // the file is gone from disk — the rest of the draft still comes back
+    }
+  }
+  const draft = composerDrafts.get(channelId);
+  // typing in this channel while the files loaded wins; the marker numbering
+  // picks up above whatever came back
+  if (!draft || draft.atts.length > 0) return;
+  const counter = { image: 0, video: 0, file: 0 };
+  for (const att of atts) counter[att.kind] = Math.max(counter[att.kind], att.n);
+  composerDrafts.set(channelId, { ...draft, atts, counter });
+  useRuri.setState((s) => ({
+    draftBumps: { ...s.draftBumps, [channelId]: (s.draftBumps[channelId] ?? 0) + 1 },
+  }));
 }
 
 /** Append text to a channel's saved draft (async prompt arrivals). */
@@ -212,15 +285,18 @@ function apply(msg: ServerMessage): void {
       // being typed in wins over the stored copy — the server's is at most
       // a debounce behind, and what's on screen is the truth.
       const restored = Object.entries(msg.composerDrafts).filter(
-        ([channelId]) => !composerDrafts.get(channelId)?.text.trim(),
+        ([channelId]) => !hasDraft(composerDrafts.get(channelId)),
       );
-      for (const [channelId, text] of restored) {
+      for (const [channelId, draft] of restored) {
         composerDrafts.set(channelId, {
-          text,
+          text: draft.text,
           atts: [],
           counter: { image: 0, video: 0, file: 0 },
         });
         draftedChannels.add(channelId);
+        // the files follow: each one is fetched back into a live File and
+        // lands in the strip when it arrives
+        if (draft.attachments?.length) void restoreAttachments(channelId, draft.attachments);
       }
       setState((s) => ({
         projects: msg.projects,

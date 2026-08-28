@@ -10,7 +10,9 @@
  * and follow light/dark for free. Past 80% he starts sweating.
  */
 
+import { useId } from "react";
 import type { ContextUsage, UsageLimits } from "../../../shared/protocol";
+import { DRAGON, DRAGON_H, DRAGON_W } from "../dragonArt";
 import { useRuri } from "../store";
 
 /** Where the drawing swaps to the sweating one. */
@@ -34,19 +36,31 @@ interface Gauge {
 }
 
 function Dragon({ gauge }: { gauge: Gauge }) {
-  const art = gauge.percent >= SWEAT_AT ? "sweat" : "calm";
-  // clip-path insets, not a height animation: the masks stay the same size so
-  // the drawing never stretches as the level moves
-  const below = { clipPath: `inset(${100 - gauge.percent}% 0 0 0)` };
-  const above = { clipPath: `inset(0 0 ${gauge.percent}% 0)` };
+  const art = DRAGON[gauge.percent >= SWEAT_AT ? "sweat" : "calm"];
+  const uid = useId().replace(/:/g, "");
+  // the waterline in the art's own coordinates — clipping the paths rather
+  // than scaling anything, so the drawing never stretches as it fills
+  const y = DRAGON_H * (1 - gauge.percent / 100);
   return (
-    <div className={`dragon-gauge ${gauge.percent >= SWEAT_AT ? "hot" : ""}`} title={gauge.title}>
-      <div className="dragon">
-        <span className={`dragon-layer solid ${art}`} style={below} />
-        <span className={`dragon-layer outline-inv ${art}`} style={below} />
-        <span className={`dragon-layer outline ${art}`} style={above} />
-        <span className="dragon-level" style={{ bottom: `${gauge.percent}%` }} />
-      </div>
+    <div className="dragon-gauge" title={gauge.title}>
+      <svg className="dragon" viewBox={`0 0 ${DRAGON_W} ${DRAGON_H}`} aria-hidden>
+        <clipPath id={`below-${uid}`}>
+          <rect className="dragon-clip" x="0" y={y} width={DRAGON_W} height={DRAGON_H - y} />
+        </clipPath>
+        <clipPath id={`above-${uid}`}>
+          <rect className="dragon-clip" x="0" y="0" width={DRAGON_W} height={y} />
+        </clipPath>
+        {/* filled: solid body, its own detail knocked back out of it — the
+            contour stays the edge of the fill instead of inverting away */}
+        <g clipPath={`url(#below-${uid})`}>
+          <path className="dragon-body" d={art.body} fillRule="evenodd" />
+          <path className="dragon-detail" d={art.detail} fillRule="evenodd" />
+        </g>
+        {/* empty: the drawing as inked */}
+        <g clipPath={`url(#above-${uid})`}>
+          <path className="dragon-stroke" d={art.stroke} fillRule="evenodd" />
+        </g>
+      </svg>
       <div className="dragon-value">{gauge.value}</div>
       <div className="dragon-name">{gauge.name}</div>
     </div>

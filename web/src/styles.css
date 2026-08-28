@@ -2436,6 +2436,236 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── the dragon gauges ────────────────────────────────────────────── */
 
+/* Four dragons flanking the composer, each filling from his feet. The art
+   is three traced paths: the inked drawing above the waterline, and below
+   it the solid body with its own interior detail knocked back out — so the
+   outer contour stays the crisp edge of the fill rather than inverting into
+   the page, which is what made the filled half dissolve. Everything is
+   currentColor-adjacent theme vars, so dark mode is a white dragon filling
+   white for free. */
+
+.dragons {
+  display: flex;
+  align-items: flex-end;
+  gap: 13px;
+  flex-shrink: 0;
+  /* the composer keeps the keyboard; a dragon is a readout, not a control */
+  user-select: none;
+}
+
+/* a fixed column width keeps both pairs the same size whatever their labels
+   say, so the composer between them stays optically centered */
+.dragon-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 52px;
+  cursor: default;
+}
+
+.dragon {
+  width: 40px;
+  height: 91px;
+  overflow: visible;
+}
+
+/* the waterline is the clip rect's own geometry — y and height are CSS
+   properties on an SVG rect, so moving it transitions like anything else */
+.dragon-clip {
+  transition:
+    y 320ms ease-out,
+    height 320ms ease-out;
+}
+
+.dragon-body,
+.dragon-stroke {
+  fill: var(--ink);
+}
+
+.dragon-detail {
+  fill: var(--paper);
+}
+
+.dragon-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.dragon-name {
+  font-size: 9.5px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+}
+
+/* the empty state is a narrow centered column with nothing to report yet —
+   the dragons arrive with the conversation */
+.hero-composer .dragons {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .dragons {
+    display: none;
+  }
+}
+
+/* ── the patch under a Write or Edit ──────────────────────────────── */
+
+/* Monochrome everywhere else, but a diff without add/remove color is a
+   puzzle — these two tints are the quietest ones that still separate at a
+   glance on cream and on near-black. */
+:root {
+  --diff-add-bg: rgba(74, 124, 89, 0.14);
+  --diff-add-ink: #3f6b4b;
+  --diff-del-bg: rgba(168, 71, 60, 0.12);
+  --diff-del-ink: #8f3f34;
+}
+
+:root[data-theme="dark"] {
+  --diff-add-bg: rgba(110, 180, 130, 0.15);
+  --diff-add-ink: #83c795;
+  --diff-del-bg: rgba(220, 110, 95, 0.14);
+  --diff-del-ink: #e08a7c;
+}
+
+.diff {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  max-width: 100%;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background: var(--paper-dim);
+  overflow: hidden;
+  animation: rise 180ms ease-out;
+}
+
+.diff-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.diff-head:hover {
+  background: var(--paper-bright);
+}
+
+.diff-head:active {
+  transform: none;
+}
+
+.diff-chevron {
+  width: 11px;
+  height: 11px;
+  transition: transform 120ms ease-out;
+}
+
+.diff-chevron.open {
+  transform: rotate(90deg);
+}
+
+.diff-new {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+.diff-added {
+  color: var(--diff-add-ink);
+}
+
+.diff-removed {
+  color: var(--diff-del-ink);
+}
+
+/* capped so a big rewrite cannot swallow the conversation — the patch
+   scrolls inside its own frame */
+.diff-body {
+  max-height: 260px;
+  overflow: auto;
+  border-top: 1px solid var(--line-faint);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.diff-hunk + .diff-hunk {
+  border-top: 1px dashed var(--line-soft);
+}
+
+.diff-line {
+  display: flex;
+  align-items: baseline;
+  white-space: pre;
+  min-width: min-content;
+}
+
+.diff-line.add {
+  background: var(--diff-add-bg);
+}
+
+.diff-line.del {
+  background: var(--diff-del-bg);
+}
+
+/* the gutter does not scroll away horizontally — a long line still shows
+   which line it is */
+.diff-n {
+  position: sticky;
+  left: 0;
+  flex-shrink: 0;
+  width: 42px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--ink-faint);
+  background: inherit;
+  user-select: none;
+}
+
+.diff-sign {
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+  user-select: none;
+}
+
+.diff-line.add .diff-sign {
+  color: var(--diff-add-ink);
+}
+
+.diff-line.del .diff-sign {
+  color: var(--diff-del-ink);
+}
+
+.diff-text {
+  padding-right: 12px;
+  color: var(--ink);
+}
+
+.diff-more {
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  border-top: 1px solid var(--line-faint);
+}
+
+/* ── the dragon gauges ────────────────────────────────────────────── */
+
 /* Four dragons flanking the composer, each filling from his feet. Below the
    waterline the body is solid ink with the outline inverted to paper; above
    it, the plain drawing. Both halves are alpha masks tinted with theme

@@ -19,12 +19,13 @@ import type {
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
 import { buildCompaction, removeTurnFiles } from "./compaction.js";
+import { DraftStore } from "./drafts.js";
 import { HomeLog } from "./homelog.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
 import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
 import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
-import { SessionManager } from "./sessions.js";
+import { promptChain, SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
@@ -217,6 +218,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // log — appended programmatically per event, grepped by the model.
   const homeLog = new HomeLog();
   const tracker = new TrackerStore();
+  // half-written prompts, per channel — outliving both the wiped Home
+  // archive above and any rewind that truncates a session's
+  const drafts = new DraftStore();
   const clients = new Set<WebSocket>();
   const permissions = new Map<string, PermissionRequest>();
 
@@ -570,6 +574,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       manager.dispose(sessionId);
       archive.remove(sessionId);
       removeTurnFiles(sessionId);
+      drafts.remove(sessionId);
       tracker.removeProject(sessionId);
       contexts.delete(sessionId);
       sendQueues.delete(sessionId);
@@ -745,8 +750,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       case "rewind": {
         // Conversation AND code, back to just before this prompt ran: the
         // CLI restores its file checkpoints, then the session resumes
-        // truncated (forked) at the kept turn's last chain entry. The
-        // prompt itself lands back in the composer for editing.
+        // truncated (forked) at the kept turn's last chain entry. The prompt
+        // itself lands back in the composer — nothing is sent for you.
         const channelId = msg.projectId;
         const eventId = msg.eventId;
         void (async () => {
@@ -757,8 +762,6 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             const target = idx >= 0 ? events[idx] : undefined;
             if (!target || target.kind !== "user") throw new Error("that prompt is gone");
             const chain = archive.chain(channelId);
-            const userUuid = chain[eventId]?.user;
-            if (!userUuid) throw new Error("no checkpoint recorded for that prompt");
             // the fork point: the latest checkpointed turn before the target
             // (a compaction boundary means a different session — no crossing)
             let resumeAt: string | undefined;
@@ -775,8 +778,32 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             }
             const project = channelProject(channelId);
             if (!project) throw new Error("unknown session");
-            const result = await manager.rewindFiles(project, userUuid);
-            if (!result.canRewind) throw new Error(result.error ?? "the CLI couldn't restore the files");
+            // The prompt's uuid, which the CLI keys its file checkpoints by,
+            // comes from the session's own transcript: the SDK no longer
+            // echoes prompts back, so the chain map built from those echoes
+            // can be empty — or, worse, have pinned a neighbouring message.
+            // `ordinal` picks between prompts sent with identical text.
+            const sessionId = archive.lastSessionId(channelId);
+            const ordinal = events.filter(
+              (e, i) => i < idx && e.kind === "user" && e.text.trim() === target.text.trim(),
+            ).length;
+            const found = sessionId
+              ? await promptChain(project, sessionId, target.text, ordinal)
+              : undefined;
+            const userUuid = found?.user ?? chain[eventId]?.user;
+            if (userUuid) archive.setChain(channelId, eventId, "user", userUuid);
+            resumeAt ??= found?.before;
+            // A missing file checkpoint is not the end of the rewind: the CLI
+            // keeps checkpoints with the process that took them, so a prompt
+            // from before a relaunch has none. The conversation still rewinds
+            // and the prompt still comes back — the files are simply left as
+            // they are, and the user is told so.
+            const result = userUuid
+              ? await manager.rewindFiles(project, userUuid)
+              : { canRewind: false, error: "no checkpoint recorded for that prompt" };
+            const filesKept = result.canRewind
+              ? undefined
+              : (result.error ?? "the CLI couldn't restore the files");
             manager.dispose(channelId);
             if (resumeAt) archive.setResumeAt(channelId, resumeAt);
             else archive.clearLastSessionId(channelId);
@@ -791,16 +818,20 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
               }
             }
             broadcast({ type: "status", projectId: channelId, status: "idle" });
-            const edited = msg.text?.trim();
-            if (edited) {
-              // the edited prompt goes straight out as the next turn
-              dispatch(channelId, edited, []);
-            } else if (ws.readyState === WebSocket.OPEN) {
+            if (ws.readyState === WebSocket.OPEN) {
               ws.send(
                 JSON.stringify({
                   type: "compose",
                   projectId: channelId,
                   text: target.text,
+                } satisfies ServerMessage),
+              );
+            }
+            if (filesKept && ws.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: `rewound the conversation, but the files were left as they are — ${filesKept}`,
                 } satisfies ServerMessage),
               );
             }
@@ -826,10 +857,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         manager.dispose(msg.sessionId);
         archive.remove(msg.sessionId);
         removeTurnFiles(msg.sessionId);
+        drafts.remove(msg.sessionId);
         tracker.removeProject(msg.sessionId);
         contexts.delete(msg.sessionId);
         store.removeSession(msg.sessionId);
         broadcast({ type: "projects", projects: store.list() });
+        break;
+      }
+      case "draft": {
+        // every keystroke's worth of unsent prompt, held for the next launch
+        drafts.set(msg.projectId, msg.text);
         break;
       }
       case "interrupt": {
@@ -1078,6 +1115,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       starredModels: store.starredModels(),
       smallModel: store.smallModel() ?? "",
       user: os.userInfo().username,
+      composerDrafts: drafts.all(),
     };
     ws.send(JSON.stringify(snapshot));
 

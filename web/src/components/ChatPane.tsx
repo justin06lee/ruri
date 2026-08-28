@@ -29,7 +29,7 @@ import { Thinking } from "./Thinking";
 import { Tracker } from "./Tracker";
 import { heroFor, heroUrl, launchHero } from "../hero";
 import { Markdown } from "../markdown";
-import { composerDrafts, send, useRuri } from "../store";
+import { clearComposerDraft, composerDrafts, send, setComposerDraft, useRuri } from "../store";
 
 /* ── small inline icons (stroke: currentColor, 14px) ─────────────── */
 
@@ -199,7 +199,7 @@ export function EventView({
           {onRewind && (
             <button
               className="icon-button rewind-pencil"
-              title="Edit & rewind — conversation and code return to just before this prompt, then your edit sends"
+              title="Rewind here — conversation and code return to just before this prompt, and the prompt comes back to the composer"
               onClick={() => onRewind(event)}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -434,9 +434,10 @@ export function Composer({
   const draftBump = useRuri((s) => s.draftBumps[channelId] ?? 0);
   const bumpSeen = useRef(draftBump);
 
-  // Every keystroke and attachment change lands in the per-channel draft.
+  // Every keystroke and attachment change lands in the per-channel draft —
+  // and on disk, so a half-written prompt is still there after a ⌘Q.
   useEffect(() => {
-    composerDrafts.set(channelId, { text, atts, counter: counter.current });
+    setComposerDraft(channelId, { text, atts, counter: counter.current });
   }, [channelId, text, atts]);
 
   /** Attach files; `at` places the [markers] at that text index (a drop's
@@ -560,7 +561,7 @@ export function Composer({
       ...(uploads.length ? { attachments: uploads } : {}),
     });
     for (const att of atts) URL.revokeObjectURL(att.objectUrl);
-    composerDrafts.delete(channelId);
+    clearComposerDraft(channelId);
     setAtts([]);
     setText("");
     onSent?.();
@@ -850,10 +851,11 @@ export function ChatPane() {
   const [folded, setFolded] = useState<Set<string>>(new Set());
   useEffect(() => setFolded(new Set()), [activeId]);
 
-  // Rewind: pencil on a past prompt → the prompt opens in an editable card →
-  // confirming rewinds conversation and code to just before it ran, then
-  // sends the edit as the next turn. Claude sessions only (file
-  // checkpoints), and only while nothing is running.
+  // Rewind: pencil on a past prompt → a plain confirmation → the
+  // conversation and the project's files go back to just before it ran and
+  // the prompt lands in the composer, exactly as it was written. Editing it
+  // is then just typing; nothing sends until you press send. Claude sessions
+  // only (file checkpoints), and only while nothing is running.
   const models = useRuri((s) => s.models);
   const [rewindTarget, setRewindTarget] = useState<{ id: string; text: string } | null>(null);
   useEffect(() => setRewindTarget(null), [activeId]);
@@ -1098,32 +1100,23 @@ export function ChatPane() {
 
       {rewindTarget && (
         <div className="confirm-overlay" onClick={() => setRewindTarget(null)}>
-          <div className="confirm-card" onClick={(e) => e.stopPropagation()}>
-            <div className="confirm-title">Edit & rewind</div>
-            <textarea
-              className="confirm-edit"
-              rows={5}
-              value={rewindTarget.text}
-              autoFocus
-              onChange={(e) => setRewindTarget({ ...rewindTarget, text: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setRewindTarget(null);
-                if (e.key === "Enter" && !e.shiftKey && rewindTarget.text.trim()) {
-                  e.preventDefault();
-                  send({
-                    type: "rewind",
-                    projectId: activeId,
-                    eventId: rewindTarget.id,
-                    text: rewindTarget.text,
-                  });
-                  setRewindTarget(null);
-                }
-              }}
-            />
+          <div
+            className="confirm-card"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setRewindTarget(null);
+            }}
+          >
+            <div className="confirm-title">Rewind to this prompt</div>
+            <div className="confirm-quote">
+              {rewindTarget.text.length > 240
+                ? `${rewindTarget.text.slice(0, 240).trimEnd()}…`
+                : rewindTarget.text}
+            </div>
             <div className="confirm-body">
-              Sending rewinds the conversation and the project's files to the moment before
-              this prompt ran — everything after it is discarded — then sends your edit as
-              the next prompt.
+              The conversation and the project's files go back to the moment before this
+              prompt ran — everything after it is discarded. The prompt itself lands in the
+              composer, so you can edit it there and send when you're ready.
             </div>
             <div className="confirm-actions">
               <button className="ghost" onClick={() => setRewindTarget(null)}>
@@ -1131,18 +1124,13 @@ export function ChatPane() {
               </button>
               <button
                 className="primary"
-                disabled={!rewindTarget.text.trim()}
+                autoFocus
                 onClick={() => {
-                  send({
-                    type: "rewind",
-                    projectId: activeId,
-                    eventId: rewindTarget.id,
-                    text: rewindTarget.text,
-                  });
+                  send({ type: "rewind", projectId: activeId, eventId: rewindTarget.id });
                   setRewindTarget(null);
                 }}
               >
-                Rewind & send
+                Rewind
               </button>
             </div>
           </div>

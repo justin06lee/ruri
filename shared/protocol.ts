@@ -297,10 +297,12 @@ export type ClientMessage =
    *  the rest of its turn with it. */
   | { type: "remove_event"; projectId: string; eventId: string }
   /** Rewind conversation AND code to just before this user event ran
-   *  (Claude sessions only — rides the CLI's file checkpoints). With
-   *  `text`, the edited prompt goes out as the next turn once the rewind
-   *  lands; without it, the original text returns to the composer. */
-  | { type: "rewind"; projectId: string; eventId: string; text?: string }
+   *  (Claude sessions only — rides the CLI's file checkpoints). The prompt
+   *  itself returns to the composer, to edit and send like any other. */
+  | { type: "rewind"; projectId: string; eventId: string }
+  /** The composer's unsent text for a channel ("" = nothing left to keep).
+   *  Held server-side, so a quit does not cost a half-written prompt. */
+  | { type: "draft"; projectId: string; text: string }
   | { type: "interrupt"; projectId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   /** The answer to an AskUserQuestion card. `answers` absent = dismissed,
@@ -370,6 +372,8 @@ export type ServerMessage =
       smallModel: string;
       /** The local account name shown on the sidebar's account bar. */
       user: string;
+      /** Unsent composer prompts per channel, waiting where they were left. */
+      composerDrafts: Record<string, string>;
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }

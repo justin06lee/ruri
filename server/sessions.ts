@@ -897,6 +897,35 @@ function providerToolEvent(
 }
 
 /**
+ * ruri's permission mode in the terms the harness itself speaks.
+ *
+ * It is not a Claude-only idea — yagami exposes each harness's own knob and
+ * ruri simply never set it, so every non-Claude session ran at whatever its
+ * config defaulted to with no way to say otherwise.
+ *
+ * Codex takes a sandbox level. It has three where ruri has four, so "ask
+ * first" and "accept edits" both land on workspace-write — writes inside the
+ * project go through, anything outside still raises an approval card.
+ *
+ * ACP agents take one of their own mode ids. Claude's ACP agent uses exactly
+ * these names; other agents name theirs differently and yagami drops a mode
+ * it does not recognise, which leaves the harness on its own default — the
+ * behaviour ruri had before, so an unknown agent is never worse off.
+ */
+function nativePermissions(providerId: string, mode: PermissionMode): Record<string, unknown> {
+  if (providerId === "codex") {
+    const sandbox =
+      mode === "plan"
+        ? "read-only"
+        : mode === "bypassPermissions"
+          ? "danger-full-access"
+          : "workspace-write";
+    return { sandbox };
+  }
+  return { mode };
+}
+
+/**
  * A session on a non-Claude harness that supports yagami's agentic session
  * layer (Codex via app-server, every ACP agent): the harness runs VERBATIM —
  * its own config, sandbox, and approval flow — warm across turns, with tool
@@ -921,6 +950,8 @@ class ProviderAgentSession implements ChannelSession {
   /** ACP can't take a system prompt natively — the first turn of each app
    *  run carries it as a <system> block (codex gets developerInstructions). */
   private sentSystem = false;
+  /** The mode this session was opened with; changing it rebuilds. */
+  private permissionMode: PermissionMode = "default";
 
   constructor(
     private readonly project: Project,
@@ -934,6 +965,7 @@ class ProviderAgentSession implements ChannelSession {
     this.nativeModel = nativeModel;
     if (resume?.startsWith(`${providerId}:`)) this.lastSessionId = resume;
     const nativeResume = this.lastSessionId?.slice(providerId.length + 1);
+    this.permissionMode = project.permissionMode ?? "default";
     this.session = provider.openSession({
       cwd: project.path,
       appName: "ruri",
@@ -941,6 +973,7 @@ class ProviderAgentSession implements ChannelSession {
       effort: project.effort || DEFAULT_EFFORT,
       ...(nativeResume ? { resume: nativeResume } : {}),
       ...(extras?.providerSystem ? { systemPrompt: extras.providerSystem } : {}),
+      native: nativePermissions(providerId, this.permissionMode),
       permissions: { decide: (req) => this.decide(req) },
     });
   }
@@ -1107,8 +1140,17 @@ class ProviderAgentSession implements ChannelSession {
     void this.session.close();
   }
 
-  setPermissionMode(): void {
-    // permission modes are a Claude concept; the harness's own flow stands in
+  /**
+   * Both harnesses take their mode when the session opens — Codex's sandbox
+   * is a session override and ACP's setSessionMode runs right after
+   * newSession — so a change retires this session and the next send rebuilds
+   * it with resume, exactly as an effort change does.
+   */
+  setPermissionMode(mode: PermissionMode): void {
+    if (mode === this.permissionMode) return;
+    this.permissionMode = mode;
+    this.dead = true;
+    void this.session.close();
   }
 
   /** Effort is fixed at session open — retire; the rebuild resumes the thread. */

@@ -367,9 +367,11 @@ function SessionControls({ project }: { project: Project }) {
   if (selected && !models.includes(selected)) models.push(selected);
   // before the catalog arrives, the trigger still needs a label
   if (!selected) models.push({ value: DEFAULT_MODEL, displayName: "Fable" });
-  // Permission modes are a Claude concept — other harnesses bring their own
-  // sandbox, so the dropdown hides when the model routes elsewhere.
-  const claudeRoute = !selected?.provider;
+  // The dropdown shows wherever the mode can actually be honoured: Claude,
+  // and any harness running a real agentic session (its sandbox or session
+  // mode is set from this). A run-per-turn provider has no approval flow to
+  // drive, so it still hides rather than offer a control that does nothing.
+  const canSetPermissions = !selected?.provider || selected.agentic === true;
   return (
     <div className="composer-controls">
       <Dropdown
@@ -391,7 +393,7 @@ function SessionControls({ project }: { project: Project }) {
         options={EFFORT_OPTIONS}
         onSelect={(effort) => send({ type: "set_effort", projectId: project.id, effort })}
       />
-      {claudeRoute && (
+      {canSetPermissions && (
         <Dropdown
           up
           title="Permission mode"

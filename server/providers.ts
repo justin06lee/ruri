@@ -1,5 +1,6 @@
 import {
   createProvider,
+  isSessionProvider,
   loadHostEngineConfig,
   loadProviders,
   parseModelRef,
@@ -113,6 +114,9 @@ export class ProviderRegistry {
       })(),
       Promise.all(
         [...this.installed.entries()].map(async ([id, provider]) => {
+          // only an agentic harness has an approval flow to drive, so this is
+          // what tells the composer whether a permission mode means anything
+          const agentic = isSessionProvider(provider);
           try {
             const models = await probe(provider);
             if (models.length > 0) {
@@ -121,12 +125,21 @@ export class ProviderRegistry {
                 displayName: bareModelName(m.display_name),
                 provider: id,
                 providerLabel: provider.label,
+                agentic,
               }));
             }
           } catch {
             // fall through to the default-model entry
           }
-          return [{ value: id, displayName: provider.label, provider: id, providerLabel: provider.label }];
+          return [
+            {
+              value: id,
+              displayName: provider.label,
+              provider: id,
+              providerLabel: provider.label,
+              agentic,
+            },
+          ];
         }),
       ).then((lists) => lists.flat()),
     ]);

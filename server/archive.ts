@@ -81,6 +81,7 @@ export class SessionArchive {
         ...(typeof raw.pendingBrief === "string" ? { pendingBrief: raw.pendingBrief } : {}),
         ...(raw.chain && typeof raw.chain === "object" ? { chain: raw.chain } : {}),
         ...(typeof raw.resumeAt === "string" ? { resumeAt: raw.resumeAt } : {}),
+        ...(typeof raw.contextTokens === "number" ? { contextTokens: raw.contextTokens } : {}),
       };
     } catch {
       entry = { events: [], summaries: {} };

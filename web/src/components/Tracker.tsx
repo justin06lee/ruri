@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TrackerItem, TrackerStatus } from "../../../shared/protocol";
-import { fileKind, fileToBase64 } from "./Attachments";
+import { fileKind } from "./Attachments";
+import { fileToBase64 } from "../lib/files";
 import { send, useRuri } from "../store";
 
 /**

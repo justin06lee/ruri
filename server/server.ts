@@ -865,8 +865,21 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "draft": {
-        // every keystroke's worth of unsent prompt, held for the next launch
-        drafts.set(msg.projectId, msg.text);
+        // Every keystroke's worth of unsent prompt, held for the next
+        // launch. Bytes arrive once, the first time an attachment is seen;
+        // after that the client sends metadata alone and the file it already
+        // stored stands. Nothing is deleted here — the ids are the ones the
+        // prompt will send under, so a cleared draft must not take the file
+        // a just-sent transcript event points at.
+        const held = drafts.get(msg.projectId)?.attachments ?? [];
+        const attachments = msg.attachments?.flatMap((att) => {
+          const { data, regions, ...meta } = att;
+          const drawn = regions?.length ? { regions } : {};
+          if (data) return [{ ...meta, ...drawn, url: storeUpload({ ...meta, data }).url }];
+          const stored = held.find((h) => h.id === att.id);
+          return stored ? [{ ...meta, ...drawn, url: stored.url }] : [];
+        });
+        drafts.set(msg.projectId, msg.text, attachments);
         break;
       }
       case "interrupt": {

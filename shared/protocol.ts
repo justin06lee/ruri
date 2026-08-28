@@ -88,6 +88,35 @@ export interface AttachmentUpload extends Attachment {
   regions?: Array<{ note: string; data: string; mediaType: string }>;
 }
 
+/** A box the user drew on a composer image, in fractions of it. */
+export interface DraftRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  note: string;
+}
+
+/** An attachment parked in a composer, stored like any other upload — the
+ *  marker number and the drawn regions ride along so the strip comes back
+ *  exactly as it was left. */
+export interface DraftAttachment extends Attachment {
+  regions?: DraftRegion[];
+}
+
+/** Wire form when saving a draft: bytes only for what the server does not
+ *  already hold, so a keystroke re-sends metadata and not a video. */
+export interface DraftAttachmentUpload extends Attachment {
+  data?: string;
+  regions?: DraftRegion[];
+}
+
+/** A channel's unsent prompt: the text and whatever is clipped to it. */
+export interface ComposerDraftState {
+  text: string;
+  attachments?: DraftAttachment[];
+}
+
 /** Tick state of a tracker item: open → liked (check) → rejected (x) → open. */
 export type TrackerStatus = "open" | "liked" | "rejected";
 
@@ -300,9 +329,15 @@ export type ClientMessage =
    *  (Claude sessions only — rides the CLI's file checkpoints). The prompt
    *  itself returns to the composer, to edit and send like any other. */
   | { type: "rewind"; projectId: string; eventId: string }
-  /** The composer's unsent text for a channel ("" = nothing left to keep).
-   *  Held server-side, so a quit does not cost a half-written prompt. */
-  | { type: "draft"; projectId: string; text: string }
+  /** The composer's unsent prompt for a channel (empty text and no
+   *  attachments = nothing left to keep). Held server-side, so a quit does
+   *  not cost a half-written prompt or the files clipped to it. */
+  | {
+      type: "draft";
+      projectId: string;
+      text: string;
+      attachments?: DraftAttachmentUpload[];
+    }
   | { type: "interrupt"; projectId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   /** The answer to an AskUserQuestion card. `answers` absent = dismissed,
@@ -373,7 +408,7 @@ export type ServerMessage =
       /** The local account name shown on the sidebar's account bar. */
       user: string;
       /** Unsent composer prompts per channel, waiting where they were left. */
-      composerDrafts: Record<string, string>;
+      composerDrafts: Record<string, ComposerDraftState>;
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }

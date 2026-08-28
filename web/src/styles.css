@@ -2386,10 +2386,12 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* capped so a big rewrite cannot swallow the conversation — the patch
-   scrolls inside its own frame */
+   scrolls inside its own frame, vertically only: long lines wrap rather
+   than running off sideways past the gutter */
 .diff-body {
   max-height: 260px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border-top: 1px solid var(--line-faint);
   font-family: var(--mono);
   font-size: 11.5px;
@@ -2403,8 +2405,6 @@ input[type="range"]::-webkit-slider-thumb {
 .diff-line {
   display: flex;
   align-items: baseline;
-  white-space: pre;
-  min-width: min-content;
 }
 
 .diff-line.add {
@@ -2415,11 +2415,9 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--diff-del-bg);
 }
 
-/* the gutter does not scroll away horizontally — a long line still shows
-   which line it is */
+/* the gutter keeps its own column — a wrapped line's continuation lands
+   under the code, never under the number */
 .diff-n {
-  position: sticky;
-  left: 0;
   flex-shrink: 0;
   width: 42px;
   padding-right: 8px;
@@ -2444,9 +2442,16 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--diff-del-ink);
 }
 
+/* wraps at the frame's edge, breaking mid-token if a line has no spaces
+   (minified code, a long path) — the tinted row then reaches the right edge
+   instead of stopping where the viewport happened to cut it */
 .diff-text {
+  flex: 1;
+  min-width: 0;
   padding-right: 12px;
   color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .diff-more {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Attachment } from "../../../shared/protocol";
 import { HTTP_BASE } from "../store";
 
@@ -254,7 +255,11 @@ export function Viewer({
     );
   };
 
-  return (
+  // Portalled to the body: the viewer covers the window, and a transcript
+  // that masks or transforms its subtree (the fade under the composer does)
+  // would otherwise become the containing block for a fixed overlay and pen
+  // it inside the scroller, cropped and offset.
+  return createPortal(
     <div
       className="viewer-overlay"
       onMouseDown={(e) => {
@@ -343,7 +348,8 @@ export function Viewer({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

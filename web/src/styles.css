@@ -1206,6 +1206,10 @@ input[type="range"]::-webkit-slider-thumb {
   min-width: 0;
   position: relative;
   background: var(--paper);
+  /* how much room the floating composer takes at the bottom — ChatPane
+     measures the real thing and overwrites this; the value here is just a
+     sane first paint */
+  --composer-h: 150px;
 }
 
 .chat.empty {
@@ -1371,7 +1375,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* ── transcript ───────────────────────────────────────────────────── */
 
 /* wraps the scrolling transcript so absolute children (the jump pill) are
-   anchored to the region ABOVE the composer, however tall the composer is */
+   anchored above the floating composer, however tall it grows */
 .transcript-holder {
   position: relative;
   flex: 1;
@@ -1380,15 +1384,31 @@ input[type="range"]::-webkit-slider-thumb {
   flex-direction: column;
 }
 
+/* The composer floats over the transcript, so the page is one continuous
+   sheet instead of live text sliced off above a dead band. The conversation
+   runs the full height and dissolves into the composer's band rather than
+   ending at a hard edge. */
 .transcript {
   flex: 1;
   overflow-y: auto;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - var(--composer-h)),
+    transparent calc(100% - 18px)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - var(--composer-h)),
+    transparent calc(100% - 18px)
+  );
 }
 
+/* the tail of the conversation clears the composer, so the newest message
+   sits above it rather than under it */
 .transcript-inner {
   max-width: 800px;
   margin: 0 auto;
-  padding: 24px 24px 12px;
+  padding: 24px 24px calc(var(--composer-h) + 12px);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -2102,7 +2122,7 @@ input[type="range"]::-webkit-slider-thumb {
    pill in from the right when the animation ended */
 .jump-latest {
   position: absolute;
-  bottom: 14px;
+  bottom: calc(var(--composer-h) + 14px);
   left: 0;
   right: 0;
   width: fit-content;
@@ -3280,6 +3300,25 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* ── composer ─────────────────────────────────────────────────────── */
+
+/* The composer hovers over the tail of the conversation on nothing at all —
+   no band, no fill, no seam. Only the box, the dragons, and the viewer take
+   the mouse; everything else lets clicks, selection, and the wheel fall
+   through to the transcript underneath. */
+.composer-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.composer-dock .composer-box,
+.composer-dock .dragons,
+.composer-dock .viewer-overlay {
+  pointer-events: auto;
+}
 
 .composer {
   padding: 8px 24px 10px;

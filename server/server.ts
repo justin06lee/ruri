@@ -274,8 +274,27 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     });
   }
   pushUsage(true);
-  const usageTimer = setInterval(() => pushUsage(true), 5 * 60_000);
   const contexts = new Map<string, ContextUsage>();
+
+  /**
+   * Re-announce every channel's context occupancy.
+   *
+   * The limit windows already re-push on a timer and after every turn, so a
+   * client that missed their snapshot value heals within minutes. Context
+   * had no such path — it was only ever announced mid-turn, so a client that
+   * missed the snapshot would sit on a stale zero forever while the gauges
+   * either side of it stayed correct. Now it heals the same way.
+   */
+  function pushContexts(): void {
+    for (const [channelId, context] of contexts) {
+      broadcast({ type: "context", projectId: channelId, context });
+    }
+  }
+
+  const usageTimer = setInterval(() => {
+    pushUsage(true);
+    pushContexts();
+  }, 5 * 60_000);
   /** The context window a channel's model gets (1M with the [1m] flag). */
   function contextWindow(channelId: string): number {
     const model = channelProject(channelId)?.model || DEFAULT_MODEL;
@@ -504,6 +523,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         recordEvent(projectId, event);
         if (event.kind === "result") {
           pushUsage();
+          pushContexts();
           drainQueue(projectId);
         }
       },

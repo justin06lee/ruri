@@ -63,16 +63,6 @@ export function fileKind(file: File): "image" | "video" | "file" {
   return "file";
 }
 
-export async function fileToBase64(file: File): Promise<string> {
-  const buffer = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < buffer.length; i += CHUNK) {
-    binary += String.fromCharCode(...buffer.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
-}
-
 /**
  * Render a region as its own image WITH spatial context: the crop takes
  * generous breathing room around the region, and the region itself is drawn

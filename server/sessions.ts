@@ -18,9 +18,10 @@ import {
   type SessionPermissionRequest,
   type SessionProvider,
 } from "@justin06lee/yagami";
-import type {
-  HookInput,
-  PreToolUseHookSpecificOutput,
+import {
+  getSessionMessages,
+  type HookInput,
+  type PreToolUseHookSpecificOutput,
 } from "@anthropic-ai/claude-agent-sdk";
 import { buildDiff, readBefore } from "./diff.js";
 import {
@@ -156,6 +157,55 @@ function toolDiff(
   const after =
     input["replace_all"] === true ? before.replaceAll(oldStr, newStr) : before.replace(oldStr, newStr);
   return buildDiff(display, before, after) ?? undefined;
+}
+
+/** The text a CLI transcript entry's user message actually carries (tool
+ *  results and other block types are not prompts). */
+function promptTextOf(message: unknown): string {
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => {
+      const b = block as { type?: string; text?: string };
+      return b.type === "text" && typeof b.text === "string" ? b.text : "";
+    })
+    .join("");
+}
+
+/**
+ * The CLI's uuid for a prompt — what a file rewind is keyed by.
+ *
+ * The SDK stopped echoing prompts back as `user` messages, so the chain map
+ * built from that echo can have no entry (and, worse, could pin the wrong
+ * uuid on a turn). The session's own transcript is the ground truth the
+ * checkpoints share, so read it back and find the prompt by its text.
+ * `ordinal` picks between repeats: the count of identical earlier prompts.
+ */
+export async function promptChain(
+  project: Project,
+  sessionId: string,
+  text: string,
+  ordinal: number,
+): Promise<{ user: string; before?: string } | undefined> {
+  const needle = text.trim();
+  if (!needle) return undefined;
+  try {
+    const messages = await getSessionMessages(sessionId, { dir: project.path });
+    const matches = messages.filter(
+      (m) => m.type === "user" && promptTextOf(m.message).includes(needle),
+    );
+    const match = matches[ordinal] ?? matches[matches.length - 1];
+    if (!match) return undefined;
+    // the entry just before the prompt is where a resume forks: everything
+    // up to it is kept, the prompt and its turn are not
+    const before = messages[messages.findIndex((m) => m.uuid === match.uuid) - 1]?.uuid;
+    return { user: match.uuid, ...(before ? { before } : {}) };
+  } catch {
+    // no transcript on disk (a provider session, a pruned file) — the
+    // caller falls back to rewinding the conversation alone
+    return undefined;
+  }
 }
 
 /** Extensions the transcript will show inline — what Read itself can take. */

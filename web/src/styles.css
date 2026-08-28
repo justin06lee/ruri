@@ -1494,24 +1494,17 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 15px;
 }
 
+/* which prompt this is about, in its own words — the card trims it, because
+   it asks a question and is not the place to read a long prompt back */
 .confirm-quote {
   font-size: 12.5px;
+  line-height: 1.5;
   color: var(--ink-soft);
   background: var(--paper-dim);
   border-left: 3px solid var(--line-soft);
   border-radius: 0 var(--radius-s) var(--radius-s) 0;
   padding: 6px 10px;
   overflow-wrap: break-word;
-}
-
-/* the rewind card's editable prompt */
-.confirm-edit {
-  width: 100%;
-  min-height: 96px;
-  max-height: 40vh;
-  font-size: 13px;
-  line-height: 1.5;
-  resize: vertical;
 }
 
 .confirm-body {

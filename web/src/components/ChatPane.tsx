@@ -902,25 +902,42 @@ export function ChatPane() {
   }, []);
 
   // The composer floats over the transcript on no background of its own, so
-  // the conversation runs behind it instead of stopping at a dead band. Its
-  // height — which grows with the textarea and the attachment strip — is the
-  // one number that keeps the tail, the fade, and the jump pill clear of it.
+  // the conversation runs behind it instead of stopping at a dead band. Two
+  // measurements come off it: --composer-h, the whole dock (the tail's
+  // padding and the fade), and --composer-box-h, the textbox alone (the jump
+  // pill). The dragons stand taller than the box, so the pill rides the box
+  // — it belongs a hair above what you type in, not above the dragons.
   const chatRef = useRef<HTMLElement>(null);
   const dockObserver = useRef<ResizeObserver | null>(null);
   const observeDock = useCallback((node: HTMLDivElement | null) => {
     dockObserver.current?.disconnect();
     dockObserver.current = null;
     if (!node) return;
+    const box = node.querySelector<HTMLElement>(".composer-box");
+    const measure = () => {
+      const chat = chatRef.current;
+      if (!chat) return;
+      chat.style.setProperty("--composer-h", `${node.offsetHeight}px`);
+      // the dock's bottom is the pane's bottom, so this is exactly how far
+      // up from the pane's floor the textbox starts
+      const boxTop = box
+        ? node.getBoundingClientRect().bottom - box.getBoundingClientRect().top
+        : node.offsetHeight;
+      chat.style.setProperty("--composer-box-h", `${Math.round(boxTop)}px`);
+    };
     const observer = new ResizeObserver(() => {
-      chatRef.current?.style.setProperty("--composer-h", `${node.offsetHeight}px`);
+      measure();
       // a taller composer eats into the view — re-bottom so the newest
       // message stays put rather than sliding under it
       const el = scrollRef.current;
       if (el && pinnedRef.current) el.scrollTo({ top: el.scrollHeight });
     });
     observer.observe(node);
+    // the box grows on its own (a long prompt, an attachment strip) without
+    // the dock following, whenever the dragons are still the taller pair
+    if (box) observer.observe(box);
     dockObserver.current = observer;
-    chatRef.current?.style.setProperty("--composer-h", `${node.offsetHeight}px`);
+    measure();
   }, []);
 
   if (!project || !activeId) {
@@ -1132,8 +1149,8 @@ export function ChatPane() {
         </div>
       )}
 
-      <div className="composer-dock" ref={observeDock}>
-        <Composer key={activeId} channelId={activeId} project={project} busy={busy} />
+      <div className="composer-dock" key={activeId} ref={observeDock}>
+        <Composer channelId={activeId} project={project} busy={busy} />
       </div>
     </main>
   );

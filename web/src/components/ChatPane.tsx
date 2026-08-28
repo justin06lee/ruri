@@ -901,6 +901,28 @@ export function ChatPane() {
     innerObserver.current = observer;
   }, []);
 
+  // The composer floats over the transcript on no background of its own, so
+  // the conversation runs behind it instead of stopping at a dead band. Its
+  // height — which grows with the textarea and the attachment strip — is the
+  // one number that keeps the tail, the fade, and the jump pill clear of it.
+  const chatRef = useRef<HTMLElement>(null);
+  const dockObserver = useRef<ResizeObserver | null>(null);
+  const observeDock = useCallback((node: HTMLDivElement | null) => {
+    dockObserver.current?.disconnect();
+    dockObserver.current = null;
+    if (!node) return;
+    const observer = new ResizeObserver(() => {
+      chatRef.current?.style.setProperty("--composer-h", `${node.offsetHeight}px`);
+      // a taller composer eats into the view — re-bottom so the newest
+      // message stays put rather than sliding under it
+      const el = scrollRef.current;
+      if (el && pinnedRef.current) el.scrollTo({ top: el.scrollHeight });
+    });
+    observer.observe(node);
+    dockObserver.current = observer;
+    chatRef.current?.style.setProperty("--composer-h", `${node.offsetHeight}px`);
+  }, []);
+
   if (!project || !activeId) {
     return <main className="chat empty" />;
   }
@@ -976,7 +998,7 @@ export function ChatPane() {
   }
 
   return (
-    <main className="chat">
+    <main className="chat" ref={chatRef}>
       {header}
 
       {lastError && (
@@ -1110,7 +1132,9 @@ export function ChatPane() {
         </div>
       )}
 
-      <Composer key={activeId} channelId={activeId} project={project} busy={busy} />
+      <div className="composer-dock" ref={observeDock}>
+        <Composer key={activeId} channelId={activeId} project={project} busy={busy} />
+      </div>
     </main>
   );
 }

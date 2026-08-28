@@ -19,12 +19,13 @@ import type {
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
 import { buildCompaction, removeTurnFiles } from "./compaction.js";
+import { DraftStore } from "./drafts.js";
 import { HomeLog } from "./homelog.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
 import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { ProjectStore } from "./projects.js";
 import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
-import { SessionManager } from "./sessions.js";
+import { promptChain, SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
@@ -217,6 +218,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // log — appended programmatically per event, grepped by the model.
   const homeLog = new HomeLog();
   const tracker = new TrackerStore();
+  // half-written prompts, per channel — outliving both the wiped Home
+  // archive above and any rewind that truncates a session's
+  const drafts = new DraftStore();
   const clients = new Set<WebSocket>();
   const permissions = new Map<string, PermissionRequest>();
 
@@ -570,6 +574,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       manager.dispose(sessionId);
       archive.remove(sessionId);
       removeTurnFiles(sessionId);
+      drafts.remove(sessionId);
       tracker.removeProject(sessionId);
       contexts.delete(sessionId);
       sendQueues.delete(sessionId);
@@ -826,10 +831,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         manager.dispose(msg.sessionId);
         archive.remove(msg.sessionId);
         removeTurnFiles(msg.sessionId);
+        drafts.remove(msg.sessionId);
         tracker.removeProject(msg.sessionId);
         contexts.delete(msg.sessionId);
         store.removeSession(msg.sessionId);
         broadcast({ type: "projects", projects: store.list() });
+        break;
+      }
+      case "draft": {
+        // every keystroke's worth of unsent prompt, held for the next launch
+        drafts.set(msg.projectId, msg.text);
         break;
       }
       case "interrupt": {
@@ -1078,6 +1089,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       starredModels: store.starredModels(),
       smallModel: store.smallModel() ?? "",
       user: os.userInfo().username,
+      composerDrafts: drafts.all(),
     };
     ws.send(JSON.stringify(snapshot));
 

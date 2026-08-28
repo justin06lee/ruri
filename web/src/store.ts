@@ -33,10 +33,53 @@ export interface ComposerDraft {
 }
 export const composerDrafts = new Map<string, ComposerDraft>();
 
+/* A half-written prompt outlives the app. The server holds it (the window's
+   own storage cannot: the app serves itself on a fresh port every launch, so
+   localStorage lands under a different origin each time). Text only — an
+   attachment is a live File handle nothing can carry across a quit, so its
+   [markers] come back as words and the files go back in by hand. */
+const draftTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Channels this window has actually had a draft for. A composer mounts
+ *  empty and immediately saves that emptiness; without this, that first
+ *  write would race the snapshot and wipe the very draft it is about to
+ *  restore. Only a channel we know had text can clear itself. */
+const draftedChannels = new Set<string>();
+
+/** Hand the channel's text to the server, a beat after typing stops. */
+function persistDraft(channelId: string, text: string): void {
+  clearTimeout(draftTimers.get(channelId));
+  draftTimers.set(
+    channelId,
+    setTimeout(() => {
+      draftTimers.delete(channelId);
+      send({ type: "draft", projectId: channelId, text });
+    }, 400),
+  );
+}
+
+/** Write a channel's draft — the one door every composer change goes
+ *  through, so what's on screen is what a relaunch brings back. */
+export function setComposerDraft(channelId: string, draft: ComposerDraft): void {
+  composerDrafts.set(channelId, draft);
+  if (draft.text.trim()) draftedChannels.add(channelId);
+  else if (!draftedChannels.has(channelId)) return;
+  persistDraft(channelId, draft.text);
+}
+
+/** The prompt went out (or was thrown away) — the draft goes with it, and
+ *  the server hears about that immediately rather than on the debounce. */
+export function clearComposerDraft(channelId: string): void {
+  composerDrafts.delete(channelId);
+  draftedChannels.delete(channelId);
+  clearTimeout(draftTimers.get(channelId));
+  draftTimers.delete(channelId);
+  send({ type: "draft", projectId: channelId, text: "" });
+}
+
 /** Append text to a channel's saved draft (async prompt arrivals). */
 function appendDraft(channelId: string, text: string): void {
   const prev = composerDrafts.get(channelId);
-  composerDrafts.set(channelId, {
+  setComposerDraft(channelId, {
     text: prev?.text.trim() ? `${prev.text.replace(/\s+$/, "")}\n${text}` : text,
     atts: prev?.atts ?? [],
     counter: prev?.counter ?? { image: 0, video: 0, file: 0 },
@@ -165,6 +208,20 @@ function apply(msg: ServerMessage): void {
   const { setState } = useRuri;
   switch (msg.type) {
     case "snapshot": {
+      // Unsent prompts come back where they were left. A channel already
+      // being typed in wins over the stored copy — the server's is at most
+      // a debounce behind, and what's on screen is the truth.
+      const restored = Object.entries(msg.composerDrafts).filter(
+        ([channelId]) => !composerDrafts.get(channelId)?.text.trim(),
+      );
+      for (const [channelId, text] of restored) {
+        composerDrafts.set(channelId, {
+          text,
+          atts: [],
+          counter: { image: 0, video: 0, file: 0 },
+        });
+        draftedChannels.add(channelId);
+      }
       setState((s) => ({
         projects: msg.projects,
         transcripts: msg.transcripts,
@@ -183,6 +240,14 @@ function apply(msg: ServerMessage): void {
         starredModels: msg.starredModels,
         smallModel: msg.smallModel,
         user: msg.user,
+        // a mounted composer re-reads its channel's draft on the bump
+        draftBumps: restored.reduce<Record<string, number>>(
+          (bumps, [channelId]) => ({
+            ...bumps,
+            [channelId]: (s.draftBumps[channelId] ?? 0) + 1,
+          }),
+          { ...s.draftBumps },
+        ),
         drafts: {},
         activeId:
           s.activeId &&

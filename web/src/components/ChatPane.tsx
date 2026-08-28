@@ -29,7 +29,7 @@ import { Thinking } from "./Thinking";
 import { Tracker } from "./Tracker";
 import { heroFor, heroUrl, launchHero } from "../hero";
 import { Markdown } from "../markdown";
-import { composerDrafts, send, useRuri } from "../store";
+import { clearComposerDraft, composerDrafts, send, setComposerDraft, useRuri } from "../store";
 
 /* ── small inline icons (stroke: currentColor, 14px) ─────────────── */
 
@@ -434,9 +434,10 @@ export function Composer({
   const draftBump = useRuri((s) => s.draftBumps[channelId] ?? 0);
   const bumpSeen = useRef(draftBump);
 
-  // Every keystroke and attachment change lands in the per-channel draft.
+  // Every keystroke and attachment change lands in the per-channel draft —
+  // and on disk, so a half-written prompt is still there after a ⌘Q.
   useEffect(() => {
-    composerDrafts.set(channelId, { text, atts, counter: counter.current });
+    setComposerDraft(channelId, { text, atts, counter: counter.current });
   }, [channelId, text, atts]);
 
   /** Attach files; `at` places the [markers] at that text index (a drop's
@@ -560,7 +561,7 @@ export function Composer({
       ...(uploads.length ? { attachments: uploads } : {}),
     });
     for (const att of atts) URL.revokeObjectURL(att.objectUrl);
-    composerDrafts.delete(channelId);
+    clearComposerDraft(channelId);
     setAtts([]);
     setText("");
     onSent?.();

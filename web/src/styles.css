@@ -1206,10 +1206,11 @@ input[type="range"]::-webkit-slider-thumb {
   min-width: 0;
   position: relative;
   background: var(--paper);
-  /* how much room the floating composer takes at the bottom — ChatPane
-     measures the real thing and overwrites this; the value here is just a
-     sane first paint */
+  /* how much room the floating composer takes at the bottom, and how far up
+     its textbox alone starts — ChatPane measures the real things and
+     overwrites both; the values here are just a sane first paint */
   --composer-h: 150px;
+  --composer-box-h: 120px;
 }
 
 .chat.empty {
@@ -2117,12 +2118,14 @@ input[type="range"]::-webkit-slider-thumb {
   font-style: italic;
 }
 
-/* centered by margins, not translateX — the rise keyframes animate
-   transform, which would replace a translateX(-50%) base and slide the
-   pill in from the right when the animation ended */
+/* Hugs the textbox, not the whole dock — the dragons flanking it stand
+   taller than the box, and the pill has no business floating up by their
+   heads. Centered by margins, not translateX: the rise keyframes animate
+   transform, which would replace a translateX(-50%) base and slide the pill
+   in from the right when the animation ended. */
 .jump-latest {
   position: absolute;
-  bottom: calc(var(--composer-h) + 14px);
+  bottom: calc(var(--composer-box-h) + 14px);
   left: 0;
   right: 0;
   width: fit-content;

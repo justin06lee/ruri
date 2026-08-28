@@ -1,14 +1,17 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { ComposerDraftState, DraftAttachment } from "../shared/protocol.js";
 
 /**
- * Unsent composer prompts, one per channel, held between launches.
+ * Unsent composer prompts, one per channel, held between launches — the text
+ * and the attachments clipped to it.
  *
  * Their own file rather than the session archive: Home's archive is wiped
  * every launch by design, and a rewind truncates a session's — neither
- * should cost you a half-written thought. Text only; an attachment is a live
- * browser File that nothing server-side can hold on its behalf.
+ * should cost you a half-written thought. The attachment bytes live in the
+ * uploads directory like any other attachment, so a draft only carries the
+ * same small metadata a sent prompt does.
  */
 
 function draftsFile(): string {
@@ -21,29 +24,53 @@ function draftsFile(): string {
 const WRITE_DELAY_MS = 400;
 
 export class DraftStore {
-  private readonly drafts = new Map<string, string>();
+  private readonly drafts = new Map<string, ComposerDraftState>();
   private timer: NodeJS.Timeout | undefined;
 
   constructor() {
     try {
       const raw = JSON.parse(fs.readFileSync(draftsFile(), "utf8")) as Record<string, unknown>;
-      for (const [channelId, text] of Object.entries(raw)) {
-        if (typeof text === "string" && text.trim()) this.drafts.set(channelId, text);
+      for (const [channelId, saved] of Object.entries(raw)) {
+        // drafts were text alone before attachments could be parked
+        const draft: ComposerDraftState | undefined =
+          typeof saved === "string"
+            ? { text: saved }
+            : saved && typeof saved === "object"
+              ? {
+                  text: typeof (saved as ComposerDraftState).text === "string"
+                    ? (saved as ComposerDraftState).text
+                    : "",
+                  ...(Array.isArray((saved as ComposerDraftState).attachments)
+                    ? { attachments: (saved as ComposerDraftState).attachments }
+                    : {}),
+                }
+              : undefined;
+        if (draft && (draft.text.trim() || draft.attachments?.length)) {
+          this.drafts.set(channelId, draft);
+        }
       }
     } catch {
       // first run, or a file worth starting over from
     }
   }
 
-  /** Hold a channel's unsent prompt; empty text drops it. */
-  set(channelId: string, text: string): void {
-    if (text.trim()) this.drafts.set(channelId, text);
-    else if (!this.drafts.delete(channelId)) return;
+  /** What a channel is holding, if anything. */
+  get(channelId: string): ComposerDraftState | undefined {
+    return this.drafts.get(channelId);
+  }
+
+  /** Hold a channel's unsent prompt; nothing left to keep drops it. */
+  set(channelId: string, text: string, attachments: DraftAttachment[] | undefined): void {
+    if (text.trim() || attachments?.length) {
+      this.drafts.set(channelId, { text, ...(attachments?.length ? { attachments } : {}) });
+    } else if (!this.drafts.delete(channelId)) {
+      return;
+    }
     this.scheduleWrite();
   }
 
   /** Every channel's draft, for the snapshot a fresh client gets. */
-  all(): Record<string, string> {
+  all(): Record<string, ComposerDraftState> {
     return Object.fromEntries(this.drafts);
   }
 

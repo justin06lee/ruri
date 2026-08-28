@@ -14,7 +14,6 @@ import {
   AttachmentStrip,
   cropRegion,
   fileKind,
-  fileToBase64,
   Viewer,
   TranscriptAttachments,
   ToolImage,
@@ -28,6 +27,7 @@ import { QuestionCard } from "./Questions";
 import { Thinking } from "./Thinking";
 import { Tracker } from "./Tracker";
 import { heroFor, heroUrl, launchHero } from "../hero";
+import { fileToBase64 } from "../lib/files";
 import { Markdown } from "../markdown";
 import { clearComposerDraft, composerDrafts, send, setComposerDraft, useRuri } from "../store";
 
@@ -520,13 +520,17 @@ export function Composer({
     area.style.height = `${Math.min(area.scrollHeight, 220)}px`;
   };
 
-  // Text arrived in this channel's draft from outside (a review's fix-it
-  // prompt, a rewound prompt): the map is the source of truth — re-read it.
+  // The draft changed from outside (a review's fix-it prompt, a rewound
+  // prompt, a saved draft's files arriving after a launch): the map is the
+  // source of truth — re-read it, attachments and marker numbering included.
   useEffect(() => {
     if (draftBump === bumpSeen.current) return;
     bumpSeen.current = draftBump;
     const fresh = composerDrafts.get(channelId);
-    if (fresh && fresh.text !== text) setText(fresh.text);
+    if (!fresh) return;
+    if (fresh.text !== text) setText(fresh.text);
+    setAtts((prev) => (prev === fresh.atts ? prev : fresh.atts));
+    counter.current = fresh.counter;
     requestAnimationFrame(() => areaRef.current?.focus());
   }, [draftBump, channelId, text]);
 

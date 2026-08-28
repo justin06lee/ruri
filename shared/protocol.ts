@@ -59,6 +59,13 @@ export interface ModelChoice {
   provider?: string;
   /** Human name of that harness ("Codex CLI"), for tags and placeholders. */
   providerLabel?: string;
+  /**
+   * The harness runs this model as a real agentic session, so it has an
+   * approval flow ruri can drive — which is what decides whether the
+   * permission-mode dropdown means anything. Claude models leave it unset;
+   * they always have one.
+   */
+  agentic?: boolean;
 }
 
 /** A file attached to a prompt — image, video, or any other file (pdf,

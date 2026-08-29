@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
+  DEFAULT_PERMISSION_MODE,
   EFFORT_LEVELS,
   HOME_ID,
   type ModelChoice,
@@ -21,9 +22,11 @@ import {
   type ComposerAttachment,
   type Region,
 } from "./Attachments";
+import { Brief } from "./Brief";
 import { DiffView } from "./Diff";
 import type { RapidFire } from "./RapidFire";
 import { RapidBar } from "./RapidFire";
+import { TerminalPanel } from "./Terminal";
 import { DragonGauges } from "./Dragon";
 import { Dropdown } from "./Dropdown";
 import { QuestionCard } from "./Questions";
@@ -432,7 +435,7 @@ function SessionControls({ project }: { project: Project }) {
         <Dropdown
           up
           title="Permission mode"
-          value={project.permissionMode ?? "default"}
+          value={project.permissionMode ?? DEFAULT_PERMISSION_MODE}
           options={PERMISSION_MODES}
           onSelect={(mode) =>
             send({ type: "set_permission_mode", projectId: project.id, mode: mode as PermissionMode })
@@ -464,6 +467,10 @@ export function Composer({
   const [atts, setAtts] = useState<ComposerAttachment[]>(saved?.atts ?? []);
   const [viewing, setViewing] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  /** The box has two modes: writing a prompt, and a shell in the project's
+   *  directory. The shell keeps running either way — this only decides
+   *  which one the box is showing. */
+  const [shell, setShell] = useState(false);
   const counter = useRef(saved?.counter ?? { image: 0, video: 0, file: 0, region: 0 });
   /** Where the caret was last seen in the prompt — a marker drawn in the
    *  viewer lands there, since the textarea lost focus to the overlay. */
@@ -651,16 +658,20 @@ export function Composer({
             addFiles(e.dataTransfer.files, caretFromPoint(e.clientX, e.clientY) ?? undefined);
           }}
         >
-          <AttachmentStrip
-            attachments={atts}
-            onRemove={removeAtt}
-            onView={(a) => {
-              // the caret as the prompt last had it — the viewer is about to
-              // take focus, and a region drawn in there lands right here
-              caretRef.current = areaRef.current?.selectionStart ?? text.length;
-              setViewing(a.id);
-            }}
-          />
+          {shell && <TerminalPanel channelId={channelId} />}
+          {!shell && (
+            <AttachmentStrip
+              attachments={atts}
+              onRemove={removeAtt}
+              onView={(a) => {
+                // the caret as the prompt last had it — the viewer is about
+                // to take focus, and a region drawn in there lands right here
+                caretRef.current = areaRef.current?.selectionStart ?? text.length;
+                setViewing(a.id);
+              }}
+            />
+          )}
+          {!shell && (
           <textarea
             ref={areaRef}
             rows={1}
@@ -689,10 +700,18 @@ export function Composer({
               }
             }}
           />
+          )}
           <div className="composer-bar">
-            <SessionControls project={project} />
+            {shell ? <span className="shell-where">{project.name} · shell</span> : <SessionControls project={project} />}
             <div className="composer-actions">
-              {busy && (
+              <button
+                className={`shell-toggle ${shell ? "active" : ""}`}
+                title={shell ? "Back to writing a prompt" : "A shell in this project's directory"}
+                onClick={() => setShell(!shell)}
+              >
+                <Icon d={shell ? "M4 6h16M4 12h10M4 18h16" : "M4 17l6-6-6-6M12 19h8"} />
+              </button>
+              {busy && !shell && (
                 <button
                   className="stop"
                   title="Interrupt the running turn"
@@ -703,30 +722,35 @@ export function Composer({
                   </svg>
                 </button>
               )}
-              <button
-                className="split-send"
-                title="Split into separate prompts and send them one by one"
-                onClick={() => void submit("send_split")}
-                disabled={!text.trim()}
-              >
-                <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
-              </button>
-              <button
-                className="send"
-                title="Send (Enter)"
-                onClick={() => void submit()}
-                disabled={!text.trim() && atts.length === 0}
-              >
-                <Icon d="M12 19V5M5 12l7-7 7 7" />
-              </button>
+              {!shell && (
+                <button
+                  className="split-send"
+                  title="Split into separate prompts and send them one by one"
+                  onClick={() => void submit("send_split")}
+                  disabled={!text.trim()}
+                >
+                  <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
+                </button>
+              )}
+              {!shell && (
+                <button
+                  className="send"
+                  title="Send (Enter)"
+                  onClick={() => void submit()}
+                  disabled={!text.trim() && atts.length === 0}
+                >
+                  <Icon d="M12 19V5M5 12l7-7 7 7" />
+                </button>
+              )}
             </div>
           </div>
         </div>
         <DragonGauges channelId={channelId} model={project.model} side="right" />
       </div>
       <div className="composer-hint">
-        Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach ·
-        scissors to split a long prompt
+        {shell
+          ? "A shell in this project — it keeps running while you're away"
+          : "Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach · scissors to split a long prompt"}
       </div>
       {viewingAtt && (
         <Viewer
@@ -898,12 +922,18 @@ export function ChatPane({
 
   const trackerItems = useRuri((s) => (activeId ? s.tracker[activeId] : undefined));
   const [trackerOpen, setTrackerOpen] = useState(false);
+  /** The catch-up page: this project's brief, and the button that hands it
+   *  to a model that has never seen it. */
+  const [briefOpen, setBriefOpen] = useState(false);
   const openCount = (trackerItems ?? []).filter((i) => i.status === "open").length;
 
   // Sending a prompt extracts tracker items, but it does not yank you onto
   // the tracker page to look at them — the toggle's badge is the whole
   // notification. Switching channels still lands you back on the chat.
-  useEffect(() => setTrackerOpen(false), [activeId]);
+  useEffect(() => {
+    setTrackerOpen(false);
+    setBriefOpen(false);
+  }, [activeId]);
 
   // Turns show in full — the summaries are the model's memory aid, not the
   // user's view. A hover chevron folds a turn to its note when wanted.
@@ -1031,9 +1061,22 @@ export function ChatPane({
       <div className="header-controls">
         {rapid?.on && <RapidBar rapid={rapid} />}
         <button
+          className={`icon-button ${briefOpen ? "active" : ""}`}
+          title="Catch up — this project in a paragraph, for a model that has never seen it"
+          onClick={() => {
+            setBriefOpen(!briefOpen);
+            setTrackerOpen(false);
+          }}
+        >
+          <Icon d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v18H6.5A2.5 2.5 0 0 1 4 18.5v-13zM12 3h5.5A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5H12" />
+        </button>
+        <button
           className={`icon-button tracker-toggle ${trackerOpen ? "active" : ""}`}
           title={trackerOpen ? "Back to the chat" : "Feature tracker — things to test by hand"}
-          onClick={() => setTrackerOpen(!trackerOpen)}
+          onClick={() => {
+            setTrackerOpen(!trackerOpen);
+            setBriefOpen(false);
+          }}
         >
           <Icon d="M9 11l3 3 8-8M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" />
           {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
@@ -1077,11 +1120,15 @@ export function ChatPane({
 
   // The tracker button swaps the whole pane for the todo page — no
   // navigation, just this branch; the same button (or its X) swaps back.
-  if (trackerOpen) {
+  if (trackerOpen || briefOpen) {
     return (
       <main className={pane("chat")}>
         {header}
-        <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />
+        {trackerOpen ? (
+          <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />
+        ) : (
+          <Brief projectId={activeId} onClose={() => setBriefOpen(false)} />
+        )}
       </main>
     );
   }

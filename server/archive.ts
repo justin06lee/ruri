@@ -35,6 +35,9 @@ interface ArchiveData {
    *  context gauge reads the real occupancy on launch instead of zero until
    *  the next turn happens to refill it. */
   contextTokens?: number;
+  /** The context window that channel's harness reported for its model —
+   *  Codex names its own, and it is not one of Claude's two sizes. */
+  contextWindow?: number;
 }
 
 /** Collapse a turn's two notes into the single fold-note string the UI shows. */
@@ -82,6 +85,7 @@ export class SessionArchive {
         ...(raw.chain && typeof raw.chain === "object" ? { chain: raw.chain } : {}),
         ...(typeof raw.resumeAt === "string" ? { resumeAt: raw.resumeAt } : {}),
         ...(typeof raw.contextTokens === "number" ? { contextTokens: raw.contextTokens } : {}),
+        ...(typeof raw.contextWindow === "number" ? { contextWindow: raw.contextWindow } : {}),
       };
     } catch {
       entry = { events: [], summaries: {} };
@@ -166,9 +170,16 @@ export class SessionArchive {
     return this.load(projectId).contextTokens;
   }
 
-  setContextTokens(projectId: string, tokens: number): void {
-    this.load(projectId).contextTokens = tokens;
+  setContextTokens(projectId: string, tokens: number, window?: number): void {
+    const entry = this.load(projectId);
+    entry.contextTokens = tokens;
+    if (window) entry.contextWindow = window;
     this.scheduleWrite(projectId);
+  }
+
+  /** The window a harness last reported for this channel, if it did. */
+  contextWindowOf(projectId: string): number | undefined {
+    return this.load(projectId).contextWindow;
   }
 
   lastSessionId(projectId: string): string | undefined {

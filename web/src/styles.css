@@ -2026,6 +2026,11 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 800px;
   margin: 0 auto;
   padding: 6px 24px 12px;
+}
+
+/* the exchange itself — its own box, so growth inside it (an image decoding,
+   a diff laying out) is measurable and the view can keep its footing */
+.rapid-context-inner {
   display: flex;
   flex-direction: column;
   gap: 12px;

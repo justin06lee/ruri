@@ -4,6 +4,7 @@ import {
   DEFAULT_MODEL,
   EFFORT_LEVELS,
   HOME_ID,
+  type ModelChoice,
   type PermissionMode,
   type PermissionRequest,
   type Project,
@@ -199,7 +200,7 @@ export function EventView({
           {onRewind && (
             <button
               className="icon-button rewind-pencil"
-              title="Rewind here — conversation and code return to just before this prompt, and the prompt comes back to the composer"
+              title="Rewind here — the conversation returns to just before this prompt, and the prompt comes back to the composer"
               onClick={() => onRewind(event)}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -287,11 +288,15 @@ export function EventView({
 
 /* ── permissions ─────────────────────────────────────────────────── */
 
-function permissionSummary(request: PermissionRequest): { title: string; body: React.ReactNode } {
+function permissionSummary(
+  request: PermissionRequest,
+  /** Whoever is asking — the harness this channel runs on. */
+  asker: string,
+): { title: string; body: React.ReactNode } {
   const input = (request.input ?? {}) as Record<string, unknown>;
   if (request.toolName === "ExitPlanMode" && typeof input["plan"] === "string") {
     return {
-      title: "Claude finished planning and wants to start building",
+      title: `${asker} finished planning and wants to start building`,
       body: (
         <div className="permission-plan">
           <Markdown text={input["plan"] as string} />
@@ -306,13 +311,26 @@ function permissionSummary(request: PermissionRequest): { title: string; body: R
         ? (input["file_path"] as string)
         : undefined;
   return {
-    title: `Claude wants to use ${request.toolName}`,
+    title: `${asker} wants to use ${request.toolName}`,
     body: <pre className="permission-input">{detail ?? JSON.stringify(request.input, null, 2)}</pre>,
   };
 }
 
+/** The name to put on a card asking for permission: the harness the channel
+ *  runs on, since it is the one asking — not Claude by default. */
+function harnessName(models: ModelChoice[], model: string | undefined): string {
+  const choice = models.find((m) => m.value === (model || DEFAULT_MODEL));
+  return choice?.providerLabel ?? "Claude";
+}
+
 export function PermissionBanner({ request }: { request: PermissionRequest }) {
-  const { title, body } = permissionSummary(request);
+  const models = useRuri((s) => s.models);
+  const model = useRuri(
+    (s) =>
+      s.projects.find((p) => p.sessions.some((x) => x.id === request.projectId))?.model ??
+      (request.projectId === HOME_ID ? s.home.model : undefined),
+  );
+  const { title, body } = permissionSummary(request, harnessName(models, model));
   const respond = (allow: boolean, always = false) =>
     send({ type: "permission_response", requestId: request.requestId, allow, always });
   return (
@@ -583,7 +601,7 @@ export function Composer({
   return (
     <div className="composer">
       <div className="composer-row">
-        <DragonGauges channelId={channelId} side="left" />
+        <DragonGauges channelId={channelId} model={project.model} side="left" />
         <div
           className={`composer-box ${dragOver ? "drag-over" : ""}`}
           onDragOver={(e) => {
@@ -651,7 +669,7 @@ export function Composer({
             </div>
           </div>
         </div>
-        <DragonGauges channelId={channelId} side="right" />
+        <DragonGauges channelId={channelId} model={project.model} side="right" />
       </div>
       <div className="composer-hint">
         Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach ·
@@ -952,9 +970,12 @@ export function ChatPane() {
 
   const busy = status === "working" || status === "permission";
 
-  // Rewind rides the CLI's checkpoints — only when the model routes to Claude.
+  // Rewind works on every harness; what it can undo differs. Claude rides
+  // the CLI's file checkpoints and forks the conversation at the prompt;
+  // every other harness keeps no checkpoints and cannot fork, so it rewinds
+  // the transcript and comes back on a brief of what's kept, files untouched.
   const claudeRoute = !models.find((m) => m.value === (project.model || DEFAULT_MODEL))?.provider;
-  const canRewind = !isHome && !busy && claudeRoute;
+  const canRewind = !isHome && !busy;
   const askRewind = canRewind
     ? (event: Extract<TranscriptEvent, { kind: "user" }>) =>
         setRewindTarget({ id: event.id, text: event.text })
@@ -1118,9 +1139,9 @@ export function ChatPane() {
                 : rewindTarget.text}
             </div>
             <div className="confirm-body">
-              The conversation and the project's files go back to the moment before this
-              prompt ran — everything after it is discarded. The prompt itself lands in the
-              composer, so you can edit it there and send when you're ready.
+              {claudeRoute
+                ? "The conversation and the project's files go back to the moment before this prompt ran — everything after it is discarded. The prompt itself lands in the composer, so you can edit it there and send when you're ready."
+                : "The conversation goes back to the moment before this prompt ran — everything after it is discarded, and the harness starts again from a brief of what's kept. This harness keeps no file checkpoints, so the files stay as they are. The prompt itself lands in the composer, so you can edit it there and send when you're ready."}
             </div>
             <div className="confirm-actions">
               <button className="ghost" onClick={() => setRewindTarget(null)}>

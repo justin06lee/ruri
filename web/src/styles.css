@@ -923,6 +923,16 @@ input[type="range"]::-webkit-slider-thumb {
   right: 0;
 }
 
+/* rapid fire brings the header to a session with nothing in it yet — it
+   pins to the top the way the error bar does, so the hero stays centered
+   in the pane rather than sitting under a shrunk-to-fit bar */
+.home-hero .chat-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
 .hero {
   display: flex;
   flex-direction: column;
@@ -1973,38 +1983,22 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--ink);
 }
 
-/* rapid fire: one card at a time — whichever session is ready for a prompt */
+/* rapid fire: no pane of its own — it walks the chat pages, and rides the
+   header of whichever session it has you on */
 
-.rapid-card {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  animation: rise 180ms ease-out;
-}
-
-.rapid-session {
-  width: 100%;
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 18px 24px 6px;
+.rapid-bar {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  margin-right: 2px;
 }
 
-.rapid-project {
-  font-weight: 700;
-  font-size: 15px;
-}
-
-.rapid-role {
+.rapid-count {
+  font-size: 12px;
   color: var(--ink-faint);
-  font-size: 13px;
 }
 
 .rapid-skip {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2015,53 +2009,6 @@ input[type="range"]::-webkit-slider-thumb {
 .rapid-skip svg {
   width: 12px;
   height: 12px;
-}
-
-/* the session's last exchange, rendered with the real transcript pieces */
-.rapid-context {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  width: 100%;
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 6px 24px 12px;
-  display: flex;
-  flex-direction: column;
-}
-
-/* the exchange itself — its own box, so growth inside it (an image decoding,
-   a diff laying out) is measurable and the view can keep its footing. It's a
-   column of its own, so the pieces still lay themselves out against it: the
-   user bubble to the right, the rest across the full width. */
-.rapid-context-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.rapid-fresh {
-  color: var(--ink-faint);
-  font-size: 13.5px;
-  font-style: italic;
-  padding: 8px 0;
-}
-
-.rapid-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  color: var(--ink-faint);
-}
-
-.rapid-empty-text {
-  font-size: 13px;
-  max-width: 340px;
-  text-align: center;
-  line-height: 1.6;
 }
 
 .result-line {
@@ -2373,6 +2320,15 @@ input[type="range"]::-webkit-slider-thumb {
   transform: rotate(90deg);
 }
 
+/* the head names the file; the counts sit to its right */
+.diff-file {
+  color: var(--ink);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .diff-new {
   color: var(--ink-soft);
   font-weight: 400;
@@ -2453,6 +2409,21 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* where the file lives, along the bottom edge — the whole path, quiet
+   enough to read past when the patch is what you came for */
+.diff-path {
+  padding: 4px 10px;
+  border-top: 1px solid var(--line-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
 }
 
 .diff-more {

@@ -17,13 +17,15 @@ import {
   type SessionPermissionDecision,
   type SessionPermissionRequest,
   type SessionProvider,
+  type Usage,
 } from "@justin06lee/yagami";
 import {
   getSessionMessages,
   type HookInput,
   type PreToolUseHookSpecificOutput,
 } from "@anthropic-ai/claude-agent-sdk";
-import { buildDiff, readBefore } from "./diff.js";
+import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
+import { readCodexCounts } from "./usage.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
@@ -50,8 +52,9 @@ export interface SessionEvents {
   onModels(models: ModelChoice[]): void;
   /** The live Claude session id changed (used to resume across restarts). */
   onSessionId(projectId: string, sessionId: string): void;
-  /** Context-window occupancy after the session's latest API call. */
-  onContext(projectId: string, tokens: number): void;
+  /** Context-window occupancy after the session's latest API call, with the
+   *  model's own window when the harness reports one (Codex does). */
+  onContext(projectId: string, tokens: number, window?: number): void;
   /** A turn's SDK chain uuid landed: the prompt's own uuid ("user", the
    *  file-rewind target) or the turn's latest entry ("last", the fork
    *  point for rewinding past it). Claude sessions only. */
@@ -119,6 +122,27 @@ function shortenPaths(text: string, project: Project): string {
   return text.replaceAll(`${root}/`, `${project.name}/`).replaceAll(root, project.name);
 }
 
+/** File-path fields, in every spelling the harnesses use. */
+const PATH_KEYS = ["file_path", "path", "filePath", "abs_path", "absolute_path", "filename"];
+
+/** The absolute path a tool call names, whatever it calls that field. */
+function toolPath(input: Record<string, unknown>): string | undefined {
+  for (const key of PATH_KEYS) {
+    const value = input[key];
+    if (typeof value === "string" && path.isAbsolute(value)) return value;
+  }
+  return undefined;
+}
+
+/** The first of these keys the input carries as a string. */
+function pick(input: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
 /**
  * The patch a Write or Edit is about to apply. Called as the tool_use block
  * arrives, which is before the CLI runs the tool — so the file on disk is
@@ -133,21 +157,25 @@ function toolDiff(
   /** The hook's capture, when it got there first; undefined = read it now. */
   captured?: string | null,
 ): FileDiff | undefined {
-  const file = input["file_path"];
-  if (typeof file !== "string" || !path.isAbsolute(file)) return undefined;
+  const file = toolPath(input);
+  if (file === undefined) return undefined;
   const display = shortenPaths(file, project);
   const preimage = () => (captured !== undefined ? captured : readBefore(file));
 
   if (name === "Write") {
-    const content = input["content"];
-    if (typeof content !== "string") return undefined;
+    const content = pick(input, "content", "contents", "text", "new_text", "newText");
+    if (content === undefined) return undefined;
     return buildDiff(display, preimage(), content) ?? undefined;
   }
   if (name !== "Edit") return undefined;
 
-  const oldStr = input["old_string"];
-  const newStr = input["new_string"];
-  if (typeof oldStr !== "string" || typeof newStr !== "string") return undefined;
+  const oldStr = pick(input, "old_string", "old_text", "oldText", "old");
+  const newStr = pick(input, "new_string", "new_text", "newText", "new");
+  if (oldStr === undefined || newStr === undefined) {
+    // a whole-file rewrite that came in under an edit's name
+    const content = pick(input, "content", "contents", "text");
+    return content === undefined ? undefined : (buildDiff(display, preimage(), content) ?? undefined);
+  }
   const before = preimage();
   if (before === null || !before.includes(oldStr)) {
     // no pre-image to anchor against (a brand-new file, or the edit already
@@ -222,8 +250,8 @@ export function readImage(
   input: Record<string, unknown>,
 ): { url: string; name: string } | undefined {
   if (name !== "Read" && name !== "NotebookRead") return undefined;
-  const file = input["file_path"];
-  if (typeof file !== "string" || !path.isAbsolute(file)) return undefined;
+  const file = toolPath(input);
+  if (file === undefined) return undefined;
   if (!IMAGE_EXTS.has(path.extname(file).toLowerCase())) return undefined;
   return { url: `/readfile?p=${encodeURIComponent(file)}`, name: path.basename(file) };
 }
@@ -841,6 +869,7 @@ class ProviderTurnSession implements ChannelSession {
           this.events.onDelta(this.project.id, draftId, event.text);
         } else if (event.type === "done") {
           costUsd = event.costUsd;
+          reportProviderContext(this.events, this.project.id, this.providerId, this.lastSessionId, event.usage);
         }
       }
     } catch (err) {
@@ -889,7 +918,10 @@ class ProviderTurnSession implements ChannelSession {
   }
 
   rewindFiles(): Promise<{ canRewind: boolean; error?: string }> {
-    return Promise.resolve({ canRewind: false, error: "rewind is a Claude-session feature" });
+    return Promise.resolve({
+      canRewind: false,
+      error: "this harness keeps no file checkpoints",
+    });
   }
 
   /** The native model for the next turn ("" = the harness's default). */
@@ -936,14 +968,156 @@ class ProviderTurnSession implements ChannelSession {
   }
 }
 
-/** A provider tool_call, shaped for a ruri transcript chip. */
-function providerToolEvent(
+/**
+ * A non-Claude turn's context occupancy.
+ *
+ * Every harness reports what its last call spent, and for these the prompt
+ * count already includes what was cached — so the occupancy is simply what
+ * went in plus what came back, not Claude's sum-of-four. Codex additionally
+ * writes the authoritative numbers (and the model's real window) into its
+ * session rollout, which is where the accurate reading comes from when one
+ * is there.
+ */
+function reportProviderContext(
+  events: SessionEvents,
+  projectId: string,
+  providerId: string,
+  sessionId: string | undefined,
+  usage: Usage | undefined,
+): void {
+  if (providerId === "codex" && sessionId?.startsWith("codex:")) {
+    const counts = readCodexCounts(sessionId.slice("codex:".length));
+    if (counts?.tokens) {
+      events.onContext(projectId, counts.tokens, counts.window);
+      return;
+    }
+  }
+  if (!usage) return;
+  const tokens = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0);
+  if (tokens > 0) events.onContext(projectId, tokens);
+}
+
+/**
+ * Harness tool names in ruri's own vocabulary, so a chip reads the same
+ * whoever ran it: Codex's "shell" is a Bash chip and an ACP agent's
+ * "read_file" is a Read, exactly as Claude's would be. An unrecognised name
+ * keeps its own, capitalised.
+ */
+const TOOL_ALIASES: Record<string, string> = {
+  shell: "Bash",
+  bash: "Bash",
+  exec: "Bash",
+  execute: "Bash",
+  execute_command: "Bash",
+  run_command: "Bash",
+  terminal: "Bash",
+  read: "Read",
+  read_file: "Read",
+  read_text_file: "Read",
+  view: "Read",
+  open: "Read",
+  write: "Write",
+  write_file: "Write",
+  write_text_file: "Write",
+  create_file: "Write",
+  edit: "Edit",
+  edit_file: "Edit",
+  apply_patch: "Edit",
+  patch: "Edit",
+  str_replace: "Edit",
+  str_replace_editor: "Edit",
+  update_file: "Edit",
+  multiedit: "Edit",
+  search: "Grep",
+  grep: "Grep",
+  ripgrep: "Grep",
+  search_file_content: "Grep",
+  codebase_search: "Grep",
+  glob: "Glob",
+  find: "Glob",
+  ls: "Glob",
+  list_directory: "Glob",
+  web_search: "WebSearch",
+  websearch: "WebSearch",
+  search_web: "WebSearch",
+  fetch: "WebFetch",
+  web_fetch: "WebFetch",
+  browse: "WebFetch",
+  update_plan: "Plan",
+  plan: "Plan",
+  todo: "Plan",
+  todowrite: "Plan",
+};
+
+function ruriToolName(name: string): string {
+  const alias = TOOL_ALIASES[name.toLowerCase()];
+  if (alias) return alias;
+  return name.length > 0 ? `${name[0]!.toUpperCase()}${name.slice(1)}` : "Tool";
+}
+
+/** One file inside a harness's patch call (Codex sends these as `changes`). */
+interface PatchChange {
+  path?: unknown;
+  kind?: { type?: unknown } | unknown;
+  diff?: unknown;
+  content?: unknown;
+}
+
+/** A transcript chip a provider tool call earns — the same shape a Claude
+ *  tool_use block produces, patch and image preview included. */
+interface ProviderChip {
+  name: string;
+  summary: string;
+  diff?: FileDiff;
+  image?: { url: string; name: string };
+}
+
+function clip(text: string): string {
+  return text.length > 160 ? `${text.slice(0, 157)}…` : text;
+}
+
+/**
+ * A provider tool_call, shaped for ruri transcript chips — one per file when
+ * the call patches several.
+ *
+ * The patch comes from the call itself wherever the harness hands one over
+ * (Codex's apply_patch carries a unified diff per file, so there is nothing
+ * to compute and no race with the write); otherwise it is built the way a
+ * Claude tool_use block's is, off the file's current bytes.
+ */
+function providerToolEvents(
   ev: Extract<AgentEvent, { type: "tool_call" }>,
   project: Project,
-): { name: string; summary: string } {
-  const name = ev.name.length > 0 ? ev.name[0]!.toUpperCase() + ev.name.slice(1) : "Tool";
-  const summary = shortenPaths(ev.title ?? (ev.input !== undefined ? JSON.stringify(ev.input) : ""), project);
-  return { name, summary: summary.length > 160 ? `${summary.slice(0, 157)}…` : summary };
+): ProviderChip[] {
+  const input = (ev.input ?? {}) as Record<string, unknown>;
+  const changes = input["changes"];
+  if (Array.isArray(changes) && changes.length > 0) {
+    const chips = (changes as PatchChange[]).flatMap((change) => {
+      const file = typeof change.path === "string" ? change.path : undefined;
+      if (!file) return [];
+      const type = (change.kind as { type?: unknown } | undefined)?.type;
+      const created = type === "add";
+      const name = created ? "Write" : type === "delete" ? "Delete" : "Edit";
+      const display = shortenPaths(file, project);
+      const patch = typeof change.diff === "string" ? change.diff : undefined;
+      const whole = typeof change.content === "string" ? change.content : undefined;
+      const diff = patch
+        ? parseUnifiedDiff(display, patch, { created })
+        : whole !== undefined
+          ? buildDiff(display, created ? null : readBefore(file), whole)
+          : null;
+      return [{ name, summary: clip(display), ...(diff ? { diff } : {}) }];
+    });
+    if (chips.length > 0) return chips;
+  }
+
+  const name = ruriToolName(ev.name);
+  const summary = clip(
+    shortenPaths(ev.title ?? (ev.input !== undefined ? JSON.stringify(ev.input) : ""), project),
+  );
+  const diff = toolDiff(name, input, project);
+  const image = readImage(name, input);
+  return [{ name, summary, ...(diff ? { diff } : {}), ...(image ? { image } : {}) }];
 }
 
 /**
@@ -1088,11 +1262,13 @@ class ProviderAgentSession implements ChannelSession {
         } else if (event.type === "tool_call") {
           if (event.status !== "started" || toolsSeen.has(event.id)) continue;
           toolsSeen.add(event.id);
-          const { name, summary } = providerToolEvent(event, this.project);
-          this.pushEvent({ kind: "tool", id: randomUUID(), name, summary, ts: Date.now() });
+          for (const chip of providerToolEvents(event, this.project)) {
+            this.pushEvent({ kind: "tool", id: randomUUID(), ...chip, ts: Date.now() });
+          }
         } else if (event.type === "done") {
           costUsd = event.costUsd;
           interrupted = event.stopReason === "interrupted";
+          this.reportContext(event.usage);
         }
       }
     } catch (err) {
@@ -1128,6 +1304,11 @@ class ProviderAgentSession implements ChannelSession {
     } else {
       this.setStatus(error === undefined ? "idle" : "error");
     }
+  }
+
+  /** What this turn left in the window, for the context dragon. */
+  private reportContext(usage: Usage | undefined): void {
+    reportProviderContext(this.events, this.project.id, this.providerId, this.lastSessionId, usage);
   }
 
   /** The harness asked to do something — show ruri's permission card. */
@@ -1179,7 +1360,10 @@ class ProviderAgentSession implements ChannelSession {
   }
 
   rewindFiles(): Promise<{ canRewind: boolean; error?: string }> {
-    return Promise.resolve({ canRewind: false, error: "rewind is a Claude-session feature" });
+    return Promise.resolve({
+      canRewind: false,
+      error: "this harness keeps no file checkpoints",
+    });
   }
 
   /** A model change re-opens the session on the same thread via resume. */

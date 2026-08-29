@@ -146,8 +146,9 @@ export interface QueuedPrompt {
   attachments?: Attachment[];
 }
 
-/** Account limit windows from the Claude usage endpoint (percent USED, 0-100).
- *  A missing field means the window couldn't be read. */
+/** A harness's account limit windows (percent USED, 0-100). A missing field
+ *  means that window couldn't be read — or that this harness has no such
+ *  window. Keyed by provider id wherever a set of them travels. */
 export interface UsageLimits {
   /** The 5-hour session window. */
   fiveHour?: number;
@@ -325,9 +326,11 @@ export type ClientMessage =
   /** Remove a transcript event (a clicked command chip). A user event takes
    *  the rest of its turn with it. */
   | { type: "remove_event"; projectId: string; eventId: string }
-  /** Rewind conversation AND code to just before this user event ran
-   *  (Claude sessions only — rides the CLI's file checkpoints). The prompt
-   *  itself returns to the composer, to edit and send like any other. */
+  /** Rewind to just before this user event ran. On Claude that is the
+   *  conversation AND the code (it rides the CLI's file checkpoints); on
+   *  every other harness it is the conversation, re-seeded from a brief,
+   *  with the files left as they are. Either way the prompt itself returns
+   *  to the composer, to edit and send like any other. */
   | { type: "rewind"; projectId: string; eventId: string }
   /** The composer's unsent prompt for a channel (empty text and no
    *  attachments = nothing left to keep). Held server-side, so a quit does
@@ -389,8 +392,8 @@ export type ServerMessage =
       tracker: Record<string, TrackerItem[]>;
       /** App-side prompt queues per channel (visible entries only). */
       queued: Record<string, QueuedPrompt[]>;
-      /** Account limit windows (empty until the first successful fetch). */
-      usage: UsageLimits;
+      /** Limit windows per provider id (empty until the first read). */
+      usage: Record<string, UsageLimits>;
       /** Context occupancy per channel (Claude sessions that have run). */
       contexts: Record<string, ContextUsage>;
       /** Whether the host can show a native folder-picker dialog. */
@@ -428,8 +431,8 @@ export type ServerMessage =
   | { type: "review_prompt"; projectId: string; text: string }
   /** Text for a channel's composer (a rewound prompt, back for editing). */
   | { type: "compose"; projectId: string; text: string }
-  /** Fresh account limit windows (the usage gauges). */
-  | { type: "usage"; limits: UsageLimits }
+  /** Fresh limit windows per provider id (the usage gauges). */
+  | { type: "usage"; limits: Record<string, UsageLimits> }
   /** A channel's context occupancy changed (after an API call). */
   | { type: "context"; projectId: string; context: ContextUsage }
   | { type: "event"; projectId: string; event: TranscriptEvent }

@@ -175,8 +175,8 @@ interface RuriState {
   tracker: Record<string, TrackerItem[]>;
   /** App-side prompt queue per channel — held until the running turn ends. */
   queued: Record<string, QueuedPrompt[]>;
-  /** Account limit windows (percent used) for the usage gauges. */
-  usage: UsageLimits;
+  /** Limit windows per provider id (percent used) for the usage gauges. */
+  usage: Record<string, UsageLimits>;
   /** Context-window occupancy per channel. */
   contexts: Record<string, ContextUsage>;
   /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */

@@ -1873,12 +1873,6 @@ input[type="range"]::-webkit-slider-thumb {
   overflow-wrap: break-word;
 }
 
-.queued-edit {
-  width: 100%;
-  font-size: 13px;
-  resize: none;
-}
-
 @keyframes rise {
   from {
     opacity: 0;

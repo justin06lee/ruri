@@ -769,16 +769,6 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         );
         break;
       }
-      case "queue_edit": {
-        const entry = sendQueues
-          .get(msg.projectId)
-          ?.find((e) => e.id === msg.itemId && !e.silent);
-        if (entry && msg.text.trim()) {
-          entry.text = msg.text;
-          broadcastQueue(msg.projectId);
-        }
-        break;
-      }
       case "queue_remove": {
         const queue = sendQueues.get(msg.projectId);
         if (!queue) break;

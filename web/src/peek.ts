@@ -1,0 +1,49 @@
+/**
+ * Where the art sits — placed by hand in the tuner (`make tuner`), saved
+ * back here by it, and read by the app.
+ *
+ * This file is data, not decisions: every number in it was set by dragging
+ * the thing itself. The tuner rewrites it wholesale, so keep the shape and
+ * put commentary here in the header rather than beside the values.
+ */
+
+/** One peeking head in the titlebar band. */
+export interface Peek {
+  /** Which cut-out: /peek/u{n}.png. */
+  n: number;
+  /** Left edge, px from the band's left. */
+  x: number;
+  /** Rendered width, px — height follows the aspect ratio. */
+  w: number;
+  /** How far down the band it starts, px. */
+  drop: number;
+  /** How far it rises when the cursor is over it, px (negative = up). */
+  lift: number;
+}
+
+export const PEEKS: Peek[] = [
+  { n: 1, x: 1, w: 65, drop: 4, lift: -18 },
+  { n: 2, x: 56, w: 63, drop: 18, lift: -22 },
+  { n: 3, x: 89, w: 78, drop: 20, lift: -24 },
+  { n: 4, x: 138, w: 89, drop: 17, lift: -22 },
+  { n: 5, x: 210, w: 88, drop: 4, lift: -20 },
+];
+
+/** How a hero face sits inside its circle. */
+export interface HeroFrame {
+  /** Horizontal focus, percent — 50 is centred. */
+  x: number;
+  /** Vertical focus, percent. */
+  y: number;
+  /** How far in, 1 = fill the circle exactly. */
+  zoom: number;
+}
+
+export const HERO_CENTER: HeroFrame = { x: 50, y: 50, zoom: 1 };
+
+/** Per-face framing; anything missing is centred and unzoomed. */
+export const HERO_FRAMES: Record<number, HeroFrame> = {};
+
+export function heroFrame(n: number): HeroFrame {
+  return HERO_FRAMES[n] ?? HERO_CENTER;
+}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PEEKS } from "../peek";
 import { HOME_ID, type Project, type SessionInfo } from "../../../shared/protocol";
 import { Player } from "./Player";
 import { Settings } from "./Settings";
@@ -234,15 +235,9 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-header">
         <span className="logo-peeks" aria-hidden>
-          {/* hand-placed by the user via the peek tuner (scratchpad) —
+          {/* hand-placed in the tuner (`make tuner`), which writes peek.ts —
               x/w/drop position each head, lift is the hover rise */}
-          {[
-            { n: 1, x: 1, w: 65, drop: 4, lift: -18 },
-            { n: 2, x: 56, w: 63, drop: 18, lift: -22 },
-            { n: 3, x: 89, w: 78, drop: 20, lift: -24 },
-            { n: 4, x: 138, w: 89, drop: 17, lift: -22 },
-            { n: 5, x: 210, w: 88, drop: 4, lift: -20 },
-          ].map((p) => (
+          {PEEKS.map((p) => (
             <img
               key={p.n}
               className="peek-head"

@@ -108,18 +108,37 @@ function PeekBand({
 
 /* ── one hero face in its circle ──────────────────────────────────── */
 
+/** The circle's real size in the app — a drag is stored as percent of it. */
+const CIRCLE = 132;
+
 function HeroCircle({
   n,
   frame,
+  picked,
+  onPick,
   onChange,
 }: {
   n: number;
   frame: HeroFrame;
+  picked: boolean;
+  onPick(): void;
   onChange(next: HeroFrame): void;
 }) {
   const dragging = useRef(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const tenth = (v: number) => Math.round(v * 10) / 10;
+
+  /** The zoom at which this picture stops fitting and starts filling. */
+  const fillZoom = (): number => {
+    const img = imgRef.current;
+    if (!img?.naturalWidth || !img.naturalHeight) return 1;
+    const long = Math.max(img.naturalWidth, img.naturalHeight);
+    const short = Math.min(img.naturalWidth, img.naturalHeight);
+    return Number((long / short).toFixed(2));
+  };
+
   return (
-    <div className="hero-cell">
+    <div className={`hero-cell ${picked ? "picked" : ""}`} onMouseDown={onPick}>
       <div
         className="hero-frame tuner-frame"
         onMouseDown={() => {
@@ -133,33 +152,52 @@ function HeroCircle({
         }}
         onMouseMove={(e) => {
           if (!dragging.current) return;
-          // dragging the face moves the focus under the circle, so the image
-          // follows the cursor rather than fighting it
+          // the picture goes where the cursor takes it
           onChange({
             ...frame,
-            x: Math.max(0, Math.min(100, Math.round(frame.x - e.movementX * 0.4))),
-            y: Math.max(0, Math.min(100, Math.round(frame.y - e.movementY * 0.4))),
+            x: tenth(frame.x + (e.movementX / CIRCLE) * 100),
+            y: tenth(frame.y + (e.movementY / CIRCLE) * 100),
           });
         }}
         onWheel={(e) => {
           onChange({
             ...frame,
-            zoom: Math.max(1, Math.min(3, Number((frame.zoom - e.deltaY * 0.002).toFixed(2)))),
+            zoom: Math.max(0.2, Math.min(4, Number((frame.zoom - e.deltaY * 0.002).toFixed(2)))),
           });
         }}
         onDoubleClick={() => onChange({ ...HERO_CENTER })}
       >
         <img
+          ref={imgRef}
           className="hero-face"
           src={heroUrl(n)}
           alt=""
           draggable={false}
-          style={{ objectPosition: `${frame.x}% ${frame.y}%`, transform: `scale(${frame.zoom})` }}
+          style={{
+            left: `calc(50% + ${frame.x}%)`,
+            top: `calc(50% + ${frame.y}%)`,
+            transform: `translate(-50%, -50%) scale(${frame.zoom})`,
+          }}
         />
       </div>
-      <span className="hero-label">
-        v{n} · {frame.x}% {frame.y}% · {frame.zoom}×
-      </span>
+      <span className="hero-label">v{n}</span>
+      <div className="hero-nums">
+        {(["x", "y", "zoom"] as const).map((field) => (
+          <label key={field}>
+            {field}
+            <input
+              type="number"
+              step={field === "zoom" ? 0.05 : 1}
+              value={frame[field]}
+              onChange={(e) => onChange({ ...frame, [field]: Number(e.target.value) })}
+            />
+          </label>
+        ))}
+      </div>
+      <div className="hero-buttons">
+        <button onClick={() => onChange({ ...HERO_CENTER })}>fit</button>
+        <button onClick={() => onChange({ x: 0, y: 0, zoom: fillZoom() })}>fill</button>
+      </div>
     </div>
   );
 }
@@ -314,7 +352,7 @@ function PageCutter({ name, onSaved }: { name: string; onSaved(): void }) {
 
 function fileText(peeks: Peek[], frames: Record<number, HeroFrame>): string {
   const framed = Object.entries(frames)
-    .filter(([, f]) => f.x !== 50 || f.y !== 50 || f.zoom !== 1)
+    .filter(([, f]) => f.x !== 0 || f.y !== 0 || f.zoom !== 1)
     .sort((a, b) => Number(a[0]) - Number(b[0]));
   return [
     ...peeks.map((p) => `  { n: ${p.n}, x: ${p.x}, w: ${p.w}, drop: ${p.drop}, lift: ${p.lift} },`),
@@ -331,6 +369,9 @@ function Tuner() {
     return all;
   });
   const [selected, setSelected] = useState(1);
+  /** The arrows nudge whichever list was touched last. */
+  const [aim, setAim] = useState<"peek" | "hero">("peek");
+  const [heroPick, setHeroPick] = useState(1);
   const [hovering, setHovering] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   /** Bumped when a head is replaced, so every <img> of it reloads. */
@@ -345,6 +386,10 @@ function Tuner() {
   }, []);
 
   const pick = peeks.find((p) => p.n === selected);
+  const pickHead = (n: number) => {
+    setSelected(n);
+    setAim("peek");
+  };
 
   const save = async () => {
     const body = JSON.stringify({ peeks, frames });
@@ -361,12 +406,28 @@ function Tuner() {
     setTimeout(() => setSaved(null), 2600);
   };
 
-  // arrows nudge the picked head, so a placement can be made exact
+  // arrows nudge whatever was touched last, so a placement can be made exact
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (!pick || !e.key.startsWith("Arrow")) return;
-      e.preventDefault();
+      if (!e.key.startsWith("Arrow")) return;
+      if (document.activeElement instanceof HTMLInputElement) return;
       const step = e.shiftKey ? 5 : 1;
+      if (aim === "hero") {
+        const frame = frames[heroPick] ?? HERO_CENTER;
+        e.preventDefault();
+        const patch =
+          e.key === "ArrowLeft"
+            ? { x: frame.x - step }
+            : e.key === "ArrowRight"
+              ? { x: frame.x + step }
+              : e.key === "ArrowUp"
+                ? { y: frame.y - step }
+                : { y: frame.y + step };
+        setFrames({ ...frames, [heroPick]: { ...frame, ...patch } });
+        return;
+      }
+      if (!pick) return;
+      e.preventDefault();
       const patch =
         e.key === "ArrowLeft"
           ? { x: pick.x - step }
@@ -379,7 +440,7 @@ function Tuner() {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [pick, peeks]);
+  }, [aim, pick, peeks, frames, heroPick]);
 
   return (
     <div className="tuner">
@@ -400,18 +461,40 @@ function Tuner() {
       </header>
 
       <section>
+        <h2>the hero faces in their circles</h2>
+        <p className="hint">
+          drag a face to move it · scroll over it to resize · arrows nudge the picked one ·
+          fit shows the whole picture, fill covers the circle · double-click resets
+        </p>
+        <div className="hero-grid">
+          {Array.from({ length: HERO_COUNT }, (_, i) => i + 1).map((n) => (
+            <HeroCircle
+              key={n}
+              n={n}
+              frame={frames[n] ?? HERO_CENTER}
+              picked={heroPick === n}
+              onPick={() => {
+                setHeroPick(n);
+                setAim("hero");
+              }}
+              onChange={(next) => setFrames({ ...frames, [n]: next })}
+            />
+          ))}
+        </div>
+      </section>
+      <section>
         <h2>the titlebar heads</h2>
         <PeekBand
           peeks={peeks}
           setPeeks={setPeeks}
           selected={selected}
-          setSelected={setSelected}
+          setSelected={pickHead}
           hovering={hovering}
           stamp={stamp}
         />
         <div className="rows">
           {peeks.map((p) => (
-            <div className={`row ${selected === p.n ? "picked" : ""}`} key={p.n} onClick={() => setSelected(p.n)}>
+            <div className={`row ${selected === p.n ? "picked" : ""}`} key={p.n} onClick={() => pickHead(p.n)}>
               <img src={`/peek/u${p.n}.png?v=${stamp}`} alt="" className="row-thumb" />
               <span className="row-name">u{p.n}</span>
               {(["x", "w", "drop", "lift"] as const).map((field) => (
@@ -436,35 +519,25 @@ function Tuner() {
       </section>
 
       <section>
-        <h2>the raw pages — cut a head out of one</h2>
-        <p className="hint">
-          drag a box over a head · it's cut at the page's own resolution, scaled to {HEAD_W}px wide,
-          and written straight into web/public/peek. {sources.dir}
-        </p>
-        <div className="cutters">
-          {sources.names.map((name) => (
-            <PageCutter key={name} name={name} onSaved={() => setStamp(Date.now())} />
-          ))}
-          {sources.names.length === 0 && (
-            <p className="hint">no ruri*.png pages found in {sources.dir} — set RURI_ART to point elsewhere</p>
-          )}
-        </div>
+        <details>
+          <summary>
+            <h2>the raw pages — cut a head out of one</h2>
+          </summary>
+          <p className="hint">
+            drag a box over a head · it's cut at the page's own resolution, scaled to {HEAD_W}px wide,
+            and written straight into web/public/peek. {sources.dir}
+          </p>
+          <div className="cutters">
+            {sources.names.map((name) => (
+              <PageCutter key={name} name={name} onSaved={() => setStamp(Date.now())} />
+            ))}
+            {sources.names.length === 0 && (
+              <p className="hint">no ruri*.png pages found in {sources.dir} — set RURI_ART to point elsewhere</p>
+            )}
+          </div>
+        </details>
       </section>
 
-      <section>
-        <h2>the hero faces in their circles</h2>
-        <p className="hint">drag a face to move it under the circle · scroll to zoom · double-click to reset</p>
-        <div className="hero-grid">
-          {Array.from({ length: HERO_COUNT }, (_, i) => i + 1).map((n) => (
-            <HeroCircle
-              key={n}
-              n={n}
-              frame={frames[n] ?? HERO_CENTER}
-              onChange={(next) => setFrames({ ...frames, [n]: next })}
-            />
-          ))}
-        </div>
-      </section>
     </div>
   );
 }

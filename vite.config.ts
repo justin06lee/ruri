@@ -12,6 +12,11 @@ import { defineConfig, type Plugin } from "vite";
 function tunerSave(): Plugin {
   const file = path.join(import.meta.dirname, "web", "src", "peek.ts");
   const num = (value: unknown, fallback = 0) => (typeof value === "number" ? Math.round(value) : fallback);
+  /** Framing is finer than whole pixels — keep a decimal, but only one. */
+  const fine = (value: unknown, places: number, fallback: number) =>
+    typeof value === "number" && Number.isFinite(value)
+      ? Number(value.toFixed(places))
+      : fallback;
   return {
     name: "ruri-tuner-save",
     apply: "serve",
@@ -39,11 +44,15 @@ function tunerSave(): Plugin {
                   `drop: ${num(p["drop"])}, lift: ${num(p["lift"])} },`,
               )
               .join("\n");
-            // a face left centred and unzoomed says nothing worth storing
+            // a face left centred at its fitted size says nothing worth storing
             const frameLines = Object.entries(frames)
-              .filter(([, f]) => f.x !== 50 || f.y !== 50 || f.zoom !== 1)
+              .filter(([, f]) => f.x !== 0 || f.y !== 0 || f.zoom !== 1)
               .sort((a, b) => Number(a[0]) - Number(b[0]))
-              .map(([n, f]) => `  ${n}: { x: ${num(f.x, 50)}, y: ${num(f.y, 50)}, zoom: ${f.zoom} },`)
+              .map(
+                ([n, f]) =>
+                  `  ${n}: { x: ${fine(f.x, 1, 0)}, y: ${fine(f.y, 1, 0)}, ` +
+                  `zoom: ${fine(f.zoom, 2, 1)} },`,
+              )
               .join("\n");
 
             const source = fs.readFileSync(file, "utf8");

@@ -899,8 +899,9 @@ function HeroFace({ n }: { n: number }) {
         src={heroUrl(n)}
         alt=""
         style={{
-          objectPosition: `${frame.x}% ${frame.y}%`,
-          ...(frame.zoom === 1 ? {} : { transform: `scale(${frame.zoom})` }),
+          left: `calc(50% + ${frame.x}%)`,
+          top: `calc(50% + ${frame.y}%)`,
+          transform: `translate(-50%, -50%) scale(${frame.zoom})`,
         }}
       />
     </div>

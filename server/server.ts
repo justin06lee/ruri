@@ -29,7 +29,7 @@ import { promptChain, SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
-import { fetchAllUsageLimits, readCodexCounts } from "./usage.js";
+import { fetchAllUsageLimits, loadCachedLimits, readCodexCounts, saveCachedLimits } from "./usage.js";
 
 export interface StartServerOptions {
   port: number;
@@ -47,6 +47,11 @@ export interface RuriServer {
   port: number;
   close(): Promise<void>;
 }
+
+/** A usage read that comes back empty is retried on this backoff — quick at
+ *  first, since the usual causes clear in seconds, then easing off. */
+const USAGE_RETRY_MIN_MS = 5_000;
+const USAGE_RETRY_MAX_MS = 120_000;
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -267,14 +272,33 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // on a slow poll and nudged after every turn, keyed by provider id so the
   // dragons show the account the active session spends from; and per-channel
   // context occupancy, reported by the live sessions.
-  let usageLimits: Record<string, UsageLimits> = {};
+  // The last run's reading opens the gauges on numbers instead of dashes;
+  // the first fetch of this run replaces it moments later.
+  let usageLimits: Record<string, UsageLimits> = loadCachedLimits();
   let lastUsageFetch = 0;
+  /** How long to wait before trying again after a read comes back empty. */
+  let usageRetryIn = USAGE_RETRY_MIN_MS;
+  let usageRetry: NodeJS.Timeout | undefined;
   function pushUsage(force = false): void {
     if (!force && Date.now() - lastUsageFetch < 60_000) return;
     lastUsageFetch = Date.now();
     void fetchAllUsageLimits().then((limits) => {
-      if (Object.keys(limits).length === 0) return;
+      if (Object.keys(limits).length === 0) {
+        // Nothing came back: the sign-in token is mid-refresh, the network
+        // isn't up yet, the endpoint is having a moment. Any of those clear
+        // in seconds, so try again on a short backoff rather than leaving
+        // the gauges blank until the next five-minute tick.
+        if (usageRetry) return;
+        usageRetry = setTimeout(() => {
+          usageRetry = undefined;
+          usageRetryIn = Math.min(usageRetryIn * 2, USAGE_RETRY_MAX_MS);
+          pushUsage(true);
+        }, usageRetryIn);
+        return;
+      }
+      usageRetryIn = USAGE_RETRY_MIN_MS;
       usageLimits = limits;
+      saveCachedLimits(limits);
       broadcast({ type: "usage", limits });
     });
   }
@@ -1215,6 +1239,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         close: () =>
           new Promise<void>((done) => {
             clearInterval(usageTimer);
+            if (usageRetry) clearTimeout(usageRetry);
             manager.disposeAll();
             archive.flushAll();
             for (const client of clients) client.close();

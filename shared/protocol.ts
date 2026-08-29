@@ -84,17 +84,19 @@ export interface Attachment {
 /** Wire form when sending: base64 payload plus optional region annotations. */
 export interface AttachmentUpload extends Attachment {
   data: string;
-  /** Region crops of an image, each carrying the user's note. */
-  regions?: Array<{ note: string; data: string; mediaType: string }>;
+  /** Region crops of an image, each numbered as the prompt's [region #n]
+   *  names it (the crop carries that number drawn on it). */
+  regions?: Array<{ n: number; data: string; mediaType: string }>;
 }
 
-/** A box the user drew on a composer image, in fractions of it. */
+/** A box the user drew on a composer image, in fractions of it, with the
+ *  number the prompt refers to it by. */
 export interface DraftRegion {
   x: number;
   y: number;
   w: number;
   h: number;
-  note: string;
+  n: number;
 }
 
 /** An attachment parked in a composer, stored like any other upload — the

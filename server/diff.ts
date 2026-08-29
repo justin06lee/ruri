@@ -152,6 +152,52 @@ export function buildDiff(
   };
 }
 
+/**
+ * A patch a harness handed us already made: Codex sends unified diffs with
+ * its apply_patch call, so there is nothing to compute — the hunk headers
+ * carry the real line numbers and the body carries the change.
+ */
+export function parseUnifiedDiff(
+  displayPath: string,
+  patch: string,
+  options?: { created?: boolean },
+): FileDiff | null {
+  const hunks: DiffHunk[] = [];
+  let current: DiffHunk | null = null;
+  let added = 0;
+  let removed = 0;
+  let budget = MAX_LINES;
+  let truncated = false;
+  for (const raw of patch.split("\n")) {
+    const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (header) {
+      current = { oldStart: Number(header[1]), newStart: Number(header[2]), lines: [] };
+      hunks.push(current);
+      continue;
+    }
+    // the ---/+++ preamble, and git's "\ No newline at end of file"
+    if (!current || raw.startsWith("\\")) continue;
+    const kind: DiffLine["kind"] = raw.startsWith("+") ? "add" : raw.startsWith("-") ? "del" : "ctx";
+    if (kind === "add") added++;
+    else if (kind === "del") removed++;
+    if (budget <= 0) {
+      truncated = true;
+      continue;
+    }
+    budget--;
+    current.lines.push({ kind, text: raw.slice(1) });
+  }
+  if (added === 0 && removed === 0) return null;
+  return {
+    path: displayPath,
+    added,
+    removed,
+    hunks: hunks.filter((h) => h.lines.length > 0),
+    ...(options?.created ? { created: true } : {}),
+    ...(truncated ? { truncated: true } : {}),
+  };
+}
+
 /** The file's current bytes, or null when it does not exist yet. */
 export function readBefore(filePath: string): string | null {
   try {

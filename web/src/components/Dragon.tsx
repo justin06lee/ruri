@@ -1,7 +1,11 @@
 /**
  * The dragon gauges flanking the composer: context occupancy, the 5-hour
  * window, the weekly window, and the account's model-scoped weekly window
- * (the endpoint names that one itself — "Fable", "Opus").
+ * (the harness names that one itself — "Fable", "Opus").
+ *
+ * The windows belong to whichever harness the channel's model runs on, not
+ * to Claude: a session on Codex reads Codex's own limits, and a harness that
+ * reports none shows empty dragons rather than someone else's numbers.
  *
  * Each dragon fills from his feet up. Below the waterline his body is solid
  * ink and his own outline inverts to paper; above it he is the plain drawing.
@@ -17,6 +21,10 @@ import { useRuri } from "../store";
 
 /** Where the drawing swaps to the sweating one. */
 const SWEAT_AT = 80;
+
+/** A harness with nothing to report — a stable identity, so the selector
+ *  it comes out of never re-renders on a fresh object. */
+const NO_LIMITS: UsageLimits = {};
 
 /** Tokens as the composer has room for: 128k, 1.04M, 940. */
 function shortTokens(n: number): string {
@@ -111,18 +119,29 @@ function gaugesFor(context: ContextUsage | undefined, usage: UsageLimits): Gauge
     value: scoped ? `${pct(scoped.percent)}%` : "—",
     title: scoped
       ? `Weekly window for ${scoped.label} — ${pct(scoped.percent)}% used`
-      : "This plan has no model-scoped weekly window",
+      : "This harness reports no model-scoped weekly window",
   });
   return gauges;
 }
 
 /**
  * Two dragons for one side of the composer — context and 5h on the left,
- * the two weekly windows on the right.
+ * the two weekly windows on the right. `model` decides whose account the
+ * windows come from; Claude models carry no provider id.
  */
-export function DragonGauges({ channelId, side }: { channelId: string; side: "left" | "right" }) {
+export function DragonGauges({
+  channelId,
+  model,
+  side,
+}: {
+  channelId: string;
+  /** The channel's model id, which names the harness it spends from. */
+  model: string | undefined;
+  side: "left" | "right";
+}) {
   const context = useRuri((s) => s.contexts[channelId]);
-  const usage = useRuri((s) => s.usage);
+  const provider = useRuri((s) => s.models.find((m) => m.value === model)?.provider ?? "claude");
+  const usage = useRuri((s) => s.usage[provider] ?? NO_LIMITS);
   const gauges = gaugesFor(context, usage);
   const pair = side === "left" ? gauges.slice(0, 2) : gauges.slice(2, 4);
   return (

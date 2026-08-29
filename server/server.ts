@@ -29,7 +29,7 @@ import { promptChain, SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker } from "./smallmodel.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
-import { fetchUsageLimits } from "./usage.js";
+import { fetchAllUsageLimits, readCodexCounts } from "./usage.js";
 
 export interface StartServerOptions {
   port: number;
@@ -263,16 +263,17 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   }
   probeModels();
 
-  // The usage gauges: account limit windows (5h / weekly), fetched from the
-  // Claude usage endpoint on a slow poll and nudged after every turn; and
-  // per-channel context occupancy, reported by the live sessions.
-  let usageLimits: UsageLimits = {};
+  // The usage gauges: each harness's own limit windows (5h / weekly), read
+  // on a slow poll and nudged after every turn, keyed by provider id so the
+  // dragons show the account the active session spends from; and per-channel
+  // context occupancy, reported by the live sessions.
+  let usageLimits: Record<string, UsageLimits> = {};
   let lastUsageFetch = 0;
   function pushUsage(force = false): void {
     if (!force && Date.now() - lastUsageFetch < 60_000) return;
     lastUsageFetch = Date.now();
-    void fetchUsageLimits().then((limits) => {
-      if (!limits) return;
+    void fetchAllUsageLimits().then((limits) => {
+      if (Object.keys(limits).length === 0) return;
       usageLimits = limits;
       broadcast({ type: "usage", limits });
     });
@@ -299,8 +300,14 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     pushUsage(true);
     pushContexts();
   }, 5 * 60_000);
-  /** The context window a channel's model gets (1M with the [1m] flag). */
+  /**
+   * The context window a channel's model gets. A harness that names its own
+   * (Codex reports the model's real size) wins; otherwise it is Claude's
+   * two sizes, 1M with the [1m] flag.
+   */
   function contextWindow(channelId: string): number {
+    const reported = archive.contextWindowOf(channelId);
+    if (reported) return reported;
     const model = channelProject(channelId)?.model || DEFAULT_MODEL;
     return model.includes("[1m]") ? 1_000_000 : 200_000;
   }
@@ -465,6 +472,51 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     drainQueue(channelId);
   }
 
+  /**
+   * Rewind a session running on a non-Claude harness.
+   *
+   * Those harnesses keep no file checkpoints and cannot fork a conversation
+   * at a message, so this rewinds what ruri owns and is honest about the
+   * rest: the transcript truncates, the live session is retired, and the
+   * next prompt re-seeds a fresh one with a brief of everything kept — so
+   * what the model knows matches what is on screen. The files are left
+   * exactly as the discarded turns left them.
+   */
+  function rewindOnHarness(ws: WebSocket, channelId: string, eventId: string, text: string): void {
+    manager.dispose(channelId);
+    archive.clearLastSessionId(channelId);
+    const removed = archive.truncateFrom(channelId, eventId);
+    if (removed.length > 0) {
+      broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
+      if (tracker.removeForTurns(channelId, removed)) {
+        broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
+      }
+    }
+    // the brief covers what survived the truncation — the harness comes back
+    // knowing that and nothing after it
+    const kept = buildCompaction(channelId, archive.events(channelId), archive.summaries(channelId));
+    // nothing survived: the next prompt opens a genuinely new session, so
+    // any brief left from before must not ride along
+    archive.setPendingBrief(channelId, kept?.brief ?? "");
+    contexts.delete(channelId);
+    archive.setContextTokens(channelId, 0);
+    broadcast({
+      type: "context",
+      projectId: channelId,
+      context: { tokens: 0, window: contextWindow(channelId) },
+    });
+    broadcast({ type: "status", projectId: channelId, status: "idle" });
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "compose", projectId: channelId, text } satisfies ServerMessage));
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        message:
+          "rewound the conversation — this harness keeps no file checkpoints, so the files were left as they are, and it restarts from a brief of what's kept",
+      } satisfies ServerMessage),
+    );
+  }
+
   /** Store one half of a turn's recall note and push the fold note it makes. */
   function noteSummary(projectId: string, turnId: string, part: "user" | "reply", note: string): void {
     archive.setSummary(projectId, turnId, part, note);
@@ -548,10 +600,12 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "models", models: allModels() });
       },
       onSessionId: (projectId, sessionId) => archive.setLastSessionId(projectId, sessionId),
-      onContext: (projectId, tokens) => {
+      onContext: (projectId, tokens, window) => {
+        // the window is recorded first: contextWindow() reads it back, so a
+        // harness that names its own is answered with that same number
+        archive.setContextTokens(projectId, tokens, window);
         const context: ContextUsage = { tokens, window: contextWindow(projectId) };
         contexts.set(projectId, context);
-        archive.setContextTokens(projectId, tokens);
         broadcast({ type: "context", projectId, context });
       },
       onChain: (projectId, eventId, kind, uuid) => archive.setChain(projectId, eventId, kind, uuid),
@@ -752,6 +806,12 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         // CLI restores its file checkpoints, then the session resumes
         // truncated (forked) at the kept turn's last chain entry. The prompt
         // itself lands back in the composer — nothing is sent for you.
+        //
+        // Other harnesses keep no checkpoints and cannot fork a conversation,
+        // so theirs rewinds what ruri owns: the transcript is truncated and
+        // the harness is retired, re-seeded on the next prompt with a brief
+        // of everything kept (the same brief /compact writes). Their files
+        // stay as they are, and the reply says so.
         const channelId = msg.projectId;
         const eventId = msg.eventId;
         void (async () => {
@@ -761,6 +821,15 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             const idx = events.findIndex((e) => e.id === eventId);
             const target = idx >= 0 ? events[idx] : undefined;
             if (!target || target.kind !== "user") throw new Error("that prompt is gone");
+            const project = channelProject(channelId);
+            if (!project) throw new Error("unknown session");
+            // A harness rewind owns none of the CLI's machinery — no
+            // checkpoints to restore, no chain to fork at, and a compaction
+            // boundary costs it nothing, since it starts fresh either way.
+            if (registry.parse(project.model).providerId !== undefined) {
+              rewindOnHarness(ws, channelId, eventId, target.text);
+              return;
+            }
             const chain = archive.chain(channelId);
             // the fork point: the latest checkpointed turn before the target
             // (a compaction boundary means a different session — no crossing)
@@ -776,8 +845,6 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             if (events.some((e, i) => i > idx && e.kind === "compaction")) {
               throw new Error("can't rewind across a compaction");
             }
-            const project = channelProject(channelId);
-            if (!project) throw new Error("unknown session");
             // The prompt's uuid, which the CLI keys its file checkpoints by,
             // comes from the session's own transcript: the SDK no longer
             // echoes prompts back, so the chain map built from those echoes

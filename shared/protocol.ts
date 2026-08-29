@@ -320,8 +320,8 @@ export type ClientMessage =
   | { type: "remove_project"; projectId: string }
   | { type: "send"; projectId: string; text: string; attachments?: AttachmentUpload[] }
   | { type: "send_split"; projectId: string; text: string; attachments?: AttachmentUpload[] }
-  /** Edit / drop a prompt still waiting in the app-side queue. */
-  | { type: "queue_edit"; projectId: string; itemId: string; text: string }
+  /** Drop a prompt still waiting in the app-side queue. Editing one is this
+   *  plus a compose: it leaves the queue and lands back in the composer. */
   | { type: "queue_remove"; projectId: string; itemId: string }
   /** Remove a transcript event (a clicked command chip). A user event takes
    *  the rest of its turn with it. */

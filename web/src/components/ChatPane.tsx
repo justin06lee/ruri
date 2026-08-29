@@ -22,6 +22,7 @@ import {
   type Region,
 } from "./Attachments";
 import { DiffView } from "./Diff";
+import { RapidBar, useRapidFire } from "./RapidFire";
 import { DragonGauges } from "./Dragon";
 import { Dropdown } from "./Dropdown";
 import { QuestionCard } from "./Questions";
@@ -240,9 +241,13 @@ export function EventView({
           <span className="tool-summary">{summary}</span>
         </div>
       );
-      // what the tool read or changed rides under its own chip, so the path
-      // and the thing it names read as one event
       if (!event.image && !event.diff) return chip;
+      // A patch already carries its file's name and path, in its own head and
+      // along its own bottom — a chip above it would say both a second time,
+      // so the diff stands on its own.
+      if (event.diff && !event.image) return <DiffView diff={event.diff} />;
+      // what the tool read rides under its own chip, so the path and the
+      // thing it names read as one event
       return (
         <div className="tool-block">
           {chip}
@@ -878,6 +883,11 @@ export function ChatPane() {
     clearPicked();
   }, [picked, clearPicked]);
 
+  // Rapid fire walks the ordinary chat pages: it moves the active session,
+  // and a send moves it on. Nothing here renders differently for it beyond
+  // the header's own controls.
+  const rapid = useRapidFire();
+
   const trackerItems = useRuri((s) => (s.activeId ? s.tracker[s.activeId] : undefined));
   const [trackerOpen, setTrackerOpen] = useState(false);
   const openCount = (trackerItems ?? []).filter((i) => i.status === "open").length;
@@ -1000,32 +1010,6 @@ export function ChatPane() {
         setRewindTarget({ id: event.id, text: event.text })
     : undefined;
 
-  // No conversation yet (Home or a fresh project): the hero — face, a big
-  // title, and the composer front and center.
-  if (transcript.length === 0 && !draft && permissions.length === 0) {
-    return (
-      <main className="chat home-hero">
-        {lastError && (
-          <div className="error-bar" onClick={dismissError}>
-            {lastError} <span className="dismiss">dismiss</span>
-          </div>
-        )}
-        <div className="hero">
-          <img
-            className="hero-face"
-            src={heroUrl(isHome ? launchHero : heroFor(storeProject?.id ?? activeId))}
-            alt=""
-          />
-          <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
-          <div className="hero-composer">
-            <Composer key={activeId} channelId={activeId} project={project} busy={busy} />
-          </div>
-
-        </div>
-      </main>
-    );
-  }
-
   // Home keeps no header bar — the transcript starts at the top; the
   // tracker page still auto-opens there and closes from its own X.
   const header = !isHome && (
@@ -1037,6 +1021,7 @@ export function ChatPane() {
         </div>
       </div>
       <div className="header-controls">
+        {rapid.on && <RapidBar rapid={rapid} />}
         <button
           className={`icon-button tracker-toggle ${trackerOpen ? "active" : ""}`}
           title={trackerOpen ? "Back to the chat" : "Feature tracker — things to test by hand"}
@@ -1048,6 +1033,39 @@ export function ChatPane() {
       </div>
     </header>
   );
+
+  // No conversation yet (Home or a fresh project): the hero — face, a big
+  // title, and the composer front and center.
+  if (transcript.length === 0 && !draft && permissions.length === 0) {
+    return (
+      <main className="chat home-hero">
+        {lastError && (
+          <div className="error-bar" onClick={dismissError}>
+            {lastError} <span className="dismiss">dismiss</span>
+          </div>
+        )}
+        {rapid.on && header}
+        <div className="hero">
+          <img
+            className="hero-face"
+            src={heroUrl(isHome ? launchHero : heroFor(storeProject?.id ?? activeId))}
+            alt=""
+          />
+          <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
+          <div className="hero-composer">
+            <Composer
+              key={activeId}
+              channelId={activeId}
+              project={project}
+              busy={busy}
+              {...(rapid.on ? { onSent: rapid.advance } : {})}
+            />
+          </div>
+
+        </div>
+      </main>
+    );
+  }
 
   // The tracker button swaps the whole pane for the todo page — no
   // navigation, just this branch; the same button (or its X) swaps back.

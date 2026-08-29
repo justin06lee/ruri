@@ -1,8 +1,9 @@
 /**
- * The patch under a Write or Edit chip: what actually changed, read the way
- * a git diff reads. Line numbers come from the hunk headers the server
- * built, so they point at real lines in the file rather than at offsets
- * into the patch.
+ * The patch a Write or Edit made: what actually changed, read the way a git
+ * diff reads. It names its own file — the name in the head, the path along
+ * the bottom — so it stands alone, with no chip above it repeating either.
+ * Line numbers come from the hunk headers the server built, so they point at
+ * real lines in the file rather than at offsets into the patch.
  */
 
 import { useState } from "react";
@@ -20,6 +21,8 @@ function numbersFor(hunkOld: number, hunkNew: number, diff: FileDiff["hunks"][nu
 
 export function DiffView({ diff }: { diff: FileDiff }) {
   const [open, setOpen] = useState(true);
+  const cut = diff.path.lastIndexOf("/");
+  const name = cut === -1 ? diff.path : diff.path.slice(cut + 1);
   return (
     <div className="diff">
       <button
@@ -39,6 +42,7 @@ export function DiffView({ diff }: { diff: FileDiff }) {
         >
           <path d="M9 18l6-6-6-6" />
         </svg>
+        <span className="diff-file">{name}</span>
         {diff.created && <span className="diff-new">new file</span>}
         <span className="diff-added">+{diff.added}</span>
         <span className="diff-removed">−{diff.removed}</span>
@@ -64,6 +68,9 @@ export function DiffView({ diff }: { diff: FileDiff }) {
           {diff.truncated && <div className="diff-more">patch trimmed — the rest is not shown</div>}
         </div>
       )}
+      <div className="diff-path" title={diff.path}>
+        {diff.path}
+      </div>
     </div>
   );
 }

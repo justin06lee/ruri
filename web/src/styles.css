@@ -2028,6 +2028,15 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 6px 24px 12px;
   display: flex;
   flex-direction: column;
+}
+
+/* the exchange itself — its own box, so growth inside it (an image decoding,
+   a diff laying out) is measurable and the view can keep its footing. It's a
+   column of its own, so the pieces still lay themselves out against it: the
+   user bubble to the right, the rest across the full width. */
+.rapid-context-inner {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 

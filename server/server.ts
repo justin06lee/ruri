@@ -393,23 +393,23 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       // a split sub-prompt: files are already stored, no new user event
       const payload = modelPayload(text, uploads);
       manager.send(project, brief + payload.text, payload.images, undefined, true);
-    } else if (brief) {
-      // the brief is the model's memory, not the user's view: show the
-      // plain prompt, send the briefed one silently underneath
-      const processed = processAttachments(text, uploads);
-      const userEvent: TranscriptEvent = {
-        kind: "user",
-        id: randomUUID(),
-        text: processed.text,
-        ...(processed.attachments.length ? { attachments: processed.attachments } : {}),
-        ts: Date.now(),
-      };
-      recordEvent(channelId, userEvent);
-      manager.send(project, brief + processed.text, processed.images, undefined, true);
-    } else {
-      const processed = processAttachments(text, uploads);
-      manager.send(project, processed.text, processed.images, processed.attachments);
+      return;
     }
+    // What the model reads and what the user wrote are two strings: the
+    // compaction brief is the model's memory, and a file's marker becomes
+    // its path where the model reads it. So the transcript event is written
+    // here, from the user's own wording, and the model's copy goes down
+    // silently underneath it.
+    const processed = processAttachments(text, uploads);
+    const userEvent: TranscriptEvent = {
+      kind: "user",
+      id: randomUUID(),
+      text: processed.display,
+      ...(processed.attachments.length ? { attachments: processed.attachments } : {}),
+      ts: Date.now(),
+    };
+    recordEvent(channelId, userEvent);
+    manager.send(project, brief + processed.text, processed.images, undefined, true);
   }
 
   /** Send the next queued prompt, once the channel settles. */

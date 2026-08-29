@@ -16,7 +16,10 @@ export interface Region {
   y: number;
   w: number;
   h: number;
-  note: string;
+  /** Its number in the prompt — counted across every attachment in the
+   *  draft, in the order the regions were drawn, so [region #7] means one
+   *  thing whichever image it was drawn on. */
+  n: number;
 }
 
 export interface ComposerAttachment {
@@ -70,7 +73,7 @@ export function fileKind(file: File): "image" | "video" | "file" {
  * crop of, say, empty space is meaningless without the surroundings.
  * Returns base64 PNG at natural resolution.
  */
-export function cropRegion(objectUrl: string, region: Region, n: number): Promise<string> {
+export function cropRegion(objectUrl: string, region: Region): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -116,7 +119,7 @@ export function cropRegion(objectUrl: string, region: Region, n: number): Promis
       ctx.font = `700 ${Math.round(r * 1.1)}px "Space Grotesk", sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(n), bx, by + Math.round(r * 0.06));
+      ctx.fillText(String(region.n), bx, by + Math.round(r * 0.06));
 
       resolve(canvas.toDataURL("image/png").split(",")[1] ?? "");
     };
@@ -171,10 +174,15 @@ export function Viewer({
   target,
   onClose,
   onRegions,
+  onRegionAdd,
 }: {
   target: ViewTarget;
   onClose(): void;
+  /** Regions after a removal — the composer owns the numbering. */
   onRegions?(id: string, regions: Region[]): void;
+  /** A region was just drawn: the composer numbers it and drops its marker
+   *  where the caret is, so the note for it is written in the prompt. */
+  onRegionAdd?(id: string, rect: { x: number; y: number; w: number; h: number }): void;
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -183,7 +191,7 @@ export function Viewer({
   const draftRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const regions = target.attachment?.regions ?? [];
-  const editable = target.attachment !== undefined && target.kind === "image";
+  const editable = target.attachment !== undefined && target.kind === "image" && onRegionAdd !== undefined;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -224,19 +232,12 @@ export function Viewer({
     if (!startRef.current || !rect) return;
     startRef.current = null;
     draftRef.current = null;
-    if (rect.w > 0.02 && rect.h > 0.02 && target.attachment && onRegions) {
-      onRegions(target.attachment.id, [...regions, { ...rect, note: "" }]);
+    if (rect.w > 0.02 && rect.h > 0.02 && target.attachment && onRegionAdd) {
+      onRegionAdd(target.attachment.id, rect);
     }
     setDraft(null);
   };
 
-  const setNote = (i: number, note: string) => {
-    if (!target.attachment || !onRegions) return;
-    onRegions(
-      target.attachment.id,
-      regions.map((r, j) => (j === i ? { ...r, note } : r)),
-    );
-  };
   const removeRegion = (i: number) => {
     if (!target.attachment || !onRegions) return;
     onRegions(
@@ -259,7 +260,9 @@ export function Viewer({
       <div className="viewer-card">
         <div className="viewer-head">
           <span className="viewer-label">{target.label}</span>
-          {editable && <span className="viewer-hint">drag on the image to mark a region</span>}
+          {editable && (
+            <span className="viewer-hint">drag on the image to mark a region — its marker lands in your prompt</span>
+          )}
           <button className="icon-button" title="Close" onClick={onClose}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
               <path d="M6 6l12 12M18 6L6 18" />
@@ -288,7 +291,7 @@ export function Viewer({
                   height: `${r.h * 100}%`,
                 }}
               >
-                <span className="region-index">{i + 1}</span>
+                <span className="region-index">{r.n}</span>
               </div>
             ))}
             {draft && (
@@ -321,13 +324,8 @@ export function Viewer({
           <div className="region-list">
             {regions.map((r, i) => (
               <div key={i} className="region-row">
-                <span className="region-index standalone">{i + 1}</span>
-                <input
-                  placeholder="What about this part?"
-                  value={r.note}
-                  autoFocus={i === regions.length - 1 && r.note === ""}
-                  onChange={(e) => setNote(i, e.target.value)}
-                />
+                <span className="region-index standalone">{r.n}</span>
+                <span className="region-marker">[region #{r.n}] is in your prompt</span>
                 <button className="icon-button" title="Remove region" onClick={() => removeRegion(i)}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
                     <path d="M6 6l12 12M18 6L6 18" />

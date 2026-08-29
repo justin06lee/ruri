@@ -454,7 +454,10 @@ export function Composer({
   const [atts, setAtts] = useState<ComposerAttachment[]>(saved?.atts ?? []);
   const [viewing, setViewing] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const counter = useRef(saved?.counter ?? { image: 0, video: 0, file: 0 });
+  const counter = useRef(saved?.counter ?? { image: 0, video: 0, file: 0, region: 0 });
+  /** Where the caret was last seen in the prompt — a marker drawn in the
+   *  viewer lands there, since the textarea lost focus to the overlay. */
+  const caretRef = useRef(0);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const draftBump = useRuri((s) => s.draftBumps[channelId] ?? 0);
   const bumpSeen = useRef(draftBump);
@@ -489,18 +492,34 @@ export function Composer({
     }
     if (added.length === 0) return;
     setAtts((prev) => [...prev, ...added]);
+    insertMarkers(added.map((a) => `[${a.kind} #${a.n}]`).join(" "), at);
+  };
+
+  /** Drop marker text into the prompt at `at` (the end when unset), leaving
+   *  the prompt's own text — trailing newlines included — untouched: only
+   *  the spaces around the marker, so typing never sticks to a "]" or "[". */
+  const insertMarkers = (markers: string, at?: number) => {
     setText((prev) => {
-      // pure insertion: the prompt's own text — trailing newlines included —
-      // is never trimmed or reflowed; only spaces around the markers, so
-      // typing (or the neighboring words) never sticks to a "]" or "["
-      const markers = added.map((a) => `[${a.kind} #${a.n}]`).join(" ");
       const idx = at === undefined ? prev.length : Math.min(at, prev.length);
       const before = prev.slice(0, idx);
       const after = prev.slice(idx);
       const lead = before && !/\s$/.test(before) ? " " : "";
       const tail = /^\s/.test(after) ? "" : " ";
+      // the caret follows the marker, so the next one lands after it
+      caretRef.current = before.length + lead.length + markers.length + tail.length;
       return `${before}${lead}${markers}${tail}${after}`;
     });
+  };
+
+  /** A box drawn in the viewer: it takes the next region number in this
+   *  prompt and its marker lands where the caret was, so what you have to
+   *  say about it is written in the prompt like anything else. */
+  const addRegion = (attId: string, rect: { x: number; y: number; w: number; h: number }) => {
+    const n = ++counter.current.region;
+    setAtts((prev) =>
+      prev.map((a) => (a.id === attId ? { ...a, regions: [...a.regions, { ...rect, n }] } : a)),
+    );
+    insertMarkers(`[region #${n}]`, caretRef.current);
   };
 
   // The drop point as a text index — computed ONCE, at drop time. (Never
@@ -573,9 +592,9 @@ export function Composer({
         ...(att.regions.length
           ? {
               regions: await Promise.all(
-                att.regions.map(async (region, i) => ({
-                  note: region.note,
-                  data: await cropRegion(att.objectUrl, region, i + 1),
+                att.regions.map(async (region) => ({
+                  n: region.n,
+                  data: await cropRegion(att.objectUrl, region),
                   mediaType: "image/png",
                 })),
               ),
@@ -622,13 +641,30 @@ export function Composer({
             addFiles(e.dataTransfer.files, caretFromPoint(e.clientX, e.clientY) ?? undefined);
           }}
         >
-          <AttachmentStrip attachments={atts} onRemove={removeAtt} onView={(a) => setViewing(a.id)} />
+          <AttachmentStrip
+            attachments={atts}
+            onRemove={removeAtt}
+            onView={(a) => {
+              // the caret as the prompt last had it — the viewer is about to
+              // take focus, and a region drawn in there lands right here
+              caretRef.current = areaRef.current?.selectionStart ?? text.length;
+              setViewing(a.id);
+            }}
+          />
           <textarea
             ref={areaRef}
             rows={1}
             placeholder="Message ruri…"
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              caretRef.current = e.target.selectionStart;
+              setText(e.target.value);
+            }}
+            // wherever the caret was when the viewer took focus is where a
+            // region's marker goes
+            onSelect={(e) => {
+              caretRef.current = e.currentTarget.selectionStart;
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -694,6 +730,7 @@ export function Composer({
           }}
           onClose={() => setViewing(null)}
           onRegions={setRegions}
+          onRegionAdd={addRegion}
         />
       )}
     </div>

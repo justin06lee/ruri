@@ -116,6 +116,46 @@ export function installFixture(): void {
         input: { command: "git push origin master" },
         ts: now - 5_000,
       },
+      {
+        requestId: "ask1",
+        projectId: "p1",
+        toolName: "AskUserQuestion",
+        kind: "question",
+        input: {
+          questions: [
+            {
+              question: "How should the relay be shaped?",
+              header: "Relay",
+              multiSelect: false,
+              options: [
+                { label: "Standalone binary", description: "A new binary speaking a minimal framed protocol, advertised through the netmap." },
+                { label: "DERP-compatible", description: "Ride the public relay fleet — free coverage, much larger surface." },
+                { label: "Relay mode only", description: "One less thing to deploy; the control plane and the data path share a blast radius." },
+              ],
+            },
+            {
+              question: "How aggressive should DNS be about the system resolver?",
+              header: "DNS",
+              multiSelect: false,
+              options: [
+                { label: "Split-DNS, mesh domain only", description: "Register the mesh suffix with the OS resolver; every other lookup is untouched." },
+                { label: "Hosts-file sync", description: "Trivially simple, but leaves stale entries if the daemon dies uncleanly." },
+              ],
+            },
+            {
+              question: "Which parts of port mapping should exist?",
+              header: "Mapping",
+              multiSelect: true,
+              options: [
+                { label: "NAT-PMP", description: "Compact binary UDP to the gateway — covers Apple gear." },
+                { label: "PCP", description: "The modern successor; most current routers speak it." },
+                { label: "UPnP IGD", description: "SSDP discovery and SOAP over HTTP for a shrinking share of devices." },
+              ],
+            },
+          ],
+        },
+        ts: now - 4_000,
+      },
     ],
   });
 }

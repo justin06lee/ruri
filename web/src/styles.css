@@ -2580,12 +2580,6 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 9px;
 }
 
-/* a second question is a second thing being asked — give it its own field */
-.ask-question + .ask-question {
-  border-top: 1px solid var(--line-faint);
-  padding-top: 15px;
-}
-
 .ask-head {
   display: flex;
   align-items: baseline;
@@ -2732,7 +2726,71 @@ input[type="range"]::-webkit-slider-thumb {
 
 .ask-actions {
   display: flex;
+  align-items: center;
   gap: 10px;
+}
+
+/* one question at a time: the arrows walk the set, the count says where you
+   are, and the dots say which ones still want an answer */
+.ask-pager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.ask-pager .icon-button {
+  width: 24px;
+  height: 24px;
+}
+
+.ask-pager svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ask-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  min-width: 34px;
+  text-align: center;
+}
+
+.ask-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+}
+
+.ask-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-soft);
+  background: var(--paper-dim);
+  box-shadow: none;
+}
+
+.ask-dot:hover {
+  border-color: var(--edge);
+}
+
+.ask-dot:active {
+  transform: none;
+}
+
+.ask-dot.done {
+  background: var(--ink-faint);
+  border-color: var(--ink-faint);
+}
+
+.ask-dot.at {
+  border-color: var(--ink);
+  background: var(--ink);
 }
 
 /* ── feature tracker ──────────────────────────────────────────────── */

@@ -80,6 +80,15 @@ function pct(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+/** A reading old enough to have moved on names when it was taken — the
+ *  numbers a relaunch opens on are the last run's until the first fresh read
+ *  lands, and hovering should say so rather than pass them off as now. */
+function asOf(at: number | undefined): string {
+  if (at === undefined || Date.now() - at < 10 * 60_000) return "";
+  const when = new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return ` · read at ${when}`;
+}
+
 function gaugesFor(context: ContextUsage | undefined, usage: UsageLimits): Gauge[] {
   const tokens = context?.tokens ?? 0;
   const window = context?.window ?? 1_000_000;
@@ -98,7 +107,7 @@ function gaugesFor(context: ContextUsage | undefined, usage: UsageLimits): Gauge
       title:
         usage.fiveHour === undefined
           ? "The 5-hour window couldn't be read"
-          : `5-hour session window — ${pct(usage.fiveHour)}% used`,
+          : `5-hour session window — ${pct(usage.fiveHour)}% used${asOf(usage.at)}`,
     },
     {
       name: "week",
@@ -107,7 +116,7 @@ function gaugesFor(context: ContextUsage | undefined, usage: UsageLimits): Gauge
       title:
         usage.weekly === undefined
           ? "The weekly window couldn't be read"
-          : `Weekly window, all models — ${pct(usage.weekly)}% used`,
+          : `Weekly window, all models — ${pct(usage.weekly)}% used${asOf(usage.at)}`,
     },
   ];
   // the scoped window only exists on plans that have one, but the row is
@@ -118,7 +127,7 @@ function gaugesFor(context: ContextUsage | undefined, usage: UsageLimits): Gauge
     percent: pct(scoped?.percent ?? 0),
     value: scoped ? `${pct(scoped.percent)}%` : "—",
     title: scoped
-      ? `Weekly window for ${scoped.label} — ${pct(scoped.percent)}% used`
+      ? `Weekly window for ${scoped.label} — ${pct(scoped.percent)}% used${asOf(usage.at)}`
       : "This harness reports no model-scoped weekly window",
   });
   return gauges;

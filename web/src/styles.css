@@ -1983,8 +1983,33 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--ink);
 }
 
-/* rapid fire: no pane of its own — it walks the chat pages, and rides the
-   header of whichever session it has you on */
+/* rapid fire: no pane of its own — the ordinary chat, handed one session at
+   a time, with the line's controls riding in its header */
+
+/* the hand-off: the card that took your prompt fades out and up, the next
+   one rises into its place. 260ms each way, which is what the line waits. */
+@keyframes rapid-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@keyframes rapid-out {
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+.chat.rapid-page {
+  animation: rapid-in 260ms ease-out;
+}
+
+.chat.rapid-page.rapid-leaving {
+  animation: rapid-out 260ms ease-in forwards;
+}
+
 
 .rapid-bar {
   display: flex;

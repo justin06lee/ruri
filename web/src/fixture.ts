@@ -30,6 +30,10 @@ function backoff(attempt: number): number {
 The [ws docs](https://github.com/websockets/ws) recommend the same shape. Tests pass — want me to also surface the retry count in the sidebar?`;
 
 export function installFixture(): void {
+  // The fixture is here to be driven — screenshots, timing checks, a status
+  // flipped by hand to watch what the UI does about it. The store is the only
+  // handle that needs, and this mode is the only place it is exposed.
+  (window as unknown as Record<string, unknown>)["__ruri"] = useRuri;
   useRuri.setState({
     connected: true,
     projects: [

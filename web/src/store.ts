@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   HOME_ID,
   type ClientMessage,
+  type Attachment,
   type ContextUsage,
   type DraftAttachment,
   type DraftAttachmentUpload,
@@ -117,25 +118,8 @@ async function restoreAttachments(
 ): Promise<void> {
   const atts: ComposerAttachment[] = [];
   for (const att of saved) {
-    if (!att.url) continue;
-    try {
-      const res = await fetch(`${HTTP_BASE}${att.url}`);
-      if (!res.ok) continue;
-      const file = new File([await res.blob()], att.name, { type: att.mediaType });
-      storedAttachments.add(att.id);
-      atts.push({
-        id: att.id,
-        file,
-        kind: att.kind,
-        mediaType: att.mediaType,
-        name: att.name,
-        n: att.n,
-        objectUrl: URL.createObjectURL(file),
-        regions: att.regions ?? [],
-      });
-    } catch {
-      // the file is gone from disk — the rest of the draft still comes back
-    }
+    const live = await liveAttachment(att, att.n);
+    if (live) atts.push(live);
   }
   const draft = composerDrafts.get(channelId);
   // typing in this channel while the files loaded wins; the marker numbering
@@ -144,9 +128,85 @@ async function restoreAttachments(
   const counter = { image: 0, video: 0, file: 0 };
   for (const att of atts) counter[att.kind] = Math.max(counter[att.kind], att.n);
   composerDrafts.set(channelId, { ...draft, atts, counter });
+  bumpDraft(channelId);
+}
+
+/** One stored attachment, fetched back into a live File the composer can
+ *  hold — previews, region crops, and the send path all work off it. Null
+ *  when its bytes are gone. */
+async function liveAttachment(
+  att: DraftAttachment | Attachment,
+  n: number,
+): Promise<ComposerAttachment | null> {
+  if (!att.url) return null;
+  try {
+    const res = await fetch(`${HTTP_BASE}${att.url}`);
+    if (!res.ok) return null;
+    const file = new File([await res.blob()], att.name, { type: att.mediaType });
+    storedAttachments.add(att.id);
+    return {
+      id: att.id,
+      file,
+      kind: att.kind,
+      mediaType: att.mediaType,
+      name: att.name,
+      n,
+      objectUrl: URL.createObjectURL(file),
+      regions: "regions" in att ? (att.regions ?? []) : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Tell a mounted composer its channel's draft changed underneath it. */
+function bumpDraft(channelId: string): void {
   useRuri.setState((s) => ({
     draftBumps: { ...s.draftBumps, [channelId]: (s.draftBumps[channelId] ?? 0) + 1 },
   }));
+}
+
+/**
+ * Put a prompt back in a channel's composer — a queued one pulled out of the
+ * queue, or anything else the app hands back for editing.
+ *
+ * Its attachments come with it, renumbered onto whatever the composer is
+ * already holding, and its [markers] are rewritten to match — so the text
+ * still points at the right files instead of at numbers that mean something
+ * else now.
+ */
+export function composeInto(channelId: string, text: string, attachments?: Attachment[]): void {
+  if (!attachments || attachments.length === 0) {
+    appendDraft(channelId, text);
+    bumpDraft(channelId);
+    return;
+  }
+  void (async () => {
+    const before = composerDrafts.get(channelId);
+    const counter = { ...(before?.counter ?? { image: 0, video: 0, file: 0 }) };
+    const live: ComposerAttachment[] = [];
+    let renumbered = text;
+    for (const att of attachments) {
+      const fresh = await liveAttachment(att, counter[att.kind] + 1);
+      if (!fresh) continue;
+      counter[att.kind] += 1;
+      live.push(fresh);
+      // a placeholder first: renumbering 1→2 while a 2 is still around
+      // would otherwise renumber it twice
+      renumbered = renumbered.replaceAll(`[${att.kind} #${att.n}]`, `\u0000${att.kind}:${fresh.n}\u0000`);
+    }
+    renumbered = renumbered.replaceAll(/\u0000(image|video|file):(\d+)\u0000/g, "[$1 #$2]");
+    const draft = composerDrafts.get(channelId);
+    const body = draft?.text.trim()
+      ? `${draft.text.replace(/\s+$/, "")}\n${renumbered}`
+      : renumbered;
+    setComposerDraft(channelId, {
+      text: body,
+      atts: [...(draft?.atts ?? []), ...live],
+      counter,
+    });
+    bumpDraft(channelId);
+  })();
 }
 
 /** Append text to a channel's saved draft (async prompt arrivals). */
@@ -375,12 +435,7 @@ function apply(msg: ServerMessage): void {
       // draft map — never through component state, so switching sessions
       // can't lose it — and the bump tells a mounted composer to re-read.
       appendDraft(msg.projectId, msg.text);
-      setState((s) => ({
-        draftBumps: {
-          ...s.draftBumps,
-          [msg.projectId]: (s.draftBumps[msg.projectId] ?? 0) + 1,
-        },
-      }));
+      bumpDraft(msg.projectId);
       break;
     }
     case "workspace": {

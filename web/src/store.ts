@@ -14,6 +14,7 @@ import {
   type ProjectStatus,
   type QueuedPrompt,
   type ServerMessage,
+  type ProjectBrief,
   type TrackerItem,
   type TranscriptEvent,
   type UsageLimits,
@@ -245,6 +246,8 @@ interface RuriState {
   summaries: Record<string, Record<string, string>>;
   /** Feature-tracker checklists per project. */
   tracker: Record<string, TrackerItem[]>;
+  /** Catch-up briefs per project. */
+  briefs: Record<string, ProjectBrief>;
   /** App-side prompt queue per channel — held until the running turn ends. */
   queued: Record<string, QueuedPrompt[]>;
   /** Limit windows per provider id (percent used) for the usage gauges. */
@@ -294,6 +297,7 @@ export const useRuri = create<RuriState>((set) => ({
   models: [],
   summaries: {},
   tracker: {},
+  briefs: {},
   queued: {},
   usage: {},
   contexts: {},
@@ -329,6 +333,36 @@ const WS_URL = import.meta.env.DEV ? `ws://${location.hostname}:7777` : `ws://${
 /** Base for the server's HTTP endpoints (music etc.) — empty when same-origin. */
 export const HTTP_BASE = import.meta.env.DEV ? `http://${location.hostname}:7777` : "";
 let ws: WebSocket | null = null;
+
+/* ── terminal traffic ─────────────────────────────────────────────── */
+
+/**
+ * Shell bytes bypass the store: they arrive keystroke by keystroke and belong
+ * to one panel, so they go straight to whoever has it open instead of
+ * re-rendering the app for every character.
+ */
+export type TerminalMessage =
+  | { kind: "data"; data: string; replay?: boolean }
+  | { kind: "exit"; note: string };
+
+const terminalListeners = new Map<string, Set<(message: TerminalMessage) => void>>();
+
+export function onTerminal(
+  channelId: string,
+  listener: (message: TerminalMessage) => void,
+): () => void {
+  const listeners = terminalListeners.get(channelId) ?? new Set();
+  listeners.add(listener);
+  terminalListeners.set(channelId, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) terminalListeners.delete(channelId);
+  };
+}
+
+function emitTerminal(channelId: string, message: TerminalMessage): void {
+  for (const listener of terminalListeners.get(channelId) ?? []) listener(message);
+}
 
 export function send(message: ClientMessage): void {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
@@ -380,6 +414,7 @@ function apply(msg: ServerMessage): void {
         models: msg.models,
         summaries: msg.summaries,
         tracker: msg.tracker,
+        briefs: msg.briefs,
         queued: msg.queued,
         usage: msg.usage,
         contexts: msg.contexts,
@@ -434,6 +469,18 @@ function apply(msg: ServerMessage): void {
       }));
       break;
     }
+    case "terminal_data": {
+      emitTerminal(msg.projectId, {
+        kind: "data",
+        data: msg.data,
+        ...(msg.replay ? { replay: true } : {}),
+      });
+      break;
+    }
+    case "terminal_exit": {
+      emitTerminal(msg.projectId, { kind: "exit", note: msg.note });
+      break;
+    }
     case "usage": {
       setState({ usage: msg.limits });
       break;
@@ -445,11 +492,20 @@ function apply(msg: ServerMessage): void {
     case "review_prompt":
     case "compose": {
       // Text bound for a channel's composer (a review's fix-it prompt, a
-      // rewound prompt back for editing) goes straight into the persistent
-      // draft map — never through component state, so switching sessions
-      // can't lose it — and the bump tells a mounted composer to re-read.
-      appendDraft(msg.projectId, msg.text);
-      bumpDraft(msg.projectId);
+      // rewound prompt back for editing, a catch-up brief with its
+      // screenshots) goes straight into the persistent draft map — never
+      // through component state, so switching sessions can't lose it — and
+      // the bump tells a mounted composer to re-read.
+      const attachments = msg.type === "compose" ? msg.attachments : undefined;
+      if (attachments?.length) composeInto(msg.projectId, msg.text, attachments);
+      else {
+        appendDraft(msg.projectId, msg.text);
+        bumpDraft(msg.projectId);
+      }
+      break;
+    }
+    case "brief": {
+      setState((s) => ({ briefs: { ...s.briefs, [msg.projectId]: msg.brief } }));
       break;
     }
     case "workspace": {

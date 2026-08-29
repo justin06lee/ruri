@@ -28,6 +28,7 @@ import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
 import { readCodexCounts } from "./usage.js";
 import {
   DEFAULT_EFFORT,
+  DEFAULT_PERMISSION_MODE,
   DEFAULT_MODEL,
   type AskAnswers,
   type AskQuestions,
@@ -420,7 +421,7 @@ class ProjectSession implements ChannelSession {
             { matcher: "Write|Edit", hooks: [this.captureBefore] },
           ],
         },
-        ...(project.permissionMode ? { permissionMode: project.permissionMode } : {}),
+        permissionMode: project.permissionMode ?? DEFAULT_PERMISSION_MODE,
         effort: (project.effort || DEFAULT_EFFORT) as AgentOptions["effort"],
         ...(resume ? { resume } : {}),
         // a rewind resumes truncated at the kept turn's last chain entry,
@@ -1211,7 +1212,7 @@ class ProviderAgentSession implements ChannelSession {
    *  run carries it as a <system> block (codex gets developerInstructions). */
   private sentSystem = false;
   /** The mode this session was opened with; changing it rebuilds. */
-  private permissionMode: PermissionMode = "default";
+  private permissionMode: PermissionMode = DEFAULT_PERMISSION_MODE;
 
   constructor(
     private readonly project: Project,
@@ -1225,7 +1226,7 @@ class ProviderAgentSession implements ChannelSession {
     this.nativeModel = nativeModel;
     if (resume?.startsWith(`${providerId}:`)) this.lastSessionId = resume;
     const nativeResume = this.lastSessionId?.slice(providerId.length + 1);
-    this.permissionMode = project.permissionMode ?? "default";
+    this.permissionMode = project.permissionMode ?? DEFAULT_PERMISSION_MODE;
     this.session = provider.openSession({
       cwd: project.path,
       appName: "ruri",

@@ -3294,9 +3294,13 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 9px;
 }
 
-.region-row input {
+/* what the region is called in the prompt — the note itself is written
+   there, not here */
+.region-marker {
   flex: 1;
-  font-size: 12.5px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-faint);
 }
 
 /* ── composer ─────────────────────────────────────────────────────── */

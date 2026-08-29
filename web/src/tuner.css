@@ -1,0 +1,233 @@
+/* The art tuner's own page — the app's paper and ink, laid out for a tool
+   rather than for a workspace. Dev-only; it never enters the app bundle. */
+
+.tuner {
+  min-height: 100vh;
+  padding: 28px 34px 60px;
+  background: var(--paper);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.tuner-head {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+}
+
+.tuner h1 {
+  font-size: 22px;
+  font-weight: 750;
+}
+
+.tuner h2 {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.tuner-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tuner-actions .primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.saved {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin-top: 8px;
+}
+
+/* the band, at the size the titlebar really is */
+.band-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.band {
+  position: relative;
+  overflow: hidden;
+  background: var(--paper-dim);
+  background-image: var(--tone);
+  background-size: 6px 6px;
+  border: 1.5px solid var(--edge);
+  border-radius: 2px;
+  box-shadow: var(--shadow-soft);
+}
+
+.band .peek-head {
+  position: absolute;
+  height: auto;
+  cursor: grab;
+  transition: transform 180ms cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+
+.band .peek-head.picked {
+  outline: 1.5px dashed var(--ink-faint);
+  outline-offset: 1px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.row.picked {
+  border-color: var(--line-soft);
+  background: var(--paper-dim);
+}
+
+.row-thumb {
+  width: 34px;
+  height: 26px;
+  object-fit: contain;
+}
+
+.row-name {
+  width: 26px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.row label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.row input {
+  width: 58px;
+  padding: 3px 6px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* the circles */
+.hero-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+}
+
+.hero-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.tuner-frame {
+  cursor: grab;
+}
+
+.tuner-frame:active {
+  cursor: grabbing;
+}
+
+.hero-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+/* cutting a head out of a raw page */
+.cutters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.cutter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-m);
+  background: var(--paper-dim);
+}
+
+.cutter-stage {
+  position: relative;
+  width: 340px;
+  user-select: none;
+}
+
+.cutter-stage img {
+  width: 100%;
+  display: block;
+  background: #fff;
+  border: 1px solid var(--line-faint);
+  cursor: crosshair;
+}
+
+.cutter-box {
+  position: absolute;
+  border: 1.5px dashed var(--ink);
+  background: rgba(25, 21, 16, 0.08);
+  pointer-events: none;
+}
+
+.cutter-controls .row-name {
+  width: auto;
+  min-width: 74px;
+  color: var(--ink);
+}
+
+.cutter-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.cutter-controls select {
+  font: inherit;
+  font-family: var(--mono);
+  padding: 2px 4px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}

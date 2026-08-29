@@ -22,6 +22,7 @@ import {
   type ComposerAttachment,
   type Region,
 } from "./Attachments";
+import { heroFrame } from "../peek";
 import { Brief } from "./Brief";
 import { DiffView } from "./Diff";
 import type { RapidFire } from "./RapidFire";
@@ -888,6 +889,24 @@ function CompactTurn({ summary, count, onExpand }: { summary: string; count: num
   );
 }
 
+/** A hero face in its circle, framed the way the tuner left it. */
+function HeroFace({ n }: { n: number }) {
+  const frame = heroFrame(n);
+  return (
+    <div className="hero-frame">
+      <img
+        className="hero-face"
+        src={heroUrl(n)}
+        alt=""
+        style={{
+          objectPosition: `${frame.x}% ${frame.y}%`,
+          ...(frame.zoom === 1 ? {} : { transform: `scale(${frame.zoom})` }),
+        }}
+      />
+    </div>
+  );
+}
+
 /* ── chat pane ───────────────────────────────────────────────────── */
 
 // Stable fallback so selectors never mint a fresh reference per read —
@@ -1175,11 +1194,7 @@ export function ChatPane({
         )}
         {rapid?.on && header}
         <div className="hero">
-          <img
-            className="hero-face"
-            src={heroUrl(isHome ? launchHero : heroFor(storeProject?.id ?? activeId))}
-            alt=""
-          />
+          <HeroFace n={isHome ? launchHero : heroFor(storeProject?.id ?? activeId)} />
           <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
           <div className="hero-composer">
             <Composer

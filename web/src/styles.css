@@ -998,21 +998,31 @@ input[type="range"]::-webkit-slider-thumb {
   animation: rise 240ms ease-out;
 }
 
-.hero-face {
+/* the circle the face sits in — the frame carries the chrome, the image
+   inside carries the framing (which the tuner sets, per face) */
+.hero-frame {
   width: 132px;
   height: 132px;
   border-radius: 50%;
   border: 2px solid var(--edge);
   background: #fff;
-  object-fit: cover;
   box-shadow: var(--shadow-hard);
   margin-bottom: 12px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.hero-face {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 /* In dark mode --edge is transparent, so the white image ground would
    bleed through the border ring — pin an opaque dark-gray ring instead. */
-[data-theme="dark"] .hero-face,
-[data-theme="ember"] .hero-face {
+[data-theme="dark"] .hero-frame,
+[data-theme="ember"] .hero-frame {
   border-color: color-mix(in srgb, var(--ink) 28%, var(--paper));
 }
 

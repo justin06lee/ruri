@@ -2282,9 +2282,14 @@ input[type="range"]::-webkit-slider-thumb {
   transform: none;
 }
 
+/* A definite cap, not min(320px, 100%): a percentage max-width is ignored
+   while the browser works out what the image contributes to its parent's
+   width, so the button around it grew to the whole chip's width and the
+   click target ran far past the picture. The window's own 880px minimum
+   keeps 320px comfortably inside the transcript. */
 .tool-image img {
   display: block;
-  max-width: min(320px, 100%);
+  max-width: 320px;
   max-height: 140px;
   width: auto;
   height: auto;

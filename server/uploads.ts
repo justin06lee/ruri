@@ -39,13 +39,24 @@ function uploadsDir(): string {
   );
 }
 
-/** Where an upload lands on disk (pure — storeUpload does the writing). */
+/**
+ * Where an upload lands on disk (pure — storeUpload does the writing).
+ *
+ * The id keeps it unique; the file's own name rides along so the path the
+ * model is handed says what it is opening. Anything awkward in the name is
+ * flattened to a dash, and it is trimmed, because this ends up in a prompt.
+ */
 function uploadPath(upload: AttachmentUpload): string {
   // arbitrary files keep their own extension (browsers often report no or
   // bogus MIME types for source files), sanitized down to alphanumerics
   const nameExt = path.extname(upload.name).slice(1).toLowerCase().replace(/[^a-z0-9]/g, "");
   const ext = EXT[upload.mediaType] ?? (nameExt || "bin");
-  return path.join(uploadsDir(), `${upload.id}.${ext}`);
+  const stem = path
+    .basename(upload.name, path.extname(upload.name))
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return path.join(uploadsDir(), `${upload.id}${stem ? `-${stem}` : ""}.${ext}`);
 }
 
 /** Absolute on-disk path of a stored upload, from its /uploads/<file> URL. */
@@ -71,10 +82,17 @@ export function storeAttachments(uploads: AttachmentUpload[]): Attachment[] {
 }
 
 /**
- * The model-facing form of a prompt: images to send along, plus text
- * additions for what the model can't see directly (region crops become their
- * own images; videos and other files are referenced by their stored path —
- * call storeAttachments first so those paths exist).
+ * The two forms of a prompt: the one the model reads and the one the user
+ * wrote.
+ *
+ * Images (and the region crops cut from them) travel as pictures, so their
+ * [image #1] marker is a reference to something the model can see and both
+ * forms keep it. A video or any other file travels as a path — the model
+ * only ever gets to open it — so in the model's copy the marker IS that
+ * path, sitting in the sentence where it was written rather than as a
+ * footnote under it. The user's copy keeps the marker, with the attachment
+ * shown beneath the prompt as always. (Call storeAttachments first so the
+ * paths exist.)
  */
 export function modelPayload(
   text: string,
@@ -90,22 +108,35 @@ export function modelPayload(
       for (const region of upload.regions ?? []) {
         images.push({ data: region.data, mediaType: region.mediaType });
       }
-    } else if (upload.kind === "video") {
-      outText += `\n[video #${upload.n}] saved at ${uploadPath(upload)} — inspect it with tools if needed.`;
+      continue;
+    }
+    const marker = `[${upload.kind} #${upload.n}]`;
+    const filePath = uploadPath(upload);
+    if (outText.includes(marker)) {
+      outText = outText.replaceAll(marker, filePath);
     } else {
-      outText += `\n[file #${upload.n}: ${upload.name}] saved at ${uploadPath(upload)} — read it with tools if needed.`;
+      // the marker was edited away (or never typed): the file still has to
+      // be findable, so it goes at the end the way it always did
+      const verb = upload.kind === "video" ? "inspect" : "read";
+      outText += `\n[${upload.kind} #${upload.n}: ${upload.name}] saved at ${filePath} — ${verb} it with tools if needed.`;
     }
   }
   return { text: outText, images };
 }
 
-/** Store + payload in one go — the plain non-split send path. */
+/** Store + payload in one go — the plain non-split send path. The user's own
+ *  wording comes back untouched as `display`, for the transcript. */
 export function processAttachments(
   text: string,
   uploads: AttachmentUpload[],
-): { text: string; images: Array<{ data: string; mediaType?: string }>; attachments: Attachment[] } {
+): {
+  text: string;
+  display: string;
+  images: Array<{ data: string; mediaType?: string }>;
+  attachments: Attachment[];
+} {
   const attachments = storeAttachments(uploads);
-  return { ...modelPayload(text, uploads), attachments };
+  return { ...modelPayload(text, uploads), display: text, attachments };
 }
 
 const CORS: Record<string, string> = { "access-control-allow-origin": "*" };

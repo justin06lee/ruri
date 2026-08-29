@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Project, SessionInfo } from "../../../shared/protocol";
 import { Composer, EventView, PermissionBanner } from "./ChatPane";
+import { QuestionCard } from "./Questions";
 import { Thinking } from "./Thinking";
 import { useRuri } from "../store";
 
@@ -115,7 +116,9 @@ export function RapidFire() {
 
   // The exchange keeps growing after that first scroll — images decode,
   // markdown settles, diffs lay out — so while pinned, any growth re-bottoms
-  // the view instead of leaving it stranded partway up.
+  // the view instead of leaving it stranded partway up. The box itself is
+  // watched too: a prompt growing to several lines takes its height out of
+  // the view, and the newest text would otherwise slide under the composer.
   const growth = useRef<ResizeObserver | null>(null);
   const observeContext = useCallback((node: HTMLDivElement | null) => {
     growth.current?.disconnect();
@@ -125,6 +128,8 @@ export function RapidFire() {
       if (pinnedRef.current) bottom();
     });
     observer.observe(node);
+    // the scroll box — read off the node, since a parent's ref isn't set yet
+    if (node.parentElement) observer.observe(node.parentElement);
     growth.current = observer;
   }, []);
   useEffect(() => () => growth.current?.disconnect(), []);
@@ -173,9 +178,14 @@ export function RapidFire() {
                   <EventView key={event.id} event={event} project={entry.project} channelId={entry.session.id} />
                 ))
               )}
-              {permissions.map((request) => (
-                <PermissionBanner key={request.requestId} request={request} />
-              ))}
+              {permissions.map((request) =>
+                // same rule as the chat: a question gets the picker, not the card
+                request.kind === "question" ? (
+                  <QuestionCard key={request.requestId} request={request} />
+                ) : (
+                  <PermissionBanner key={request.requestId} request={request} />
+                ),
+              )}
             </div>
           </div>
           <Composer

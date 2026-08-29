@@ -22,7 +22,8 @@ import {
   type Region,
 } from "./Attachments";
 import { DiffView } from "./Diff";
-import { RapidBar, useRapidFire } from "./RapidFire";
+import type { RapidFire } from "./RapidFire";
+import { RapidBar } from "./RapidFire";
 import { DragonGauges } from "./Dragon";
 import { Dropdown } from "./Dropdown";
 import { QuestionCard } from "./Questions";
@@ -844,10 +845,19 @@ const NO_EVENTS: TranscriptEvent[] = [];
 const NO_SUMMARIES: Record<string, string> = {};
 const NO_QUEUED: QueuedPrompt[] = [];
 
-export function ChatPane() {
-  const activeId = useRuri((s) => s.activeId);
+export function ChatPane({
+  channelId,
+  rapid,
+}: {
+  /** The channel to show, when it isn't the app's active one — rapid fire
+   *  hands it the session it has picked, leaving the sidebar where it is. */
+  channelId?: string;
+  rapid?: RapidFire;
+} = {}) {
+  const storeActive = useRuri((s) => s.activeId);
+  const activeId = channelId ?? storeActive;
   const storeProject = useRuri((s) =>
-    s.activeId ? s.projects.find((p) => p.sessions.some((x) => x.id === s.activeId)) : undefined,
+    activeId ? s.projects.find((p) => p.sessions.some((x) => x.id === activeId)) : undefined,
   );
   const workspaceDir = useRuri((s) => s.workspaceDir);
   const home = useRuri((s) => s.home);
@@ -856,15 +866,13 @@ export function ChatPane() {
   const project: Project | undefined = isHome
     ? { id: HOME_ID, name: "ruri", path: workspaceDir, sessions: [], ...home }
     : storeProject;
-  const transcript = useRuri((s) =>
-    s.activeId ? (s.transcripts[s.activeId] ?? NO_EVENTS) : NO_EVENTS,
-  );
-  const draft = useRuri((s) => (s.activeId ? s.drafts[s.activeId] : undefined));
-  const status = useRuri((s) => (s.activeId ? (s.statuses[s.activeId] ?? "idle") : "idle"));
+  const transcript = useRuri((s) => (activeId ? (s.transcripts[activeId] ?? NO_EVENTS) : NO_EVENTS));
+  const draft = useRuri((s) => (activeId ? s.drafts[activeId] : undefined));
+  const status = useRuri((s) => (activeId ? (s.statuses[activeId] ?? "idle") : "idle"));
   const summaries = useRuri((s) =>
-    s.activeId ? (s.summaries[s.activeId] ?? NO_SUMMARIES) : NO_SUMMARIES,
+    activeId ? (s.summaries[activeId] ?? NO_SUMMARIES) : NO_SUMMARIES,
   );
-  const queuedItems = useRuri((s) => (s.activeId ? (s.queued[s.activeId] ?? NO_QUEUED) : NO_QUEUED));
+  const queuedItems = useRuri((s) => (activeId ? (s.queued[activeId] ?? NO_QUEUED) : NO_QUEUED));
   const allPermissions = useRuri((s) => s.permissions);
   const permissions = allPermissions.filter((p) => p.projectId === activeId);
   const lastError = useRuri((s) => s.lastError);
@@ -883,12 +891,12 @@ export function ChatPane() {
     clearPicked();
   }, [picked, clearPicked]);
 
-  // Rapid fire walks the ordinary chat pages: it moves the active session,
-  // and a send moves it on. Nothing here renders differently for it beyond
-  // the header's own controls.
-  const rapid = useRapidFire();
+  // Rapid fire's card fades in as it takes over and out as it hands on —
+  // the pane is the same one either way, so the classes ride on it.
+  const pane = (base: string) =>
+    rapid?.on ? `${base} rapid-page${rapid.leaving ? " rapid-leaving" : ""}` : base;
 
-  const trackerItems = useRuri((s) => (s.activeId ? s.tracker[s.activeId] : undefined));
+  const trackerItems = useRuri((s) => (activeId ? s.tracker[activeId] : undefined));
   const [trackerOpen, setTrackerOpen] = useState(false);
   const openCount = (trackerItems ?? []).filter((i) => i.status === "open").length;
 
@@ -994,7 +1002,7 @@ export function ChatPane() {
   }, []);
 
   if (!project || !activeId) {
-    return <main className="chat empty" />;
+    return <main className={pane("chat empty")} />;
   }
 
   const busy = status === "working" || status === "permission";
@@ -1021,7 +1029,7 @@ export function ChatPane() {
         </div>
       </div>
       <div className="header-controls">
-        {rapid.on && <RapidBar rapid={rapid} />}
+        {rapid?.on && <RapidBar rapid={rapid} />}
         <button
           className={`icon-button tracker-toggle ${trackerOpen ? "active" : ""}`}
           title={trackerOpen ? "Back to the chat" : "Feature tracker — things to test by hand"}
@@ -1038,13 +1046,13 @@ export function ChatPane() {
   // title, and the composer front and center.
   if (transcript.length === 0 && !draft && permissions.length === 0) {
     return (
-      <main className="chat home-hero">
+      <main className={pane("chat home-hero")}>
         {lastError && (
           <div className="error-bar" onClick={dismissError}>
             {lastError} <span className="dismiss">dismiss</span>
           </div>
         )}
-        {rapid.on && header}
+        {rapid?.on && header}
         <div className="hero">
           <img
             className="hero-face"
@@ -1058,7 +1066,7 @@ export function ChatPane() {
               channelId={activeId}
               project={project}
               busy={busy}
-              {...(rapid.on ? { onSent: rapid.advance } : {})}
+              {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
             />
           </div>
 
@@ -1071,7 +1079,7 @@ export function ChatPane() {
   // navigation, just this branch; the same button (or its X) swaps back.
   if (trackerOpen) {
     return (
-      <main className="chat">
+      <main className={pane("chat")}>
         {header}
         <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />
       </main>
@@ -1079,7 +1087,7 @@ export function ChatPane() {
   }
 
   return (
-    <main className="chat" ref={chatRef}>
+    <main className={pane("chat")} ref={chatRef}>
       {header}
 
       {lastError && (
@@ -1200,7 +1208,12 @@ export function ChatPane() {
       )}
 
       <div className="composer-dock" key={activeId} ref={observeDock}>
-        <Composer channelId={activeId} project={project} busy={busy} />
+        <Composer
+          channelId={activeId}
+          project={project}
+          busy={busy}
+          {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
+        />
       </div>
     </main>
   );

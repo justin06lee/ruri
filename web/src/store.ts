@@ -274,9 +274,9 @@ interface RuriState {
   /** Latest native-picker result, tagged with what the pick was for. */
   picked: { path: string; target: PickTarget } | null;
   lastError: string | null;
-  /** `keepRapid` marks a hop rapid fire made itself — a hand-picked session
-   *  leaves the line, one it walked you to does not. */
-  setActive(id: string | null, options?: { keepRapid?: boolean }): void;
+  /** Picking a session by hand also leaves rapid fire — the line is only
+   *  ever showing you one, and this is you choosing another. */
+  setActive(id: string | null): void;
   setRapid(on: boolean): void;
   clearPicked(): void;
   dismissError(): void;
@@ -309,16 +309,12 @@ export const useRuri = create<RuriState>((set) => ({
   canPickFolder: false,
   picked: null,
   lastError: null,
-  setActive: (id, options) =>
+  setActive: (id) =>
     set((s) => {
       // Home is ephemeral: crossing its boundary (either direction) asks the
       // server to wipe it — ignored server-side while a turn is running.
       if ((s.activeId === HOME_ID) !== (id === HOME_ID)) send({ type: "reset_home" });
-      return {
-        activeId: id,
-        rapid: options?.keepRapid ? s.rapid : false,
-        unread: id ? { ...s.unread, [id]: false } : s.unread,
-      };
+      return { activeId: id, rapid: false, unread: id ? { ...s.unread, [id]: false } : s.unread };
     }),
   setRapid: (on) => set({ rapid: on }),
   clearPicked: () => set({ picked: null }),

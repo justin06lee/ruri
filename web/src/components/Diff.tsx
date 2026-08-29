@@ -6,7 +6,7 @@
  * real lines in the file rather than at offsets into the patch.
  */
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { FileDiff } from "../../../shared/protocol";
 
 /** The gutter number a line carries: its own side's line. */
@@ -19,7 +19,7 @@ function numbersFor(hunkOld: number, hunkNew: number, diff: FileDiff["hunks"][nu
   });
 }
 
-export function DiffView({ diff }: { diff: FileDiff }) {
+export const DiffView = memo(function DiffView({ diff }: { diff: FileDiff }) {
   const [open, setOpen] = useState(true);
   const cut = diff.path.lastIndexOf("/");
   const name = cut === -1 ? diff.path : diff.path.slice(cut + 1);
@@ -73,4 +73,4 @@ export function DiffView({ diff }: { diff: FileDiff }) {
       </div>
     </div>
   );
-}
+});

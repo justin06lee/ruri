@@ -1,7 +1,7 @@
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
 import { Marked } from "marked";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 
 const marked = new Marked({
   gfm: true,
@@ -44,10 +44,44 @@ function escapeHtml(text: string): string {
     .replaceAll('"', "&quot;");
 }
 
+/**
+ * Rendered markdown, kept across mounts.
+ *
+ * Parsing and highlighting a reply costs a few milliseconds, and a session
+ * switch used to pay it again for every message on screen — the useMemo
+ * below only lives as long as the component does, and switching sessions
+ * unmounts all of them. Transcript text never changes once written, so the
+ * text itself is the key: coming back to a session you've already read
+ * re-renders from strings that are already HTML.
+ */
+const CACHE_LIMIT = 1200;
+const cache = new Map<string, string>();
+
 function render(text: string): string {
-  return DOMPurify.sanitize(marked.parse(text, { async: false }), {
+  const hit = cache.get(text);
+  if (hit !== undefined) {
+    // touch it, so the cap sheds what nobody has looked at in a while
+    cache.delete(text);
+    cache.set(text, hit);
+    return hit;
+  }
+  const html = DOMPurify.sanitize(marked.parse(text, { async: false }), {
     ADD_ATTR: ["target"],
   });
+  cache.set(text, html);
+  if (cache.size > CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  return html;
+}
+
+/**
+ * Render ahead of being asked, while the app has nothing better to do — the
+ * work lands in the cache and the switch that needs it is already paid for.
+ */
+export function prewarmMarkdown(text: string): void {
+  if (text && !cache.has(text)) render(text);
 }
 
 /** Copy-button delegation: one handler for every code block in the subtree. */
@@ -61,8 +95,8 @@ function onClick(e: React.MouseEvent<HTMLDivElement>): void {
   });
 }
 
-export function Markdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const html = useMemo(() => render(text), [text]);
   // eslint-disable-next-line react/no-danger -- sanitized via DOMPurify above
   return <div className="md" onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
-}
+});

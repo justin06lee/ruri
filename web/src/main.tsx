@@ -1,10 +1,12 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import { initTheme } from "./theme";
+import { initTheme, startThemeClock } from "./theme";
 import "@fontsource-variable/space-grotesk";
 import "./styles.css";
 
 initTheme();
+// and keep it in step, for a schedule that turns the page while you work
+startThemeClock();
 if (navigator.userAgent.includes("Electron")) document.body.classList.add("desktop");
 
 // A file dropped outside a drop zone must never navigate the window to the

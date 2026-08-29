@@ -59,6 +59,34 @@
   color-scheme: dark;
 }
 
+/* ember: the same page by firelight, for the hours when a screen full of
+   blue is the thing keeping you up. Every color here is red through amber —
+   no blue channel to speak of — so it reads warm rather than merely dark. */
+:root[data-theme="ember"] {
+  --paper: #140b05;
+  --paper-dim: #1b0f07;
+  --paper-deep: #2a180b;
+  --paper-bright: #21130a;
+  --ink: #f0bd82;
+  --ink-soft: #c39257;
+  --ink-faint: #8a6338;
+  --edge: transparent;
+  --hairline: rgba(240, 189, 130, 0.09);
+  --raised: #221308;
+  --line: #f0bd82;
+  --line-soft: rgba(240, 189, 130, 0.14);
+  --line-faint: rgba(240, 189, 130, 0.07);
+  --tone: radial-gradient(circle, rgba(240, 189, 130, 0.11) 1px, transparent 1.4px);
+  --stripes: repeating-linear-gradient(
+    45deg,
+    transparent 0 5px,
+    rgba(240, 189, 130, 0.08) 5px 10px
+  );
+  --shadow-hard: 3px 3px 0 rgba(0, 0, 0, 0.6);
+  --shadow-soft: 2px 2px 0 rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -150,6 +178,28 @@ button:hover {
 button:active {
   transform: translate(2px, 2px);
   box-shadow: none;
+}
+
+/*
+ * A press slides the button 2px down and right — and used to slide it out
+ * from under a pointer resting on its top or left edge. The button was then
+ * no longer under the cursor when the mouse came up, so the release landed
+ * on the page behind it and the click never happened: the press animated,
+ * and nothing else. This strip keeps the vacated edge hittable, so a press
+ * that starts on a button ends on it. Top and left only — those are the
+ * edges the button moves away from.
+ */
+button {
+  position: relative;
+}
+
+button::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  right: 0;
+  bottom: 0;
 }
 
 button:disabled {
@@ -293,6 +343,12 @@ textarea::placeholder {
 /* the cutouts swap ink and paper with the theme */
 [data-theme="dark"] .peek-head {
   filter: invert(1);
+}
+
+/* inverted like dark, then pulled toward the fire so the line art sits on
+   the same warm paper as everything else */
+[data-theme="ember"] .peek-head {
+  filter: invert(1) sepia(0.5) saturate(1.5) hue-rotate(332deg);
 }
 
 /* the account bar: local user + settings, pinned under the music player */
@@ -955,7 +1011,8 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* In dark mode --edge is transparent, so the white image ground would
    bleed through the border ring — pin an opaque dark-gray ring instead. */
-[data-theme="dark"] .hero-face {
+[data-theme="dark"] .hero-face,
+[data-theme="ember"] .hero-face {
   border-color: color-mix(in srgb, var(--ink) 28%, var(--paper));
 }
 
@@ -1022,6 +1079,84 @@ input[type="range"]::-webkit-slider-thumb {
 .settings-title {
   font-weight: 700;
   font-size: 15px;
+}
+
+/* the theme schedule: a row per theme, each with the time it takes over */
+.schedule {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.seg-option.toggle {
+  min-width: 52px;
+}
+
+.schedule-times {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.schedule-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.schedule-name {
+  width: 46px;
+  text-align: right;
+  color: var(--ink);
+}
+
+.schedule-from {
+  color: var(--ink-faint);
+  font-size: 11.5px;
+}
+
+/* a time you set by nudging its parts — the app's own control, not the
+   platform's */
+.time-field {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  padding: 2px 6px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--paper-dim);
+}
+
+.time-seg {
+  min-width: 16px;
+  padding: 0 2px;
+  text-align: center;
+  border-radius: 3px;
+  cursor: ns-resize;
+  user-select: none;
+}
+
+.time-seg:hover {
+  background: var(--line-faint);
+}
+
+.time-seg:focus-visible {
+  outline: none;
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.time-colon {
+  color: var(--ink-faint);
+}
+
+.time-meridiem {
+  margin-left: 3px;
+  color: var(--ink-soft);
+  cursor: pointer;
 }
 
 .settings-row {
@@ -2036,6 +2171,179 @@ input[type="range"]::-webkit-slider-thumb {
   height: 12px;
 }
 
+/* ── the catch-up brief ───────────────────────────────────────────── */
+
+.brief-note {
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+
+.brief-description {
+  width: 100%;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background: var(--paper-dim);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.brief-description:focus {
+  border-color: var(--line);
+}
+
+.brief-features {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+}
+
+.brief-feature {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brief-bullet {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.brief-feature input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  outline: none;
+}
+
+.brief-feature input:hover {
+  border-color: var(--line-faint);
+}
+
+.brief-feature input:focus {
+  border-color: var(--line-soft);
+  background: var(--paper-dim);
+}
+
+.brief-feature .icon-button {
+  opacity: 0;
+}
+
+.brief-feature:hover .icon-button {
+  opacity: 1;
+}
+
+.brief-add {
+  align-self: flex-start;
+  margin-left: 20px;
+  font-size: 12px;
+  padding: 2px 10px;
+}
+
+/* the screenshots: what the thing looks like, which no paragraph replaces */
+.brief-shots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border: 1.5px dashed var(--line-soft);
+  border-radius: var(--radius-m);
+}
+
+.brief-shots.drag-over {
+  border-color: var(--line);
+  background: var(--paper-dim);
+}
+
+.brief-shot {
+  position: relative;
+  width: 132px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  overflow: hidden;
+  line-height: 0;
+}
+
+.brief-shot img {
+  width: 100%;
+  display: block;
+}
+
+.brief-unpin {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: var(--paper);
+  border: 1px solid var(--line-soft);
+  opacity: 0;
+}
+
+.brief-shot:hover .brief-unpin {
+  opacity: 1;
+}
+
+.brief-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 74px;
+  padding: 0 14px;
+  border-radius: var(--radius-s);
+  font-size: 12px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  text-align: center;
+}
+
+.brief-drop:hover {
+  color: var(--ink);
+}
+
+.brief-drop input {
+  display: none;
+}
+
+.brief-send {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 6px 16px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.brief-send svg {
+  width: 15px;
+  height: 15px;
+}
+
+.brief-page .tracker-inner {
+  display: flex;
+  flex-direction: column;
+}
+
 .result-line {
   display: flex;
   align-items: center;
@@ -2297,6 +2605,13 @@ input[type="range"]::-webkit-slider-thumb {
   --diff-add-ink: #83c795;
   --diff-del-bg: rgba(220, 110, 95, 0.14);
   --diff-del-ink: #e08a7c;
+}
+
+:root[data-theme="ember"] {
+  --diff-add-bg: rgba(200, 160, 60, 0.15);
+  --diff-add-ink: #d8ac52;
+  --diff-del-bg: rgba(190, 80, 45, 0.16);
+  --diff-del-ink: #d4704a;
 }
 
 .diff {
@@ -3498,6 +3813,38 @@ button.stop {
 
 button.stop:hover {
   background-image: var(--stripes);
+}
+
+/* ── the composer's shell ─────────────────────────────────────────── */
+
+/* The terminal takes the box the prompt would have had — same frame, same
+   width, just taller, so switching modes moves nothing else. */
+.terminal {
+  height: 300px;
+  padding: 4px 2px 2px;
+  overflow: hidden;
+}
+
+.terminal .xterm-viewport {
+  background: transparent !important;
+  scrollbar-width: thin;
+}
+
+.terminal .xterm {
+  height: 100%;
+}
+
+/* which shell you're looking at, where the model pickers sit in prompt mode */
+.shell-where {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  padding-left: 2px;
+}
+
+.shell-toggle.active {
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .composer-hint {

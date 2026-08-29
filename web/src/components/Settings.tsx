@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { send, useRuri } from "../store";
-import { applyTheme, getTheme, type Theme } from "../theme";
+import {
+  applyTheme,
+  currentTheme,
+  getSchedule,
+  saveSchedule,
+  type Theme,
+  type ThemeSchedule,
+  themeAt,
+  THEMES,
+} from "../theme";
 
 const STAR_PATH = "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9 2.9-6z";
 
@@ -75,12 +84,67 @@ function ModelCatalog() {
   );
 }
 
+/**
+ * A time of day, as its own little control — no native picker, no OS
+ * chrome. Each part takes the arrows or the wheel; the hour rolls at 12,
+ * the minutes step by five, and am/pm is a flip.
+ */
+function TimeField({ minutes, onChange }: { minutes: number; onChange(next: number): void }) {
+  const hour24 = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  const pm = hour24 >= 12;
+  const wrap = (value: number) => ((value % 1440) + 1440) % 1440;
+  const step = (by: number) => onChange(wrap(minutes + by));
+
+  const seg = (label: string, by: number, title: string) => (
+    <span
+      className="time-seg"
+      tabIndex={0}
+      role="spinbutton"
+      title={title}
+      onWheel={(e) => step(e.deltaY < 0 ? by : -by)}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowUp") step(by);
+        else if (e.key === "ArrowDown") step(-by);
+        else return;
+        e.preventDefault();
+      }}
+    >
+      {label}
+    </span>
+  );
+
+  return (
+    <span className="time-field">
+      {seg(String(hour12), 60, "Hour — arrows or scroll")}
+      <span className="time-colon">:</span>
+      {seg(String(minute).padStart(2, "0"), 5, "Minutes — arrows or scroll")}
+      <span
+        className="time-seg time-meridiem"
+        tabIndex={0}
+        role="button"
+        title="Flip am/pm"
+        onClick={() => step(pm ? -720 : 720)}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          step(pm ? -720 : 720);
+        }}
+      >
+        {pm ? "pm" : "am"}
+      </span>
+    </span>
+  );
+}
+
 /** The settings panel: theme, workspace root, music folder, model catalog. */
 export function Settings({ onClose }: { onClose(): void }) {
   const workspaceDir = useRuri((s) => s.workspaceDir);
   const musicDir = useRuri((s) => s.musicDir);
   const canPickFolder = useRuri((s) => s.canPickFolder);
-  const [theme, setTheme] = useState<Theme>(getTheme);
+  const [theme, setTheme] = useState<Theme>(currentTheme);
+  const [schedule, setSchedule] = useState<ThemeSchedule>(getSchedule);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -90,9 +154,27 @@ export function Settings({ onClose }: { onClose(): void }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Picking one by hand is you overruling the clock, so the clock stands down.
   const pickTheme = (next: Theme) => {
     applyTheme(next);
     setTheme(next);
+    if (schedule.on) keepSchedule({ ...schedule, on: false });
+  };
+
+  const keepSchedule = (next: ThemeSchedule) => {
+    setSchedule(next);
+    saveSchedule(next);
+    if (next.on) {
+      const now = new Date();
+      const due = themeAt(now.getHours() * 60 + now.getMinutes(), next);
+      applyTheme(due, false);
+      setTheme(due);
+      return;
+    }
+    // the clock stands down, and whatever it left on screen becomes the pick
+    const shown = (document.documentElement.dataset["theme"] as Theme | undefined) ?? theme;
+    applyTheme(shown);
+    setTheme(shown);
   };
 
   return (
@@ -115,18 +197,47 @@ export function Settings({ onClose }: { onClose(): void }) {
         <div className="settings-row">
           <span className="settings-label">Theme</span>
           <div className="seg">
+            {THEMES.map((option) => (
+              <button
+                key={option}
+                className={`seg-option ${theme === option ? "active" : ""}`}
+                title={
+                  option === "ember"
+                    ? "Warm through and through — no blue light, for late sessions"
+                    : undefined
+                }
+                onClick={() => pickTheme(option)}
+              >
+                {option[0]!.toUpperCase() + option.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="settings-row">
+          <span className="settings-label">By the clock</span>
+          <div className="settings-value schedule">
             <button
-              className={`seg-option ${theme === "light" ? "active" : ""}`}
-              onClick={() => pickTheme("light")}
+              className={`seg-option toggle ${schedule.on ? "active" : ""}`}
+              title="Turn the theme over at set times — picking one by hand turns this off"
+              onClick={() => keepSchedule({ ...schedule, on: !schedule.on })}
             >
-              Light
+              {schedule.on ? "On" : "Off"}
             </button>
-            <button
-              className={`seg-option ${theme === "dark" ? "active" : ""}`}
-              onClick={() => pickTheme("dark")}
-            >
-              Dark
-            </button>
+            {schedule.on && (
+              <div className="schedule-times">
+                {THEMES.map((option) => (
+                  <div className="schedule-slot" key={option}>
+                    <span className="schedule-name">{option}</span>
+                    <span className="schedule-from">from</span>
+                    <TimeField
+                      minutes={schedule[option]}
+                      onChange={(next) => keepSchedule({ ...schedule, [option]: next })}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

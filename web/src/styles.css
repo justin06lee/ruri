@@ -1001,6 +1001,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* the circle the face sits in — the frame carries the chrome, the image
    inside carries the framing (which the tuner sets, per face) */
 .hero-frame {
+  position: relative; /* the face is placed inside it, not laid out by it */
   width: 132px;
   height: 132px;
   border-radius: 50%;
@@ -1012,11 +1013,18 @@ input[type="range"]::-webkit-slider-thumb {
   flex-shrink: 0;
 }
 
+/* Fitted whole inside the circle at zoom 1 — the cut-out faces are taller
+   than they are wide, so cover would decide the crop for them. The tuner's
+   zoom fills past the edge when a face wants that, and left/top slide it
+   under the circle; both come in as inline percentages of the circle. */
 .hero-face {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  max-width: 100%;
+  max-height: 100%;
   display: block;
-  object-fit: cover;
+  transform: translate(-50%, -50%);
 }
 
 /* In dark mode --edge is transparent, so the white image ground would

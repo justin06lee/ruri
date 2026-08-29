@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Project, SessionInfo } from "../../../shared/protocol";
 import { Composer, EventView, PermissionBanner } from "./ChatPane";
+import { QuestionCard } from "./Questions";
 import { Thinking } from "./Thinking";
 import { useRuri } from "../store";
 
@@ -78,6 +79,24 @@ export function RapidFire() {
 
   const skip = () => setQueue((q) => (q.length > 1 ? [...q.slice(1), q[0]!] : q));
 
+  // A card opens at the end of the exchange, not its beginning — what you're
+  // answering is the last thing the session said, sitting right above the
+  // box you type in. The view follows new content while you're at the
+  // bottom; scroll up to read and it stays where you left it.
+  const contextRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
+
+  const bottom = () => {
+    const el = contextRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+
+  const onScroll = () => {
+    const el = contextRef.current;
+    if (!el) return;
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+
   const workingCount = entries.filter((e) => statuses[e.session.id] === "working").length;
   const transcript = current ? (transcripts[current] ?? []) : [];
   // context = the session's last exchange (its latest prompt → result)
@@ -85,6 +104,35 @@ export function RapidFire() {
   const tail = lastUser === -1 ? transcript : transcript.slice(lastUser);
   const permissions = allPermissions.filter((p) => p.projectId === current);
   const status = current ? (statuses[current] ?? "idle") : "idle";
+
+  // a new card starts pinned, at the bottom
+  useLayoutEffect(() => {
+    pinnedRef.current = true;
+    bottom();
+  }, [current]);
+  useLayoutEffect(() => {
+    if (pinnedRef.current) bottom();
+  }, [tail.length, permissions.length, status]);
+
+  // The exchange keeps growing after that first scroll — images decode,
+  // markdown settles, diffs lay out — so while pinned, any growth re-bottoms
+  // the view instead of leaving it stranded partway up. The box itself is
+  // watched too: a prompt growing to several lines takes its height out of
+  // the view, and the newest text would otherwise slide under the composer.
+  const growth = useRef<ResizeObserver | null>(null);
+  const observeContext = useCallback((node: HTMLDivElement | null) => {
+    growth.current?.disconnect();
+    growth.current = null;
+    if (!node) return;
+    const observer = new ResizeObserver(() => {
+      if (pinnedRef.current) bottom();
+    });
+    observer.observe(node);
+    // the scroll box — read off the node, since a parent's ref isn't set yet
+    if (node.parentElement) observer.observe(node.parentElement);
+    growth.current = observer;
+  }, []);
+  useEffect(() => () => growth.current?.disconnect(), []);
 
   return (
     <main className="chat rapid">
@@ -121,17 +169,24 @@ export function RapidFire() {
               </button>
             )}
           </div>
-          <div className="rapid-context">
-            {tail.length === 0 ? (
-              <div className="rapid-fresh">Fresh session — give it its first prompt.</div>
-            ) : (
-              tail.map((event) => (
-                <EventView key={event.id} event={event} project={entry.project} channelId={entry.session.id} />
-              ))
-            )}
-            {permissions.map((request) => (
-              <PermissionBanner key={request.requestId} request={request} />
-            ))}
+          <div className="rapid-context" ref={contextRef} onScroll={onScroll}>
+            <div className="rapid-context-inner" ref={observeContext}>
+              {tail.length === 0 ? (
+                <div className="rapid-fresh">Fresh session — give it its first prompt.</div>
+              ) : (
+                tail.map((event) => (
+                  <EventView key={event.id} event={event} project={entry.project} channelId={entry.session.id} />
+                ))
+              )}
+              {permissions.map((request) =>
+                // same rule as the chat: a question gets the picker, not the card
+                request.kind === "question" ? (
+                  <QuestionCard key={request.requestId} request={request} />
+                ) : (
+                  <PermissionBanner key={request.requestId} request={request} />
+                ),
+              )}
+            </div>
           </div>
           <Composer
             key={entry.session.id}

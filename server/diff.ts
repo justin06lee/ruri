@@ -168,7 +168,11 @@ export function parseUnifiedDiff(
   let removed = 0;
   let budget = MAX_LINES;
   let truncated = false;
-  for (const raw of patch.split("\n")) {
+  const lines = patch.split("\n");
+  for (const [i, raw] of lines.entries()) {
+    // the patch's own trailing newline, not a blank context line (which
+    // unified format writes as a single space)
+    if (raw === "" && i === lines.length - 1) continue;
     const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
     if (header) {
       current = { oldStart: Number(header[1]), newStart: Number(header[2]), lines: [] };

@@ -1,8 +1,12 @@
 /**
  * Feature parity on a non-Claude harness, end to end through the real
- * server: a Codex session's tool chips (ruri's own vocabulary), the patch
- * under an edit, the context gauge, the harness's own limit windows, and a
- * rewind. Costs one real Codex turn — run manually: bun run provider-test
+ * server: the session's tool chips (ruri's own vocabulary), the patch under
+ * an edit, narration interleaved with the chips it came before, the context
+ * gauge, the harness's own limit windows, and a rewind.
+ *
+ * Costs one real turn on that harness — run manually:
+ *   bun run provider-test            # codex
+ *   RURI_TEST_PROVIDER=gemini bun run provider-test
  */
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
@@ -12,6 +16,7 @@ import WebSocket from "ws";
 import type { ClientMessage, ContextUsage, ServerMessage, TranscriptEvent } from "../shared/protocol.js";
 
 const PORT = 7894;
+const HARNESS = process.env["RURI_TEST_PROVIDER"] ?? "codex";
 const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-provider-config-"));
 const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-provider-project-"));
 fs.writeFileSync(path.join(projectDir, "hello.txt"), "before\n");
@@ -60,6 +65,9 @@ let projectId: string | undefined;
 let promptId: string | undefined;
 let phase: "run" | "rewind" = "run";
 const tools: TranscriptEvent[] = [];
+/** Every event of the turn, in the order it arrived — the narration a
+ *  harness writes before a tool call must land above that call's chip. */
+const order: string[] = [];
 let context: ContextUsage | undefined;
 let turnContext: ContextUsage | undefined;
 let usage: Record<string, unknown> = {};
@@ -78,10 +86,10 @@ ws.on("message", (raw) => {
       if (!projectId && msg.projects.length > 0) {
         const project = msg.projects[msg.projects.length - 1]!;
         projectId = project.sessions[0]!.id;
-        // the model is a project setting; the channel is its session —
-        // "codex" alone means that harness's own default model
-        send({ type: "set_model", projectId: project.id, model: "codex" });
-        console.log(`[t] project ${projectId} on codex — sending the turn`);
+        // the model is a project setting; the channel is its session — the
+        // bare provider id means that harness's own default model
+        send({ type: "set_model", projectId: project.id, model: HARNESS });
+        console.log(`[t] project ${projectId} on ${HARNESS} — sending the turn`);
         send({
           type: "send",
           projectId,
@@ -97,12 +105,14 @@ ws.on("message", (raw) => {
       break;
     case "event": {
       const e = msg.event;
+      if (phase === "run") order.push(e.kind);
       if (e.kind === "user" && !promptId) promptId = e.id;
       if (e.kind === "tool") {
         tools.push(e);
         console.log(`[t] chip ${e.name} — ${e.summary.slice(0, 60)}${e.diff ? ` (+${e.diff.added} −${e.diff.removed})` : ""}`);
       }
       if (e.kind === "result" && phase === "run") {
+        if (e.error) console.log(`[t] turn error: ${e.error}`);
         phase = "rewind";
         // what the gauge read at the end of the turn — the rewind below
         // zeroes it, which is its own correct behaviour
@@ -130,19 +140,27 @@ ws.on("message", (raw) => {
 });
 
 function check(): void {
-  const named = tools.some((t) => t.kind === "tool" && (t.name === "Bash" || t.name === "Read"));
-  const patched = tools.some((t) => t.kind === "tool" && t.name === "Edit" && t.diff !== undefined);
+  const RURI_NAMES = ["Bash", "Read", "Write", "Edit", "Grep", "Glob"];
+  const named = tools.some((t) => t.kind === "tool" && RURI_NAMES.includes(t.name));
+  const patched = tools.some((t) => t.kind === "tool" && t.diff !== undefined);
   const gauged = (turnContext?.tokens ?? 0) > 0 && (turnContext?.window ?? 0) > 0;
-  const limits = (usage as Record<string, { fiveHour?: number }>)["codex"];
-  const windows = typeof limits?.fiveHour === "number";
+  const limits = (usage as Record<string, { fiveHour?: number }>)[HARNESS];
+  // only harnesses that publish their windows are held to this one
+  const windows = HARNESS === "codex" ? typeof limits?.fiveHour === "number" : true;
   const rewound = removed > 0 && (composed ?? "").startsWith("Read hello.txt");
+  // the harness narrates before it acts, so an assistant event must come
+  // before the first chip rather than after every one of them
+  const firstTool = order.indexOf("tool");
+  const firstAssistant = order.indexOf("assistant");
+  const ordered = firstTool === -1 || (firstAssistant !== -1 && firstAssistant < firstTool);
   console.log(`\ncontext at turn's end: ${JSON.stringify(turnContext)}; after the rewind: ${JSON.stringify(context)}`);
-  console.log(`codex limits: ${JSON.stringify(limits)}`);
+  console.log(`${HARNESS} limits: ${JSON.stringify(limits)}`);
+  console.log(`event order: ${order.join(" → ")}`);
   console.log(
-    `checks: ruriToolNames=${named} patchUnderEdit=${patched} contextGauge=${gauged} harnessWindows=${windows} rewind=${rewound}`,
+    `checks: ruriToolNames=${named} patchUnderEdit=${patched} contextGauge=${gauged} harnessWindows=${windows} rewind=${rewound} interleaved=${ordered}`,
   );
   if (notice) console.log(`notice: ${notice}`);
-  const ok = named && patched && gauged && windows && rewound;
+  const ok = named && patched && gauged && windows && rewound && ordered;
   console.log(ok ? "\nPROVIDER SESSION PASS" : "\nPROVIDER SESSION FAIL");
   done(ok ? 0 : 1);
 }

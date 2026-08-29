@@ -1,6 +1,6 @@
 {
   "name": "ruri",
-  "version": "0.37.0",
+  "version": "0.37.1",
   "description": "One desktop workspace for all your projects, each a folder of live coding sessions.",
   "private": true,
   "type": "module",
@@ -21,6 +21,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "rewind-test": "tsx scripts/rewind.ts",
     "provider-check": "tsx scripts/provider-check.ts",
+    "provider-events": "tsx scripts/provider-events.ts",
     "provider-test": "tsx scripts/provider-session.ts"
   },
   "devDependencies": {

@@ -30,7 +30,14 @@ import { Tracker } from "./Tracker";
 import { heroFor, heroUrl, launchHero } from "../hero";
 import { fileToBase64 } from "../lib/files";
 import { Markdown } from "../markdown";
-import { clearComposerDraft, composerDrafts, send, setComposerDraft, useRuri } from "../store";
+import {
+  clearComposerDraft,
+  composeInto,
+  composerDrafts,
+  send,
+  setComposerDraft,
+  useRuri,
+} from "../store";
 
 /* ── small inline icons (stroke: currentColor, 14px) ─────────────── */
 
@@ -700,17 +707,12 @@ export function Composer({
  * until its turn comes. Editable and removable right up to dispatch.
  */
 function QueuedCard({ projectId, item }: { projectId: string; item: QueuedPrompt }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(item.text);
-
-  const save = () => {
-    setEditing(false);
-    const trimmed = draft.trim();
-    if (trimmed && trimmed !== item.text) {
-      send({ type: "queue_edit", projectId, itemId: item.id, text: draft });
-    } else {
-      setDraft(item.text);
-    }
+  // Editing takes the prompt out of the queue and puts it back in the
+  // composer — the box you wrote it in, with its attachments, not a second
+  // one embedded in the card. Sending it queues it again.
+  const edit = () => {
+    send({ type: "queue_remove", projectId, itemId: item.id });
+    composeInto(projectId, item.text, item.attachments);
   };
 
   return (
@@ -720,11 +722,8 @@ function QueuedCard({ projectId, item }: { projectId: string; item: QueuedPrompt
         <span className="queued-actions">
           <button
             className="icon-button"
-            title="Edit before it sends"
-            onClick={() => {
-              setDraft(item.text);
-              setEditing(true);
-            }}
+            title="Edit — takes it out of the queue and back into the composer"
+            onClick={edit}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
@@ -741,29 +740,8 @@ function QueuedCard({ projectId, item }: { projectId: string; item: QueuedPrompt
           </button>
         </span>
       </div>
-      {editing ? (
-        <textarea
-          className="queued-edit"
-          rows={3}
-          value={draft}
-          autoFocus
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={save}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              save();
-            }
-            if (e.key === "Escape") {
-              setDraft(item.text);
-              setEditing(false);
-            }
-          }}
-        />
-      ) : (
-        <div className="queued-text">{item.text}</div>
-      )}
-      {!editing && item.attachments && item.attachments.length > 0 && (
+      <div className="queued-text">{item.text}</div>
+      {item.attachments && item.attachments.length > 0 && (
         <TranscriptAttachments attachments={item.attachments} />
       )}
     </div>

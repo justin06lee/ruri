@@ -270,11 +270,59 @@ function rolloutFor(session: string): string | undefined {
 /** Every harness's windows, keyed by provider id, for the usage gauges. */
 export async function fetchAllUsageLimits(): Promise<Record<string, UsageLimits>> {
   const limits: Record<string, UsageLimits> = {};
+  const at = Date.now();
   const claude = await fetchUsageLimits();
-  if (claude) limits["claude"] = claude;
+  if (claude) limits["claude"] = { ...claude, at };
   const codex = readCodexCounts();
   if (codex && (codex.limits.fiveHour !== undefined || codex.limits.weekly !== undefined)) {
-    limits["codex"] = codex.limits;
+    limits["codex"] = { ...codex.limits, at };
   }
   return limits;
+}
+
+/* ── the last good reading ────────────────────────────────────────── */
+
+/**
+ * A relaunch used to open on four dashes: nothing is known until the first
+ * read comes back, and a read that fails (the token mid-refresh, the network
+ * not up yet) left them blank until the next poll minutes later. The last
+ * good reading is kept on disk instead, so the gauges open on numbers and
+ * the fresh read only corrects them.
+ */
+
+/** Past this, a kept reading says more about yesterday than about now — the
+ *  5-hour window has turned over, so it is dropped rather than shown. */
+const KEEP_FOR_MS = 6 * 60 * 60 * 1000;
+
+function cacheFile(): string {
+  return path.join(
+    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
+    "usage.json",
+  );
+}
+
+/** The reading the last run ended on, if it is still worth showing. */
+export function loadCachedLimits(): Record<string, UsageLimits> {
+  try {
+    const raw = JSON.parse(fs.readFileSync(cacheFile(), "utf8")) as Record<string, UsageLimits>;
+    const fresh: Record<string, UsageLimits> = {};
+    for (const [provider, limits] of Object.entries(raw)) {
+      if (!limits || typeof limits !== "object") continue;
+      if (typeof limits.at !== "number" || Date.now() - limits.at > KEEP_FOR_MS) continue;
+      fresh[provider] = limits;
+    }
+    return fresh;
+  } catch {
+    // first run, or a file worth starting over from
+    return {};
+  }
+}
+
+export function saveCachedLimits(limits: Record<string, UsageLimits>): void {
+  try {
+    fs.mkdirSync(path.dirname(cacheFile()), { recursive: true });
+    fs.writeFileSync(cacheFile(), JSON.stringify(limits));
+  } catch {
+    // the gauges just start blank next launch
+  }
 }

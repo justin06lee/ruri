@@ -865,8 +865,9 @@ class ProviderTurnSession implements ChannelSession {
           this.lastSessionId = `${this.providerId}:${event.sessionId}`;
           this.events.onSessionId(this.project.id, this.lastSessionId);
         } else if (event.type === "text") {
-          acc += event.text;
-          this.events.onDelta(this.project.id, draftId, event.text);
+          const piece = spaced(acc, event.text);
+          acc += piece;
+          this.events.onDelta(this.project.id, draftId, piece);
         } else if (event.type === "done") {
           costUsd = event.costUsd;
           reportProviderContext(this.events, this.project.id, this.providerId, this.lastSessionId, event.usage);
@@ -966,6 +967,23 @@ class ProviderTurnSession implements ChannelSession {
     this.status = status;
     this.events.onStatus(this.project.id, status);
   }
+}
+
+/**
+ * The space between two of a harness's messages.
+ *
+ * A turn's text arrives as bare chunks with no marker where one message
+ * ends and the next begins, and the chunks carry their own leading spaces —
+ * so a chunk that opens a sentence immediately after a full stop is the
+ * start of a new message, and needs the space the stream never sent. That
+ * is what ran "…end to end." and "I found the app's own instructions" into
+ * one word.
+ */
+function spaced(acc: string, chunk: string): string {
+  if (acc === "" || chunk === "") return chunk;
+  const ended = /[.!?…]["'\u201d\u2019)\]]?$/.test(acc);
+  // an uppercase opener only: "3" after "3." is a decimal, not a sentence
+  return ended && /^[A-Z]/.test(chunk) ? ` ${chunk}` : chunk;
 }
 
 /**
@@ -1268,8 +1286,13 @@ class ProviderAgentSession implements ChannelSession {
           this.lastSessionId = `${this.providerId}:${event.sessionId}`;
           this.events.onSessionId(this.project.id, this.lastSessionId);
         } else if (event.type === "text") {
-          acc += event.text;
-          this.events.onDelta(this.project.id, draftId, event.text);
+          const piece = spaced(acc, event.text);
+          acc += piece;
+          this.events.onDelta(this.project.id, draftId, piece);
+        } else if (event.type === "thinking") {
+          // the harness stopped to think, so whatever it was saying is said:
+          // the next message starts its own block rather than running on
+          bankText();
         } else if (event.type === "tool_call") {
           if (event.status !== "started" || toolsSeen.has(event.id)) continue;
           toolsSeen.add(event.id);

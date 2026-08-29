@@ -522,7 +522,13 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
    * what the model knows matches what is on screen. The files are left
    * exactly as the discarded turns left them.
    */
-  function rewindOnHarness(ws: WebSocket, channelId: string, eventId: string, text: string): void {
+  function rewindOnHarness(
+    ws: WebSocket,
+    channelId: string,
+    eventId: string,
+    text: string,
+    why = "this harness keeps no file checkpoints, so the files were left as they are, and it restarts from a brief of what's kept",
+  ): void {
     manager.dispose(channelId);
     archive.clearLastSessionId(channelId);
     const removed = archive.truncateFrom(channelId, eventId);
@@ -551,8 +557,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     ws.send(
       JSON.stringify({
         type: "error",
-        message:
-          "rewound the conversation — this harness keeps no file checkpoints, so the files were left as they are, and it restarts from a brief of what's kept",
+        message: `rewound the conversation — ${why}`,
       } satisfies ServerMessage),
     );
   }
@@ -888,19 +893,35 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
               return;
             }
             const chain = archive.chain(channelId);
-            // the fork point: the latest checkpointed turn before the target
-            // (a compaction boundary means a different session — no crossing)
+            // The fork point: the latest checkpointed turn before the target.
+            // A compaction started a different session, so the scan stops
+            // there rather than failing — it only means the chain has nothing
+            // to offer, and the fork point is then read from the session's own
+            // transcript below, which is where it comes from nowadays anyway
+            // (the SDK stopped echoing prompts, so `chain` is usually empty).
             let resumeAt: string | undefined;
             for (let i = idx - 1; i >= 0; i--) {
               const ev = events[i]!;
-              if (ev.kind === "compaction") throw new Error("can't rewind across a compaction");
+              if (ev.kind === "compaction") break;
               if (ev.kind === "user" && chain[ev.id]?.last) {
                 resumeAt = chain[ev.id]!.last;
                 break;
               }
             }
+            // A compaction *after* the prompt is different: the session running
+            // now began at that boundary, so it holds neither a uuid to fork at
+            // nor a checkpoint to restore. That isn't a reason to refuse — it's
+            // the same ground a harness rewind stands on, so it takes that path
+            // and says so.
             if (events.some((e, i) => i > idx && e.kind === "compaction")) {
-              throw new Error("can't rewind across a compaction");
+              rewindOnHarness(
+                ws,
+                channelId,
+                eventId,
+                target.text,
+                "the conversation was compacted after this prompt, so there are no file checkpoints left to restore: the files were left as they are, and the session restarts from a brief of what's kept",
+              );
+              return;
             }
             // The prompt's uuid, which the CLI keys its file checkpoints by,
             // comes from the session's own transcript: the SDK no longer

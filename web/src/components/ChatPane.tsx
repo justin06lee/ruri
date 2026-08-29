@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
@@ -180,7 +180,13 @@ function CompactionMark({ event }: { event: Extract<TranscriptEvent, { kind: "co
   );
 }
 
-export function EventView({
+/**
+ * One transcript event. Memoised: an event never changes once it's written,
+ * so a re-render of the pane — a delta arriving, older turns filling in
+ * behind you, a status flipping — re-renders none of the ones already on
+ * screen.
+ */
+export const EventView = memo(function EventView({
   event,
   project,
   channelId,
@@ -304,7 +310,7 @@ export function EventView({
     case "compaction":
       return <CompactionMark event={event} />;
   }
-}
+});
 
 /* ── permissions ─────────────────────────────────────────────────── */
 
@@ -577,6 +583,14 @@ export function Composer({
   const autosize = () => {
     const area = areaRef.current;
     if (!area) return;
+    // Reading scrollHeight forces the browser to lay the whole page out, and
+    // this runs on every mount — including the one a session switch causes,
+    // where the box is usually empty and the answer is always one row. So an
+    // empty box skips the measurement entirely and the switch skips a reflow.
+    if (!area.value) {
+      area.style.height = "";
+      return;
+    }
     area.style.height = "auto";
     area.style.height = `${Math.min(area.scrollHeight, 220)}px`;
   };
@@ -830,6 +844,19 @@ interface Turn {
 }
 
 /** Group the flat event stream into prompt→result turns. */
+/** Turns rendered before the first paint — more than fills a screen; the
+ *  rest arrive behind it. */
+const FIRST_TURNS = 6;
+/** How many more each pass adds. */
+const TURN_STEP = 30;
+/** How long the pane gets to itself before the filling in starts. */
+const SETTLE_MS = 120;
+/** Where the quiet filling stops. Past this, turns arrive because you
+ *  scrolled back for them — a pane that has quietly materialised its whole
+ *  history is a pane that costs that much to take down again on the way
+ *  out, and leaving a session is as common as entering one. */
+const IDLE_CAP = 14;
+
 function groupTurns(events: TranscriptEvent[]): Turn[] {
   const turns: Turn[] = [];
   for (const event of events) {
@@ -949,21 +976,64 @@ export function ChatPane({
   const [rewindTarget, setRewindTarget] = useState<{ id: string; text: string } | null>(null);
   useEffect(() => setRewindTarget(null), [activeId]);
 
+  /**
+   * How much of the transcript is on screen. A long session is hundreds of
+   * messages of markdown, code and patches, and rendering all of it before
+   * the first paint is what made switching sessions feel slow. The tail
+   * paints immediately — that's what you're looking at — and the rest fills
+   * in on idle frames behind it, so scrolling up finds it already there.
+   */
+  const [renderedTurns, setRenderedTurns] = useState(FIRST_TURNS);
+  useEffect(() => setRenderedTurns(FIRST_TURNS), [activeId]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
+
+  // The rest of the transcript, a chunk at a time, on frames the app has
+  // nothing better to do with. It lands above what you're reading, which the
+  // browser's scroll anchoring holds in place. The wait before each pass is
+  // what keeps it out of the way: the switch paints first, and a switch that
+  // happens mid-fill cancels the fill rather than competing with it.
+  useEffect(() => {
+    if (renderedTurns >= transcript.length || renderedTurns >= IDLE_CAP) return;
+    let idle = 0;
+    const grow = () => setRenderedTurns((shown) => shown + TURN_STEP);
+    const settle = setTimeout(() => {
+      idle =
+        typeof requestIdleCallback === "function"
+          ? requestIdleCallback(grow, { timeout: 3000 })
+          : window.setTimeout(grow, 0);
+    }, SETTLE_MS);
+    return () => {
+      clearTimeout(settle);
+      if (!idle) return;
+      if (typeof cancelIdleCallback === "function") cancelIdleCallback(idle);
+      else clearTimeout(idle);
+    };
+  }, [renderedTurns, transcript.length, activeId]);
 
   const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior });
   };
 
+  // Scroll events arrive faster than the answer can change, and each one
+  // reads three layout properties — measuring once a frame is enough.
+  const scrollRead = useRef(false);
   const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    pinnedRef.current = pinned;
-    setShowJump(!pinned);
+    if (scrollRead.current) return;
+    scrollRead.current = true;
+    requestAnimationFrame(() => {
+      scrollRead.current = false;
+      const el = scrollRef.current;
+      if (!el) return;
+      const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      pinnedRef.current = pinned;
+      setShowJump(!pinned);
+      // reading back through the session pulls the older turns in as you go
+      if (el.scrollTop < 600) setRenderedTurns((shown) => shown + TURN_STEP);
+    });
   };
 
   // Follow the conversation only while the user is at the bottom.
@@ -1031,6 +1101,12 @@ export function ChatPane({
     measure();
   }, []);
 
+  const allTurns = groupTurns(transcript);
+  const shownTurns =
+    renderedTurns >= allTurns.length
+      ? allTurns
+      : allTurns.slice(allTurns.length - renderedTurns);
+
   if (!project || !activeId) {
     return <main className={pane("chat empty")} />;
   }
@@ -1043,10 +1119,12 @@ export function ChatPane({
   // the transcript and comes back on a brief of what's kept, files untouched.
   const claudeRoute = !models.find((m) => m.value === (project.model || DEFAULT_MODEL))?.provider;
   const canRewind = !isHome && !busy;
-  const askRewind = canRewind
-    ? (event: Extract<TranscriptEvent, { kind: "user" }>) =>
-        setRewindTarget({ id: event.id, text: event.text })
-    : undefined;
+  const startRewind = useCallback(
+    (event: Extract<TranscriptEvent, { kind: "user" }>) =>
+      setRewindTarget({ id: event.id, text: event.text }),
+    [],
+  );
+  const askRewind = canRewind ? startRewind : undefined;
 
   // Home keeps no header bar — the transcript starts at the top; the
   // tracker page still auto-opens there and closes from its own X.
@@ -1148,7 +1226,7 @@ export function ChatPane({
       <div className="transcript-holder">
       <div className="transcript" ref={scrollRef} onScroll={onScroll}>
         <div className="transcript-inner" ref={observeInner}>
-          {groupTurns(transcript).map((turn) => {
+          {shownTurns.map((turn) => {
             const summary = summaries[turn.turnId];
             if (summary !== undefined && folded.has(turn.turnId)) {
               return (

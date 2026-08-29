@@ -15,10 +15,15 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-events-"));
 const target = path.join(dir, "hello.txt");
 fs.writeFileSync(target, "before\n");
 
-/** What a harness streams for "narrate, patch a file, narrate". */
+/** What a harness streams for "narrate, patch a file, narrate" — including
+ *  the two things that ran a turn's sentences together: a second message
+ *  arriving as bare chunks with no boundary, and no space where the first
+ *  one's full stop met it. */
 async function* turn(): AsyncGenerator<AgentEvent, void, undefined> {
   yield { type: "session", sessionId: "fake-1" };
-  for (const text of ["I'll ", "rewrite ", "the file. "]) yield { type: "text", text };
+  for (const text of ["I'll ", "rewrite ", "the file."]) yield { type: "text", text };
+  // a new message, mid-stream, with nothing to mark it but the missing space
+  for (const text of ["Reading ", "it first."]) yield { type: "text", text };
   yield {
     type: "tool_call",
     id: "call-1",
@@ -34,6 +39,12 @@ async function* turn(): AsyncGenerator<AgentEvent, void, undefined> {
   };
   yield { type: "tool_call", id: "call-1", name: "apply_patch", status: "completed" };
   for (const text of ["Done", " — it says after now."]) yield { type: "text", text };
+  // reasoning between messages is a boundary too: what came before it is said
+  yield { type: "thinking", text: "checking the result" };
+  // a decimal is not a sentence boundary, however it is chunked
+  for (const text of ["Nothing ", "else to do. Version 3", ".", "14 ships."]) {
+    yield { type: "text", text };
+  }
   yield {
     type: "done",
     usage: { input_tokens: 1200, output_tokens: 34 },
@@ -98,8 +109,11 @@ for (const chip of chips) {
   console.log(`chip ${chip.name} — ${chip.summary}${chip.diff ? ` (+${chip.diff.added} −${chip.diff.removed})` : " (no patch)"}`);
 }
 
-const interleaved = order === "user → assistant → tool → assistant → result";
-const banked = texts[0] === "I'll rewrite the file. " && texts[1] === "Done — it says after now.";
+const interleaved = order === "user → assistant → tool → assistant → assistant → result";
+const banked =
+  texts[0] === "I'll rewrite the file. Reading it first." &&
+  texts[1] === "Done — it says after now." &&
+  texts[2] === "Nothing else to do. Version 3.14 ships.";
 const named = chips[0]?.name === "Edit";
 const patched = chips[0]?.diff?.added === 1 && chips[0]?.diff?.removed === 1;
 const lines = chips[0]?.diff?.hunks[0]?.lines.map((l) => `${l.kind}:${l.text}`).join(",");

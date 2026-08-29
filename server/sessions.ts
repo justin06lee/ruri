@@ -187,6 +187,24 @@ function toolDiff(
   return buildDiff(display, before, after) ?? undefined;
 }
 
+/**
+ * The longest stretch of a prompt that survives into what the model was
+ * sent: the words between the markers.
+ *
+ * A file's [file #1] becomes its path on the way to the model, and a
+ * compaction brief rides in front of the whole thing, so the prompt as the
+ * transcript shows it is not a substring of the prompt as the CLI recorded
+ * it — but the sentences around the markers are, verbatim.
+ */
+function literalRun(text: string): string {
+  const runs = text
+    .split(/\[(?:image|video|file|region) #\d+[^\]]*\]/g)
+    .map((run) => run.trim())
+    .filter((run) => run.length > 0);
+  const longest = runs.sort((a, b) => b.length - a.length)[0] ?? "";
+  return longest.length >= 8 ? longest : text.trim();
+}
+
 /** The text a CLI transcript entry's user message actually carries (tool
  *  results and other block types are not prompts). */
 function promptTextOf(message: unknown): string {
@@ -216,7 +234,7 @@ export async function promptChain(
   text: string,
   ordinal: number,
 ): Promise<{ user: string; before?: string } | undefined> {
-  const needle = text.trim();
+  const needle = literalRun(text);
   if (!needle) return undefined;
   try {
     const messages = await getSessionMessages(sessionId, { dir: project.path });

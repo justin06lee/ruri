@@ -95,32 +95,6 @@ function codexHome(): string {
   return process.env["CODEX_HOME"] ?? path.join(os.homedir(), ".codex");
 }
 
-/** The newest entry in a directory, by name — Codex's tree is date-ordered
- *  (sessions/YYYY/MM/DD), so the last name is the latest. */
-function newestChild(dir: string, filter?: (name: string) => boolean): string | undefined {
-  try {
-    const names = fs
-      .readdirSync(dir)
-      .filter((name) => !name.startsWith(".") && (filter?.(name) ?? true))
-      .sort();
-    return names[names.length - 1];
-  } catch {
-    return undefined;
-  }
-}
-
-/** The rollout Codex wrote most recently, wherever it is in the date tree. */
-function newestRollout(): string | undefined {
-  let dir = path.join(codexHome(), "sessions");
-  for (let depth = 0; depth < 3; depth++) {
-    const next = newestChild(dir, (name) => /^\d+$/.test(name));
-    if (!next) return undefined;
-    dir = path.join(dir, next);
-  }
-  const file = newestChild(dir, (name) => name.endsWith(".jsonl"));
-  return file ? path.join(dir, file) : undefined;
-}
-
 /** The tail of a file, which is where a rollout's latest counts live. */
 function tail(file: string, bytes: number): string {
   const handle = fs.openSync(file, "r");
@@ -155,14 +129,15 @@ interface TokenCount {
   };
 }
 
-/** Read the last token_count line out of a rollout's tail. */
-function lastTokenCount(file: string): TokenCount | undefined {
+/** Every token_count entry in a rollout's tail, newest first. */
+function tokenCounts(file: string): TokenCount[] {
   let text: string;
   try {
-    text = tail(file, 256 * 1024);
+    text = tail(file, 64 * 1024);
   } catch {
-    return undefined;
+    return [];
   }
+  const entries: TokenCount[] = [];
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!;
@@ -170,37 +145,105 @@ function lastTokenCount(file: string): TokenCount | undefined {
     try {
       const entry = JSON.parse(line) as { payload?: TokenCount } & TokenCount;
       const payload = entry.payload ?? entry;
-      if (payload.rate_limits || payload.info) return payload;
+      if (payload.rate_limits || payload.info) entries.push(payload);
     } catch {
       // a half-written last line is normal — keep walking back
     }
   }
-  return undefined;
+  return entries;
 }
 
 /**
  * Codex's limit windows and last context reading. `session` names a specific
  * rollout (a channel's own session id, which is in the filename); without it
- * the newest rollout on disk answers, which is what the account-wide windows
- * want.
+ * the recent rollouts answer, newest first, which is what the account-wide
+ * windows want.
+ *
+ * Entries are walked back rather than read off the end: a turn that hits a
+ * different limit bucket writes null percentages, and the last real reading
+ * is the one worth showing — an empty dragon should mean "no source", not
+ * "the newest line happened to be blank".
  */
 export function readCodexCounts(session?: string): CodexCounts | null {
-  const file = session ? rolloutFor(session) : newestRollout();
-  if (!file) return null;
-  const entry = lastTokenCount(file);
-  if (!entry) return null;
+  const files = session ? [rolloutFor(session)] : recentRollouts(ROLLOUT_SCAN);
   const limits: UsageLimits = {};
-  const primary = entry.rate_limits?.primary?.used_percent;
-  const secondary = entry.rate_limits?.secondary?.used_percent;
-  if (typeof primary === "number") limits.fiveHour = primary;
-  if (typeof secondary === "number") limits.weekly = secondary;
-  const tokens = entry.info?.total_token_usage?.total_tokens;
-  const window = entry.info?.model_context_window;
+  let tokens: number | undefined;
+  let window: number | undefined;
+  let found = false;
+  for (const file of files) {
+    if (!file) continue;
+    for (const entry of tokenCounts(file)) {
+      found = true;
+      const primary = entry.rate_limits?.primary?.used_percent;
+      const secondary = entry.rate_limits?.secondary?.used_percent;
+      if (limits.fiveHour === undefined && typeof primary === "number") limits.fiveHour = primary;
+      if (limits.weekly === undefined && typeof secondary === "number") limits.weekly = secondary;
+      if (tokens === undefined && typeof entry.info?.total_token_usage?.total_tokens === "number") {
+        tokens = entry.info.total_token_usage.total_tokens;
+      }
+      if (window === undefined && typeof entry.info?.model_context_window === "number") {
+        window = entry.info.model_context_window;
+      }
+      if (limits.fiveHour !== undefined && limits.weekly !== undefined && tokens !== undefined) break;
+    }
+    // a named session answers for itself alone — its own file or nothing
+    if (session || (limits.fiveHour !== undefined && limits.weekly !== undefined)) break;
+  }
+  if (!found) return null;
   return {
     limits,
-    ...(typeof tokens === "number" ? { tokens } : {}),
-    ...(typeof window === "number" ? { window } : {}),
+    ...(tokens !== undefined ? { tokens } : {}),
+    ...(window !== undefined ? { window } : {}),
   };
+}
+
+/** How many recent rollouts to walk back through for a live reading. A run
+ *  that hits the limit writes nothing but nulls, and a burst of those is
+ *  exactly when the gauges matter — so the scan reaches past them. */
+const ROLLOUT_SCAN = 24;
+
+/** The newest day directories under sessions/YYYY/MM/DD, newest first. */
+function recentDays(limit: number): string[] {
+  const root = path.join(codexHome(), "sessions");
+  let dirs = [root];
+  for (let depth = 0; depth < 3; depth++) {
+    const next: string[] = [];
+    for (const dir of dirs) {
+      for (const name of childrenDesc(dir, (n) => /^\d+$/.test(n))) {
+        next.push(path.join(dir, name));
+        if (next.length >= limit) break;
+      }
+      if (next.length >= limit) break;
+    }
+    if (next.length === 0) return [];
+    dirs = next;
+  }
+  return dirs.slice(0, limit);
+}
+
+/** A directory's matching children, newest name first. */
+function childrenDesc(dir: string, filter: (name: string) => boolean): string[] {
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((name) => !name.startsWith(".") && filter(name))
+      .sort()
+      .reverse();
+  } catch {
+    return [];
+  }
+}
+
+/** The most recently written rollouts, newest first, across recent days. */
+function recentRollouts(count: number): string[] {
+  const files: string[] = [];
+  for (const dir of recentDays(3)) {
+    for (const name of childrenDesc(dir, (n) => n.endsWith(".jsonl"))) {
+      files.push(path.join(dir, name));
+      if (files.length >= count) return files;
+    }
+  }
+  return files;
 }
 
 /** The rollout file for one session id — its name carries the uuid. */

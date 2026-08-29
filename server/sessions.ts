@@ -1231,12 +1231,23 @@ class ProviderAgentSession implements ChannelSession {
   ): Promise<void> {
     this.running = true;
     const started = Date.now();
-    const draftId = randomUUID();
+    let draftId = randomUUID();
     let acc = "";
     let costUsd: number | undefined;
     let error: string | undefined;
     let interrupted = false;
     const toolsSeen = new Set<string>();
+    // What the harness said before its next tool call is what it said ABOUT
+    // that call, so it lands in the transcript first. Text is banked into an
+    // assistant event at every tool boundary rather than pooled into one
+    // block at the end of the turn — which is what put a turn's whole
+    // narration under a stack of chips it came before.
+    const bankText = () => {
+      if (acc === "") return;
+      this.pushEvent({ kind: "assistant", id: draftId, text: acc, ts: Date.now() });
+      acc = "";
+      draftId = randomUUID();
+    };
     try {
       let prompt = text;
       if (this.extras?.providerSystem && this.providerId !== "codex" && !this.sentSystem) {
@@ -1262,6 +1273,7 @@ class ProviderAgentSession implements ChannelSession {
         } else if (event.type === "tool_call") {
           if (event.status !== "started" || toolsSeen.has(event.id)) continue;
           toolsSeen.add(event.id);
+          bankText();
           for (const chip of providerToolEvents(event, this.project)) {
             this.pushEvent({ kind: "tool", id: randomUUID(), ...chip, ts: Date.now() });
           }
@@ -1281,7 +1293,7 @@ class ProviderAgentSession implements ChannelSession {
       }
     }
     this.rejectPending();
-    if (acc) this.pushEvent({ kind: "assistant", id: draftId, text: acc, ts: Date.now() });
+    bankText();
     // pick up anything the turn dropped for the app (Home's open requests)
     try {
       this.extras?.onProviderTurnEnd?.();

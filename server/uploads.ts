@@ -85,10 +85,11 @@ export function modelPayload(
   for (const upload of uploads) {
     if (upload.kind === "image") {
       images.push({ data: upload.data, mediaType: upload.mediaType });
-      (upload.regions ?? []).forEach((region, i) => {
+      // a region rides as its own image with its number drawn on it, so the
+      // [region #n] the user wrote needs no explaining in their own prompt
+      for (const region of upload.regions ?? []) {
         images.push({ data: region.data, mediaType: region.mediaType });
-        outText += `\n[image #${upload.n}, region ${i + 1} — attached as its own image: the numbered white box marks the exact region, with surrounding context around it] ${region.note}`;
-      });
+      }
     } else if (upload.kind === "video") {
       outText += `\n[video #${upload.n}] saved at ${uploadPath(upload)} — inspect it with tools if needed.`;
     } else {

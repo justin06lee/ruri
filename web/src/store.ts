@@ -33,7 +33,10 @@ export interface Draft {
 export interface ComposerDraft {
   text: string;
   atts: ComposerAttachment[];
-  counter: { image: number; video: number; file: number };
+  /** Next marker number per kind. Regions count across every attachment,
+   *  in the order they were drawn — [region #7] is the seventh box in this
+   *  prompt, whichever image it sits on. */
+  counter: { image: number; video: number; file: number; region: number };
 }
 export const composerDrafts = new Map<string, ComposerDraft>();
 
@@ -125,8 +128,16 @@ async function restoreAttachments(
   // typing in this channel while the files loaded wins; the marker numbering
   // picks up above whatever came back
   if (!draft || draft.atts.length > 0) return;
-  const counter = { image: 0, video: 0, file: 0 };
-  for (const att of atts) counter[att.kind] = Math.max(counter[att.kind], att.n);
+  const counter = { image: 0, video: 0, file: 0, region: 0 };
+  for (const att of atts) {
+    counter[att.kind] = Math.max(counter[att.kind], att.n);
+    for (const region of att.regions) {
+      // a draft saved before regions were numbered: give it one now, in the
+      // order it was drawn, rather than leaving a [region #undefined]
+      if (typeof region.n !== "number") region.n = counter.region + 1;
+      counter.region = Math.max(counter.region, region.n);
+    }
+  }
   composerDrafts.set(channelId, { ...draft, atts, counter });
   bumpDraft(channelId);
 }
@@ -183,13 +194,14 @@ export function composeInto(channelId: string, text: string, attachments?: Attac
   }
   void (async () => {
     const before = composerDrafts.get(channelId);
-    const counter = { ...(before?.counter ?? { image: 0, video: 0, file: 0 }) };
+    const counter = { ...(before?.counter ?? { image: 0, video: 0, file: 0, region: 0 }) };
     const live: ComposerAttachment[] = [];
     let renumbered = text;
     for (const att of attachments) {
       const fresh = await liveAttachment(att, counter[att.kind] + 1);
       if (!fresh) continue;
       counter[att.kind] += 1;
+      for (const region of fresh.regions) counter.region = Math.max(counter.region, region.n);
       live.push(fresh);
       // a placeholder first: renumbering 1→2 while a 2 is still around
       // would otherwise renumber it twice
@@ -215,7 +227,7 @@ function appendDraft(channelId: string, text: string): void {
   setComposerDraft(channelId, {
     text: prev?.text.trim() ? `${prev.text.replace(/\s+$/, "")}\n${text}` : text,
     atts: prev?.atts ?? [],
-    counter: prev?.counter ?? { image: 0, video: 0, file: 0 },
+    counter: prev?.counter ?? { image: 0, video: 0, file: 0, region: 0 },
   });
 }
 
@@ -351,7 +363,7 @@ function apply(msg: ServerMessage): void {
         composerDrafts.set(channelId, {
           text: draft.text,
           atts: [],
-          counter: { image: 0, video: 0, file: 0 },
+          counter: { image: 0, video: 0, file: 0, region: 0 },
         });
         draftedChannels.add(channelId);
         // the files follow: each one is fetched back into a live File and

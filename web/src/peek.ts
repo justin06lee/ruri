@@ -29,20 +29,28 @@ export const PEEKS: Peek[] = [
   { n: 5, x: 210, w: 88, drop: 4, lift: -20 },
 ];
 
-/** How a hero face sits inside its circle. */
+/**
+ * How a hero face sits inside its circle. The picture is fitted whole inside
+ * the circle first (zoom 1 shows all of it); zoom past 1 fills the circle and
+ * crops, and x/y slide it under the circle afterwards.
+ */
 export interface HeroFrame {
-  /** Horizontal focus, percent — 50 is centred. */
+  /** Sideways nudge, percent of the circle's width — positive is right. */
   x: number;
-  /** Vertical focus, percent. */
+  /** Vertical nudge, percent of the circle's height — positive is down. */
   y: number;
-  /** How far in, 1 = fill the circle exactly. */
+  /** Size: 1 fits the whole picture, >1 fills the circle and crops. */
   zoom: number;
 }
 
-export const HERO_CENTER: HeroFrame = { x: 50, y: 50, zoom: 1 };
+export const HERO_CENTER: HeroFrame = { x: 0, y: 0, zoom: 1 };
 
-/** Per-face framing; anything missing is centred and unzoomed. */
-export const HERO_FRAMES: Record<number, HeroFrame> = {};
+/** Per-face framing; anything missing is centred at its fitted size. */
+export const HERO_FRAMES: Record<number, HeroFrame> = {
+  3: { x: 0, y: 0, zoom: 1.11 },
+  6: { x: 0, y: 6, zoom: 1.28 },
+  8: { x: 0, y: 7, zoom: 1.26 },
+};
 
 export function heroFrame(n: number): HeroFrame {
   return HERO_FRAMES[n] ?? HERO_CENTER;

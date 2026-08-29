@@ -26,7 +26,9 @@ import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } fro
 import { ProjectStore } from "./projects.js";
 import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { promptChain, SessionManager } from "./sessions.js";
-import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker } from "./smallmodel.js";
+import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief } from "./smallmodel.js";
+import { BriefStore, briefPrompt } from "./brief.js";
+import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
 import { fetchAllUsageLimits, loadCachedLimits, readCodexCounts, saveCachedLimits } from "./usage.js";
@@ -223,6 +225,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // log — appended programmatically per event, grepped by the model.
   const homeLog = new HomeLog();
   const tracker = new TrackerStore();
+  const briefs = new BriefStore();
   // half-written prompts, per channel — outliving both the wiped Home
   // archive above and any rewind that truncates a session's
   const drafts = new DraftStore();
@@ -304,6 +307,19 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   }
   pushUsage(true);
   const contexts = new Map<string, ContextUsage>();
+
+  // The composer's terminal mode: one shell per channel, in that project's
+  // directory, alive for as long as the app is — switching away and back
+  // attaches to the same shell, scrollback and all.
+  const terminals = new Terminals({
+    onData: (projectId, data) => broadcast({ type: "terminal_data", projectId, data }),
+    onExit: (projectId, note) => broadcast({ type: "terminal_exit", projectId, note }),
+  });
+  /** Where a channel's shell should start: its project, or the workspace. */
+  function terminalCwd(channelId: string): string {
+    if (channelId === HOME_ID) return store.workspaceDir();
+    return store.list().find((p) => p.id === channelId)?.path ?? store.workspaceDir();
+  }
 
   /**
    * Re-announce every channel's context occupancy.
@@ -549,6 +565,30 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
 
   // Every finished turn goes to the small model in the background for a
   // reply recall note (instant compaction). Failures are silent — a nicety.
+  // The catch-up brief writes itself: each finished turn is folded in, and
+  // most turns change nothing — a fix or a polish pass is not a feature.
+  function foldBrief(projectId: string, turn: { user: string; assistant: string }): void {
+    if (projectId === HOME_ID) return;
+    const project = store.findSession(projectId)?.project;
+    if (!project) return;
+    const current = briefs.get(projectId);
+    updateBrief(
+      project.name,
+      { description: current.description, features: current.features },
+      `The user asked:\n${turn.user}\n\nWhat the agent did:\n${turn.assistant}`,
+    )
+      .then((next) => {
+        if (!next) return;
+        if (next.description === current.description &&
+            next.features.join("\n") === current.features.join("\n")) {
+          return;
+        }
+        const brief = briefs.write(projectId, next.description, next.features);
+        broadcast({ type: "brief", projectId, brief });
+      })
+      .catch(() => {});
+  }
+
   const turns = new TurnTracker((projectId, turn) => {
     if (!smallModelEnabled()) return;
     const found = store.findSession(projectId);
@@ -566,6 +606,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (note) noteSummary(projectId, turn.turnId, "reply", note);
       })
       .catch(() => {});
+    foldBrief(projectId, turn);
   });
 
   /** Archive, observe, log (Home), and broadcast one transcript event. */
@@ -654,8 +695,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       removeTurnFiles(sessionId);
       drafts.remove(sessionId);
       tracker.removeProject(sessionId);
+      briefs.remove(sessionId);
       contexts.delete(sessionId);
       sendQueues.delete(sessionId);
+      terminals.close(sessionId);
     }
     store.remove(projectId);
     broadcast({ type: "projects", projects: store.list() });
@@ -975,6 +1018,40 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         });
         break;
       }
+      case "terminal_open": {
+        const attaching = terminals.has(msg.projectId);
+        if (!terminals.open(msg.projectId, terminalCwd(msg.projectId), msg.cols, msg.rows)) {
+          ws.send(JSON.stringify({
+            type: "terminal_exit",
+            projectId: msg.projectId,
+            note: "no shell could be started here",
+          } satisfies ServerMessage));
+          break;
+        }
+        // a shell that was already running answers with what it has printed,
+        // so the panel opens where you left it
+        if (attaching) {
+          ws.send(JSON.stringify({
+            type: "terminal_data",
+            projectId: msg.projectId,
+            data: terminals.scrollback(msg.projectId),
+            replay: true,
+          } satisfies ServerMessage));
+        }
+        break;
+      }
+      case "terminal_input": {
+        terminals.write(msg.projectId, msg.data);
+        break;
+      }
+      case "terminal_resize": {
+        terminals.resize(msg.projectId, msg.cols, msg.rows);
+        break;
+      }
+      case "terminal_close": {
+        terminals.close(msg.projectId);
+        break;
+      }
       case "permission_response": {
         manager.respondPermission(msg.requestId, msg.allow, msg.always ?? false);
         break;
@@ -1042,6 +1119,43 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       case "tracker_remove": {
         tracker.remove(msg.projectId, msg.itemId);
         broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+        break;
+      }
+      case "brief_write": {
+        broadcast({
+          type: "brief",
+          projectId: msg.projectId,
+          brief: briefs.write(msg.projectId, msg.description, msg.features),
+        });
+        break;
+      }
+      case "brief_pin": {
+        const { url } = storeUpload(msg.upload);
+        const { data: _data, regions: _regions, ...meta } = msg.upload;
+        broadcast({
+          type: "brief",
+          projectId: msg.projectId,
+          brief: briefs.pin(msg.projectId, { ...meta, url }),
+        });
+        break;
+      }
+      case "brief_unpin": {
+        broadcast({
+          type: "brief",
+          projectId: msg.projectId,
+          brief: briefs.unpin(msg.projectId, msg.shotId),
+        });
+        break;
+      }
+      case "brief_compose": {
+        const project = store.findSession(msg.projectId)?.project;
+        const brief = briefs.get(msg.projectId);
+        ws.send(JSON.stringify({
+          type: "compose",
+          projectId: msg.projectId,
+          text: briefPrompt(project?.name ?? "this project", brief),
+          ...(brief.shots.length ? { attachments: brief.shots } : {}),
+        } satisfies ServerMessage));
         break;
       }
       case "tracker_attach": {
@@ -1190,6 +1304,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       models: allModels(),
       summaries: archive.allSummaries(projectIds),
       tracker: tracker.all(projectIds),
+      briefs: briefs.all(projectIds),
       queued: Object.fromEntries(projectIds.map((id) => [id, visibleQueue(id)])),
       usage: usageLimits,
       // live figures first; anything not yet seen this run falls back to the
@@ -1240,6 +1355,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           new Promise<void>((done) => {
             clearInterval(usageTimer);
             if (usageRetry) clearTimeout(usageRetry);
+            terminals.closeAll();
             manager.disposeAll();
             archive.flushAll();
             for (const client of clients) client.close();

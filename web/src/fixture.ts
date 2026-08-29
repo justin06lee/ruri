@@ -80,6 +80,20 @@ export function installFixture(): void {
         { id: "t4", text: "Try the new sidebar folder grouping", note: "", status: "liked", source: "manual", ts: now - 300_000 },
       ],
     },
+    briefs: {
+      p1: {
+        description: "A desktop workspace for running parallel AI coding sessions, one folder per project.",
+        features: [
+          "Multi-model sessions per project (Claude, Codex, OpenCode, any ACP agent)",
+          "Usage gauges: context, 5h, weekly, per-model",
+          "Home agent that opens and closes projects for you",
+          "Rapid fire: prompt every session that's waiting, in turn",
+          "A shell per project, in the composer",
+        ],
+        shots: [],
+        updated: now - 600_000,
+      },
+    },
     summaries: {
       p1: {
         e0: "Investigated flaky sidebar unread dot: race between snapshot and event broadcast in server.ts; fixed by ordering broadcasts after archive append. Tests green.",

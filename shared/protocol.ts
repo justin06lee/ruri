@@ -29,6 +29,13 @@ export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
  *  DEFAULT_MODEL: no ambiguous "default" entry; unset simply means xhigh. */
 export const DEFAULT_EFFORT = "xhigh";
 
+/** The permission mode a project's sessions run in when it hasn't picked
+ *  one. Like DEFAULT_MODEL and DEFAULT_EFFORT, unset simply means this —
+ *  and here that is Bypass: ruri is a workspace you drive, and being asked
+ *  to approve every read is not what it's for. "Ask first" is one pick away
+ *  in the composer for a project that wants it. */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "bypassPermissions";
+
 export interface Project {
   id: string;
   name: string;
@@ -117,6 +124,21 @@ export interface DraftAttachmentUpload extends Attachment {
 export interface ComposerDraftState {
   text: string;
   attachments?: DraftAttachment[];
+}
+
+/**
+ * A project's catch-up brief: what it is, what's in it, and what it looks
+ * like. Written by the small model as turns finish, editable by hand.
+ */
+export interface ProjectBrief {
+  /** One sentence: what this project is. */
+  description: string;
+  /** One line per capability, merged as hard as they will merge. */
+  features: string[];
+  /** Pinned screenshots — the main pages, however many that takes. */
+  shots: Attachment[];
+  /** When the written half last changed. */
+  updated?: number;
 }
 
 /** Tick state of a tracker item: open → liked (check) → rejected (x) → open. */
@@ -347,6 +369,13 @@ export type ClientMessage =
       attachments?: DraftAttachmentUpload[];
     }
   | { type: "interrupt"; projectId: string }
+  /* ── the composer's terminal mode: one shell per channel ────────── */
+  /** Start this channel's shell (or attach to the running one). */
+  | { type: "terminal_open"; projectId: string; cols: number; rows: number }
+  | { type: "terminal_input"; projectId: string; data: string }
+  | { type: "terminal_resize"; projectId: string; cols: number; rows: number }
+  /** Kill it — the shell is gone, not just hidden. */
+  | { type: "terminal_close"; projectId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   /** The answer to an AskUserQuestion card. `answers` absent = dismissed,
    *  which lets the turn continue with the model told nothing was chosen. */
@@ -355,6 +384,13 @@ export type ClientMessage =
   | { type: "set_permission_mode"; projectId: string; mode: PermissionMode }
   /** Set a project's reasoning effort (one of EFFORT_LEVELS). */
   | { type: "set_effort"; projectId: string; effort: string }
+  /* ── the catch-up brief ─────────────────────────────────────────── */
+  /** Rewrite the brief's words (the pinned screenshots are left alone). */
+  | { type: "brief_write"; projectId: string; description: string; features: string[] }
+  | { type: "brief_pin"; projectId: string; upload: AttachmentUpload }
+  | { type: "brief_unpin"; projectId: string; shotId: string }
+  /** Put the brief in the composer, screenshots attached, ready to send. */
+  | { type: "brief_compose"; projectId: string }
   | { type: "tracker_add"; projectId: string; text: string; note?: string }
   | {
       type: "tracker_update";
@@ -395,6 +431,8 @@ export type ServerMessage =
       summaries: Record<string, Record<string, string>>;
       /** Feature-tracker checklists per project. */
       tracker: Record<string, TrackerItem[]>;
+      /** Catch-up briefs per project (only those that have one). */
+      briefs: Record<string, ProjectBrief>;
       /** App-side prompt queues per channel (visible entries only). */
       queued: Record<string, QueuedPrompt[]>;
       /** Limit windows per provider id (empty until the first read). */
@@ -421,6 +459,7 @@ export type ServerMessage =
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
   | { type: "turn_summary"; projectId: string; turnId: string; summary: string }
+  | { type: "brief"; projectId: string; brief: ProjectBrief }
   | { type: "tracker"; projectId: string; items: TrackerItem[] }
   | { type: "workspace"; path: string }
   | { type: "music_dir"; path: string }
@@ -435,7 +474,7 @@ export type ServerMessage =
   /** A finished tracker review's generated prompt, for the composer. */
   | { type: "review_prompt"; projectId: string; text: string }
   /** Text for a channel's composer (a rewound prompt, back for editing). */
-  | { type: "compose"; projectId: string; text: string }
+  | { type: "compose"; projectId: string; text: string; attachments?: Attachment[] }
   /** Fresh limit windows per provider id (the usage gauges). */
   | { type: "usage"; limits: Record<string, UsageLimits> }
   /** A channel's context occupancy changed (after an API call). */
@@ -446,4 +485,7 @@ export type ServerMessage =
   | { type: "permission_request"; request: PermissionRequest }
   | { type: "permission_resolved"; requestId: string }
   | { type: "models"; models: ModelChoice[] }
+  /** Shell output. `replay` marks the scrollback a fresh attach gets. */
+  | { type: "terminal_data"; projectId: string; data: string; replay?: boolean }
+  | { type: "terminal_exit"; projectId: string; note: string }
   | { type: "error"; message: string };

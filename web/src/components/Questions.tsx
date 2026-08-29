@@ -133,8 +133,14 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   const [drafts, setDrafts] = useState<Draft[]>(() =>
     questions.map(() => ({ picked: [], other: "", otherOn: false })),
   );
+  /** Which question the card is showing — one at a time, however many were
+   *  asked, so a card is a card and not a form. */
+  const [at, setAt] = useState(0);
 
   const answered = useMemo(() => drafts.every((d) => answerOf(d) !== ""), [drafts]);
+  const current = questions[at] ?? questions[0]!;
+  const many = questions.length > 1;
+  const go = (to: number) => setAt(Math.max(0, Math.min(questions.length - 1, to)));
 
   const submit = () => {
     const answers: AskAnswers["answers"] = {};
@@ -166,19 +172,59 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
           <path d="M12 17h.01" />
           <circle cx="12" cy="12" r="10" />
         </svg>
-        {questions.length > 1 ? `${questions.length} questions for you` : "A question for you"}
+        {many ? `${questions.length} questions for you` : "A question for you"}
+        {many && (
+          <span className="ask-pager">
+            <button
+              type="button"
+              className="icon-button"
+              title="Previous question"
+              disabled={at === 0}
+              onClick={() => go(at - 1)}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+            </button>
+            <span className="ask-count">
+              {at + 1} / {questions.length}
+            </span>
+            <button
+              type="button"
+              className="icon-button"
+              title="Next question"
+              disabled={at === questions.length - 1}
+              onClick={() => go(at + 1)}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          </span>
+        )}
       </div>
-      {questions.map((q, i) => (
-        <QuestionBlock
-          key={i}
-          q={q}
-          draft={drafts[i]!}
-          onChange={(next) => setDrafts((d) => d.map((cur, j) => (j === i ? next : cur)))}
-        />
-      ))}
+      <QuestionBlock
+        key={at}
+        q={current}
+        draft={drafts[at] ?? drafts[0]!}
+        onChange={(next) => setDrafts((d) => d.map((cur, j) => (j === at ? next : cur)))}
+      />
       <div className="ask-actions">
+        {many && (
+          <span className="ask-dots">
+            {questions.map((q, i) => (
+              <button
+                key={i}
+                type="button"
+                className={`ask-dot ${i === at ? "at" : ""} ${answerOf(drafts[i]!) ? "done" : ""}`}
+                title={q.header || q.question}
+                onClick={() => go(i)}
+              />
+            ))}
+          </span>
+        )}
         <button className="primary" disabled={!answered} onClick={submit}>
-          {questions.length > 1 ? "Send answers" : "Send answer"}
+          {many ? "Send answers" : "Send answer"}
         </button>
         <button
           className="ghost"

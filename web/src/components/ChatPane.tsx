@@ -228,6 +228,10 @@ export function EventView({
         </div>
       );
     case "tool": {
+      // The question itself is the card that asked it — a chip repeating the
+      // questions above it says nothing the user has not just answered. The
+      // event stays in the archive, so a compaction still carries the ask.
+      if (event.name === "AskUserQuestion") return null;
       const summary = shortenDisplay(event.summary, project);
       const chip = (
         <div className="tool-chip" title={summary}>

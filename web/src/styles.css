@@ -4366,10 +4366,15 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 12.5px;
 }
 
+/* Both edges inside the box, never outside it.
+   The dark edge used to be an outline, which paints outside the border box —
+   so a region drawn flush to the picture had it clipped away by the stage,
+   leaving only the white one against a pale image: a rectangle that looked
+   like it ran off past the frame. Same two lines, same order, drawn within. */
 .region-box {
   position: absolute;
-  border: 2px solid #fff;
-  outline: 2px solid var(--ink);
+  border: 2px solid var(--ink);
+  box-shadow: inset 0 0 0 2px #fff;
   border-radius: 2px;
   pointer-events: none;
 }
@@ -4378,10 +4383,12 @@ input[type="range"]::-webkit-slider-thumb {
   border-style: dashed;
 }
 
+/* Inside the box's corner, not straddling it: a region drawn against the top
+   or left of the picture had half its number clipped away with the overflow. */
 .region-index {
   position: absolute;
-  top: -9px;
-  left: -9px;
+  top: -1px;
+  left: -1px;
   width: 18px;
   height: 18px;
   border-radius: 99px;

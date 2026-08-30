@@ -222,8 +222,13 @@ export interface ComponentProposal {
   files: string[];
   /** One line on what it is. */
   note: string;
-  /** An image of it the model already has, as an absolute path. */
+  /** An image of it the model already has, as a path on disk. Server-side
+   *  only: the card is sent `image`, which is ruri's own copy of it. */
   shot?: string;
+  /** That screenshot, copied into ruri's uploads the moment the proposal
+   *  arrives — so the card can show the user what is being named, and so a
+   *  file the model wrote to /tmp is still there when they answer. */
+  image?: Attachment;
 }
 
 /** An installed Claude Code skill, global or local to one project. */

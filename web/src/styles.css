@@ -2558,9 +2558,28 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
 }
 
-.comp-shot img {
+/* the × rides the corner of the picture, so the picture itself is free to
+   be what it looks like: something you click to see */
+.comp-shot {
+  position: relative;
+  overflow: visible;
+}
+
+.comp-shot .tool-image {
   width: 100%;
   height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: calc(var(--radius-s) - 1px);
+  background: none;
+  overflow: hidden;
+}
+
+.comp-shot .tool-image img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
   object-fit: cover;
 }
 

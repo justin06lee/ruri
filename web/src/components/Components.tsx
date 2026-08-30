@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { NamedComponent } from "../../../shared/protocol";
+import { ToolImage } from "./Attachments";
 import { fileToBase64 } from "../lib/files";
-import { HTTP_BASE, send, useRuri } from "../store";
+import { send, useRuri } from "../store";
 
 /**
  * The component index: the user's names for the parts of a project — read
@@ -123,17 +124,24 @@ function Card({ projectId, item }: { projectId: string; item: NamedComponent }) 
       />
 
       <div className="comp-shots">
+        {/* The picture opens; only the × takes it away. It used to be one
+            button that removed on click, so looking at what a screenshot
+            actually was deleted it — with nothing asked and no way back. */}
         {item.shots.map((shot) => (
-          <button
-            key={shot.id}
-            className="comp-shot"
-            title="Remove this screenshot"
-            onClick={() =>
-              send({ type: "component_unshot", projectId, componentId: item.id, shotId: shot.id })
-            }
-          >
-            <img src={`${HTTP_BASE}${shot.url ?? ""}`} alt="" />
-          </button>
+          <div key={shot.id} className="comp-shot">
+            <ToolImage image={{ url: shot.url ?? "", name: shot.name }} />
+            <button
+              className="att-remove"
+              title="Remove this screenshot"
+              onClick={() =>
+                send({ type: "component_unshot", projectId, componentId: item.id, shotId: shot.id })
+              }
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
         ))}
         <label className="comp-shot-add" title="Drop, paste, or pick a screenshot">
           <input

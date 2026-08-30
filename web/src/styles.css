@@ -23,6 +23,18 @@
     transparent 0 5px,
     rgba(25, 21, 16, 0.1) 5px 10px
   );
+  /* Each theme's own paper and ink, held here rather than in the theme
+     blocks below, so they mean the same thing whichever theme is on: they
+     are what the settings clock paints its three stretches of the day in,
+     and a swatch of dark has to look like dark while you are reading it in
+     light. Keep them in step with the blocks below by hand — there are six
+     numbers and they change about once a year. */
+  --theme-light-paper: #f6f1e6;
+  --theme-light-ink: #191510;
+  --theme-dark-paper: #101010;
+  --theme-dark-ink: #ececec;
+  --theme-ember-paper: #140b05;
+  --theme-ember-ink: #f0bd82;
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
   --sidebar-w: 264px;
   --radius-s: 6px;
@@ -1137,10 +1149,145 @@ input[type="range"]::-webkit-slider-thumb {
   min-width: 52px;
 }
 
+/* the dial and its readouts, side by side */
+.schedule-face {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding-top: 4px;
+}
+
+.dial {
+  width: 172px;
+  height: 172px;
+  flex-shrink: 0;
+  touch-action: none;
+  overflow: visible;
+}
+
+/* Each stretch of the day in the theme that owns it — its own paper, edged
+   in its own ink. Dark and ember are both nearly black, which is the truth
+   about them; the edge is what tells them apart at a glance. */
+.dial-band,
+.dial-edge {
+  stroke-linecap: butt;
+}
+
+.dial-edge.light {
+  stroke: var(--theme-light-ink);
+}
+
+.dial-edge.dark {
+  stroke: var(--theme-dark-ink);
+}
+
+.dial-edge.ember {
+  stroke: var(--theme-ember-ink);
+}
+
+.dial-band.light {
+  stroke: var(--theme-light-paper);
+}
+
+.dial-band.dark {
+  stroke: var(--theme-dark-paper);
+}
+
+.dial-band.ember {
+  stroke: var(--theme-ember-paper);
+}
+
+.dial-tick {
+  stroke: var(--ink-faint);
+  stroke-width: 1;
+}
+
+.dial-tick.quarter {
+  stroke: var(--ink-soft);
+  stroke-width: 1.6;
+}
+
+.dial-hour {
+  fill: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 8px;
+  text-anchor: middle;
+}
+
+/* where the day actually is, so the schedule can be read against now */
+.dial-now {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.dial-pin {
+  fill: var(--ink);
+}
+
+/* the boundary you drag: a ring of the theme it starts */
+.dial-grip {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+  cursor: grab;
+}
+
+.dial-grip:active {
+  cursor: grabbing;
+}
+
+.dial-grip.light {
+  fill: var(--theme-light-paper);
+}
+
+.dial-grip.dark {
+  fill: var(--theme-dark-paper);
+}
+
+.dial-grip.ember {
+  fill: var(--theme-ember-paper);
+}
+
+.dial-grip:hover {
+  stroke-width: 2.4;
+}
+
 .schedule-times {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* the same pairing as the dial: the theme's paper, ringed in its own ink */
+.schedule-swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 99px;
+  border: 1.5px solid;
+  flex-shrink: 0;
+}
+
+.schedule-swatch.light {
+  background: var(--theme-light-paper);
+  border-color: var(--theme-light-ink);
+}
+
+.schedule-swatch.dark {
+  background: var(--theme-dark-paper);
+  border-color: var(--theme-dark-ink);
+}
+
+.schedule-swatch.ember {
+  background: var(--theme-ember-paper);
+  border-color: var(--theme-ember-ink);
+}
+
+.schedule-hint {
+  margin: 4px 0 0;
+  max-width: 230px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-faint);
 }
 
 .schedule-slot {

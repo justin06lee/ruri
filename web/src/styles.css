@@ -2498,9 +2498,29 @@ input[type="range"]::-webkit-slider-thumb {
   bottom: calc(var(--composer-box-h) + 48px);
 }
 
+/* The line rides over the conversation, so it carries its own paper. It had
+   none, and the transcript underneath read straight through the words — a
+   result line's "224.9s" sitting inside "rapid fire · 11 ready". */
+.rapid-plate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 14px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: 99px;
+  background: var(--paper);
+  box-shadow: var(--shadow-soft);
+}
+
 .rapid-count {
   font-size: 12px;
-  color: var(--ink-faint);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.rapid-lead {
+  font-weight: 700;
+  color: var(--ink);
 }
 
 .rapid-skip {

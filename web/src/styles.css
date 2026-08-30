@@ -2318,6 +2318,21 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 8px 12px;
 }
 
+/* What the model is talking about. Without it the card is a question about
+   a filename; the picture is the only part of it the user recognises.
+   Bigger than a transcript thumbnail and whole — cropping the one image
+   that explains the question defeats it — and clickable for the full view.
+   Definite caps for the same reason the rule above uses one. */
+.name-shot {
+  line-height: 0;
+}
+
+.name-shot .tool-image img {
+  max-width: 560px;
+  max-height: 260px;
+  border-radius: calc(var(--radius-s) - 2px);
+}
+
 .name-note,
 .name-files {
   margin: 0;

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ComponentProposal, PermissionRequest } from "../../../shared/protocol";
+import { ToolImage } from "./Attachments";
 import { send } from "../store";
 
 /**
@@ -16,6 +17,12 @@ import { send } from "../store";
  * It rides the permission channel, like the question card, and is told apart
  * by `request.kind === "component"`. What comes back resolves the model's
  * tool call, so it learns the name the user chose and uses it from then on.
+ *
+ * It shows the model's screenshot of the thing, because the alternative is
+ * asking someone to name something they cannot see — a filename and a
+ * sentence are what the model has, and neither is what the user recognises.
+ * ruri has its own copy by the time the card is up, so the picture also
+ * stays with the entry: every session after this one can look at it.
  */
 
 /** Comma-or-newline separated, the way people actually type lists. */
@@ -59,6 +66,12 @@ export function NameCard({ request }: { request: PermissionRequest }) {
           if (e.key === "Enter" && name.trim()) keep();
         }}
       />
+
+      {proposal.image?.url && (
+        <div className="name-shot">
+          <ToolImage image={{ url: proposal.image.url, name: proposal.image.name }} />
+        </div>
+      )}
 
       {note.trim() && !open && <p className="name-note">{note}</p>}
       {(proposal.files ?? []).length > 0 && !open && (

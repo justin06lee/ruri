@@ -295,97 +295,111 @@ export function Settings({ onClose }: { onClose(): void }) {
           </button>
         </div>
 
-        <div className="settings-row">
-          <span className="settings-label">Theme</span>
-          <div className="seg">
-            {THEMES.map((option) => (
-              <button
-                key={option}
-                className={`seg-option ${theme === option ? "active" : ""}`}
-                title={
-                  option === "ember"
-                    ? "Warm through and through — no blue light, for late sessions"
-                    : undefined
-                }
-                onClick={() => pickTheme(option)}
-              >
-                {option[0]!.toUpperCase() + option.slice(1)}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Grouped, the way a settings page is: a heading, then the handful
+            of rows it covers, then air. The two that are more than a row —
+            the vault and the catalog — take the whole width under their
+            heading instead of being squeezed into the value column. */}
+        <section className="settings-group">
+          <h2 className="settings-group-name">Appearance</h2>
 
-        <div className="settings-row">
-          <span className="settings-label">By the clock</span>
-          <div className="settings-value schedule">
-            <button
-              className={`seg-option toggle ${schedule.on ? "active" : ""}`}
-              title="Turn the theme over at set times — picking one by hand turns this off"
-              onClick={() => keepSchedule({ ...schedule, on: !schedule.on })}
-            >
-              {schedule.on ? "On" : "Off"}
-            </button>
-            {schedule.on && (
-              <div className="schedule-times">
+          <div className="settings-row">
+            <span className="settings-label">Theme</span>
+            <div className="settings-value">
+              <div className="seg">
                 {THEMES.map((option) => (
-                  <div className="schedule-slot" key={option}>
-                    <span className="schedule-name">{option}</span>
-                    <span className="schedule-from">from</span>
-                    <TimeField
-                      minutes={schedule[option]}
-                      onChange={(next) => keepSchedule({ ...schedule, [option]: next })}
-                    />
-                  </div>
+                  <button
+                    key={option}
+                    className={`seg-option ${theme === option ? "active" : ""}`}
+                    title={
+                      option === "ember"
+                        ? "Warm through and through — no blue light, for late sessions"
+                        : undefined
+                    }
+                    onClick={() => pickTheme(option)}
+                  >
+                    {option[0]!.toUpperCase() + option.slice(1)}
+                  </button>
                 ))}
               </div>
-            )}
+            </div>
           </div>
-        </div>
 
-        <div className="settings-row">
-          <span className="settings-label">Workspace</span>
-          <div className="settings-value">
-            {/* LRM anchors keep the leading slash in place inside the rtl-ellipsis trick */}
-            <span className="settings-path" title={workspaceDir}>
-              {workspaceDir ? `‎${workspaceDir}‎` : "—"}
-            </span>
-            <button
-              className="ghost"
-              disabled={!canPickFolder}
-              title={canPickFolder ? "Pick the folder your projects live in" : "Available in the desktop app"}
-              onClick={() => send({ type: "pick_folder", target: "workspace" })}
-            >
-              Change
-            </button>
+          <div className="settings-row">
+            <span className="settings-label">By the clock</span>
+            <div className="settings-value schedule">
+              <button
+                className={`seg-option toggle ${schedule.on ? "active" : ""}`}
+                title="Turn the theme over at set times — picking one by hand turns this off"
+                onClick={() => keepSchedule({ ...schedule, on: !schedule.on })}
+              >
+                {schedule.on ? "On" : "Off"}
+              </button>
+              {schedule.on && (
+                <div className="schedule-times">
+                  {THEMES.map((option) => (
+                    <div className="schedule-slot" key={option}>
+                      <span className="schedule-name">{option}</span>
+                      <span className="schedule-from">from</span>
+                      <TimeField
+                        minutes={schedule[option]}
+                        onChange={(next) => keepSchedule({ ...schedule, [option]: next })}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </section>
 
-        <div className="settings-row">
-          <span className="settings-label">Music</span>
-          <div className="settings-value">
-            <span className="settings-path" title={musicDir}>
-              {musicDir ? `‎${musicDir}‎` : "—"}
-            </span>
-            <button
-              className="ghost"
-              disabled={!canPickFolder}
-              title={canPickFolder ? "Pick the folder your music lives in (each subfolder is a playlist)" : "Available in the desktop app"}
-              onClick={() => send({ type: "pick_folder", target: "music" })}
-            >
-              Change
-            </button>
+        <section className="settings-group">
+          <h2 className="settings-group-name">Folders</h2>
+
+          <div className="settings-row">
+            <span className="settings-label">Workspace</span>
+            <div className="settings-value">
+              {/* LRM anchors keep the leading slash in place inside the rtl-ellipsis trick */}
+              <span className="settings-path" title={workspaceDir}>
+                {workspaceDir ? `‎${workspaceDir}‎` : "—"}
+              </span>
+              <button
+                className="ghost"
+                disabled={!canPickFolder}
+                title={canPickFolder ? "Pick the folder your projects live in" : "Available in the desktop app"}
+                onClick={() => send({ type: "pick_folder", target: "workspace" })}
+              >
+                Change
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div className="settings-row models-row">
-          <span className="settings-label">Vault</span>
+          <div className="settings-row">
+            <span className="settings-label">Music</span>
+            <div className="settings-value">
+              <span className="settings-path" title={musicDir}>
+                {musicDir ? `‎${musicDir}‎` : "—"}
+              </span>
+              <button
+                className="ghost"
+                disabled={!canPickFolder}
+                title={canPickFolder ? "Pick the folder your music lives in (each subfolder is a playlist)" : "Available in the desktop app"}
+                onClick={() => send({ type: "pick_folder", target: "music" })}
+              >
+                Change
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="settings-group">
+          <h2 className="settings-group-name">Vault</h2>
           <Vault />
-        </div>
+        </section>
 
-        <div className="settings-row models-row">
-          <span className="settings-label">Models</span>
+        <section className="settings-group">
+          <h2 className="settings-group-name">Models</h2>
           <ModelCatalog />
-        </div>
+        </section>
       </div>
     </main>
   );

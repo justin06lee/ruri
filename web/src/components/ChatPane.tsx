@@ -767,7 +767,7 @@ export function Composer({
       </div>
       <div className="composer-hint">
         {shell
-          ? "A shell in this project — it keeps running while you're away"
+          ? "Shells in this project — ⌘T for another, ⌘1–9 to switch · they keep running while you're away"
           : "Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach · scissors to split a long prompt"}
       </div>
       {viewingAtt && (

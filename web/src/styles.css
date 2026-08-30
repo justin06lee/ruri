@@ -2247,6 +2247,19 @@ input[type="range"]::-webkit-slider-thumb {
   padding-bottom: 10px;
 }
 
+/* Placed off the textbox's own measured height, exactly like the
+   jump-to-latest pill: the dragons flanking the composer stand taller than
+   it does, so anything laid out in flow above the composer ends up level
+   with their heads rather than with the thing you type in. */
+.rapid-bar.floating {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--composer-box-h) + 14px);
+  z-index: 4;
+  padding: 0;
+}
+
 .chat.rapid-page .jump-latest {
   bottom: calc(var(--composer-box-h) + 48px);
 }

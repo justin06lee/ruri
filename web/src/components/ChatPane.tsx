@@ -1385,6 +1385,7 @@ export function ChatPane({
           <Icon d="M12 5v14M5 12l7 7 7-7" /> Latest
         </button>
       )}
+      {rapid?.on && <RapidBar rapid={rapid} floating />}
       </div>
 
       {rewindTarget && (
@@ -1427,7 +1428,6 @@ export function ChatPane({
       )}
 
       <div className="composer-dock" key={activeId} ref={observeDock}>
-        {rapid?.on && <RapidBar rapid={rapid} />}
         <Composer
           channelId={activeId}
           project={project}

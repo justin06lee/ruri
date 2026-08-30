@@ -179,11 +179,20 @@ export function useRapidFire(): RapidFire {
   };
 }
 
-/** The line's own controls, riding in the chat header while it's running. */
-export function RapidBar({ rapid }: { rapid: RapidFire }) {
+/**
+ * The line's own controls. They belong to the composer, not to the header,
+ * so they ride directly above the textbox — placed the same way the
+ * jump-to-latest pill is, off the measured height of the box itself, because
+ * the dragons beside it stand taller than it does and anything laid out in
+ * flow ends up level with their heads instead.
+ *
+ * `floating` is the docked composer; the hero's composer has no dragons and
+ * takes it in flow.
+ */
+export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boolean }) {
   const setRapid = useRuri((s) => s.setRapid);
   return (
-    <div className="rapid-bar">
+    <div className={`rapid-bar ${floating ? "floating" : ""}`}>
       <span className="rapid-count">
         rapid fire · {rapid.ready} ready · {rapid.working} working
       </span>

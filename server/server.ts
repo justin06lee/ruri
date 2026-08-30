@@ -339,12 +339,14 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   pushUsage(true);
   const contexts = new Map<string, ContextUsage>();
 
-  // The composer's terminal mode: one shell per channel, in that project's
-  // directory, alive for as long as the app is — switching away and back
-  // attaches to the same shell, scrollback and all.
+  // The composer's terminal mode: a row of shell tabs per channel, each in
+  // that project's directory, alive for as long as the app is — switching
+  // away and back attaches to the same shells, scrollback and all.
   const terminals = new Terminals({
-    onData: (projectId, data) => broadcast({ type: "terminal_data", projectId, data }),
-    onExit: (projectId, note) => broadcast({ type: "terminal_exit", projectId, note }),
+    onData: (projectId, termId, data) =>
+      broadcast({ type: "terminal_data", projectId, termId, data }),
+    onExit: (projectId, termId, note) =>
+      broadcast({ type: "terminal_exit", projectId, termId, note }),
   });
   /** Where a channel's shell should start: its project, or the workspace. */
   function terminalCwd(channelId: string): string {
@@ -860,7 +862,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       briefs.remove(sessionId);
       contexts.delete(sessionId);
       sendQueues.delete(sessionId);
-      terminals.close(sessionId);
+      terminals.closeChannel(sessionId);
     }
     ideas.removeProject(projectId);
     components.removeProject(projectId);
@@ -1198,12 +1200,37 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         });
         break;
       }
+      case "terminal_list": {
+        ws.send(JSON.stringify({
+          type: "terminal_tabs",
+          projectId: msg.projectId,
+          tabs: terminals.list(msg.projectId),
+        } satisfies ServerMessage));
+        break;
+      }
+      case "terminal_new": {
+        broadcast({
+          type: "terminal_tabs",
+          projectId: msg.projectId,
+          tabs: terminals.add(msg.projectId),
+        });
+        break;
+      }
       case "terminal_open": {
-        const attaching = terminals.has(msg.projectId);
-        if (!terminals.open(msg.projectId, terminalCwd(msg.projectId), msg.cols, msg.rows)) {
+        const attaching = terminals.has(msg.termId);
+        if (
+          !terminals.open(
+            msg.projectId,
+            msg.termId,
+            terminalCwd(msg.projectId),
+            msg.cols,
+            msg.rows,
+          )
+        ) {
           ws.send(JSON.stringify({
             type: "terminal_exit",
             projectId: msg.projectId,
+            termId: msg.termId,
             note: "no shell could be started here",
           } satisfies ServerMessage));
           break;
@@ -1214,22 +1241,27 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           ws.send(JSON.stringify({
             type: "terminal_data",
             projectId: msg.projectId,
-            data: terminals.scrollback(msg.projectId),
+            termId: msg.termId,
+            data: terminals.scrollback(msg.termId),
             replay: true,
           } satisfies ServerMessage));
         }
         break;
       }
       case "terminal_input": {
-        terminals.write(msg.projectId, msg.data);
+        terminals.write(msg.termId, msg.data);
         break;
       }
       case "terminal_resize": {
-        terminals.resize(msg.projectId, msg.cols, msg.rows);
+        terminals.resize(msg.termId, msg.cols, msg.rows);
         break;
       }
       case "terminal_close": {
-        terminals.close(msg.projectId);
+        broadcast({
+          type: "terminal_tabs",
+          projectId: msg.projectId,
+          tabs: terminals.close(msg.projectId, msg.termId),
+        });
         break;
       }
       case "permission_response": {

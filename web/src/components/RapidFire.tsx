@@ -193,26 +193,31 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
   const setRapid = useRuri((s) => s.setRapid);
   return (
     <div className={`rapid-bar ${floating ? "floating" : ""}`}>
-      <span className="rapid-count">
-        rapid fire · {rapid.ready} ready · {rapid.working} working
-      </span>
-      {rapid.ready > 1 && (
-        <button
-          className="rapid-skip"
-          title="Pass — on to the next session waiting"
-          onClick={() => rapid.advance("skip")}
-        >
-          skip
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M5 12h14M13 6l6 6-6 6" />
+      {/* a plate of its own: this floats over the transcript, and without a
+          surface under it the conversation reads straight through the text */}
+      <div className="rapid-plate">
+        <span className="rapid-count">
+          <span className="rapid-lead">rapid fire</span> · {rapid.ready} ready · {rapid.working}{" "}
+          working
+        </span>
+        {rapid.ready > 1 && (
+          <button
+            className="rapid-skip"
+            title="Pass — on to the next session waiting"
+            onClick={() => rapid.advance("skip")}
+          >
+            skip
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          </button>
+        )}
+        <button className="icon-button" title="Leave rapid fire" onClick={() => setRapid(false)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
-      )}
-      <button className="icon-button" title="Leave rapid fire" onClick={() => setRapid(false)}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
-      </button>
+      </div>
     </div>
   );
 }

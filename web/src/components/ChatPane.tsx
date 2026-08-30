@@ -1074,31 +1074,19 @@ export function ChatPane({
   /**
    * Put the view back on the newest message.
    *
-   * Reading scrollHeight forces the browser to lay the whole transcript out,
-   * and a long session is an expensive thing to lay out. Four different
-   * things ask for this — the settle loop after a switch, the content
-   * observer, the composer observer, and every arriving event — so left
-   * alone they each pay for a layout in the same frame. They now share one:
-   * the request is folded into the next frame, and a view already at the
-   * bottom does nothing at all.
+   * Always now, never on the next frame, and never skipped because something
+   * else already did it this frame. Both of those are tempting — reading
+   * scrollHeight forces a layout of the whole transcript, and four things
+   * ask for this — and both cost a frame painted at the wrong offset, which
+   * is the flash on every session switch. The callers that matter run after
+   * layout and before paint precisely so the correction lands invisibly; the
+   * cheap part is the early return below, when the view is already there.
    */
-  const bottomPending = useRef<ScrollBehavior | null>(null);
   const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
-    if (bottomPending.current !== null) {
-      // a smooth request in the same frame as an instant one is still smooth
-      if (behavior === "smooth") bottomPending.current = behavior;
-      return;
-    }
-    bottomPending.current = behavior;
-    requestAnimationFrame(() => {
-      const how = bottomPending.current ?? "auto";
-      bottomPending.current = null;
-      const el = scrollRef.current;
-      if (!el) return;
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      if (distance < 1) return;
-      el.scrollTo({ top: el.scrollHeight, behavior: how });
-    });
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 1) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
   };
 
   /** The observers below are made once and outlive every render, so they

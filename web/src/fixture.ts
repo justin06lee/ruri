@@ -100,6 +100,31 @@ export function installFixture(): void {
         },
       ],
     },
+    skills: [
+      {
+        name: "omniscience",
+        description:
+          "Use whenever building, writing, or modifying code or files in a project — implementing features, fixing bugs, refactoring, scaffolding, editing configs or docs.",
+        scope: "global",
+        path: "/Users/you/.claude/skills/omniscience",
+        enabled: true,
+        source: "justin06lee/omniscience.md",
+      },
+      {
+        name: "dataviz",
+        description: "Use before writing any chart, graph, plot, dashboard, or data visualization.",
+        scope: "global",
+        path: "/Users/you/.claude/skills-off/dataviz",
+        enabled: false,
+      },
+      {
+        name: "release",
+        description: "How this repo cuts a release: version bump, build, tag, push, install.",
+        scope: "project",
+        path: "/Users/you/Workspace/ruri/.claude/skills/release",
+        enabled: true,
+      },
+    ],
     secrets: [
       { id: "s1", name: "deploy-box", username: "root", hasValue: true, updated: now - 86_400_000 },
     ],

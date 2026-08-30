@@ -5,6 +5,10 @@ import {
   type Attachment,
   type ContextUsage,
   type DraftAttachment,
+  type Idea,
+  type NamedComponent,
+  type SecretMeta,
+  type SkillInfo,
   type DraftAttachmentUpload,
   type HomeSettings,
   type ModelChoice,
@@ -14,7 +18,6 @@ import {
   type ProjectStatus,
   type QueuedPrompt,
   type ServerMessage,
-  type ProjectBrief,
   type TrackerItem,
   type TranscriptEvent,
   type UsageLimits,
@@ -246,8 +249,20 @@ interface RuriState {
   summaries: Record<string, Record<string, string>>;
   /** Feature-tracker checklists per project. */
   tracker: Record<string, TrackerItem[]>;
-  /** Catch-up briefs per project. */
-  briefs: Record<string, ProjectBrief>;
+  /** Ideas boards, keyed by PROJECT id (the tracker is keyed by session). */
+  ideas: Record<string, Idea[]>;
+  /** Component indexes, keyed by PROJECT id. */
+  components: Record<string, NamedComponent[]>;
+  /** The vault's names — the values live on the server and stay there. */
+  secrets: SecretMeta[];
+  /** Skills as of the last scan: every global one, plus one project's own. */
+  skills: SkillInfo[];
+  /** Which project the local half of `skills` belongs to. */
+  skillsFor: string | null;
+  /** A bmo command is running. */
+  skillsBusy: boolean;
+  /** What bmo said last. */
+  skillsNote: string | null;
   /** App-side prompt queue per channel — held until the running turn ends. */
   queued: Record<string, QueuedPrompt[]>;
   /** Limit windows per provider id (percent used) for the usage gauges. */
@@ -297,7 +312,13 @@ export const useRuri = create<RuriState>((set) => ({
   models: [],
   summaries: {},
   tracker: {},
-  briefs: {},
+  ideas: {},
+  components: {},
+  secrets: [],
+  skills: [],
+  skillsFor: null,
+  skillsBusy: false,
+  skillsNote: null,
   queued: {},
   usage: {},
   contexts: {},
@@ -414,7 +435,9 @@ function apply(msg: ServerMessage): void {
         models: msg.models,
         summaries: msg.summaries,
         tracker: msg.tracker,
-        briefs: msg.briefs,
+        ideas: msg.ideas,
+        components: msg.components,
+        secrets: msg.secrets,
         queued: msg.queued,
         usage: msg.usage,
         contexts: msg.contexts,
@@ -504,8 +527,25 @@ function apply(msg: ServerMessage): void {
       }
       break;
     }
-    case "brief": {
-      setState((s) => ({ briefs: { ...s.briefs, [msg.projectId]: msg.brief } }));
+    case "ideas": {
+      setState((s) => ({ ideas: { ...s.ideas, [msg.projectId]: msg.items } }));
+      break;
+    }
+    case "components": {
+      setState((s) => ({ components: { ...s.components, [msg.projectId]: msg.items } }));
+      break;
+    }
+    case "secrets": {
+      setState({ secrets: msg.items });
+      break;
+    }
+    case "skills": {
+      setState({
+        skills: msg.skills,
+        skillsFor: msg.projectId ?? null,
+        skillsBusy: msg.busy ?? false,
+        skillsNote: msg.note ?? null,
+      });
       break;
     }
     case "workspace": {

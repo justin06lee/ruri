@@ -211,6 +211,30 @@ export function updateSkills(projectDir?: string): Promise<string> {
 }
 
 /**
+ * One skill's SKILL.md as prose: the frontmatter comes off (its two keys are
+ * already on screen above the body) and the rest is markdown, to be rendered
+ * rather than shown as a file.
+ */
+export function readSkill(
+  scope: "global" | "project",
+  projectDir: string | undefined,
+  name: string,
+): string {
+  if (name.includes("/") || name.includes("..")) throw new Error("not a skill name");
+  const where = dirs(scope, projectDir);
+  if (!where) throw new Error("no project");
+  for (const root of [where.on, where.off]) {
+    const file = path.join(root, name, "SKILL.md");
+    if (!fs.existsSync(file)) continue;
+    const raw = fs.readFileSync(file, "utf8");
+    if (!raw.startsWith("---")) return raw;
+    const end = raw.indexOf("\n---", 3);
+    return end === -1 ? raw : raw.slice(end + 4).replace(/^\n+/, "");
+  }
+  throw new Error(`${name} has no SKILL.md`);
+}
+
+/**
  * The line a non-Claude harness gets about this project's local skills.
  * Claude Code loads them itself; everything else has never heard of them, so
  * it is told they exist and where to read one.

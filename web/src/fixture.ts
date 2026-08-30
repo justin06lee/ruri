@@ -188,6 +188,18 @@ export function installFixture(): void {
     },
     permissions: [
       {
+        requestId: "name1",
+        projectId: "p1",
+        toolName: "name_component",
+        kind: "component",
+        input: {
+          name: "the dragon gauges",
+          files: ["web/src/components/Dragon.tsx", "web/src/styles.css:2864"],
+          note: "Four bottom-up bars flanking the composer: context, 5h, weekly, per-model.",
+        },
+        ts: now - 3_000,
+      },
+      {
         requestId: "perm1",
         projectId: "p1",
         toolName: "Bash",

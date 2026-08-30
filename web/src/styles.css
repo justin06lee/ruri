@@ -1069,36 +1069,18 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── settings ─────────────────────────────────────────────────────── */
 
-.settings-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 60;
-  animation: rise 120ms ease-out;
+/* Settings takes the pane. As a centred card it had a ceiling and kept
+   hitting it — the model catalog alone is taller than a short window. */
+.settings-page {
+  animation: rise 160ms ease-out;
 }
 
-.settings-card {
-  width: min(440px, 90vw);
-  background: var(--raised);
-  border: 1.5px solid var(--edge);
-  border-radius: var(--radius-m);
-  box-shadow: var(--shadow-hard);
-  padding: 16px 18px 18px;
+.settings-inner {
+  overflow-y: auto;
 }
 
-.settings-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.settings-title {
-  font-weight: 700;
-  font-size: 15px;
+.settings-inner .settings-row:first-of-type {
+  margin-top: 14px;
 }
 
 /* the theme schedule: a row per theme, each with the time it takes over */
@@ -2227,11 +2209,28 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 
+/* The line's controls ride above the composer, on the composer's own width
+   — the header is the project's, and a mode's controls have no business
+   crowding it. Right-aligned so "skip" sits over the send button. */
 .rapid-bar {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  margin-right: 2px;
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 24px 8px;
+  pointer-events: auto;
+  animation: rise 200ms ease-out;
+}
+
+.hero-composer .rapid-bar {
+  padding-bottom: 10px;
+}
+
+.chat.rapid-page .jump-latest {
+  bottom: calc(var(--composer-box-h) + 48px);
 }
 
 .rapid-count {
@@ -2250,6 +2249,57 @@ input[type="range"]::-webkit-slider-thumb {
 .rapid-skip svg {
   width: 12px;
   height: 12px;
+}
+
+/* ── the naming card ──────────────────────────────────────────────── */
+
+/* Same card as the question, asked more quietly: one field, and the rest
+   folded away until it's wanted. */
+.name-card {
+  gap: 10px;
+}
+
+.ask-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.name-lead {
+  font-weight: 600;
+}
+
+.name-input {
+  font-size: 15px;
+  font-weight: 600;
+  padding: 8px 12px;
+}
+
+.name-note,
+.name-files {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-faint);
+}
+
+.name-files {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.name-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.name-spacer {
+  flex: 1;
 }
 
 /* ── the ideas board ──────────────────────────────────────────────── */
@@ -2573,9 +2623,71 @@ input[type="range"]::-webkit-slider-thumb {
   transform: translateX(12px);
 }
 
+/* the row's text is the way in: click it and the skill's own words open */
 .skill-body {
   flex: 1;
   min-width: 0;
+  text-align: left;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.skill-body:hover .skill-name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── a skill, read ────────────────────────────────────────────────── */
+
+.skill-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5vh 24px;
+  animation: rise 120ms ease-out;
+}
+
+.skill-sheet {
+  width: min(760px, 100%);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border: 1.5px solid var(--edge);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-hard);
+  overflow: hidden;
+}
+
+.skill-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1.5px solid var(--hairline);
+  background-image: var(--tone);
+  background-size: 6px 6px;
+}
+
+.skill-sheet-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.skill-sheet-body {
+  overflow-y: auto;
+  padding: 16px 20px 22px;
+  font-size: 13.5px;
+  line-height: 1.7;
 }
 
 .skill-line {
@@ -2710,6 +2822,7 @@ input[type="range"]::-webkit-slider-thumb {
 .jump-latest {
   position: absolute;
   bottom: calc(var(--composer-box-h) + 14px);
+  /* rapid fire parks its controls in that gap — the pill steps over them */
   left: 0;
   right: 0;
   width: fit-content;

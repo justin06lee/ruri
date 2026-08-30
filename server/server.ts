@@ -9,6 +9,7 @@ import type {
   Attachment,
   AttachmentUpload,
   ClientMessage,
+  ComponentProposal,
   ContextUsage,
   ModelChoice,
   PermissionRequest,
@@ -29,10 +30,20 @@ import { promptChain, SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief } from "./smallmodel.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
 import { sessionBriefing } from "./briefing.js";
-import { ComponentStore, mentionBlock, mentionedIn, writeIndexFile } from "./components.js";
+import {
+  COMPONENT_TOOLS,
+  ComponentStore,
+  componentDropBriefing,
+  componentTools,
+  drainComponentRequests,
+  mentionBlock,
+  mentionedIn,
+  writeIndexFile,
+  type ComponentHost,
+} from "./components.js";
 import { IdeaStore } from "./ideas.js";
 import { SecretStore } from "./secrets.js";
-import { installSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
+import { installSkill, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
@@ -387,6 +398,63 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     return store.findSession(channelId)?.project;
   }
 
+  /**
+   * Components the model has just built, waiting to be named. The card rides
+   * the permission channel (it already survives reconnects) and resolves the
+   * tool call that raised it, so the model learns the name the user chose.
+   */
+  const pendingComponents = new Map<
+    string,
+    { channelId: string; proposal: ComponentProposal; resolve(name: string | null): void }
+  >();
+
+  const componentHost: ComponentHost = {
+    list: (channelId) => {
+      const owner = ownerProject(channelId);
+      return owner ? components.items(owner.id) : [];
+    },
+    propose: (channelId, proposal) =>
+      new Promise<string | null>((resolve) => {
+        if (!ownerProject(channelId)) {
+          resolve(null);
+          return;
+        }
+        const requestId = randomUUID();
+        pendingComponents.set(requestId, { channelId, proposal, resolve });
+        const request: PermissionRequest = {
+          requestId,
+          projectId: channelId,
+          toolName: "name_component",
+          kind: "component",
+          input: proposal,
+          ts: Date.now(),
+        };
+        permissions.set(requestId, request);
+        broadcast({ type: "permission_request", request });
+      }),
+  };
+
+  /** An image the model pointed at, stored the way every attachment is. */
+  function storeShot(file: string): Attachment | undefined {
+    try {
+      const data = fs.readFileSync(file).toString("base64");
+      const ext = path.extname(file).slice(1).toLowerCase();
+      const upload: AttachmentUpload = {
+        id: randomUUID(),
+        kind: "image",
+        mediaType: IMAGE_MIME[ext] ?? "image/png",
+        name: path.basename(file),
+        n: 1,
+        data,
+      };
+      const { url } = storeUpload(upload);
+      const { data: _data, ...meta } = upload;
+      return { ...meta, url };
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Push a project's component index to disk and to every client. */
   function pushComponents(projectId: string, projectDir?: string): void {
     const items = components.items(projectId);
@@ -711,6 +779,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (event.kind === "result") {
           pushUsage();
           pushContexts();
+          // a harness without ruri's tools names its components in a file
+          const owner = ownerProject(projectId);
+          if (owner) drainComponentRequests(owner.path, projectId, componentHost);
           drainQueue(projectId);
         }
       },
@@ -757,16 +828,18 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         projectName: project.name,
         secrets,
         claude,
+        // Claude gets tools for naming; everything else gets the drop file
+        naming: claude ? "tool" : componentDropBriefing(project.path),
       });
       return {
         fillSecrets: (input) =>
           secrets.wanted(JSON.stringify(input)) ? secrets.fillInput(input) : undefined,
-        ...(note
-          ? {
-              providerSystem: note,
-              options: { systemPrompt: { type: "preset", preset: "claude_code", append: note } },
-            }
-          : {}),
+        autoAllow: COMPONENT_TOOLS,
+        options: {
+          mcpServers: { ruri: componentTools(componentHost, project.id) },
+          ...(note ? { systemPrompt: { type: "preset", preset: "claude_code", append: note } } : {}),
+        },
+        ...(note ? { providerSystem: note } : {}),
       };
     },
     {
@@ -1251,11 +1324,29 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       }
 
       /* ── the component index ──────────────────────────────────── */
-      case "component_add": {
-        const name = msg.name.trim();
-        if (!name) break;
-        components.add(msg.projectId, name);
-        pushComponents(msg.projectId, store.get(msg.projectId)?.path);
+      case "component_named": {
+        const pending = pendingComponents.get(msg.requestId);
+        if (!pending) break;
+        pendingComponents.delete(msg.requestId);
+        permissions.delete(msg.requestId);
+        broadcast({ type: "permission_resolved", requestId: msg.requestId });
+        const owner = ownerProject(pending.channelId);
+        const name = (msg.name ?? pending.proposal.name).trim();
+        if (msg.skip || !name || !owner) {
+          pending.resolve(null);
+          break;
+        }
+        const item = components.add(owner.id, {
+          name,
+          files: msg.files ?? pending.proposal.files,
+          note: msg.note ?? pending.proposal.note,
+        });
+        if (pending.proposal.shot) {
+          const shot = storeShot(pending.proposal.shot);
+          if (shot) components.addShot(owner.id, item.id, shot);
+        }
+        pushComponents(owner.id, owner.path);
+        pending.resolve(name);
         break;
       }
       case "component_update": {
@@ -1322,6 +1413,24 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           pushSkills(msg.projectId, note);
         } catch (err) {
           pushSkills(msg.projectId, String(err instanceof Error ? err.message : err));
+        }
+        break;
+      }
+      case "skill_read": {
+        try {
+          const body = readSkill(
+            msg.scope,
+            msg.projectId ? store.get(msg.projectId)?.path : undefined,
+            msg.name,
+          );
+          ws.send(JSON.stringify({ type: "skill_body", name: msg.name, scope: msg.scope, body } satisfies ServerMessage));
+        } catch (err) {
+          ws.send(JSON.stringify({
+            type: "skill_body",
+            name: msg.name,
+            scope: msg.scope,
+            body: `_${String(err instanceof Error ? err.message : err)}_`,
+          } satisfies ServerMessage));
         }
         break;
       }

@@ -1072,11 +1072,29 @@ input[type="range"]::-webkit-slider-thumb {
 /* Settings takes the pane. As a centred card it had a ceiling and kept
    hitting it — the model catalog alone is taller than a short window. */
 .settings-page {
+  position: relative; /* the drag strip is placed against this */
   animation: rise 160ms ease-out;
 }
 
-.settings-inner {
+/* two classes on purpose: .board-inner's padding shorthand comes later in
+   this file, and a longhand alone would lose to it */
+.board-inner.settings-inner {
   overflow-y: auto;
+  /* room to breathe under the titlebar: this page has no header bar over it,
+     and starting hard against the window's edge reads as a mistake */
+  padding-top: 64px;
+}
+
+.settings-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 46px;
+}
+
+.desktop .settings-drag {
+  -webkit-app-region: drag;
 }
 
 .settings-inner .settings-row:first-of-type {

@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Attachment, NamedComponent } from "../shared/protocol.js";
+import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
+import type { ComponentProposal, Attachment, NamedComponent } from "../shared/protocol.js";
 import { storedFilePath } from "./uploads.js";
 
 /**
@@ -15,6 +17,12 @@ import { storedFilePath } from "./uploads.js";
  * it wrong. This closes that gap from the other end: name a thing once, say
  * where it lives, pin a screenshot of it, and from then on the name is a
  * real address.
+ *
+ * Nothing here is typed by hand. The index fills itself from the one moment
+ * when both parties know what a thing is: the model has just built it, and
+ * it says so — a card comes up in the chat with a suggested name, the user
+ * edits it to whatever they will actually call it, and that is the name.
+ * Nobody has to remember a filename to write an entry.
  *
  * The index reaches the model two ways, both harness-neutral:
  *
@@ -88,13 +96,28 @@ export class ComponentStore {
     return this.load(projectId);
   }
 
-  add(projectId: string, name: string): NamedComponent {
+  /** Add one, or fold it into the entry of the same name if there is one —
+   *  a component built twice is one component with better notes. */
+  add(
+    projectId: string,
+    input: { name: string; files?: string[]; note?: string },
+  ): NamedComponent {
+    const name = input.name.trim();
+    const existing = this.load(projectId).find((i) => i.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      if (input.files?.length) {
+        existing.files = [...new Set([...existing.files, ...input.files])];
+      }
+      if (input.note?.trim()) existing.note = input.note.trim();
+      this.save(projectId);
+      return existing;
+    }
     const item: NamedComponent = {
       id: randomUUID(),
       name,
       aliases: [],
-      files: [],
-      note: "",
+      files: input.files ?? [],
+      note: input.note?.trim() ?? "",
       shots: [],
       ts: Date.now(),
     };
@@ -226,6 +249,137 @@ export function writeIndexFile(projectDir: string, items: NamedComponent[]): voi
   } catch {
     // a read-only project directory is not worth failing a save over
   }
+}
+
+/* ── how the model puts things in it ──────────────────────────────── */
+
+/** What naming a component needs from the app. Both calls take the CHANNEL
+ *  id — the card belongs in the session that raised it, and the app maps that
+ *  back to the project whose index it is. */
+export interface ComponentHost {
+  /** Put the card up and wait. Resolves with the name kept, or null if the
+   *  user waved it away. */
+  propose(channelId: string, proposal: ComponentProposal): Promise<string | null>;
+  /** What's already named, for "what component is what". */
+  list(channelId: string): NamedComponent[];
+}
+
+/** The tool names, auto-allowed: they ask the user themselves. */
+export const COMPONENT_TOOLS = ["mcp__ruri__name_component", "mcp__ruri__list_components"];
+
+/** The in-process MCP server a Claude project session gets. */
+export function componentTools(host: ComponentHost, channelId: string) {
+  return createSdkMcpServer({
+    name: "ruri",
+    version: "1.0.0",
+    tools: [
+      tool(
+        "name_component",
+        "Register a piece of this project's interface you have just built or substantially changed, so the user can refer to it by name from now on. Shows them a card with your suggested name; they edit it and confirm. Call it once per component, right after you finish it.",
+        {
+          name: z
+            .string()
+            .describe("Suggested name, in the words a user would use — 'the dragon gauges', not 'DragonGauge'"),
+          files: z
+            .array(z.string())
+            .describe("Where it lives: repo-relative paths, optionally with :line"),
+          note: z.string().describe("One line on what it is and anything to know before touching it"),
+          screenshot: z
+            .string()
+            .optional()
+            .describe("Absolute path of an image of it, if you already have one"),
+        },
+        async (args) => {
+          const kept = await host.propose(channelId, {
+            name: args.name,
+            files: args.files,
+            note: args.note,
+            ...(args.screenshot ? { shot: args.screenshot } : {}),
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: kept
+                  ? `The user named it "${kept}". Call it that from now on.`
+                  : "The user skipped naming this one.",
+              },
+            ],
+          };
+        },
+      ),
+      tool(
+        "list_components",
+        "List the parts of this project the user has named, with where each one lives. Use it when they refer to something by a name you don't recognise, or when they ask what exists.",
+        {},
+        async () => ({
+          content: [
+            {
+              type: "text",
+              text:
+                host
+                  .list(channelId)
+                  .map((item) => entryLines(item).join("\n"))
+                  .join("\n\n") || "(nothing named yet)",
+            },
+          ],
+        }),
+      ),
+    ],
+  });
+}
+
+/**
+ * The same thing for harnesses that can't hold ruri's tools: a drop file.
+ * One JSON object per line in `.ruri/components.jsonl`, applied and cleared
+ * when the turn ends — the same convention Home already uses for opening
+ * projects, so there is one pattern to learn rather than two.
+ */
+export function drainComponentRequests(
+  projectDir: string,
+  channelId: string,
+  host: ComponentHost,
+): void {
+  const file = path.join(projectDir, ".ruri", "components.jsonl");
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch {
+    return;
+  }
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    // a repeat next turn is harmless — the card is the user's to dismiss
+  }
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const req = JSON.parse(trimmed) as Partial<ComponentProposal>;
+      if (!req.name) continue;
+      void host.propose(channelId, {
+        name: req.name,
+        files: Array.isArray(req.files) ? req.files : [],
+        note: typeof req.note === "string" ? req.note : "",
+        ...(req.shot ? { shot: req.shot } : {}),
+      });
+    } catch {
+      // not JSON — skip the line
+    }
+  }
+}
+
+/** What a non-Claude session is told about naming things. */
+export function componentDropBriefing(projectDir: string): string {
+  return [
+    "<ruri:naming>",
+    "When you build or substantially change a piece of this project's interface, register it so the user can refer to it by name afterwards.",
+    `Append one JSON line to ${path.join(projectDir, ".ruri", "components.jsonl")} (create it if missing):`,
+    '  {"name": "the words a user would use for it", "files": ["path/to/file.tsx:40"], "note": "one line on what it is", "shot": "/absolute/path/to/a/screenshot.png (optional)"}',
+    "ruri reads and clears that file when your turn ends, and shows the user a card to confirm or rename. Do it once per component, and suggest the name they would use — 'the dragon gauges', not 'DragonGauge'.",
+    "</ruri:naming>",
+  ].join("\n");
 }
 
 /** The indexed components a prompt actually names. */

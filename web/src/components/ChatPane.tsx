@@ -32,6 +32,7 @@ import { RapidBar } from "./RapidFire";
 import { TerminalPanel } from "./Terminal";
 import { DragonGauges } from "./Dragon";
 import { Dropdown } from "./Dropdown";
+import { NameCard } from "./NameCard";
 import { QuestionCard } from "./Questions";
 import { Thinking } from "./Thinking";
 import { Tracker } from "./Tracker";
@@ -1166,7 +1167,6 @@ export function ChatPane({
         </div>
       </div>
       <div className="header-controls">
-        {rapid?.on && <RapidBar rapid={rapid} />}
         <button
           className={`icon-button ${page === "skills" ? "active" : ""}`}
           title="Skills — what this project and this machine load before working"
@@ -1216,6 +1216,7 @@ export function ChatPane({
           <HeroFace n={isHome ? launchHero : heroFor(storeProject?.id ?? activeId)} />
           <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
           <div className="hero-composer">
+            {rapid?.on && <RapidBar rapid={rapid} />}
             <Composer
               key={activeId}
               channelId={activeId}
@@ -1308,9 +1309,12 @@ export function ChatPane({
           )}
           {status === "working" && !draft && <Thinking />}
           {permissions.map((request) =>
-            // a question is not an allow/deny — it gets the picker, not the card
+            // neither a question nor a naming is an allow/deny — each gets
+            // its own card, and only a real tool call gets allow/deny
             request.kind === "question" ? (
               <QuestionCard key={request.requestId} request={request} />
+            ) : request.kind === "component" ? (
+              <NameCard key={request.requestId} request={request} />
             ) : (
               <PermissionBanner key={request.requestId} request={request} />
             ),
@@ -1368,6 +1372,7 @@ export function ChatPane({
       )}
 
       <div className="composer-dock" key={activeId} ref={observeDock}>
+        {rapid?.on && <RapidBar rapid={rapid} />}
         <Composer
           channelId={activeId}
           project={project}

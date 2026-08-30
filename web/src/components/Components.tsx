@@ -4,12 +4,18 @@ import { fileToBase64 } from "../lib/files";
 import { HTTP_BASE, send, useRuri } from "../store";
 
 /**
- * The component index: the user's names for the parts of a project.
+ * The component index: the user's names for the parts of a project — read
+ * here, but never typed here.
  *
  * Half of every "no, the OTHER one" is a naming problem — the user says "the
  * dragon gauges" and the model reads a repository that has never used those
  * words. Naming one here fixes the words to an address: files, a note, and a
  * picture. From then on the name is enough.
+ *
+ * Entries arrive from the chat: a session that has just built something
+ * calls ruri's naming tool, a card comes up with its suggested name, and
+ * what the user confirms is the entry. That is the only moment both sides
+ * are looking at the same thing, so it is the only moment worth asking.
  *
  * What the model does with it lives in server/components.ts: the index is
  * written into the project as `.ruri/components.md` for any harness to read,
@@ -150,14 +156,6 @@ function Card({ projectId, item }: { projectId: string; item: NamedComponent }) 
 
 export function Components({ projectId }: { projectId: string }) {
   const items = useRuri((s) => s.components[projectId]) ?? [];
-  const [name, setName] = useState("");
-
-  const add = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    send({ type: "component_add", projectId, name: trimmed });
-    setName("");
-  };
 
   return (
     <section className="board-page">
@@ -167,26 +165,13 @@ export function Components({ projectId }: { projectId: string }) {
           <span className="board-sub">{items.length} named</span>
         </div>
 
-        <div className="idea-add">
-          <input
-            placeholder="Name a part of this project…"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") add();
-            }}
-          />
-          <button className="ghost" disabled={!name.trim()} onClick={add}>
-            Name it
-          </button>
-        </div>
-
         <div className="comp-list">
           {items.length === 0 && (
             <div className="board-empty">
-              Nothing named yet. Give a part of the interface the name you actually use for it, say
-              where it lives, and drop a screenshot on it — then "the dragon gauges" is an address
-              instead of a guess.
+              Nothing named yet — and nothing is typed in here. When a session builds a piece of
+              this project's interface it says so, and a card comes up in the chat with a suggested
+              name; whatever you change it to is what it's called from then on. This page is where
+              they collect, to read and to correct.
             </div>
           )}
           {items.map((item) => (

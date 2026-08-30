@@ -235,7 +235,14 @@ function TimeField({ minutes, onChange }: { minutes: number; onChange(next: numb
   );
 }
 
-/** The settings panel: theme, workspace root, music folder, model catalog. */
+/**
+ * Settings: theme, workspace root, music folder, the vault, model catalog.
+ *
+ * It is a page, not a dialog. It was a dialog, and it kept growing — a card
+ * centred in the window has a ceiling, and past it the thing you came for is
+ * simply off screen. A page has the whole pane and scrolls, which is what a
+ * list of settings has always wanted.
+ */
 export function Settings({ onClose }: { onClose(): void }) {
   const workspaceDir = useRuri((s) => s.workspaceDir);
   const musicDir = useRuri((s) => s.musicDir);
@@ -275,19 +282,13 @@ export function Settings({ onClose }: { onClose(): void }) {
   };
 
   return (
-    <div
-      className="settings-overlay"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="settings-card">
-        <div className="settings-head">
-          <span className="settings-title">Settings</span>
-          <button className="icon-button" title="Close" onClick={onClose}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
+    <main className="chat settings-page">
+      <div className="board-inner settings-inner">
+        <div className="board-head">
+          <span className="board-title">Settings</span>
+          <span className="board-sub">this machine</span>
+          <button className="ghost" onClick={onClose}>
+            Done
           </button>
         </div>
 
@@ -383,6 +384,6 @@ export function Settings({ onClose }: { onClose(): void }) {
           <ModelCatalog />
         </div>
       </div>
-    </div>
+    </main>
   );
 }

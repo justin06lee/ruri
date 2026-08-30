@@ -263,6 +263,9 @@ interface RuriState {
   skillsBusy: boolean;
   /** What bmo said last. */
   skillsNote: string | null;
+  /** The skill whose SKILL.md is open, and its markdown. */
+  skillBody: { name: string; body: string } | null;
+  closeSkillBody(): void;
   /** App-side prompt queue per channel — held until the running turn ends. */
   queued: Record<string, QueuedPrompt[]>;
   /** Limit windows per provider id (percent used) for the usage gauges. */
@@ -271,6 +274,8 @@ interface RuriState {
   contexts: Record<string, ContextUsage>;
   /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
   rapid: boolean;
+  /** Settings has the whole pane when it's open — it outgrew a dialog. */
+  settingsOpen: boolean;
   /** Bumped per channel when text lands in its draft from outside (a review
    *  prompt, a rewound prompt) — a mounted composer re-reads the draft map. */
   draftBumps: Record<string, number>;
@@ -296,6 +301,7 @@ interface RuriState {
    *  ever showing you one, and this is you choosing another. */
   setActive(id: string | null): void;
   setRapid(on: boolean): void;
+  setSettingsOpen(on: boolean): void;
   clearPicked(): void;
   dismissError(): void;
 }
@@ -319,10 +325,12 @@ export const useRuri = create<RuriState>((set) => ({
   skillsFor: null,
   skillsBusy: false,
   skillsNote: null,
+  skillBody: null,
   queued: {},
   usage: {},
   contexts: {},
   rapid: false,
+  settingsOpen: false,
   draftBumps: {},
   workspaceDir: "",
   musicDir: "",
@@ -339,9 +347,16 @@ export const useRuri = create<RuriState>((set) => ({
       // Home is ephemeral: crossing its boundary (either direction) asks the
       // server to wipe it — ignored server-side while a turn is running.
       if ((s.activeId === HOME_ID) !== (id === HOME_ID)) send({ type: "reset_home" });
-      return { activeId: id, rapid: false, unread: id ? { ...s.unread, [id]: false } : s.unread };
+      return {
+        activeId: id,
+        rapid: false,
+        settingsOpen: false,
+        unread: id ? { ...s.unread, [id]: false } : s.unread,
+      };
     }),
   setRapid: (on) => set({ rapid: on }),
+  closeSkillBody: () => set({ skillBody: null }),
+  setSettingsOpen: (on) => set({ settingsOpen: on }),
   clearPicked: () => set({ picked: null }),
   dismissError: () => set({ lastError: null }),
 }));
@@ -537,6 +552,10 @@ function apply(msg: ServerMessage): void {
     }
     case "secrets": {
       setState({ secrets: msg.items });
+      break;
+    }
+    case "skill_body": {
+      setState({ skillBody: { name: msg.name, body: msg.body } });
       break;
     }
     case "skills": {

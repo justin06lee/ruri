@@ -1070,8 +1070,11 @@ input[type="range"]::-webkit-slider-thumb {
 .board-inner.settings-inner {
   overflow-y: auto;
   /* room to breathe under the titlebar: this page has no header bar over it,
-     and starting hard against the window's edge reads as a mistake */
+     and starting hard against the window's edge reads as a mistake. It puts
+     the header card exactly where every other page's card sits. */
   padding-top: 64px;
+  /* and the last setting is not the last pixel — the page scrolls past it */
+  padding-bottom: 56px;
 }
 
 .settings-drag {
@@ -1086,20 +1089,47 @@ input[type="range"]::-webkit-slider-thumb {
   -webkit-app-region: drag;
 }
 
-/* The header block is a card, not a heading, and wants clear air under it —
-   more than the gap between two rows of the same list.
-   Not :first-of-type: the head is a div too, and the first div in here is
-   the head, so `.settings-row:first-of-type` matched nothing at all and
-   this gap has never actually existed. The adjacent sibling is what was
-   meant, and it says it plainly. */
-.settings-inner .board-head + .settings-row {
-  margin-top: 56px;
+/* The same air every board page leaves under its header card, no more:
+   this page is one of them, not a special case.
+   (Not :first-of-type — the head is a div too, and the first div in here is
+   the head, so the old `.settings-row:first-of-type` matched nothing and
+   the gap it was supposed to hold never existed at all.) */
+.settings-inner .board-head + .settings-group {
+  margin-top: 22px;
 }
 
-/* the theme schedule: a row per theme, each with the time it takes over */
-.schedule {
+/* A settings page is groups of rows, not one long list of them: a quiet
+   heading, the handful of rows it covers, then air before the next. */
+.settings-group {
+  display: flex;
   flex-direction: column;
-  align-items: flex-end;
+}
+
+.settings-group + .settings-group {
+  margin-top: 26px;
+}
+
+.settings-group-name {
+  margin: 0 0 2px 2px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-faint);
+}
+
+/* one hairline between rows of a group, and none at its edges */
+.settings-group .settings-row + .settings-row {
+  border-top: 1px solid var(--line-faint);
+}
+
+/* The theme schedule: a row per theme, each with the time it takes over.
+   Both classes, and flex-start: `.settings-value` is written after this and
+   was quietly winning align-items, which left the On/Off toggle floating in
+   the middle of its row while every other value began at the same left edge. */
+.settings-value.schedule {
+  flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
 }
 
@@ -1122,7 +1152,6 @@ input[type="range"]::-webkit-slider-thumb {
 
 .schedule-name {
   width: 46px;
-  text-align: right;
   color: var(--ink);
 }
 
@@ -1178,7 +1207,14 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 8px 0;
+  min-height: 42px;
+  padding: 7px 0;
+}
+
+/* a row whose value grew into a block keeps its label at the top of it,
+   rather than floating halfway down beside nothing */
+.settings-row:has(.schedule-times) {
+  align-items: flex-start;
 }
 
 .settings-label {
@@ -1211,16 +1247,16 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── model catalog (star to pin into the composer picker) ────────── */
 
-.models-row {
-  align-items: flex-start;
-}
-
 .settings-models {
-  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding-top: 6px;
+}
+
+.vault {
+  padding-top: 6px;
 }
 
 .model-search {
@@ -1243,9 +1279,10 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 0 0 1.5px var(--ink) inset;
 }
 
+/* No inner scroller. The catalog is as long as it is and the page scrolls —
+   a list boxed to 250px inside a page that then fits exactly is the whole
+   reason this page felt like it was holding its breath. */
 .model-list {
-  max-height: 250px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }

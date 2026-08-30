@@ -238,7 +238,7 @@ function TimeField({ minutes, onChange }: { minutes: number; onChange(next: numb
 /* ── the schedule, as a clock ─────────────────────────────────────── */
 
 /** The dial's geometry, in its own 200×200 space. */
-const DIAL = { c: 100, ring: 70, band: 18, tick: 57, label: 38, hand: 30 };
+const DIAL = { c: 100, ring: 69, band: 21, tick: 54, label: 35, hand: 28 };
 
 /** Where a minute of the day sits on the dial. Midnight at the top, noon at
  *  the bottom, clockwise — a whole day to one turn. */
@@ -336,7 +336,7 @@ function ScheduleClock({
             cy={DIAL.c}
             r={DIAL.ring}
             fill="none"
-            strokeWidth={DIAL.band + 2.6}
+            strokeWidth={DIAL.band + 4}
           />
           <circle
             className={`dial-band ${order[0]}`}
@@ -355,7 +355,7 @@ function ScheduleClock({
               className={`${layer} ${theme}`}
               d={arcPath(DIAL.ring, schedule[theme], schedule[order[(i + 1) % order.length]!]!)}
               fill="none"
-              strokeWidth={layer === "dial-edge" ? DIAL.band + 2.6 : DIAL.band}
+              strokeWidth={layer === "dial-edge" ? DIAL.band + 4 : DIAL.band}
             />
           )),
         )
@@ -365,7 +365,7 @@ function ScheduleClock({
       {Array.from({ length: 24 }, (_, hour) => {
         const quarter = hour % 6 === 0;
         const [x1, y1] = atMinute(DIAL.tick, hour * 60);
-        const [x2, y2] = atMinute(DIAL.tick - (quarter ? 5 : 3), hour * 60);
+        const [x2, y2] = atMinute(DIAL.tick - (quarter ? 7 : 3.5), hour * 60);
         return (
           <line
             key={hour}
@@ -400,7 +400,7 @@ function ScheduleClock({
         x2={atMinute(DIAL.hand, now)[0]}
         y2={atMinute(DIAL.hand, now)[1]}
       />
-      <circle className="dial-pin" cx={DIAL.c} cy={DIAL.c} r={3} />
+      <circle className="dial-pin" cx={DIAL.c} cy={DIAL.c} r={3.4} />
 
       {/* one handle per boundary — drag it round to move that theme's start */}
       {THEMES.map((theme) => {
@@ -411,7 +411,7 @@ function ScheduleClock({
             className={`dial-grip ${theme}`}
             cx={x}
             cy={y}
-            r={7}
+            r={9}
             onPointerDown={(e) => {
               held.current = theme;
               e.currentTarget.releasePointerCapture?.(e.pointerId);

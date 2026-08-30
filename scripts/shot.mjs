@@ -60,8 +60,13 @@ await new Promise((resolve, reject) => {
 
 let nextId = 0;
 const pending = new Map();
+const listeners = new Map();
 ws.on("message", (raw) => {
   const message = JSON.parse(raw.toString());
+  if (message.method) {
+    for (const fn of listeners.get(message.method) ?? []) fn(message.params);
+    return;
+  }
   const waiting = pending.get(message.id);
   if (!waiting) return;
   pending.delete(message.id);
@@ -135,6 +140,32 @@ const page = {
   },
   enter() {
     return page.key("Enter", "Enter", 13, "\r");
+  },
+  /** Subscribe to a CDP event — the screencast below is the reason. */
+  on(method, fn) {
+    const set = listeners.get(method) ?? new Set();
+    set.add(fn);
+    listeners.set(method, set);
+    return () => set.delete(fn);
+  },
+  /**
+   * Every frame the browser actually paints, while `during` runs. rAF is
+   * throttled in a window that isn't in front, so counting frames from
+   * inside the page lies; this is the compositor's own output.
+   */
+  async record(during, dir) {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(dir, { recursive: true });
+    let n = 0;
+    const stop = page.on("Page.screencastFrame", (params) => {
+      writeFileSync(`${dir}/${String(n++).padStart(3, "0")}.png`, Buffer.from(params.data, "base64"));
+      void cdp("Page.screencastFrameAck", { sessionId: params.sessionId });
+    });
+    await cdp("Page.startScreencast", { format: "png", everyNthFrame: 1 });
+    await during();
+    await cdp("Page.stopScreencast");
+    stop();
+    return n;
   },
   wait: sleep,
   async shot(file) {

@@ -1086,10 +1086,14 @@ input[type="range"]::-webkit-slider-thumb {
   -webkit-app-region: drag;
 }
 
-/* the header block is a card, not a heading — the first row needs to read
-   as under it rather than stuck to it */
-.settings-inner .settings-row:first-of-type {
-  margin-top: 34px;
+/* The header block is a card, not a heading, and wants clear air under it —
+   more than the gap between two rows of the same list.
+   Not :first-of-type: the head is a div too, and the first div in here is
+   the head, so `.settings-row:first-of-type` matched nothing at all and
+   this gap has never actually existed. The adjacent sibling is what was
+   meant, and it says it plainly. */
+.settings-inner .board-head + .settings-row {
+  margin-top: 56px;
 }
 
 /* the theme schedule: a row per theme, each with the time it takes over */

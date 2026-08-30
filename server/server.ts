@@ -353,9 +353,15 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       broadcast({ type: "terminal_exit", projectId, termId, note }),
   });
   /** Where a channel's shell should start: its project, or the workspace. */
+  /** Where a channel's shells start: its project's directory.
+   *
+   *  A channel is a SESSION id, not a project id — this looked one up in the
+   *  project list, matched nothing, and fell back to the workspace root, so
+   *  every project's shell opened in the same place. Home is the exception
+   *  and genuinely belongs at the root: it manages the workspace itself. */
   function terminalCwd(channelId: string): string {
     if (channelId === HOME_ID) return store.workspaceDir();
-    return store.list().find((p) => p.id === channelId)?.path ?? store.workspaceDir();
+    return ownerProject(channelId)?.path ?? store.workspaceDir();
   }
 
   /**

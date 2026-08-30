@@ -2470,9 +2470,8 @@ input[type="range"]::-webkit-slider-thumb {
   justify-content: flex-end;
   gap: 8px;
   width: 100%;
-  max-width: 680px;
-  margin: 0 auto;
-  padding: 0 24px 8px;
+  /* right edge on the textbox's right edge, measured in RapidFire.tsx */
+  padding: 0 var(--rapid-inset, 24px) 8px 24px;
   pointer-events: auto;
   animation: rise 200ms ease-out;
 }
@@ -2491,7 +2490,7 @@ input[type="range"]::-webkit-slider-thumb {
   right: 0;
   bottom: calc(var(--composer-box-h) + 14px);
   z-index: 4;
-  padding: 0;
+  padding: 0 var(--rapid-inset, 0px) 0 0;
 }
 
 .chat.rapid-page .jump-latest {

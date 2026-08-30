@@ -96,7 +96,7 @@ One HTTP server carries everything: `GET /healthz`, `GET /music/playlists`, `GET
 
 - `desktop/main.ts` — Electron main: login-shell PATH recovery, window/menu/lifecycle, the native folder picker, and the cursor poll that drives the titlebar peek hover; esbuild bundles it together with the server, yagami, and the Agent SDK into a single file (`scripts/build-main.ts`).
 - `web/src/store.ts` — zustand store fed by the socket; drafts (streaming text) are kept separately from finalized transcript events.
-- `web/src/components/ChatPane.tsx` — transcript, turn grouping and compaction, permission cards, composer, tracker drawer.
+- `web/src/components/ChatPane.tsx` — transcript, turn grouping and compaction, permission cards, composer, tracker drawer. A long session is kept cheap to switch into: the tail paints first and the rest fills in on idle frames, every re-bottoming folds into one layout read per frame, and every turn above the last four gets `content-visibility` so the browser lays out what you're looking at rather than the whole history.
 - `web/src/components/RapidFire.tsx` — rapid fire: the client-side line of prompt-ready sessions, the hand-off timing, and the header bar. It renders no pane of its own — the chat pane takes the session it picks.
 - `server/brief.ts` — the catch-up brief: the store, and the `.ruri/catchup.md` it writes into each project.
 - `server/briefing.ts` — what every project session is told about ruri before it starts: the catch-up file, the component index, the vault. Pointers, never contents — none of it costs a token until the model opens it.
@@ -112,7 +112,7 @@ One HTTP server carries everything: `GET /healthz`, `GET /music/playlists`, `GET
 - `web/src/press.ts` — pointer capture on every pressable thing, so a press that starts on a button ends on that button however far the press animation moves it; a release well away from it still cancels.
 - `web/src/components/Player.tsx` + `web/src/lib/audio.ts` — the sidebar player and its two-deck Web Audio engine.
 - `web/src/components/Attachments.tsx` — composer thumbnails, the full-size viewer, and drag-to-annotate region crops.
-- `web/src/markdown.tsx` — marked + DOMPurify + highlight.js markdown renderer shared by messages, streaming drafts, and plan cards.
+- `web/src/markdown.tsx` — marked + DOMPurify + highlight.js markdown renderer shared by messages, streaming drafts, and plan cards. Finished text is cached by its own string, so a session you've read re-renders from HTML; a reply still being written renders on a throttle and skips the cache, since every prefix of it is thrown away a moment later.
 - `web/src/fixture.ts` — the canned `?fixture` state used for token-free UI work.
 
 ## Where things live

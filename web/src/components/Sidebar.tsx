@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { PEEKS } from "../peek";
 import { HOME_ID, type Project, type SessionInfo } from "../../../shared/protocol";
 import { Player } from "./Player";
@@ -185,7 +185,9 @@ function ProjectFolder({
   );
 }
 
-export function Sidebar() {
+/** Memoised: it takes no props, and everything it needs it selects for
+ *  itself — so a re-render of the app around it is never a reason to run. */
+export const Sidebar = memo(function Sidebar() {
   const projects = useRuri((s) => s.projects);
   const connected = useRuri((s) => s.connected);
   const user = useRuri((s) => s.user);
@@ -301,4 +303,4 @@ export function Sidebar() {
 
     </aside>
   );
-}
+});

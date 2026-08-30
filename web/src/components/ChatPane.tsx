@@ -855,6 +855,10 @@ const FIRST_TURNS = 6;
 const TURN_STEP = 30;
 /** How long the pane gets to itself before the filling in starts. */
 const SETTLE_MS = 120;
+/** How long after a gesture a scroll still counts as the user's doing. */
+const GESTURE_MS = 700;
+/** Frames a freshly opened session is held at its bottom while it settles. */
+const SETTLE_FRAMES = 8;
 /** Where the quiet filling stops. Past this, turns arrive because you
  *  scrolled back for them — a pane that has quietly materialised its whole
  *  history is a pane that costs that much to take down again on the way
@@ -1048,6 +1052,24 @@ export function ChatPane({
     if (el) el.scrollTo({ top: el.scrollHeight, behavior });
   };
 
+  /**
+   * When the view was last moved by a human.
+   *
+   * Half the scroll events in a session are nobody's doing: turns land above
+   * what's rendered, markdown reflows, images decode, the composer changes
+   * height. Reading "am I at the bottom?" off those and believing it is what
+   * left a freshly opened session parked in the middle of itself — one racy
+   * measurement during the switch set pinned to false, and from then on
+   * nothing would re-bottom it.
+   *
+   * So only a gesture may unpin the view. Everything else may re-pin it, and
+   * may never do the opposite.
+   */
+  const gestureRef = useRef(0);
+  const noteGesture = () => {
+    gestureRef.current = Date.now();
+  };
+
   // Scroll events arrive faster than the answer can change, and each one
   // reads three layout properties — measuring once a frame is enough.
   const scrollRead = useRef(false);
@@ -1058,9 +1080,10 @@ export function ChatPane({
       scrollRead.current = false;
       const el = scrollRef.current;
       if (!el) return;
-      const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-      pinnedRef.current = pinned;
-      setShowJump(!pinned);
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      if (nearBottom) pinnedRef.current = true;
+      else if (Date.now() - gestureRef.current < GESTURE_MS) pinnedRef.current = false;
+      setShowJump(!nearBottom && !pinnedRef.current);
       // reading back through the session pulls the older turns in as you go
       if (el.scrollTop < 600) setRenderedTurns((shown) => shown + TURN_STEP);
     });
@@ -1070,10 +1093,25 @@ export function ChatPane({
   useLayoutEffect(() => {
     if (pinnedRef.current) scrollToBottom();
   }, [transcript.length, draft?.text, permissions.length, status, queuedItems.length]);
+
+  // Opening a session means opening it at the last thing said. The one
+  // scroll at render time is not enough on its own: the tail is still
+  // settling behind it — the window fills back in, markdown lays out, the
+  // composer measures itself — so the bottom keeps moving for a few frames.
+  // This holds it there until it stops moving, and stands down the moment
+  // the user scrolls.
   useLayoutEffect(() => {
     pinnedRef.current = true;
+    gestureRef.current = 0;
     setShowJump(false);
     scrollToBottom();
+    let frames = 0;
+    let raf = requestAnimationFrame(function settle() {
+      if (!pinnedRef.current || frames++ > SETTLE_FRAMES) return;
+      scrollToBottom();
+      raf = requestAnimationFrame(settle);
+    });
+    return () => cancelAnimationFrame(raf);
   }, [activeId]);
 
   // Content keeps growing after the render-time scroll (images decode,
@@ -1260,7 +1298,15 @@ export function ChatPane({
       {/* the holder ends where the composer begins, so the jump pill always
           floats just above the composer no matter how tall it grows */}
       <div className="transcript-holder">
-      <div className="transcript" ref={scrollRef} onScroll={onScroll}>
+      <div
+        className="transcript"
+        ref={scrollRef}
+        onScroll={onScroll}
+        onWheel={noteGesture}
+        onTouchMove={noteGesture}
+        onPointerDown={noteGesture}
+        onKeyDown={noteGesture}
+      >
         <div className="transcript-inner" ref={observeInner}>
           {shownTurns.map((turn) => {
             const summary = summaries[turn.turnId];

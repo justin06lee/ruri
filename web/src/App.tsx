@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { ChatPane } from "./components/ChatPane";
+import { Settings } from "./components/Settings";
 import { useRapidFire } from "./components/RapidFire";
 import { Sidebar } from "./components/Sidebar";
 import { prewarmMarkdown } from "./markdown";
@@ -68,12 +69,18 @@ export function App() {
   // line has to outlive that.
   const rapid = useRapidFire();
   const showing = rapid.on ? rapid.current : undefined;
+  const settingsOpen = useRuri((s) => s.settingsOpen);
+  const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
   usePrewarm();
 
   return (
     <div className="app">
       <Sidebar />
-      <ChatPane key={showing ?? "active"} {...(showing ? { channelId: showing } : {})} rapid={rapid} />
+      {settingsOpen ? (
+        <Settings onClose={() => setSettingsOpen(false)} />
+      ) : (
+        <ChatPane key={showing ?? "active"} {...(showing ? { channelId: showing } : {})} rapid={rapid} />
+      )}
       {/* the hand-off card sits over the pane, not inside it: the pane
           remounts underneath while this is up, which is the point */}
       {rapid.intro && (

@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { PEEKS } from "../peek";
 import { HOME_ID, type Project, type SessionInfo } from "../../../shared/protocol";
 import { Player } from "./Player";
-import { Settings } from "./Settings";
 import { send, useRuri } from "../store";
 
 function HomeRow() {
@@ -190,7 +189,8 @@ export function Sidebar() {
   const connected = useRuri((s) => s.connected);
   const user = useRuri((s) => s.user);
   const [expandedSet, setExpandedSet] = useState<Set<string>>(loadExpanded);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsOpen = useRuri((s) => s.settingsOpen);
+  const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
 
   // Desktop hover-over-drag: the titlebar drag region never delivers mouse
   // events to the page, so Electron's main process polls the cursor and
@@ -286,7 +286,11 @@ export function Sidebar() {
         </svg>
         <span className="account-name">{user || "account"}</span>
         {!connected && <span className="conn off" title="Reconnecting…" />}
-        <button className="icon-button" title="Settings" onClick={() => setSettingsOpen(true)}>
+        <button
+          className={`icon-button ${settingsOpen ? "active" : ""}`}
+          title="Settings"
+          onClick={() => setSettingsOpen(!settingsOpen)}
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
@@ -294,7 +298,6 @@ export function Sidebar() {
         </button>
       </div>
 
-      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </aside>
   );
 }

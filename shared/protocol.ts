@@ -207,6 +207,25 @@ export interface SecretMeta {
   updated: number;
 }
 
+/**
+ * A component the model has just built, on its way to being named.
+ *
+ * The model proposes; the user names. Nobody remembers what a file is
+ * called, and everybody remembers what a thing looks like — so the moment a
+ * new piece of interface exists is the moment to write down what it will be
+ * called from then on, while both parties are looking straight at it.
+ */
+export interface ComponentProposal {
+  /** What the model suggests calling it, in the user's kind of words. */
+  name: string;
+  /** Where it lives — "web/src/components/Dragon.tsx:40". */
+  files: string[];
+  /** One line on what it is. */
+  note: string;
+  /** An image of it the model already has, as an absolute path. */
+  shot?: string;
+}
+
 /** An installed Claude Code skill, global or local to one project. */
 export interface SkillInfo {
   /** Folder name under skills/ — what `bmo remove` takes. */
@@ -354,8 +373,12 @@ export interface PermissionRequest {
    * AskUserQuestion and `input` is an {@link AskQuestions}. It rides the
    * permission channel because that channel already survives reconnects,
    * but it answers with `question_response`, never `permission_response`.
+   *
+   * "component" is the same trick again: the model made something and is
+   * asking what to call it. `input` is a {@link ComponentProposal}, and it
+   * answers with `component_named`.
    */
-  kind?: "permission" | "question";
+  kind?: "permission" | "question" | "component";
   ts: number;
 }
 
@@ -450,7 +473,15 @@ export type ClientMessage =
   | { type: "idea_update"; projectId: string; ideaId: string; text?: string; done?: boolean }
   | { type: "idea_remove"; projectId: string; ideaId: string }
   /* ── the component index (per PROJECT id) ───────────────────────── */
-  | { type: "component_add"; projectId: string; name: string }
+  /** Answer a naming card: the name the user settled on, or skip. */
+  | {
+      type: "component_named";
+      requestId: string;
+      name?: string;
+      files?: string[];
+      note?: string;
+      skip?: boolean;
+    }
   | {
       type: "component_update";
       projectId: string;
@@ -478,6 +509,8 @@ export type ClientMessage =
   | { type: "skill_remove"; projectId?: string; scope: "global" | "project"; name: string }
   /** `bmo update` — pull whatever the sources changed. */
   | { type: "skill_update"; projectId?: string }
+  /** Read one skill's SKILL.md, for the page to render. */
+  | { type: "skill_read"; projectId?: string; scope: "global" | "project"; name: string }
   | { type: "tracker_add"; projectId: string; text: string; note?: string }
   | {
       type: "tracker_update";
@@ -559,6 +592,8 @@ export type ServerMessage =
   /** Installed skills: every global one, plus the named project's own.
    *  `note` carries what bmo said when a command just ran. */
   | { type: "skills"; projectId?: string; skills: SkillInfo[]; note?: string; busy?: boolean }
+  /** One skill's SKILL.md, frontmatter stripped — markdown, to be rendered. */
+  | { type: "skill_body"; name: string; scope: "global" | "project"; body: string }
   | { type: "tracker"; projectId: string; items: TrackerItem[] }
   | { type: "workspace"; path: string }
   | { type: "music_dir"; path: string }

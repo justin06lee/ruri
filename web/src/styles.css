@@ -1167,11 +1167,25 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .dial {
-  width: 172px;
-  height: 172px;
+  width: 196px;
+  height: 196px;
   flex-shrink: 0;
   touch-action: none;
   overflow: visible;
+}
+
+/* Nothing here is text to be read as text. Dragging a mark used to start a
+   selection instead — the hour labels highlighting, the legend beside them
+   coming along with it, and the whole lot then draggable as a lump — which
+   made a 9px knob far harder to catch than it should be. */
+.schedule-face,
+.dial text {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.dial * {
+  -webkit-user-drag: none;
 }
 
 /* Each stretch of the day in the theme that owns it — its own paper, edged
@@ -1207,26 +1221,27 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .dial-tick {
-  stroke: var(--ink-faint);
-  stroke-width: 1;
+  stroke: var(--ink-soft);
+  stroke-width: 1.4;
 }
 
 .dial-tick.quarter {
-  stroke: var(--ink-soft);
-  stroke-width: 1.6;
+  stroke: var(--ink);
+  stroke-width: 2.4;
 }
 
 .dial-hour {
-  fill: var(--ink-faint);
+  fill: var(--ink-soft);
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 9.5px;
+  font-weight: 600;
   text-anchor: middle;
 }
 
 /* where the day actually is, so the schedule can be read against now */
 .dial-now {
   stroke: var(--ink);
-  stroke-width: 1.6;
+  stroke-width: 2.4;
   stroke-linecap: round;
 }
 
@@ -1234,11 +1249,25 @@ input[type="range"]::-webkit-slider-thumb {
   fill: var(--ink);
 }
 
-/* the boundary you drag: a ring of the theme it starts */
+/* The boundary you drag: the theme it starts, ringed in that theme's own
+   ink — the same pairing as the band, and the only ring that shows up on a
+   band this dark. Ringed in the page's ink instead, a dark grip on the dark
+   band was a black disc with a black outline. */
 .dial-grip {
-  stroke: var(--ink);
-  stroke-width: 1.6;
+  stroke-width: 2.4;
   cursor: grab;
+}
+
+.dial-grip.light {
+  stroke: var(--theme-light-ink);
+}
+
+.dial-grip.dark {
+  stroke: var(--theme-dark-ink);
+}
+
+.dial-grip.ember {
+  stroke: var(--theme-ember-ink);
 }
 
 .dial-grip:active {
@@ -1258,7 +1287,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .dial-grip:hover {
-  stroke-width: 2.4;
+  stroke-width: 3.4;
 }
 
 .schedule-times {

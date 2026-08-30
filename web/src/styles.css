@@ -1079,22 +1079,31 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* two classes on purpose: .board-inner's padding shorthand comes later in
    this file, and a longhand alone would lose to it */
-.board-inner.settings-inner {
+/* The pane scrolls, not the column of settings inside it.
+   The column is 800px and centred, so when it was the scrolling element the
+   wheel did nothing at all unless the pointer happened to be over it — and
+   most of this page, either side of that column, is empty. */
+.settings-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  /* room to breathe under the titlebar: this page has no header bar over it,
-     and starting hard against the window's edge reads as a mistake. It puts
-     the header card exactly where every other page's card sits. */
-  padding-top: 64px;
-  /* and the last setting is not the last pixel — the page scrolls past it */
+}
+
+.board-inner.settings-inner {
+  /* the pane above does the scrolling; this is as tall as its contents */
+  flex: none;
+  /* the last setting is not the last pixel — the page scrolls past it */
   padding-bottom: 56px;
 }
 
+/* Room to breathe under the titlebar: this page has no header bar over it,
+   and starting hard against the window's edge reads as a mistake. A band of
+   its own rather than a sheet over the top, so the settings scroll up to it
+   and stop, instead of sliding under a strip that would swallow the click
+   and drag the window. */
 .settings-drag {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
   height: 46px;
+  flex-shrink: 0;
 }
 
 .desktop .settings-drag {

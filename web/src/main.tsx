@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { installPressGuard } from "./press";
 import { initTheme, startThemeClock } from "./theme";
 import "@fontsource-variable/space-grotesk";
 import "./styles.css";
@@ -8,6 +9,8 @@ initTheme();
 // and keep it in step, for a schedule that turns the page while you work
 startThemeClock();
 if (navigator.userAgent.includes("Electron")) document.body.classList.add("desktop");
+// a press that starts on a button ends on it, however far the button moves
+installPressGuard();
 
 // A file dropped outside a drop zone must never navigate the window to the
 // file (which would blank the whole app); targeted handlers run first and

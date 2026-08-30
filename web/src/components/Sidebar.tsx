@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PEEKS } from "../peek";
 import { HOME_ID, type Project, type SessionInfo } from "../../../shared/protocol";
 import { Player } from "./Player";
+import { getPref, setPref } from "../prefs";
 import { send, useRuri } from "../store";
 
 function HomeRow() {
@@ -97,7 +98,7 @@ function SessionRow({ session }: { session: SessionInfo }) {
 /** Folders are folded by default — only ones the user opened are stored. */
 function loadExpanded(): Set<string> {
   try {
-    return new Set(JSON.parse(localStorage.getItem("ruri-expanded") ?? "[]") as string[]);
+    return new Set(JSON.parse(getPref("ruri-expanded") ?? "[]") as string[]);
   } catch {
     return new Set();
   }
@@ -221,7 +222,7 @@ export function Sidebar() {
     else next.add(name);
     setExpandedSet(next);
     try {
-      localStorage.setItem("ruri-expanded", JSON.stringify([...next]));
+      setPref("ruri-expanded", JSON.stringify([...next]));
     } catch {
       // preference just won't persist
     }

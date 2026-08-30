@@ -23,6 +23,7 @@ import {
   type UsageLimits,
 } from "../../shared/protocol";
 import type { ComposerAttachment } from "./components/Attachments";
+import { hydratePrefs } from "./prefs";
 import { fileToBase64 } from "./lib/files";
 
 export interface Draft {
@@ -45,9 +46,9 @@ export interface ComposerDraft {
 export const composerDrafts = new Map<string, ComposerDraft>();
 
 /* A half-written prompt outlives the app, attachments included. The server
-   holds it — the window's own storage cannot: the app serves itself on a
-   fresh port every launch, so localStorage lands under a different origin
-   each time. */
+   holds it — the window's own storage could not carry the files even if it
+   wanted to, and everything else the window keeps for itself is backed by
+   the server too (see ./prefs). */
 const draftTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** Channels this window has actually had a draft for. A composer mounts
  *  empty and immediately saves that emptiness; without this, that first
@@ -430,6 +431,9 @@ function apply(msg: ServerMessage): void {
   const { setState } = useRuri;
   switch (msg.type) {
     case "snapshot": {
+      // The machine's copy of the window's preferences, ahead of everything
+      // else in here: the theme is on screen already and may be the wrong one.
+      hydratePrefs(msg.prefs);
       // Unsent prompts come back where they were left. A channel already
       // being typed in wins over the stored copy — the server's is at most
       // a debounce behind, and what's on screen is the truth.
@@ -586,6 +590,10 @@ function apply(msg: ServerMessage): void {
     }
     case "home_settings": {
       setState({ home: msg.home });
+      break;
+    }
+    case "prefs": {
+      hydratePrefs(msg.prefs);
       break;
     }
     case "starred_models": {

@@ -1069,6 +1069,8 @@ export function ChatPane({
   const noteGesture = () => {
     gestureRef.current = Date.now();
   };
+  /** Where the view was last time, so a move upward can be recognised. */
+  const lastTopRef = useRef(0);
 
   // Scroll events arrive faster than the answer can change, and each one
   // reads three layout properties — measuring once a frame is enough.
@@ -1081,8 +1083,14 @@ export function ChatPane({
       const el = scrollRef.current;
       if (!el) return;
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      // A view that moved *up* was moved by someone: content landing above
+      // pushes scrollTop down the page, never up, and content going away
+      // only ever clamps it to the bottom (where nearBottom catches it).
+      // This is what makes page-up work without the transcript having focus.
+      const wentUp = el.scrollTop < lastTopRef.current - 2;
+      lastTopRef.current = el.scrollTop;
       if (nearBottom) pinnedRef.current = true;
-      else if (Date.now() - gestureRef.current < GESTURE_MS) pinnedRef.current = false;
+      else if (wentUp || Date.now() - gestureRef.current < GESTURE_MS) pinnedRef.current = false;
       setShowJump(!nearBottom && !pinnedRef.current);
       // reading back through the session pulls the older turns in as you go
       if (el.scrollTop < 600) setRenderedTurns((shown) => shown + TURN_STEP);
@@ -1103,6 +1111,7 @@ export function ChatPane({
   useLayoutEffect(() => {
     pinnedRef.current = true;
     gestureRef.current = 0;
+    lastTopRef.current = 0;
     setShowJump(false);
     scrollToBottom();
     let frames = 0;

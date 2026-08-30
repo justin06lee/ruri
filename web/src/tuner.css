@@ -301,3 +301,18 @@
   align-items: center;
   gap: 5px;
 }
+
+/* One per item, never one for everything: each head and each face goes back
+   to what the file holds on its own, and greys out when it already does. */
+.revert {
+  /* beside the numbers it puts back, not shoved to the far edge of a row
+     that runs the width of the window */
+  margin-left: 6px;
+  font-size: 11px;
+  padding: 3px 9px;
+}
+
+.revert:disabled {
+  opacity: 0.35;
+  cursor: default;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRuri } from "../store";
 
 /**
@@ -191,8 +191,33 @@ export function useRapidFire(): RapidFire {
  */
 export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boolean }) {
   const setRapid = useRuri((s) => s.setRapid);
+  const barRef = useRef<HTMLDivElement>(null);
+
+  /* Line the plate's right edge up with the textbox below it. The textbox is
+     centred between the dragons rather than filling the pane, so its right
+     edge is wherever those work out to — a fixed padding here lands next to
+     it, never on it. Measured from the real thing, and kept in step: the
+     dragons change height, the box grows with a long prompt. */
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    const pane = bar?.closest("main");
+    const box = pane?.querySelector(".composer-box");
+    if (!bar || !pane || !box) return;
+    const align = () => {
+      const inset = Math.round(
+        pane.getBoundingClientRect().right - box.getBoundingClientRect().right,
+      );
+      bar.style.setProperty("--rapid-inset", `${inset}px`);
+    };
+    align();
+    const observer = new ResizeObserver(align);
+    observer.observe(pane);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [floating]);
+
   return (
-    <div className={`rapid-bar ${floating ? "floating" : ""}`}>
+    <div className={`rapid-bar ${floating ? "floating" : ""}`} ref={barRef}>
       {/* a plate of its own: this floats over the transcript, and without a
           surface under it the conversation reads straight through the text */}
       <div className="rapid-plate">

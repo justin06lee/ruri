@@ -475,8 +475,13 @@ export function Settings({ onClose }: { onClose(): void }) {
   return (
     <main className="chat settings-page">
       {/* every other page has a header bar to drag the window by; this one
-          has open air instead, so the air does the job */}
+          has open air instead, so the air does the job — as a band of its
+          own above the scroller, not a sheet laid over it, so nothing ever
+          scrolls underneath it to be clicked at and dragged instead */}
       <div className="settings-drag" aria-hidden />
+      {/* the whole pane scrolls, edge to edge; the settings themselves stay
+          a centred column inside it */}
+      <div className="settings-scroll">
       <div className="board-inner settings-inner">
         <div className="board-head">
           <span className="board-title">Settings</span>
@@ -598,6 +603,7 @@ export function Settings({ onClose }: { onClose(): void }) {
           <h2 className="settings-group-name">Models</h2>
           <ModelCatalog />
         </section>
+      </div>
       </div>
     </main>
   );

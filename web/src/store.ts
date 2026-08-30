@@ -272,6 +272,8 @@ interface RuriState {
   usage: Record<string, UsageLimits>;
   /** Context-window occupancy per channel. */
   contexts: Record<string, ContextUsage>;
+  /** Shell tab ids per channel, in the order the tab row shows them. */
+  terminals: Record<string, string[]>;
   /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
   rapid: boolean;
   /** Settings has the whole pane when it's open — it outgrew a dialog. */
@@ -327,6 +329,7 @@ export const useRuri = create<RuriState>((set) => ({
   skillsNote: null,
   skillBody: null,
   queued: {},
+  terminals: {},
   usage: {},
   contexts: {},
   rapid: false,
@@ -383,21 +386,23 @@ export type TerminalMessage =
 
 const terminalListeners = new Map<string, Set<(message: TerminalMessage) => void>>();
 
+/** Listen to one tab's shell. Tab ids are unique across every channel, so
+ *  this is the whole routing table. */
 export function onTerminal(
-  channelId: string,
+  termId: string,
   listener: (message: TerminalMessage) => void,
 ): () => void {
-  const listeners = terminalListeners.get(channelId) ?? new Set();
+  const listeners = terminalListeners.get(termId) ?? new Set();
   listeners.add(listener);
-  terminalListeners.set(channelId, listeners);
+  terminalListeners.set(termId, listeners);
   return () => {
     listeners.delete(listener);
-    if (listeners.size === 0) terminalListeners.delete(channelId);
+    if (listeners.size === 0) terminalListeners.delete(termId);
   };
 }
 
-function emitTerminal(channelId: string, message: TerminalMessage): void {
-  for (const listener of terminalListeners.get(channelId) ?? []) listener(message);
+function emitTerminal(termId: string, message: TerminalMessage): void {
+  for (const listener of terminalListeners.get(termId) ?? []) listener(message);
 }
 
 export function send(message: ClientMessage): void {
@@ -508,7 +513,7 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "terminal_data": {
-      emitTerminal(msg.projectId, {
+      emitTerminal(msg.termId, {
         kind: "data",
         data: msg.data,
         ...(msg.replay ? { replay: true } : {}),
@@ -516,7 +521,11 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "terminal_exit": {
-      emitTerminal(msg.projectId, { kind: "exit", note: msg.note });
+      emitTerminal(msg.termId, { kind: "exit", note: msg.note });
+      break;
+    }
+    case "terminal_tabs": {
+      setState((s) => ({ terminals: { ...s.terminals, [msg.projectId]: msg.tabs } }));
       break;
     }
     case "usage": {

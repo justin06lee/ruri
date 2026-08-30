@@ -4274,8 +4274,115 @@ button.stop:hover {
    width, just taller, so switching modes moves nothing else. */
 .terminal {
   height: 300px;
-  padding: 4px 2px 2px;
+  padding: 3px 2px 2px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* the row of shells, numbered — a project can have as many as it needs */
+.term-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 2px 3px;
+  border-bottom: 1px solid var(--line-faint);
+  flex-shrink: 0;
+}
+
+.term-tab {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-s);
+  color: var(--ink-faint);
+}
+
+.term-tab.on {
+  background: var(--line-faint);
+  color: var(--ink);
+}
+
+.term-tabs button {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  color: inherit;
+  border-radius: var(--radius-s);
+}
+
+.term-tabs button:hover {
+  background: none;
+  color: var(--ink);
+}
+
+.term-tab-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 5px 4px 7px !important;
+}
+
+.term-tab-close,
+.term-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  opacity: 0.55;
+}
+
+/* the × belongs to the tab you're on or the one under the pointer — on all
+   of them at once it reads as a row of closes rather than a row of shells */
+.term-tab-close {
+  margin-right: 3px;
+  opacity: 0;
+  transition: opacity 100ms ease-out;
+}
+
+.term-tab.on .term-tab-close,
+.term-tab:hover .term-tab-close {
+  opacity: 0.55;
+}
+
+.term-add {
+  margin-left: 2px;
+}
+
+.term-tab-close:hover,
+.term-add:hover {
+  opacity: 1;
+}
+
+.term-tab-close svg,
+.term-add svg {
+  width: 10px;
+  height: 10px;
+}
+
+.term-add svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Every open shell stays mounted at the same size — one on top, the rest
+   drawing away underneath it. Switching tabs is then instant, and a long
+   command keeps painting while you look at another shell. */
+.term-stack {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.terminal-view {
+  position: absolute;
+  inset: 0;
+}
+
+.terminal-view.hidden {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .terminal .xterm-viewport {

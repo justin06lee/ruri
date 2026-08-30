@@ -453,13 +453,17 @@ export type ClientMessage =
       attachments?: DraftAttachmentUpload[];
     }
   | { type: "interrupt"; projectId: string }
-  /* ── the composer's terminal mode: one shell per channel ────────── */
-  /** Start this channel's shell (or attach to the running one). */
-  | { type: "terminal_open"; projectId: string; cols: number; rows: number }
-  | { type: "terminal_input"; projectId: string; data: string }
-  | { type: "terminal_resize"; projectId: string; cols: number; rows: number }
-  /** Kill it — the shell is gone, not just hidden. */
-  | { type: "terminal_close"; projectId: string }
+  /* ── the composer's terminal mode: tabs of shells per channel ───── */
+  /** What tabs this channel has — answered with `terminal_tabs`. */
+  | { type: "terminal_list"; projectId: string }
+  /** Open one more tab on this channel; the answer is the new tab list. */
+  | { type: "terminal_new"; projectId: string }
+  /** Start this tab's shell (or attach to the running one). */
+  | { type: "terminal_open"; projectId: string; termId: string; cols: number; rows: number }
+  | { type: "terminal_input"; projectId: string; termId: string; data: string }
+  | { type: "terminal_resize"; projectId: string; termId: string; cols: number; rows: number }
+  /** Kill it — the shell is gone and the tab with it, not just hidden. */
+  | { type: "terminal_close"; projectId: string; termId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   /** The answer to an AskUserQuestion card. `answers` absent = dismissed,
    *  which lets the turn continue with the model told nothing was chosen. */
@@ -619,7 +623,9 @@ export type ServerMessage =
   | { type: "permission_request"; request: PermissionRequest }
   | { type: "permission_resolved"; requestId: string }
   | { type: "models"; models: ModelChoice[] }
+  /** This channel's shell tabs, in the order they are shown. */
+  | { type: "terminal_tabs"; projectId: string; tabs: string[] }
   /** Shell output. `replay` marks the scrollback a fresh attach gets. */
-  | { type: "terminal_data"; projectId: string; data: string; replay?: boolean }
-  | { type: "terminal_exit"; projectId: string; note: string }
+  | { type: "terminal_data"; projectId: string; termId: string; data: string; replay?: boolean }
+  | { type: "terminal_exit"; projectId: string; termId: string; note: string }
   | { type: "error"; message: string };

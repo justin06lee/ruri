@@ -115,7 +115,9 @@ function runSync(command: string, args: string[], cwd: string): string {
   return execFileSync(command, args, {
     cwd,
     encoding: "utf8",
-    timeout: 20_000,
+    // this one blocks the loop, so it is kept short — the filesystem scan
+    // already answered; bmo is only being asked where things came from
+    timeout: 5_000,
     // bmo is a Go binary in ~/go/bin, which a GUI app's PATH often misses
     env: { ...process.env, PATH: `${process.env["PATH"] ?? ""}:${path.join(os.homedir(), "go", "bin")}:/opt/homebrew/bin:/usr/local/bin` },
   });

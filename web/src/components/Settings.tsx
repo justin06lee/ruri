@@ -283,6 +283,9 @@ export function Settings({ onClose }: { onClose(): void }) {
 
   return (
     <main className="chat settings-page">
+      {/* every other page has a header bar to drag the window by; this one
+          has open air instead, so the air does the job */}
+      <div className="settings-drag" aria-hidden />
       <div className="board-inner settings-inner">
         <div className="board-head">
           <span className="board-title">Settings</span>

@@ -100,7 +100,8 @@ function PeekBand({
         ))}
       </div>
       <p className="hint">
-        drag a head to move it · scroll over it to resize · the band is the real 264×46 titlebar
+        drag a head to move it · scroll over it to resize · the band is the real 264×46 titlebar ·
+        each row's reset puts that one head back to what peek.ts holds
       </p>
     </div>
   );
@@ -111,15 +112,23 @@ function PeekBand({
 /** The circle's real size in the app — a drag is stored as percent of it. */
 const CIRCLE = 132;
 
+/** Whether two records hold the same numbers — what greys out a reset. */
+function same<T extends object>(a: T, b: T): boolean {
+  return (Object.keys(a) as Array<keyof T>).every((k) => a[k] === b[k]);
+}
+
 function HeroCircle({
   n,
   frame,
+  saved,
   picked,
   onPick,
   onChange,
 }: {
   n: number;
   frame: HeroFrame;
+  /** What peek.ts holds for this face right now — what reset goes back to. */
+  saved: HeroFrame;
   picked: boolean;
   onPick(): void;
   onChange(next: HeroFrame): void;
@@ -197,6 +206,14 @@ function HeroCircle({
       <div className="hero-buttons">
         <button onClick={() => onChange({ ...HERO_CENTER })}>fit</button>
         <button onClick={() => onChange({ x: 0, y: 0, zoom: fillZoom() })}>fill</button>
+        <button
+          className="revert"
+          title={`back to what peek.ts holds: x ${saved.x}, y ${saved.y}, zoom ${saved.zoom}`}
+          disabled={same(frame, saved)}
+          onClick={() => onChange({ ...saved })}
+        >
+          reset
+        </button>
       </div>
     </div>
   );
@@ -361,13 +378,24 @@ function fileText(peeks: Peek[], frames: Record<number, HeroFrame>): string {
   ].join("\n");
 }
 
+/** Every face's frame as peek.ts holds it — the ones it doesn't mention are
+ *  centred at their fitted size. */
+function framesFromFile(): Record<number, HeroFrame> {
+  const all: Record<number, HeroFrame> = {};
+  for (let n = 1; n <= HERO_COUNT; n++) all[n] = { ...(HERO_FRAMES[n] ?? HERO_CENTER) };
+  return all;
+}
+
 function Tuner() {
   const [peeks, setPeeks] = useState<Peek[]>(PEEKS);
-  const [frames, setFrames] = useState<Record<number, HeroFrame>>(() => {
-    const all: Record<number, HeroFrame> = {};
-    for (let n = 1; n <= HERO_COUNT; n++) all[n] = HERO_FRAMES[n] ?? { ...HERO_CENTER };
-    return all;
-  });
+  const [frames, setFrames] = useState<Record<number, HeroFrame>>(framesFromFile);
+  /* What a reset goes back to: the values as the file holds them. Every one
+     of these numbers took a while to find by hand, and a stray scroll over
+     the wrong head could throw one away with nothing to compare against —
+     so each item can go back on its own, without touching the rest. Saving
+     moves the mark, because after a save the file is what it says here. */
+  const [savedPeeks, setSavedPeeks] = useState<Peek[]>(() => PEEKS.map((p) => ({ ...p })));
+  const [savedFrames, setSavedFrames] = useState<Record<number, HeroFrame>>(framesFromFile);
   const [selected, setSelected] = useState(1);
   /** The arrows nudge whichever list was touched last. */
   const [aim, setAim] = useState<"peek" | "hero">("peek");
@@ -400,6 +428,11 @@ function Tuner() {
         body,
       });
       setSaved(res.ok ? "written to src/peek.ts" : `save failed (${res.status})`);
+      // the file now says this, so this is what reset goes back to
+      if (res.ok) {
+        setSavedPeeks(peeks.map((p) => ({ ...p })));
+        setSavedFrames(Object.fromEntries(Object.entries(frames).map(([n, f]) => [n, { ...f }])));
+      }
     } catch {
       setSaved("save failed — is the dev server running?");
     }
@@ -464,7 +497,8 @@ function Tuner() {
         <h2>the hero faces in their circles</h2>
         <p className="hint">
           drag a face to move it · scroll over it to resize · arrows nudge the picked one ·
-          fit shows the whole picture, fill covers the circle · double-click resets
+          fit shows the whole picture, fill covers the circle · double-click centres it ·
+          reset puts that one face back to what peek.ts holds
         </p>
         <div className="hero-grid">
           {Array.from({ length: HERO_COUNT }, (_, i) => i + 1).map((n) => (
@@ -472,6 +506,7 @@ function Tuner() {
               key={n}
               n={n}
               frame={frames[n] ?? HERO_CENTER}
+              saved={savedFrames[n] ?? HERO_CENTER}
               picked={heroPick === n}
               onPick={() => {
                 setHeroPick(n);
@@ -493,28 +528,42 @@ function Tuner() {
           stamp={stamp}
         />
         <div className="rows">
-          {peeks.map((p) => (
-            <div className={`row ${selected === p.n ? "picked" : ""}`} key={p.n} onClick={() => pickHead(p.n)}>
-              <img src={`/peek/u${p.n}.png?v=${stamp}`} alt="" className="row-thumb" />
-              <span className="row-name">u{p.n}</span>
-              {(["x", "w", "drop", "lift"] as const).map((field) => (
-                <label key={field}>
-                  {field}
-                  <input
-                    type="number"
-                    value={p[field]}
-                    onChange={(e) =>
-                      setPeeks(
-                        peeks.map((q) =>
-                          q.n === p.n ? { ...q, [field]: Number(e.target.value) } : q,
-                        ),
-                      )
-                    }
-                  />
-                </label>
-              ))}
-            </div>
-          ))}
+          {peeks.map((p) => {
+            const was = savedPeeks.find((q) => q.n === p.n) ?? p;
+            return (
+              <div className={`row ${selected === p.n ? "picked" : ""}`} key={p.n} onClick={() => pickHead(p.n)}>
+                <img src={`/peek/u${p.n}.png?v=${stamp}`} alt="" className="row-thumb" />
+                <span className="row-name">u{p.n}</span>
+                {(["x", "w", "drop", "lift"] as const).map((field) => (
+                  <label key={field}>
+                    {field}
+                    <input
+                      type="number"
+                      value={p[field]}
+                      onChange={(e) =>
+                        setPeeks(
+                          peeks.map((q) =>
+                            q.n === p.n ? { ...q, [field]: Number(e.target.value) } : q,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                ))}
+                <button
+                  className="revert"
+                  title={`back to what peek.ts holds: x ${was.x}, w ${was.w}, drop ${was.drop}, lift ${was.lift}`}
+                  disabled={same(p, was)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPeeks(peeks.map((q) => (q.n === p.n ? { ...was } : q)));
+                  }}
+                >
+                  reset
+                </button>
+              </div>
+            );
+          })}
         </div>
       </section>
 

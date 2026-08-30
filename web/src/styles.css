@@ -1097,8 +1097,10 @@ input[type="range"]::-webkit-slider-thumb {
   -webkit-app-region: drag;
 }
 
+/* the header block is a card, not a heading — the first row needs to read
+   as under it rather than stuck to it */
 .settings-inner .settings-row:first-of-type {
-  margin-top: 14px;
+  margin-top: 34px;
 }
 
 /* the theme schedule: a row per theme, each with the time it takes over */

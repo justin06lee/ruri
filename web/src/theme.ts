@@ -7,9 +7,12 @@
  * schedule gives each one a time it takes over; picking one by hand turns
  * the schedule off, since that pick is you overruling the clock.
  *
- * All of it is per machine (localStorage) — the same reason the theme
- * already was: it's about the room you're in, not the project you're on.
+ * All of it is per machine — the same reason the theme already was: it's
+ * about the room you're in, not the project you're on. Kept through
+ * ./prefs, which is localStorage in front of the server's copy, so a
+ * relaunch finds the theme you left on.
  */
+import { getPref, setPref, watchPref } from "./prefs";
 
 export type Theme = "light" | "dark" | "ember";
 
@@ -40,17 +43,13 @@ function isTheme(value: unknown): value is Theme {
 
 /** The theme last picked by hand. */
 export function getTheme(): Theme {
-  try {
-    const saved = localStorage.getItem(KEY);
-    return isTheme(saved) ? saved : "light";
-  } catch {
-    return "light";
-  }
+  const saved = getPref(KEY);
+  return isTheme(saved) ? saved : "light";
 }
 
 export function getSchedule(): ThemeSchedule {
   try {
-    const raw = JSON.parse(localStorage.getItem(SCHEDULE_KEY) ?? "null") as Partial<ThemeSchedule>;
+    const raw = JSON.parse(getPref(SCHEDULE_KEY) ?? "null") as Partial<ThemeSchedule>;
     if (!raw || typeof raw !== "object") return DEFAULT_SCHEDULE;
     const minutes = (value: unknown, fallback: number) =>
       typeof value === "number" && value >= 0 && value < 1440 ? Math.round(value) : fallback;
@@ -66,11 +65,7 @@ export function getSchedule(): ThemeSchedule {
 }
 
 export function saveSchedule(schedule: ThemeSchedule): void {
-  try {
-    localStorage.setItem(SCHEDULE_KEY, JSON.stringify(schedule));
-  } catch {
-    // private mode etc. — the schedule just won't persist
-  }
+  setPref(SCHEDULE_KEY, JSON.stringify(schedule));
 }
 
 /** Which theme the schedule puts at a given minute of the day. */
@@ -102,16 +97,22 @@ export function currentTheme(): Theme {
 export function applyTheme(theme: Theme, remember = true): void {
   document.documentElement.dataset["theme"] = theme;
   if (!remember) return;
-  try {
-    localStorage.setItem(KEY, theme);
-  } catch {
-    // private mode etc. — the theme just won't persist
-  }
+  setPref(KEY, theme);
 }
 
 /** Apply whatever is due before first paint. */
 export function initTheme(): void {
   document.documentElement.dataset["theme"] = currentTheme();
+  // The window's own copy can be empty — a machine that has never run a
+  // build that kept these, or a launch that had to fall back to another
+  // port. The snapshot brings the real one a moment later, and the page
+  // turns over then rather than staying on the wrong theme all session.
+  const restore = () => {
+    const due = currentTheme();
+    if (document.documentElement.dataset["theme"] !== due) applyTheme(due, false);
+  };
+  watchPref(KEY, restore);
+  watchPref(SCHEDULE_KEY, restore);
 }
 
 /**

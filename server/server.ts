@@ -24,6 +24,7 @@ import { DraftStore } from "./drafts.js";
 import { HomeLog } from "./homelog.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
 import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
+import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
 import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { promptChain, SessionManager } from "./sessions.js";
@@ -248,6 +249,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // the vault, pushed into ruri's own environment so every harness ruri
   // spawns inherits $RURI_SECRET_* without being told anything
   const secrets = new SecretStore();
+  // The window's own preferences, kept on this machine rather than in the
+  // window — see server/prefs.ts for why that is not where they belong.
+  const prefs = new PrefStore();
   secrets.applyEnv();
   // both project files are written from what's already on disk at startup, so
   // a session opened before anything happens still finds them there
@@ -1200,6 +1204,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         });
         break;
       }
+      case "set_pref": {
+        prefs.set(msg.key, msg.value);
+        broadcast({ type: "prefs", prefs: prefs.all() });
+        break;
+      }
       case "terminal_list": {
         ws.send(JSON.stringify({
           type: "terminal_tabs",
@@ -1661,6 +1670,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       starredModels: store.starredModels(),
       smallModel: store.smallModel() ?? "",
       user: os.userInfo().username,
+      prefs: prefs.all(),
       composerDrafts: drafts.all(),
     };
     ws.send(JSON.stringify(snapshot));
@@ -1681,8 +1691,21 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   });
 
   return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(options.port, options.host ?? "127.0.0.1", () => {
+    // The port is part of the app's identity, not an implementation detail:
+    // the window is served from it, so a different port every launch means a
+    // different origin every launch, and everything the window keeps for
+    // itself (localStorage) starts empty. So the asked-for port is tried
+    // first and only a port already in use falls back to an ephemeral one.
+    let attempt = options.port;
+    server.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "EADDRINUSE" && attempt !== 0) {
+        attempt = 0;
+        server.listen(0, options.host ?? "127.0.0.1");
+        return;
+      }
+      reject(error);
+    });
+    server.listen(attempt, options.host ?? "127.0.0.1", () => {
       const address = server.address();
       const port = typeof address === "object" && address ? address.port : options.port;
       console.log(`ruri server listening on ws://127.0.0.1:${port}`);

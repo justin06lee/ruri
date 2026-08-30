@@ -1719,6 +1719,23 @@ input[type="range"]::-webkit-slider-thumb {
   min-width: 0;
 }
 
+/* Everything but the last few exchanges.
+ *
+ * A long session lays out hundreds of messages of markdown, patches and
+ * images, and the app asks the browser for that layout constantly — every
+ * "put me back at the newest message" reads scrollHeight, which is a full
+ * layout of the lot. This lets the browser skip the ones that are off
+ * screen entirely and remember how tall they were, so the layout it does is
+ * the size of what you're looking at rather than the size of the session.
+ *
+ * The tail is deliberately exempt: a session opens at its bottom, and the
+ * bottom must be measured for real, not estimated.
+ */
+.turn.far {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 700px;
+}
+
 .turn-fold {
   position: absolute;
   top: 4px;

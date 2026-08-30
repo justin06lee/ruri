@@ -421,18 +421,30 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     },
     propose: (channelId, proposal) =>
       new Promise<string | null>((resolve) => {
-        if (!ownerProject(channelId)) {
+        const owner = ownerProject(channelId);
+        if (!owner) {
           resolve(null);
           return;
         }
+        // The screenshot is copied now, not when the card is answered. The
+        // card is the whole point of it — being asked to name something you
+        // cannot see is being asked to guess — and the model's own copy is
+        // routinely a scratch file that will not survive the wait.
+        const shot = proposal.shot ? storeShot(proposal.shot, owner.path) : undefined;
+        const shown: ComponentProposal = {
+          name: proposal.name,
+          files: proposal.files,
+          note: proposal.note,
+          ...(shot ? { image: shot } : {}),
+        };
         const requestId = randomUUID();
-        pendingComponents.set(requestId, { channelId, proposal, resolve });
+        pendingComponents.set(requestId, { channelId, proposal: shown, resolve });
         const request: PermissionRequest = {
           requestId,
           projectId: channelId,
           toolName: "name_component",
           kind: "component",
-          input: proposal,
+          input: shown,
           ts: Date.now(),
         };
         permissions.set(requestId, request);
@@ -440,16 +452,19 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       }),
   };
 
-  /** An image the model pointed at, stored the way every attachment is. */
-  function storeShot(file: string): Attachment | undefined {
+  /** An image the model pointed at, stored the way every attachment is. A
+   *  relative path is read against the project it was named from, since that
+   *  is the directory the model was working in. */
+  function storeShot(file: string, projectDir?: string): Attachment | undefined {
     try {
-      const data = fs.readFileSync(file).toString("base64");
-      const ext = path.extname(file).slice(1).toLowerCase();
+      const full = path.isAbsolute(file) ? file : path.resolve(projectDir ?? ".", file);
+      const data = fs.readFileSync(full).toString("base64");
+      const ext = path.extname(full).slice(1).toLowerCase();
       const upload: AttachmentUpload = {
         id: randomUUID(),
         kind: "image",
         mediaType: IMAGE_MIME[ext] ?? "image/png",
-        name: path.basename(file),
+        name: path.basename(full),
         n: 1,
         data,
       };
@@ -1374,6 +1389,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         const owner = ownerProject(pending.channelId);
         const name = (msg.name ?? pending.proposal.name).trim();
         if (msg.skip || !name || !owner) {
+          // nothing is written down, including the copy of the screenshot
+          // taken when the card went up
+          const orphan = pending.proposal.image?.url;
+          if (orphan) fs.rmSync(storedFilePath(orphan), { force: true });
           pending.resolve(null);
           break;
         }
@@ -1382,10 +1401,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           files: msg.files ?? pending.proposal.files,
           note: msg.note ?? pending.proposal.note,
         });
-        if (pending.proposal.shot) {
-          const shot = storeShot(pending.proposal.shot);
-          if (shot) components.addShot(owner.id, item.id, shot);
-        }
+        // already copied when the card went up, so it is kept with the
+        // entry no matter what has happened to the model's own file
+        if (pending.proposal.image) components.addShot(owner.id, item.id, pending.proposal.image);
         pushComponents(owner.id, owner.path);
         pending.resolve(name);
         break;

@@ -74,6 +74,14 @@ export function App() {
     <div className="app">
       <Sidebar />
       <ChatPane key={showing ?? "active"} {...(showing ? { channelId: showing } : {})} rapid={rapid} />
+      {/* the hand-off card sits over the pane, not inside it: the pane
+          remounts underneath while this is up, which is the point */}
+      {rapid.intro && (
+        <div className="rapid-intro" key={rapid.intro.name + (rapid.intro.title ?? "")}>
+          <div className="rapid-intro-name">{rapid.intro.name}</div>
+          {rapid.intro.title && <div className="rapid-intro-title">{rapid.intro.title}</div>}
+        </div>
+      )}
     </div>
   );
 }

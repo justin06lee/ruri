@@ -74,6 +74,13 @@ export interface SessionExtras {
   providerSystem?: string;
   /** Runs when a non-Claude turn finishes (Home's drop-file pickup). */
   onProviderTurnEnd?: () => void;
+  /**
+   * Swap ruri's vault handles ({{name}}) for the values they stand for, in
+   * the last moment before a tool runs — after the model has finished
+   * writing, so its context only ever held the handle. Returns undefined
+   * when the input had none, which is almost always.
+   */
+  fillSecrets?: (input: Record<string, unknown>) => Record<string, unknown> | undefined;
 }
 
 /** How the manager reaches non-Claude harnesses (see server/providers.ts). */
@@ -385,6 +392,8 @@ class ProjectSession implements ChannelSession {
   private readonly pendingQuestions = new Map<string, PendingQuestion>();
   /** File bytes captured by captureBefore, keyed by tool_use_id. */
   private readonly preimages = new Map<string, string | null>();
+  /** The vault's substitution, when there is a vault (see secrets.ts). */
+  private readonly secretFill: SessionExtras["fillSecrets"];
 
   constructor(
     private readonly project: Project,
@@ -394,6 +403,7 @@ class ProjectSession implements ChannelSession {
     extras?: SessionExtras,
   ) {
     this.lastSessionId = resume;
+    this.secretFill = extras?.fillSecrets;
     this.session = new AgentSession({
       cwd: project.path,
       appName: "ruri",
@@ -419,6 +429,12 @@ class ProjectSession implements ChannelSession {
             // needs the file as it was, and a PreToolUse hook is the one
             // point the CLI is required to wait at before touching it.
             { matcher: "Write|Edit", hooks: [this.captureBefore] },
+            // The vault's last moment: the model wrote {{handle}}, the tool
+            // is about to run, and this is where the two are reconciled.
+            {
+              matcher: "Bash|BashOutput|Write|Edit|MultiEdit|NotebookEdit",
+              hooks: [this.fillVaultHandles],
+            },
           ],
         },
         permissionMode: project.permissionMode ?? DEFAULT_PERMISSION_MODE,
@@ -560,6 +576,26 @@ class ProjectSession implements ChannelSession {
           ...(answers.response ? { response: answers.response } : {}),
         },
       },
+    };
+  };
+
+  /**
+   * Put real values behind the vault handles the model wrote, and nothing
+   * else: no permission decision, so a filled command is still approved (or
+   * not) exactly as an unfilled one would be.
+   */
+  private fillVaultHandles = async (
+    input: HookInput,
+  ): Promise<{ continue: true; hookSpecificOutput?: PreToolUseHookSpecificOutput }> => {
+    if (input.hook_event_name !== "PreToolUse" || !this.secretFill) return { continue: true };
+    const filled = this.secretFill(input.tool_input as Record<string, unknown>);
+    if (!filled) return { continue: true };
+    return {
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        updatedInput: filled,
+      } as PreToolUseHookSpecificOutput,
     };
   };
 

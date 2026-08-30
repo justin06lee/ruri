@@ -24,6 +24,7 @@
     rgba(25, 21, 16, 0.1) 5px 10px
   );
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
+  --sidebar-w: 264px;
   --radius-s: 6px;
   --radius-m: 9px;
   --radius-l: 13px;
@@ -268,6 +269,7 @@ textarea::placeholder {
 /* ── app shell ────────────────────────────────────────────────────── */
 
 .app {
+  position: relative; /* rapid fire's hand-off card is placed against this */
   display: flex;
   height: 100%;
 }
@@ -291,8 +293,8 @@ textarea::placeholder {
 /* ── sidebar ──────────────────────────────────────────────────────── */
 
 .sidebar {
-  width: 264px;
-  min-width: 264px;
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1405,9 +1407,11 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-soft);
 }
 
+/* the page buttons read as one group, so they sit tight against each other */
 .header-controls {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 2px;
 }
 
 /* ── dropdown (custom select) ─────────────────────────────────────── */
@@ -2144,23 +2148,82 @@ input[type="range"]::-webkit-slider-thumb {
 @keyframes rapid-in {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(14px) scale(0.994);
   }
 }
 
 @keyframes rapid-out {
   to {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(-14px) scale(0.994);
   }
 }
 
+/* The card enters after the name has gone, so it takes its time; it leaves
+   on an ease-in, which reads as being pulled away rather than blinking. */
 .chat.rapid-page {
-  animation: rapid-in 260ms ease-out;
+  animation: rapid-in 380ms cubic-bezier(0.16, 0.84, 0.36, 1);
 }
 
 .chat.rapid-page.rapid-leaving {
-  animation: rapid-out 260ms ease-in forwards;
+  animation: rapid-out 420ms cubic-bezier(0.5, 0, 0.75, 0) forwards;
+  pointer-events: none;
+}
+
+/* ── the hand-off card: whose turn it is now ──────────────────────── */
+
+@keyframes rapid-name {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+    letter-spacing: 0.06em;
+  }
+  22% {
+    opacity: 1;
+    transform: none;
+    letter-spacing: normal;
+  }
+  70% {
+    opacity: 1;
+    transform: none;
+    letter-spacing: normal;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-8px) scale(1.02);
+  }
+}
+
+/* over the chat, not over the sidebar: the line is a way of working, not a
+   mode that takes the window away from you */
+.rapid-intro {
+  position: absolute;
+  inset: 0 0 0 var(--sidebar-w);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  pointer-events: none;
+  background: var(--paper);
+}
+
+.rapid-intro-name {
+  font-size: 54px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  max-width: 82%;
+  animation: rapid-name 1150ms ease-out forwards;
+}
+
+.rapid-intro-title {
+  font-size: 15px;
+  color: var(--ink-faint);
+  animation: rapid-name 1150ms ease-out 60ms forwards;
+  opacity: 0;
 }
 
 
@@ -2189,177 +2252,404 @@ input[type="range"]::-webkit-slider-thumb {
   height: 12px;
 }
 
-/* ── the catch-up brief ───────────────────────────────────────────── */
+/* ── the ideas board ──────────────────────────────────────────────── */
 
-.brief-note {
-  font-size: 12.5px;
-  color: var(--ink-faint);
-  line-height: 1.6;
-  margin-bottom: 4px;
+/* Shared by every board page's "add one" row. */
+.idea-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
 }
 
-.brief-description {
-  width: 100%;
-  resize: vertical;
-  padding: 8px 10px;
-  border: 1.5px solid var(--line-soft);
-  border-radius: var(--radius-s);
-  background: var(--paper-dim);
-  color: var(--ink);
-  font: inherit;
-  font-size: 13.5px;
-  line-height: 1.5;
-  outline: none;
+.idea-add input {
+  flex: 1;
 }
 
-.brief-description:focus {
-  border-color: var(--line);
-}
-
-.brief-features {
+.idea-list,
+.comp-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 2px 14px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin: 12px 0;
 }
 
-.brief-feature {
+.comp-list {
+  gap: 12px;
+}
+
+.idea-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-s);
+  animation: rise 160ms ease-out;
+}
+
+.idea-row:hover {
+  background: var(--paper-dim);
+}
+
+.idea-box {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.idea-box svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.idea-text {
+  flex: 1;
+  font-size: 13.5px;
+  line-height: 1.5;
+  cursor: text;
+}
+
+.idea-edit {
+  flex: 1;
+  padding: 3px 6px;
+}
+
+.idea-row.done .idea-box {
+  color: var(--ink-faint);
+}
+
+.idea-row.done .idea-text {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.idea-send,
+.idea-drop {
+  flex-shrink: 0;
+  padding: 2px;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--ink-faint);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 140ms ease;
+}
+
+.idea-row:hover .idea-send,
+.idea-row:hover .idea-drop {
+  opacity: 1;
+}
+
+.idea-send:hover,
+.idea-drop:hover {
+  color: var(--ink);
+}
+
+.idea-send svg,
+.idea-drop svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.board-foot {
+  padding: 6px 2px 2px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.board-foot code,
+.board-empty code {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* ── the component index ──────────────────────────────────────────── */
+
+.comp-card {
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: rise 160ms ease-out;
+}
+
+.comp-top {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.brief-bullet {
+.comp-name {
+  flex: 1;
+  font-weight: 700;
+  font-size: 14px;
+  border-color: transparent;
+  background: transparent;
+  padding: 3px 6px;
+}
+
+.comp-name:hover {
+  border-color: var(--line-soft);
+}
+
+.comp-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
   color: var(--ink-faint);
+}
+
+.comp-field span {
+  width: 74px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.comp-field input {
+  flex: 1;
+  font-size: 12.5px;
+  padding: 4px 8px;
+}
+
+.comp-note {
+  min-height: 46px;
+  resize: vertical;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.comp-shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.comp-shot,
+.comp-shot-add {
+  width: 84px;
+  height: 58px;
+  padding: 0;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background: var(--paper-dim);
+  box-shadow: none;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--ink-faint);
+}
+
+.comp-shot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.comp-shot:hover {
+  border-color: var(--ink);
+}
+
+.comp-shot-add {
+  border-style: dashed;
+}
+
+.comp-shot-add:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.comp-shot-add input {
+  display: none;
+}
+
+.comp-shot-add svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── skills ───────────────────────────────────────────────────────── */
+
+.skill-install {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.skill-install input {
+  flex: 1;
+}
+
+.skill-note {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-s);
+  background: var(--paper-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: pre-wrap;
+}
+
+.skill-group {
+  margin-top: 16px;
+}
+
+.skill-group-head {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  padding: 0 2px 6px;
+}
+
+.skill-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius-s);
+  transition: opacity 160ms ease;
+}
+
+.skill-row:hover {
+  background: var(--paper-dim);
+}
+
+.skill-row.off {
+  opacity: 0.5;
+}
+
+/* the one thing neither Claude Code nor bmo has a word for */
+.skill-switch {
+  flex-shrink: 0;
+  width: 30px;
+  height: 18px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1.5px solid var(--line-soft);
+  border-radius: 999px;
+  background: var(--paper-dim);
+  box-shadow: none;
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.skill-switch.on {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.skill-knob {
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: var(--ink);
+  transition:
+    transform 160ms cubic-bezier(0.3, 0.9, 0.3, 1),
+    background-color 160ms ease;
+}
+
+.skill-switch.on .skill-knob {
+  background: var(--paper);
+  transform: translateX(12px);
+}
+
+.skill-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.skill-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.skill-name {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.skill-source {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.skill-desc {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ink-faint);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── the vault, in settings ───────────────────────────────────────── */
+
+.vault {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vault-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vault-handle {
+  flex: 1;
   font-family: var(--mono);
   font-size: 12px;
 }
 
-.brief-feature input {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 8px;
-  border: 1.5px solid transparent;
-  border-radius: var(--radius-s);
-  background: none;
-  color: var(--ink);
-  font: inherit;
-  font-size: 13.5px;
-  outline: none;
+.vault-who {
+  font-size: 11.5px;
+  color: var(--ink-faint);
 }
 
-.brief-feature input:hover {
-  border-color: var(--line-faint);
-}
-
-.brief-feature input:focus {
-  border-color: var(--line-soft);
-  background: var(--paper-dim);
-}
-
-.brief-feature .icon-button {
-  opacity: 0;
-}
-
-.brief-feature:hover .icon-button {
-  opacity: 1;
-}
-
-.brief-add {
-  align-self: flex-start;
-  margin-left: 20px;
-  font-size: 12px;
-  padding: 2px 10px;
-}
-
-/* the screenshots: what the thing looks like, which no paragraph replaces */
-.brief-shots {
+.vault-form {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px;
-  border: 1.5px dashed var(--line-soft);
-  border-radius: var(--radius-m);
+  gap: 6px;
 }
 
-.brief-shots.drag-over {
-  border-color: var(--line);
-  background: var(--paper-dim);
+.vault-form input {
+  flex: 1;
+  min-width: 120px;
+  font-size: 12.5px;
+  padding: 5px 8px;
 }
 
-.brief-shot {
-  position: relative;
-  width: 132px;
-  border: 1.5px solid var(--line-soft);
-  border-radius: var(--radius-s);
-  overflow: hidden;
-  line-height: 0;
-}
-
-.brief-shot img {
-  width: 100%;
-  display: block;
-}
-
-.brief-unpin {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  background: var(--paper);
-  border: 1px solid var(--line-soft);
-  opacity: 0;
-}
-
-.brief-shot:hover .brief-unpin {
-  opacity: 1;
-}
-
-.brief-drop {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 74px;
-  padding: 0 14px;
-  border-radius: var(--radius-s);
-  font-size: 12px;
+.vault-hint {
+  font-size: 11.5px;
+  line-height: 1.6;
   color: var(--ink-faint);
-  cursor: pointer;
-  text-align: center;
-}
-
-.brief-drop:hover {
-  color: var(--ink);
-}
-
-.brief-drop input {
-  display: none;
-}
-
-.brief-send {
-  align-self: flex-start;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 16px;
-  padding: 6px 16px;
-  background: var(--ink);
-  color: var(--paper);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.brief-send svg {
-  width: 15px;
-  height: 15px;
-}
-
-.brief-page .tracker-inner {
-  display: flex;
-  flex-direction: column;
 }
 
 .result-line {
@@ -3153,9 +3443,10 @@ input[type="range"]::-webkit-slider-thumb {
   text-align: center;
 }
 
-/* the tracker page: the whole chat pane swaps for the todo list */
+/* the project pages — tracker, ideas, components, skills — all wear
+   the same frame: one column, a header strip, a scrolling body */
 
-.tracker-page {
+.board-page {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -3163,7 +3454,7 @@ input[type="range"]::-webkit-slider-thumb {
   animation: rise 160ms ease-out;
 }
 
-.tracker-inner {
+.board-inner {
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -3174,7 +3465,7 @@ input[type="range"]::-webkit-slider-thumb {
   flex-direction: column;
 }
 
-.tracker-head {
+.board-head {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3185,11 +3476,11 @@ input[type="range"]::-webkit-slider-thumb {
   background-size: 6px 6px;
 }
 
-.tracker-title {
+.board-title {
   font-weight: 700;
 }
 
-.tracker-sub {
+.board-sub {
   flex: 1;
   font-size: 11.5px;
   color: var(--ink-faint);
@@ -3205,7 +3496,7 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 8px;
 }
 
-.tracker-empty {
+.board-empty {
   color: var(--ink-faint);
   font-size: 12.5px;
   line-height: 1.7;

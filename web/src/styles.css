@@ -182,26 +182,15 @@ button:active {
 }
 
 /*
- * A press slides the button 2px down and right — and used to slide it out
- * from under a pointer resting on its top or left edge. The button was then
- * no longer under the cursor when the mouse came up, so the release landed
- * on the page behind it and the click never happened: the press animated,
- * and nothing else. This strip keeps the vacated edge hittable, so a press
- * that starts on a button ends on it. Top and left only — those are the
- * edges the button moves away from.
+ * A press slides the button down and right, out from under a pointer resting
+ * near its top or left edge, and the release then landed on the page behind
+ * it — the press animated and nothing else happened. An overhanging strip
+ * used to sit here to keep the vacated edge hittable; it only ever covered
+ * two edges, and covered nothing at all for the round composer buttons,
+ * which shrink towards their centre and so retreat from every edge at once.
+ * web/src/press.ts handles it properly now, by capturing the pointer so
+ * where the button went stops mattering.
  */
-button {
-  position: relative;
-}
-
-button::after {
-  content: "";
-  position: absolute;
-  top: -3px;
-  left: -3px;
-  right: 0;
-  bottom: 0;
-}
 
 button:disabled {
   opacity: 0.4;

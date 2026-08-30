@@ -109,6 +109,7 @@ One HTTP server carries everything: `GET /healthz`, `GET /music/playlists`, `GET
 - `web/src/tuner.tsx` / `web/src/peek.ts` — the art tuner and the placements it writes; the sidebar and the hero read the latter.
 - `web/src/components/Sidebar.tsx` — Home and rapid-fire rows, project folders and their sessions, the peek skyline, the account bar.
 - `web/src/components/Settings.tsx` — a page (it outgrew being a dialog): theme, workspace root, music folder, the vault, and the searchable model catalog.
+- `web/src/press.ts` — pointer capture on every pressable thing, so a press that starts on a button ends on that button however far the press animation moves it; a release well away from it still cancels.
 - `web/src/components/Player.tsx` + `web/src/lib/audio.ts` — the sidebar player and its two-deck Web Audio engine.
 - `web/src/components/Attachments.tsx` — composer thumbnails, the full-size viewer, and drag-to-annotate region crops.
 - `web/src/markdown.tsx` — marked + DOMPurify + highlight.js markdown renderer shared by messages, streaming drafts, and plan cards.

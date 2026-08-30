@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ChatPane } from "./components/ChatPane";
 import { Settings } from "./components/Settings";
 import { useRapidFire } from "./components/RapidFire";
@@ -10,18 +10,36 @@ let connectedOnce = false;
 
 /** How many events of each session to render ahead of being asked. */
 const PREWARM_TAIL = 24;
+/** How still the app has to be before it renders ahead. */
+const PREWARM_QUIET_MS = 1200;
 
 /**
  * Render the sessions you haven't opened yet, on frames with nothing else to
  * do. Markdown is cached by its own text, so this is the whole trick behind
  * a session opening instantly the first time you click it: by then its last
  * screenful is already HTML.
+ *
+ * It reads the whole transcript map, which changes on every event any
+ * session emits — so it renders nothing itself and lives in its own leaf
+ * component, rather than making the sidebar and the open conversation
+ * re-render along with it several times a second during a turn.
  */
 function usePrewarm(): void {
   const transcripts = useRuri((s) => s.transcripts);
   const activeId = useRuri((s) => s.activeId);
+  // The map changes with every event of every session, several times a
+  // second during a turn, and walking all of them to build a list of text
+  // to pre-render is not something to do at that rate. Rendering ahead is
+  // only ever worth doing when nothing is happening, so it waits for a
+  // pause — and a turn in progress simply keeps pushing the pause back.
+  const [quiet, setQuiet] = useState(transcripts);
   useEffect(() => {
-    const pending = Object.entries(transcripts)
+    const timer = setTimeout(() => setQuiet(transcripts), PREWARM_QUIET_MS);
+    return () => clearTimeout(timer);
+  }, [transcripts]);
+
+  useEffect(() => {
+    const pending = Object.entries(quiet)
       .filter(([channelId]) => channelId !== activeId)
       .flatMap(([, events]) =>
         events
@@ -53,7 +71,12 @@ function usePrewarm(): void {
       if (typeof cancelIdleCallback === "function") cancelIdleCallback(handle);
       else clearTimeout(handle);
     };
-  }, [transcripts, activeId]);
+  }, [quiet, activeId]);
+}
+
+function Prewarm(): null {
+  usePrewarm();
+  return null;
 }
 
 export function App() {
@@ -71,10 +94,10 @@ export function App() {
   const showing = rapid.on ? rapid.current : undefined;
   const settingsOpen = useRuri((s) => s.settingsOpen);
   const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
-  usePrewarm();
 
   return (
     <div className="app">
+      <Prewarm />
       <Sidebar />
       {settingsOpen ? (
         <Settings onClose={() => setSettingsOpen(false)} />

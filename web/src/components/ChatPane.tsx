@@ -1,4 +1,15 @@
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
@@ -29,7 +40,6 @@ import { Skills } from "./Skills";
 import { DiffView } from "./Diff";
 import type { RapidFire } from "./RapidFire";
 import { RapidBar } from "./RapidFire";
-import { TerminalPanel } from "./Terminal";
 import { DragonGauges } from "./Dragon";
 import { Dropdown } from "./Dropdown";
 import { NameCard } from "./NameCard";
@@ -38,7 +48,7 @@ import { Thinking } from "./Thinking";
 import { Tracker } from "./Tracker";
 import { heroFor, heroUrl, launchHero } from "../hero";
 import { fileToBase64 } from "../lib/files";
-import { Markdown } from "../markdown";
+import { Markdown, StreamingMarkdown } from "../markdown";
 import {
   clearComposerDraft,
   composeInto,
@@ -47,6 +57,13 @@ import {
   setComposerDraft,
   useRuri,
 } from "../store";
+
+/* The shell panel brings xterm with it — a quarter of the app's JavaScript,
+   for a mode most sessions never turn on. It arrives when the `>_` button is
+   pressed instead of on every launch. */
+const TerminalPanel = lazy(() =>
+  import("./Terminal").then((m) => ({ default: m.TerminalPanel })),
+);
 
 /* ── small inline icons (stroke: currentColor, 14px) ─────────────── */
 
@@ -676,7 +693,11 @@ export function Composer({
             addFiles(e.dataTransfer.files, caretFromPoint(e.clientX, e.clientY) ?? undefined);
           }}
         >
-          {shell && <TerminalPanel channelId={channelId} />}
+          {shell && (
+            <Suspense fallback={<div className="terminal" />}>
+              <TerminalPanel channelId={channelId} />
+            </Suspense>
+          )}
           {!shell && (
             <AttachmentStrip
               attachments={atts}
@@ -859,6 +880,9 @@ const SETTLE_MS = 120;
 const GESTURE_MS = 700;
 /** Frames a freshly opened session is held at its bottom while it settles. */
 const SETTLE_FRAMES = 8;
+/** Turns at the tail that are always laid out for real: a session opens at
+ *  its bottom, and the bottom cannot be an estimate. */
+const LIVE_TURNS = 4;
 /** Where the quiet filling stops. Past this, turns arrive because you
  *  scrolled back for them — a pane that has quietly materialised its whole
  *  history is a pane that costs that much to take down again on the way
@@ -1047,10 +1071,40 @@ export function ChatPane({
     };
   }, [renderedTurns, transcript.length, activeId]);
 
+  /**
+   * Put the view back on the newest message.
+   *
+   * Reading scrollHeight forces the browser to lay the whole transcript out,
+   * and a long session is an expensive thing to lay out. Four different
+   * things ask for this — the settle loop after a switch, the content
+   * observer, the composer observer, and every arriving event — so left
+   * alone they each pay for a layout in the same frame. They now share one:
+   * the request is folded into the next frame, and a view already at the
+   * bottom does nothing at all.
+   */
+  const bottomPending = useRef<ScrollBehavior | null>(null);
   const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
-    const el = scrollRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior });
+    if (bottomPending.current !== null) {
+      // a smooth request in the same frame as an instant one is still smooth
+      if (behavior === "smooth") bottomPending.current = behavior;
+      return;
+    }
+    bottomPending.current = behavior;
+    requestAnimationFrame(() => {
+      const how = bottomPending.current ?? "auto";
+      bottomPending.current = null;
+      const el = scrollRef.current;
+      if (!el) return;
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (distance < 1) return;
+      el.scrollTo({ top: el.scrollHeight, behavior: how });
+    });
   };
+
+  /** The observers below are made once and outlive every render, so they
+   *  reach the current scroller through here rather than closing over it. */
+  const bottomRef = useRef<(() => void) | null>(null);
+  bottomRef.current = () => scrollToBottom();
 
   /**
    * When the view was last moved by a human.
@@ -1071,6 +1125,8 @@ export function ChatPane({
   };
   /** Where the view was last time, so a move upward can be recognised. */
   const lastTopRef = useRef(0);
+  /** Whether this visit to the top has already asked for more turns. */
+  const grewAtTop = useRef(false);
 
   // Scroll events arrive faster than the answer can change, and each one
   // reads three layout properties — measuring once a frame is enough.
@@ -1092,8 +1148,15 @@ export function ChatPane({
       if (nearBottom) pinnedRef.current = true;
       else if (wentUp || Date.now() - gestureRef.current < GESTURE_MS) pinnedRef.current = false;
       setShowJump(!nearBottom && !pinnedRef.current);
-      // reading back through the session pulls the older turns in as you go
-      if (el.scrollTop < 600) setRenderedTurns((shown) => shown + TURN_STEP);
+      // Reading back through the session pulls the older turns in as you go
+      // — one batch per approach to the top, not one per frame spent near
+      // it. Resting at the top used to add thirty turns every frame, which
+      // on a long session is the whole history rendered in a second.
+      if (el.scrollTop >= 600) grewAtTop.current = false;
+      else if (!grewAtTop.current) {
+        grewAtTop.current = true;
+        setRenderedTurns((shown) => shown + TURN_STEP);
+      }
     });
   };
 
@@ -1115,8 +1178,21 @@ export function ChatPane({
     setShowJump(false);
     scrollToBottom();
     let frames = 0;
+    let steady = 0;
+    let was = -1;
     let raf = requestAnimationFrame(function settle() {
       if (!pinnedRef.current || frames++ > SETTLE_FRAMES) return;
+      const el = scrollRef.current;
+      // Two frames where the bottom hasn't moved means it has stopped
+      // moving. Each of these frames costs a layout of the transcript, so
+      // running the full count when the tail settled immediately is work
+      // for nothing.
+      if (el) {
+        const height = el.scrollHeight;
+        steady = height === was ? steady + 1 : 0;
+        was = height;
+        if (steady >= 2) return;
+      }
       scrollToBottom();
       raf = requestAnimationFrame(settle);
     });
@@ -1132,8 +1208,7 @@ export function ChatPane({
     innerObserver.current = null;
     if (!node) return;
     const observer = new ResizeObserver(() => {
-      const el = scrollRef.current;
-      if (el && pinnedRef.current) el.scrollTo({ top: el.scrollHeight });
+      if (pinnedRef.current) bottomRef.current?.();
     });
     observer.observe(node);
     innerObserver.current = observer;
@@ -1152,23 +1227,30 @@ export function ChatPane({
     dockObserver.current = null;
     if (!node) return;
     const box = node.querySelector<HTMLElement>(".composer-box");
+    // What was last written. A custom property set on the pane root
+    // invalidates style for every node under it — the whole transcript — so
+    // rewriting the same value on every observation is not free, and the
+    // observer fires for every frame of a growing composer.
+    let wrote = { dock: -1, boxTop: -1 };
     const measure = () => {
       const chat = chatRef.current;
       if (!chat) return;
-      chat.style.setProperty("--composer-h", `${node.offsetHeight}px`);
+      const dock = node.offsetHeight;
       // the dock's bottom is the pane's bottom, so this is exactly how far
       // up from the pane's floor the textbox starts
-      const boxTop = box
-        ? node.getBoundingClientRect().bottom - box.getBoundingClientRect().top
-        : node.offsetHeight;
-      chat.style.setProperty("--composer-box-h", `${Math.round(boxTop)}px`);
+      const boxTop = Math.round(
+        box ? node.getBoundingClientRect().bottom - box.getBoundingClientRect().top : dock,
+      );
+      if (dock === wrote.dock && boxTop === wrote.boxTop) return;
+      wrote = { dock, boxTop };
+      chat.style.setProperty("--composer-h", `${dock}px`);
+      chat.style.setProperty("--composer-box-h", `${boxTop}px`);
     };
     const observer = new ResizeObserver(() => {
       measure();
       // a taller composer eats into the view — re-bottom so the newest
       // message stays put rather than sliding under it
-      const el = scrollRef.current;
-      if (el && pinnedRef.current) el.scrollTo({ top: el.scrollHeight });
+      if (pinnedRef.current) bottomRef.current?.();
     });
     observer.observe(node);
     // the box grows on its own (a long prompt, an attachment strip) without
@@ -1178,11 +1260,25 @@ export function ChatPane({
     measure();
   }, []);
 
-  const allTurns = groupTurns(transcript);
-  const shownTurns =
-    renderedTurns >= allTurns.length
-      ? allTurns
-      : allTurns.slice(allTurns.length - renderedTurns);
+  // Grouping walks the whole event stream, and the stream is long. It only
+  // changes when the events do — not on every keystroke into the composer,
+  // every token of a streaming reply, or every scroll that re-measures.
+  const allTurns = useMemo(() => groupTurns(transcript), [transcript]);
+  const shownTurns = useMemo(
+    () =>
+      renderedTurns >= allTurns.length
+        ? allTurns
+        : allTurns.slice(allTurns.length - renderedTurns),
+    [allTurns, renderedTurns],
+  );
+
+  // Above the early return: a hook that only some renders reach is a hook
+  // React counts differently on the render after the pane finds a project.
+  const startRewind = useCallback(
+    (event: Extract<TranscriptEvent, { kind: "user" }>) =>
+      setRewindTarget({ id: event.id, text: event.text }),
+    [],
+  );
 
   if (!project || !activeId) {
     return <main className={pane("chat empty")} />;
@@ -1196,11 +1292,6 @@ export function ChatPane({
   // the transcript and comes back on a brief of what's kept, files untouched.
   const claudeRoute = !models.find((m) => m.value === (project.model || DEFAULT_MODEL))?.provider;
   const canRewind = !isHome && !busy;
-  const startRewind = useCallback(
-    (event: Extract<TranscriptEvent, { kind: "user" }>) =>
-      setRewindTarget({ id: event.id, text: event.text }),
-    [],
-  );
   const askRewind = canRewind ? startRewind : undefined;
 
   // Home keeps no header bar — the transcript starts at the top; the
@@ -1317,8 +1408,11 @@ export function ChatPane({
         onKeyDown={noteGesture}
       >
         <div className="transcript-inner" ref={observeInner}>
-          {shownTurns.map((turn) => {
+          {shownTurns.map((turn, index) => {
             const summary = summaries[turn.turnId];
+            // far enough up that the browser may skip laying it out until
+            // it comes near the viewport — see .turn.far
+            const far = index < shownTurns.length - LIVE_TURNS;
             if (summary !== undefined && folded.has(turn.turnId)) {
               return (
                 <CompactTurn
@@ -1334,7 +1428,7 @@ export function ChatPane({
               );
             }
             return (
-              <div className="turn" key={turn.turnId}>
+              <div className={far ? "turn far" : "turn"} key={turn.turnId}>
                 {summary !== undefined && !turn.solo && (
                   <button
                     className="icon-button turn-fold"
@@ -1358,7 +1452,7 @@ export function ChatPane({
           })}
           {draft && (
             <div className="msg assistant streaming">
-              <Markdown text={draft.text} />
+              <StreamingMarkdown text={draft.text} />
               <span className="cursor" />
             </div>
           )}

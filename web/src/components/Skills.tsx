@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SkillInfo } from "../../../shared/protocol";
+import { Markdown } from "../markdown";
 import { send, useRuri } from "../store";
 
 /**
@@ -34,7 +35,18 @@ function Row({ skill, projectId }: { skill: SkillInfo; projectId?: string }) {
       >
         <span className="skill-knob" />
       </button>
-      <div className="skill-body">
+      <button
+        className="skill-body"
+        title="Read it"
+        onClick={() =>
+          send({
+            type: "skill_read",
+            ...(projectId ? { projectId } : {}),
+            scope: skill.scope,
+            name: skill.name,
+          })
+        }
+      >
         <div className="skill-line">
           <span className="skill-name">{skill.name}</span>
           {skill.source && <span className="skill-source">{skill.source}</span>}
@@ -42,7 +54,7 @@ function Row({ skill, projectId }: { skill: SkillInfo; projectId?: string }) {
         <p className="skill-desc" title={skill.path}>
           {skill.description || "no description"}
         </p>
-      </div>
+      </button>
       <button
         className="icon-button"
         disabled={busy}
@@ -60,6 +72,45 @@ function Row({ skill, projectId }: { skill: SkillInfo; projectId?: string }) {
           <path d="M6 6l12 12M18 6L6 18" />
         </svg>
       </button>
+    </div>
+  );
+}
+
+/** A skill's own words, rendered — not the file, the instructions. */
+function SkillReader() {
+  const open = useRuri((s) => s.skillBody);
+  const close = useRuri((s) => s.closeSkillBody);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, close]);
+
+  if (!open) return null;
+  return (
+    <div
+      className="skill-overlay"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) close();
+      }}
+    >
+      <div className="skill-sheet">
+        <div className="skill-sheet-head">
+          <span className="skill-sheet-name">{open.name}</span>
+          <button className="icon-button" title="Close" onClick={close}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div className="skill-sheet-body">
+          <Markdown text={open.body} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -159,6 +210,7 @@ export function Skills({ projectId }: { projectId?: string }) {
           ))}
         </div>
       </div>
+      <SkillReader />
     </section>
   );
 }

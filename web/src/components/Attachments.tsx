@@ -201,42 +201,71 @@ export function Viewer({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const fraction = (e: React.MouseEvent) => {
+  /** Where a point falls on the picture, 0..1, clamped to it. */
+  const fraction = (point: { clientX: number; clientY: number }) => {
     const rect = stageRef.current!.getBoundingClientRect();
     return {
-      x: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
-      y: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
+      x: Math.min(1, Math.max(0, (point.clientX - rect.left) / rect.width)),
+      y: Math.min(1, Math.max(0, (point.clientY - rect.top) / rect.height)),
     };
   };
 
-  const onMouseDown = (e: React.MouseEvent) => {
+  const [drawing, setDrawing] = useState(false);
+
+  const onPointerDown = (e: React.PointerEvent) => {
     if (!editable || e.button !== 0) return;
     startRef.current = fraction(e);
     draftRef.current = { ...startRef.current, w: 0, h: 0 };
     setDraft(draftRef.current);
+    setDrawing(true);
   };
-  const onMouseMove = (e: React.MouseEvent) => {
-    if (!startRef.current) return;
-    const p = fraction(e);
-    const s = startRef.current;
-    draftRef.current = {
-      x: Math.min(s.x, p.x),
-      y: Math.min(s.y, p.y),
-      w: Math.abs(p.x - s.x),
-      h: Math.abs(p.y - s.y),
+
+  /*
+   * The rest of the drag belongs to the window, not to the picture.
+   *
+   * It used to end the moment the cursor left the frame — which is exactly
+   * when you are marking something at an edge, so the corner you were
+   * reaching for became wherever you happened to cross out. Pointer capture
+   * looked like the tidy answer and isn't: the release does not reliably
+   * come back, and a drag that never ends is worse than one that ends early.
+   * Listening on the window is what the tuner's band does, and it cannot
+   * miss. The rect stays clamped to the picture either way, so going wide is
+   * simply "all the way to that edge".
+   */
+  useEffect(() => {
+    if (!drawing) return;
+    const move = (e: PointerEvent) => {
+      const s = startRef.current;
+      if (!s) return;
+      const p = fraction(e);
+      draftRef.current = {
+        x: Math.min(s.x, p.x),
+        y: Math.min(s.y, p.y),
+        w: Math.abs(p.x - s.x),
+        h: Math.abs(p.y - s.y),
+      };
+      setDraft(draftRef.current);
     };
-    setDraft(draftRef.current);
-  };
-  const onMouseUp = () => {
-    const rect = draftRef.current;
-    if (!startRef.current || !rect) return;
-    startRef.current = null;
-    draftRef.current = null;
-    if (rect.w > 0.02 && rect.h > 0.02 && target.attachment && onRegionAdd) {
-      onRegionAdd(target.attachment.id, rect);
-    }
-    setDraft(null);
-  };
+    const up = () => {
+      const rect = draftRef.current;
+      startRef.current = null;
+      draftRef.current = null;
+      setDrawing(false);
+      setDraft(null);
+      if (!rect) return;
+      if (rect.w > 0.02 && rect.h > 0.02 && target.attachment && onRegionAdd) {
+        onRegionAdd(target.attachment.id, rect);
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+  }, [drawing, target.attachment, onRegionAdd]);
 
   const removeRegion = (i: number) => {
     if (!target.attachment || !onRegions) return;
@@ -274,10 +303,7 @@ export function Viewer({
           <div
             ref={stageRef}
             className={`viewer-stage ${editable ? "editable" : ""}`}
-            onMouseDown={onMouseDown}
-            onMouseMove={onMouseMove}
-            onMouseUp={onMouseUp}
-            onMouseLeave={onMouseUp}
+            onPointerDown={onPointerDown}
           >
             <img src={target.src} alt="" draggable={false} />
             {regions.map((r, i) => (

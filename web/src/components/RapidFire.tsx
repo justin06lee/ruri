@@ -8,14 +8,19 @@ import { useRuri } from "../store";
  * around them are the ones you already know. The app's own active session
  * doesn't move: leaving the line puts you back where you were.
  *
- * A send is not a cut. The prompt lands and sits there long enough to read
- * before the card fades out and the next one fades in.
+ * A send is not a cut. The prompt lands and sits there long enough to read,
+ * the card eases out, and then the next project announces itself — its name,
+ * big, for as long as it takes to register — before its chat rises into
+ * place. Two seconds of theatre that answer the only question a line like
+ * this ever raises: which one am I looking at now?
  */
 
 /** How long the sent prompt stays on screen before the card leaves. */
 const HOLD_MS = 700;
-/** The crossfade either side of the swap. */
-const FADE_MS = 260;
+/** The card easing out. Long enough to read as a movement, not a cut. */
+const FADE_MS = 420;
+/** The name card: in, held, and out again. */
+const INTRO_MS = 1150;
 
 export interface RapidFire {
   on: boolean;
@@ -26,6 +31,8 @@ export interface RapidFire {
   working: number;
   /** True while the card is on its way out — the pane fades on this. */
   leaving: boolean;
+  /** The project being handed to, while its name is on screen. */
+  intro: { name: string; title?: string } | null;
   /** Send or skip: on to the next session waiting. */
   advance: (reason?: "sent" | "skip") => void;
 }
@@ -38,6 +45,16 @@ function line(): { ids: string[]; ready: string[] } {
     ...projects.filter((p) => !p.starred),
   ].flatMap((project) => project.sessions.map((session) => session.id));
   return { ids, ready: ids.filter((id) => (statuses[id] ?? "idle") !== "working") };
+}
+
+/** Who a session belongs to, for the card that announces it. */
+function whose(sessionId: string): { name: string; title?: string } {
+  const { projects } = useRuri.getState();
+  for (const project of projects) {
+    const session = project.sessions.find((s) => s.id === sessionId);
+    if (session) return { name: project.name, ...(session.title ? { title: session.title } : {}) };
+  }
+  return { name: "…" };
 }
 
 /** The next session ready for a prompt, going round from `from`. */
@@ -63,6 +80,7 @@ export function useRapidFire(): RapidFire {
    *  just started, which would cut the hold short. */
   const [handing, setHanding] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [intro, setIntro] = useState<{ name: string; title?: string } | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const clearTimers = () => {
@@ -77,6 +95,7 @@ export function useRapidFire(): RapidFire {
     clearTimers();
     setHanding(false);
     setLeaving(false);
+    setIntro(null);
     setCurrent(undefined);
   }, [on]);
 
@@ -127,9 +146,22 @@ export function useRapidFire(): RapidFire {
         timers.current.push(
           setTimeout(() => {
             const next = nextAfter(current);
-            if (next) setCurrent(next);
-            setLeaving(false);
-            setHanding(false);
+            if (!next) {
+              setLeaving(false);
+              setHanding(false);
+              return;
+            }
+            // the swap happens behind the name card, so the incoming chat is
+            // never seen half-built — it rises when the name has gone
+            setCurrent(next);
+            setIntro(whose(next));
+            timers.current.push(
+              setTimeout(() => {
+                setIntro(null);
+                setLeaving(false);
+                setHanding(false);
+              }, INTRO_MS),
+            );
           }, FADE_MS),
         );
       }, hold),
@@ -142,6 +174,7 @@ export function useRapidFire(): RapidFire {
     ready: ready.length,
     working: ids.length - ready.length,
     leaving,
+    intro,
     advance,
   };
 }

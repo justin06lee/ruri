@@ -108,7 +108,7 @@ One HTTP server carries everything: `GET /healthz`, `GET /music/playlists`, `GET
 - `web/src/components/Terminal.tsx` / `server/terminal.ts` — the composer's shells: xterm.js over a pty, a row of tabs per channel, with the row persisted to `~/.config/ruri/terminals.json`.
 - `web/src/tuner.tsx` / `web/src/peek.ts` — the art tuner and the placements it writes; the sidebar and the hero read the latter.
 - `web/src/components/Sidebar.tsx` — Home and rapid-fire rows, project folders and their sessions, the peek skyline, the account bar.
-- `web/src/components/Settings.tsx` — a page (it outgrew being a dialog): theme, workspace root, music folder, the vault, and the searchable model catalog.
+- `web/src/components/Settings.tsx` — a page (it outgrew being a dialog), in groups: appearance, folders, the vault, and the searchable model catalog. The page is the only thing that scrolls — nothing inside it has its own scrollbar — and every value starts at the same left edge.
 - `web/src/press.ts` — pointer capture on every pressable thing, so a press that starts on a button ends on that button however far the press animation moves it; a release well away from it still cancels.
 - `web/src/components/Player.tsx` + `web/src/lib/audio.ts` — the sidebar player and its two-deck Web Audio engine.
 - `web/src/components/Attachments.tsx` — composer thumbnails, the full-size viewer, and drag-to-annotate region crops.

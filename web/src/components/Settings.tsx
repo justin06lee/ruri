@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { send, useRuri } from "../store";
 import {
   applyTheme,
@@ -235,6 +235,197 @@ function TimeField({ minutes, onChange }: { minutes: number; onChange(next: numb
   );
 }
 
+/* ── the schedule, as a clock ─────────────────────────────────────── */
+
+/** The dial's geometry, in its own 200×200 space. */
+const DIAL = { c: 100, ring: 70, band: 18, tick: 57, label: 38, hand: 30 };
+
+/** Where a minute of the day sits on the dial. Midnight at the top, noon at
+ *  the bottom, clockwise — a whole day to one turn. */
+function atMinute(radius: number, minutes: number): [number, number] {
+  const angle = (minutes / 1440) * 2 * Math.PI - Math.PI / 2;
+  return [DIAL.c + radius * Math.cos(angle), DIAL.c + radius * Math.sin(angle)];
+}
+
+/** The arc a theme owns, from when it takes over until the next one does. */
+function arcPath(radius: number, from: number, to: number): string {
+  const span = (((to - from) % 1440) + 1440) % 1440;
+  const [x1, y1] = atMinute(radius, from);
+  const [x2, y2] = atMinute(radius, to);
+  return `M ${x1} ${y1} A ${radius} ${radius} 0 ${span > 720 ? 1 : 0} 1 ${x2} ${y2}`;
+}
+
+/** Minutes past midnight, from a point on the dial. */
+function minuteAt(box: DOMRect, clientX: number, clientY: number): number {
+  const x = ((clientX - box.left) / box.width) * 200 - DIAL.c;
+  const y = ((clientY - box.top) / box.height) * 200 - DIAL.c;
+  const turn = (Math.atan2(y, x) + Math.PI / 2 + 2 * Math.PI) % (2 * Math.PI);
+  // to the nearest five minutes, the same step the fields nudge by
+  return (Math.round((turn / (2 * Math.PI)) * 288) * 5) % 1440;
+}
+
+/**
+ * The schedule as a clock: one turn of the dial is one day, and the ring
+ * around it is painted in the three themes — each stretch in that theme's own
+ * paper, edged in its own ink, so a run of the evening looks like the evening
+ * even while you are reading it in daylight.
+ *
+ * Twenty-four hours to the turn, not twelve. The thing being set is a whole
+ * day, and on a twelve-hour face half of it is always hidden behind an am/pm
+ * switch — two dials would show it all but ask you to read the day across a
+ * seam. One turn, one day: the three stretches are on screen together and
+ * obviously add up to everything.
+ *
+ * Drag a boundary to move it. The fields underneath still take arrows and the
+ * wheel, which is how it gets exact.
+ */
+function ScheduleClock({
+  schedule,
+  onChange,
+}: {
+  schedule: ThemeSchedule;
+  onChange(next: ThemeSchedule): void;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const held = useRef<Theme | null>(null);
+  const [now, setNow] = useState(() => {
+    const at = new Date();
+    return at.getHours() * 60 + at.getMinutes();
+  });
+
+  // the hand keeps up with the clock it is drawing
+  useEffect(() => {
+    const tick = () => {
+      const at = new Date();
+      setNow(at.getHours() * 60 + at.getMinutes());
+    };
+    const timer = setInterval(tick, 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // in the order the day runs, so each one ends where the next begins
+  const order = [...THEMES].sort((a, b) => schedule[a] - schedule[b]);
+  const onlyOne = new Set(THEMES.map((t) => schedule[t])).size === 1;
+
+  const drag = (e: React.PointerEvent) => {
+    const theme = held.current;
+    const svg = svgRef.current;
+    if (!theme || !svg) return;
+    onChange({ ...schedule, [theme]: minuteAt(svg.getBoundingClientRect(), e.clientX, e.clientY) });
+  };
+
+  return (
+    <svg
+      className="dial"
+      ref={svgRef}
+      viewBox="0 0 200 200"
+      onPointerMove={drag}
+      onPointerUp={() => {
+        held.current = null;
+      }}
+    >
+      {/* The day, in three stretches of theme. Every edge is laid down first
+          and the papers over them, so what is left showing is a hairline of
+          each theme's ink around its own stretch — which is the only thing
+          telling dark from ember, both of them being very nearly black. */}
+      {onlyOne ? (
+        <>
+          <circle
+            className={`dial-edge ${order[0]}`}
+            cx={DIAL.c}
+            cy={DIAL.c}
+            r={DIAL.ring}
+            fill="none"
+            strokeWidth={DIAL.band + 2.6}
+          />
+          <circle
+            className={`dial-band ${order[0]}`}
+            cx={DIAL.c}
+            cy={DIAL.c}
+            r={DIAL.ring}
+            fill="none"
+            strokeWidth={DIAL.band}
+          />
+        </>
+      ) : (
+        (["dial-edge", "dial-band"] as const).map((layer) =>
+          order.map((theme, i) => (
+            <path
+              key={`${layer}-${theme}`}
+              className={`${layer} ${theme}`}
+              d={arcPath(DIAL.ring, schedule[theme], schedule[order[(i + 1) % order.length]!]!)}
+              fill="none"
+              strokeWidth={layer === "dial-edge" ? DIAL.band + 2.6 : DIAL.band}
+            />
+          )),
+        )
+      )}
+
+      {/* an hour each, longer on the quarters */}
+      {Array.from({ length: 24 }, (_, hour) => {
+        const quarter = hour % 6 === 0;
+        const [x1, y1] = atMinute(DIAL.tick, hour * 60);
+        const [x2, y2] = atMinute(DIAL.tick - (quarter ? 5 : 3), hour * 60);
+        return (
+          <line
+            key={hour}
+            className={`dial-tick ${quarter ? "quarter" : ""}`}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+          />
+        );
+      })}
+
+      {[
+        [0, "12am"],
+        [360, "6am"],
+        [720, "12pm"],
+        [1080, "6pm"],
+      ].map(([minutes, label]) => {
+        const [x, y] = atMinute(DIAL.label, minutes as number);
+        return (
+          <text key={label} className="dial-hour" x={x} y={y} dominantBaseline="middle">
+            {label}
+          </text>
+        );
+      })}
+
+      {/* where the day is right now */}
+      <line
+        className="dial-now"
+        x1={DIAL.c}
+        y1={DIAL.c}
+        x2={atMinute(DIAL.hand, now)[0]}
+        y2={atMinute(DIAL.hand, now)[1]}
+      />
+      <circle className="dial-pin" cx={DIAL.c} cy={DIAL.c} r={3} />
+
+      {/* one handle per boundary — drag it round to move that theme's start */}
+      {THEMES.map((theme) => {
+        const [x, y] = atMinute(DIAL.ring, schedule[theme]);
+        return (
+          <circle
+            key={theme}
+            className={`dial-grip ${theme}`}
+            cx={x}
+            cy={y}
+            r={7}
+            onPointerDown={(e) => {
+              held.current = theme;
+              e.currentTarget.releasePointerCapture?.(e.pointerId);
+              svgRef.current?.setPointerCapture(e.pointerId);
+            }}
+          >
+            <title>{`when ${theme} takes over — drag to move it`}</title>
+          </circle>
+        );
+      })}
+    </svg>
+  );
+}
+
 /**
  * Settings: theme, workspace root, music folder, the vault, model catalog.
  *
@@ -335,17 +526,24 @@ export function Settings({ onClose }: { onClose(): void }) {
                 {schedule.on ? "On" : "Off"}
               </button>
               {schedule.on && (
-                <div className="schedule-times">
-                  {THEMES.map((option) => (
-                    <div className="schedule-slot" key={option}>
-                      <span className="schedule-name">{option}</span>
-                      <span className="schedule-from">from</span>
-                      <TimeField
-                        minutes={schedule[option]}
-                        onChange={(next) => keepSchedule({ ...schedule, [option]: next })}
-                      />
-                    </div>
-                  ))}
+                <div className="schedule-face">
+                  <ScheduleClock schedule={schedule} onChange={keepSchedule} />
+                  <div className="schedule-times">
+                    {THEMES.map((option) => (
+                      <div className="schedule-slot" key={option}>
+                        <span className={`schedule-swatch ${option}`} aria-hidden />
+                        <span className="schedule-name">{option}</span>
+                        <span className="schedule-from">from</span>
+                        <TimeField
+                          minutes={schedule[option]}
+                          onChange={(next) => keepSchedule({ ...schedule, [option]: next })}
+                        />
+                      </div>
+                    ))}
+                    <p className="schedule-hint">
+                      One turn is one day. Drag a mark round the dial, or nudge a time here.
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

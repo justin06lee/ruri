@@ -35,6 +35,11 @@ function fixPath(): void {
   process.env["PATH"] = [...current, ...extras.filter((d) => !current.includes(d))].join(path.delimiter);
 }
 
+/** The port the packaged app serves itself on — see `main()` below. 7777 is
+ *  the dev server's, deliberately not shared: a dev run and the installed app
+ *  should not fight over one. */
+const DESKTOP_PORT = 7776;
+
 function createWindow(port: number): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
@@ -130,7 +135,14 @@ async function main(): Promise<void> {
 
   const staticDir = path.join(import.meta.dirname, "..", "dist-web");
   const running = await startServer({
-    port: Number(process.env["RURI_PORT"] ?? 0),
+    // A fixed port on purpose. The window is a page served from it, so the
+    // port is the origin, and the origin is what everything the window keeps
+    // for itself is filed under — a fresh port every launch meant every one
+    // of those preferences started empty. Only one ruri runs at a time (the
+    // single-instance lock above), so this is free; if something else has
+    // taken it the server falls back to an ephemeral port and the app still
+    // comes up, with the server holding the preferences either way.
+    port: Number(process.env["RURI_PORT"] ?? DESKTOP_PORT),
     staticDir,
     pickFolder: async () => {
       const win = BrowserWindow.getAllWindows()[0];

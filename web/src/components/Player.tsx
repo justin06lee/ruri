@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Playlist, Track } from "../../../shared/protocol";
 import { AudioEngine, type PlayerState, type RepeatMode } from "../lib/audio";
+import { getPref as ls, setPref as lsSet } from "../prefs";
 import { HTTP_BASE, useRuri } from "../store";
 import { Dropdown } from "./Dropdown";
 
@@ -13,21 +14,6 @@ const EMPTY: PlayerState = {
   queueLength: 0,
 };
 
-function ls(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function lsSet(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // fine — preference just won't persist
-  }
-}
 
 function mmss(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));

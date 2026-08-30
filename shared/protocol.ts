@@ -541,7 +541,9 @@ export type ClientMessage =
   /** Wipe the Home chat (transcript + session) — it's ephemeral. */
   | { type: "reset_home" }
   /** Re-probe every installed harness's live model catalog. */
-  | { type: "refresh_models" };
+  | { type: "refresh_models" }
+  /** Keep one window preference on this machine. An empty value forgets it. */
+  | { type: "set_pref"; key: string; value: string };
 
 export type ServerMessage =
   | {
@@ -581,6 +583,10 @@ export type ServerMessage =
       smallModel: string;
       /** The local account name shown on the sidebar's account bar. */
       user: string;
+      /** This machine's window preferences (theme, the theme clock, which
+       *  folders are unfolded, the player's volume) — the window's own
+       *  storage is a cache of these, not the other way round. */
+      prefs: Record<string, string>;
       /** Unsent composer prompts per channel, waiting where they were left. */
       composerDrafts: Record<string, ComposerDraftState>;
     }
@@ -602,6 +608,8 @@ export type ServerMessage =
   | { type: "workspace"; path: string }
   | { type: "music_dir"; path: string }
   | { type: "home_settings"; home: HomeSettings }
+  /** This machine's window preferences, after one of them changed. */
+  | { type: "prefs"; prefs: Record<string, string> }
   | { type: "starred_models"; models: string[] }
   | { type: "small_model"; model: string }
   | { type: "home_reset" }

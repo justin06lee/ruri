@@ -275,7 +275,7 @@ export function componentTools(host: ComponentHost, channelId: string) {
     tools: [
       tool(
         "name_component",
-        "Register a piece of this project's interface you have just built or substantially changed, so the user can refer to it by name from now on. Shows them a card with your suggested name; they edit it and confirm. Call it once per component, right after you finish it.",
+        "Register a piece of this project's interface you have just built or substantially changed, so the user can refer to it by name from now on. Shows them a card with your suggested name and your screenshot of it; they edit the name and confirm. Call it once per component, right after you finish it.",
         {
           name: z
             .string()
@@ -287,7 +287,11 @@ export function componentTools(host: ComponentHost, channelId: string) {
           screenshot: z
             .string()
             .optional()
-            .describe("Absolute path of an image of it, if you already have one"),
+            .describe(
+              "Path to a picture of it — take one if you don't have one. The card shows this, " +
+                "and a card without it asks the user to name something they cannot see. It is " +
+                "kept with the entry, so later sessions can look at it too.",
+            ),
         },
         async (args) => {
           const kept = await host.propose(channelId, {
@@ -376,8 +380,9 @@ export function componentDropBriefing(projectDir: string): string {
     "<ruri:naming>",
     "When you build or substantially change a piece of this project's interface, register it so the user can refer to it by name afterwards.",
     `Append one JSON line to ${path.join(projectDir, ".ruri", "components.jsonl")} (create it if missing):`,
-    '  {"name": "the words a user would use for it", "files": ["path/to/file.tsx:40"], "note": "one line on what it is", "shot": "/absolute/path/to/a/screenshot.png (optional)"}',
+    '  {"name": "the words a user would use for it", "files": ["path/to/file.tsx:40"], "note": "one line on what it is", "shot": "/path/to/a/screenshot.png"}',
     "ruri reads and clears that file when your turn ends, and shows the user a card to confirm or rename. Do it once per component, and suggest the name they would use — 'the dragon gauges', not 'DragonGauge'.",
+    "Include the shot whenever the thing is something you can see: the card shows it, so without one you are asking the user to name something they cannot see. ruri keeps its own copy with the entry, and later sessions can read it back.",
     "</ruri:naming>",
   ].join("\n");
 }

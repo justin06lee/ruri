@@ -126,21 +126,6 @@ export interface ComposerDraftState {
   attachments?: DraftAttachment[];
 }
 
-/**
- * A project's catch-up brief: what it is, what's in it, and what it looks
- * like. Written by the small model as turns finish, editable by hand.
- */
-export interface ProjectBrief {
-  /** One sentence: what this project is. */
-  description: string;
-  /** One line per capability, merged as hard as they will merge. */
-  features: string[];
-  /** Pinned screenshots — the main pages, however many that takes. */
-  shots: Attachment[];
-  /** When the written half last changed. */
-  updated?: number;
-}
-
 /** Tick state of a tracker item: open → liked (check) → rejected (x) → open. */
 export type TrackerStatus = "open" | "liked" | "rejected";
 
@@ -161,6 +146,82 @@ export interface TrackerItem {
   /** Files pasted into the note — referenced by path in the review prompt. */
   attachments?: Attachment[];
   ts: number;
+}
+
+/**
+ * One line on a project's ideas board — a want, not a task. Nothing writes
+ * these but the user: the board is where a thought goes so it stops taking
+ * up room, and it stays there until it's done or it's dropped.
+ *
+ * Ideas are keyed by PROJECT id, not by session — an idea belongs to the
+ * thing being built, not to whichever chat happened to be open.
+ */
+export interface Idea {
+  id: string;
+  text: string;
+  done: boolean;
+  ts: number;
+}
+
+/**
+ * A named piece of a project's interface: the words the user actually uses
+ * for it, where it lives in the code, and what it looks like.
+ *
+ * The point is the gap between "the dragon gauges" and
+ * `web/src/components/Dragon.tsx` — the user names things by what they see.
+ * ruri keeps the index, writes it into the project as `.ruri/components.md`
+ * for any harness to read, and hands the matching entries to the model
+ * alongside a prompt that names one. Keyed by PROJECT id.
+ */
+export interface NamedComponent {
+  id: string;
+  /** What the user calls it. */
+  name: string;
+  /** Other names that mean the same thing. */
+  aliases: string[];
+  /** Where it lives — "web/src/components/Dragon.tsx:40" or a bare path. */
+  files: string[];
+  /** Anything else the model should know before touching it. */
+  note: string;
+  /** What it looks like. */
+  shots: Attachment[];
+  ts: number;
+}
+
+/**
+ * A credential ruri holds so the model can use it without ever reading it.
+ * The value lives on disk under the config dir and never crosses this wire —
+ * only its name, so the UI can list what exists. See server/secrets.ts for
+ * the two ways it reaches a command.
+ */
+export interface SecretMeta {
+  id: string;
+  /** The handle everything refers to it by: {{name}}, $RURI_SECRET_NAME. */
+  name: string;
+  /** The account the secret belongs to, when there is one. */
+  username?: string;
+  /** What it's for — shown to the user, and to the model as a hint. */
+  note?: string;
+  /** Whether a value is actually stored (it never leaves the server). */
+  hasValue: boolean;
+  updated: number;
+}
+
+/** An installed Claude Code skill, global or local to one project. */
+export interface SkillInfo {
+  /** Folder name under skills/ — what `bmo remove` takes. */
+  name: string;
+  /** The frontmatter's description: when the model should reach for it. */
+  description: string;
+  scope: "global" | "project";
+  /** Absolute path of the skill folder as it sits now. */
+  path: string;
+  /** Live, or parked in the sibling skills-off/ folder. */
+  enabled: boolean;
+  /** Where bmo installed it from, when bmo installed it. */
+  source?: string;
+  /** Last change to the source, per bmo. */
+  updated?: number;
 }
 
 /** A prompt held app-side until the running turn finishes (editable). */
@@ -384,13 +445,39 @@ export type ClientMessage =
   | { type: "set_permission_mode"; projectId: string; mode: PermissionMode }
   /** Set a project's reasoning effort (one of EFFORT_LEVELS). */
   | { type: "set_effort"; projectId: string; effort: string }
-  /* ── the catch-up brief ─────────────────────────────────────────── */
-  /** Rewrite the brief's words (the pinned screenshots are left alone). */
-  | { type: "brief_write"; projectId: string; description: string; features: string[] }
-  | { type: "brief_pin"; projectId: string; upload: AttachmentUpload }
-  | { type: "brief_unpin"; projectId: string; shotId: string }
-  /** Put the brief in the composer, screenshots attached, ready to send. */
-  | { type: "brief_compose"; projectId: string }
+  /* ── the ideas board (per PROJECT id, not per session) ──────────── */
+  | { type: "idea_add"; projectId: string; text: string }
+  | { type: "idea_update"; projectId: string; ideaId: string; text?: string; done?: boolean }
+  | { type: "idea_remove"; projectId: string; ideaId: string }
+  /* ── the component index (per PROJECT id) ───────────────────────── */
+  | { type: "component_add"; projectId: string; name: string }
+  | {
+      type: "component_update";
+      projectId: string;
+      componentId: string;
+      name?: string;
+      aliases?: string[];
+      files?: string[];
+      note?: string;
+    }
+  | { type: "component_remove"; projectId: string; componentId: string }
+  | { type: "component_shot"; projectId: string; componentId: string; upload: AttachmentUpload }
+  | { type: "component_unshot"; projectId: string; componentId: string; shotId: string }
+  /* ── the vault ──────────────────────────────────────────────────── */
+  /** Save (or overwrite) one credential. An absent `secret` keeps the
+   *  stored value and edits only the fields around it. */
+  | { type: "secret_save"; id?: string; name: string; username?: string; note?: string; secret?: string }
+  | { type: "secret_remove"; id: string }
+  /* ── skills ─────────────────────────────────────────────────────── */
+  /** Re-scan global skills and this project's local ones. */
+  | { type: "skills_refresh"; projectId?: string }
+  /** Park a skill in skills-off/ or bring it back. */
+  | { type: "skill_toggle"; projectId?: string; scope: "global" | "project"; name: string; on: boolean }
+  /** `bmo add <source>` — into ~/.claude/skills, or the project's own. */
+  | { type: "skill_install"; projectId?: string; scope: "global" | "project"; source: string }
+  | { type: "skill_remove"; projectId?: string; scope: "global" | "project"; name: string }
+  /** `bmo update` — pull whatever the sources changed. */
+  | { type: "skill_update"; projectId?: string }
   | { type: "tracker_add"; projectId: string; text: string; note?: string }
   | {
       type: "tracker_update";
@@ -431,8 +518,12 @@ export type ServerMessage =
       summaries: Record<string, Record<string, string>>;
       /** Feature-tracker checklists per project. */
       tracker: Record<string, TrackerItem[]>;
-      /** Catch-up briefs per project (only those that have one). */
-      briefs: Record<string, ProjectBrief>;
+      /** Ideas boards, keyed by PROJECT id. */
+      ideas: Record<string, Idea[]>;
+      /** Component indexes, keyed by PROJECT id. */
+      components: Record<string, NamedComponent[]>;
+      /** The vault's names (never its values). */
+      secrets: SecretMeta[];
       /** App-side prompt queues per channel (visible entries only). */
       queued: Record<string, QueuedPrompt[]>;
       /** Limit windows per provider id (empty until the first read). */
@@ -459,7 +550,15 @@ export type ServerMessage =
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
   | { type: "turn_summary"; projectId: string; turnId: string; summary: string }
-  | { type: "brief"; projectId: string; brief: ProjectBrief }
+  /** A project's ideas board. */
+  | { type: "ideas"; projectId: string; items: Idea[] }
+  /** A project's component index. */
+  | { type: "components"; projectId: string; items: NamedComponent[] }
+  /** The vault, names only — values never leave the server. */
+  | { type: "secrets"; items: SecretMeta[] }
+  /** Installed skills: every global one, plus the named project's own.
+   *  `note` carries what bmo said when a command just ran. */
+  | { type: "skills"; projectId?: string; skills: SkillInfo[]; note?: string; busy?: boolean }
   | { type: "tracker"; projectId: string; items: TrackerItem[] }
   | { type: "workspace"; path: string }
   | { type: "music_dir"; path: string }

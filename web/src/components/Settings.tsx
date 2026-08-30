@@ -85,6 +85,103 @@ function ModelCatalog() {
 }
 
 /**
+ * The vault: credentials ruri holds so the model can use them without ever
+ * reading them.
+ *
+ * Values are one-way. They go in here and never come back out — not to this
+ * page, not to the transcript, not to a model's context. What comes back is
+ * the handle, which is all anything else needs to say.
+ */
+function Vault() {
+  const secrets = useRuri((s) => s.secrets);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [secret, setSecret] = useState("");
+  const [note, setNote] = useState("");
+
+  const clear = () => {
+    setEditing(null);
+    setName("");
+    setUsername("");
+    setSecret("");
+    setNote("");
+  };
+
+  const save = () => {
+    if (!name.trim()) return;
+    send({
+      type: "secret_save",
+      ...(editing ? { id: editing } : {}),
+      name: name.trim(),
+      username: username.trim(),
+      note: note.trim(),
+      // blank means "leave the stored value alone"
+      ...(secret ? { secret } : {}),
+    });
+    clear();
+  };
+
+  return (
+    <div className="vault">
+      {secrets.map((entry) => (
+        <div key={entry.id} className="vault-row">
+          <span className="vault-handle">{`{{${entry.name}}}`}</span>
+          {entry.username && <span className="vault-who">{entry.username}</span>}
+          {!entry.hasValue && <span className="vault-who">no value yet</span>}
+          <button
+            className="ghost"
+            title="Edit — the stored value stays unless you type a new one"
+            onClick={() => {
+              setEditing(entry.id);
+              setName(entry.name);
+              setUsername(entry.username ?? "");
+              setNote(entry.note ?? "");
+              setSecret("");
+            }}
+          >
+            Edit
+          </button>
+          <button className="ghost" onClick={() => send({ type: "secret_remove", id: entry.id })}>
+            Forget
+          </button>
+        </div>
+      ))}
+
+      <div className="vault-form">
+        <input placeholder="name (deploy-box)" value={name} onChange={(e) => setName(e.target.value)} />
+        <input placeholder="username (optional)" value={username} onChange={(e) => setUsername(e.target.value)} />
+        <input
+          type="password"
+          placeholder={editing ? "new value (blank = keep)" : "password or token"}
+          value={secret}
+          onChange={(e) => setSecret(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+          }}
+        />
+        <input placeholder="what it's for (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+        <button className="ghost" disabled={!name.trim()} onClick={save}>
+          {editing ? "Save" : "Add"}
+        </button>
+        {editing && (
+          <button className="ghost" onClick={clear}>
+            Cancel
+          </button>
+        )}
+      </div>
+
+      <div className="vault-hint">
+        The model is told the names, never the values. It writes{" "}
+        <code>{"{{name}}"}</code> into a command or a file and ruri swaps the real value in after
+        it has finished writing — or it uses <code>$RURI_SECRET_NAME</code>, which is already set
+        in its shell on every harness. Anything a value leaks back into is redacted to its handle.
+      </div>
+    </div>
+  );
+}
+
+/**
  * A time of day, as its own little control — no native picker, no OS
  * chrome. Each part takes the arrows or the wheel; the hour rolls at 12,
  * the minutes step by five, and am/pm is a flip.
@@ -274,6 +371,11 @@ export function Settings({ onClose }: { onClose(): void }) {
               Change
             </button>
           </div>
+        </div>
+
+        <div className="settings-row models-row">
+          <span className="settings-label">Vault</span>
+          <Vault />
         </div>
 
         <div className="settings-row models-row">

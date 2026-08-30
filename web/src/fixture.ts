@@ -80,20 +80,54 @@ export function installFixture(): void {
         { id: "t4", text: "Try the new sidebar folder grouping", note: "", status: "liked", source: "manual", ts: now - 300_000 },
       ],
     },
-    briefs: {
-      p1: {
-        description: "A desktop workspace for running parallel AI coding sessions, one folder per project.",
-        features: [
-          "Multi-model sessions per project (Claude, Codex, OpenCode, any ACP agent)",
-          "Usage gauges: context, 5h, weekly, per-model",
-          "Home agent that opens and closes projects for you",
-          "Rapid fire: prompt every session that's waiting, in turn",
-          "A shell per project, in the composer",
-        ],
-        shots: [],
-        updated: now - 600_000,
-      },
+    ideas: {
+      prj1: [
+        { id: "i1", text: "A keyboard-only pass over the whole app", done: false, ts: now - 60_000 },
+        { id: "i2", text: "Let a session run a check before every commit", done: false, ts: now - 90_000 },
+        { id: "i3", text: "Sidebar folders", done: true, ts: now - 900_000 },
+      ],
     },
+    components: {
+      prj1: [
+        {
+          id: "c1",
+          name: "the dragon gauges",
+          aliases: ["the bars", "the gauges"],
+          files: ["web/src/components/Dragon.tsx", "web/src/styles.css:2864"],
+          note: "Four of them flank the composer: context, 5h, weekly, per-model.",
+          shots: [],
+          ts: now - 400_000,
+        },
+      ],
+    },
+    skills: [
+      {
+        name: "omniscience",
+        description:
+          "Use whenever building, writing, or modifying code or files in a project — implementing features, fixing bugs, refactoring, scaffolding, editing configs or docs.",
+        scope: "global",
+        path: "/Users/you/.claude/skills/omniscience",
+        enabled: true,
+        source: "justin06lee/omniscience.md",
+      },
+      {
+        name: "dataviz",
+        description: "Use before writing any chart, graph, plot, dashboard, or data visualization.",
+        scope: "global",
+        path: "/Users/you/.claude/skills-off/dataviz",
+        enabled: false,
+      },
+      {
+        name: "release",
+        description: "How this repo cuts a release: version bump, build, tag, push, install.",
+        scope: "project",
+        path: "/Users/you/Workspace/ruri/.claude/skills/release",
+        enabled: true,
+      },
+    ],
+    secrets: [
+      { id: "s1", name: "deploy-box", username: "root", hasValue: true, updated: now - 86_400_000 },
+    ],
     summaries: {
       p1: {
         e0: "Investigated flaky sidebar unread dot: race between snapshot and event broadcast in server.ts; fixed by ordering broadcasts after archive append. Tests green.",

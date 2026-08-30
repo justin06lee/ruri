@@ -241,23 +241,18 @@ export function Tracker({ projectId, onClose }: { projectId: string; onClose(): 
   const reviewed = items.length - openCount;
 
   return (
-    <section className="tracker-page">
-      <div className="tracker-inner">
-        <div className="tracker-head">
-          <span className="tracker-title">Tracker</span>
-          <span className="tracker-sub">
-            {openCount} to check
-          </span>
-          <button className="icon-button" title="Back to the chat" onClick={onClose}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
+    <section className="board-page">
+      <div className="board-inner">
+        {/* no close button: the header's lit tracker icon is the way back,
+            and a second X on the page only ever read as "delete all this" */}
+        <div className="board-head">
+          <span className="board-title">Tracker</span>
+          <span className="board-sub">{openCount} to check</span>
         </div>
 
         <div className="tracker-list">
           {items.length === 0 && (
-            <div className="tracker-empty">
+            <div className="board-empty">
               Nothing tracked yet. New features from each turn land here automatically.
             </div>
           )}

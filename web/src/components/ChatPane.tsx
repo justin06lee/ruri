@@ -23,7 +23,9 @@ import {
   type Region,
 } from "./Attachments";
 import { heroFrame } from "../peek";
-import { Brief } from "./Brief";
+import { Components } from "./Components";
+import { Ideas } from "./Ideas";
+import { Skills } from "./Skills";
 import { DiffView } from "./Diff";
 import type { RapidFire } from "./RapidFire";
 import { RapidBar } from "./RapidFire";
@@ -968,18 +970,25 @@ export function ChatPane({
     rapid?.on ? `${base} rapid-page${rapid.leaving ? " rapid-leaving" : ""}` : base;
 
   const trackerItems = useRuri((s) => (activeId ? s.tracker[activeId] : undefined));
-  const [trackerOpen, setTrackerOpen] = useState(false);
-  /** The catch-up page: this project's brief, and the button that hands it
-   *  to a model that has never seen it. */
-  const [briefOpen, setBriefOpen] = useState(false);
+  /**
+   * The pane shows one thing at a time: the chat, or one of the project's
+   * pages. No navigation and no overlay — the header's buttons swap this,
+   * and pressing the lit one swaps it back.
+   */
+  const [page, setPage] = useState<"chat" | "tracker" | "ideas" | "components" | "skills">("chat");
   const openCount = (trackerItems ?? []).filter((i) => i.status === "open").length;
+  const boardId = storeProject?.id;
+  // a number, not the list: a selector that mints a fresh array every read
+  // spins useSyncExternalStore forever (React error #185)
+  const ideaCount = useRuri((s) =>
+    boardId ? (s.ideas[boardId] ?? []).filter((i) => !i.done).length : 0,
+  );
 
   // Sending a prompt extracts tracker items, but it does not yank you onto
   // the tracker page to look at them — the toggle's badge is the whole
   // notification. Switching channels still lands you back on the chat.
   useEffect(() => {
-    setTrackerOpen(false);
-    setBriefOpen(false);
+    setPage("chat");
   }, [activeId]);
 
   // Turns show in full — the summaries are the model's memory aid, not the
@@ -1159,22 +1168,31 @@ export function ChatPane({
       <div className="header-controls">
         {rapid?.on && <RapidBar rapid={rapid} />}
         <button
-          className={`icon-button ${briefOpen ? "active" : ""}`}
-          title="Catch up — this project in a paragraph, for a model that has never seen it"
-          onClick={() => {
-            setBriefOpen(!briefOpen);
-            setTrackerOpen(false);
-          }}
+          className={`icon-button ${page === "skills" ? "active" : ""}`}
+          title="Skills — what this project and this machine load before working"
+          onClick={() => setPage(page === "skills" ? "chat" : "skills")}
         >
           <Icon d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v18H6.5A2.5 2.5 0 0 1 4 18.5v-13zM12 3h5.5A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5H12" />
         </button>
         <button
-          className={`icon-button tracker-toggle ${trackerOpen ? "active" : ""}`}
-          title={trackerOpen ? "Back to the chat" : "Feature tracker — things to test by hand"}
-          onClick={() => {
-            setTrackerOpen(!trackerOpen);
-            setBriefOpen(false);
-          }}
+          className={`icon-button ${page === "components" ? "active" : ""}`}
+          title="Components — your names for the parts of this project"
+          onClick={() => setPage(page === "components" ? "chat" : "components")}
+        >
+          <Icon d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" />
+        </button>
+        <button
+          className={`icon-button ${page === "ideas" ? "active" : ""}`}
+          title="Ideas — the board of things you want out of this project"
+          onClick={() => setPage(page === "ideas" ? "chat" : "ideas")}
+        >
+          <Icon d="M9 18h6M10 21h4M12 3a6 6 0 0 1 4 10.5c-.6.6-1 1.4-1 2.2v.3H9v-.3c0-.8-.4-1.6-1-2.2A6 6 0 0 1 12 3z" />
+          {ideaCount > 0 && <span className="tracker-badge">{ideaCount}</span>}
+        </button>
+        <button
+          className={`icon-button tracker-toggle ${page === "tracker" ? "active" : ""}`}
+          title={page === "tracker" ? "Back to the chat" : "Feature tracker — things to test by hand"}
+          onClick={() => setPage(page === "tracker" ? "chat" : "tracker")}
         >
           <Icon d="M9 11l3 3 8-8M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" />
           {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
@@ -1212,17 +1230,18 @@ export function ChatPane({
     );
   }
 
-  // The tracker button swaps the whole pane for the todo page — no
-  // navigation, just this branch; the same button (or its X) swaps back.
-  if (trackerOpen || briefOpen) {
+  // A header button swaps the whole pane for that page — no navigation,
+  // just this branch; the lit button swaps it back.
+  if (page !== "chat") {
     return (
       <main className={pane("chat")}>
         {header}
-        {trackerOpen ? (
-          <Tracker projectId={activeId} onClose={() => setTrackerOpen(false)} />
-        ) : (
-          <Brief projectId={activeId} onClose={() => setBriefOpen(false)} />
+        {page === "tracker" && (
+          <Tracker projectId={activeId} onClose={() => setPage("chat")} />
         )}
+        {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
+        {page === "components" && boardId && <Components projectId={boardId} />}
+        {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
       </main>
     );
   }

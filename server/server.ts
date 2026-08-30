@@ -27,7 +27,12 @@ import { ProjectStore } from "./projects.js";
 import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { promptChain, SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief } from "./smallmodel.js";
-import { BriefStore, briefPrompt } from "./brief.js";
+import { BriefStore, writeCatchupFile } from "./brief.js";
+import { sessionBriefing } from "./briefing.js";
+import { ComponentStore, mentionBlock, mentionedIn, writeIndexFile } from "./components.js";
+import { IdeaStore } from "./ideas.js";
+import { SecretStore } from "./secrets.js";
+import { installSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
@@ -226,6 +231,21 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const homeLog = new HomeLog();
   const tracker = new TrackerStore();
   const briefs = new BriefStore();
+  // the two per-PROJECT boards (everything else here is per session)
+  const ideas = new IdeaStore();
+  const components = new ComponentStore();
+  // the vault, pushed into ruri's own environment so every harness ruri
+  // spawns inherits $RURI_SECRET_* without being told anything
+  const secrets = new SecretStore();
+  secrets.applyEnv();
+  // both project files are written from what's already on disk at startup, so
+  // a session opened before anything happens still finds them there
+  for (const project of store.list()) {
+    writeIndexFile(project.path, components.items(project.id));
+    for (const session of project.sessions) {
+      writeCatchupFile(project.path, project.name, briefs.get(session.id));
+    }
+  }
   // half-written prompts, per channel — outliving both the wiped Home
   // archive above and any rewind that truncates a session's
   const drafts = new DraftStore();
@@ -361,6 +381,30 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     return { ...found.project, id: channelId };
   }
 
+  /** The project a channel belongs to — boards are keyed by that, not by
+   *  the session that happened to be open. */
+  function ownerProject(channelId: string) {
+    return store.findSession(channelId)?.project;
+  }
+
+  /** Push a project's component index to disk and to every client. */
+  function pushComponents(projectId: string, projectDir?: string): void {
+    const items = components.items(projectId);
+    if (projectDir) writeIndexFile(projectDir, items);
+    broadcast({ type: "components", projectId, items });
+  }
+
+  /** Re-scan skills for a project (or just the global ones) and push. */
+  function pushSkills(projectId?: string, note?: string): void {
+    const dir = projectId ? store.get(projectId)?.path : undefined;
+    broadcast({
+      type: "skills",
+      ...(projectId ? { projectId } : {}),
+      skills: scanSkills(dir),
+      ...(note ? { note } : {}),
+    });
+  }
+
   // The app-side prompt queue: everything waiting for the running turn to
   // finish. Visible entries are user prompts sent while busy (shown and
   // editable in the UI); silent entries are split sub-prompts riding under
@@ -427,12 +471,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     const project = channelProject(channelId);
     if (!project) throw new Error("unknown session");
     titleSession(channelId, text);
+    // a prompt that names something in the component index takes that
+    // entry down with it — the model's copy only, never the transcript's
+    const owner = ownerProject(channelId);
+    const named = owner ? mentionBlock(mentionedIn(text, components.items(owner.id))) : "";
     // the first prompt after a compaction carries the brief, invisibly
     const brief = archive.takePendingBrief(channelId) ?? "";
     if (silent) {
       // a split sub-prompt: files are already stored, no new user event
       const payload = modelPayload(text, uploads);
-      manager.send(project, brief + payload.text, payload.images, undefined, true);
+      manager.send(project, brief + payload.text + named, payload.images, undefined, true);
       return;
     }
     // What the model reads and what the user wrote are two strings: the
@@ -449,7 +497,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       ts: Date.now(),
     };
     recordEvent(channelId, userEvent);
-    manager.send(project, brief + processed.text, processed.images, undefined, true);
+    manager.send(project, brief + processed.text + named, processed.images, undefined, true);
   }
 
   /** Send the next queued prompt, once the channel settles. */
@@ -588,8 +636,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             next.features.join("\n") === current.features.join("\n")) {
           return;
         }
-        const brief = briefs.write(projectId, next.description, next.features);
-        broadcast({ type: "brief", projectId, brief });
+        writeCatchupFile(project.path, project.name, briefs.write(projectId, next.description, next.features));
       })
       .catch(() => {});
   }
@@ -614,8 +661,22 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     foldBrief(projectId, turn);
   });
 
-  /** Archive, observe, log (Home), and broadcast one transcript event. */
-  function recordEvent(projectId: string, event: TranscriptEvent): void {
+  /**
+   * Archive, observe, log (Home), and broadcast one transcript event.
+   *
+   * Anything the model produced is redacted first: a command that echoed a
+   * vault value leaves the handle behind rather than the value, on screen
+   * and on disk both. The user's own prompts are left exactly as typed —
+   * rewinding matches a prompt against what the CLI recorded, and rewriting
+   * it here would break that for the sake of a value the user chose to type.
+   */
+  function recordEvent(projectId: string, raw: TranscriptEvent): void {
+    const event =
+      raw.kind === "assistant" || raw.kind === "info"
+        ? { ...raw, text: secrets.redact(raw.text) }
+        : raw.kind === "tool"
+          ? { ...raw, summary: secrets.redact(raw.summary) }
+          : raw;
     archive.append(projectId, event);
     turns.observe(projectId, event);
     if (projectId === HOME_ID) homeLog.observe(event);
@@ -655,7 +716,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       },
       onDelta: (projectId, messageId, delta) => broadcast({ type: "delta", projectId, messageId, delta }),
       onStatus: (projectId, status) => broadcast({ type: "status", projectId, status }),
-      onPermission: (request) => {
+      onPermission: (raw) => {
+        // PreToolUse hooks run before the approval, so the input reaching
+        // here may already hold a real vault value — the card shows handles
+        const request: PermissionRequest = { ...raw, input: secrets.redactInput(raw.input) };
         permissions.set(request.requestId, request);
         broadcast({ type: "permission_request", request });
       },
@@ -681,10 +745,30 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       onChain: (projectId, eventId, kind, uuid) => archive.setChain(projectId, eventId, kind, uuid),
     },
     (projectId) => archive.lastSessionId(projectId),
-    (project) =>
-      project.id === HOME_ID
-        ? managerExtras(managerHost, store.workspaceDir(), homeLog.path())
-        : undefined,
+    (project) => {
+      if (project.id === HOME_ID) {
+        return managerExtras(managerHost, store.workspaceDir(), homeLog.path());
+      }
+      // the same words wherever the session runs: Claude takes them as an
+      // append to its own preset, everything else as its whole system prompt
+      const claude = !registry.parse(project.model || DEFAULT_MODEL).providerId;
+      const note = sessionBriefing({
+        projectDir: project.path,
+        projectName: project.name,
+        secrets,
+        claude,
+      });
+      return {
+        fillSecrets: (input) =>
+          secrets.wanted(JSON.stringify(input)) ? secrets.fillInput(input) : undefined,
+        ...(note
+          ? {
+              providerSystem: note,
+              options: { systemPrompt: { type: "preset", preset: "claude_code", append: note } },
+            }
+          : {}),
+      };
+    },
     {
       parse: (model) => registry.parse(model),
       create: (id, workDir) => registry.createFor(id, workDir),
@@ -705,6 +789,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       sendQueues.delete(sessionId);
       terminals.close(sessionId);
     }
+    ideas.removeProject(projectId);
+    components.removeProject(projectId);
     store.remove(projectId);
     broadcast({ type: "projects", projects: store.list() });
   }
@@ -1142,43 +1228,128 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
         break;
       }
-      case "brief_write": {
-        broadcast({
-          type: "brief",
-          projectId: msg.projectId,
-          brief: briefs.write(msg.projectId, msg.description, msg.features),
-        });
+      /* ── the ideas board ──────────────────────────────────────── */
+      case "idea_add": {
+        const text = msg.text.trim();
+        if (!text) break;
+        ideas.add(msg.projectId, text);
+        broadcast({ type: "ideas", projectId: msg.projectId, items: ideas.items(msg.projectId) });
         break;
       }
-      case "brief_pin": {
+      case "idea_update": {
+        ideas.update(msg.projectId, msg.ideaId, {
+          ...(msg.text !== undefined ? { text: msg.text } : {}),
+          ...(msg.done !== undefined ? { done: msg.done } : {}),
+        });
+        broadcast({ type: "ideas", projectId: msg.projectId, items: ideas.items(msg.projectId) });
+        break;
+      }
+      case "idea_remove": {
+        ideas.remove(msg.projectId, msg.ideaId);
+        broadcast({ type: "ideas", projectId: msg.projectId, items: ideas.items(msg.projectId) });
+        break;
+      }
+
+      /* ── the component index ──────────────────────────────────── */
+      case "component_add": {
+        const name = msg.name.trim();
+        if (!name) break;
+        components.add(msg.projectId, name);
+        pushComponents(msg.projectId, store.get(msg.projectId)?.path);
+        break;
+      }
+      case "component_update": {
+        components.update(msg.projectId, msg.componentId, {
+          ...(msg.name !== undefined ? { name: msg.name } : {}),
+          ...(msg.aliases !== undefined ? { aliases: msg.aliases } : {}),
+          ...(msg.files !== undefined ? { files: msg.files } : {}),
+          ...(msg.note !== undefined ? { note: msg.note } : {}),
+        });
+        pushComponents(msg.projectId, store.get(msg.projectId)?.path);
+        break;
+      }
+      case "component_remove": {
+        components.remove(msg.projectId, msg.componentId);
+        pushComponents(msg.projectId, store.get(msg.projectId)?.path);
+        break;
+      }
+      case "component_shot": {
         const { url } = storeUpload(msg.upload);
         const { data: _data, regions: _regions, ...meta } = msg.upload;
-        broadcast({
-          type: "brief",
-          projectId: msg.projectId,
-          brief: briefs.pin(msg.projectId, { ...meta, url }),
+        components.addShot(msg.projectId, msg.componentId, { ...meta, url });
+        pushComponents(msg.projectId, store.get(msg.projectId)?.path);
+        break;
+      }
+      case "component_unshot": {
+        components.removeShot(msg.projectId, msg.componentId, msg.shotId);
+        pushComponents(msg.projectId, store.get(msg.projectId)?.path);
+        break;
+      }
+
+      /* ── the vault ────────────────────────────────────────────── */
+      case "secret_save": {
+        secrets.save1({
+          ...(msg.id ? { id: msg.id } : {}),
+          name: msg.name,
+          ...(msg.username !== undefined ? { username: msg.username } : {}),
+          ...(msg.note !== undefined ? { note: msg.note } : {}),
+          ...(msg.secret !== undefined ? { secret: msg.secret } : {}),
         });
+        secrets.applyEnv();
+        broadcast({ type: "secrets", items: secrets.meta() });
         break;
       }
-      case "brief_unpin": {
+      case "secret_remove": {
+        secrets.remove(msg.id);
+        secrets.applyEnv();
+        broadcast({ type: "secrets", items: secrets.meta() });
+        break;
+      }
+
+      /* ── skills ───────────────────────────────────────────────── */
+      case "skills_refresh": {
+        pushSkills(msg.projectId);
+        break;
+      }
+      case "skill_toggle": {
+        try {
+          const note = toggleSkill(
+            msg.scope,
+            msg.projectId ? store.get(msg.projectId)?.path : undefined,
+            msg.name,
+            msg.on,
+          );
+          pushSkills(msg.projectId, note);
+        } catch (err) {
+          pushSkills(msg.projectId, String(err instanceof Error ? err.message : err));
+        }
+        break;
+      }
+      case "skill_install":
+      case "skill_remove":
+      case "skill_update": {
+        const dir = msg.projectId ? store.get(msg.projectId)?.path : undefined;
+        // bmo clones and copies — long enough that the page says so
         broadcast({
-          type: "brief",
-          projectId: msg.projectId,
-          brief: briefs.unpin(msg.projectId, msg.shotId),
+          type: "skills",
+          ...(msg.projectId ? { projectId: msg.projectId } : {}),
+          skills: scanSkills(dir),
+          busy: true,
         });
+        const work =
+          msg.type === "skill_install"
+            ? installSkill(msg.scope, dir, msg.source)
+            : msg.type === "skill_remove"
+              ? removeSkill(msg.scope, dir, msg.name)
+              : updateSkills(dir);
+        work
+          .then((note) => pushSkills(msg.projectId, note.split("\n").slice(-3).join(" · ") || "done"))
+          .catch((err: unknown) =>
+            pushSkills(msg.projectId, String(err instanceof Error ? err.message : err).split("\n")[0]),
+          );
         break;
       }
-      case "brief_compose": {
-        const project = store.findSession(msg.projectId)?.project;
-        const brief = briefs.get(msg.projectId);
-        ws.send(JSON.stringify({
-          type: "compose",
-          projectId: msg.projectId,
-          text: briefPrompt(project?.name ?? "this project", brief),
-          ...(brief.shots.length ? { attachments: brief.shots } : {}),
-        } satisfies ServerMessage));
-        break;
-      }
+
       case "tracker_attach": {
         const { url } = storeUpload(msg.upload);
         const { data: _d, regions: _r, ...meta } = msg.upload;
@@ -1316,6 +1487,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   wss.on("connection", (ws) => {
     clients.add(ws);
     const projectIds = [...store.sessionIds(), HOME_ID];
+    // the boards are the one thing keyed by project rather than by session
+    const boardIds = store.list().map((p) => p.id);
     const snapshot: ServerMessage = {
       type: "snapshot",
       projects: store.list(),
@@ -1325,7 +1498,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       models: allModels(),
       summaries: archive.allSummaries(projectIds),
       tracker: tracker.all(projectIds),
-      briefs: briefs.all(projectIds),
+      ideas: ideas.all(boardIds),
+      components: components.all(boardIds),
+      secrets: secrets.meta(),
       queued: Object.fromEntries(projectIds.map((id) => [id, visibleQueue(id)])),
       usage: usageLimits,
       // live figures first; anything not yet seen this run falls back to the

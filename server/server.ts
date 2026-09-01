@@ -399,14 +399,30 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   }, 5 * 60_000);
   /**
    * The context window a channel's model gets. A harness that names its own
-   * (Codex reports the model's real size) wins; otherwise it is Claude's
-   * two sizes, 1M with the [1m] flag.
+   * (Codex reports the model's real size) wins — but only for the model that
+   * named it; otherwise it is Claude's two sizes, 1M with the [1m] flag.
    */
   function contextWindow(channelId: string): number {
-    const reported = archive.contextWindowOf(channelId);
-    if (reported) return reported;
     const model = channelProject(channelId)?.model || DEFAULT_MODEL;
+    const reported = archive.contextWindowOf(channelId, model);
+    if (reported) return reported;
     return model.includes("[1m]") ? 1_000_000 : 200_000;
+  }
+
+  /**
+   * Re-announce one channel's occupancy against the window it has now.
+   *
+   * Switching a project's model changes the denominator without spending a
+   * token, so nothing would otherwise re-measure until the next turn — the
+   * gauge would keep reading a 393k session as full because the model it was
+   * measured against is gone.
+   */
+  function republishContext(channelId: string): void {
+    const tokens = contexts.get(channelId)?.tokens ?? archive.contextTokens(channelId);
+    if (tokens === undefined) return;
+    const context: ContextUsage = { tokens, window: contextWindow(channelId) };
+    contexts.set(channelId, context);
+    broadcast({ type: "context", projectId: channelId, context });
   }
 
   // A "channel" id is HOME_ID or a session id; sessions run with their
@@ -946,8 +962,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       onSessionId: (projectId, sessionId) => archive.setLastSessionId(projectId, sessionId),
       onContext: (projectId, tokens, window) => {
         // the window is recorded first: contextWindow() reads it back, so a
-        // harness that names its own is answered with that same number
-        archive.setContextTokens(projectId, tokens, window);
+        // harness that names its own is answered with that same number — and
+        // recorded against the model that named it, so it dies with it
+        const model = channelProject(projectId)?.model || DEFAULT_MODEL;
+        archive.setContextTokens(projectId, tokens, window, model);
         const context: ContextUsage = { tokens, window: contextWindow(projectId) };
         contexts.set(projectId, context);
         broadcast({ type: "context", projectId, context });
@@ -1419,12 +1437,15 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           store.setHomeSettings({ model: msg.model });
           manager.setModel(HOME_ID, msg.model);
           broadcast({ type: "home_settings", home: store.homeSettings() });
+          republishContext(HOME_ID);
           break;
         }
         store.update(msg.projectId, { model: msg.model });
         // live sessions are keyed by session id, not project id
         for (const s of store.get(msg.projectId)?.sessions ?? []) manager.setModel(s.id, msg.model);
         broadcast({ type: "projects", projects: store.list() });
+        // the new model may have a different window — remeasure against it
+        for (const s of store.get(msg.projectId)?.sessions ?? []) republishContext(s.id);
         break;
       }
       case "set_permission_mode": {

@@ -297,6 +297,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // probed Claude list when it lands, so a refresh never clobbers it.
   let registry = new ProviderRegistry();
   let claudeModels: ModelChoice[] = [];
+  /** Names worked out from the startup catalog, which is the only source that
+   *  says which version a family is on. A live session reports ids and bare
+   *  display names, so it borrows from here rather than undoing them. */
+  const claudeNames = new Map<string, string>();
   let providerModels: ModelChoice[] = [];
   const allModels = () => [...claudeModels, ...providerModels];
   let probing = false;
@@ -310,6 +314,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     void registry
       .modelChoices()
       .then(({ claude, harnesses }) => {
+        for (const m of claude) claudeNames.set(m.value, m.displayName);
         if (claudeModels.length === 0 && claude.length > 0) claudeModels = claude;
         providerModels = harnesses;
         if (allModels().length > 0) broadcast({ type: "models", models: allModels() });
@@ -954,7 +959,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "permission_resolved", requestId });
       },
       onModels: (list) => {
-        const cleaned = cleanClaudeModels(list);
+        const cleaned = cleanClaudeModels(
+          list.map((m) => ({ id: m.value, display_name: m.displayName })),
+          claudeNames,
+        );
         if (cleaned.length === 0 || JSON.stringify(cleaned) === JSON.stringify(claudeModels)) return;
         claudeModels = cleaned;
         broadcast({ type: "models", models: allModels() });

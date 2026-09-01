@@ -431,7 +431,7 @@ function SessionControls({ project }: { project: Project }) {
   const selected = allModels.find((m) => m.value === current);
   if (selected && !models.includes(selected)) models.push(selected);
   // before the catalog arrives, the trigger still needs a label
-  if (!selected) models.push({ value: DEFAULT_MODEL, displayName: "Fable" });
+  if (!selected) models.push({ value: DEFAULT_MODEL, displayName: "Fable 5" });
   // The dropdown shows wherever the mode can actually be honoured: Claude,
   // and any harness running a real agentic session (its sandbox or session
   // mode is set from this). A run-per-turn provider has no approval flow to

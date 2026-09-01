@@ -10,25 +10,78 @@ import {
 } from "@justin06lee/yagami";
 import type { ModelChoice } from "../shared/protocol.js";
 
+/** A Claude model as its source describes it — the startup catalog gives all
+ *  of this, a live session's own report only the first two. */
+export interface RawClaudeModel {
+  id: string;
+  display_name: string;
+  description?: string;
+  resolved_model?: string;
+}
+
+/** "claude-haiku-4-5-20251001" → "Haiku 4.5". An id with no version in it
+ *  ("opus[1m]", "sonnet") has nothing to give and says so. */
+function nameFromId(id: string | undefined): string | undefined {
+  if (!id) return undefined;
+  const bare = id.replace(/\[1m\]$/, "").replace(/^claude-/, "");
+  const match = /^([a-z]+)-((?:\d+-)*\d+)$/.exec(bare);
+  if (!match) return undefined;
+  // a dated build spells its release date out at the end — that is not
+  // another version part, so anything that long is dropped
+  const version = match[2]!
+    .split("-")
+    .filter((part) => part.length < 8)
+    .join(".");
+  if (!version) return undefined;
+  return `${match[1]![0]!.toUpperCase()}${match[1]!.slice(1)} ${version}`;
+}
+
+/** "Fable 5.1 · Most capable for…" → "Fable 5.1"; "Opus 5 with 1M context ·
+ *  …" → "Opus 5". Only trusted when it actually carries a number. */
+function nameFromDescription(description: string | undefined): string | undefined {
+  const head = description?.split("·")[0]?.replace(/\s+with\s+.*$/i, "").trim();
+  return head && /\d/.test(head) ? head : undefined;
+}
+
 /**
- * Claude's supportedModels list, cleaned for the catalog: the "default"
- * alias goes (the picker has its own quiet default row), and marketing
- * parentheticals ("(recommended)", "(1M context)") come off the names.
+ * Claude's model list, cleaned for the catalog and the picker.
  *
- * Except one: stripping "(1M context)" leaves the big-window model and the
- * ordinary one sharing a name, and the choice between them is the size of
- * the context gauge's denominator — five times over. So when two entries
- * clean down to the same name, the `[1m]` one keeps a short mark. A catalog
- * that lists only the big one says nothing, because there is nothing to
- * confuse it with.
+ * The "default" alias goes (the picker has its own quiet default row), and
+ * marketing parentheticals come off the names. What goes *on* is the version:
+ * the CLI's display names are bare families — "Opus", "Fable", "Haiku", each
+ * of which has been several different models — while the version is sitting
+ * in the id the alias resolves to and in the first words of the description.
+ * Those are read in that order, so the picker says which model it means.
+ *
+ * `known` carries names already worked out from a richer source: a live
+ * session reports ids and bare display names only, and without this its
+ * report would quietly strip the versions back off again.
+ *
+ * One parenthetical earns a replacement rather than a deletion. Cutting
+ * "(1M context)" leaves the big-window model and the ordinary one sharing a
+ * name, and that choice is the size of the context gauge's denominator —
+ * five times over. So when two entries land on the same name, the `[1m]` one
+ * keeps a short mark. A catalog listing only the big one says nothing,
+ * because there is nothing to confuse it with.
  */
-export function cleanClaudeModels(list: ModelChoice[]): ModelChoice[] {
-  const cleaned = list
-    .filter((m) => m.value !== "default")
-    .map((m) => ({ ...m, displayName: m.displayName.replace(/\s*\(.*\)\s*$/, "") }));
+export function cleanClaudeModels(
+  list: RawClaudeModel[],
+  known?: ReadonlyMap<string, string>,
+): ModelChoice[] {
+  const named = list
+    .filter((m) => m.id !== "default")
+    .map((m) => ({
+      value: m.id,
+      displayName:
+        nameFromId(m.resolved_model) ??
+        nameFromId(m.id) ??
+        nameFromDescription(m.description) ??
+        known?.get(m.id) ??
+        m.display_name.replace(/\s*\(.*\)\s*$/, ""),
+    }));
   const seen = new Map<string, number>();
-  for (const m of cleaned) seen.set(m.displayName, (seen.get(m.displayName) ?? 0) + 1);
-  return cleaned.map((m) =>
+  for (const m of named) seen.set(m.displayName, (seen.get(m.displayName) ?? 0) + 1);
+  return named.map((m) =>
     m.value.includes("[1m]") && (seen.get(m.displayName) ?? 0) > 1
       ? { ...m, displayName: `${m.displayName} 1M` }
       : m,
@@ -119,9 +172,7 @@ export class ProviderRegistry {
       (async () => {
         try {
           if (!this.claude) return [];
-          return cleanClaudeModels(
-            (await probe(this.claude)).map((m) => ({ value: m.id, displayName: m.display_name })),
-          );
+          return cleanClaudeModels(await probe(this.claude));
         } catch {
           return [];
         }

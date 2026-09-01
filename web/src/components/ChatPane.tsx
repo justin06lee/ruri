@@ -648,6 +648,7 @@ export function Composer({
                   n: region.n,
                   data: await cropRegion(att.objectUrl, region),
                   mediaType: "image/png",
+                  rect: { x: region.x, y: region.y, w: region.w, h: region.h },
                 })),
               ),
             }

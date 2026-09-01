@@ -127,6 +127,19 @@ export function Player() {
 
   const playlist = playlists.find((p) => p.id === playlistId) ?? playlists[0] ?? null;
 
+  // Opening the panel lands on the track that is playing: the list is a
+  // short window over a long playlist, and the one you came to see is the
+  // one that's on. Its own scroller moves, never the sidebar around it.
+  const tracksRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const list = tracksRef.current;
+    const current = list?.querySelector<HTMLElement>(".player-track.current");
+    if (!list || !current) return;
+    const top = current.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+    list.scrollTop = Math.max(0, top - list.clientHeight / 2 + current.offsetHeight / 2);
+  }, [open, playlist]);
+
   const toggleOpen = () => {
     setOpen(!open);
     lsSet("ruri-music-open", open ? "0" : "1");
@@ -208,7 +221,7 @@ export function Player() {
                 }}
               />
 
-              <div className="player-tracks">
+              <div className="player-tracks" ref={tracksRef}>
                 {playlist?.tracks.map((track, i) => (
                   <button
                     key={track.id}

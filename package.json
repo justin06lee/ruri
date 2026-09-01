@@ -20,6 +20,8 @@
     "build": "bun run build:web && bun run build:main && bun run build:app",
     "smoke": "tsx scripts/smoke.ts",
     "rewind-test": "tsx scripts/rewind.ts",
+    "compaction-attachments-test": "tsx scripts/compaction-attachments.ts",
+    "sweep-test": "tsx scripts/sweep.ts",
     "provider-check": "tsx scripts/provider-check.ts",
     "provider-events": "tsx scripts/provider-events.ts",
     "provider-test": "tsx scripts/provider-session.ts",

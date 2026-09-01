@@ -58,6 +58,9 @@ function pattern(name: string): RegExp {
 
 export class ComponentStore {
   private readonly data = new Map<string, NamedComponent[]>();
+  /** When each project's repo was last swept — the sweep reads only what
+   *  has been touched since, so pressing the button again is nearly free. */
+  private readonly swept = new Map<string, number>();
 
   private load(projectId: string): NamedComponent[] {
     let items = this.data.get(projectId);
@@ -65,7 +68,7 @@ export class ComponentStore {
     try {
       const raw = JSON.parse(
         fs.readFileSync(path.join(componentsDir(), `${projectId}.json`), "utf8"),
-      ) as { items?: NamedComponent[] };
+      ) as { items?: NamedComponent[]; sweptAt?: number };
       items = (Array.isArray(raw.items) ? raw.items : []).map((item) => ({
         ...item,
         aliases: Array.isArray(item.aliases) ? item.aliases : [],
@@ -73,6 +76,7 @@ export class ComponentStore {
         shots: Array.isArray(item.shots) ? item.shots : [],
         note: typeof item.note === "string" ? item.note : "",
       }));
+      if (typeof raw.sweptAt === "number") this.swept.set(projectId, raw.sweptAt);
     } catch {
       items = [];
     }
@@ -83,13 +87,31 @@ export class ComponentStore {
   private save(projectId: string): void {
     try {
       fs.mkdirSync(componentsDir(), { recursive: true });
+      const sweptAt = this.swept.get(projectId);
       fs.writeFileSync(
         path.join(componentsDir(), `${projectId}.json`),
-        JSON.stringify({ items: this.data.get(projectId) ?? [] }, null, 2),
+        JSON.stringify(
+          { items: this.data.get(projectId) ?? [], ...(sweptAt ? { sweptAt } : {}) },
+          null,
+          2,
+        ),
       );
     } catch {
       // best-effort persistence
     }
+  }
+
+  /** When this project was last read end to end (0 = never). */
+  sweptAt(projectId: string): number {
+    this.load(projectId);
+    return this.swept.get(projectId) ?? 0;
+  }
+
+  /** Remember that everything as of `when` has been read. */
+  markSwept(projectId: string, when: number): void {
+    this.load(projectId);
+    this.swept.set(projectId, when);
+    this.save(projectId);
   }
 
   items(projectId: string): NamedComponent[] {
@@ -100,7 +122,15 @@ export class ComponentStore {
    *  a component built twice is one component with better notes. */
   add(
     projectId: string,
-    input: { name: string; files?: string[]; note?: string },
+    input: {
+      name: string;
+      files?: string[];
+      note?: string;
+      selector?: string;
+      route?: string;
+      clicks?: string[];
+      found?: boolean;
+    },
   ): NamedComponent {
     const name = input.name.trim();
     const existing = this.load(projectId).find((i) => i.name.toLowerCase() === name.toLowerCase());
@@ -109,6 +139,7 @@ export class ComponentStore {
         existing.files = [...new Set([...existing.files, ...input.files])];
       }
       if (input.note?.trim()) existing.note = input.note.trim();
+      if (input.selector?.trim()) existing.selector = input.selector.trim();
       this.save(projectId);
       return existing;
     }
@@ -119,6 +150,12 @@ export class ComponentStore {
       files: input.files ?? [],
       note: input.note?.trim() ?? "",
       shots: [],
+      ...(input.selector?.trim() ? { selector: input.selector.trim() } : {}),
+      ...(input.route?.trim() ? { route: input.route.trim() } : {}),
+      ...(input.clicks?.length ? { clicks: input.clicks } : {}),
+      ...(input.found ? { found: true } : {}),
+      // everything arrives new, and wears a star until it has been looked at
+      star: "just",
       ts: Date.now(),
     };
     this.load(projectId).push(item);
@@ -126,10 +163,49 @@ export class ComponentStore {
     return item;
   }
 
+  /**
+   * A new prompt has gone out, so nothing is "just named" any more.
+   *
+   * The star doesn't come off here — being unseen and being from this exact
+   * prompt are two different things, and they wear the star in two different
+   * places (next to the name, and in the card's corner). This is the demotion
+   * from the first to the second. Answers whether anything moved.
+   */
+  demote(projectId: string): boolean {
+    let moved = false;
+    for (const item of this.load(projectId)) {
+      if (item.star !== "just") continue;
+      item.star = "still";
+      moved = true;
+    }
+    if (moved) this.save(projectId);
+    return moved;
+  }
+
+  /** The user looked at it — one entry, or the whole page. */
+  see(projectId: string, componentId?: string): boolean {
+    let changed = false;
+    for (const item of this.load(projectId)) {
+      if (!item.star || (componentId && item.id !== componentId)) continue;
+      delete item.star;
+      changed = true;
+    }
+    if (changed) this.save(projectId);
+    return changed;
+  }
+
   update(
     projectId: string,
     componentId: string,
-    patch: { name?: string; aliases?: string[]; files?: string[]; note?: string },
+    patch: {
+      name?: string;
+      aliases?: string[];
+      files?: string[];
+      note?: string;
+      selector?: string;
+      route?: string;
+      clicks?: string[];
+    },
   ): boolean {
     const item = this.load(projectId).find((i) => i.id === componentId);
     if (!item) return false;
@@ -137,6 +213,21 @@ export class ComponentStore {
     if (patch.aliases !== undefined) item.aliases = patch.aliases.map((a) => a.trim()).filter(Boolean);
     if (patch.files !== undefined) item.files = patch.files.map((f) => f.trim()).filter(Boolean);
     if (patch.note !== undefined) item.note = patch.note;
+    if (patch.selector !== undefined) {
+      const selector = patch.selector.trim();
+      if (selector) item.selector = selector;
+      else delete item.selector;
+    }
+    if (patch.route !== undefined) {
+      const route = patch.route.trim();
+      if (route) item.route = route;
+      else delete item.route;
+    }
+    if (patch.clicks !== undefined) {
+      const clicks = patch.clicks.map((c) => c.trim()).filter(Boolean);
+      if (clicks.length) item.clicks = clicks;
+      else delete item.clicks;
+    }
     this.save(projectId);
     return true;
   }
@@ -206,6 +297,7 @@ function entryLines(item: NamedComponent): string[] {
   const lines = [`## ${item.name}`];
   if (item.aliases.length) lines.push(`Also called: ${item.aliases.join(", ")}`);
   if (item.files.length) lines.push(`In the code: ${item.files.join(", ")}`);
+  if (item.selector) lines.push(`On screen: ${item.selector}`);
   if (item.note.trim()) lines.push(item.note.trim());
   const paths = shotPaths(item.shots);
   if (paths.length) {

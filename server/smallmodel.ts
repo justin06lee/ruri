@@ -255,3 +255,96 @@ export class TurnTracker {
     }
   }
 }
+
+const SWEEP_SYSTEM = `You read source files from one project and name the parts of it a person would point at and talk about.
+
+The point is a user saying "the dragon gauges" or "the surah picker" and a model knowing exactly which files that is. So you are naming THINGS THE USER SEES AND USES, in the words they would use — never the code's own words.
+
+NAMING
+- Lowercase, plain, the phrase someone would say out loud: "the terminal tabs", "the file picker", "the login card". Never "DragonGauge", never "TerminalTabsComponent", never a filename.
+- Name the thing, not the file. One component usually spans several files (a view, its styles, the server side of it) — list them all under one name.
+- If a project has no visible interface at all, name its parts the same way: what a person working on it would call each piece ("the compaction pipeline", "the usage poller").
+
+WHAT EARNS A NAME
+- A screen, a panel, a card, a bar, a dialog, a control someone can point at. A named subsystem when there is no UI.
+- NOT: helpers, types, config, constants, utils, wrappers, test files, generated code, anything nobody would ever refer to by name.
+- Better to return three real ones than nine padded ones. If a batch of files holds nothing worth naming, return an empty list.
+
+SELECTOR — this is what lets the project be opened and the thing photographed automatically, so it matters
+- "selector": a CSS selector that would find this thing in the RUNNING app. Take it from the source you were given: a className the JSX/HTML actually sets ("comp-card" -> ".comp-card"), an id, a data-testid.
+- Give the OUTERMOST element of the thing, so the picture holds all of it.
+- It has to be UNIQUE to this thing. A class the whole app shares (a generic page, card, row, or wrapper class that other files set too) photographs whatever happens to be on screen — when that is all the file offers, omit the selector instead.
+- Only ever a selector you can see in these files. If the files do not show you one, omit it. NEVER invent, guess, or infer a class name — a wrong selector photographs the wrong thing.
+- "route": the path the thing lives under ("/settings"), only when the source shows it.
+- "clicks": selectors to click first, in order, when the thing is only on screen after a click (a tab, a menu). Same rule — only classes you actually saw.
+
+EACH ENTRY
+- "name": as above.
+- "files": repo-relative paths, only from the files you were given.
+- "note": ONE line. What it is, and the one thing worth knowing before touching it. No filler, no "this component is responsible for".
+
+Skip anything the ALREADY NAMED list covers, under any wording.
+
+Reply with STRICT JSON and nothing else: {"components": [{"name": "...", "files": ["..."], "note": "...", "selector": "...", "route": "...", "clicks": ["..."]}]}`;
+
+/** One part of a project the sweep found, before it becomes an entry. */
+export interface SweptComponent {
+  name: string;
+  files: string[];
+  note: string;
+  selector?: string;
+  route?: string;
+  clicks?: string[];
+}
+
+/**
+ * Name the parts of a project from a batch of its source files.
+ *
+ * This is the repo sweep's one model call, run once per batch of files (see
+ * server/sweep.ts). It runs on the small model like everything else here, so
+ * it costs about what a turn summary costs and works on whichever harness
+ * the user is signed into — the sweep is a ruri feature, not a Claude one.
+ */
+export async function nameProjectParts(
+  projectName: string,
+  files: Array<{ path: string; head: string }>,
+  alreadyNamed: string[],
+): Promise<SweptComponent[]> {
+  if (!smallModelEnabled() || files.length === 0) return [];
+  const prompt =
+    `PROJECT: ${projectName}\n\n` +
+    `ALREADY NAMED (skip these):\n${alreadyNamed.length ? alreadyNamed.map((n) => `- ${n}`).join("\n") : "(nothing yet)"}\n\n` +
+    `FILES:\n\n` +
+    files.map((file) => `--- ${file.path} ---\n${file.head}`).join("\n\n");
+  try {
+    const raw = await complete(SWEEP_SYSTEM, prompt, 2000);
+    const json = raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
+    const parsed = JSON.parse(json) as { components?: unknown };
+    if (!Array.isArray(parsed.components)) return [];
+    return parsed.components.flatMap((entry): SweptComponent[] => {
+      const part = entry as Partial<SweptComponent>;
+      const name = typeof part.name === "string" ? part.name.trim() : "";
+      if (!name || name.length > 60) return [];
+      const list = (value: unknown): string[] =>
+        Array.isArray(value)
+          ? value.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map((v) => v.trim())
+          : [];
+      const selector = typeof part.selector === "string" ? part.selector.trim() : "";
+      const route = typeof part.route === "string" ? part.route.trim() : "";
+      const clicks = list(part.clicks);
+      return [
+        {
+          name,
+          files: list(part.files),
+          note: typeof part.note === "string" ? part.note.trim() : "",
+          ...(selector ? { selector } : {}),
+          ...(route ? { route } : {}),
+          ...(clicks.length ? { clicks } : {}),
+        },
+      ];
+    });
+  } catch {
+    // a batch that comes back unusable is one batch — the sweep carries on
+    return [];
+  }
+}

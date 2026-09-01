@@ -12,6 +12,7 @@ import type {
   ComponentProposal,
   ContextUsage,
   ModelChoice,
+  NamedComponent,
   PermissionRequest,
   QueuedPrompt,
   ServerMessage,
@@ -19,7 +20,7 @@ import type {
   UsageLimits,
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
-import { buildCompaction, removeTurnFiles } from "./compaction.js";
+import { buildCompaction, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
 import { DraftStore } from "./drafts.js";
 import { HomeLog } from "./homelog.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
@@ -43,6 +44,8 @@ import {
   type ComponentHost,
 } from "./components.js";
 import { IdeaStore } from "./ideas.js";
+import { sweepProject } from "./sweep.js";
+import { withProjectRunning, type CaptureHost, type ShotTarget } from "./shots.js";
 import { SecretStore } from "./secrets.js";
 import { installSkill, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
 import { Terminals } from "./terminal.js";
@@ -60,6 +63,13 @@ export interface StartServerOptions {
    * Resolves to the chosen directory, or null if the user cancelled.
    */
   pickFolder?: () => Promise<string | null>;
+  /**
+   * Host-provided element screenshots (the Electron shell passes one): load
+   * a URL in a window nobody sees and photograph the elements named by
+   * selector. Absent when ruri runs headless, and then the component sweep
+   * names without taking pictures. See server/shots.ts.
+   */
+  capture?: CaptureHost;
 }
 
 export interface RuriServer {
@@ -259,6 +269,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     writeIndexFile(project.path, components.items(project.id));
     for (const session of project.sessions) {
       writeCatchupFile(project.path, project.name, briefs.get(session.id));
+      // Older compacted exchanges retained attachment metadata in the
+      // transcript but not in their .md record. Rewriting only archives that
+      // already exist makes those images available to the model immediately.
+      refreshArchivedTurnFiles(session.id, archive.events(session.id));
     }
   }
   // half-written prompts, per channel — outliving both the wiped Home
@@ -489,6 +503,100 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     broadcast({ type: "components", projectId, items });
   }
 
+  /* ── the repo sweep ───────────────────────────────────────────────── */
+
+  /** Projects mid-sweep. One at a time each: the picture pass starts the
+   *  project's dev server, and two of those fight over its port. */
+  const sweeping = new Set<string>();
+
+  function sweepNote(projectId: string, note: string, busy = true): void {
+    broadcast({ type: "sweep", projectId, busy, ...(note ? { note } : {}) });
+  }
+
+  /** A component's screenshot, filed like any other upload. */
+  function pinShot(projectId: string, item: NamedComponent, data: string): void {
+    const upload: AttachmentUpload = {
+      id: randomUUID(),
+      kind: "image",
+      mediaType: "image/png",
+      name: `${item.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "component"}.png`,
+      n: 1,
+      data,
+    };
+    const { url } = storeUpload(upload);
+    const { data: _data, ...meta } = upload;
+    components.addShot(projectId, item.id, { ...meta, url });
+  }
+
+  /**
+   * Name everything in a project that isn't named yet, and then go and take
+   * its picture.
+   *
+   * Two passes, and the second one is optional in every sense: the naming
+   * pass is a handful of small-model calls over the repo and always runs;
+   * the picture pass starts the project's own dev server, opens it in a
+   * hidden window, and photographs each component by the selector the first
+   * pass wrote down. A project that isn't a page, a headless ruri, or a dev
+   * server that never comes up all land in the same place — entries with no
+   * screenshot, which the user can drop one onto.
+   */
+  async function runSweep(projectId: string, wantShots: boolean): Promise<void> {
+    const project = store.get(projectId);
+    if (!project || sweeping.has(projectId)) return;
+    sweeping.add(projectId);
+    sweepNote(projectId, "reading the repo…");
+    try {
+      // Taken before the read, so a file edited while the sweep runs is read
+      // again next time rather than being skipped as "already seen".
+      const startedAt = Date.now();
+      const { found } = await sweepProject(
+        project,
+        components.items(projectId),
+        (note) => sweepNote(projectId, note),
+        components.sweptAt(projectId),
+      );
+      for (const part of found) components.add(projectId, { ...part, found: true });
+      components.markSwept(projectId, startedAt);
+      pushComponents(projectId, project.path);
+
+      // Everything unphotographed gets a look in, not just what this sweep
+      // named — the dev server is already starting, and an entry from six
+      // months ago is exactly as picture-less as one from a minute ago.
+      const targets: ShotTarget[] = components
+        .items(projectId)
+        .filter((item) => item.selector && item.shots.length === 0)
+        .map((item) => ({
+          id: item.id,
+          selector: item.selector!,
+          ...(item.route ? { route: item.route } : {}),
+          ...(item.clicks?.length ? { clicks: item.clicks } : {}),
+        }));
+      const named = found.length === 0 ? "nothing new to name" : `named ${found.length}`;
+      if (!wantShots || !options.capture || targets.length === 0) {
+        sweepNote(projectId, named, false);
+        return;
+      }
+      const shots = await withProjectRunning(
+        project.path,
+        (note) => sweepNote(projectId, note),
+        (url) => options.capture!(url, targets),
+      );
+      let pinned = 0;
+      for (const [componentId, data] of Object.entries(shots ?? {})) {
+        const item = components.items(projectId).find((i) => i.id === componentId);
+        if (!item) continue;
+        pinShot(projectId, item, data);
+        pinned += 1;
+      }
+      pushComponents(projectId, project.path);
+      sweepNote(projectId, `${named}, ${pinned || "no"} picture${pinned === 1 ? "" : "s"}`, false);
+    } catch {
+      sweepNote(projectId, "the sweep didn't finish — try it again", false);
+    } finally {
+      sweeping.delete(projectId);
+    }
+  }
+
   /** Re-scan skills for a project (or just the global ones) and push. */
   function pushSkills(projectId?: string, note?: string): void {
     const dir = projectId ? store.get(projectId)?.path : undefined;
@@ -570,6 +678,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     // entry down with it — the model's copy only, never the transcript's
     const owner = ownerProject(channelId);
     const named = owner ? mentionBlock(mentionedIn(text, components.items(owner.id))) : "";
+    // a new prompt is going out, so nothing is "just named" any more: what
+    // this turn names wears the star beside it, and what the last one named
+    // keeps its star in the corner until the user has looked
+    if (owner && components.demote(owner.id)) pushComponents(owner.id, owner.path);
     // the first prompt after a compaction carries the brief, invisibly
     const brief = archive.takePendingBrief(channelId) ?? "";
     if (silent) {
@@ -1420,6 +1532,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           ...(msg.aliases !== undefined ? { aliases: msg.aliases } : {}),
           ...(msg.files !== undefined ? { files: msg.files } : {}),
           ...(msg.note !== undefined ? { note: msg.note } : {}),
+          ...(msg.selector !== undefined ? { selector: msg.selector } : {}),
+          ...(msg.route !== undefined ? { route: msg.route } : {}),
+          ...(msg.clicks !== undefined ? { clicks: msg.clicks } : {}),
         });
         pushComponents(msg.projectId, store.get(msg.projectId)?.path);
         break;
@@ -1439,6 +1554,19 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       case "component_unshot": {
         components.removeShot(msg.projectId, msg.componentId, msg.shotId);
         pushComponents(msg.projectId, store.get(msg.projectId)?.path);
+        break;
+      }
+
+      case "components_sweep": {
+        void runSweep(msg.projectId, msg.shots !== false);
+        break;
+      }
+
+      /** The star comes off what has been looked at — one card, or the page. */
+      case "component_seen": {
+        if (components.see(msg.projectId, msg.componentId)) {
+          pushComponents(msg.projectId, store.get(msg.projectId)?.path);
+        }
         break;
       }
 

@@ -185,6 +185,26 @@ export interface NamedComponent {
   note: string;
   /** What it looks like. */
   shots: Attachment[];
+  /**
+   * A CSS selector that finds it in the running app. Written down by
+   * whoever read the source — a class name in the JSX is one — and it is
+   * what lets ruri take its picture without anyone opening the app: load
+   * the project, find this, capture that rectangle. See server/shots.ts.
+   */
+  selector?: string;
+  /** The path to load before looking for the selector ("/settings"). */
+  route?: string;
+  /** Selectors to click first, when it takes a click to bring it on screen. */
+  clicks?: string[];
+  /**
+   * How new it is, and therefore whether it wears a star: "just" = named
+   * during the prompt that has only now run, "still" = new since you last
+   * looked, but from an earlier prompt. Absent once you've seen it.
+   */
+  star?: "just" | "still";
+  /** The repo sweep found this one, rather than a session naming it as it
+   *  built it — so the name is a guess until the user corrects it. */
+  found?: boolean;
   ts: number;
 }
 
@@ -499,10 +519,25 @@ export type ClientMessage =
       aliases?: string[];
       files?: string[];
       note?: string;
+      /** How to find it in the running app, so it can be photographed:
+       *  the selector, and optionally the route and the clicks that bring
+       *  it on screen (the page types all three as one path). */
+      selector?: string;
+      route?: string;
+      clicks?: string[];
     }
   | { type: "component_remove"; projectId: string; componentId: string }
   | { type: "component_shot"; projectId: string; componentId: string; upload: AttachmentUpload }
   | { type: "component_unshot"; projectId: string; componentId: string; shotId: string }
+  /**
+   * Sweep the repo: read what isn't named yet, name it, and — when the
+   * project is something that can be opened — go and take its picture.
+   * `shots: false` names without starting the project up.
+   */
+  | { type: "components_sweep"; projectId: string; shots?: boolean }
+  /** The user has looked: take the star off one component, or off all of
+   *  them (which is what leaving the page means). */
+  | { type: "component_seen"; projectId: string; componentId?: string }
   /* ── the vault ──────────────────────────────────────────────────── */
   /** Save (or overwrite) one credential. An absent `secret` keeps the
    *  stored value and edits only the fields around it. */
@@ -602,6 +637,9 @@ export type ServerMessage =
   | { type: "ideas"; projectId: string; items: Idea[] }
   /** A project's component index. */
   | { type: "components"; projectId: string; items: NamedComponent[] }
+  /** How the repo sweep is getting on. `busy` drives the button; `note` is
+   *  the one line under it, and is what the sweep is doing right now. */
+  | { type: "sweep"; projectId: string; busy: boolean; note?: string }
   /** The vault, names only — values never leave the server. */
   | { type: "secrets"; items: SecretMeta[] }
   /** Installed skills: every global one, plus the named project's own.

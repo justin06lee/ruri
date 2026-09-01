@@ -2724,6 +2724,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* ── the component index ──────────────────────────────────────────── */
 
 .comp-card {
+  position: relative;
   border: 1.5px solid var(--line-soft);
   border-radius: var(--radius-m);
   background: var(--paper);
@@ -2732,6 +2733,94 @@ input[type="range"]::-webkit-slider-thumb {
   flex-direction: column;
   gap: 8px;
   animation: rise 160ms ease-out;
+}
+
+/* A card with a star on it is a card you haven't read yet — the border says
+   so quietly, so the page reads as new-things-then-the-rest at a glance. */
+.comp-card.fresh {
+  border-color: var(--line);
+}
+
+/* ── the new-component star ───────────────────────────────────────── */
+
+/* Turning, because a page of identical cards is exactly where a still mark
+   goes unnoticed — and slowly, because this is a page you read. */
+.comp-star {
+  flex-shrink: 0;
+  display: inline-flex;
+  color: var(--ink);
+  animation: comp-star-turn 5.5s linear infinite;
+}
+
+.comp-star svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+/* Named by the prompt that just ran: beside the name, where the eye is. */
+.comp-star.just svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* New from an earlier prompt, still unseen: hooked over the card's top-left
+   corner, sitting ON the border rather than inside the padding — a mark on
+   the card itself, not another thing in the layout. */
+.comp-star.still {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--paper);
+}
+
+.comp-star.still svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* The same star on the header's Components button, so a turn that named
+   something says so without the page being open. */
+.comp-toggle {
+  position: relative;
+}
+
+.comp-star.header {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+}
+
+.comp-star.header svg {
+  width: 10px;
+  height: 10px;
+}
+
+@keyframes comp-star-turn {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comp-star {
+    animation: none;
+  }
+}
+
+/* The sweep's own button — an ordinary button, deliberately. It sits on the
+   head bar's dotted ground, and a ghost one there reads as a caption rather
+   than as something you can press. */
+.comp-sweep {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 11px;
 }
 
 .comp-top {

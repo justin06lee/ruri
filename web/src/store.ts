@@ -254,6 +254,10 @@ interface RuriState {
   ideas: Record<string, Idea[]>;
   /** Component indexes, keyed by PROJECT id. */
   components: Record<string, NamedComponent[]>;
+  /** How each project's repo sweep is getting on. `at` is when the line
+   *  last changed — a finished sweep's last word is worth reading, and
+   *  worth taking down again a little later. */
+  sweeps: Record<string, { busy: boolean; note?: string; at: number }>;
   /** The vault's names — the values live on the server and stay there. */
   secrets: SecretMeta[];
   /** Skills as of the last scan: every global one, plus one project's own. */
@@ -323,6 +327,7 @@ export const useRuri = create<RuriState>((set) => ({
   tracker: {},
   ideas: {},
   components: {},
+  sweeps: {},
   secrets: [],
   skills: [],
   skillsFor: null,
@@ -561,6 +566,19 @@ function apply(msg: ServerMessage): void {
     }
     case "components": {
       setState((s) => ({ components: { ...s.components, [msg.projectId]: msg.items } }));
+      break;
+    }
+    case "sweep": {
+      setState((s) => ({
+        sweeps: {
+          ...s.sweeps,
+          [msg.projectId]: {
+            busy: msg.busy,
+            at: Date.now(),
+            ...(msg.note ? { note: msg.note } : {}),
+          },
+        },
+      }));
       break;
     }
     case "secrets": {

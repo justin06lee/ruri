@@ -3,7 +3,7 @@
  * permission, folder groups, and per-project statuses — so the whole UI can be
  * eyeballed and screenshotted without a live server or a single token.
  */
-import { useRuri } from "./store";
+import { composeInto, useRuri } from "./store";
 
 const now = Date.now();
 
@@ -34,6 +34,9 @@ export function installFixture(): void {
   // flipped by hand to watch what the UI does about it. The store is the only
   // handle that needs, and this mode is the only place it is exposed.
   (window as unknown as Record<string, unknown>)["__ruri"] = useRuri;
+  // and a way to put a prompt with attachments into a composer, which is
+  // otherwise only ever done by a person dropping files on it
+  (window as unknown as Record<string, unknown>)["__ruriCompose"] = composeInto;
   useRuri.setState({
     connected: true,
     projects: [

@@ -31,6 +31,7 @@ import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { promptChain, SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief } from "./smallmodel.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
+import { buildCatchup } from "./catchup.js";
 import { knownCommands, splitCommands } from "./commands.js";
 import { findProjects, searchRoots } from "./finder.js";
 import { LedgerStore } from "./ledger.js";
@@ -274,8 +275,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // a session opened before anything happens still finds them there
   for (const project of store.list()) {
     writeIndexFile(project.path, components.items(project.id));
+    // briefs used to be kept per session; a project's brief is the project's
+    for (const session of project.sessions) briefs.move(session.id, project.id);
+    writeCatchupFile(project.path, project.name, briefs.get(project.id));
     for (const session of project.sessions) {
-      writeCatchupFile(project.path, project.name, briefs.get(session.id));
       // Older compacted exchanges retained attachment metadata in the
       // transcript but not in their .md record. Rewriting only archives that
       // already exist makes those images available to the model immediately.
@@ -956,11 +959,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // reply recall note (instant compaction). Failures are silent — a nicety.
   // The catch-up brief writes itself: each finished turn is folded in, and
   // most turns change nothing — a fix or a polish pass is not a feature.
-  function foldBrief(projectId: string, turn: { user: string; assistant: string }): void {
-    if (projectId === HOME_ID) return;
-    const project = store.findSession(projectId)?.project;
+  function foldBrief(channelId: string, turn: { user: string; assistant: string }): void {
+    if (channelId === HOME_ID) return;
+    const project = store.findSession(channelId)?.project;
     if (!project) return;
-    const current = briefs.get(projectId);
+    const current = briefs.get(project.id);
     updateBrief(
       project.name,
       { description: current.description, features: current.features },
@@ -972,10 +975,68 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             next.features.join("\n") === current.features.join("\n")) {
           return;
         }
-        writeCatchupFile(project.path, project.name, briefs.write(projectId, next.description, next.features));
+        writeCatchupFile(project.path, project.name, briefs.write(project.id, next));
       })
       .catch(() => {});
   }
+
+  /* ── the catch-up brief, written whole ───────────────────────────── */
+
+  /** Projects whose repo is being read for their brief right now. */
+  const catchingUp = new Set<string>();
+
+  function catchupNote(projectId: string, busy: boolean, note?: string): void {
+    broadcast({
+      type: "catchup",
+      projectId,
+      busy,
+      ...(briefs.get(projectId).built ? { built: briefs.get(projectId).built } : {}),
+      ...(note ? { note } : {}),
+    });
+  }
+
+  /**
+   * Read the repo and write the whole brief. Runs by itself when a project
+   * arrives without one — a project opened with a year of work in it is
+   * exactly the one whose first session most needs to be told what it is —
+   * and again whenever the user asks.
+   */
+  async function rebuildCatchup(projectId: string): Promise<void> {
+    const project = store.get(projectId);
+    if (!project || catchingUp.has(projectId) || !smallModelEnabled()) return;
+    catchingUp.add(projectId);
+    catchupNote(projectId, true, "reading the repo…");
+    try {
+      const current = briefs.get(projectId);
+      const built = await buildCatchup(project, current);
+      if (!built) {
+        catchupNote(projectId, false, "the brief could not be written — try again");
+        return;
+      }
+      writeCatchupFile(project.path, project.name, briefs.write(projectId, built, true));
+      catchupNote(projectId, false, "brief written");
+    } catch {
+      catchupNote(projectId, false, "the brief could not be written — try again");
+    } finally {
+      catchingUp.delete(projectId);
+    }
+  }
+
+  /** Whether a project has a brief worth the name. */
+  function briefless(projectId: string): boolean {
+    const brief = briefs.get(projectId);
+    return !brief.description && brief.features.length === 0;
+  }
+
+  // Projects that arrived before this existed: one at a time, in the
+  // background, so a launch with ten of them does not fire ten reads of the
+  // small model at once.
+  void (async () => {
+    for (const project of store.list()) {
+      if (!briefless(project.id)) continue;
+      await rebuildCatchup(project.id);
+    }
+  })();
 
   const turns = new TurnTracker((projectId, turn) => {
     if (!smallModelEnabled()) return;
@@ -1148,11 +1209,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       removeTurnFiles(sessionId);
       drafts.remove(sessionId);
       tracker.removeProject(sessionId);
-      briefs.remove(sessionId);
       contexts.delete(sessionId);
       sendQueues.delete(sessionId);
       terminals.closeChannel(sessionId);
     }
+    briefs.remove(projectId);
     ideas.removeProject(projectId);
     components.removeProject(projectId);
     ledger.removeProject(projectId);
@@ -1174,6 +1235,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           return `failed: ${err instanceof Error ? err.message : String(err)}`;
         }
         broadcast({ type: "projects", projects: store.list() });
+        // a project new to ruri gets told what it is before anyone asks
+        if (briefless(project.id)) void rebuildCatchup(project.id);
       }
       let sessionId = project.sessions[0]?.id;
       // an emptied folder (all sessions closed) gets a fresh session on reopen
@@ -1212,8 +1275,13 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
     switch (msg.type) {
       case "add_project": {
-        store.add(msg.name, msg.path, msg.folder);
+        const project = store.add(msg.name, msg.path, msg.folder);
         broadcast({ type: "projects", projects: store.list() });
+        if (briefless(project.id)) void rebuildCatchup(project.id);
+        break;
+      }
+      case "catchup_rebuild": {
+        void rebuildCatchup(msg.projectId);
         break;
       }
       case "pick_folder": {
@@ -1441,7 +1509,6 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
                 ? { contextWindow: source.contextWindow, contextWindowModel: source.contextWindowModel }
                 : {}),
             });
-            briefs.copy(channelId, fresh.id);
             const claude = registry.parse(project.model).providerId === undefined;
             const sessionId = archive.lastSessionId(channelId);
             let forked = false;
@@ -2116,6 +2183,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         }),
       ),
       stats: ledger.all([...boardIds, HOME_ID]),
+      catchups: Object.fromEntries(
+        boardIds.map((id) => [id, briefs.get(id).built ? { built: briefs.get(id).built } : {}]),
+      ),
       canPickFolder: options.pickFolder !== undefined,
       workspaceDir: store.workspaceDir(),
       musicDir: musicRoot(),

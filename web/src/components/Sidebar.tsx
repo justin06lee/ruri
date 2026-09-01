@@ -1,6 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import { PEEKS } from "../peek";
-import { HOME_ID, type Project, type SessionInfo } from "../../../shared/protocol";
+import { HOME_ID, type Project, type RecentSession, type SessionInfo } from "../../../shared/protocol";
 import { Player } from "./Player";
 import { getPref, setPref } from "../prefs";
 import { send, useRuri } from "../store";
@@ -95,6 +95,78 @@ function SessionRow({ session }: { session: SessionInfo }) {
   );
 }
 
+/** "2h ago", "3d ago" — how long since a session on disk was last written. */
+function ago(at: number): string {
+  const mins = Math.max(1, Math.round((Date.now() - at) / 60_000));
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return days < 30 ? `${days}d` : `${Math.floor(days / 30)}mo`;
+}
+
+/**
+ * The chats that happened outside ruri: a `claude` or `codex` run from a
+ * terminal in this project's directory. Folded under the project's own
+ * sessions, looked up when unfolded, and one click brings one in as a
+ * session of its own — history on screen, and the next prompt resumes it.
+ */
+function RecentRow({ project }: { project: Project }) {
+  const items = useRuri((s) => s.recent[project.id]);
+  const [open, setOpen] = useState(false);
+  const toggle = () => {
+    if (!open) send({ type: "recent_list", projectId: project.id });
+    setOpen(!open);
+  };
+  return (
+    <>
+      <div
+        className={`project-row recent-row ${open ? "open" : ""}`}
+        title="Chats started outside ruri, in this project's directory"
+        onClick={toggle}
+      >
+        <svg
+          className={`folder-chevron ${open ? "open" : ""}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+        <span className="project-name">recent chats</span>
+      </div>
+      {open &&
+        (items === undefined ? (
+          <div className="recent-note">looking…</div>
+        ) : items.length === 0 ? (
+          <div className="recent-note">nothing from outside ruri</div>
+        ) : (
+          items.map((item: RecentSession) => (
+            <div
+              key={item.id}
+              className="project-row recent-item"
+              title={`${item.title}
+${item.provider === "claude" ? "Claude Code" : "Codex"} · ${ago(item.at)} ago${item.branch ? ` · ${item.branch}` : ""}
+Click to bring it in as a session`}
+              onClick={() => {
+                send({ type: "recent_import", projectId: project.id, id: item.id });
+                setOpen(false);
+              }}
+            >
+              <span className={`recent-tag ${item.provider}`}>{item.provider === "claude" ? "cc" : "cx"}</span>
+              <span className="project-name">{item.title}</span>
+              <span className="recent-age">{ago(item.at)}</span>
+            </div>
+          ))
+        ))}
+    </>
+  );
+}
+
 /** Folders are folded by default — only ones the user opened are stored. */
 function loadExpanded(): Set<string> {
   try {
@@ -179,6 +251,7 @@ function ProjectFolder({
           {project.sessions.map((session) => (
             <SessionRow key={session.id} session={session} />
           ))}
+          <RecentRow project={project} />
         </div>
       )}
     </div>

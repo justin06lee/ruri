@@ -89,7 +89,7 @@ ws.on("message", (raw) => {
     case "transcript":
       transcripts.set(msg.projectId, msg.events);
       break;
-    case "forked":
+    case "open_session":
       forkId = msg.projectId;
       console.log(`[t] forked into ${forkId} — asking the fork for the word`);
       phase = "ask";

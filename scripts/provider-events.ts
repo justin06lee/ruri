@@ -88,6 +88,7 @@ const manager = new SessionManager(
       context = { tokens, ...(window ? { window } : {}) };
     },
     onChain: () => {},
+    onQuestionLate: () => {},
   },
   () => undefined,
   () => undefined,

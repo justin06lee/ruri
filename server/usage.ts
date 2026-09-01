@@ -46,6 +46,13 @@ async function accessToken(): Promise<string | null> {
   }
 }
 
+/** An ISO reset stamp as epoch ms; undefined for the ones reported null. */
+function epoch(iso: string | null | undefined): number | undefined {
+  if (!iso) return undefined;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
 /** Fetch the account's limit windows; null when unavailable. */
 export async function fetchUsageLimits(): Promise<UsageLimits | null> {
   const token = await accessToken();
@@ -60,28 +67,43 @@ export async function fetchUsageLimits(): Promise<UsageLimits | null> {
     });
     if (!res.ok) return null;
     const data = (await res.json()) as {
-      five_hour?: { utilization?: number | null } | null;
-      seven_day?: { utilization?: number | null } | null;
+      five_hour?: { utilization?: number | null; resets_at?: string | null } | null;
+      seven_day?: { utilization?: number | null; resets_at?: string | null } | null;
       /** The modern shape: one entry per window, the scoped one self-naming. */
       limits?: Array<{
         kind?: string;
         percent?: number | null;
+        resets_at?: string | null;
         scope?: { model?: { display_name?: string | null } | null } | null;
       }> | null;
     };
     const limits: UsageLimits = {};
+    const resets: NonNullable<UsageLimits["resets"]> = {};
     // the legacy top-level fields first, so an endpoint that drops `limits`
     // still lights the gauges
     if (typeof data.five_hour?.utilization === "number") limits.fiveHour = data.five_hour.utilization;
     if (typeof data.seven_day?.utilization === "number") limits.weekly = data.seven_day.utilization;
+    resets.fiveHour = epoch(data.five_hour?.resets_at);
+    resets.weekly = epoch(data.seven_day?.resets_at);
     for (const entry of data.limits ?? []) {
       if (typeof entry.percent !== "number") continue;
-      if (entry.kind === "session") limits.fiveHour = entry.percent;
-      else if (entry.kind === "weekly_all") limits.weekly = entry.percent;
-      else if (entry.kind === "weekly_scoped") {
+      const at = epoch(entry.resets_at);
+      if (entry.kind === "session") {
+        limits.fiveHour = entry.percent;
+        resets.fiveHour = at;
+      } else if (entry.kind === "weekly_all") {
+        limits.weekly = entry.percent;
+        resets.weekly = at;
+      } else if (entry.kind === "weekly_scoped") {
         const label = entry.scope?.model?.display_name;
-        if (label) limits.scoped = { label, percent: entry.percent };
+        if (label) {
+          limits.scoped = { label, percent: entry.percent };
+          resets.scoped = at;
+        }
       }
+    }
+    if (resets.fiveHour !== undefined || resets.weekly !== undefined || resets.scoped !== undefined) {
+      limits.resets = resets;
     }
     return limits;
   } catch {
@@ -90,6 +112,11 @@ export async function fetchUsageLimits(): Promise<UsageLimits | null> {
 }
 
 /* ── Codex ────────────────────────────────────────────────────────── */
+
+/** An epoch-seconds reset stamp as epoch ms — Codex's unit, not Claude's. */
+function seconds(at: number | undefined): number | undefined {
+  return typeof at === "number" && at > 0 ? at * 1000 : undefined;
+}
 
 function codexHome(): string {
   return process.env["CODEX_HOME"] ?? path.join(os.homedir(), ".codex");
@@ -124,8 +151,9 @@ interface TokenCount {
     model_context_window?: number;
   };
   rate_limits?: {
-    primary?: { used_percent?: number } | null;
-    secondary?: { used_percent?: number } | null;
+    /** `resets_at` is epoch SECONDS here, unlike Claude's ISO stamps. */
+    primary?: { used_percent?: number; resets_at?: number } | null;
+    secondary?: { used_percent?: number; resets_at?: number } | null;
   };
 }
 
@@ -167,6 +195,7 @@ function tokenCounts(file: string): TokenCount[] {
 export function readCodexCounts(session?: string): CodexCounts | null {
   const files = session ? [rolloutFor(session)] : recentRollouts(ROLLOUT_SCAN);
   const limits: UsageLimits = {};
+  const resets: NonNullable<UsageLimits["resets"]> = {};
   let tokens: number | undefined;
   let window: number | undefined;
   let found = false;
@@ -176,8 +205,14 @@ export function readCodexCounts(session?: string): CodexCounts | null {
       found = true;
       const primary = entry.rate_limits?.primary?.used_percent;
       const secondary = entry.rate_limits?.secondary?.used_percent;
-      if (limits.fiveHour === undefined && typeof primary === "number") limits.fiveHour = primary;
-      if (limits.weekly === undefined && typeof secondary === "number") limits.weekly = secondary;
+      if (limits.fiveHour === undefined && typeof primary === "number") {
+        limits.fiveHour = primary;
+        resets.fiveHour = seconds(entry.rate_limits?.primary?.resets_at);
+      }
+      if (limits.weekly === undefined && typeof secondary === "number") {
+        limits.weekly = secondary;
+        resets.weekly = seconds(entry.rate_limits?.secondary?.resets_at);
+      }
       if (tokens === undefined && typeof entry.info?.total_token_usage?.total_tokens === "number") {
         tokens = entry.info.total_token_usage.total_tokens;
       }
@@ -190,6 +225,7 @@ export function readCodexCounts(session?: string): CodexCounts | null {
     if (session || (limits.fiveHour !== undefined && limits.weekly !== undefined)) break;
   }
   if (!found) return null;
+  if (resets.fiveHour !== undefined || resets.weekly !== undefined) limits.resets = resets;
   return {
     limits,
     ...(tokens !== undefined ? { tokens } : {}),

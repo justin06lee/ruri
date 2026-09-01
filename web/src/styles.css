@@ -3675,6 +3675,17 @@ input[type="range"]::-webkit-slider-thumb {
   letter-spacing: 0.02em;
   color: var(--ink-faint);
   white-space: nowrap;
+  text-align: center;
+}
+
+/* the countdown to that window's rollover, a step quieter than the name it
+   hangs under — a second thing to read, not a second label */
+.dragon-reset {
+  display: block;
+  font-size: 9.5px;
+  line-height: 1.25;
+  letter-spacing: 0;
+  opacity: 0.72;
 }
 
 /* the empty state is a narrow centered column with nothing to report yet —
@@ -4538,8 +4549,11 @@ input[type="range"]::-webkit-slider-thumb {
   pointer-events: auto;
 }
 
+/* the bottom padding clears the dragons' hanging labels, which are out of
+   flow: the name lands on the hint's band and the reset countdown sits under
+   it, so the band has to be a line taller than the hint alone needs */
 .composer {
-  padding: 8px 24px 10px;
+  padding: 8px 24px 22px;
 }
 
 /* the composer and its four dragons on one line, the box centered between

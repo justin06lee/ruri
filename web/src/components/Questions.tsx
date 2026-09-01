@@ -7,9 +7,19 @@
  * Answers go back as the tool's own input: `answers` is a field of
  * AskUserQuestion's schema, so the tool reads the picks and reports them to
  * the model itself — ruri never has to phrase them.
+ *
+ * Several questions are one card, not a form: the questions sit side by
+ * side on a strip and the card slides between them. Picking an answer to a
+ * single-choice question slides on to the next one by itself; the strip is
+ * as tall as its tallest question, so nothing jumps as it moves.
+ *
+ * What you have typed and picked outlives the card: switching to another
+ * session unmounts it, and coming back finds the answers — and the question
+ * you were on — exactly where you left them. The state lives here, keyed
+ * by the request, until the answer goes out.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AskAnswers, AskQuestion, AskQuestions, PermissionRequest } from "../../../shared/protocol";
 import { send } from "../store";
 
@@ -21,6 +31,17 @@ interface Draft {
   other: string;
   otherOn: boolean;
 }
+
+/** A card's answers in progress, kept across unmounts by request id. */
+interface Held {
+  drafts: Draft[];
+  at: number;
+}
+
+const held = new Map<string, Held>();
+
+/** How long a picked answer stays on screen before the card moves on. */
+const ADVANCE_MS = 260;
 
 function Check({ on, multi }: { on: boolean; multi: boolean }) {
   return (
@@ -37,16 +58,23 @@ function Check({ on, multi }: { on: boolean; multi: boolean }) {
 function QuestionBlock({
   q,
   draft,
+  current,
   onChange,
+  onPicked,
 }: {
   q: AskQuestion;
   draft: Draft;
+  /** Whether this is the question the strip is showing. */
+  current: boolean;
   onChange: (next: Draft) => void;
+  /** A single-choice answer landed — the card may move on. */
+  onPicked: () => void;
 }) {
   // The preview belongs to whichever option is "current": the last one
   // picked, so a multi-select shows the thing you just reached for.
   const focused = draft.picked[draft.picked.length - 1];
   const preview = q.options.find((o) => o.label === focused)?.preview;
+  const otherRef = useRef<HTMLTextAreaElement>(null);
 
   const toggle = (label: string) => {
     if (q.multiSelect) {
@@ -56,11 +84,26 @@ function QuestionBlock({
       onChange({ ...draft, picked, otherOn: draft.otherOn });
     } else {
       onChange({ ...draft, picked: [label], otherOn: false });
+      onPicked();
     }
   };
 
+  const toggleOther = () => {
+    const otherOn = !draft.otherOn;
+    onChange({
+      ...draft,
+      otherOn,
+      // an "Other" answer replaces the options in a single-select;
+      // in a multi it just rides alongside them
+      picked: q.multiSelect || draft.otherOn ? draft.picked : [],
+    });
+    // the box takes the caret the moment it opens — but only then, never on
+    // a remount, where every open box on the strip would fight for it
+    if (otherOn) requestAnimationFrame(() => otherRef.current?.focus());
+  };
+
   return (
-    <div className="ask-question">
+    <div className="ask-question" inert={!current}>
       <div className="ask-head">
         {q.header && <span className="ask-chip">{q.header}</span>}
         <span className="ask-prompt">{q.question}</span>
@@ -83,19 +126,7 @@ function QuestionBlock({
             </button>
           );
         })}
-        <button
-          type="button"
-          className={`ask-option ${draft.otherOn ? "on" : ""}`}
-          onClick={() =>
-            onChange({
-              ...draft,
-              otherOn: !draft.otherOn,
-              // an "Other" answer replaces the options in a single-select;
-              // in a multi it just rides alongside them
-              picked: q.multiSelect || draft.otherOn ? draft.picked : [],
-            })
-          }
-        >
+        <button type="button" className={`ask-option ${draft.otherOn ? "on" : ""}`} onClick={toggleOther}>
           <Check on={draft.otherOn} multi={q.multiSelect} />
           <span className="ask-body">
             <span className="ask-label">Other</span>
@@ -105,8 +136,8 @@ function QuestionBlock({
       </div>
       {draft.otherOn && (
         <textarea
+          ref={otherRef}
           className="ask-other"
-          autoFocus
           rows={2}
           placeholder="Your answer…"
           value={draft.other}
@@ -130,17 +161,43 @@ function answerOf(draft: Draft): string {
 
 export function QuestionCard({ request }: { request: PermissionRequest }) {
   const questions = (request.input as AskQuestions).questions;
-  const [drafts, setDrafts] = useState<Draft[]>(() =>
-    questions.map(() => ({ picked: [], other: "", otherOn: false })),
+  const [state, setState] = useState<Held>(
+    () =>
+      held.get(request.requestId) ?? {
+        drafts: questions.map(() => ({ picked: [], other: "", otherOn: false })),
+        at: 0,
+      },
   );
-  /** Which question the card is showing — one at a time, however many were
-   *  asked, so a card is a card and not a form. */
-  const [at, setAt] = useState(0);
+  // every change is written through, so an unmount loses nothing
+  useEffect(() => {
+    held.set(request.requestId, state);
+  }, [request.requestId, state]);
 
+  const { drafts, at } = state;
   const answered = useMemo(() => drafts.every((d) => answerOf(d) !== ""), [drafts]);
-  const current = questions[at] ?? questions[0]!;
   const many = questions.length > 1;
-  const go = (to: number) => setAt(Math.max(0, Math.min(questions.length - 1, to)));
+  const last = questions.length - 1;
+  const go = (to: number) => setState((s) => ({ ...s, at: Math.max(0, Math.min(last, to)) }));
+
+  // The move-on after a pick is a beat later, so the mark is seen landing
+  // before the question slides away; a card that unmounts first drops it.
+  const advance = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (advance.current) clearTimeout(advance.current);
+  }, []);
+  const picked = (index: number) => {
+    if (index >= last) return;
+    if (advance.current) clearTimeout(advance.current);
+    advance.current = setTimeout(() => {
+      advance.current = null;
+      go(index + 1);
+    }, ADVANCE_MS);
+  };
+
+  const finish = (answers?: AskAnswers) => {
+    held.delete(request.requestId);
+    send({ type: "question_response", requestId: request.requestId, ...(answers ? { answers } : {}) });
+  };
 
   const submit = () => {
     const answers: AskAnswers["answers"] = {};
@@ -154,13 +211,9 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
       const preview = q.options.find((o) => o.label === focused)?.preview;
       if (preview) annotations[q.question] = { preview };
     });
-    send({
-      type: "question_response",
-      requestId: request.requestId,
-      answers: {
-        answers,
-        ...(Object.keys(annotations).length > 0 ? { annotations } : {}),
-      },
+    finish({
+      answers,
+      ...(Object.keys(annotations).length > 0 ? { annotations } : {}),
     });
   };
 
@@ -193,7 +246,7 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
               type="button"
               className="icon-button"
               title="Next question"
-              disabled={at === questions.length - 1}
+              disabled={at === last}
               onClick={() => go(at + 1)}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -203,12 +256,26 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
           </span>
         )}
       </div>
-      <QuestionBlock
-        key={at}
-        q={current}
-        draft={drafts[at] ?? drafts[0]!}
-        onChange={(next) => setDrafts((d) => d.map((cur, j) => (j === at ? next : cur)))}
-      />
+      {/* the strip holds every question side by side and slides between
+          them; being laid out together is what makes the card as tall as
+          the tallest of them, so the move never changes the card's height */}
+      <div className="ask-track">
+        <div className="ask-strip" style={{ transform: `translateX(-${at * 100}%)` }}>
+          {questions.map((q, i) => (
+            <div className="ask-slide" key={i}>
+              <QuestionBlock
+                q={q}
+                draft={drafts[i] ?? drafts[0]!}
+                current={i === at}
+                onChange={(next) =>
+                  setState((s) => ({ ...s, drafts: s.drafts.map((cur, j) => (j === i ? next : cur)) }))
+                }
+                onPicked={() => picked(i)}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
       <div className="ask-actions">
         {many && (
           <span className="ask-dots">
@@ -226,11 +293,7 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
         <button className="primary" disabled={!answered} onClick={submit}>
           {many ? "Send answers" : "Send answer"}
         </button>
-        <button
-          className="ghost"
-          title="Let the model carry on without an answer"
-          onClick={() => send({ type: "question_response", requestId: request.requestId })}
-        >
+        <button className="ghost" title="Let the model carry on without an answer" onClick={() => finish()}>
           Skip
         </button>
       </div>

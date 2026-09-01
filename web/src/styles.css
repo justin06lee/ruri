@@ -1631,6 +1631,13 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 2px;
 }
 
+/* every one of them anchors its own badge: a count on a button that is not
+   positioned climbs to the pane's corner instead, and sits there clipped
+   under the window's rounded edge as a small black nothing */
+.header-controls .icon-button {
+  position: relative;
+}
+
 /* ── dropdown (custom select) ─────────────────────────────────────── */
 
 .dropdown {

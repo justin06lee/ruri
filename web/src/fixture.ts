@@ -94,6 +94,24 @@ export function installFixture(): void {
         at: now,
       },
     },
+    stats: {
+      prj1: {
+        today: { tokens: 1_284_000, costUsd: 4.31, turns: 12, ms: 41 * 60_000 },
+        week: { tokens: 6_930_000, costUsd: 22.9, turns: 71, ms: 4 * 3_600_000 },
+        total: { tokens: 48_200_000, costUsd: 161.4, turns: 512, ms: 30 * 3_600_000 },
+      },
+      prj2: {
+        today: { tokens: 312_000, costUsd: 0.92, turns: 3, ms: 9 * 60_000 },
+        week: { tokens: 1_100_000, costUsd: 3.4, turns: 14, ms: 50 * 60_000 },
+        total: { tokens: 9_400_000, costUsd: 30.1, turns: 120, ms: 7 * 3_600_000 },
+      },
+    },
+    drafts: {
+      p2: {
+        messageId: "d2",
+        text: "Reading the provider layer now. The session id is minted on the first result, which means a resume before any turn has finished has nothing to resume — so the fix is to mint it",
+      },
+    },
     tracker: {
       p1: [
         { id: "t1", text: "Check reconnect backs off after killing the server", note: "", status: "open", source: "auto", turnId: "e1", ts: now - 48_000 },

@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { HOME_ID, type HomeSettings, type Project } from "../shared/protocol.js";
+import type { FoundProject } from "./finder.js";
 import type { SessionExtras } from "./sessions.js";
 
 /**
@@ -39,6 +40,9 @@ export interface ManagerHost {
    *  and transcripts go; files on disk are never touched. */
   closeProject(query: string): string;
   listProjects(): Project[];
+  /** Folders under the workspace whose names answer to what the user
+   *  said, best first (see server/finder.ts). */
+  findProjects(query: string): FoundProject[];
 }
 
 /**
@@ -60,11 +64,11 @@ You are also ruri's workspace manager — the Home agent of a desktop app whose 
 The user's workspace root (where their projects live): ${workspaceDir}
 
 When the user names projects they want to work on, that IS the request to open them — don't just list them back or ask permission:
-1. Find the matching project directories right away (list the workspace root if needed; fuzzy-match what they said — workspaces are often nested like github.com/<user>/<repo>).
+1. Find each one with mcp__ruri__find_projects, passing the name the way the user said it. It walks the whole workspace (nested like github.com/<user>/<repo>) and answers with the folders whose names match, best first, each with its full path and whether it looks like a project. Take the best hit — prefer one marked as a project — and open that path. Search once per name; never guess or assemble a path yourself, and never tell the user a project doesn't exist until find_projects has come back empty. Only then look by hand (list the workspace root, try a broader spelling).
 2. Call mcp__ruri__open_project for each one. This is the ONLY way a project opens in ruri's sidebar — never open folders in Finder or an editor instead. When the user described concrete work for a project, pass it as kickoff_prompt so that project's session starts working immediately.
 3. Confirm briefly what you opened and what each session is doing.
 
-mcp__ruri__list_projects shows what's already open. mcp__ruri__close_project closes one (by name or path) when the user is done with it — transcripts go, files on disk are untouched. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's own session. Keep replies short.
+mcp__ruri__list_projects shows what's already open (find_projects is for folders on disk; list_projects is for the sidebar). mcp__ruri__close_project closes one (by name or path) when the user is done with it — transcripts go, files on disk are untouched. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's own session. Keep replies short.
 
 ${logNote(logPath)}
 
@@ -83,7 +87,9 @@ export function managerProviderSystem(workspaceDir: string, logPath: string): st
 The user's workspace root (your working directory, where their projects live): ${workspaceDir}
 
 You have no direct tool for the sidebar; ruri watches a drop file instead. When the user names projects they want to work on, that IS the request to open them — don't just list them back:
-1. Find the matching project directories right away (list the workspace root; fuzzy-match what they said — workspaces are often nested like github.com/<user>/<repo>).
+1. Find each project's directory by searching, never by guessing: the workspace is nested (github.com/<user>/<repo>) and holds more than a listing shows. For each name the user said, run
+   find "${workspaceDir}" -maxdepth 6 -type d -iname '*<name>*' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null
+   (fd or rg --files are fine too), spelling loosely (a fragment of the name, no spaces). Pick the hit that is a repo — has a .git, a package.json, a Makefile, a README. Never tell the user a project doesn't exist until a search has come back empty.
 2. Append one JSON line per project to the file .ruri/open.jsonl in the workspace root, creating it if missing:
    {"path": "/absolute/path/to/project", "name": "optional display name", "folder": "optional sidebar group", "kickoff": "optional first prompt — pass the user's described work so the project's session starts on it immediately"}
    To close an open project instead, append: {"close": "project name or path"}
@@ -186,6 +192,30 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
           content: [{ type: "text", text: host.closeProject(args.project) }],
         }),
       ),
+      tool(
+        "find_projects",
+        "Find project folders on disk by name: walks the user's workspace (and the usual code folders) and returns the folders whose names match, best first, with full paths. Use this before open_project whenever the user names a project — it is how you find where it lives.",
+        {
+          query: z.string().describe("The project name as the user said it (a word or two; fragments match)"),
+        },
+        async (args) => {
+          const found = host.findProjects(args.query);
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  found
+                    .map(
+                      (f) =>
+                        `${f.path}${f.project ? "  [project]" : ""}  (match ${f.score})`,
+                    )
+                    .join("\n") || `nothing under the workspace is called anything like "${args.query}"`,
+              },
+            ],
+          };
+        },
+      ),
       tool("list_projects", "List the projects currently open in ruri's sidebar.", {}, async () => ({
         content: [
           {
@@ -202,7 +232,12 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
   });
 
   return {
-    autoAllow: ["mcp__ruri__open_project", "mcp__ruri__close_project", "mcp__ruri__list_projects"],
+    autoAllow: [
+      "mcp__ruri__open_project",
+      "mcp__ruri__close_project",
+      "mcp__ruri__list_projects",
+      "mcp__ruri__find_projects",
+    ],
     options: {
       mcpServers: { ruri },
       systemPrompt: {

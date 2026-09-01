@@ -41,6 +41,7 @@ import { DiffView } from "./Diff";
 import type { RapidFire } from "./RapidFire";
 import { RapidBar } from "./RapidFire";
 import { DragonGauges } from "./Dragon";
+import { HomeBoard } from "./HomeBoard";
 import { MarkerMirror, type Marker } from "./Markers";
 import { Dropdown } from "./Dropdown";
 import { NameCard } from "./NameCard";
@@ -1385,6 +1386,9 @@ export function ChatPane({
           </div>
         )}
         {rapid?.on && header}
+        {/* Home is the one place to see every project at once — the board
+            sits above the agent, which centres in whatever room is left */}
+        {isHome && !rapid?.on && <HomeBoard />}
         <div className="hero">
           <HeroFace n={isHome ? launchHero : heroFor(storeProject?.id ?? activeId)} />
           <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
@@ -1429,6 +1433,8 @@ export function ChatPane({
           {lastError} <span className="dismiss">dismiss</span>
         </div>
       )}
+
+      {isHome && !rapid?.on && <HomeBoard />}
 
       {/* the holder ends where the composer begins, so the jump pill always
           floats just above the composer no matter how tall it grows */}

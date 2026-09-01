@@ -1001,6 +1001,293 @@ input[type="range"]::-webkit-slider-thumb {
   animation: rise 240ms ease-out;
 }
 
+/* ── the home board ───────────────────────────────────────────────── */
+
+/* Every open project on one board, above the Home agent. On the hero it
+   takes the top of the pane and the hero centres in what is left (the
+   hero's auto margins do that); over a conversation it is a band above the
+   transcript with its own scroll. */
+.home-board {
+  align-self: stretch;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 54%;
+  display: flex;
+  flex-direction: column;
+  width: min(1080px, 100%);
+  margin: 0 auto;
+  padding: 14px 24px 6px;
+  animation: rise 200ms ease-out;
+}
+
+.home-hero .hero {
+  margin: auto 0;
+}
+
+.chat:not(.home-hero) .home-board {
+  max-height: 38%;
+  border-bottom: 1.5px solid var(--hairline);
+  padding-bottom: 10px;
+}
+
+.home-board-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--hairline);
+  border-radius: var(--radius-s);
+  background-image: var(--tone);
+  background-size: 6px 6px;
+  flex-shrink: 0;
+}
+
+.home-board-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.home-board-live {
+  display: flex;
+  gap: 10px;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.home-board-live .permission {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.home-board-stats {
+  display: flex;
+  gap: 16px;
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.board-figures {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.board-figures b {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.board-figures b + b {
+  margin-left: 5px;
+}
+
+.board-figure-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-right: 3px;
+}
+
+.board-figure-unit {
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.home-board-fold {
+  flex-shrink: 0;
+}
+
+.home-board-cards {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+  padding: 12px 2px 6px;
+}
+
+/* a card is a small page: the name on a tab across the top, the lines
+   below it, the figures along the bottom */
+.board-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border: 2px solid var(--edge);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-hard);
+  overflow: hidden;
+  min-width: 0;
+}
+
+[data-theme="dark"] .board-card,
+[data-theme="ember"] .board-card {
+  border-color: color-mix(in srgb, var(--ink) 22%, var(--paper));
+}
+
+.board-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border-bottom: 1.5px solid var(--hairline);
+  cursor: pointer;
+  user-select: none;
+}
+
+.board-card-head:hover {
+  background: var(--paper-dim);
+}
+
+.board-card-name {
+  font-weight: 700;
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-card-status {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.board-card.working .board-card-status {
+  color: var(--ink-soft);
+}
+
+.board-card.permission .board-card-status {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.board-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
+  flex: 1;
+}
+
+/* a session's lines: the same target whether the card has one or three */
+.board-session {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  padding: 4px 7px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  font-weight: 400;
+  color: inherit;
+  cursor: pointer;
+}
+
+.board-session:hover {
+  background: var(--paper-dim);
+}
+
+.board-session:active {
+  transform: none;
+}
+
+.board-session-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: 1px;
+}
+
+.board-line {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.board-line.tool {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.board-line.you {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.board-line.done,
+.board-line.note {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+/* the streaming tail reads as words, not a clipped line: the last of
+   what was said, on two lines, ending where the reply currently ends */
+.board-line.live {
+  color: var(--ink);
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.board-cursor {
+  display: inline-block;
+  width: 5px;
+  height: 0.9em;
+  margin-left: 3px;
+  vertical-align: -0.1em;
+  background: var(--ink);
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.board-card-foot {
+  display: flex;
+  gap: 14px;
+  padding: 6px 11px 7px;
+  border-top: 1.5px solid var(--hairline);
+  overflow: hidden;
+}
+
+.board-card-foot .board-figures {
+  font-size: 11px;
+}
+
 /* the circle the face sits in — the frame carries the chrome, the image
    inside carries the framing (which the tuner sets, per face) */
 .hero-frame {

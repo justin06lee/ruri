@@ -769,12 +769,16 @@ class ProjectSession implements ChannelSession {
       const stopped = this.interrupted;
       this.interrupted = false;
       const ok = msg.subtype === "success";
+      // the turn's own usage (per turn, main loop) — what the ledger adds up
+      const spent = msg.usage as Partial<Usage> | undefined;
+      const tokens = usageTokens(spent) ?? 0;
       this.pushEvent({
         kind: "result",
         id: randomUUID(),
         ok: ok || stopped,
         costUsd: msg.total_cost_usd,
         durationMs: msg.duration_ms,
+        ...(tokens > 0 ? { tokens } : {}),
         ...(stopped ? { stopped: true } : {}),
         ...(ok || stopped
           ? {}
@@ -893,6 +897,7 @@ class ProviderTurnSession implements ChannelSession {
     this.abort = new AbortController();
     let acc = "";
     let costUsd: number | undefined;
+    let tokens: number | undefined;
     let error: string | undefined;
     let stopped = false;
     try {
@@ -925,6 +930,7 @@ class ProviderTurnSession implements ChannelSession {
           this.events.onDelta(this.project.id, draftId, piece);
         } else if (event.type === "done") {
           costUsd = event.costUsd;
+          tokens = usageTokens(event.usage);
           reportProviderContext(this.events, this.project.id, this.providerId, this.lastSessionId, event.usage);
         }
       }
@@ -954,6 +960,7 @@ class ProviderTurnSession implements ChannelSession {
       id: randomUUID(),
       ok: error === undefined,
       ...(costUsd !== undefined ? { costUsd } : {}),
+      ...(tokens ? { tokens } : {}),
       durationMs: Date.now() - started,
       ...(stopped ? { stopped: true } : {}),
       ...(error !== undefined ? { error } : {}),
@@ -1307,6 +1314,7 @@ class ProviderAgentSession implements ChannelSession {
     let draftId = randomUUID();
     let acc = "";
     let costUsd: number | undefined;
+    let tokens: number | undefined;
     let error: string | undefined;
     let interrupted = false;
     const toolsSeen = new Set<string>();
@@ -1357,6 +1365,7 @@ class ProviderAgentSession implements ChannelSession {
           }
         } else if (event.type === "done") {
           costUsd = event.costUsd;
+          tokens = usageTokens(event.usage);
           interrupted = event.stopReason === "interrupted";
           this.reportContext(event.usage);
         }
@@ -1383,6 +1392,7 @@ class ProviderAgentSession implements ChannelSession {
       id: randomUUID(),
       ok: error === undefined,
       ...(costUsd !== undefined ? { costUsd } : {}),
+      ...(tokens ? { tokens } : {}),
       durationMs: Date.now() - started,
       ...(error !== undefined ? { error } : interrupted ? { stopped: true } : {}),
       ts: Date.now(),
@@ -1499,6 +1509,17 @@ class ProviderAgentSession implements ChannelSession {
     this.status = status;
     this.events.onStatus(this.project.id, status);
   }
+}
+
+/** A harness's usage report as one number: everything sent, everything back. */
+function usageTokens(usage: Partial<Usage> | undefined): number | undefined {
+  if (!usage) return undefined;
+  const total =
+    (usage.input_tokens ?? 0) +
+    (usage.output_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0);
+  return total > 0 ? total : undefined;
 }
 
 /** The non-Claude provider id a live session runs on, if any. */

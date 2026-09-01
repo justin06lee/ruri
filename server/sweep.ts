@@ -134,6 +134,12 @@ function score(rel: string): number {
 /** One file as the model reads it: what it says it is, what it exports, and
  *  the classes that will find it on screen. */
 function describe(dir: string, rel: string): { path: string; head: string } | undefined {
+  return describeFile(dir, rel, HEAD_CHARS);
+}
+
+/** The same, for whoever else reads a repo the way the sweep does (the
+ *  catch-up brief), with their own idea of how much of a file to take. */
+export function describeFile(dir: string, rel: string, chars: number): { path: string; head: string } | undefined {
   let source: string;
   try {
     const full = path.join(dir, rel);
@@ -147,7 +153,7 @@ function describe(dir: string, rel: string): { path: string; head: string } | un
   const classes = classNames(source);
   const exports = exportNames(source);
   const head = [
-    source.slice(0, HEAD_CHARS),
+    source.slice(0, chars),
     exports.length ? `\n[exports: ${exports.join(", ")}]` : "",
     classes.length ? `\n[css classes it sets: ${classes.join(", ")}]` : "",
     `\n[${lines} lines]`,

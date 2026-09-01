@@ -226,6 +226,7 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
           <circle cx="12" cy="12" r="10" />
         </svg>
         {many ? `${questions.length} questions for you` : "A question for you"}
+        {request.late && <span className="ask-late">the model moved on — answers go out as a prompt</span>}
         {many && (
           <span className="ask-pager">
             <button
@@ -290,8 +291,13 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
             ))}
           </span>
         )}
-        <button className="primary" disabled={!answered} onClick={submit}>
-          {many ? "Send answers" : "Send answer"}
+        <button
+          className="primary"
+          disabled={!answered}
+          title={request.late ? "The model has moved on — your answers go out as a new prompt" : undefined}
+          onClick={submit}
+        >
+          {request.late ? "Send as a prompt" : many ? "Send answers" : "Send answer"}
         </button>
         <button className="ghost" title="Let the model carry on without an answer" onClick={() => finish()}>
           Skip

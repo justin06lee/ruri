@@ -272,6 +272,19 @@ export interface SkillInfo {
   updated?: number;
 }
 
+/** A session on disk that ruri did not make — a `claude` or `codex` run
+ *  from a terminal in this project's directory — as offered for import. */
+export interface RecentSession {
+  /** Bare CLI session id for Claude, "codex:<thread id>" for Codex. */
+  id: string;
+  provider: "claude" | "codex";
+  /** The first thing said, short. */
+  title: string;
+  /** Last written (epoch ms). */
+  at: number;
+  branch?: string;
+}
+
 /** A prompt held app-side until the running turn finishes (editable). */
 export interface QueuedPrompt {
   id: string;
@@ -433,6 +446,10 @@ export interface PermissionRequest {
    * answers with `component_named`.
    */
   kind?: "permission" | "question" | "component";
+  /** A question whose tool call has stopped waiting (the turn ended, or the
+   *  CLI gave up on the hook): the card stays, and answering it sends the
+   *  answers as a new prompt instead. */
+  late?: boolean;
   ts: number;
 }
 
@@ -503,6 +520,13 @@ export type ClientMessage =
    *  session is forked at that point; elsewhere the new session opens on a
    *  brief of what it holds. */
   | { type: "fork"; projectId: string; eventId: string }
+  /** The sessions on disk for this project that ruri did not make —
+   *  answered with `recent`. */
+  | { type: "recent_list"; projectId: string }
+  /** Bring one of them in: a new session holding its conversation, which
+   *  the next prompt resumes for real when the project runs on the same
+   *  harness (and continues from a brief of it when it doesn't). */
+  | { type: "recent_import"; projectId: string; id: string }
   /** The composer's unsent prompt for a channel (empty text and no
    *  attachments = nothing left to keep). Held server-side, so a quit does
    *  not cost a half-written prompt or the files clipped to it. */
@@ -700,8 +724,11 @@ export type ServerMessage =
   /** A whole transcript at once — a session that came into being with
    *  history already in it (a fork, an imported chat). */
   | { type: "transcript"; projectId: string; events: TranscriptEvent[]; summaries: Record<string, string> }
-  /** The fork you asked for exists — go there. Sent to the asker alone. */
-  | { type: "forked"; projectId: string }
+  /** A session you asked for exists (a fork, an import) — go there. Sent
+   *  to the asker alone. */
+  | { type: "open_session"; projectId: string }
+  /** What a project has on disk from outside ruri (see recent_list). */
+  | { type: "recent"; projectId: string; items: RecentSession[] }
   /** A finished tracker review's generated prompt, for the composer. */
   | { type: "review_prompt"; projectId: string; text: string }
   /** Text for a channel's composer (a rewound prompt, back for editing). */

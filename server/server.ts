@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DEFAULT_MODEL } from "../shared/protocol.js";
+import { type AskQuestions, DEFAULT_MODEL } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -34,6 +34,7 @@ import { BriefStore, writeCatchupFile } from "./brief.js";
 import { knownCommands, splitCommands } from "./commands.js";
 import { findProjects, searchRoots } from "./finder.js";
 import { LedgerStore } from "./ledger.js";
+import { importRecent, listRecent } from "./recent.js";
 import { sessionBriefing } from "./briefing.js";
 import {
   COMPONENT_TOOLS,
@@ -1075,6 +1076,13 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         permissions.delete(requestId);
         broadcast({ type: "permission_resolved", requestId });
       },
+      onQuestionLate: (requestId) => {
+        const request = permissions.get(requestId);
+        if (!request || request.late) return;
+        const late = { ...request, late: true };
+        permissions.set(requestId, late);
+        broadcast({ type: "permission_request", request: late });
+      },
       onModels: (list) => {
         const cleaned = cleanClaudeModels(
           list.map((m) => ({ id: m.value, display_name: m.displayName })),
@@ -1472,7 +1480,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
               broadcast({ type: "context", projectId: fresh.id, context: { tokens, window: contextWindow(fresh.id) } });
             }
             if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "forked", projectId: fresh.id } satisfies ServerMessage));
+              ws.send(JSON.stringify({ type: "open_session", projectId: fresh.id } satisfies ServerMessage));
               if (!forked && claude) {
                 ws.send(
                   JSON.stringify({
@@ -1493,6 +1501,63 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             }
           }
         })();
+        break;
+      }
+      case "recent_list": {
+        // what the harnesses hold for this project that ruri did not make:
+        // every id ruri's own chats have ever run on is left out
+        const project = store.get(msg.projectId);
+        if (!project) break;
+        const taken = archive.ownedSessionIds([...store.sessionIds(), HOME_ID]);
+        void listRecent(project, taken)
+          .then((items) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "recent", projectId: project.id, items } satisfies ServerMessage));
+            }
+          })
+          .catch(() => {});
+        break;
+      }
+      case "recent_import": {
+        // A chat that happened in a terminal becomes a chat here: a new
+        // session holding its conversation. The next prompt resumes the
+        // real thing when the project runs on the harness it ran on;
+        // otherwise it continues from a brief of it, the way a rewind
+        // across harnesses does.
+        const project = store.get(msg.projectId);
+        if (!project) throw new Error("unknown project");
+        const imported = importRecent(project, msg.id);
+        if (!imported) throw new Error("that session's file is gone");
+        const fresh = store.newSession(project.id);
+        if (!fresh) throw new Error("unknown project");
+        archive.seed(fresh.id, { events: imported.events, summaries: {}, chain: {} });
+        const providerId = registry.parse(project.model).providerId;
+        const sameHarness = imported.provider === "claude" ? providerId === undefined : providerId === imported.provider;
+        if (sameHarness) archive.setLastSessionId(fresh.id, imported.resume);
+        else {
+          const built = buildCompaction(fresh.id, imported.events, {});
+          if (built) archive.setPendingBrief(fresh.id, built.brief);
+        }
+        const firstPrompt = imported.events.find((e) => e.kind === "user");
+        if (firstPrompt && firstPrompt.kind === "user") titleSession(fresh.id, firstPrompt.text);
+        broadcast({ type: "projects", projects: store.list() });
+        broadcast({
+          type: "transcript",
+          projectId: fresh.id,
+          events: allowArchived({ [fresh.id]: archive.events(fresh.id) })[fresh.id] ?? [],
+          summaries: {},
+        });
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "open_session", projectId: fresh.id } satisfies ServerMessage));
+          if (!sameHarness) {
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message: `brought the ${imported.provider === "claude" ? "Claude" : "Codex"} chat in — this project runs on a different harness, so the next prompt continues from a brief of it rather than resuming it`,
+              } satisfies ServerMessage),
+            );
+          }
+        }
         break;
       }
       case "new_session": {
@@ -1615,7 +1680,35 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "question_response": {
-        manager.respondQuestion(msg.requestId, msg.answers);
+        // The card is answered. If the tool call behind it is still waiting,
+        // the answers go into it; if it has moved on (the turn ended, or the
+        // CLI gave up on the hook), they go out as a prompt of their own —
+        // never into a hole.
+        const request = permissions.get(msg.requestId);
+        const outcome = manager.respondQuestion(msg.requestId, msg.answers);
+        if (outcome === "answered") break;
+        if (outcome === "none") {
+          permissions.delete(msg.requestId);
+          broadcast({ type: "permission_resolved", requestId: msg.requestId });
+        }
+        if (!msg.answers || !request || request.kind !== "question") break;
+        const asked = (request.input as AskQuestions).questions;
+        const lines = asked.flatMap((q) => {
+          const answer = msg.answers?.answers[q.question]?.trim();
+          if (!answer) return [];
+          return [`- ${q.header ? `${q.header}: ` : ""}${q.question}\n  ${answer}`];
+        });
+        if (lines.length === 0) break;
+        const text = `My answers to your questions:\n${lines.join("\n")}`;
+        const channelId = request.projectId;
+        if (busy(channelId)) {
+          const queue = sendQueues.get(channelId) ?? [];
+          queue.push({ id: randomUUID(), text, uploads: [], silent: false });
+          sendQueues.set(channelId, queue);
+          broadcastQueue(channelId);
+        } else {
+          dispatch(channelId, text, []);
+        }
         break;
       }
       case "set_model": {

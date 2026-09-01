@@ -3740,10 +3740,33 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-soft);
 }
 
+/* The questions sit side by side on a strip one card wide and slide past
+   the window: laid out together, so the card stands as tall as the tallest
+   of them and the slide never changes its height. The ones out of view are
+   inert — no tabbing into a question you cannot see. */
+.ask-track {
+  overflow: hidden;
+  /* the slide's own shadow and the marks' edges need a hair of room */
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.ask-strip {
+  display: flex;
+  align-items: stretch;
+  transition: transform 300ms cubic-bezier(0.32, 0.72, 0.2, 1);
+}
+
+.ask-slide {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+
 .ask-question {
   display: flex;
   flex-direction: column;
   gap: 9px;
+  height: 100%;
 }
 
 .ask-head {

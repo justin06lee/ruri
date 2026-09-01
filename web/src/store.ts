@@ -283,6 +283,9 @@ interface RuriState {
   stats: Record<string, ProjectStats>;
   /** Sessions on disk from outside ruri, per PROJECT id, once asked for. */
   recent: Record<string, RecentSession[]>;
+  /** Each project's catch-up brief: being rebuilt, when the repo was last
+   *  read for it, and the last word said about it. */
+  catchups: Record<string, { busy: boolean; built?: number; note?: string; at: number }>;
   /** Shell tab ids per channel, in the order the tab row shows them. */
   terminals: Record<string, string[]>;
   /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
@@ -346,6 +349,7 @@ export const useRuri = create<RuriState>((set) => ({
   contexts: {},
   stats: {},
   recent: {},
+  catchups: {},
   rapid: false,
   settingsOpen: false,
   draftBumps: {},
@@ -479,6 +483,9 @@ function apply(msg: ServerMessage): void {
         usage: msg.usage,
         contexts: msg.contexts,
         stats: msg.stats,
+        catchups: Object.fromEntries(
+          Object.entries(msg.catchups).map(([id, c]) => [id, { busy: false, at: 0, ...(c.built ? { built: c.built } : {}) }]),
+        ),
         canPickFolder: msg.canPickFolder,
         workspaceDir: msg.workspaceDir,
         musicDir: msg.musicDir,
@@ -533,6 +540,20 @@ function apply(msg: ServerMessage): void {
     }
     case "recent": {
       setState((s) => ({ recent: { ...s.recent, [msg.projectId]: msg.items } }));
+      break;
+    }
+    case "catchup": {
+      setState((s) => ({
+        catchups: {
+          ...s.catchups,
+          [msg.projectId]: {
+            busy: msg.busy,
+            at: Date.now(),
+            ...(msg.built ? { built: msg.built } : {}),
+            ...(msg.note ? { note: msg.note } : {}),
+          },
+        },
+      }));
       break;
     }
     case "events_removed": {

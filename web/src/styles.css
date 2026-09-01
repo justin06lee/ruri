@@ -3091,6 +3091,29 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
 }
 
+/* the brief's line at the foot of the page: a sentence, and its button */
+.catchup-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.catchup-line b {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.catchup-note {
+  color: var(--ink-soft);
+}
+
+.catchup-rebuild {
+  margin-left: auto;
+  padding: 3px 11px;
+  font-size: 11.5px;
+}
+
 .board-foot code,
 .board-empty code {
   font-family: var(--mono);

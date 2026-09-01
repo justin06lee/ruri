@@ -38,6 +38,11 @@ interface ArchiveData {
   /** The context window that channel's harness reported for its model —
    *  Codex names its own, and it is not one of Claude's two sizes. */
   contextWindow?: number;
+  /** Which model that window belongs to. A reported window is only true of
+   *  the model that reported it: a channel switched to Codex for one turn
+   *  and switched back must not go on measuring Claude against Codex's
+   *  window, which is what pinned the context dragon full. */
+  contextWindowModel?: string;
 }
 
 /** Collapse a turn's two notes into the single fold-note string the UI shows. */
@@ -85,7 +90,11 @@ export class SessionArchive {
         ...(raw.chain && typeof raw.chain === "object" ? { chain: raw.chain } : {}),
         ...(typeof raw.resumeAt === "string" ? { resumeAt: raw.resumeAt } : {}),
         ...(typeof raw.contextTokens === "number" ? { contextTokens: raw.contextTokens } : {}),
-        ...(typeof raw.contextWindow === "number" ? { contextWindow: raw.contextWindow } : {}),
+        // an unattributed window is from before it was recorded whose it is
+        // — it can't be checked against the current model, so it is dropped
+        ...(typeof raw.contextWindow === "number" && typeof raw.contextWindowModel === "string"
+          ? { contextWindow: raw.contextWindow, contextWindowModel: raw.contextWindowModel }
+          : {}),
       };
     } catch {
       entry = { events: [], summaries: {} };
@@ -170,16 +179,27 @@ export class SessionArchive {
     return this.load(projectId).contextTokens;
   }
 
-  setContextTokens(projectId: string, tokens: number, window?: number): void {
+  /** Record an occupancy reading. `model` is the channel's model at the time,
+   *  which is what makes a reported `window` believable later — and what
+   *  retires one left behind by a model this channel no longer runs. */
+  setContextTokens(projectId: string, tokens: number, window?: number, model?: string): void {
     const entry = this.load(projectId);
     entry.contextTokens = tokens;
-    if (window) entry.contextWindow = window;
+    if (window && model) {
+      entry.contextWindow = window;
+      entry.contextWindowModel = model;
+    } else if (model && entry.contextWindowModel !== model) {
+      delete entry.contextWindow;
+      delete entry.contextWindowModel;
+    }
     this.scheduleWrite(projectId);
   }
 
-  /** The window a harness last reported for this channel, if it did. */
-  contextWindowOf(projectId: string): number | undefined {
-    return this.load(projectId).contextWindow;
+  /** The window a harness last reported for this channel — only when the
+   *  channel still runs the model that reported it. */
+  contextWindowOf(projectId: string, model: string): number | undefined {
+    const entry = this.load(projectId);
+    return entry.contextWindowModel === model ? entry.contextWindow : undefined;
   }
 
   lastSessionId(projectId: string): string | undefined {

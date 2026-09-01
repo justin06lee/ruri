@@ -4638,6 +4638,90 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: none;
 }
 
+/* ── the markers, as chips ────────────────────────────────────────── */
+
+/* The prompt's [image #1] markers are drawn as chips by a mirror of the
+   prompt laid over the textarea (Markers.tsx). The mirror's text is set
+   exactly like the textarea's — same font, padding, line height, wrapping
+   — so it breaks lines where the textarea does; every property here that
+   the textarea has, the mirror has too, and a chip is never wider than
+   the characters it stands on. The mirror takes no mouse; the chips do. */
+.composer-field {
+  position: relative;
+}
+
+.composer-mirror {
+  position: absolute;
+  inset: 0;
+  padding: 3px 0;
+  line-height: 1.5;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  color: transparent;
+}
+
+.marker-chip {
+  pointer-events: auto;
+  cursor: grab;
+  color: var(--paper);
+  background: var(--ink);
+  /* the pill's edge is drawn outside the box — padding would widen it */
+  box-shadow: 0 0 0 1.5px var(--ink);
+  border-radius: 5px;
+  transition:
+    background-color 100ms ease-out,
+    box-shadow 100ms ease-out,
+    opacity 100ms ease-out;
+}
+
+/* the brackets are the chip's padding: there, but not seen */
+.marker-bracket {
+  color: transparent;
+}
+
+/* hovered, the chip turns inside out: paper with an ink rim, the same
+   inversion every other pressed thing in the app does */
+.marker-chip:hover {
+  background: var(--paper-bright);
+  color: var(--ink);
+  box-shadow: 0 0 0 1.5px var(--ink);
+}
+
+/* lifted: an outline where it was, opaque so the words underneath (the
+   textarea's own copy of the marker) stay out of sight */
+.marker-chip.lifted {
+  background: var(--paper);
+  color: var(--ink-faint);
+  box-shadow: 0 0 0 1.5px var(--ink-faint);
+  cursor: grabbing;
+}
+
+.composer-mirror.dragging,
+.composer-mirror.dragging .marker-chip {
+  cursor: grabbing;
+}
+
+/* where the lifted chip would land — a hairline in the run of words */
+.drop-caret {
+  position: relative;
+}
+
+.drop-caret::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: -0.15em;
+  height: 1.35em;
+  width: 2px;
+  background: var(--ink);
+  border-radius: 1px;
+}
+
 .composer-actions {
   display: flex;
   gap: 7px;

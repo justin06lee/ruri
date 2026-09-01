@@ -41,6 +41,7 @@ import { DiffView } from "./Diff";
 import type { RapidFire } from "./RapidFire";
 import { RapidBar } from "./RapidFire";
 import { DragonGauges } from "./Dragon";
+import { MarkerMirror, type Marker } from "./Markers";
 import { Dropdown } from "./Dropdown";
 import { NameCard } from "./NameCard";
 import { QuestionCard } from "./Questions";
@@ -601,6 +602,26 @@ export function Composer({
     setAtts((prev) => prev.map((a) => (a.id === id ? { ...a, regions } : a)));
   };
 
+  // The markers in the prompt draw as chips over the textarea (see
+  // Markers.tsx) — only while they stand for something in the strip: a
+  // marker whose file was removed is words again.
+  const markerPresent = useCallback(
+    (marker: Marker) =>
+      marker.kind === "region"
+        ? atts.some((a) => a.regions.some((r) => r.n === marker.n))
+        : atts.some((a) => a.kind === marker.kind && a.n === marker.n),
+    [atts],
+  );
+  const placeCaret = (index: number) => {
+    caretRef.current = index;
+    requestAnimationFrame(() => {
+      const area = areaRef.current;
+      if (!area) return;
+      area.focus();
+      area.setSelectionRange(index, index);
+    });
+  };
+
   const autosize = () => {
     const area = areaRef.current;
     if (!area) return;
@@ -712,6 +733,7 @@ export function Composer({
             />
           )}
           {!shell && (
+          <div className="composer-field">
           <textarea
             ref={areaRef}
             rows={1}
@@ -740,6 +762,17 @@ export function Composer({
               }
             }}
           />
+          <MarkerMirror
+            areaRef={areaRef}
+            text={text}
+            present={markerPresent}
+            onMove={(next) => {
+              setText(next.text);
+              placeCaret(next.caret);
+            }}
+            onFocusAfter={placeCaret}
+          />
+          </div>
           )}
           <div className="composer-bar">
             {shell ? <span className="shell-where">{project.name} · shell</span> : <SessionControls project={project} />}

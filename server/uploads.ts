@@ -76,8 +76,11 @@ export function storeUpload(upload: AttachmentUpload): { url: string; filePath: 
 export function storeAttachments(uploads: AttachmentUpload[]): Attachment[] {
   return uploads.map((upload) => {
     const { url } = storeUpload(upload);
-    const { data: _data, regions: _regions, ...meta } = upload;
-    return { ...meta, url };
+    const { data: _data, regions, ...meta } = upload;
+    // the crops were for the model; the boxes they were cut from stay with
+    // the attachment, so a rewound prompt comes back with them drawn
+    const boxes = (regions ?? []).flatMap((r) => (r.rect ? [{ ...r.rect, n: r.n }] : []));
+    return { ...meta, url, ...(boxes.length ? { regions: boxes } : {}) };
   });
 }
 

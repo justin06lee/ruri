@@ -510,7 +510,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         data,
       };
       const { url } = storeUpload(upload);
-      const { data: _data, ...meta } = upload;
+      const { data: _data, regions: _regions, ...meta } = upload;
       return { ...meta, url };
     } catch {
       return undefined;
@@ -545,7 +545,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       data,
     };
     const { url } = storeUpload(upload);
-    const { data: _data, ...meta } = upload;
+    const { data: _data, regions: _regions, ...meta } = upload;
     components.addShot(projectId, item.id, { ...meta, url });
   }
 
@@ -801,10 +801,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   function rewindOnHarness(
     ws: WebSocket,
     channelId: string,
-    eventId: string,
-    text: string,
+    target: Extract<TranscriptEvent, { kind: "user" }>,
     why = "this harness keeps no file checkpoints, so the files were left as they are, and it restarts from a brief of what's kept",
   ): void {
+    const eventId = target.id;
     manager.dispose(channelId);
     archive.clearLastSessionId(channelId);
     const removed = archive.truncateFrom(channelId, eventId);
@@ -829,13 +829,28 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     });
     broadcast({ type: "status", projectId: channelId, status: "idle" });
     if (ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: "compose", projectId: channelId, text } satisfies ServerMessage));
+    ws.send(JSON.stringify(composeBack(channelId, target)));
     ws.send(
       JSON.stringify({
         type: "error",
         message: `rewound the conversation — ${why}`,
       } satisfies ServerMessage),
     );
+  }
+
+  /**
+   * A rewound prompt goes back to the composer whole: the words, and every
+   * file that was clipped to them — the archive still holds the bytes, and
+   * the boxes drawn on the images ride the attachment record, so the strip
+   * comes back exactly as it was sent.
+   */
+  function composeBack(channelId: string, target: Extract<TranscriptEvent, { kind: "user" }>): ServerMessage {
+    return {
+      type: "compose",
+      projectId: channelId,
+      text: target.text,
+      ...(target.attachments?.length ? { attachments: target.attachments } : {}),
+    };
   }
 
   /** Store one half of a turn's recall note and push the fold note it makes. */
@@ -1054,7 +1069,12 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         sessionId = store.newSession(project.id)?.id;
         broadcast({ type: "projects", projects: store.list() });
       }
-      if (kickoffPrompt && sessionId) manager.send({ ...project, id: sessionId }, kickoffPrompt);
+      if (kickoffPrompt && sessionId) {
+        manager.send({ ...project, id: sessionId }, kickoffPrompt);
+        // a session Home starts is named like one the user starts: from its
+        // first prompt, now, not once the turn happens to finish
+        titleSession(sessionId, kickoffPrompt);
+      }
       return `${opened ? "opened" : "already open"}: ${project.name} (${project.path})${
         kickoffPrompt ? " — session started with the kickoff prompt" : ""
       }`;
@@ -1213,7 +1233,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             // checkpoints to restore, no chain to fork at, and a compaction
             // boundary costs it nothing, since it starts fresh either way.
             if (registry.parse(project.model).providerId !== undefined) {
-              rewindOnHarness(ws, channelId, eventId, target.text);
+              rewindOnHarness(ws, channelId, target);
               return;
             }
             const chain = archive.chain(channelId);
@@ -1241,8 +1261,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
               rewindOnHarness(
                 ws,
                 channelId,
-                eventId,
-                target.text,
+                target,
                 "the conversation was compacted after this prompt, so there are no file checkpoints left to restore: the files were left as they are, and the session restarts from a brief of what's kept",
               );
               return;
@@ -1287,15 +1306,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
               }
             }
             broadcast({ type: "status", projectId: channelId, status: "idle" });
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(
-                JSON.stringify({
-                  type: "compose",
-                  projectId: channelId,
-                  text: target.text,
-                } satisfies ServerMessage),
-              );
-            }
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(composeBack(channelId, target)));
             if (filesKept && ws.readyState === WebSocket.OPEN) {
               ws.send(
                 JSON.stringify({

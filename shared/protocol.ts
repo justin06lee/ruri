@@ -86,14 +86,18 @@ export interface Attachment {
   n: number;
   /** Streaming URL once the server stored it (/uploads/…). */
   url?: string;
+  /** The boxes drawn on an image, kept with it so a prompt that comes back
+   *  to the composer (a rewind) brings its regions back too. */
+  regions?: DraftRegion[];
 }
 
 /** Wire form when sending: base64 payload plus optional region annotations. */
-export interface AttachmentUpload extends Attachment {
+export interface AttachmentUpload extends Omit<Attachment, "regions"> {
   data: string;
   /** Region crops of an image, each numbered as the prompt's [region #n]
-   *  names it (the crop carries that number drawn on it). */
-  regions?: Array<{ n: number; data: string; mediaType: string }>;
+   *  names it (the crop carries that number drawn on it). `rect` is the box
+   *  itself, in fractions of the image, so the archive can hand it back. */
+  regions?: Array<{ n: number; data: string; mediaType: string; rect?: Omit<DraftRegion, "n"> }>;
 }
 
 /** A box the user drew on a composer image, in fractions of it, with the

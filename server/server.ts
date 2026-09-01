@@ -32,6 +32,8 @@ import { promptChain, SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief } from "./smallmodel.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
 import { knownCommands, splitCommands } from "./commands.js";
+import { findProjects, searchRoots } from "./finder.js";
+import { LedgerStore } from "./ledger.js";
 import { sessionBriefing } from "./briefing.js";
 import {
   COMPONENT_TOOLS,
@@ -254,6 +256,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const homeLog = new HomeLog();
   const tracker = new TrackerStore();
   const briefs = new BriefStore();
+  // what every project has spent, by the day — the one count that survives
+  // rewinds, compactions and Home's nightly amnesia
+  const ledger = new LedgerStore();
   // the two per-PROJECT boards (everything else here is per session)
   const ideas = new IdeaStore();
   const components = new ComponentStore();
@@ -1041,6 +1046,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (event.kind === "result") {
           pushUsage();
           pushContexts();
+          // the turn's spend lands in its project's ledger (Home in its own)
+          const spender = projectId === HOME_ID ? HOME_ID : ownerProject(projectId)?.id;
+          if (spender && (event.tokens || event.costUsd || event.durationMs)) {
+            ledger.record(spender, {
+              ...(event.tokens ? { tokens: event.tokens } : {}),
+              ...(event.costUsd ? { costUsd: event.costUsd } : {}),
+              ...(event.durationMs ? { ms: event.durationMs } : {}),
+            });
+            broadcast({ type: "stats", projectId: spender, stats: ledger.stats(spender) });
+          }
           // a harness without ruri's tools names its components in a file
           const owner = ownerProject(projectId);
           if (owner) drainComponentRequests(owner.path, projectId, componentHost);
@@ -1131,6 +1146,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     }
     ideas.removeProject(projectId);
     components.removeProject(projectId);
+    ledger.removeProject(projectId);
     store.remove(projectId);
     broadcast({ type: "projects", projects: store.list() });
   }
@@ -1181,6 +1197,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       return `closed: ${project.name} (${project.path}) — files untouched`;
     },
     listProjects: () => store.list(),
+    findProjects: (query) => findProjects(searchRoots(store.workspaceDir()), query),
   };
 
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
@@ -1905,6 +1922,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           return tokens === undefined ? [] : [[id, { tokens, window: contextWindow(id) }] as const];
         }),
       ),
+      stats: ledger.all([...boardIds, HOME_ID]),
       canPickFolder: options.pickFolder !== undefined,
       workspaceDir: store.workspaceDir(),
       musicDir: musicRoot(),
@@ -1960,6 +1978,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             terminals.closeAll();
             manager.disposeAll();
             archive.flushAll();
+            ledger.flush();
             for (const client of clients) client.close();
             wss.close(() => server.close(() => done()));
           }),

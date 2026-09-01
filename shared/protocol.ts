@@ -301,6 +301,24 @@ export interface UsageLimits {
   at?: number;
 }
 
+/** What a run of turns spent, added up. */
+export interface Totals {
+  tokens: number;
+  /** At API prices — what the turns would have cost, not what was billed. */
+  costUsd: number;
+  turns: number;
+  /** Wall time the turns took, in ms. */
+  ms: number;
+}
+
+/** A project's spending, from the ledger (see server/ledger.ts): all of
+ *  it, today's, and the last seven days'. Keyed by PROJECT id. */
+export interface ProjectStats {
+  total: Totals;
+  today: Totals;
+  week: Totals;
+}
+
 /** Context-window occupancy of a channel's live session, from the last call. */
 export interface ContextUsage {
   /** Tokens in the window right now (input + cache + output of last call). */
@@ -352,6 +370,9 @@ export type TranscriptEvent =
       ok: boolean;
       costUsd?: number;
       durationMs?: number;
+      /** Tokens the turn spent — everything sent and everything back,
+       *  cached reads included, as the harness counts them. */
+      tokens?: number;
       error?: string;
       /** The turn ended because the user pressed stop — not an error. */
       stopped?: boolean;
@@ -617,6 +638,8 @@ export type ServerMessage =
       usage: Record<string, UsageLimits>;
       /** Context occupancy per channel (Claude sessions that have run). */
       contexts: Record<string, ContextUsage>;
+      /** What each project has spent, keyed by PROJECT id (Home under its own). */
+      stats: Record<string, ProjectStats>;
       /** Whether the host can show a native folder-picker dialog. */
       canPickFolder: boolean;
       /** The workspace root the Home agent manages (where projects live). */
@@ -676,6 +699,8 @@ export type ServerMessage =
   | { type: "usage"; limits: Record<string, UsageLimits> }
   /** A channel's context occupancy changed (after an API call). */
   | { type: "context"; projectId: string; context: ContextUsage }
+  /** A project's spending changed (a turn finished). Keyed by PROJECT id. */
+  | { type: "stats"; projectId: string; stats: ProjectStats }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }
   | { type: "status"; projectId: string; status: ProjectStatus }

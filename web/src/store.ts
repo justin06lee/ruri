@@ -15,6 +15,7 @@ import {
   type PermissionRequest,
   type PickTarget,
   type Project,
+  type ProjectStats,
   type ProjectStatus,
   type QueuedPrompt,
   type ServerMessage,
@@ -277,6 +278,8 @@ interface RuriState {
   usage: Record<string, UsageLimits>;
   /** Context-window occupancy per channel. */
   contexts: Record<string, ContextUsage>;
+  /** What each project has spent, keyed by PROJECT id (Home under "home"). */
+  stats: Record<string, ProjectStats>;
   /** Shell tab ids per channel, in the order the tab row shows them. */
   terminals: Record<string, string[]>;
   /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
@@ -338,6 +341,7 @@ export const useRuri = create<RuriState>((set) => ({
   terminals: {},
   usage: {},
   contexts: {},
+  stats: {},
   rapid: false,
   settingsOpen: false,
   draftBumps: {},
@@ -470,6 +474,7 @@ function apply(msg: ServerMessage): void {
         queued: msg.queued,
         usage: msg.usage,
         contexts: msg.contexts,
+        stats: msg.stats,
         canPickFolder: msg.canPickFolder,
         workspaceDir: msg.workspaceDir,
         musicDir: msg.musicDir,
@@ -543,6 +548,10 @@ function apply(msg: ServerMessage): void {
     }
     case "context": {
       setState((s) => ({ contexts: { ...s.contexts, [msg.projectId]: msg.context } }));
+      break;
+    }
+    case "stats": {
+      setState((s) => ({ stats: { ...s.stats, [msg.projectId]: msg.stats } }));
       break;
     }
     case "review_prompt":

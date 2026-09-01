@@ -214,12 +214,15 @@ export const EventView = memo(function EventView({
   project,
   channelId,
   onRewind,
+  onFork,
 }: {
   event: TranscriptEvent;
   project?: Project;
   channelId?: string;
   /** Present when this prompt can be rewound to — renders the pencil. */
   onRewind?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
+  /** Present when the conversation can be forked here — renders the branch. */
+  onFork?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
 }) {
   switch (event.kind) {
     case "user":
@@ -246,6 +249,20 @@ export const EventView = memo(function EventView({
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+            </button>
+          )}
+          {onFork && (
+            <button
+              className="icon-button fork-branch"
+              title="Fork here — a new chat in this project that starts from this exchange and goes its own way; this one is left exactly as it is"
+              onClick={() => onFork(event)}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <circle cx="6" cy="4" r="2.5" />
+                <circle cx="6" cy="20" r="2.5" />
+                <circle cx="18" cy="8" r="2.5" />
+                <path d="M6 6.5v11M18 10.5c0 4-3 5-6 5.5-2.5.4-5 1-6 2" />
               </svg>
             </button>
           )}
@@ -1308,6 +1325,12 @@ export function ChatPane({
       setRewindTarget({ id: event.id, text: event.text }),
     [],
   );
+  const startFork = useCallback(
+    (event: Extract<TranscriptEvent, { kind: "user" }>) => {
+      if (activeId) send({ type: "fork", projectId: activeId, eventId: event.id });
+    },
+    [activeId],
+  );
 
   if (!project || !activeId) {
     return <main className={pane("chat empty")} />;
@@ -1322,6 +1345,10 @@ export function ChatPane({
   const claudeRoute = !models.find((m) => m.value === (project.model || DEFAULT_MODEL))?.provider;
   const canRewind = !isHome && !busy;
   const askRewind = canRewind ? startRewind : undefined;
+  // Fork: the branch under the pencil — a new session from this exchange
+  // on, no confirmation, since nothing is lost by it. Same footing as
+  // rewind: a project's session, while nothing is running.
+  const askFork = canRewind ? startFork : undefined;
 
   // Home keeps no header bar — the transcript starts at the top; the
   // tracker page still auto-opens there and closes from its own X.
@@ -1486,6 +1513,7 @@ export function ChatPane({
                     project={project}
                     channelId={activeId}
                     onRewind={askRewind}
+                    onFork={askFork}
                   />
                 ))}
               </div>

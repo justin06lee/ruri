@@ -2142,6 +2142,33 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink);
 }
 
+/* fork: the branch under the pencil, same shoulder, same manners */
+
+.fork-branch {
+  position: absolute;
+  top: 30px;
+  left: -30px;
+  width: 24px;
+  height: 24px;
+  color: var(--ink-faint);
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.fork-branch svg {
+  width: 13px;
+  height: 13px;
+}
+
+.msg.user:hover .fork-branch {
+  opacity: 0.75;
+}
+
+.fork-branch:hover {
+  opacity: 1;
+  color: var(--ink);
+}
+
 /* the "sure you want to go back?" card */
 
 .confirm-overlay {

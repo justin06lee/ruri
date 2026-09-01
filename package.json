@@ -20,6 +20,7 @@
     "build": "bun run build:web && bun run build:main && bun run build:app",
     "smoke": "tsx scripts/smoke.ts",
     "rewind-test": "tsx scripts/rewind.ts",
+    "fork-test": "tsx scripts/fork.ts",
     "compaction-attachments-test": "tsx scripts/compaction-attachments.ts",
     "sweep-test": "tsx scripts/sweep.ts",
     "commands-test": "tsx scripts/commands.ts",

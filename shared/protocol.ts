@@ -594,6 +594,9 @@ export type ClientMessage =
    * `shots: false` names without starting the project up.
    */
   | { type: "components_sweep"; projectId: string; shots?: boolean }
+  /** Read the repo whole and write the catch-up brief again (see
+   *  server/catchup.ts) — answered with `catchup` as it goes. */
+  | { type: "catchup_rebuild"; projectId: string }
   /** The user has looked: take the star off one component, or off all of
    *  them (which is what leaving the page means). */
   | { type: "component_seen"; projectId: string; componentId?: string }
@@ -670,6 +673,8 @@ export type ServerMessage =
       contexts: Record<string, ContextUsage>;
       /** What each project has spent, keyed by PROJECT id (Home under its own). */
       stats: Record<string, ProjectStats>;
+      /** When each project's catch-up brief was last built from the repo. */
+      catchups: Record<string, { built?: number }>;
       /** Whether the host can show a native folder-picker dialog. */
       canPickFolder: boolean;
       /** The workspace root the Home agent manages (where projects live). */
@@ -701,6 +706,9 @@ export type ServerMessage =
   /** How the repo sweep is getting on. `busy` drives the button; `note` is
    *  the one line under it, and is what the sweep is doing right now. */
   | { type: "sweep"; projectId: string; busy: boolean; note?: string }
+  /** The catch-up brief's state for a project: being rebuilt, and when the
+   *  repo was last read whole for it. */
+  | { type: "catchup"; projectId: string; busy: boolean; built?: number; note?: string }
   /** The vault, names only — values never leave the server. */
   | { type: "secrets"; items: SecretMeta[] }
   /** Installed skills: every global one, plus the named project's own.

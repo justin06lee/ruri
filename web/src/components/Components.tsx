@@ -256,6 +256,52 @@ function Card({ projectId, item }: { projectId: string; item: NamedComponent }) 
   );
 }
 
+/** "just now", "2h ago", "3d ago" — when the repo was last read. */
+function since(at: number | undefined): string {
+  if (!at) return "never";
+  const mins = Math.round((Date.now() - at) / 60_000);
+  if (mins < 2) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+/**
+ * The catch-up brief's control: the other file in .ruri/ that tells a
+ * model what this project is. It writes itself a turn at a time; this is
+ * the read of the whole repo that writes it all at once — what happens by
+ * itself when a project first arrives, and again on request.
+ */
+function CatchupLine({ projectId }: { projectId: string }) {
+  const state = useRuri((s) => s.catchups[projectId]);
+  const busy = state?.busy === true;
+  const [noteStale, setNoteStale] = useState(false);
+  useEffect(() => {
+    if (!state || busy) {
+      setNoteStale(false);
+      return;
+    }
+    const timer = setTimeout(() => setNoteStale(true), FINAL_NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [state?.at, busy]);
+  const note = state?.note && !noteStale ? state.note : undefined;
+  return (
+    <div className="board-foot catchup-line">
+      The catch-up brief in <code>.ruri/catchup.md</code> — what this project is, the stack, how to
+      run it, where things are — {note ? <span className="catchup-note">{note}</span> : <>last read from the repo <b>{since(state?.built)}</b></>}.
+      <button
+        className="catchup-rebuild"
+        disabled={busy}
+        title="Read the whole repo again and write the brief afresh — its description and features are kept where they still hold"
+        onClick={() => send({ type: "catchup_rebuild", projectId })}
+      >
+        {busy ? "Reading…" : "Rebuild"}
+      </button>
+    </div>
+  );
+}
+
 export function Components({ projectId }: { projectId: string }) {
   const items = useRuri((s) => s.components[projectId]) ?? [];
   const sweep = useRuri((s) => s.sweeps[projectId]);
@@ -329,6 +375,7 @@ export function Components({ projectId }: { projectId: string }) {
             whenever a prompt names one.
           </div>
         )}
+        <CatchupLine projectId={projectId} />
       </div>
     </section>
   );

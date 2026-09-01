@@ -43,7 +43,7 @@ export function sessionBriefing(input: {
       [
         "<ruri:catchup>",
         `If you don't already know what ${input.projectName} is — a fresh session, a harness that has just taken over, work you have no memory of — read ${catchup} first.`,
-        "It is one paragraph and a list of one-liners: what this project is and what is in it, kept current by ruri as turns finish. It is much cheaper than reading the code to find out, and much more reliable than guessing.",
+        "It is one screen: what this project is, what is in it, the stack, how to run it, where things are, and the rules it lives by — written from a read of the repo and kept current by ruri as turns finish. It is much cheaper than reading the code to find out, and much more reliable than guessing.",
         "Don't read it if you already have the context. Don't edit it.",
         "</ruri:catchup>",
       ].join("\n"),

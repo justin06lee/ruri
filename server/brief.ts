@@ -34,11 +34,25 @@ export interface ProjectBrief {
   description: string;
   /** One line per capability, merged as hard as they will merge. */
   features: string[];
+  /** Languages, frameworks, runtimes, tools — as actually used. */
+  stack?: string[];
+  /** How to run, build, test and ship it, one command per line. */
+  run?: string[];
+  /** Where things are: directories and key files, and what each is for. */
+  layout?: string[];
+  /** Rules a session must follow (package manager, branches, never-dos). */
+  conventions?: string[];
   /** Pinned screenshots — the main pages, however many that takes. */
   shots: Attachment[];
   /** When the written half last changed. */
   updated?: number;
+  /** When the repo was last read whole for it (see catchup.ts). */
+  built?: number;
 }
+
+/** The keys a whole-brief write may set; anything else stays. */
+export type BriefWrite = Pick<ProjectBrief, "description" | "features"> &
+  Partial<Pick<ProjectBrief, "stack" | "run" | "layout" | "conventions">>;
 
 function briefsFile(): string {
   return path.join(
@@ -57,11 +71,18 @@ export class BriefStore {
       const raw = JSON.parse(fs.readFileSync(briefsFile(), "utf8")) as Record<string, ProjectBrief>;
       for (const [projectId, brief] of Object.entries(raw)) {
         if (!brief || typeof brief !== "object") continue;
+        const list = (value: unknown): string[] | undefined =>
+          Array.isArray(value) ? value.filter((l): l is string => typeof l === "string") : undefined;
         this.briefs.set(projectId, {
           description: typeof brief.description === "string" ? brief.description : "",
-          features: Array.isArray(brief.features) ? brief.features : [],
+          features: list(brief.features) ?? [],
+          ...(list(brief.stack) ? { stack: list(brief.stack) } : {}),
+          ...(list(brief.run) ? { run: list(brief.run) } : {}),
+          ...(list(brief.layout) ? { layout: list(brief.layout) } : {}),
+          ...(list(brief.conventions) ? { conventions: list(brief.conventions) } : {}),
           shots: Array.isArray(brief.shots) ? brief.shots : [],
           ...(typeof brief.updated === "number" ? { updated: brief.updated } : {}),
+          ...(typeof brief.built === "number" ? { built: brief.built } : {}),
         });
       }
     } catch {
@@ -82,17 +103,35 @@ export class BriefStore {
     return this.briefs.get(projectId) ?? EMPTY;
   }
 
-  /** Replace the written half; the pinned screenshots stay as they are. */
-  write(projectId: string, description: string, features: string[]): ProjectBrief {
+  /** Replace the written half; the pinned screenshots stay as they are. A
+   *  fold sets the description and features; a whole build sets it all and
+   *  stamps when the repo was read. */
+  write(projectId: string, next: BriefWrite, built = false): ProjectBrief {
     const brief: ProjectBrief = {
       ...this.get(projectId),
-      description,
-      features,
+      ...next,
       updated: Date.now(),
+      ...(built ? { built: Date.now() } : {}),
     };
     this.briefs.set(projectId, brief);
     this.save();
     return brief;
+  }
+
+  /** Whether a brief exists under this id at all. */
+  has(projectId: string): boolean {
+    return this.briefs.has(projectId);
+  }
+
+  /** Move a brief kept under one id to another (the per-session keys of
+   *  older versions, gathered up under their project). */
+  move(from: string, to: string): void {
+    const brief = this.briefs.get(from);
+    if (!brief) return;
+    this.briefs.delete(from);
+    const there = this.briefs.get(to);
+    if (!there || (brief.updated ?? 0) > (there.updated ?? 0)) this.briefs.set(to, brief);
+    this.save();
   }
 
   pin(projectId: string, shot: Attachment): ProjectBrief {
@@ -116,13 +155,6 @@ export class BriefStore {
     this.save();
   }
 
-  /** A forked session starts with its parent's brief. */
-  copy(from: string, to: string): void {
-    const brief = this.briefs.get(from);
-    if (!brief) return;
-    this.briefs.set(to, { ...brief, features: [...brief.features], shots: [...brief.shots] });
-    this.save();
-  }
 }
 
 /**
@@ -138,11 +170,17 @@ export function briefText(name: string, brief: ProjectBrief): string {
     "",
   ];
   if (brief.description) lines.push(brief.description, "");
-  if (brief.features.length) {
-    lines.push("## What's in it", "");
-    for (const feature of brief.features) lines.push(`- ${feature}`);
+  const section = (title: string, items: string[] | undefined) => {
+    if (!items?.length) return;
+    lines.push(`## ${title}`, "");
+    for (const item of items) lines.push(`- ${item}`);
     lines.push("");
-  }
+  };
+  section("What's in it", brief.features);
+  section("Stack", brief.stack);
+  section("How to run it", brief.run);
+  section("Where things are", brief.layout);
+  section("Conventions", brief.conventions);
   const shots = brief.shots.flatMap((shot) => (shot.url ? [storedFilePath(shot.url)] : []));
   if (shots.length) {
     lines.push("## What it looks like", "");

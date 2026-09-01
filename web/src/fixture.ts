@@ -94,6 +94,12 @@ export function installFixture(): void {
         at: now,
       },
     },
+    recent: {
+      prj1: [
+        { id: "9a9593a3-af97-4d40-a0e7-0cabcc919707", provider: "claude", title: "Make the sidebar folders remember whether they were open", at: now - 3 * 3_600_000, branch: "master" },
+        { id: "codex:01a03118-c33c-70b0-9efb-3eb891f853fa", provider: "codex", title: "Fully analyze this codebase and find the slop", at: now - 2 * 86_400_000 },
+      ],
+    },
     stats: {
       prj1: {
         today: { tokens: 1_284_000, costUsd: 4.31, turns: 12, ms: 41 * 60_000 },

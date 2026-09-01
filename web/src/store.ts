@@ -18,6 +18,7 @@ import {
   type ProjectStats,
   type ProjectStatus,
   type QueuedPrompt,
+  type RecentSession,
   type ServerMessage,
   type TrackerItem,
   type TranscriptEvent,
@@ -280,6 +281,8 @@ interface RuriState {
   contexts: Record<string, ContextUsage>;
   /** What each project has spent, keyed by PROJECT id (Home under "home"). */
   stats: Record<string, ProjectStats>;
+  /** Sessions on disk from outside ruri, per PROJECT id, once asked for. */
+  recent: Record<string, RecentSession[]>;
   /** Shell tab ids per channel, in the order the tab row shows them. */
   terminals: Record<string, string[]>;
   /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
@@ -342,6 +345,7 @@ export const useRuri = create<RuriState>((set) => ({
   usage: {},
   contexts: {},
   stats: {},
+  recent: {},
   rapid: false,
   settingsOpen: false,
   draftBumps: {},
@@ -523,8 +527,12 @@ function apply(msg: ServerMessage): void {
       }));
       break;
     }
-    case "forked": {
+    case "open_session": {
       useRuri.getState().setActive(msg.projectId);
+      break;
+    }
+    case "recent": {
+      setState((s) => ({ recent: { ...s.recent, [msg.projectId]: msg.items } }));
       break;
     }
     case "events_removed": {
@@ -690,7 +698,13 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "permission_request": {
-      setState((s) => ({ permissions: [...s.permissions, msg.request] }));
+      // a request sent again is the same card with something changed on it
+      // (a question gone late), not a second card
+      setState((s) => ({
+        permissions: s.permissions.some((p) => p.requestId === msg.request.requestId)
+          ? s.permissions.map((p) => (p.requestId === msg.request.requestId ? msg.request : p))
+          : [...s.permissions, msg.request],
+      }));
       break;
     }
     case "permission_resolved": {

@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, Menu, screen, shell } from "electron";
 import { startServer } from "../server/server.js";
+import { captureTargets } from "./capture.js";
 
 /**
  * GUI-launched macOS apps get a minimal PATH (/usr/bin:/bin:...), which would
@@ -154,6 +155,7 @@ async function main(): Promise<void> {
       const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
       return result.canceled ? null : (result.filePaths[0] ?? null);
     },
+    capture: captureTargets,
   });
 
   createWindow(running.port);

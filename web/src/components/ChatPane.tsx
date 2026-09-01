@@ -1012,6 +1012,12 @@ export function ChatPane({
   const ideaCount = useRuri((s) =>
     boardId ? (s.ideas[boardId] ?? []).filter((i) => !i.done).length : 0,
   );
+  // Components named since the user last looked. The button wears a star
+  // for them, which is how you find out a turn named something without
+  // being taken anywhere: the cards themselves are one click away.
+  const freshComponents = useRuri((s) =>
+    boardId ? (s.components[boardId] ?? []).filter((i) => i.star).length : 0,
+  );
 
   // Sending a prompt extracts tracker items, but it does not yank you onto
   // the tracker page to look at them — the toggle's badge is the whole
@@ -1301,11 +1307,18 @@ export function ChatPane({
           <Icon d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v18H6.5A2.5 2.5 0 0 1 4 18.5v-13zM12 3h5.5A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5H12" />
         </button>
         <button
-          className={`icon-button ${page === "components" ? "active" : ""}`}
+          className={`icon-button comp-toggle ${page === "components" ? "active" : ""}`}
           title="Components — your names for the parts of this project"
           onClick={() => setPage(page === "components" ? "chat" : "components")}
         >
           <Icon d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" />
+          {freshComponents > 0 && (
+            <span className="comp-star just header" aria-label="new components">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M12 2.5l2.7 6.1 6.6.7-4.9 4.5 1.4 6.5L12 17l-5.8 3.3 1.4-6.5L2.7 9.3l6.6-.7z" />
+              </svg>
+            </span>
+          )}
         </button>
         <button
           className={`icon-button ${page === "ideas" ? "active" : ""}`}

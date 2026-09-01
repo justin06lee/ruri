@@ -47,9 +47,13 @@ export const HERO_CENTER: HeroFrame = { x: 0, y: 0, zoom: 1 };
 
 /** Per-face framing; anything missing is centred at its fitted size. */
 export const HERO_FRAMES: Record<number, HeroFrame> = {
-  3: { x: 0, y: 0, zoom: 1.11 },
-  6: { x: 0, y: 6, zoom: 1.28 },
-  8: { x: 0, y: 7, zoom: 1.26 },
+  1: { x: 0, y: 4, zoom: 1.1 },
+  3: { x: -3.2, y: 21.9, zoom: 1.21 },
+  4: { x: 3.2, y: 5.9, zoom: 1.15 },
+  6: { x: -0.8, y: 33.1, zoom: 1.43 },
+  7: { x: -8.5, y: 8.1, zoom: 1.05 },
+  8: { x: 7.6, y: 11.8, zoom: 1.16 },
+  11: { x: -1.6, y: 9.6, zoom: 1 },
 };
 
 export function heroFrame(n: number): HeroFrame {

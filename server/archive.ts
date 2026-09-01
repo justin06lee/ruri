@@ -22,6 +22,10 @@ interface ArchiveData {
   /** Turn summaries keyed by the turn's opening user-event id. */
   summaries: Record<string, TurnSummary>;
   lastSessionId?: string;
+  /** Every CLI session id this channel has ever run on (compaction and
+   *  rewind move it along; the old ones stay ruri's). What keeps a chat
+   *  ruri made from being offered back to it as somebody else's. */
+  sessionIds?: string[];
   /** A finished compaction's brief, waiting to ride the next prompt into the
    *  fresh session (persisted so a restart in between loses nothing). */
   pendingBrief?: string;
@@ -90,6 +94,7 @@ export class SessionArchive {
         events: Array.isArray(raw.events) ? raw.events : [],
         summaries,
         ...(typeof raw.lastSessionId === "string" ? { lastSessionId: raw.lastSessionId } : {}),
+        ...(Array.isArray(raw.sessionIds) ? { sessionIds: raw.sessionIds.filter((id) => typeof id === "string") } : {}),
         ...(typeof raw.pendingBrief === "string" ? { pendingBrief: raw.pendingBrief } : {}),
         ...(raw.chain && typeof raw.chain === "object" ? { chain: raw.chain } : {}),
         ...(typeof raw.resumeAt === "string" ? { resumeAt: raw.resumeAt } : {}),
@@ -212,8 +217,22 @@ export class SessionArchive {
   }
 
   setLastSessionId(projectId: string, sessionId: string): void {
-    this.load(projectId).lastSessionId = sessionId;
+    const entry = this.load(projectId);
+    entry.lastSessionId = sessionId;
+    entry.sessionIds ??= [];
+    if (!entry.sessionIds.includes(sessionId)) entry.sessionIds = [...entry.sessionIds.slice(-59), sessionId];
     this.scheduleWrite(projectId);
+  }
+
+  /** Every CLI session id these channels have run on, present or past. */
+  ownedSessionIds(projectIds: Iterable<string>): Set<string> {
+    const owned = new Set<string>();
+    for (const id of projectIds) {
+      const entry = this.load(id);
+      if (entry.lastSessionId) owned.add(entry.lastSessionId);
+      for (const sessionId of entry.sessionIds ?? []) owned.add(sessionId);
+    }
+    return owned;
   }
 
   /** Forget the resumable session id — the next send starts a fresh one. */

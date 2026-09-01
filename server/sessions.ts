@@ -50,6 +50,8 @@ export interface SessionEvents {
   onStatus(projectId: string, status: ProjectStatus): void;
   onPermission(request: PermissionRequest): void;
   onPermissionResolved(requestId: string): void;
+  /** A question card's tool call stopped waiting; the card is still up. */
+  onQuestionLate(requestId: string): void;
   onModels(models: ModelChoice[]): void;
   /** The live Claude session id changed (used to resume across restarts). */
   onSessionId(projectId: string, sessionId: string): void;
@@ -117,8 +119,10 @@ interface ChannelSession {
   dispose(): void;
   respondPermission(requestId: string, allow: boolean, always?: boolean): boolean;
   /** Answer an AskUserQuestion card. Omitted answers = the user dismissed it,
-   *  which the tool reports to the model as "no answer" rather than failing. */
-  respondQuestion(requestId: string, answers?: AskAnswers): boolean;
+   *  which the tool reports to the model as "no answer" rather than failing.
+   *  "late" means the card was still up but the tool call had already moved
+   *  on — the caller sends the answers as a prompt instead. */
+  respondQuestion(requestId: string, answers?: AskAnswers): QuestionOutcome;
   pendingRequests(): string[];
 }
 
@@ -282,7 +286,7 @@ export function readImage(
   return { url: `/readfile?p=${encodeURIComponent(file)}`, name: path.basename(file) };
 }
 
-function toolSummary(name: string, input: Record<string, unknown>, project: Project): string {
+export function toolSummary(name: string, input: Record<string, unknown>, project: Project): string {
   const str = (key: string) => (typeof input[key] === "string" ? (input[key] as string) : undefined);
   let summary: string | undefined;
   switch (name) {
@@ -335,7 +339,13 @@ interface PendingPermission {
  *  PreToolUse hook, which hands the answers to the tool as its input. */
 interface PendingQuestion {
   resolve(answers: AskAnswers | undefined): void;
+  /** The tool call stopped waiting — the CLI gave up on the hook, or the
+   *  turn ended — so an answer now has nowhere to go but a new prompt. */
+  late?: boolean;
 }
+
+/** What answering a question card did. */
+export type QuestionOutcome = "answered" | "late" | "none";
 
 /** How long a question card may sit unanswered before the CLI gives up on
  *  the hook. A question is a conversation, not a prompt — an hour is the
@@ -544,6 +554,8 @@ class ProjectSession implements ChannelSession {
    */
   private askUserQuestion = async (
     input: HookInput,
+    _toolUseId: string | undefined,
+    options?: { signal?: AbortSignal },
   ): Promise<{ hookSpecificOutput: PreToolUseHookSpecificOutput }> => {
     const allow = {
       hookSpecificOutput: {
@@ -558,7 +570,12 @@ class ProjectSession implements ChannelSession {
 
     const requestId = randomUUID();
     const answers = await new Promise<AskAnswers | undefined>((resolve) => {
-      this.pendingQuestions.set(requestId, { resolve });
+      const pending: PendingQuestion = { resolve };
+      this.pendingQuestions.set(requestId, pending);
+      // The CLI drops a hook it has waited too long on and runs the tool
+      // without it; the card is still up, so an answer given after this
+      // goes out as a prompt rather than into a call nobody is waiting on.
+      options?.signal?.addEventListener("abort", () => this.questionWentLate(requestId), { once: true });
       this.setStatus("permission");
       this.events.onPermission({
         requestId,
@@ -620,16 +637,25 @@ class ProjectSession implements ChannelSession {
     return { continue: true };
   };
 
-  respondQuestion(requestId: string, answers?: AskAnswers): boolean {
+  respondQuestion(requestId: string, answers?: AskAnswers): QuestionOutcome {
     const pending = this.pendingQuestions.get(requestId);
-    if (!pending) return false;
+    if (!pending) return "none";
     this.pendingQuestions.delete(requestId);
     pending.resolve(answers);
     this.events.onPermissionResolved(requestId);
     if (this.pending.size === 0 && this.pendingQuestions.size === 0 && this.status === "permission") {
       this.setStatus("working");
     }
-    return true;
+    return pending.late ? "late" : "answered";
+  }
+
+  /** The tool call behind a card stopped waiting: the card stays, marked,
+   *  and an answer to it becomes a prompt. */
+  private questionWentLate(requestId: string): void {
+    const pending = this.pendingQuestions.get(requestId);
+    if (!pending || pending.late) return;
+    pending.late = true;
+    this.events.onQuestionLate(requestId);
   }
 
   pendingRequests(): string[] {
@@ -769,6 +795,9 @@ class ProjectSession implements ChannelSession {
     } else if (msg.type === "result") {
       this.lastSessionId = msg.session_id;
       this.events.onSessionId(this.project.id, msg.session_id);
+      // the turn is over: a question still up was not waited for — its
+      // card stays, and an answer to it goes out as the next prompt
+      for (const requestId of [...this.pendingQuestions.keys()]) this.questionWentLate(requestId);
       this.draftId = null;
       const stopped = this.interrupted;
       this.interrupted = false;
@@ -1016,8 +1045,8 @@ class ProviderTurnSession implements ChannelSession {
   }
 
   /** Other harnesses have no AskUserQuestion — nothing ever parks a card. */
-  respondQuestion(): boolean {
-    return false;
+  respondQuestion(): QuestionOutcome {
+    return "none";
   }
 
   pendingRequests(): string[] {
@@ -1432,8 +1461,8 @@ class ProviderAgentSession implements ChannelSession {
   }
 
   /** Other harnesses have no AskUserQuestion — nothing ever parks a card. */
-  respondQuestion(): boolean {
-    return false;
+  respondQuestion(): QuestionOutcome {
+    return "none";
   }
 
   respondPermission(requestId: string, allow: boolean, always = false): boolean {
@@ -1684,10 +1713,12 @@ export class SessionManager {
     }
   }
 
-  respondQuestion(requestId: string, answers?: AskAnswers): void {
+  respondQuestion(requestId: string, answers?: AskAnswers): QuestionOutcome {
     for (const session of this.sessions.values()) {
-      if (session.respondQuestion(requestId, answers)) return;
+      const outcome = session.respondQuestion(requestId, answers);
+      if (outcome !== "none") return outcome;
     }
+    return "none";
   }
 
   dispose(projectId: string): void {

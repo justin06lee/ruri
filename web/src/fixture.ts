@@ -72,6 +72,25 @@ export function installFixture(): void {
     // small implies starred, matching the real cycle
     starredModels: ["claude-fable-5[1m]", "codex:gpt-5.3-codex", "claude-sonnet-5"],
     smallModel: "claude-sonnet-5",
+    // enough for all four dragons: a context reading that would have read as
+    // full against the wrong window, and windows that all roll over later
+    contexts: {
+      p1: { tokens: 393_315, window: 1_000_000 },
+      p2: { tokens: 84_120, window: 200_000 },
+    },
+    usage: {
+      claude: {
+        fiveHour: 83,
+        weekly: 18,
+        scoped: { label: "Fable", percent: 9 },
+        resets: {
+          fiveHour: now + 2 * 3_600_000 + 41 * 60_000,
+          weekly: now + 6 * 86_400_000 + 22 * 3_600_000,
+          scoped: now + 6 * 86_400_000 + 22 * 3_600_000,
+        },
+        at: now,
+      },
+    },
     tracker: {
       p1: [
         { id: "t1", text: "Check reconnect backs off after killing the server", note: "", status: "open", source: "auto", turnId: "e1", ts: now - 48_000 },

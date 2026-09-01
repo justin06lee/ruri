@@ -12,9 +12,13 @@
  * The art is two alpha masks generated from the line art — one the strokes,
  * one the flood-filled body — so both halves are painted with theme colors
  * and follow light/dark for free. Past 80% he starts sweating.
+ *
+ * Under each name, for the windows that roll over, is how long until they
+ * do — the percentage says how much is left, which is not the thing you plan
+ * around.
  */
 
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import type { ContextUsage, UsageLimits } from "../../../shared/protocol";
 import { DRAGON, DRAGON_H, DRAGON_W } from "../dragonArt";
 import { useRuri } from "../store";
@@ -40,6 +44,9 @@ interface Gauge {
   percent: number;
   /** The big read: a token count for context, a percentage for the rest. */
   value: string;
+  /** How long until this window rolls over, already worded; "" for the ones
+   *  that never do (context) and the ones whose harness doesn't say. */
+  reset: string;
   title: string;
 }
 
@@ -70,7 +77,10 @@ function Dragon({ gauge }: { gauge: Gauge }) {
         </g>
       </svg>
       <div className="dragon-value">{gauge.value}</div>
-      <div className="dragon-name">{gauge.name}</div>
+      <div className="dragon-name">
+        {gauge.name}
+        {gauge.reset && <span className="dragon-reset">{gauge.reset}</span>}
+      </div>
     </div>
   );
 }
@@ -89,34 +99,73 @@ function asOf(at: number | undefined): string {
   return ` · read at ${when}`;
 }
 
-function gaugesFor(context: ContextUsage | undefined, usage: UsageLimits): Gauge[] {
+/**
+ * The wait until a window rolls over, in the width a gauge column has: "in
+ * 41m", "in 2h 10m", "in 6d 22h". A countdown rather than a clock time
+ * because that is the question being asked — how long until the limit is
+ * mine again — and because a clock time three days out has to say which day.
+ *
+ * A stamp already past says nothing: the window has turned over and the next
+ * read carries the new one, so a stale "in 0m" would be the only lie here.
+ */
+function until(at: number | undefined, now: number): string {
+  if (at === undefined || at <= now) return "";
+  const mins = Math.max(1, Math.round((at - now) / 60_000));
+  if (mins < 60) return `in ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) {
+    const rest = mins % 60;
+    return rest > 0 ? `in ${hours}h ${rest}m` : `in ${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  const rest = hours % 24;
+  return rest > 0 ? `in ${days}d ${rest}h` : `in ${days}d`;
+}
+
+/** The same moment spelled out for the tooltip, dated when it isn't today. */
+function resetsAt(at: number | undefined, now: number): string {
+  if (at === undefined || at <= now) return "";
+  const when = new Date(at);
+  const time = when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const sameDay = when.toDateString() === new Date(now).toDateString();
+  const day = when.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  return ` · resets ${sameDay ? time : `${day} at ${time}`}`;
+}
+
+function gaugesFor(context: ContextUsage | undefined, usage: UsageLimits, now: number): Gauge[] {
   const tokens = context?.tokens ?? 0;
   const window = context?.window ?? 1_000_000;
   const ctx = pct((tokens / window) * 100);
+  const resets = usage.resets;
   const gauges: Gauge[] = [
     {
       name: "context",
       percent: ctx,
       value: shortTokens(tokens),
+      // the only window here that doesn't roll over on a clock — it empties
+      // when the session does, which is /compact's business, not a wait
+      reset: "",
       title: `Context — ${tokens.toLocaleString()} of ${window.toLocaleString()} tokens (${ctx}%)`,
     },
     {
       name: "5h",
       percent: pct(usage.fiveHour ?? 0),
       value: usage.fiveHour === undefined ? "—" : `${pct(usage.fiveHour)}%`,
+      reset: until(resets?.fiveHour, now),
       title:
         usage.fiveHour === undefined
           ? "The 5-hour window couldn't be read"
-          : `5-hour session window — ${pct(usage.fiveHour)}% used${asOf(usage.at)}`,
+          : `5-hour session window — ${pct(usage.fiveHour)}% used${resetsAt(resets?.fiveHour, now)}${asOf(usage.at)}`,
     },
     {
       name: "week",
       percent: pct(usage.weekly ?? 0),
       value: usage.weekly === undefined ? "—" : `${pct(usage.weekly)}%`,
+      reset: until(resets?.weekly, now),
       title:
         usage.weekly === undefined
           ? "The weekly window couldn't be read"
-          : `Weekly window, all models — ${pct(usage.weekly)}% used${asOf(usage.at)}`,
+          : `Weekly window, all models — ${pct(usage.weekly)}% used${resetsAt(resets?.weekly, now)}${asOf(usage.at)}`,
     },
   ];
   // the scoped window only exists on plans that have one, but the row is
@@ -126,11 +175,23 @@ function gaugesFor(context: ContextUsage | undefined, usage: UsageLimits): Gauge
     name: scoped ? scoped.label.toLowerCase() : "model",
     percent: pct(scoped?.percent ?? 0),
     value: scoped ? `${pct(scoped.percent)}%` : "—",
+    reset: scoped ? until(resets?.scoped, now) : "",
     title: scoped
-      ? `Weekly window for ${scoped.label} — ${pct(scoped.percent)}% used${asOf(usage.at)}`
+      ? `Weekly window for ${scoped.label} — ${pct(scoped.percent)}% used${resetsAt(resets?.scoped, now)}${asOf(usage.at)}`
       : "This harness reports no model-scoped weekly window",
   });
   return gauges;
+}
+
+/** Now, to the minute. The countdowns are the only thing here that moves on
+ *  its own — the readings themselves arrive on their own poll. */
+function useMinute(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
 }
 
 /**
@@ -151,7 +212,8 @@ export function DragonGauges({
   const context = useRuri((s) => s.contexts[channelId]);
   const provider = useRuri((s) => s.models.find((m) => m.value === model)?.provider ?? "claude");
   const usage = useRuri((s) => s.usage[provider] ?? NO_LIMITS);
-  const gauges = gaugesFor(context, usage);
+  const now = useMinute();
+  const gauges = gaugesFor(context, usage, now);
   const pair = side === "left" ? gauges.slice(0, 2) : gauges.slice(2, 4);
   return (
     <div className={`dragons ${side}`}>

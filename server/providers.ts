@@ -14,11 +14,25 @@ import type { ModelChoice } from "../shared/protocol.js";
  * Claude's supportedModels list, cleaned for the catalog: the "default"
  * alias goes (the picker has its own quiet default row), and marketing
  * parentheticals ("(recommended)", "(1M context)") come off the names.
+ *
+ * Except one: stripping "(1M context)" leaves the big-window model and the
+ * ordinary one sharing a name, and the choice between them is the size of
+ * the context gauge's denominator — five times over. So when two entries
+ * clean down to the same name, the `[1m]` one keeps a short mark. A catalog
+ * that lists only the big one says nothing, because there is nothing to
+ * confuse it with.
  */
 export function cleanClaudeModels(list: ModelChoice[]): ModelChoice[] {
-  return list
+  const cleaned = list
     .filter((m) => m.value !== "default")
     .map((m) => ({ ...m, displayName: m.displayName.replace(/\s*\(.*\)\s*$/, "") }));
+  const seen = new Map<string, number>();
+  for (const m of cleaned) seen.set(m.displayName, (seen.get(m.displayName) ?? 0) + 1);
+  return cleaned.map((m) =>
+    m.value.includes("[1m]") && (seen.get(m.displayName) ?? 0) > 1
+      ? { ...m, displayName: `${m.displayName} 1M` }
+      : m,
+  );
 }
 
 /**

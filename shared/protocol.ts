@@ -288,6 +288,10 @@ export interface UsageLimits {
    * the endpoint names itself ("Fable", "Opus"). Absent on plans without one.
    */
   scoped?: { label: string; percent: number };
+  /** When each window next rolls over (epoch ms), for the harnesses that
+   *  say — a percentage answers "how much is left", not "how long until I
+   *  get it back", and the second question is the one you act on. */
+  resets?: { fiveHour?: number; weekly?: number; scoped?: number };
   /** When this reading was taken (epoch ms). A relaunch shows the last one
    *  off disk until a fresh read lands, and the gauges say so on hover. */
   at?: number;

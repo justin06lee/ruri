@@ -63,9 +63,9 @@ export function installFixture(): void {
     statuses: { p1: "permission", p2: "working", p3: "idle" },
     unread: { p2: true },
     models: [
-      { value: "claude-fable-5[1m]", displayName: "Fable" },
-      { value: "claude-opus-5", displayName: "Opus" },
-      { value: "claude-sonnet-5", displayName: "Sonnet" },
+      { value: "claude-fable-5[1m]", displayName: "Fable 5" },
+      { value: "claude-opus-5", displayName: "Opus 5" },
+      { value: "claude-sonnet-5", displayName: "Sonnet 5" },
       { value: "codex:gpt-5.3-codex", displayName: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI" },
       { value: "opencode", displayName: "OpenCode", provider: "opencode", providerLabel: "OpenCode" },
     ],

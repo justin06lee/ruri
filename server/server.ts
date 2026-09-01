@@ -31,6 +31,7 @@ import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { promptChain, SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief } from "./smallmodel.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
+import { knownCommands, splitCommands } from "./commands.js";
 import { sessionBriefing } from "./briefing.js";
 import {
   COMPONENT_TOOLS,
@@ -640,6 +641,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     silent: boolean;
     /** Stored attachment meta, for displaying visible entries. */
     attachments?: Attachment[];
+    /** A scissors send waiting its turn: split when it reaches the front,
+     *  not before, so the commands queued ahead of it have already run. */
+    split?: boolean;
   }
   const sendQueues = new Map<string, QueueEntry[]>();
   // Bumped on interrupt so an in-flight split resolution knows to stand down.
@@ -728,6 +732,53 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     manager.send(project, brief + processed.text + named, processed.images, undefined, true);
   }
 
+  /**
+   * The scissors send: one visible prompt, split by the small model into
+   * its separate requests and fed to the harness one turn at a time.
+   */
+  function dispatchSplit(channelId: string, text: string, uploads: AttachmentUpload[]): void {
+    // The user sees exactly one thing: their prompt, sent now. The
+    // split and the turn-by-turn feed happen entirely out of sight.
+    const attachments = storeAttachments(uploads);
+    const userEvent: TranscriptEvent = {
+      kind: "user",
+      id: randomUUID(),
+      text: text,
+      ...(attachments.length ? { attachments } : {}),
+      ts: Date.now(),
+    };
+    recordEvent(channelId, userEvent);
+    broadcast({ type: "status", projectId: channelId, status: "working" });
+    titleSession(channelId, text);
+    const epoch = interruptEpochs.get(channelId) ?? 0;
+    void (smallModelEnabled() ? splitPrompt(text).catch(() => [text]) : Promise.resolve([text])).then(
+      (prompts) => {
+        if ((interruptEpochs.get(channelId) ?? 0) !== epoch) return; // stopped meanwhile
+        // route each attachment to the sub-prompt carrying its marker
+        const parts = prompts.map((text) => ({ text, uploads: [] as AttachmentUpload[] }));
+        for (const upload of uploads) {
+          const marker = `[${upload.kind} #${upload.n}]`;
+          const target = parts.find((p) => p.text.includes(marker)) ?? parts[0]!;
+          target.uploads.push(upload);
+        }
+        const entries: QueueEntry[] = parts.map((part) => ({
+          id: randomUUID(),
+          text: part.text,
+          uploads: part.uploads,
+          silent: true,
+        }));
+        const idle = !busy(channelId);
+        const first = idle ? entries.shift() : undefined;
+        if (entries.length > 0) {
+          const queue = sendQueues.get(channelId) ?? [];
+          queue.push(...entries);
+          sendQueues.set(channelId, queue);
+        }
+        if (first) dispatch(channelId, first.text, first.uploads, true);
+      },
+    );
+  }
+
   /** Send the next queued prompt, once the channel settles. */
   function drainQueue(channelId: string): void {
     const queue = sendQueues.get(channelId);
@@ -739,11 +790,47 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     // emitting it) — so the queued turn's "working" sticks
     queueMicrotask(() => {
       try {
-        dispatch(channelId, next.text, next.uploads, next.silent);
+        if (next.split) dispatchSplit(channelId, next.text, next.uploads);
+        else dispatch(channelId, next.text, next.uploads, next.silent);
       } catch {
         // the channel vanished mid-queue; drop the prompt
       }
     });
+  }
+
+  /**
+   * Commands written inside a prompt run before it. Each becomes its own
+   * queue entry, in the order written, and the prompt (with them gone)
+   * follows — through the queue too, so it cannot overtake them. Returns
+   * false when the prompt held no commands, and the caller sends as usual.
+   */
+  function queueWithCommands(
+    channelId: string,
+    text: string,
+    uploads: AttachmentUpload[],
+    split: boolean,
+  ): boolean {
+    const { commands, rest } = splitCommands(text, knownCommands(ownerProject(channelId)?.path));
+    if (commands.length === 0) return false;
+    const wasBusy = busy(channelId);
+    const queue = sendQueues.get(channelId) ?? [];
+    for (const command of commands) {
+      queue.push({ id: randomUUID(), text: command, uploads: [], silent: false });
+    }
+    if (rest || uploads.length > 0) {
+      queue.push({
+        id: randomUUID(),
+        text: rest,
+        uploads,
+        silent: false,
+        ...(split ? { split: true } : {}),
+        ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
+      });
+    }
+    sendQueues.set(channelId, queue);
+    broadcastQueue(channelId);
+    if (!wasBusy) drainQueue(channelId);
+    return true;
   }
 
   /**
@@ -1120,6 +1207,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (msg.text.trim().length === 0 && !msg.attachments?.length) return;
         const channelId = msg.projectId;
         const uploads = msg.attachments ?? [];
+        if (queueWithCommands(channelId, msg.text, uploads, false)) break;
         if (busy(channelId)) {
           // hold it app-side — nothing reaches the harness until the
           // running turn (and everything queued before it) finishes
@@ -1143,46 +1231,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         const channelId = msg.projectId;
         const uploads = msg.attachments ?? [];
         if (!channelProject(channelId)) throw new Error("unknown session");
-        // The user sees exactly one thing: their prompt, sent now. The
-        // split and the turn-by-turn feed happen entirely out of sight.
-        const attachments = storeAttachments(uploads);
-        const userEvent: TranscriptEvent = {
-          kind: "user",
-          id: randomUUID(),
-          text: msg.text,
-          ...(attachments.length ? { attachments } : {}),
-          ts: Date.now(),
-        };
-        recordEvent(channelId, userEvent);
-        broadcast({ type: "status", projectId: channelId, status: "working" });
-        titleSession(channelId, msg.text);
-        const epoch = interruptEpochs.get(channelId) ?? 0;
-        void (smallModelEnabled() ? splitPrompt(msg.text).catch(() => [msg.text]) : Promise.resolve([msg.text])).then(
-          (prompts) => {
-            if ((interruptEpochs.get(channelId) ?? 0) !== epoch) return; // stopped meanwhile
-            // route each attachment to the sub-prompt carrying its marker
-            const parts = prompts.map((text) => ({ text, uploads: [] as AttachmentUpload[] }));
-            for (const upload of uploads) {
-              const marker = `[${upload.kind} #${upload.n}]`;
-              const target = parts.find((p) => p.text.includes(marker)) ?? parts[0]!;
-              target.uploads.push(upload);
-            }
-            const entries: QueueEntry[] = parts.map((part) => ({
-              id: randomUUID(),
-              text: part.text,
-              uploads: part.uploads,
-              silent: true,
-            }));
-            const idle = !busy(channelId);
-            const first = idle ? entries.shift() : undefined;
-            if (entries.length > 0) {
-              const queue = sendQueues.get(channelId) ?? [];
-              queue.push(...entries);
-              sendQueues.set(channelId, queue);
-            }
-            if (first) dispatch(channelId, first.text, first.uploads, true);
-          },
-        );
+        if (queueWithCommands(channelId, msg.text, uploads, true)) break;
+        dispatchSplit(channelId, msg.text, uploads);
         break;
       }
       case "queue_remove": {

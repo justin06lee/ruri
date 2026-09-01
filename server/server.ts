@@ -1129,6 +1129,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       create: (id, workDir) => registry.createFor(id, workDir),
     },
     (projectId) => archive.takeResumeAt(projectId),
+    (projectId) => archive.takeForkNext(projectId),
   );
 
   /** Tear down one project and everything its sessions accumulated. */
@@ -1388,6 +1389,105 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
                 JSON.stringify({
                   type: "error",
                   message: `rewind failed: ${err instanceof Error ? err.message : String(err)}`,
+                } satisfies ServerMessage),
+              );
+            }
+          }
+        })();
+        break;
+      }
+      case "fork": {
+        // A new session in the same project, holding everything through
+        // this prompt's exchange and carrying on from there; the original
+        // is not touched. On Claude the CLI session itself forks at that
+        // point (a shared file up to it, then its own); on every other
+        // harness — or when a compaction has since retired the session
+        // that held it — the fork opens on a brief of what it holds, the
+        // way a rewind does.
+        const channelId = msg.projectId;
+        void (async () => {
+          try {
+            const found = store.findSession(channelId);
+            if (!found) throw new Error("only a project's session can be forked");
+            const events = archive.events(channelId);
+            const idx = events.findIndex((e) => e.id === msg.eventId);
+            const target = idx >= 0 ? events[idx] : undefined;
+            if (!target || target.kind !== "user") throw new Error("that prompt is gone");
+            let end = idx + 1;
+            while (end < events.length && events[end]!.kind !== "user" && events[end]!.kind !== "compaction") end++;
+            const kept = events.slice(0, end);
+            const next = events.slice(end).find((e) => e.kind === "user");
+            const compactedSince = events.slice(end).some((e) => e.kind === "compaction");
+            const project = found.project;
+            const fresh = store.newSession(project.id);
+            if (!fresh) throw new Error("unknown project");
+            const title = found.session.title ? `${found.session.title} fork` : "fork";
+            store.setSessionTitle(fresh.id, title);
+            const source = archive.raw(channelId);
+            archive.seed(fresh.id, {
+              events: kept,
+              summaries: source.summaries,
+              chain: source.chain ?? {},
+              ...(source.contextTokens !== undefined ? { contextTokens: source.contextTokens } : {}),
+              ...(source.contextWindow !== undefined && source.contextWindowModel !== undefined
+                ? { contextWindow: source.contextWindow, contextWindowModel: source.contextWindowModel }
+                : {}),
+            });
+            briefs.copy(channelId, fresh.id);
+            const claude = registry.parse(project.model).providerId === undefined;
+            const sessionId = archive.lastSessionId(channelId);
+            let forked = false;
+            if (claude && sessionId && !compactedSince) {
+              // the branch point: the last chain entry of this exchange. From
+              // the chain map when a turn recorded it, else from the CLI's
+              // own transcript as the entry before the next prompt — and a
+              // fork at the latest exchange needs no point at all.
+              let at = archive.chain(channelId)[target.id]?.last;
+              if (!at && next) {
+                const ordinal = events.filter(
+                  (e, i) => i < events.indexOf(next) && e.kind === "user" && e.text.trim() === next.text.trim(),
+                ).length;
+                at = (await promptChain(project, sessionId, next.text, ordinal))?.before;
+              }
+              if (at || !next) {
+                archive.setLastSessionId(fresh.id, sessionId);
+                if (at) archive.setResumeAt(fresh.id, at);
+                else archive.setForkNext(fresh.id);
+                forked = true;
+              }
+            }
+            if (!forked) {
+              const built = buildCompaction(fresh.id, kept, archive.summaries(fresh.id));
+              if (built) archive.setPendingBrief(fresh.id, built.brief);
+            }
+            broadcast({ type: "projects", projects: store.list() });
+            broadcast({
+              type: "transcript",
+              projectId: fresh.id,
+              events: allowArchived({ [fresh.id]: archive.events(fresh.id) })[fresh.id] ?? [],
+              summaries: archive.allSummaries([fresh.id])[fresh.id] ?? {},
+            });
+            const tokens = archive.contextTokens(fresh.id);
+            if (tokens !== undefined) {
+              broadcast({ type: "context", projectId: fresh.id, context: { tokens, window: contextWindow(fresh.id) } });
+            }
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "forked", projectId: fresh.id } satisfies ServerMessage));
+              if (!forked && claude) {
+                ws.send(
+                  JSON.stringify({
+                    type: "error",
+                    message: "forked the conversation — the session that held it is gone, so the fork starts from a brief of what it holds",
+                  } satisfies ServerMessage),
+                );
+              }
+            }
+          } catch (err) {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: `fork failed: ${err instanceof Error ? err.message : String(err)}`,
                 } satisfies ServerMessage),
               );
             }

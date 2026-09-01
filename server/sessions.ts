@@ -401,6 +401,8 @@ class ProjectSession implements ChannelSession {
     resume?: string,
     resumeAt?: string,
     extras?: SessionExtras,
+    /** Fork the resumed session at its tip: the same history, a new file. */
+    fork = false,
   ) {
     this.lastSessionId = resume;
     this.secretFill = extras?.fillSecrets;
@@ -443,6 +445,8 @@ class ProjectSession implements ChannelSession {
         // a rewind resumes truncated at the kept turn's last chain entry,
         // forked so the original chain stays intact on disk
         ...(resume && resumeAt ? { resumeSessionAt: resumeAt, forkSession: true } : {}),
+        // a chat forked at its latest exchange: the whole file, then its own way
+        ...(resume && !resumeAt && fork ? { forkSession: true } : {}),
         ...extras?.options,
       },
     });
@@ -1544,6 +1548,8 @@ export class SessionManager {
     /** A pending rewind's fork point, claimed when a Claude session builds
      *  (the archive's take-once resumeAt). */
     private readonly resumeAtFor: (projectId: string) => string | undefined = () => undefined,
+    /** A pending tip fork, claimed when a Claude session builds. */
+    private readonly forkFor: (projectId: string) => boolean = () => false,
   ) {}
 
   /** The non-Claude provider id a model routes to, if any. An unset model
@@ -1622,6 +1628,7 @@ export class SessionManager {
           claudeResume,
           claudeResume ? this.resumeAtFor(project.id) : undefined,
           this.extrasFor(project),
+          claudeResume ? this.forkFor(project.id) : false,
         );
       }
       this.sessions.set(project.id, session);

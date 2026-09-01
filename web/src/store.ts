@@ -516,6 +516,17 @@ function apply(msg: ServerMessage): void {
       setState((s) => ({ queued: { ...s.queued, [msg.projectId]: msg.items } }));
       break;
     }
+    case "transcript": {
+      setState((s) => ({
+        transcripts: { ...s.transcripts, [msg.projectId]: msg.events },
+        summaries: { ...s.summaries, [msg.projectId]: msg.summaries },
+      }));
+      break;
+    }
+    case "forked": {
+      useRuri.getState().setActive(msg.projectId);
+      break;
+    }
     case "events_removed": {
       const gone = new Set(msg.eventIds);
       setState((s) => ({

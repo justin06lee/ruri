@@ -31,6 +31,10 @@ interface ArchiveData {
   chain?: Record<string, { user?: string; last?: string }>;
   /** A rewind's fork point: the next Claude session resumes truncated here. */
   resumeAt?: string;
+  /** The next Claude session forks the resumed one at its tip — a chat
+   *  forked at its latest exchange shares the file up to there and then
+   *  goes its own way, leaving the original's file alone. */
+  forkNext?: boolean;
   /** Tokens in the window after the channel's last API call. Persisted so the
    *  context gauge reads the real occupancy on launch instead of zero until
    *  the next turn happens to refill it. */
@@ -89,6 +93,7 @@ export class SessionArchive {
         ...(typeof raw.pendingBrief === "string" ? { pendingBrief: raw.pendingBrief } : {}),
         ...(raw.chain && typeof raw.chain === "object" ? { chain: raw.chain } : {}),
         ...(typeof raw.resumeAt === "string" ? { resumeAt: raw.resumeAt } : {}),
+        ...(raw.forkNext === true ? { forkNext: true } : {}),
         ...(typeof raw.contextTokens === "number" ? { contextTokens: raw.contextTokens } : {}),
         // an unattributed window is from before it was recorded whose it is
         // — it can't be checked against the current model, so it is dropped
@@ -243,6 +248,61 @@ export class SessionArchive {
       this.scheduleWrite(projectId);
     }
     return at;
+  }
+
+  setForkNext(projectId: string): void {
+    this.load(projectId).forkNext = true;
+    this.scheduleWrite(projectId);
+  }
+
+  /** Claim the pending tip fork (cleared once taken). */
+  takeForkNext(projectId: string): boolean {
+    const entry = this.load(projectId);
+    if (!entry.forkNext) return false;
+    delete entry.forkNext;
+    this.scheduleWrite(projectId);
+    return true;
+  }
+
+  /**
+   * Give a session history it did not live through: a fork's copy of the
+   * exchanges it branches from. Everything is copied — events, the notes
+   * on them, the chain uuids a later rewind would want, the context
+   * reading — so the new session is, on screen and on disk, the old one up
+   * to the branch point.
+   */
+  seed(
+    projectId: string,
+    from: {
+      events: TranscriptEvent[];
+      summaries: Record<string, TurnSummary>;
+      chain: Record<string, { user?: string; last?: string }>;
+      contextTokens?: number;
+      contextWindow?: number;
+      contextWindowModel?: string;
+    },
+  ): void {
+    const kept = new Set(from.events.map((e) => e.id));
+    const entry: ArchiveData = {
+      events: from.events.map((e) => ({ ...e })),
+      summaries: Object.fromEntries(
+        Object.entries(from.summaries).filter(([id]) => kept.has(id)).map(([id, n]) => [id, { ...n }]),
+      ),
+      chain: Object.fromEntries(
+        Object.entries(from.chain).filter(([id]) => kept.has(id)).map(([id, c]) => [id, { ...c }]),
+      ),
+      ...(from.contextTokens !== undefined ? { contextTokens: from.contextTokens } : {}),
+      ...(from.contextWindow !== undefined && from.contextWindowModel !== undefined
+        ? { contextWindow: from.contextWindow, contextWindowModel: from.contextWindowModel }
+        : {}),
+    };
+    this.data.set(projectId, entry);
+    this.scheduleWrite(projectId);
+  }
+
+  /** Everything the archive holds for a channel, for a fork to copy from. */
+  raw(projectId: string): Readonly<ArchiveData> {
+    return this.load(projectId);
   }
 
   /** Drop everything from this event to the end (a rewind's discard),

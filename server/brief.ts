@@ -115,6 +115,14 @@ export class BriefStore {
     if (!this.briefs.delete(projectId)) return;
     this.save();
   }
+
+  /** A forked session starts with its parent's brief. */
+  copy(from: string, to: string): void {
+    const brief = this.briefs.get(from);
+    if (!brief) return;
+    this.briefs.set(to, { ...brief, features: [...brief.features], shots: [...brief.shots] });
+    this.save();
+  }
 }
 
 /**

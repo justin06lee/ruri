@@ -497,6 +497,12 @@ export type ClientMessage =
    *  with the files left as they are. Either way the prompt itself returns
    *  to the composer, to edit and send like any other. */
   | { type: "rewind"; projectId: string; eventId: string }
+  /** Fork the conversation at this prompt's exchange: a new session in
+   *  the same project holding everything through this turn, carrying on
+   *  from there while this one stays exactly as it is. On Claude the CLI
+   *  session is forked at that point; elsewhere the new session opens on a
+   *  brief of what it holds. */
+  | { type: "fork"; projectId: string; eventId: string }
   /** The composer's unsent prompt for a channel (empty text and no
    *  attachments = nothing left to keep). Held server-side, so a quit does
    *  not cost a half-written prompt or the files clipped to it. */
@@ -691,6 +697,11 @@ export type ServerMessage =
   | { type: "queued"; projectId: string; items: QueuedPrompt[] }
   /** Transcript events were removed (a command chip was clicked away). */
   | { type: "events_removed"; projectId: string; eventIds: string[] }
+  /** A whole transcript at once — a session that came into being with
+   *  history already in it (a fork, an imported chat). */
+  | { type: "transcript"; projectId: string; events: TranscriptEvent[]; summaries: Record<string, string> }
+  /** The fork you asked for exists — go there. Sent to the asker alone. */
+  | { type: "forked"; projectId: string }
   /** A finished tracker review's generated prompt, for the composer. */
   | { type: "review_prompt"; projectId: string; text: string }
   /** Text for a channel's composer (a rewound prompt, back for editing). */

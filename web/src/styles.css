@@ -2992,9 +2992,6 @@ input[type="range"]::-webkit-slider-thumb {
 
 .idea-list,
 .comp-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
   padding: 12px 2px 14px;
   display: flex;
   flex-direction: column;
@@ -4407,21 +4404,27 @@ input[type="range"]::-webkit-slider-thumb {
 /* the project pages — tracker, ideas, components, skills — all wear
    the same frame: one column, a header strip, a scrolling body */
 
+/* The page scrolls, not the column on it. The column is 800px and centred,
+   so when its list was the scrolling element the wheel did nothing unless
+   the pointer happened to be over the column — and either side of it,
+   most of a wide window, is empty. Same arrangement as settings. */
 .board-page {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
   animation: rise 160ms ease-out;
 }
 
 .board-inner {
-  flex: 1;
-  min-height: 0;
+  /* the page above does the scrolling; this is as tall as its contents */
+  flex: none;
   width: 100%;
   max-width: 800px;
   margin: 0 auto;
-  padding: 18px 24px 16px;
+  /* the last card is not the last pixel — the page scrolls past it */
+  padding: 18px 24px 40px;
   display: flex;
   flex-direction: column;
 }
@@ -4448,9 +4451,6 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .tracker-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
   padding: 12px 2px 14px;
   display: flex;
   flex-direction: column;
@@ -4887,6 +4887,9 @@ input[type="range"]::-webkit-slider-thumb {
 
 .sketch-name {
   margin-left: auto;
+  /* the name and the Attach button are not one thing; the bar's own gap
+     read as if they were */
+  margin-right: 12px;
   font-size: 12px;
   color: var(--ink-faint);
   white-space: nowrap;
@@ -5279,32 +5282,42 @@ button.sketch-toggle:hover {
 /* ── the markers, as chips ────────────────────────────────────────── */
 
 /* The prompt's [image #1] markers are drawn as chips by a mirror of the
-   prompt laid over the textarea (Markers.tsx). The mirror's text is set
-   exactly like the textarea's — same font, padding, line height, wrapping
-   — so it breaks lines where the textarea does; every property here that
-   the textarea has, the mirror has too, and a chip is never wider than
-   the characters it stands on. The mirror takes no mouse; the chips do. */
+   prompt laid over the textarea (Markers.tsx). The mirror's text is shaped
+   like the textarea's — font, line height, spacing, padding, wrapping —
+   so it breaks lines where the textarea does, and a chip is never wider
+   than the characters it stands on. None of that shaping is written here:
+   the mirror reads it off the textarea's computed style at run time, so
+   whatever the textarea ends up with (the browser's own sheet for
+   textareas included) the mirror has too. The mirror takes no mouse; the
+   chips do. */
 .composer-field {
   position: relative;
 }
 
+/* placed and sized by Markers.tsx on the textarea's padding box */
 .composer-mirror {
   position: absolute;
-  inset: 0;
-  padding: 3px 0;
-  /* `font` is a shorthand and carries the body's line height with it; the
-     textarea's own line height has to come AFTER it, or the mirror's lines
-     stand a hair taller and the chips walk down off their words, one
-     more pixel per line */
-  font: inherit;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  word-break: normal;
+  top: 0;
+  left: 0;
   overflow: hidden;
   pointer-events: none;
   user-select: none;
   color: transparent;
+}
+
+/* the words, translated to the textarea's scroll — never scrolled on its
+   own, which could only go as far as its own content let it */
+.composer-mirror-text {
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* the two disagree on how many lines the prompt is: no chips, rather than
+   chips on the wrong words — the textarea's own marker text shows through */
+.composer-mirror.off .marker-chip {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .marker-chip {

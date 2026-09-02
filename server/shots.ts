@@ -107,8 +107,10 @@ export function devCommand(dir: string): DevCommand | undefined {
  * is harmless for most projects and quietly wrong for one: a project that
  * is itself ruri would come up pointed at this app's port and this app's
  * config, and photograph a copy of the thing taking the photograph.
+ *
+ * The bridge starts apps for a session under the same rule (desktop/apps.ts).
  */
-function projectEnv(): NodeJS.ProcessEnv {
+export function projectEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of Object.keys(env)) {
     if (key.startsWith("RURI_")) delete env[key];

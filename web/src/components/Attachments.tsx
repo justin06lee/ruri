@@ -175,6 +175,7 @@ export function Viewer({
   onClose,
   onRegions,
   onRegionAdd,
+  onDraw,
 }: {
   target: ViewTarget;
   onClose(): void;
@@ -183,6 +184,8 @@ export function Viewer({
   /** A region was just drawn: the composer numbers it and drops its marker
    *  where the caret is, so the note for it is written in the prompt. */
   onRegionAdd?(id: string, rect: { x: number; y: number; w: number; h: number }): void;
+  /** Open the sketch pad on this picture, to draw on it. */
+  onDraw?(): void;
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -291,6 +294,14 @@ export function Viewer({
           <span className="viewer-label">{target.label}</span>
           {editable && (
             <span className="viewer-hint">drag on the image to mark a region — its marker lands in your prompt</span>
+          )}
+          {onDraw && target.kind === "image" && (
+            <button className="viewer-draw" title="Draw on this picture — arrows, boxes, labels — and put it back" onClick={onDraw}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+              Draw on it
+            </button>
           )}
           <button className="icon-button" title="Close" onClick={onClose}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>

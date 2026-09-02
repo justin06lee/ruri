@@ -228,6 +228,55 @@ export function composeInto(channelId: string, text: string, attachments?: Attac
   })();
 }
 
+/**
+ * Put a file the app itself made into a channel's composer — a sketch, a
+ * drawn-on picture — exactly as a dropped file would land: numbered, with
+ * its marker at the end of the prompt, previewed in the strip.
+ */
+export function attachFile(channelId: string, file: File, kind: "image" | "video" | "file"): void {
+  const prev = composerDrafts.get(channelId);
+  const counter = { ...(prev?.counter ?? { image: 0, video: 0, file: 0, region: 0 }) };
+  counter[kind] += 1;
+  const att: ComposerAttachment = {
+    id: crypto.randomUUID(),
+    file,
+    kind,
+    mediaType: file.type || "application/octet-stream",
+    name: file.name,
+    n: counter[kind],
+    objectUrl: URL.createObjectURL(file),
+    regions: [],
+  };
+  const marker = `[${kind} #${att.n}]`;
+  const text = prev?.text.trim() ? `${prev.text.replace(/\s+$/, "")} ${marker} ` : `${marker} `;
+  setComposerDraft(channelId, { text, atts: [...(prev?.atts ?? []), att], counter });
+  bumpDraft(channelId);
+}
+
+/** Swap an attachment's file for another under the same marker — the
+ *  picture drawn on, put back where it was. A new id, so the server stores
+ *  the new bytes; the regions go, since the picture they sat on has. */
+export function replaceAttachmentFile(channelId: string, attId: string, file: File): void {
+  const prev = composerDrafts.get(channelId);
+  if (!prev) return;
+  const atts = prev.atts.map((att) => {
+    if (att.id !== attId) return att;
+    URL.revokeObjectURL(att.objectUrl);
+    storedAttachments.delete(att.id);
+    return {
+      ...att,
+      id: crypto.randomUUID(),
+      file,
+      mediaType: file.type || att.mediaType,
+      name: file.name,
+      objectUrl: URL.createObjectURL(file),
+      regions: [],
+    };
+  });
+  setComposerDraft(channelId, { ...prev, atts });
+  bumpDraft(channelId);
+}
+
 /** Append text to a channel's saved draft (async prompt arrivals). */
 function appendDraft(channelId: string, text: string): void {
   const prev = composerDrafts.get(channelId);

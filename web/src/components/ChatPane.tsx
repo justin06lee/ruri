@@ -43,6 +43,7 @@ import { RapidBar } from "./RapidFire";
 import { DragonGauges } from "./Dragon";
 import { HomeBoard } from "./HomeBoard";
 import { MarkerMirror, type Marker } from "./Markers";
+import { Sketch, type SketchBackground } from "./Sketch";
 import { Dropdown } from "./Dropdown";
 import { NameCard } from "./NameCard";
 import { QuestionCard } from "./Questions";
@@ -499,6 +500,7 @@ export function Composer({
   project,
   busy,
   onSent,
+  onSketch,
 }: {
   /** The session (or Home) this composer sends to. */
   channelId: string;
@@ -506,6 +508,8 @@ export function Composer({
   busy: boolean;
   /** Fires right after a prompt goes out (rapid fire advances on it). */
   onSent?: () => void;
+  /** Open the sketch pad — blank, or on one of the attached pictures. */
+  onSketch?: (background?: SketchBackground) => void;
 }) {
   const projectId = channelId;
   const saved = composerDrafts.get(channelId);
@@ -802,6 +806,15 @@ export function Composer({
               >
                 <Icon d={shell ? "M4 6h16M4 12h10M4 18h16" : "M4 17l6-6-6-6M12 19h8"} />
               </button>
+              {!shell && onSketch && (
+                <button
+                  className="sketch-toggle"
+                  title="Draw — a sketch to show the model, or open a picture to draw on"
+                  onClick={() => onSketch()}
+                >
+                  <Icon d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                </button>
+              )}
               {busy && !shell && (
                 <button
                   className="stop"
@@ -856,6 +869,14 @@ export function Composer({
           onClose={() => setViewing(null)}
           onRegions={setRegions}
           onRegionAdd={addRegion}
+          {...(onSketch && viewingAtt.kind === "image"
+            ? {
+                onDraw: () => {
+                  setViewing(null);
+                  onSketch({ id: viewingAtt.id, url: viewingAtt.objectUrl, name: viewingAtt.name });
+                },
+              }
+            : {})}
         />
       )}
     </div>
@@ -1091,6 +1112,12 @@ export function ChatPane({
   const models = useRuri((s) => s.models);
   const [rewindTarget, setRewindTarget] = useState<{ id: string; text: string } | null>(null);
   useEffect(() => setRewindTarget(null), [activeId]);
+
+  // The sketch pad takes the pane, like a page — blank, or on a picture
+  // from the composer's strip. Leaving the channel leaves the pad.
+  const [sketch, setSketch] = useState<{ background?: SketchBackground } | null>(null);
+  useEffect(() => setSketch(null), [activeId]);
+  const openSketch = useCallback((background?: SketchBackground) => setSketch(background ? { background } : {}), []);
 
   /**
    * How much of the transcript is on screen. A long session is hundreds of
@@ -1402,6 +1429,21 @@ export function ChatPane({
     </header>
   );
 
+  // The pad, wherever it was opened from — over a fresh session's hero as
+  // much as over a conversation.
+  if (sketch) {
+    return (
+      <main className={pane("chat")}>
+        {header}
+        <Sketch
+          channelId={activeId}
+          {...(sketch.background ? { background: sketch.background } : {})}
+          onClose={() => setSketch(null)}
+        />
+      </main>
+    );
+  }
+
   // No conversation yet (Home or a fresh project): the hero — face, a big
   // title, and the composer front and center.
   if (transcript.length === 0 && !draft && permissions.length === 0) {
@@ -1426,6 +1468,7 @@ export function ChatPane({
               channelId={activeId}
               project={project}
               busy={busy}
+              onSketch={openSketch}
               {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
             />
           </div>
@@ -1595,6 +1638,7 @@ export function ChatPane({
           channelId={activeId}
           project={project}
           busy={busy}
+          onSketch={openSketch}
           {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
         />
       </div>

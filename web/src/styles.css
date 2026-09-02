@@ -4941,15 +4941,66 @@ input[type="range"]::-webkit-slider-thumb {
   cursor: not-allowed;
 }
 
-/* the label being typed, over the spot it will be drawn at */
-.sketch-label {
+.sketch-canvas.placing {
+  cursor: crosshair;
+}
+
+/* the one line under the pad while words hang on the pointer */
+.sketch-placing {
   position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 99px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  pointer-events: none;
+  animation: rise 160ms ease-out;
+}
+
+/* the text box: write first, place second. The card is the confirm card
+   the rewind uses, with a box to write in where the quote would be */
+.sketch-text-card {
+  width: min(560px, calc(100vw - 48px));
+}
+
+.sketch-text-box {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
   font-weight: 600;
-  font-family: "Space Grotesk Variable", -apple-system, sans-serif;
-  padding: 0 4px;
-  border: 1.5px dashed var(--ink-soft);
-  background: color-mix(in srgb, var(--paper) 80%, transparent);
-  min-width: 120px;
+  line-height: 1.3;
+}
+
+.sketch-font-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.sketch-font {
+  padding: 3px 10px;
+  font-size: 13px;
+  border: 1.5px solid var(--line-soft);
+  background: var(--paper-bright);
+  box-shadow: none;
+}
+
+.sketch-font.active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.sketch-text-actions {
+  align-items: center;
+}
+
+.sketch-text-gap {
+  flex: 1;
 }
 
 /* the composer's pen: next to the shell toggle, the same size */
@@ -5241,8 +5292,12 @@ button.sketch-toggle:hover {
   position: absolute;
   inset: 0;
   padding: 3px 0;
-  line-height: 1.5;
+  /* `font` is a shorthand and carries the body's line height with it; the
+     textarea's own line height has to come AFTER it, or the mirror's lines
+     stand a hair taller and the chips walk down off their words, one
+     more pixel per line */
   font: inherit;
+  line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: break-word;
   word-break: normal;
@@ -5291,6 +5346,25 @@ button.sketch-toggle:hover {
 .composer-mirror.dragging,
 .composer-mirror.dragging .marker-chip {
   cursor: grabbing;
+}
+
+/* a command chip: the same pill, and a click takes it out — so hovering
+   it strikes it through, the way the sent command chip does in the
+   transcript. Same font as the words, deliberately: a monospace chip would
+   be a different width from the characters under it */
+.marker-chip.command {
+  cursor: pointer;
+}
+
+.marker-chip.command:hover {
+  text-decoration: line-through;
+}
+
+/* the thumbnail whose chip is under the pointer: inverted rim, so the two
+   read as one thing */
+.att-thumb.hot {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--ink);
 }
 
 /* where the lifted chip would land — a hairline in the run of words */
@@ -5785,4 +5859,66 @@ button.stop:hover {
 
 .hljs-strong {
   font-weight: 700;
+}
+
+/* ── selection flags ──────────────────────────────────────────────── */
+
+/* A flag at each end of a selection in the transcript (Selection.tsx): a
+   bar the height of the line, and a knob above it to drag by. The knob is
+   a circle with one square corner, and the corner is what points at the
+   text. Ink with a paper rim, so it reads on a selection's own ink. */
+.sel-flag {
+  position: fixed;
+  z-index: 30;
+  width: 0;
+  pointer-events: none;
+}
+
+.sel-flag.dragging {
+  /* the text under the pointer is what the caret lookup must find */
+  pointer-events: none;
+}
+
+.sel-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 2px;
+  background: var(--ink);
+  border-radius: 1px;
+}
+
+.sel-knob {
+  position: absolute;
+  top: -15px;
+  width: 15px;
+  height: 15px;
+  background: var(--ink);
+  border: 1.5px solid var(--paper);
+  box-shadow: var(--shadow-soft);
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.sel-flag.dragging .sel-knob {
+  cursor: grabbing;
+  pointer-events: none;
+}
+
+/* the start's knob stands to the left, its square corner at the bar's
+   top; the end's to the right, the other way round */
+.sel-flag.start .sel-knob {
+  left: -15px;
+  border-radius: 50% 50% 0 50%;
+}
+
+.sel-flag.end .sel-knob {
+  left: 0;
+  border-radius: 50% 50% 50% 0;
+}
+
+.sel-knob:hover {
+  transform: scale(1.12);
 }

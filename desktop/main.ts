@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, Menu, screen, shell } from "electron";
 import { startServer } from "../server/server.js";
+import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
 
 /**
@@ -135,6 +136,9 @@ async function main(): Promise<void> {
   buildMenu();
 
   const staticDir = path.join(import.meta.dirname, "..", "dist-web");
+  // the windows and apps sessions drive to look at what they built — the
+  // server owns the tools, this shell owns the windows (desktop/bridge.ts)
+  const bridge = new Bridge();
   const running = await startServer({
     // A fixed port on purpose. The window is a page served from it, so the
     // port is the origin, and the origin is what everything the window keeps
@@ -156,6 +160,7 @@ async function main(): Promise<void> {
       return result.canceled ? null : (result.filePaths[0] ?? null);
     },
     capture: captureTargets,
+    bridge,
   });
 
   createWindow(running.port);
@@ -179,6 +184,8 @@ async function main(): Promise<void> {
     if (process.platform !== "darwin") app.quit();
   });
   app.on("before-quit", () => {
+    // nothing a session launched outlives ruri
+    void bridge.closeAll();
     void running.close();
   });
   process.on("SIGINT", () => {

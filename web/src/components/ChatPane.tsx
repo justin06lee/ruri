@@ -47,6 +47,7 @@ import {
   MarkerMirror,
   findMarkers,
   holdMarkers,
+  holdMarkersAt,
   markerText,
   releaseMarkers,
   removeMarker,
@@ -858,8 +859,12 @@ export function Composer({
             placeholder="Message ruri…"
             value={text}
             onChange={(e) => {
-              caretRef.current = e.target.selectionStart;
-              setText(holdMarkers(e.target.value));
+              const held = holdMarkersAt(e.target.value, e.target.selectionStart);
+              caretRef.current = held.caret;
+              setText(held.text);
+              // a space kept between a chip and the word just typed against
+              // it: the caret goes back to the end of that word
+              if (held.caret !== e.target.selectionStart) placeCaret(held.caret);
             }}
             // wherever the caret was when the viewer took focus is where a
             // region's marker goes
@@ -1492,7 +1497,9 @@ export function ChatPane({
           title="Skills — what this project and this machine load before working"
           onClick={() => setPage(page === "skills" ? "chat" : "skills")}
         >
-          <Icon d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v18H6.5A2.5 2.5 0 0 1 4 18.5v-13zM12 3h5.5A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5H12" />
+          {/* a puzzle piece: what a skill is — a part that fits onto the
+              model, installed and taken out as one piece */}
+          <Icon d="M4 7.5A1.5 1.5 0 0 1 5.5 6H9a2.2 2.2 0 1 1 4 0h3.5A1.5 1.5 0 0 1 18 7.5V11a2.2 2.2 0 1 1 0 4v3.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5z" />
         </button>
         <button
           className={`icon-button comp-toggle ${page === "components" ? "active" : ""}`}

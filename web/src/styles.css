@@ -4792,6 +4792,193 @@ input[type="range"]::-webkit-slider-thumb {
   border-style: dashed;
 }
 
+/* ── the sketch pad ───────────────────────────────────────────────── */
+
+.sketch-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: rise 160ms ease-out;
+}
+
+.sketch-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  border-bottom: 1.5px solid var(--hairline);
+  background: var(--paper);
+  flex-shrink: 0;
+}
+
+.sketch-tools .icon-button {
+  width: 28px;
+  height: 28px;
+}
+
+.sketch-tools .icon-button.active {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.sketch-tools .icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.sketch-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--line-soft);
+}
+
+.sketch-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1.5px solid var(--line-soft);
+  border-radius: 50%;
+  box-shadow: none;
+}
+
+.sketch-swatch.active {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--ink);
+}
+
+.sketch-swatch:active {
+  transform: none;
+}
+
+.sketch-width {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: var(--radius-s);
+  color: var(--ink-faint);
+}
+
+.sketch-width span {
+  display: block;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.sketch-width.active {
+  color: var(--ink);
+  background: var(--paper-dim);
+}
+
+.sketch-open {
+  cursor: pointer;
+}
+
+.sketch-open input {
+  display: none;
+}
+
+.sketch-name {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.sketch-attach {
+  padding: 4px 14px;
+  font-size: 12.5px;
+}
+
+/* the pad sits in the middle of a toned field, at the largest size that
+   fits; a picture keeps its shape, a blank pad is a wide page */
+.sketch-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background-image: var(--tone);
+  background-size: 6px 6px;
+  overflow: hidden;
+}
+
+.sketch-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border: 1.5px solid var(--edge);
+  box-shadow: var(--shadow-hard);
+  background: var(--paper);
+  touch-action: none;
+  cursor: crosshair;
+}
+
+[data-theme="dark"] .sketch-canvas,
+[data-theme="ember"] .sketch-canvas {
+  border-color: color-mix(in srgb, var(--ink) 22%, var(--paper));
+}
+
+.sketch-canvas.tool-text {
+  cursor: text;
+}
+
+.sketch-canvas.tool-erase {
+  cursor: not-allowed;
+}
+
+/* the label being typed, over the spot it will be drawn at */
+.sketch-label {
+  position: absolute;
+  font-weight: 600;
+  font-family: "Space Grotesk Variable", -apple-system, sans-serif;
+  padding: 0 4px;
+  border: 1.5px dashed var(--ink-soft);
+  background: color-mix(in srgb, var(--paper) 80%, transparent);
+  min-width: 120px;
+}
+
+/* the composer's pen: next to the shell toggle, the same size */
+button.sketch-toggle {
+  color: var(--ink-faint);
+  background: transparent;
+  border: 1.5px solid var(--line-soft);
+}
+
+button.sketch-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: var(--paper-bright);
+}
+
+.viewer-draw {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  margin-right: 6px;
+}
+
+.viewer-draw svg {
+  width: 13px;
+  height: 13px;
+}
+
 /* ── attachment viewer ────────────────────────────────────────────── */
 
 .viewer-overlay {

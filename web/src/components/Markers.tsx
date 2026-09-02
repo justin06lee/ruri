@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 /**
  * The [image #1] markers and the /commands in the composer, as things
@@ -43,9 +43,11 @@ export const MARKER_SPACE = " ";
  * An attachment marker with either space inside, or a slash command: a
  * word starting with "/" that stands on its own — not a path ("/tmp/x"
  * has a second slash), not a quoted mention ('/compact' has a quote against
- * the slash, not whitespace), not the tail of a URL.
+ * the slash, not whitespace), not the tail of a URL — and not one still
+ * being typed: a command is a chip once a space (or a line break) follows
+ * it, so "/comm" on its way to "/commit" stays words under the caret.
  */
-const MARKER = /\[(image|video|file|region)[  ]#(\d+)\]|(?<=^|\s)\/([a-z0-9][\w:.-]*)(?=\s|$)/g;
+const MARKER = /\[(image|video|file|region)[  ]#(\d+)\]|(?<=^|\s)\/([a-z0-9][\w:.-]*)(?=\s)/g;
 
 export function findMarkers(text: string): Marker[] {
   const out: Marker[] = [];
@@ -70,11 +72,65 @@ export function markerText(kind: "image" | "video" | "file" | "region", n: numbe
   return `[${kind}${MARKER_SPACE}#${n}]`;
 }
 
-/** Markers that arrived with plain spaces (a rewound prompt, a queued one,
- *  a saved draft from before this), made unbreakable. Same length, so no
+/** Markers with plain spaces inside, made unbreakable. Same length, so no
  *  caret moves. */
-export function holdMarkers(text: string): string {
+function bindMarkers(text: string): string {
   return text.replace(/\[(image|video|file|region) #(\d+)\]/g, `[$1${MARKER_SPACE}#$2]`);
+}
+
+/** Punctuation that may sit against a chip: "see [image #2]." reads as a
+ *  sentence, "see [image #2] ." does not. */
+const CLOSERS = ".,;:!?)";
+const OPENERS = "(";
+
+/**
+ * The prompt with a space between every attachment marker and the word
+ * against it. A chip is a thing among words, and a word touching it reads
+ * as being inside it — so the space is kept, wherever it went. Returns the
+ * new text and where a caret at `caret` in the old text now stands: a
+ * space put in ahead of it moves it along by one; one put in behind it
+ * (between a word just typed and the chip after it) does not.
+ */
+export function spaceMarkers(text: string, caret = 0): { text: string; caret: number } {
+  const cuts: number[] = [];
+  for (const marker of findMarkers(text)) {
+    if (marker.kind === "command") continue;
+    const before = text[marker.start - 1];
+    if (
+      before !== undefined &&
+      !/\s/.test(before) &&
+      !OPENERS.includes(before) &&
+      cuts[cuts.length - 1] !== marker.start
+    ) {
+      cuts.push(marker.start);
+    }
+    const after = text[marker.end];
+    if (after !== undefined && !/\s/.test(after) && !CLOSERS.includes(after)) cuts.push(marker.end);
+  }
+  if (cuts.length === 0) return { text, caret };
+  let out = "";
+  let at = 0;
+  let moved = caret;
+  for (const cut of cuts) {
+    out += `${text.slice(at, cut)} `;
+    at = cut;
+    if (caret > cut) moved += 1;
+  }
+  return { text: out + text.slice(at), caret: moved };
+}
+
+/** Markers as the composer keeps them: the space inside each made
+ *  unbreakable (a rewound prompt, a queued one, a saved draft from before
+ *  this arrive with plain ones), and a space kept between a marker and the
+ *  word against it. */
+export function holdMarkers(text: string): string {
+  return spaceMarkers(bindMarkers(text)).text;
+}
+
+/** The same for text the caret is in: what it becomes, and where the caret
+ *  belongs in it. */
+export function holdMarkersAt(text: string, caret: number): { text: string; caret: number } {
+  return spaceMarkers(bindMarkers(text), caret);
 }
 
 /** The prompt as it goes out: markers with plain spaces, the way every
@@ -196,6 +252,44 @@ function indexAt(area: HTMLTextAreaElement, mirror: HTMLElement, x: number, y: n
   return start + (node.nodeType === Node.TEXT_NODE ? offset : 0);
 }
 
+/** What shapes text — read off the textarea at run time and set on the
+ *  mirror, so the mirror wraps where the textarea wraps whatever the
+ *  stylesheet, or the browser's own sheet for textareas, says. Shorthands
+ *  before their longhands, so a longhand the browser knows wins. */
+const SHAPING = [
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "font-stretch",
+  "font-variant",
+  "font-kerning",
+  "font-feature-settings",
+  "font-variation-settings",
+  "font-optical-sizing",
+  "font-size-adjust",
+  "line-height",
+  "letter-spacing",
+  "word-spacing",
+  "text-transform",
+  "text-indent",
+  "text-rendering",
+  "tab-size",
+  "white-space",
+  "white-space-collapse",
+  "text-wrap-mode",
+  "text-wrap-style",
+  "overflow-wrap",
+  "word-break",
+  "hyphens",
+  "direction",
+  "text-align",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+] as const;
+
 export function MarkerMirror({
   areaRef,
   text,
@@ -218,30 +312,65 @@ export function MarkerMirror({
   onHover: (marker: Marker | null) => void;
 }) {
   const mirrorRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLDivElement>(null);
   const markers = useMemo(() => findMarkers(text).filter(present), [text, present]);
   const parts = useMemo(() => segments(text, markers), [text, markers]);
   const [drag, setDrag] = useState<{ marker: Marker; to: number | null; moved: boolean } | null>(null);
 
-  // The mirror follows the textarea's scroll, and its width follows the
-  // textarea's text width — a scrollbar that appears takes a few pixels
-  // off the wrapping width, and the mirror has to give up the same few.
-  useEffect(() => {
+  // The mirror stands on the textarea's padding box — inside its border,
+  // as wide as its text, a scrollbar's width off both — and its text is
+  // shaped by the textarea's own computed style, read here rather than
+  // copied in the stylesheet: whatever the textarea ends up with, the
+  // browser's own sheet for textareas included, the mirror has too. It
+  // follows the textarea's scroll by translation: a mirror that scrolled on
+  // its own could only go as far as its own content let it, and one line
+  // of disagreement became a lasting offset. After every render, and on
+  // every scroll, focus, resize, and font arrival, since any of those can
+  // move the words; and if after all that the two still disagree on how
+  // many lines the prompt is, the chips come off rather than stand on the
+  // wrong words.
+  useLayoutEffect(() => {
     const area = areaRef.current;
     const mirror = mirrorRef.current;
-    if (!area || !mirror) return;
+    const inner = textRef.current;
+    if (!area || !mirror || !inner) return;
+    let frame = 0;
+    const check = () => {
+      frame = 0;
+      mirror.classList.toggle("off", Math.abs(inner.offsetHeight - area.scrollHeight) > 2);
+    };
     const sync = () => {
-      mirror.scrollTop = area.scrollTop;
-      mirror.style.right = `${area.offsetWidth - area.clientWidth}px`;
+      const style = getComputedStyle(area);
+      for (const prop of SHAPING) {
+        const value = style.getPropertyValue(prop);
+        if (value && inner.style.getPropertyValue(prop) !== value) inner.style.setProperty(prop, value);
+      }
+      const width = `${area.clientWidth}px`;
+      mirror.style.left = `${area.offsetLeft + area.clientLeft}px`;
+      mirror.style.top = `${area.offsetTop + area.clientTop}px`;
+      mirror.style.width = width;
+      mirror.style.height = `${area.clientHeight}px`;
+      inner.style.width = width;
+      inner.style.transform = `translate(${-area.scrollLeft}px, ${-area.scrollTop}px)`;
+      // the line count is compared a frame later, once the box has been
+      // fitted to the text (that happens after this, in the composer)
+      if (!frame) frame = requestAnimationFrame(check);
     };
     sync();
     area.addEventListener("scroll", sync);
+    area.addEventListener("focus", sync);
+    document.addEventListener("selectionchange", sync);
     const observer = new ResizeObserver(sync);
     observer.observe(area);
+    void document.fonts?.ready.then(sync);
     return () => {
+      if (frame) cancelAnimationFrame(frame);
       area.removeEventListener("scroll", sync);
+      area.removeEventListener("focus", sync);
+      document.removeEventListener("selectionchange", sync);
       observer.disconnect();
     };
-  }, [areaRef, text]);
+  });
 
   const startDrag = (e: React.PointerEvent<HTMLSpanElement>, marker: Marker) => {
     if (e.button !== 0) return;
@@ -279,6 +408,7 @@ export function MarkerMirror({
 
   return (
     <div className={`composer-mirror ${drag?.moved ? "dragging" : ""}`} ref={mirrorRef} aria-hidden>
+      <div className="composer-mirror-text" ref={textRef}>
       {parts.map((seg) =>
         seg.marker ? (
           <span
@@ -322,6 +452,7 @@ export function MarkerMirror({
       {/* a prompt ending in a newline needs something on its last line for
           the mirror to stand as tall as the textarea does */}
       {"​"}
+      </div>
     </div>
   );
 }

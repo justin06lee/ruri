@@ -4941,15 +4941,66 @@ input[type="range"]::-webkit-slider-thumb {
   cursor: not-allowed;
 }
 
-/* the label being typed, over the spot it will be drawn at */
-.sketch-label {
+.sketch-canvas.placing {
+  cursor: crosshair;
+}
+
+/* the one line under the pad while words hang on the pointer */
+.sketch-placing {
   position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 99px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  pointer-events: none;
+  animation: rise 160ms ease-out;
+}
+
+/* the text box: write first, place second. The card is the confirm card
+   the rewind uses, with a box to write in where the quote would be */
+.sketch-text-card {
+  width: min(560px, calc(100vw - 48px));
+}
+
+.sketch-text-box {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
   font-weight: 600;
-  font-family: "Space Grotesk Variable", -apple-system, sans-serif;
-  padding: 0 4px;
-  border: 1.5px dashed var(--ink-soft);
-  background: color-mix(in srgb, var(--paper) 80%, transparent);
-  min-width: 120px;
+  line-height: 1.3;
+}
+
+.sketch-font-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.sketch-font {
+  padding: 3px 10px;
+  font-size: 13px;
+  border: 1.5px solid var(--line-soft);
+  background: var(--paper-bright);
+  box-shadow: none;
+}
+
+.sketch-font.active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.sketch-text-actions {
+  align-items: center;
+}
+
+.sketch-text-gap {
+  flex: 1;
 }
 
 /* the composer's pen: next to the shell toggle, the same size */

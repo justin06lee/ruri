@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   HOME_ID,
+  type BridgeState,
   type ClientMessage,
   type Attachment,
   type ContextUsage,
@@ -309,6 +310,9 @@ interface RuriState {
    *  last changed — a finished sweep's last word is worth reading, and
    *  worth taking down again a little later. */
   sweeps: Record<string, { busy: boolean; note?: string; at: number }>;
+  /** What the bridge is showing per channel: the page or app a session is
+   *  driving, for the strip beside its composer. Absent = nothing open. */
+  bridges: Record<string, BridgeState>;
   /** The vault's names — the values live on the server and stay there. */
   secrets: SecretMeta[];
   /** Skills as of the last scan: every global one, plus one project's own. */
@@ -386,6 +390,7 @@ export const useRuri = create<RuriState>((set) => ({
   ideas: {},
   components: {},
   sweeps: {},
+  bridges: {},
   secrets: [],
   skills: [],
   skillsFor: null,
@@ -536,6 +541,7 @@ function apply(msg: ServerMessage): void {
           Object.entries(msg.catchups).map(([id, c]) => [id, { busy: false, at: 0, ...(c.built ? { built: c.built } : {}) }]),
         ),
         canPickFolder: msg.canPickFolder,
+        bridges: msg.bridges,
         workspaceDir: msg.workspaceDir,
         musicDir: msg.musicDir,
         home: msg.home,
@@ -677,6 +683,15 @@ function apply(msg: ServerMessage): void {
           },
         },
       }));
+      break;
+    }
+    case "bridge": {
+      setState((s) => {
+        const bridges = { ...s.bridges };
+        if (msg.state) bridges[msg.projectId] = msg.state;
+        else delete bridges[msg.projectId];
+        return { bridges };
+      });
       break;
     }
     case "secrets": {

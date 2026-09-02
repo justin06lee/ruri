@@ -496,6 +496,27 @@ export interface HomeSettings {
   effort?: string;
 }
 
+/**
+ * What the bridge is showing for one channel — the thing the session is
+ * driving on the user's behalf, seen from the user's side (see
+ * server/bridge.ts). One per channel: a web page in ruri's own hidden
+ * window, or an app the session launched, whichever it last touched.
+ */
+export interface BridgeState {
+  kind: "web" | "electron" | "native";
+  /** The page's title, or the app's name. */
+  title: string;
+  /** The page's URL, or the app's path / command. */
+  address: string;
+  /** A scaled picture of it, served by ruri (`/bridge/preview/<id>?t=`),
+   *  changing with `at` so the strip never shows a stale one. */
+  previewUrl?: string;
+  /** When this last changed (epoch ms). */
+  at: number;
+  /** The user has taken the window / app over: it is on screen, in front. */
+  takenOver: boolean;
+}
+
 export type ClientMessage =
   | { type: "add_project"; name: string; path: string; folder?: string }
   | { type: "pick_folder"; target?: PickTarget }
@@ -644,6 +665,14 @@ export type ClientMessage =
   | { type: "reset_home" }
   /** Re-probe every installed harness's live model catalog. */
   | { type: "refresh_models" }
+  /* ── the bridge (per channel) ───────────────────────────────────── */
+  /** Bring what the session is driving on screen, in front, for the user
+   *  to work in. `projectId` is the channel id, as everywhere else. */
+  | { type: "bridge_takeover"; projectId: string }
+  /** Hide it again — the session keeps driving it. */
+  | { type: "bridge_release"; projectId: string }
+  /** Close it: the window is destroyed, launched apps are quit. */
+  | { type: "bridge_close"; projectId: string }
   /** Keep one window preference on this machine. An empty value forgets it. */
   | { type: "set_pref"; key: string; value: string };
 
@@ -695,6 +724,8 @@ export type ServerMessage =
       prefs: Record<string, string>;
       /** Unsent composer prompts per channel, waiting where they were left. */
       composerDrafts: Record<string, ComposerDraftState>;
+      /** What the bridge is showing per channel (see BridgeState). */
+      bridges: Record<string, BridgeState>;
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
@@ -753,6 +784,9 @@ export type ServerMessage =
   | { type: "permission_request"; request: PermissionRequest }
   | { type: "permission_resolved"; requestId: string }
   | { type: "models"; models: ModelChoice[] }
+  /** The bridge did something for a channel, or closed: what it is showing
+   *  now, or null when there is nothing left to show. */
+  | { type: "bridge"; projectId: string; state: BridgeState | null }
   /** This channel's shell tabs, in the order they are shown. */
   | { type: "terminal_tabs"; projectId: string; tabs: string[] }
   /** Shell output. `replay` marks the scrollback a fresh attach gets. */

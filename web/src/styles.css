@@ -5922,3 +5922,132 @@ button.stop:hover {
 .sel-knob:hover {
   transform: scale(1.12);
 }
+
+/* ── the bridge strip ─────────────────────────────────────────────
+   What a session is driving, seen from the user's side (Bridge.tsx): a
+   live picture of the hidden window or the launched app, its title and
+   address, take over / give back, and a close. It rides above the docked
+   composer exactly as the rapid-fire plate does — off the textbox's
+   measured height, right edge on the textbox's right edge — and steps up
+   above that plate when both are on. Nothing here touches the page: it
+   looks, and it hands the window over. */
+.bridge-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--composer-box-h) + 14px);
+  z-index: 4;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--bridge-inset, 0px) 0 0;
+  pointer-events: none;
+  animation: rise 200ms ease-out;
+}
+
+.bridge-strip.stacked {
+  bottom: calc(var(--composer-box-h) + 58px);
+}
+
+/* its own paper, like the rapid plate: it floats over the transcript */
+.bridge-plate {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 440px;
+  padding: 6px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  box-shadow: var(--shadow-soft);
+}
+
+/* the picture: a window's worth, cropped from the top, on screentone
+   until the first one lands */
+.bridge-thumb {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 60px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background: var(--paper-dim) var(--tone);
+  background-size: 6px 6px;
+  cursor: zoom-in;
+}
+
+.bridge-thumb:disabled {
+  cursor: default;
+}
+
+.bridge-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+
+.bridge-blank {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.bridge-words {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bridge-title {
+  max-width: 200px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.bridge-address {
+  max-width: 200px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* take over / give back: one pill, inverted while you have the window */
+.bridge-toggle {
+  flex: none;
+  padding: 4px 10px;
+  border: 1.5px solid var(--ink);
+  border-radius: 99px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bridge-toggle:hover,
+.bridge-toggle.on {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.bridge-toggle.on:hover {
+  background: var(--paper);
+  color: var(--ink);
+}

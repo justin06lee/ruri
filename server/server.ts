@@ -38,6 +38,15 @@ import { LedgerStore } from "./ledger.js";
 import { importRecent, listRecent } from "./recent.js";
 import { sessionBriefing } from "./briefing.js";
 import {
+  BRIDGE_TOOLS,
+  bridgeDir,
+  bridgeHttpBriefing,
+  bridgeToolBriefing,
+  bridgeTools,
+  runBridge,
+  type BridgeHost,
+} from "./bridge.js";
+import {
   COMPONENT_TOOLS,
   ComponentStore,
   componentDropBriefing,
@@ -75,6 +84,13 @@ export interface StartServerOptions {
    * names without taking pictures. See server/shots.ts.
    */
   capture?: CaptureHost;
+  /**
+   * Host-provided bridge (the Electron shell passes one): the hidden
+   * windows and launched apps a session drives to see what it built.
+   * Absent when ruri runs headless, and then the bridge tools say so.
+   * See server/bridge.ts.
+   */
+  bridge?: BridgeHost;
 }
 
 export interface RuriServer {
@@ -202,6 +218,25 @@ const IMAGE_MIME: Record<string, string> = {
 };
 
 /** Serve one image a tool event read. Anything unregistered is a 403. */
+/** A request body, whole, or an error past `limit` bytes. */
+function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error("body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
+
 function serveReadFile(req: http.IncomingMessage, res: http.ServerResponse): void {
   const filePath = new URL(req.url ?? "/", "http://localhost").searchParams.get("p") ?? "";
   if (!filePath || !readable.has(filePath)) {
@@ -298,6 +333,70 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     for (const client of clients) {
       if (client.readyState === WebSocket.OPEN) client.send(payload);
     }
+  }
+
+  /** The port this server actually listens on, known once it does. A
+   *  session's bridge endpoint is written with it, and sessions are made
+   *  long after. */
+  let listeningPort = options.port;
+
+  // what the bridge is showing for a channel, as it changes — the strip
+  // beside that channel's composer follows it
+  options.bridge?.onState((channelId, state) => broadcast({ type: "bridge", projectId: channelId, state }));
+
+  /** GET /bridge/preview/<channelId> — the strip's picture, overwritten in
+   *  place as the session works, so never cached. */
+  function serveBridgePreview(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const id = (req.url ?? "").slice("/bridge/preview/".length).split("?")[0] ?? "";
+    const file = path.join(bridgeDir(id), "preview.png");
+    try {
+      const stat = fs.statSync(file);
+      if (!id || !stat.isFile()) throw new Error("not a file");
+      res.writeHead(200, { "content-type": "image/png", "content-length": stat.size, "cache-control": "no-cache" });
+      fs.createReadStream(file).pipe(res);
+    } catch {
+      res.writeHead(404);
+      res.end();
+    }
+  }
+
+  /**
+   * POST /bridge/<channelId> — the bridge for a harness that cannot hold
+   * tools: the same calls as JSON, answered as JSON, with pictures as
+   * paths. The channel id is the capability; a session is told only its own.
+   */
+  async function serveBridgeCall(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const reply = (status: number, body: Record<string, unknown>): void => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
+    const id = (req.url ?? "").slice("/bridge/".length).split("?")[0] ?? "";
+    if (!id || (id !== HOME_ID && !store.sessionIds().includes(id))) {
+      reply(404, { ok: false, error: "no such session" });
+      return;
+    }
+    let body: { tool?: unknown; args?: unknown };
+    try {
+      body = JSON.parse(await readBody(req, 1024 * 1024)) as typeof body;
+    } catch (err) {
+      reply(400, { ok: false, error: `bad request: ${err instanceof Error ? err.message : String(err)}` });
+      return;
+    }
+    if (!body || typeof body.tool !== "string") {
+      reply(400, { ok: false, error: 'send {"tool": "<name>", "args": {...}}' });
+      return;
+    }
+    const owner = ownerProject(id);
+    const outcome = await runBridge(options.bridge, { channelId: id, projectId: owner?.id ?? id }, body.tool, body.args);
+    if (!outcome.ok) {
+      reply(200, { ok: false, error: outcome.error });
+      return;
+    }
+    reply(200, {
+      ok: true,
+      text: outcome.result.text,
+      ...(outcome.result.image ? { image: outcome.result.image.path } : {}),
+    });
   }
 
   // The model picker: Claude models plus every installed non-Claude harness,
@@ -1174,6 +1273,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       // the same words wherever the session runs: Claude takes them as an
       // append to its own preset, everything else as its whole system prompt
       const claude = !registry.parse(project.model || DEFAULT_MODEL).providerId;
+      // the bridge reaches Claude as tools and everything else as one HTTP
+      // endpoint on this server — whose port is only known once it listens,
+      // which is long before any session is made
+      const owner = ownerProject(project.id);
+      const bridgeCtx = { channelId: project.id, projectId: owner?.id ?? project.id };
+      const bridge = !options.bridge
+        ? ""
+        : claude
+          ? bridgeToolBriefing()
+          : bridgeHttpBriefing(`http://127.0.0.1:${listeningPort}/bridge/${project.id}`);
       const note = sessionBriefing({
         projectDir: project.path,
         projectName: project.name,
@@ -1181,13 +1290,17 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         claude,
         // Claude gets tools for naming; everything else gets the drop file
         naming: claude ? "tool" : componentDropBriefing(project.path),
+        bridge,
       });
       return {
         fillSecrets: (input) =>
           secrets.wanted(JSON.stringify(input)) ? secrets.fillInput(input) : undefined,
-        autoAllow: COMPONENT_TOOLS,
+        autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS],
         options: {
-          mcpServers: { ruri: componentTools(componentHost, project.id) },
+          mcpServers: {
+            ruri: componentTools(componentHost, project.id),
+            bridge: bridgeTools(options.bridge, bridgeCtx),
+          },
           ...(note ? { systemPrompt: { type: "preset", preset: "claude_code", append: note } } : {}),
         },
         ...(note ? { providerSystem: note } : {}),
@@ -1201,6 +1314,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     (projectId) => archive.takeForkNext(projectId),
   );
 
+  /** The session's window and apps go with it, and so do its pictures. */
+  function closeBridge(sessionId: string): void {
+    void options.bridge?.close(sessionId);
+    try {
+      fs.rmSync(bridgeDir(sessionId), { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  }
+
   /** Tear down one project and everything its sessions accumulated. */
   function closeProjectById(projectId: string): void {
     for (const sessionId of store.get(projectId)?.sessions.map((s) => s.id) ?? []) {
@@ -1212,6 +1335,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       contexts.delete(sessionId);
       sendQueues.delete(sessionId);
       terminals.closeChannel(sessionId);
+      closeBridge(sessionId);
     }
     briefs.remove(projectId);
     ideas.removeProject(projectId);
@@ -1639,6 +1763,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         drafts.remove(msg.sessionId);
         tracker.removeProject(msg.sessionId);
         contexts.delete(msg.sessionId);
+        closeBridge(msg.sessionId);
         store.removeSession(msg.sessionId);
         broadcast({ type: "projects", projects: store.list() });
         break;
@@ -2113,6 +2238,18 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (Date.now() - probedAt > 30_000) probeModels(true);
         break;
       }
+      case "bridge_takeover": {
+        void options.bridge?.takeover(msg.projectId);
+        break;
+      }
+      case "bridge_release": {
+        void options.bridge?.release(msg.projectId);
+        break;
+      }
+      case "bridge_close": {
+        void options.bridge?.close(msg.projectId);
+        break;
+      }
       default: {
         const unknown: never = msg;
         throw new Error(`unknown message type: ${JSON.stringify(unknown)}`);
@@ -2137,6 +2274,14 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     }
     if (req.url?.startsWith("/uploads/")) {
       serveUpload(req, res);
+      return;
+    }
+    if (req.url?.startsWith("/bridge/preview/")) {
+      serveBridgePreview(req, res);
+      return;
+    }
+    if (req.method === "POST" && req.url?.startsWith("/bridge/")) {
+      void serveBridgeCall(req, res);
       return;
     }
     if (req.url?.startsWith("/readfile?")) {
@@ -2195,6 +2340,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       user: os.userInfo().username,
       prefs: prefs.all(),
       composerDrafts: drafts.all(),
+      bridges: options.bridge?.states() ?? {},
     };
     ws.send(JSON.stringify(snapshot));
 
@@ -2231,6 +2377,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     server.listen(attempt, options.host ?? "127.0.0.1", () => {
       const address = server.address();
       const port = typeof address === "object" && address ? address.port : options.port;
+      listeningPort = port;
       console.log(`ruri server listening on ws://127.0.0.1:${port}`);
       resolve({
         port,
@@ -2239,6 +2386,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             clearInterval(usageTimer);
             if (usageRetry) clearTimeout(usageRetry);
             terminals.closeAll();
+            void options.bridge?.closeAll();
             manager.disposeAll();
             archive.flushAll();
             ledger.flush();

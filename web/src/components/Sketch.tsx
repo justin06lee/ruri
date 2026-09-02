@@ -15,6 +15,16 @@ import { attachFile, replaceAttachmentFile } from "../store";
  *
  * Everything drawn is kept as shapes and redrawn, never as pixels, so undo
  * is exact and the export is drawn fresh at the picture's own size.
+ *
+ * Nothing here is lost by accident. Every stroke is saved as it lands,
+ * per channel and per picture, and the pad only closes when its own close
+ * button is pressed — not on Escape, which is the key you press to get out
+ * of a text box, and used to take the whole drawing with it. Leave for
+ * another channel, come back, and the drawing is where it was.
+ *
+ * Text is written in a box first and placed second: the text tool opens a
+ * box to write in (several lines, a font, a size), and Place hangs the
+ * words on the pointer to be stamped wherever the next click lands.
  */
 
 type Point = [number, number];
@@ -23,7 +33,7 @@ type Shape =
   | { kind: "pen"; points: Point[]; color: string; width: number }
   | { kind: "arrow" | "line"; x1: number; y1: number; x2: number; y2: number; color: string; width: number }
   | { kind: "rect" | "ellipse"; x: number; y: number; w: number; h: number; color: string; width: number }
-  | { kind: "text"; x: number; y: number; text: string; color: string; size: number };
+  | { kind: "text"; x: number; y: number; text: string; color: string; size: number; font?: string };
 
 type Tool = "pen" | "arrow" | "line" | "rect" | "ellipse" | "text" | "erase";
 
@@ -55,11 +65,87 @@ const COLORS = [
 
 const WIDTHS = [2, 4, 8];
 
+/** The faces text can be set in. The first is the app's own. */
+const FONTS: Array<{ id: string; label: string; family: string }> = [
+  { id: "grotesk", label: "Grotesk", family: '"Space Grotesk Variable", -apple-system, sans-serif' },
+  { id: "mono", label: "Mono", family: 'ui-monospace, "SF Mono", Menlo, monospace' },
+  { id: "serif", label: "Serif", family: 'Georgia, "Times New Roman", serif' },
+  { id: "hand", label: "Hand", family: '"Bradley Hand", "Comic Sans MS", "Segoe Print", cursive' },
+];
+
+/** Text sizes, in pad pixels on a blank pad; a big picture scales them up. */
+const SIZES: Array<{ id: string; label: string; px: number }> = [
+  { id: "s", label: "S", px: 20 },
+  { id: "m", label: "M", px: 28 },
+  { id: "l", label: "L", px: 40 },
+  { id: "xl", label: "XL", px: 56 },
+];
+
 /** The blank pad's size; a picture's is the picture's own. */
 const BLANK = { w: 1400, h: 900 };
 /** A picture bigger than this is drawn at this, so the pad stays quick. */
 const MAX_SIDE = 2400;
 const PAPER = "#f6f1e6";
+/** Lines of a label, as a fraction of its size. */
+const LINE = 1.25;
+
+/* ── what the pad remembers ──────────────────────────────────────── */
+
+/** A pad's whole state, as it is kept between openings. */
+interface PadState {
+  shapes: Shape[];
+  history: Shape[][];
+  name: string;
+  size: { w: number; h: number };
+  /** A picture opened from disk into the pad (an object URL — good for
+   *  this window's life, which is the case that matters: the attachment
+   *  case brings its own picture back through the composer). */
+  pictureUrl?: string;
+}
+
+/** One pad per channel per picture, for as long as the window lives. */
+const pads = new Map<string, PadState>();
+
+/** The same, minus the picture and the undo stack, across launches. */
+function stored(key: string): Pick<PadState, "shapes" | "name" | "size"> | undefined {
+  try {
+    const raw = localStorage.getItem(`ruri:sketch:${key}`);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<PadState>;
+    if (!Array.isArray(parsed.shapes)) return undefined;
+    return {
+      shapes: parsed.shapes,
+      name: typeof parsed.name === "string" ? parsed.name : "",
+      size:
+        parsed.size && typeof parsed.size.w === "number" && typeof parsed.size.h === "number"
+          ? parsed.size
+          : BLANK,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function store(key: string, state: PadState): void {
+  pads.set(key, state);
+  try {
+    if (state.shapes.length === 0 && !state.name) localStorage.removeItem(`ruri:sketch:${key}`);
+    else localStorage.setItem(`ruri:sketch:${key}`, JSON.stringify({ shapes: state.shapes, name: state.name, size: state.size }));
+  } catch {
+    // a full store loses nothing the window still holds
+  }
+}
+
+function forget(key: string): void {
+  pads.delete(key);
+  try {
+    localStorage.removeItem(`ruri:sketch:${key}`);
+  } catch {
+    // nothing to remove
+  }
+}
+
+/* ── drawing ─────────────────────────────────────────────────────── */
 
 function bounds(shape: Shape): { x: number; y: number; w: number; h: number } {
   switch (shape.kind) {
@@ -79,8 +165,11 @@ function bounds(shape: Shape): { x: number; y: number; w: number; h: number } {
     case "rect":
     case "ellipse":
       return { x: Math.min(shape.x, shape.x + shape.w), y: Math.min(shape.y, shape.y + shape.h), w: Math.abs(shape.w), h: Math.abs(shape.h) };
-    case "text":
-      return { x: shape.x, y: shape.y - shape.size, w: shape.text.length * shape.size * 0.6, h: shape.size * 1.2 };
+    case "text": {
+      const lines = shape.text.split("\n");
+      const longest = Math.max(...lines.map((line) => line.length));
+      return { x: shape.x, y: shape.y - shape.size, w: longest * shape.size * 0.6, h: lines.length * shape.size * LINE };
+    }
   }
 }
 
@@ -89,14 +178,17 @@ function draw(ctx: CanvasRenderingContext2D, shape: Shape): void {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   if (shape.kind === "text") {
-    ctx.font = `600 ${shape.size}px "Space Grotesk Variable", -apple-system, sans-serif`;
+    ctx.font = `600 ${shape.size}px ${shape.font ?? FONTS[0]!.family}`;
     ctx.textBaseline = "alphabetic";
     // a paper halo so the words read on a busy picture
     ctx.lineWidth = Math.max(3, shape.size / 6);
     ctx.strokeStyle = shape.color === PAPER ? "#191510" : PAPER;
-    ctx.strokeText(shape.text, shape.x, shape.y);
     ctx.fillStyle = shape.color;
-    ctx.fillText(shape.text, shape.x, shape.y);
+    shape.text.split("\n").forEach((line, i) => {
+      const y = shape.y + i * shape.size * LINE;
+      ctx.strokeText(line, shape.x, y);
+      ctx.fillText(line, shape.x, y);
+    });
     ctx.restore();
     return;
   }
@@ -151,6 +243,13 @@ function Icon({ d }: { d: string }) {
   );
 }
 
+/** What is being written, before it is placed. */
+interface TextDraft {
+  value: string;
+  font: string;
+  size: string;
+}
+
 export function Sketch({
   channelId,
   background,
@@ -160,23 +259,29 @@ export function Sketch({
   background?: SketchBackground;
   onClose(): void;
 }) {
+  const key = `${channelId}|${background?.id ?? "blank"}`;
+  const kept = pads.get(key) ?? stored(key);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<Tool>(background ? "arrow" : "pen");
   const [color, setColor] = useState(background ? COLORS[1]!.value : COLORS[0]!.value);
   const [width, setWidth] = useState(4);
-  const [shapes, setShapes] = useState<Shape[]>([]);
-  const [history, setHistory] = useState<Shape[][]>([]);
+  const [shapes, setShapes] = useState<Shape[]>(kept?.shapes ?? []);
+  const [history, setHistory] = useState<Shape[][]>((kept as PadState | undefined)?.history ?? []);
   const [draft, setDraft] = useState<Shape | null>(null);
   const draftRef = useRef<Shape | null>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [size, setSize] = useState(BLANK);
-  const [typing, setTyping] = useState<{ x: number; y: number; value: string } | null>(null);
-  /** Where a label was asked for: placed on the release, not the press —
-   *  an input opened on the press loses focus to the release that follows
-   *  it, blurs, and takes itself down again empty. */
-  const labelAt = useRef<Point | null>(null);
-  const [name, setName] = useState(background?.name ?? "");
+  const [size, setSize] = useState(kept?.size ?? BLANK);
+  const [name, setName] = useState(background?.name ?? kept?.name ?? "");
+  const [pictureUrl, setPictureUrl] = useState<string | undefined>((kept as PadState | undefined)?.pictureUrl);
+  /** The text box, open. Its last font and size are remembered for the next. */
+  const [writing, setWriting] = useState<TextDraft | null>(null);
+  const [fontRow, setFontRow] = useState(false);
+  const lastText = useRef<Pick<TextDraft, "font" | "size">>({ font: FONTS[0]!.id, size: "m" });
+  /** Words hung on the pointer, waiting for the click that stamps them. */
+  const [placing, setPlacing] = useState<{ text: string; font: string; size: number } | null>(null);
+  const [placeAt, setPlaceAt] = useState<Point | null>(null);
 
   // the picture, when there is one: drawn at its own size, capped
   const loadImage = useCallback((url: string) => {
@@ -190,9 +295,21 @@ export function Sketch({
   }, []);
   useEffect(() => {
     if (background) loadImage(background.url);
-  }, [background, loadImage]);
+    else if (pictureUrl) loadImage(pictureUrl);
+  }, [background, pictureUrl, loadImage]);
+
+  // Every change lands in the pad's memory as it happens — the whole
+  // point is that nothing is a step away from being lost.
+  useEffect(() => {
+    store(key, { shapes, history, name, size, ...(pictureUrl ? { pictureUrl } : {}) });
+  }, [key, shapes, history, name, size, pictureUrl]);
 
   // everything is redrawn from the shapes, so undo is exact
+  const scaleUp = Math.max(1, Math.max(size.w, size.h) / 1400);
+  const hanging: Shape | null =
+    placing && placeAt
+      ? { kind: "text", x: placeAt[0], y: placeAt[1] + placing.size * 0.35, text: placing.text, color, size: placing.size, font: placing.font }
+      : null;
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
@@ -205,7 +322,13 @@ export function Sketch({
     }
     for (const shape of shapes) draw(ctx, shape);
     if (draft) draw(ctx, draft);
-  }, [shapes, draft, image, size]);
+    if (hanging) {
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      draw(ctx, hanging);
+      ctx.restore();
+    }
+  }, [shapes, draft, image, size, hanging]);
 
   /** Where a pointer falls on the pad, in its own pixels. */
   const at = (e: { clientX: number; clientY: number }): Point => {
@@ -238,15 +361,33 @@ export function Sketch({
   };
 
   // widths are in pad pixels; a big picture wants a proportionally bigger pen
-  const scaleUp = Math.max(1, Math.max(size.w, size.h) / 1400);
   const stroke = width * scaleUp;
-  const textSize = Math.round(28 * scaleUp);
+
+  /** Open the text box, empty or with what was being placed. */
+  const openText = (value = "") => {
+    setPlacing(null);
+    setPlaceAt(null);
+    setWriting({ value, ...lastText.current });
+  };
+
+  /** A tool from the bar or the keys; the text tool opens its box at once. */
+  const pickTool = (next: Tool) => {
+    setTool(next);
+    if (next === "text") openText();
+  };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
     const [x, y] = at(e);
+    if (placing) {
+      // the click that stamps the words
+      commit({ kind: "text", x, y: y + placing.size * 0.35, text: placing.text, color, size: placing.size, font: placing.font });
+      setPlacing(null);
+      setPlaceAt(null);
+      return;
+    }
     if (tool === "text") {
-      labelAt.current = [x, y];
+      openText();
       return;
     }
     if (tool === "erase") {
@@ -273,6 +414,10 @@ export function Sketch({
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (placing) {
+      setPlaceAt(at(e));
+      return;
+    }
     const current = draftRef.current;
     if (!current) return;
     const [x, y] = at(e);
@@ -297,12 +442,6 @@ export function Sketch({
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const wanted = labelAt.current;
-    labelAt.current = null;
-    if (wanted) {
-      setTyping({ x: wanted[0], y: wanted[1], value: "" });
-      return;
-    }
     const current = draftRef.current;
     draftRef.current = null;
     setDraft(null);
@@ -318,31 +457,48 @@ export function Sketch({
     commit(current);
   };
 
-  const commitText = () => {
-    if (!typing) return;
-    const text = typing.value.trim();
-    setTyping(null);
-    if (text) commit({ kind: "text", x: typing.x, y: typing.y, text, color, size: textSize });
+  /** Place: the words leave the box and hang on the pointer. */
+  const place = () => {
+    if (!writing) return;
+    const text = writing.value.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
+    lastText.current = { font: writing.font, size: writing.size };
+    setWriting(null);
+    setFontRow(false);
+    if (!text.trim()) return;
+    const font = FONTS.find((f) => f.id === writing.font)?.family ?? FONTS[0]!.family;
+    const px = (SIZES.find((s) => s.id === writing.size)?.px ?? 28) * scaleUp;
+    setPlacing({ text, font, size: Math.round(px) });
   };
 
-  // keys: undo, tools, close — never while typing a label
+  // keys: undo, tools — never while writing in the box. Escape puts down
+  // whatever is hanging on the pointer and reopens the box with it, so the
+  // words are not lost; it never closes the pad.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (typing) return;
+      if (writing) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         undo();
         return;
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (placing) openText(placing.text);
+        return;
+      }
       const byKey: Record<string, Tool> = { p: "pen", a: "arrow", l: "line", r: "rect", e: "ellipse", t: "text", x: "erase" };
       const pick = byKey[e.key.toLowerCase()];
-      if (pick) setTool(pick);
+      if (pick) {
+        // T opens the text box, and the box takes focus before the key's
+        // own letter lands — so the letter is stopped here
+        e.preventDefault();
+        pickTool(pick);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [typing, undo, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [writing, placing, undo]);
 
   const attach = () => {
     const canvas = canvasRef.current;
@@ -353,6 +509,8 @@ export function Sketch({
       const file = new File([blob], `${stem}.png`, { type: "image/png" });
       if (background?.id) replaceAttachmentFile(channelId, background.id, file);
       else attachFile(channelId, file, "image");
+      // the drawing is in the prompt now; the next pad starts clean
+      forget(key);
       onClose();
     }, "image/png");
   };
@@ -363,23 +521,11 @@ export function Sketch({
     setName(file.name);
     setShapes([]);
     setHistory([]);
-    loadImage(URL.createObjectURL(file));
+    setPictureUrl(URL.createObjectURL(file));
   };
 
-  // where the label box goes on screen: the pad point, in the canvas's
-  // displayed size
-  const typingStyle = (() => {
-    if (!typing || !canvasRef.current || !stageRef.current) return undefined;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const stage = stageRef.current.getBoundingClientRect();
-    const scale = rect.width / size.w;
-    return {
-      left: rect.left - stage.left + typing.x * scale,
-      top: rect.top - stage.top + typing.y * scale - textSize * scale,
-      fontSize: Math.max(12, textSize * scale),
-      color,
-    };
-  })();
+  const writingFont = FONTS.find((f) => f.id === writing?.font) ?? FONTS[0]!;
+  const writingSize = SIZES.find((s) => s.id === writing?.size) ?? SIZES[1]!;
 
   return (
     <section className="sketch-page">
@@ -390,7 +536,7 @@ export function Sketch({
             type="button"
             className={`icon-button ${tool === t.id ? "active" : ""}`}
             title={t.title}
-            onClick={() => setTool(t.id)}
+            onClick={() => pickTool(t.id)}
           >
             <Icon d={t.d} />
           </button>
@@ -433,7 +579,7 @@ export function Sketch({
         <button type="button" className="primary sketch-attach" title="Put it in the prompt as an image" onClick={attach}>
           {background?.id ? "Put it back" : "Attach"}
         </button>
-        <button type="button" className="icon-button" title="Close (Esc)" onClick={onClose}>
+        <button type="button" className="icon-button" title="Close the pad — the drawing is kept" onClick={onClose}>
           <Icon d="M6 6l12 12M18 6L6 18" />
         </button>
       </div>
@@ -442,28 +588,93 @@ export function Sketch({
           ref={canvasRef}
           width={size.w}
           height={size.h}
-          className={`sketch-canvas tool-${tool}`}
+          className={`sketch-canvas tool-${tool} ${placing ? "placing" : ""}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
+          onPointerLeave={() => {
+            if (placing) setPlaceAt(null);
+          }}
         />
-        {typing && typingStyle && (
-          <input
-            className="sketch-label"
-            autoFocus
-            style={typingStyle}
-            value={typing.value}
-            placeholder="label…"
-            onChange={(e) => setTyping({ ...typing, value: e.target.value })}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitText();
-              if (e.key === "Escape") setTyping(null);
-            }}
-            onBlur={commitText}
-          />
+        {placing && (
+          <div className="sketch-placing">
+            Click on the pad to place the words · Esc to go back and edit them
+          </div>
         )}
       </div>
+      {writing && (
+        <div className="confirm-overlay sketch-text-overlay" onMouseDown={(e) => {
+          if (e.target === e.currentTarget) setWriting(null);
+        }}>
+          <div className="confirm-card sketch-text-card">
+            <textarea
+              className="sketch-text-box"
+              autoFocus
+              rows={5}
+              placeholder="What to write on the pad…"
+              style={{ fontFamily: writingFont.family, fontSize: Math.round(Math.max(14, Math.min(34, writingSize.px * 0.75))), color }}
+              value={writing.value}
+              onChange={(e) => setWriting({ ...writing, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setWriting(null);
+                  setFontRow(false);
+                } else if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  place();
+                }
+              }}
+            />
+            {fontRow && (
+              <div className="sketch-font-row">
+                {FONTS.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className={`sketch-font ${writing.font === f.id ? "active" : ""}`}
+                    style={{ fontFamily: f.family }}
+                    onClick={() => setWriting({ ...writing, font: f.id })}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+                <span className="sketch-sep" />
+                {SIZES.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className={`sketch-font ${writing.size === s.id ? "active" : ""}`}
+                    onClick={() => setWriting({ ...writing, size: s.id })}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="confirm-actions sketch-text-actions">
+              <button type="button" className="ghost" onClick={() => setFontRow(!fontRow)}>
+                Font…
+              </button>
+              <span className="sketch-text-gap" />
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  setWriting(null);
+                  setFontRow(false);
+                }}
+              >
+                Cancel
+              </button>
+              <button type="button" className="primary" disabled={!writing.value.trim()} onClick={place}>
+                Place…
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

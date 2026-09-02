@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
- * The [image #1] markers in the composer, as things rather than words.
+ * The [image #1] markers and the /commands in the composer, as things
+ * rather than words.
  *
  * The prompt is a plain textarea, and a marker in it is text: the caret
  * runs through it, a double-click selects half of it, and moving it means
@@ -9,36 +10,98 @@ import { useEffect, useMemo, useRef, useState } from "react";
  * same text in the same font at the same width, so it wraps in exactly the
  * same places — with the plain words invisible and each marker drawn as a
  * chip. The chips are the only part that takes the mouse: hover one and it
- * lights, drag one and it goes where you drop it, click one and the caret
- * lands after it. Everything else falls through to the textarea, which is
- * still what you type in.
+ * lights (and the composer lights the attachment it stands for), drag one
+ * and it goes where you drop it, click one and the composer opens what it
+ * stands for — or, for a command, takes it out. Everything else falls
+ * through to the textarea, which is still what you type in.
  *
  * A chip is the marker's own characters with the brackets made invisible —
  * never wider or narrower than the text it stands on, or the mirror would
  * wrap differently from the textarea beneath it and the chips would drift
- * off their words.
+ * off their words. For the same reason the space inside a marker is a
+ * non-breaking one: a plain space is a place the textarea may wrap, and a
+ * marker wrapped in half is two chip fragments, one of them cut off at the
+ * edge of the box. The composer writes markers with that space and reads
+ * either; the prompt that goes out has plain spaces again.
  */
 
 /** A marker as written in the prompt. */
 export interface Marker {
-  kind: "image" | "video" | "file" | "region";
+  kind: "image" | "video" | "file" | "region" | "command";
+  /** The attachment's number; 0 for a command. */
   n: number;
   start: number;
   end: number;
+  /** The marker's own characters. */
+  text: string;
 }
 
-const MARKER = /\[(image|video|file|region) #(\d+)\]/g;
+/** The space inside a marker, as the composer writes it. */
+export const MARKER_SPACE = " ";
+
+/**
+ * An attachment marker with either space inside, or a slash command: a
+ * word starting with "/" that stands on its own — not a path ("/tmp/x"
+ * has a second slash), not a quoted mention ('/compact' has a quote against
+ * the slash, not whitespace), not the tail of a URL.
+ */
+const MARKER = /\[(image|video|file|region)[  ]#(\d+)\]|(?<=^|\s)\/([a-z0-9][\w:.-]*)(?=\s|$)/g;
 
 export function findMarkers(text: string): Marker[] {
   const out: Marker[] = [];
   for (const match of text.matchAll(MARKER)) {
+    if (match[3] !== undefined) {
+      out.push({ kind: "command", n: 0, start: match.index, end: match.index + match[0].length, text: match[0] });
+      continue;
+    }
     out.push({
       kind: match[1] as Marker["kind"],
       n: Number(match[2]),
       start: match.index,
       end: match.index + match[0].length,
+      text: match[0],
     });
   }
+  return out;
+}
+
+/** The marker text for an attachment, spaced so the textarea never wraps it in half. */
+export function markerText(kind: "image" | "video" | "file" | "region", n: number): string {
+  return `[${kind}${MARKER_SPACE}#${n}]`;
+}
+
+/** Markers that arrived with plain spaces (a rewound prompt, a queued one,
+ *  a saved draft from before this), made unbreakable. Same length, so no
+ *  caret moves. */
+export function holdMarkers(text: string): string {
+  return text.replace(/\[(image|video|file|region) #(\d+)\]/g, `[$1${MARKER_SPACE}#$2]`);
+}
+
+/** The prompt as it goes out: markers with plain spaces, the way every
+ *  reader of them expects. */
+export function releaseMarkers(text: string): string {
+  return text.replace(/\[(image|video|file|region) #(\d+)\]/g, "[$1 #$2]");
+}
+
+/**
+ * The prompt with one marker taken out, along with the one space that
+ * separated it from its neighbour, so the words either side close up
+ * cleanly. Returns the new text and where the caret belongs: where the
+ * marker was.
+ */
+export function removeMarker(text: string, marker: Marker): { text: string; caret: number } {
+  const spaceAfter = text[marker.end] === " ";
+  const spaceBefore = !spaceAfter && text[marker.start - 1] === " ";
+  const cutStart = spaceBefore ? marker.start - 1 : marker.start;
+  const cutEnd = spaceAfter ? marker.end + 1 : marker.end;
+  return { text: text.slice(0, cutStart) + text.slice(cutEnd), caret: cutStart };
+}
+
+/** The prompt with every marker `drop` says yes to taken out. */
+export function stripMarkers(text: string, drop: (marker: Marker) => boolean): string {
+  let out = text;
+  // from the end, so the earlier markers' positions stay true
+  for (const marker of findMarkers(text).filter(drop).reverse()) out = removeMarker(out, marker).text;
   return out;
 }
 
@@ -138,7 +201,8 @@ export function MarkerMirror({
   text,
   present,
   onMove,
-  onFocusAfter,
+  onOpen,
+  onHover,
 }: {
   areaRef: React.RefObject<HTMLTextAreaElement | null>;
   text: string;
@@ -147,8 +211,11 @@ export function MarkerMirror({
   present: (marker: Marker) => boolean;
   /** A chip was dropped somewhere else in the prompt. */
   onMove: (next: { text: string; caret: number }) => void;
-  /** A chip was clicked: put the caret right after it. */
-  onFocusAfter: (index: number) => void;
+  /** A chip was clicked, not dragged: open what it stands for (an
+   *  attachment's preview), or take it out (a command). */
+  onOpen: (marker: Marker) => void;
+  /** The pointer is over a chip (or has left the last one). */
+  onHover: (marker: Marker | null) => void;
 }) {
   const mirrorRef = useRef<HTMLDivElement>(null);
   const markers = useMemo(() => findMarkers(text).filter(present), [text, present]);
@@ -199,7 +266,8 @@ export function MarkerMirror({
     const { marker, to, moved } = drag;
     setDrag(null);
     if (!moved) {
-      onFocusAfter(marker.end);
+      onHover(null);
+      onOpen(marker);
       return;
     }
     if (to === null || (to >= marker.start && to <= marker.end)) return;
@@ -217,15 +285,27 @@ export function MarkerMirror({
             key={seg.start}
             className={`marker-chip ${seg.marker.kind} ${drag?.marker.start === seg.start ? "lifted" : ""}`}
             data-start={seg.start}
-            title="Drag to move this in the prompt"
+            title={
+              seg.marker.kind === "command"
+                ? "A command — runs before the prompt. Click to take it out, drag to move it"
+                : "Click to see it, drag to move it in the prompt"
+            }
             onPointerDown={(e) => startDrag(e, seg.marker!)}
             onPointerMove={onPointerMove}
             onPointerUp={endDrag}
             onPointerCancel={() => setDrag(null)}
+            onPointerEnter={() => onHover(seg.marker!)}
+            onPointerLeave={() => onHover(null)}
           >
-            <span className="marker-bracket">[</span>
-            {seg.text.slice(1, -1)}
-            <span className="marker-bracket">]</span>
+            {seg.marker.kind === "command" ? (
+              seg.text
+            ) : (
+              <>
+                <span className="marker-bracket">[</span>
+                {seg.text.slice(1, -1)}
+                <span className="marker-bracket">]</span>
+              </>
+            )}
           </span>
         ) : dropAt !== null && dropAt >= seg.start && dropAt <= seg.start + seg.text.length ? (
           <span key={seg.start} data-start={seg.start}>

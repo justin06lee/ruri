@@ -42,7 +42,17 @@ import type { RapidFire } from "./RapidFire";
 import { RapidBar } from "./RapidFire";
 import { DragonGauges } from "./Dragon";
 import { HomeBoard } from "./HomeBoard";
-import { MarkerMirror, type Marker } from "./Markers";
+import {
+  MarkerMirror,
+  findMarkers,
+  holdMarkers,
+  markerText,
+  releaseMarkers,
+  removeMarker,
+  stripMarkers,
+  type Marker,
+} from "./Markers";
+import { SelectionFlags } from "./Selection";
 import { Sketch, type SketchBackground } from "./Sketch";
 import { Dropdown } from "./Dropdown";
 import { NameCard } from "./NameCard";
@@ -513,9 +523,12 @@ export function Composer({
 }) {
   const projectId = channelId;
   const saved = composerDrafts.get(channelId);
-  const [text, setText] = useState(saved?.text ?? "");
+  const [text, setText] = useState(holdMarkers(saved?.text ?? ""));
   const [atts, setAtts] = useState<ComposerAttachment[]>(saved?.atts ?? []);
   const [viewing, setViewing] = useState<string | null>(null);
+  /** The attachment whose chip the pointer is over — lit in the strip, so
+   *  a chip and its thumbnail read as one thing. */
+  const [hot, setHot] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   /** The box has two modes: writing a prompt, and a shell in the project's
    *  directory. The shell keeps running either way — this only decides
@@ -559,7 +572,7 @@ export function Composer({
     }
     if (added.length === 0) return;
     setAtts((prev) => [...prev, ...added]);
-    insertMarkers(added.map((a) => `[${a.kind} #${a.n}]`).join(" "), at);
+    insertMarkers(added.map((a) => markerText(a.kind, a.n)).join(" "), at);
   };
 
   /** Drop marker text into the prompt at `at` (the end when unset), leaving
@@ -586,7 +599,7 @@ export function Composer({
     setAtts((prev) =>
       prev.map((a) => (a.id === attId ? { ...a, regions: [...a.regions, { ...rect, n }] } : a)),
     );
-    insertMarkers(`[region #${n}]`, caretRef.current);
+    insertMarkers(markerText("region", n), caretRef.current);
   };
 
   // The drop point as a text index — computed ONCE, at drop time. (Never
@@ -612,16 +625,70 @@ export function Composer({
     }
   };
 
+  /** An attachment goes, and every marker that stood for it goes with it —
+   *  its own, and those of the regions drawn on it. Words that pointed at
+   *  a picture that is no longer there would only mislead. */
   const removeAtt = (id: string) => {
-    setAtts((prev) => {
-      const target = prev.find((a) => a.id === id);
-      if (target) URL.revokeObjectURL(target.objectUrl);
-      return prev.filter((a) => a.id !== id);
-    });
+    const target = atts.find((a) => a.id === id);
+    if (!target) return;
+    URL.revokeObjectURL(target.objectUrl);
+    const regions = new Set(target.regions.map((r) => r.n));
+    setAtts((prev) => prev.filter((a) => a.id !== id));
+    setText((prev) =>
+      stripMarkers(
+        prev,
+        (m) => (m.kind === target.kind && m.n === target.n) || (m.kind === "region" && regions.has(m.n)),
+      ),
+    );
+    if (hot === id) setHot(null);
   };
 
+  /** The viewer took a region off a picture: its marker leaves the prompt. */
   const setRegions = (id: string, regions: Region[]) => {
+    const kept = new Set(regions.map((r) => r.n));
+    const gone = new Set(
+      (atts.find((a) => a.id === id)?.regions ?? []).map((r) => r.n).filter((n) => !kept.has(n)),
+    );
     setAtts((prev) => prev.map((a) => (a.id === id ? { ...a, regions } : a)));
+    if (gone.size) setText((prev) => stripMarkers(prev, (m) => m.kind === "region" && gone.has(m.n)));
+  };
+
+  /** The attachment a marker stands for: its own, or the one a region was
+   *  drawn on. */
+  const attachmentFor = (marker: Marker): ComposerAttachment | undefined =>
+    marker.kind === "region"
+      ? atts.find((a) => a.regions.some((r) => r.n === marker.n))
+      : atts.find((a) => a.kind === marker.kind && a.n === marker.n);
+
+  /** A chip was clicked: a command leaves the prompt, an attachment's chip
+   *  opens the attachment — the same viewer its thumbnail opens. */
+  const openMarker = (marker: Marker) => {
+    if (marker.kind === "command") {
+      const next = removeMarker(text, marker);
+      setText(next.text);
+      placeCaret(next.caret);
+      return;
+    }
+    const att = attachmentFor(marker);
+    if (!att) return;
+    caretRef.current = marker.end;
+    setViewing(att.id);
+  };
+
+  /** Backspace right after a chip (or inside one), Delete right before:
+   *  the whole marker goes, never half of it. */
+  const deleteMarkerAt = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    const area = e.currentTarget;
+    if (area.selectionStart !== area.selectionEnd) return false;
+    const at = area.selectionStart;
+    const hit = findMarkers(text)
+      .filter(markerPresent)
+      .find((m) => (e.key === "Backspace" ? at > m.start && at <= m.end : at >= m.start && at < m.end));
+    if (!hit) return false;
+    const next = removeMarker(text, hit);
+    setText(next.text);
+    placeCaret(next.caret);
+    return true;
   };
 
   // The markers in the prompt draw as chips over the textarea (see
@@ -629,9 +696,11 @@ export function Composer({
   // marker whose file was removed is words again.
   const markerPresent = useCallback(
     (marker: Marker) =>
-      marker.kind === "region"
-        ? atts.some((a) => a.regions.some((r) => r.n === marker.n))
-        : atts.some((a) => a.kind === marker.kind && a.n === marker.n),
+      marker.kind === "command"
+        ? true
+        : marker.kind === "region"
+          ? atts.some((a) => a.regions.some((r) => r.n === marker.n))
+          : atts.some((a) => a.kind === marker.kind && a.n === marker.n),
     [atts],
   );
   const placeCaret = (index: number) => {
@@ -667,14 +736,15 @@ export function Composer({
     bumpSeen.current = draftBump;
     const fresh = composerDrafts.get(channelId);
     if (!fresh) return;
-    if (fresh.text !== text) setText(fresh.text);
+    const held = holdMarkers(fresh.text);
+    if (held !== text) setText(held);
     setAtts((prev) => (prev === fresh.atts ? prev : fresh.atts));
     counter.current = fresh.counter;
     requestAnimationFrame(() => areaRef.current?.focus());
   }, [draftBump, channelId, text]);
 
   const submit = async (mode: "send" | "send_split" = "send") => {
-    const trimmed = text.trim();
+    const trimmed = releaseMarkers(text).trim();
     if (!trimmed && atts.length === 0) return;
     const uploads = await Promise.all(
       atts.map(async (att) => ({
@@ -718,6 +788,30 @@ export function Composer({
   // long prompt's height behind).
   useLayoutEffect(autosize, [text]);
 
+  /** The box as it was when the shell took its place: the caret, the
+   *  scroll. The textarea is unmounted while the shell shows, and a fresh
+   *  one comes up one row tall with the caret at the start — so on the
+   *  way back it is measured again and put back exactly where it was. */
+  const held = useRef<{ start: number; end: number; top: number } | null>(null);
+  const toggleShell = () => {
+    const area = areaRef.current;
+    if (!shell && area) held.current = { start: area.selectionStart, end: area.selectionEnd, top: area.scrollTop };
+    setShell(!shell);
+  };
+  useLayoutEffect(() => {
+    if (shell) return;
+    autosize();
+    const was = held.current;
+    const area = areaRef.current;
+    if (!was || !area) return;
+    held.current = null;
+    area.focus();
+    area.setSelectionRange(was.start, was.end);
+    area.scrollTop = was.top;
+    caretRef.current = was.start;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shell]);
+
   const viewingAtt = atts.find((a) => a.id === viewing);
 
   return (
@@ -745,6 +839,7 @@ export function Composer({
           {!shell && (
             <AttachmentStrip
               attachments={atts}
+              highlight={hot}
               onRemove={removeAtt}
               onView={(a) => {
                 // the caret as the prompt last had it — the viewer is about
@@ -763,7 +858,7 @@ export function Composer({
             value={text}
             onChange={(e) => {
               caretRef.current = e.target.selectionStart;
-              setText(e.target.value);
+              setText(holdMarkers(e.target.value));
             }}
             // wherever the caret was when the viewer took focus is where a
             // region's marker goes
@@ -774,7 +869,9 @@ export function Composer({
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 void submit();
+                return;
               }
+              if ((e.key === "Backspace" || e.key === "Delete") && deleteMarkerAt(e)) e.preventDefault();
             }}
             onPaste={(e) => {
               const files = [...e.clipboardData.files];
@@ -792,7 +889,8 @@ export function Composer({
               setText(next.text);
               placeCaret(next.caret);
             }}
-            onFocusAfter={placeCaret}
+            onOpen={openMarker}
+            onHover={(marker) => setHot(marker ? (attachmentFor(marker)?.id ?? null) : null)}
           />
           </div>
           )}
@@ -802,7 +900,7 @@ export function Composer({
               <button
                 className={`shell-toggle ${shell ? "active" : ""}`}
                 title={shell ? "Back to writing a prompt" : "A shell in this project's directory"}
-                onClick={() => setShell(!shell)}
+                onClick={toggleShell}
               >
                 <Icon d={shell ? "M4 6h16M4 12h10M4 18h16" : "M4 17l6-6-6-6M12 19h8"} />
               </button>
@@ -1585,6 +1683,8 @@ export function ChatPane({
           ))}
         </div>
       </div>
+
+      <SelectionFlags scrollerRef={scrollRef} />
 
       {showJump && (
         <button className="jump-latest" onClick={() => scrollToBottom("smooth")}>

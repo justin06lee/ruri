@@ -34,6 +34,10 @@ export function sessionBriefing(input: {
   /** "tool" when the harness holds ruri's naming tool; otherwise the drop
    *  file's instructions, which say the same thing a longer way. */
   naming: string;
+  /** What the session is told about the bridge (see server/bridge.ts):
+   *  the tools block for Claude, the endpoint block for everything else,
+   *  or nothing when this run has no windows to offer. */
+  bridge?: string;
 }): string {
   const blocks: string[] = [];
 
@@ -76,6 +80,8 @@ export function sessionBriefing(input: {
   } else if (input.naming) {
     blocks.push(input.naming);
   }
+
+  if (input.bridge) blocks.push(input.bridge);
 
   const vault = input.secrets.briefing();
   if (vault) blocks.push(vault);

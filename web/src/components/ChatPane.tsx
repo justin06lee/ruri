@@ -40,6 +40,7 @@ import { Skills } from "./Skills";
 import { DiffView } from "./Diff";
 import type { RapidFire } from "./RapidFire";
 import { RapidBar } from "./RapidFire";
+import { BridgeStrip } from "./Bridge";
 import { DragonGauges } from "./Dragon";
 import { HomeBoard } from "./HomeBoard";
 import {
@@ -1692,6 +1693,7 @@ export function ChatPane({
         </button>
       )}
       {rapid?.on && <RapidBar rapid={rapid} floating />}
+      {activeId && <BridgeStrip channelId={activeId} stacked={rapid?.on} />}
       </div>
 
       {rewindTarget && (

@@ -203,9 +203,16 @@ export function SelectionFlags({ scrollerRef }: { scrollerRef: RefObject<HTMLEle
   if (!flags) return null;
   const scroller = scrollerRef.current;
   const box = scroller?.getBoundingClientRect();
-  /** A flag whose line has scrolled out of the transcript stays out of
-   *  sight rather than standing over the header or the composer. */
-  const shown = (f: Flag) => !box || (f.y + f.h > box.top && f.y < box.bottom);
+  // The composer floats over the transcript's tail, so the transcript's
+  // own bottom edge is not where its words stop being seen — the textbox
+  // is, and the pane says how far up from its floor that starts.
+  const chat = scroller?.closest<HTMLElement>(".chat");
+  const boxH = chat ? parseFloat(getComputedStyle(chat).getPropertyValue("--composer-box-h")) || 0 : 0;
+  const floor = box ? (chat?.getBoundingClientRect().bottom ?? box.bottom) - boxH : Infinity;
+  /** A flag whose line has scrolled out of the transcript — under the
+   *  header, or down to the textbox — stays out of sight rather than
+   *  standing on either. */
+  const shown = (f: Flag) => !box || (f.y + f.h > box.top && f.y + f.h <= floor);
 
   return createPortal(
     <>

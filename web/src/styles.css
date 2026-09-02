@@ -5241,8 +5241,12 @@ button.sketch-toggle:hover {
   position: absolute;
   inset: 0;
   padding: 3px 0;
-  line-height: 1.5;
+  /* `font` is a shorthand and carries the body's line height with it; the
+     textarea's own line height has to come AFTER it, or the mirror's lines
+     stand a hair taller and the chips walk down off their words, one
+     more pixel per line */
   font: inherit;
+  line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: break-word;
   word-break: normal;
@@ -5291,6 +5295,25 @@ button.sketch-toggle:hover {
 .composer-mirror.dragging,
 .composer-mirror.dragging .marker-chip {
   cursor: grabbing;
+}
+
+/* a command chip: the same pill, and a click takes it out — so hovering
+   it strikes it through, the way the sent command chip does in the
+   transcript. Same font as the words, deliberately: a monospace chip would
+   be a different width from the characters under it */
+.marker-chip.command {
+  cursor: pointer;
+}
+
+.marker-chip.command:hover {
+  text-decoration: line-through;
+}
+
+/* the thumbnail whose chip is under the pointer: inverted rim, so the two
+   read as one thing */
+.att-thumb.hot {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--ink);
 }
 
 /* where the lifted chip would land — a hairline in the run of words */

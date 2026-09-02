@@ -6,3 +6,6 @@ build/icon.iconset/
 build/icon-1024.png
 *.log
 .DS_Store
+
+# agent worktrees
+.claude/worktrees/

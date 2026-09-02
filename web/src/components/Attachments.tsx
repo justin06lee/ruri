@@ -396,10 +396,14 @@ function FileTile({ name }: { name: string }) {
 
 export function AttachmentStrip({
   attachments,
+  highlight,
   onRemove,
   onView,
 }: {
   attachments: ComposerAttachment[];
+  /** The one whose chip in the prompt is under the pointer: lit, so the
+   *  chip and the thumbnail read as one thing. */
+  highlight?: string | null;
   onRemove(id: string): void;
   onView(att: ComposerAttachment): void;
 }) {
@@ -407,7 +411,12 @@ export function AttachmentStrip({
   return (
     <div className="att-strip">
       {attachments.map((att) => (
-        <div key={att.id} className="att-thumb" title={att.name} onClick={() => onView(att)}>
+        <div
+          key={att.id}
+          className={`att-thumb ${highlight === att.id ? "hot" : ""}`}
+          title={att.name}
+          onClick={() => onView(att)}
+        >
           {att.kind === "image" ? (
             <img src={att.objectUrl} alt="" />
           ) : att.kind === "video" ? (

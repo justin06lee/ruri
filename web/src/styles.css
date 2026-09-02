@@ -5860,3 +5860,65 @@ button.stop:hover {
 .hljs-strong {
   font-weight: 700;
 }
+
+/* ── selection flags ──────────────────────────────────────────────── */
+
+/* A flag at each end of a selection in the transcript (Selection.tsx): a
+   bar the height of the line, and a knob above it to drag by. The knob is
+   a circle with one square corner, and the corner is what points at the
+   text. Ink with a paper rim, so it reads on a selection's own ink. */
+.sel-flag {
+  position: fixed;
+  z-index: 30;
+  width: 0;
+  pointer-events: none;
+}
+
+.sel-flag.dragging {
+  /* the text under the pointer is what the caret lookup must find */
+  pointer-events: none;
+}
+
+.sel-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 2px;
+  background: var(--ink);
+  border-radius: 1px;
+}
+
+.sel-knob {
+  position: absolute;
+  top: -15px;
+  width: 15px;
+  height: 15px;
+  background: var(--ink);
+  border: 1.5px solid var(--paper);
+  box-shadow: var(--shadow-soft);
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.sel-flag.dragging .sel-knob {
+  cursor: grabbing;
+  pointer-events: none;
+}
+
+/* the start's knob stands to the left, its square corner at the bar's
+   top; the end's to the right, the other way round */
+.sel-flag.start .sel-knob {
+  left: -15px;
+  border-radius: 50% 50% 0 50%;
+}
+
+.sel-flag.end .sel-knob {
+  left: 0;
+  border-radius: 50% 50% 50% 0;
+}
+
+.sel-knob:hover {
+  transform: scale(1.12);
+}

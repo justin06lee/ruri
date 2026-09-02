@@ -52,6 +52,7 @@ import {
   stripMarkers,
   type Marker,
 } from "./Markers";
+import { SelectionFlags } from "./Selection";
 import { Sketch, type SketchBackground } from "./Sketch";
 import { Dropdown } from "./Dropdown";
 import { NameCard } from "./NameCard";
@@ -1682,6 +1683,8 @@ export function ChatPane({
           ))}
         </div>
       </div>
+
+      <SelectionFlags scrollerRef={scrollRef} />
 
       {showJump && (
         <button className="jump-latest" onClick={() => scrollToBottom("smooth")}>

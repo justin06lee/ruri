@@ -820,6 +820,27 @@ export function Composer({
   // long prompt's height behind).
   useLayoutEffect(autosize, [text]);
 
+  // The box is fitted to its text, but the text's shape depends on the box:
+  // widen it and the same prompt needs fewer lines. Fitting on the prompt
+  // alone leaves the box as tall as it was before the window was resized —
+  // and a textarea taller than its own text reports *its* height as the
+  // text's, which is what the chip mirror measures itself against. That is
+  // how a resize with no keystroke after it used to take every chip off the
+  // prompt until the next one. So the box refits whenever the textarea is
+  // laid out again, and once the fonts have landed. Fitting is idempotent:
+  // the settled height is the one this writes, so the observer sees no new
+  // size and does not come round again.
+  useEffect(() => {
+    const area = areaRef.current;
+    if (!area) return;
+    const observer = new ResizeObserver(autosize);
+    observer.observe(area);
+    void document.fonts?.ready.then(autosize);
+    return () => observer.disconnect();
+    // a fresh textarea comes up each time the shell gives the box back
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shell]);
+
   /** The box as it was when the shell took its place: the caret, the
    *  scroll. The textarea is unmounted while the shell shows, and a fresh
    *  one comes up one row tall with the caret at the start — so on the
@@ -954,6 +975,7 @@ export function Composer({
             areaRef={areaRef}
             text={text}
             present={markerPresent}
+            refit={autosize}
             onMove={(next) => {
               setText(next.text);
               placeCaret(next.caret);

@@ -8,10 +8,10 @@
  * AskUserQuestion's schema, so the tool reads the picks and reports them to
  * the model itself — ruri never has to phrase them.
  *
- * Several questions are one card, not a form: the questions sit side by
- * side on a strip and the card slides between them. Picking an answer to a
- * single-choice question slides on to the next one by itself; the strip is
- * as tall as its tallest question, so nothing jumps as it moves.
+ * Several questions are one card, not a form: one question is on screen at
+ * a time and the card moves between them. Picking an answer to a
+ * single-choice question moves on to the next one by itself, a beat later,
+ * and the question arriving slides in from the side it came from.
  *
  * What you have typed and picked outlives the card: switching to another
  * session unmounts it, and coming back finds the answers — and the question
@@ -43,6 +43,10 @@ const held = new Map<string, Held>();
 /** How long a picked answer stays on screen before the card moves on. */
 const ADVANCE_MS = 260;
 
+/** Which way the card last moved — the arriving question slides in from
+ *  the side it came from, so going back reads as going back. */
+type Way = "next" | "back";
+
 function Check({ on, multi }: { on: boolean; multi: boolean }) {
   return (
     <span className={`ask-mark ${multi ? "multi" : "single"} ${on ? "on" : ""}`} aria-hidden>
@@ -58,14 +62,14 @@ function Check({ on, multi }: { on: boolean; multi: boolean }) {
 function QuestionBlock({
   q,
   draft,
-  current,
+  way,
   onChange,
   onPicked,
 }: {
   q: AskQuestion;
   draft: Draft;
-  /** Whether this is the question the strip is showing. */
-  current: boolean;
+  /** Which way the card just moved, for the slide in. */
+  way: Way;
   onChange: (next: Draft) => void;
   /** A single-choice answer landed — the card may move on. */
   onPicked: () => void;
@@ -103,7 +107,7 @@ function QuestionBlock({
   };
 
   return (
-    <div className="ask-question" inert={!current}>
+    <div className={`ask-question ${way}`}>
       <div className="ask-head">
         {q.header && <span className="ask-chip">{q.header}</span>}
         <span className="ask-prompt">{q.question}</span>
@@ -177,7 +181,13 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   const answered = useMemo(() => drafts.every((d) => answerOf(d) !== ""), [drafts]);
   const many = questions.length > 1;
   const last = questions.length - 1;
-  const go = (to: number) => setState((s) => ({ ...s, at: Math.max(0, Math.min(last, to)) }));
+  const [way, setWay] = useState<Way>("next");
+  const go = (to: number) =>
+    setState((s) => {
+      const next = Math.max(0, Math.min(last, to));
+      setWay(next >= s.at ? "next" : "back");
+      return { ...s, at: next };
+    });
 
   // The move-on after a pick is a beat later, so the mark is seen landing
   // before the question slides away; a card that unmounts first drops it.
@@ -257,26 +267,18 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
           </span>
         )}
       </div>
-      {/* the strip holds every question side by side and slides between
-          them; being laid out together is what makes the card as tall as
-          the tallest of them, so the move never changes the card's height */}
-      <div className="ask-track">
-        <div className="ask-strip" style={{ transform: `translateX(-${at * 100}%)` }}>
-          {questions.map((q, i) => (
-            <div className="ask-slide" key={i}>
-              <QuestionBlock
-                q={q}
-                draft={drafts[i] ?? drafts[0]!}
-                current={i === at}
-                onChange={(next) =>
-                  setState((s) => ({ ...s, drafts: s.drafts.map((cur, j) => (j === i ? next : cur)) }))
-                }
-                onPicked={() => picked(i)}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* one question, and the key is what makes the next one arrive: it
+          remounts and slides in from the side the card moved towards */}
+      <QuestionBlock
+        key={at}
+        q={questions[at] ?? questions[0]!}
+        draft={drafts[at] ?? drafts[0]!}
+        way={way}
+        onChange={(next) =>
+          setState((s) => ({ ...s, drafts: s.drafts.map((cur, j) => (j === at ? next : cur)) }))
+        }
+        onPicked={() => picked(at)}
+      />
       <div className="ask-actions">
         {many && (
           <span className="ask-dots">

@@ -4137,33 +4137,32 @@ input[type="range"]::-webkit-slider-thumb {
   margin-left: 4px;
 }
 
-/* The questions sit side by side on a strip one card wide and slide past
-   the window: laid out together, so the card stands as tall as the tallest
-   of them and the slide never changes its height. The ones out of view are
-   inert — no tabbing into a question you cannot see. */
-.ask-track {
-  overflow: hidden;
-  /* the slide's own shadow and the marks' edges need a hair of room */
-  margin: 0 -4px;
-  padding: 0 4px;
-}
-
-.ask-strip {
-  display: flex;
-  align-items: stretch;
-  transition: transform 300ms cubic-bezier(0.32, 0.72, 0.2, 1);
-}
-
-.ask-slide {
-  flex: 0 0 100%;
-  min-width: 0;
-}
-
+/* One question at a time. The next one slides in from the side the card
+   moved towards — nothing is laid out beside it, so nothing can show past
+   the card's edge. */
 .ask-question {
   display: flex;
   flex-direction: column;
   gap: 9px;
-  height: 100%;
+  animation: ask-in-next 240ms cubic-bezier(0.32, 0.72, 0.2, 1);
+}
+
+.ask-question.back {
+  animation-name: ask-in-back;
+}
+
+@keyframes ask-in-next {
+  from {
+    opacity: 0;
+    transform: translateX(26px);
+  }
+}
+
+@keyframes ask-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-26px);
+  }
 }
 
 .ask-head {

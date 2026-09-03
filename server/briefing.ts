@@ -83,7 +83,7 @@ export function sessionBriefing(input: {
 
   if (input.bridge) blocks.push(input.bridge);
 
-  const vault = input.secrets.briefing();
+  const vault = input.secrets.briefing(input.claude);
   if (vault) blocks.push(vault);
 
   if (!input.claude) {

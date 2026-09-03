@@ -1033,6 +1033,43 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     );
   }
 
+  /** Rewind through a provider-native conversation fork. Codex preserves the
+   * real thread up to `resumeAt`; unlike Claude, its fork API deliberately
+   * does not restore local files, so the UI says that part out loud. */
+  function rewindOnNativeProvider(
+    ws: WebSocket,
+    channelId: string,
+    target: Extract<TranscriptEvent, { kind: "user" }>,
+    resumeAt?: string,
+  ): void {
+    manager.dispose(channelId);
+    if (resumeAt) archive.setResumeAt(channelId, resumeAt);
+    else archive.clearLastSessionId(channelId);
+    const removed = archive.truncateFrom(channelId, target.id);
+    if (removed.length > 0) {
+      broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
+      if (tracker.removeForTurns(channelId, removed)) {
+        broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
+      }
+    }
+    contexts.delete(channelId);
+    archive.setContextTokens(channelId, 0);
+    broadcast({
+      type: "context",
+      projectId: channelId,
+      context: { tokens: 0, window: contextWindow(channelId) },
+    });
+    broadcast({ type: "status", projectId: channelId, status: "idle" });
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify(composeBack(channelId, target)));
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        message: "rewound the native conversation, but this harness does not checkpoint local files, so the files were left as they are",
+      } satisfies ServerMessage),
+    );
+  }
+
   /**
    * A rewound prompt goes back to the composer whole: the words, and every
    * file that was clipped to them — the archive still holds the bytes, and
@@ -1244,10 +1281,14 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         broadcast({ type: "permission_request", request: late });
       },
       onModels: (list) => {
-        const cleaned = cleanClaudeModels(
+        const named = cleanClaudeModels(
           list.map((m) => ({ id: m.value, display_name: m.displayName })),
           claudeNames,
         );
+        const cleaned = named.map((model) => ({
+          ...list.find((candidate) => candidate.value === model.value),
+          ...model,
+        }));
         if (cleaned.length === 0 || JSON.stringify(cleaned) === JSON.stringify(claudeModels)) return;
         claudeModels = cleaned;
         broadcast({ type: "models", models: allModels() });
@@ -1309,6 +1350,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     {
       parse: (model) => registry.parse(model),
       create: (id, workDir) => registry.createFor(id, workDir),
+      canFork: (id) => registry.canForkSession(id),
     },
     (projectId) => archive.takeResumeAt(projectId),
     (projectId) => archive.takeForkNext(projectId),
@@ -1497,13 +1539,6 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             if (!target || target.kind !== "user") throw new Error("that prompt is gone");
             const project = channelProject(channelId);
             if (!project) throw new Error("unknown session");
-            // A harness rewind owns none of the CLI's machinery — no
-            // checkpoints to restore, no chain to fork at, and a compaction
-            // boundary costs it nothing, since it starts fresh either way.
-            if (registry.parse(project.model).providerId !== undefined) {
-              rewindOnHarness(ws, channelId, target);
-              return;
-            }
             const chain = archive.chain(channelId);
             // The fork point: the latest checkpointed turn before the target.
             // A compaction started a different session, so the scan stops
@@ -1532,6 +1567,25 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
                 target,
                 "the conversation was compacted after this prompt, so there are no file checkpoints left to restore: the files were left as they are, and the session restarts from a brief of what's kept",
               );
+              return;
+            }
+            const providerId = registry.parse(project.model).providerId;
+            if (providerId !== undefined) {
+              if (registry.canForkSession(providerId)) {
+                // A native provider fork can keep the exact conversation
+                // prefix. If this is the first prompt ever, clearing the
+                // source id is the exact same empty prefix. A first prompt
+                // after a compaction has older briefed context but no prior
+                // provider turn to anchor, so it takes the honest fallback.
+                const keptHasContext = events
+                  .slice(0, idx)
+                  .some((event) => event.kind === "user" || event.kind === "compaction");
+                if (resumeAt || !keptHasContext) {
+                  rewindOnNativeProvider(ws, channelId, target, resumeAt);
+                  return;
+                }
+              }
+              rewindOnHarness(ws, channelId, target);
               return;
             }
             // The prompt's uuid, which the CLI keys its file checkpoints by,
@@ -1600,10 +1654,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         // A new session in the same project, holding everything through
         // this prompt's exchange and carrying on from there; the original
         // is not touched. On Claude the CLI session itself forks at that
-        // point (a shared file up to it, then its own); on every other
-        // harness — or when a compaction has since retired the session
-        // that held it — the fork opens on a brief of what it holds, the
-        // way a rewind does.
+        // point (a shared file up to it, then its own); Codex forks its native
+        // thread at the provider turn recorded for the exchange. A harness
+        // without that primitive — or a retired pre-compaction session —
+        // opens on a brief of what the fork holds.
         const channelId = msg.projectId;
         void (async () => {
           try {
@@ -1633,16 +1687,18 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
                 ? { contextWindow: source.contextWindow, contextWindowModel: source.contextWindowModel }
                 : {}),
             });
-            const claude = registry.parse(project.model).providerId === undefined;
+            const providerId = registry.parse(project.model).providerId;
+            const claude = providerId === undefined;
+            const nativeFork = claude || registry.canForkSession(providerId);
             const sessionId = archive.lastSessionId(channelId);
             let forked = false;
-            if (claude && sessionId && !compactedSince) {
+            if (nativeFork && sessionId && !compactedSince) {
               // the branch point: the last chain entry of this exchange. From
               // the chain map when a turn recorded it, else from the CLI's
               // own transcript as the entry before the next prompt — and a
               // fork at the latest exchange needs no point at all.
               let at = archive.chain(channelId)[target.id]?.last;
-              if (!at && next) {
+              if (!at && next && claude) {
                 const ordinal = events.filter(
                   (e, i) => i < events.indexOf(next) && e.kind === "user" && e.text.trim() === next.text.trim(),
                 ).length;
@@ -1672,7 +1728,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             }
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: "open_session", projectId: fresh.id } satisfies ServerMessage));
-              if (!forked && claude) {
+              if (!forked && nativeFork) {
                 ws.send(
                   JSON.stringify({
                     type: "error",

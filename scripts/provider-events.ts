@@ -7,7 +7,13 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentEvent, Provider, ProviderSession } from "@justin06lee/yagami";
+import type {
+  AgentEvent,
+  Provider,
+  ProviderSession,
+  ProviderSessionOptions,
+  SessionInputResponse,
+} from "@justin06lee/yagami";
 import type { Project, TranscriptEvent } from "../shared/protocol.js";
 import { SessionManager } from "../server/sessions.js";
 
@@ -19,8 +25,46 @@ fs.writeFileSync(target, "before\n");
  *  the two things that ran a turn's sentences together: a second message
  *  arriving as bare chunks with no boundary, and no space where the first
  *  one's full stop met it. */
+let sessionOptions: ProviderSessionOptions | undefined;
+let inputResponse: SessionInputResponse | undefined;
+let editDecision: string | undefined;
+
 async function* turn(): AsyncGenerator<AgentEvent, void, undefined> {
   yield { type: "session", sessionId: "fake-1" };
+  yield { type: "turn", id: "turn-7" };
+  editDecision = await sessionOptions!.permissions.decide({
+    provider: "fake",
+    sessionId: "fake-1",
+    tool: "apply_patch",
+    kind: "edit",
+  });
+  yield {
+    type: "plan",
+    plan: {
+      explanation: "A live plan from the harness",
+      entries: [
+        { content: "Ask for the workspace name", status: "in_progress" },
+        { content: "Rewrite the file", status: "pending" },
+      ],
+    },
+  };
+  inputResponse = await sessionOptions!.input!.respond({
+    provider: "fake",
+    sessionId: "fake-1",
+    kind: "form",
+    message: "Name the workspace",
+    fields: [{ id: "name", label: "Workspace name", type: "string", required: true }],
+  });
+  yield {
+    type: "plan",
+    plan: {
+      explanation: "The answer arrived",
+      entries: [
+        { content: "Ask for the workspace name", status: "completed" },
+        { content: "Rewrite the file", status: "in_progress" },
+      ],
+    },
+  };
   for (const text of ["I'll ", "rewrite ", "the file."]) yield { type: "text", text };
   // a new message, mid-stream, with nothing to mark it but the missing space
   for (const text of ["Reading ", "it first."]) yield { type: "text", text };
@@ -67,35 +111,70 @@ const provider = {
   executable: "fake",
   loginCommand: "fake login",
   capabilities: {},
+  sessionCapabilities: { fork: true },
   listModels: () => Promise.resolve([]),
   version: () => Promise.resolve("0"),
   run: () => turn(),
-  openSession: () => session,
+  openSession: (options: ProviderSessionOptions) => {
+    sessionOptions = options;
+    return session;
+  },
 } as unknown as Provider;
 
 const events: TranscriptEvent[] = [];
 let context: { tokens: number; window?: number } | undefined;
+let questionShown = false;
+let editPermissionShown = false;
+const chains: Array<{ eventId: string; kind: "user" | "last"; id: string }> = [];
 const manager = new SessionManager(
   {
-    onEvent: (_id, event) => events.push(event),
+    onEvent: (_id, event) => {
+      const existing = events.findIndex((candidate) => candidate.id === event.id);
+      if (existing === -1) events.push(event);
+      else events[existing] = event;
+    },
     onDelta: () => {},
     onStatus: () => {},
-    onPermission: () => {},
+    onPermission: (request) => {
+      if (request.kind !== "question") {
+        editPermissionShown = true;
+        setTimeout(() => manager.respondPermission(request.requestId, true), 0);
+        return;
+      }
+      questionShown = true;
+      setTimeout(() => {
+        manager.respondQuestion(request.requestId, {
+          answers: { "Workspace name": "Ruri" },
+          values: { name: ["Ruri"] },
+        });
+      }, 0);
+    },
     onPermissionResolved: () => {},
     onModels: () => {},
     onSessionId: () => {},
     onContext: (_id, tokens, window) => {
       context = { tokens, ...(window ? { window } : {}) };
     },
-    onChain: () => {},
+    onChain: (_projectId, eventId, kind, id) => chains.push({ eventId, kind, id }),
     onQuestionLate: () => {},
   },
+  () => "fake:source-thread",
   () => undefined,
-  () => undefined,
-  { parse: () => ({ providerId: "fake", model: "fake-1" }), create: () => provider },
+  {
+    parse: () => ({ providerId: "fake", model: "fake-1" }),
+    create: () => provider,
+    canFork: () => true,
+  },
+  () => "turn-3",
 );
 
-const project: Project = { id: "p1", name: "fake", path: dir, sessions: [{ id: "p1" }] };
+const project: Project = {
+  id: "p1",
+  name: "fake",
+  path: dir,
+  permissionMode: "acceptEdits",
+  sessions: [{ id: "p1" }],
+};
 manager.send(project, "Rewrite hello.txt so it says after.");
 await new Promise((r) => setTimeout(r, 500));
 manager.disposeAll();
@@ -110,7 +189,7 @@ for (const chip of chips) {
   console.log(`chip ${chip.name} — ${chip.summary}${chip.diff ? ` (+${chip.diff.added} −${chip.diff.removed})` : " (no patch)"}`);
 }
 
-const interleaved = order === "user → assistant → tool → assistant → assistant → result";
+const interleaved = order === "user → plan → assistant → tool → assistant → assistant → result";
 const banked =
   texts[0] === "I'll rewrite the file. Reading it first." &&
   texts[1] === "Done — it says after now." &&
@@ -120,12 +199,25 @@ const patched = chips[0]?.diff?.added === 1 && chips[0]?.diff?.removed === 1;
 const lines = chips[0]?.diff?.hunks[0]?.lines.map((l) => `${l.kind}:${l.text}`).join(",");
 const patchBody = lines === "del:before,add:after";
 const gauged = context?.tokens === 1234;
+const planned = events.some(
+  (event) => event.kind === "plan" && event.entries?.[0]?.status === "completed",
+);
+const answered =
+  questionShown && inputResponse?.action === "accept" && inputResponse.values?.["name"] === "Ruri";
+const chained =
+  chains.length === 2 &&
+  chains[0]?.kind === "user" &&
+  chains[0]?.id === "turn-7" &&
+  chains[1]?.kind === "last" &&
+  chains[1]?.id === "turn-7";
+const forked = sessionOptions?.resume === "source-thread" && sessionOptions.forkAt === "turn-3";
+const editsAutoAllowed = editDecision === "allow" && !editPermissionShown;
 
 console.log(`patch body: ${lines}`);
 console.log(`context: ${JSON.stringify(context)}`);
 console.log(
-  `checks: interleaved=${interleaved} bankedText=${banked} ruriName=${named} patchCounts=${patched} patchBody=${patchBody} contextGauge=${gauged}`,
+  `checks: interleaved=${interleaved} bankedText=${banked} ruriName=${named} patchCounts=${patched} patchBody=${patchBody} contextGauge=${gauged} plan=${planned} input=${answered} turnChain=${chained} nativeFork=${forked} acceptEdits=${editsAutoAllowed}`,
 );
-const ok = interleaved && banked && named && patched && patchBody && gauged;
+const ok = interleaved && banked && named && patched && patchBody && gauged && planned && answered && chained && forked && editsAutoAllowed;
 console.log(ok ? "\nPROVIDER EVENTS PASS" : "\nPROVIDER EVENTS FAIL");
 process.exit(ok ? 0 : 1);

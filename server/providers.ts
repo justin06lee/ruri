@@ -5,6 +5,7 @@ import {
   loadProviders,
   parseModelRef,
   type ModelRef,
+  type EngineModel,
   type Provider,
   type ProviderConfigEntry,
 } from "@justin06lee/yagami";
@@ -12,11 +13,38 @@ import type { ModelChoice } from "../shared/protocol.js";
 
 /** A Claude model as its source describes it — the startup catalog gives all
  *  of this, a live session's own report only the first two. */
-export interface RawClaudeModel {
+export interface RawClaudeModel extends Omit<EngineModel, "provider"> {
   id: string;
   display_name: string;
   description?: string;
   resolved_model?: string;
+}
+
+function modelCapabilities(model: EngineModel): Omit<ModelChoice, "value" | "displayName"> {
+  return {
+    ...(model.reasoning_efforts?.length
+      ? { reasoningEfforts: model.reasoning_efforts.map((effort) => ({
+          value: effort.id,
+          ...(effort.description ? { description: effort.description } : {}),
+        })) }
+      : {}),
+    ...(model.default_reasoning_effort ? { defaultEffort: model.default_reasoning_effort } : {}),
+    ...(model.input_modalities?.length ? { inputModalities: [...model.input_modalities] } : {}),
+    ...(model.supports_adaptive_thinking ? { supportsAdaptiveThinking: true } : {}),
+    ...(model.supports_fast_mode ? { supportsFastMode: true } : {}),
+    ...(model.supports_auto_mode ? { supportsAutoMode: true } : {}),
+    ...(model.supports_personality ? { supportsPersonality: true } : {}),
+    ...(model.multi_agent ? { multiAgent: model.multi_agent } : {}),
+    ...(model.service_tiers?.length
+      ? { serviceTiers: model.service_tiers.map((tier) => ({
+          value: tier.id,
+          label: tier.display_name,
+          ...(tier.description ? { description: tier.description } : {}),
+        })) }
+      : {}),
+    ...(model.default_service_tier ? { defaultServiceTier: model.default_service_tier } : {}),
+    ...(model.is_default ? { providerDefault: true } : {}),
+  };
 }
 
 /** "claude-haiku-4-5-20251001" → "Haiku 4.5". An id with no version in it
@@ -78,6 +106,7 @@ export function cleanClaudeModels(
         nameFromDescription(m.description) ??
         known?.get(m.id) ??
         m.display_name.replace(/\s*\(.*\)\s*$/, ""),
+      ...modelCapabilities(m),
     }));
   const seen = new Map<string, number>();
   for (const m of named) seen.set(m.displayName, (seen.get(m.displayName) ?? 0) + 1);
@@ -153,6 +182,12 @@ export class ProviderRegistry {
     return createProvider(id, patched, { workDir, appName: "ruri" });
   }
 
+  /** Whether this harness can branch a warm conversation at a reported turn. */
+  canForkSession(id: string): boolean {
+    const provider = this.installed.get(id);
+    return provider !== undefined && isSessionProvider(provider) && provider.sessionCapabilities.fork;
+  }
+
   /**
    * Model choices across every installed harness, ready for the picker:
    * Claude's own models (bare ids — the same list a live session reports,
@@ -191,6 +226,7 @@ export class ProviderRegistry {
                 provider: id,
                 providerLabel: provider.label,
                 agentic,
+                ...modelCapabilities(m),
               }));
             }
           } catch {

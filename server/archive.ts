@@ -143,7 +143,10 @@ export class SessionArchive {
   }
 
   append(projectId: string, event: TranscriptEvent): void {
-    this.load(projectId).events.push(event);
+    const events = this.load(projectId).events;
+    const existing = events.findIndex((candidate) => candidate.id === event.id);
+    if (existing === -1) events.push(event);
+    else events[existing] = event;
     this.scheduleWrite(projectId);
   }
 

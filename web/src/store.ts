@@ -749,7 +749,10 @@ function apply(msg: ServerMessage): void {
     }
     case "event": {
       setState((s) => {
-        const transcript = [...(s.transcripts[msg.projectId] ?? []), msg.event];
+        const transcript = [...(s.transcripts[msg.projectId] ?? [])];
+        const existing = transcript.findIndex((event) => event.id === msg.event.id);
+        if (existing === -1) transcript.push(msg.event);
+        else transcript[existing] = msg.event;
         const drafts = { ...s.drafts };
         if (msg.event.kind === "assistant" && drafts[msg.projectId]?.messageId === msg.event.id) {
           drafts[msg.projectId] = undefined;

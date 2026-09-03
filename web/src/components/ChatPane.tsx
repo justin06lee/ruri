@@ -43,6 +43,7 @@ import { RapidBar } from "./RapidFire";
 import { BridgeStrip } from "./Bridge";
 import { DragonGauges } from "./Dragon";
 import { HomeBoard } from "./HomeBoard";
+import { CommandMenu, commandPrefix } from "./CommandMenu";
 import {
   MarkerMirror,
   findMarkers,
@@ -541,6 +542,13 @@ export function Composer({
    *  viewer lands there, since the textarea lost focus to the overlay. */
   const caretRef = useRef(0);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  /** The slash word the caret sits in, which is what opens the command
+   *  menu — null when it is nowhere near one, or when Escape put it away
+   *  until the word changes. */
+  const [slash, setSlash] = useState<{ at: number; word: string } | null>(null);
+  const dismissed = useRef<string | null>(null);
+  /** The menu's own handler for the keys it owns while it is open. */
+  const menuKey = useRef<((key: string) => boolean) | null>(null);
   const draftBump = useRuri((s) => s.draftBumps[channelId] ?? 0);
   const bumpSeen = useRef(draftBump);
 
@@ -713,6 +721,20 @@ export function Composer({
           : atts.some((a) => a.kind === marker.kind && a.n === marker.n),
     [atts],
   );
+  /** Whether the caret is inside a slash word, and which. Every place the
+   *  caret moves says so, since a menu that only opened on typing would
+   *  hang around after an arrow key took the caret elsewhere. */
+  const trackSlash = (text: string, caret: number) => {
+    const found = commandPrefix(text, caret);
+    if (!found) {
+      dismissed.current = null;
+      setSlash(null);
+      return;
+    }
+    if (dismissed.current !== null && dismissed.current !== found.word) dismissed.current = null;
+    setSlash(dismissed.current === found.word ? null : found);
+  };
+
   const placeCaret = (index: number) => {
     caretRef.current = index;
     requestAnimationFrame(() => {
@@ -870,6 +892,7 @@ export function Composer({
               const held = holdMarkersAt(e.target.value, e.target.selectionStart);
               caretRef.current = held.caret;
               setText(held.text);
+              trackSlash(held.text, held.caret);
               // a space kept between a chip and the word just typed against
               // it: the caret goes back to the end of that word
               if (held.caret !== e.target.selectionStart) placeCaret(held.caret);
@@ -878,8 +901,16 @@ export function Composer({
             // region's marker goes
             onSelect={(e) => {
               caretRef.current = e.currentTarget.selectionStart;
+              trackSlash(e.currentTarget.value, e.currentTarget.selectionStart);
             }}
             onKeyDown={(e) => {
+              // while the command menu stands, the arrows, Enter, Tab and
+              // Escape are its keys — Enter takes a command rather than
+              // sending a prompt that is half a command's name
+              if (slash && menuKey.current?.(e.key)) {
+                e.preventDefault();
+                return;
+              }
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 void submit();
@@ -895,6 +926,30 @@ export function Composer({
               }
             }}
           />
+          {slash && (
+            <CommandMenu
+              projectId={channelId === HOME_ID ? undefined : projectId}
+              word={slash.word}
+              pickRef={menuKey}
+              onClose={() => {
+                dismissed.current = slash.word;
+                setSlash(null);
+              }}
+              onPick={(command) => {
+                // the whole slash word becomes the command, with the space
+                // that finishes it — which is also what makes it a chip
+                const before = text.slice(0, slash.at);
+                const after = text.slice(slash.at + 1 + slash.word.length);
+                const lead = `/${command.name}`;
+                const tail = after.startsWith(" ") ? "" : " ";
+                const next = holdMarkersAt(`${before}${lead}${tail}${after}`, before.length + lead.length + tail.length);
+                setText(next.text);
+                placeCaret(next.caret);
+                dismissed.current = null;
+                setSlash(null);
+              }}
+            />
+          )}
           <MarkerMirror
             areaRef={areaRef}
             text={text}

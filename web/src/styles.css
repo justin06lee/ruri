@@ -5326,6 +5326,89 @@ button.sketch-toggle:hover {
   pointer-events: none;
 }
 
+/* ── the command menu ─────────────────────────────────────────────── */
+
+/* What "/" offers while you type it (CommandMenu.tsx): everything that
+   would actually run, standing over the composer. The textarea keeps the
+   caret the whole time — the menu is looked at, not focused. */
+.command-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 6;
+  max-height: 264px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--paper-bright);
+  border: 1.5px solid var(--edge);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-hard);
+  animation: rise 120ms ease-out;
+}
+
+.command-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+
+.command-row.active {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.command-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.command-row.active .command-name {
+  color: var(--paper);
+}
+
+/* the line about what it does gives way first when the row is narrow */
+.command-what {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.command-row.active .command-what {
+  color: var(--paper-dim);
+}
+
+.command-kind {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.command-row.active .command-kind {
+  color: var(--paper-dim);
+}
+
 .marker-chip {
   pointer-events: auto;
   cursor: grab;

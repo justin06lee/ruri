@@ -1,6 +1,6 @@
 {
   "name": "ruri",
-  "version": "0.55.1",
+  "version": "0.56.0",
   "description": "One desktop workspace for all your projects, each a folder of live coding sessions.",
   "private": true,
   "type": "module",

@@ -350,6 +350,7 @@ export function MarkerMirror({
   areaRef,
   text,
   present,
+  refit,
   onMove,
   onOpen,
   onHover,
@@ -359,6 +360,10 @@ export function MarkerMirror({
   /** Whether a marker still stands for an attachment in the strip — one
    *  whose file was removed is words again, and stays words. */
   present: (marker: Marker) => boolean;
+  /** Fit the box to its text again. The mirror asks for this when the two
+   *  disagree on how many lines the prompt is, since much the likeliest
+   *  reason is a box left taller than its words. */
+  refit?: () => void;
   /** A chip was dropped somewhere else in the prompt. */
   onMove: (next: { text: string; caret: number }) => void;
   /** A chip was clicked, not dragged: open what it stands for (an
@@ -381,19 +386,36 @@ export function MarkerMirror({
   // follows the textarea's scroll by translation: a mirror that scrolled on
   // its own could only go as far as its own content let it, and one line
   // of disagreement became a lasting offset. After every render, and on
-  // every scroll, focus, resize, and font arrival, since any of those can
-  // move the words; and if after all that the two still disagree on how
-  // many lines the prompt is, the chips come off rather than stand on the
-  // wrong words.
+  // every scroll, focus, resize, font arrival, and return to the window,
+  // since any of those can move the words; and if after all that the two
+  // still disagree on how many lines the prompt is, the chips come off
+  // rather than stand on the wrong words.
   useLayoutEffect(() => {
     const area = areaRef.current;
     const mirror = mirrorRef.current;
     const inner = textRef.current;
     if (!area || !mirror || !inner) return;
     let frame = 0;
+    let fitted = false;
     const check = () => {
       frame = 0;
-      mirror.classList.toggle("off", Math.abs(inner.offsetHeight - area.scrollHeight) > 2);
+      if (Math.abs(inner.offsetHeight - area.scrollHeight) <= 2) {
+        fitted = false;
+        mirror.classList.remove("off");
+        return;
+      }
+      // Taking the chips off is the last answer, not the first. A textarea
+      // taller than its own text reports its height as the text's, so a box
+      // left unfitted — a window resized with no keystroke after it — reads
+      // exactly like a mirror wrapping wrongly. Fit the box and look once
+      // more; only a disagreement that survives that is the real thing.
+      if (refit && !fitted) {
+        fitted = true;
+        refit();
+        frame = requestAnimationFrame(check);
+        return;
+      }
+      mirror.classList.add("off");
     };
     const sync = () => {
       const style = getComputedStyle(area);
@@ -419,6 +441,12 @@ export function MarkerMirror({
     area.addEventListener("scroll", sync);
     area.addEventListener("focus", sync);
     document.addEventListener("selectionchange", sync);
+    // An app in the background paints no frames, so the check that rides on
+    // one never runs while ruri is behind another window — and whatever the
+    // window did in the meantime (a resize, a display change) is only
+    // measurable on the way back. Coming back is a moment to look again.
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", sync);
     const observer = new ResizeObserver(sync);
     observer.observe(area);
     void document.fonts?.ready.then(sync);
@@ -427,6 +455,8 @@ export function MarkerMirror({
       area.removeEventListener("scroll", sync);
       area.removeEventListener("focus", sync);
       document.removeEventListener("selectionchange", sync);
+      window.removeEventListener("focus", sync);
+      document.removeEventListener("visibilitychange", sync);
       observer.disconnect();
     };
   });

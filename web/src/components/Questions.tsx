@@ -1,8 +1,7 @@
 /**
- * The AskUserQuestion card. This is not a permission — the model is asking
- * you something, so the card asks back instead of offering allow/deny. It
- * rides the permission channel (which already survives reconnects) and is
- * told apart by `request.kind === "question"`.
+ * The question card. Claude's AskUserQuestion, Codex request_user_input, and
+ * MCP/ACP form or URL elicitations all arrive here through one durable
+ * channel and answer in their harness's native shape.
  *
  * Answers go back as the tool's own input: `answers` is a field of
  * AskUserQuestion's schema, so the tool reads the picks and reports them to
@@ -74,7 +73,7 @@ function QuestionBlock({
   // picked, so a multi-select shows the thing you just reached for.
   const focused = draft.picked[draft.picked.length - 1];
   const preview = q.options.find((o) => o.label === focused)?.preview;
-  const otherRef = useRef<HTMLTextAreaElement>(null);
+  const otherRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
 
   const toggle = (label: string) => {
     if (q.multiSelect) {
@@ -108,6 +107,16 @@ function QuestionBlock({
         {q.header && <span className="ask-chip">{q.header}</span>}
         <span className="ask-prompt">{q.question}</span>
       </div>
+      {q.hint && <div className="ask-hint">{q.hint}</div>}
+      {q.url && (
+        <a className="ask-url" href={q.url} target="_blank" rel="noreferrer">
+          Open the requested page
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M14 3h7v7M10 14L21 3" />
+            <path d="M21 14v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h6" />
+          </svg>
+        </a>
+      )}
       <div className="ask-options">
         {q.options.map((o) => {
           const on = draft.picked.includes(o.label);
@@ -126,23 +135,40 @@ function QuestionBlock({
             </button>
           );
         })}
-        <button type="button" className={`ask-option ${draft.otherOn ? "on" : ""}`} onClick={toggleOther}>
-          <Check on={draft.otherOn} multi={q.multiSelect} />
-          <span className="ask-body">
-            <span className="ask-label">Other</span>
-            <span className="ask-desc">Answer in your own words</span>
-          </span>
-        </button>
+        {(q.allowOther !== false || q.options.length === 0) && (
+          <button type="button" className={`ask-option ${draft.otherOn ? "on" : ""}`} onClick={toggleOther}>
+            <Check on={draft.otherOn} multi={q.multiSelect} />
+            <span className="ask-body">
+              <span className="ask-label">{q.options.length === 0 ? "Type an answer" : "Other"}</span>
+              <span className="ask-desc">
+                {q.secret ? "Kept out of the transcript" : "Answer in your own words"}
+              </span>
+            </span>
+          </button>
+        )}
       </div>
       {draft.otherOn && (
-        <textarea
-          ref={otherRef}
-          className="ask-other"
-          rows={2}
-          placeholder="Your answer…"
-          value={draft.other}
-          onChange={(e) => onChange({ ...draft, other: e.target.value })}
-        />
+        q.secret || q.inputType === "number" || q.inputType === "integer" ? (
+          <input
+            ref={(node) => { otherRef.current = node; }}
+            className="ask-other"
+            type={q.secret ? "password" : "number"}
+            inputMode={q.secret ? undefined : q.inputType === "integer" ? "numeric" : "decimal"}
+            step={q.inputType === "integer" ? 1 : "any"}
+            placeholder={q.secret ? "Private answer…" : "Your answer…"}
+            value={draft.other}
+            onChange={(e) => onChange({ ...draft, other: e.target.value })}
+          />
+        ) : (
+          <textarea
+            ref={(node) => { otherRef.current = node; }}
+            className="ask-other"
+            rows={2}
+            placeholder="Your answer…"
+            value={draft.other}
+            onChange={(e) => onChange({ ...draft, other: e.target.value })}
+          />
+        )
       )}
       {preview && <pre className="ask-preview">{preview}</pre>}
     </div>
@@ -157,6 +183,15 @@ function answerOf(draft: Draft): string {
     return draft.picked.length > 0 ? [...draft.picked, typed].join(", ") : typed;
   }
   return draft.picked.join(", ");
+}
+
+function valuesOf(question: AskQuestion, draft: Draft): string[] {
+  const picked = draft.picked.map(
+    (label) => question.options.find((option) => option.label === label)?.value ?? label,
+  );
+  if (!draft.otherOn) return picked;
+  const typed = draft.other.trim();
+  return typed ? [...picked, typed] : picked;
 }
 
 export function QuestionCard({ request }: { request: PermissionRequest }) {
@@ -174,7 +209,10 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   }, [request.requestId, state]);
 
   const { drafts, at } = state;
-  const answered = useMemo(() => drafts.every((d) => answerOf(d) !== ""), [drafts]);
+  const answered = useMemo(
+    () => drafts.every((draft, index) => questions[index]?.required === false || answerOf(draft) !== ""),
+    [drafts, questions],
+  );
   const many = questions.length > 1;
   const last = questions.length - 1;
   const go = (to: number) => setState((s) => ({ ...s, at: Math.max(0, Math.min(last, to)) }));
@@ -201,10 +239,12 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
 
   const submit = () => {
     const answers: AskAnswers["answers"] = {};
+    const values: NonNullable<AskAnswers["values"]> = {};
     const annotations: NonNullable<AskAnswers["annotations"]> = {};
     questions.forEach((q, i) => {
       const draft = drafts[i]!;
       answers[q.question] = answerOf(draft);
+      values[q.id ?? q.question] = valuesOf(q, draft);
       // the tool's schema carries the focused option's preview back, so the
       // model sees the mockup it was judged on rather than just a label
       const focused = draft.picked[draft.picked.length - 1];
@@ -213,6 +253,7 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
     });
     finish({
       answers,
+      values,
       ...(Object.keys(annotations).length > 0 ? { annotations } : {}),
     });
   };

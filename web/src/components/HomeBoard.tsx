@@ -89,6 +89,10 @@ function lineOf(event: TranscriptEvent): Line | null {
       };
     case "compaction":
       return { kind: "note", text: "compacted" };
+    case "plan": {
+      const active = event.entries?.find((entry) => entry.status === "in_progress")?.content;
+      return { kind: "note", text: clip(active ? `plan · ${active}` : event.removed ? "plan cleared" : "plan updated") };
+    }
     case "info":
       return { kind: "note", text: clip(event.text) };
   }

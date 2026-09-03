@@ -16,6 +16,9 @@ import {
   type SDKMessage,
   type SessionPermissionDecision,
   type SessionPermissionRequest,
+  type SessionInputRequest,
+  type SessionInputResponse,
+  type SessionInputValue,
   type SessionProvider,
   type Usage,
 } from "@justin06lee/yagami";
@@ -91,6 +94,8 @@ export interface ProviderHooks {
   parse(model: string | undefined): ModelRef;
   /** Build a provider instance working in the given project directory. */
   create(id: string, workDir: string): Provider;
+  /** Whether an agentic session can fork at its provider-native turn ids. */
+  canFork?(id: string): boolean;
 }
 
 /** What the manager needs from a live session, whichever harness runs it. */
@@ -342,6 +347,12 @@ interface PendingQuestion {
   /** The tool call stopped waiting — the CLI gave up on the hook, or the
    *  turn ended — so an answer now has nowhere to go but a new prompt. */
   late?: boolean;
+}
+
+interface PendingProviderInput {
+  resolve(response: SessionInputResponse): void;
+  request: SessionInputRequest;
+  questions: AskQuestions;
 }
 
 /** What answering a question card did. */
@@ -824,7 +835,17 @@ class ProjectSession implements ChannelSession {
 
   private async reportModels(): Promise<void> {
     try {
-      this.events.onModels(await this.session.supportedModels());
+      const models = await this.session.supportedModels();
+      this.events.onModels(models.map((model) => ({
+        value: model.value,
+        displayName: model.displayName,
+        ...(model.supportedEffortLevels?.length
+          ? { reasoningEfforts: model.supportedEffortLevels.map((value) => ({ value })) }
+          : {}),
+        ...(model.supportsAdaptiveThinking ? { supportsAdaptiveThinking: true } : {}),
+        ...(model.supportsFastMode ? { supportsFastMode: true } : {}),
+        ...(model.supportsAutoMode ? { supportsAutoMode: true } : {}),
+      })));
     } catch {
       // model list is a nicety; the picker just stays empty
     }
@@ -1160,6 +1181,14 @@ const TOOL_ALIASES: Record<string, string> = {
   plan: "Plan",
   todo: "Plan",
   todowrite: "Plan",
+  spawn_agent: "Agent",
+  send_input: "Agent",
+  resume_agent: "Agent",
+  close_agent: "Agent",
+  send_message: "Agent",
+  followup_task: "Agent",
+  interrupt_agent: "Agent",
+  list_agents: "Agent",
 };
 
 function ruriToolName(name: string): string {
@@ -1241,8 +1270,8 @@ function providerToolEvents(
  * config defaulted to with no way to say otherwise.
  *
  * Codex takes a sandbox level. It has three where ruri has four, so "ask
- * first" and "accept edits" both land on workspace-write — writes inside the
- * project go through, anything outside still raises an approval card.
+ * first" and "accept edits" both land on workspace-write; ruri's permission
+ * handler supplies the fourth distinction by auto-accepting edit requests.
  *
  * ACP agents take one of their own mode ids. Claude's ACP agent uses exactly
  * these names; other agents name theirs differently and yagami drops a mode
@@ -1257,9 +1286,106 @@ function nativePermissions(providerId: string, mode: PermissionMode): Record<str
         : mode === "bypassPermissions"
           ? "danger-full-access"
           : "workspace-write";
-    return { sandbox };
+    return {
+      sandbox,
+      // Bypass means the same thing in every composer: do not leave the
+      // harness's own approval policy behind to ask a second time.
+      ...(mode === "bypassPermissions" ? { approvalPolicy: "never" } : {}),
+    };
   }
   return { mode };
+}
+
+function autoProviderDecision(
+  mode: PermissionMode,
+  req: SessionPermissionRequest,
+): SessionPermissionDecision | undefined {
+  if (mode === "bypassPermissions") return "allow_always";
+  const mutating = req.kind === "edit" || /^(?:apply_patch|edit|write|multiedit|notebookedit)$/i.test(req.tool);
+  if (mode === "acceptEdits" && mutating) return "allow";
+  if (mode === "plan" && (mutating || req.kind === "delete" || req.kind === "move")) return "deny";
+  return undefined;
+}
+
+function inputHeader(label: string, fallback: string): string {
+  const short = label.trim();
+  return short.length > 0 && short.length <= 12 ? short : fallback.slice(0, 12);
+}
+
+/** Turn yagami's typed input contract into the durable question-box shape. */
+function providerInputQuestions(request: SessionInputRequest): AskQuestions {
+  if (request.kind === "url") {
+    return {
+      questions: [{
+        id: "__url",
+        question: request.message,
+        header: inputHeader(request.source ?? "Continue", "Continue"),
+        options: [{ label: "I've finished", value: "done", description: "Continue after completing the linked step" }],
+        multiSelect: false,
+        required: true,
+        allowOther: false,
+        ...(request.url ? { url: request.url } : {}),
+      }],
+    };
+  }
+  const fields = request.fields ?? [];
+  return {
+    questions: fields.map((field) => {
+      const options =
+        field.options ??
+        (field.type === "boolean"
+          ? [
+              { label: "Yes", value: "true" },
+              { label: "No", value: "false" },
+            ]
+          : []);
+      return {
+        id: field.id,
+        question: field.label,
+        header: inputHeader(field.label, request.kind === "form" ? "Details" : "Question"),
+        options: options.map((option) => ({
+          label: option.label,
+          value: option.value,
+          description: option.description ?? "",
+        })),
+        multiSelect: field.type === "multiselect",
+        inputType: field.type,
+        required: field.required,
+        secret: field.secret,
+        allowOther: field.allowOther ?? (field.type === "string" || field.type === "number" || field.type === "integer"),
+        ...(field.description ? { hint: field.description } : {}),
+      };
+    }),
+  };
+}
+
+/** Restore typed provider values from what the question box submitted. */
+function providerInputResponse(
+  request: SessionInputRequest,
+  questions: AskQuestions,
+  answers: AskAnswers | undefined,
+): SessionInputResponse {
+  if (!answers) return { action: "decline" };
+  if (request.kind === "url") return { action: "accept" };
+  const values: Record<string, SessionInputValue> = {};
+  for (const field of request.fields ?? []) {
+    const question = questions.questions.find((candidate) => candidate.id === field.id);
+    const exact = answers.values?.[field.id];
+    const flattened = question ? answers.answers[question.question] : undefined;
+    const raw = exact ?? (flattened ? [flattened] : []);
+    if (raw.length === 0) continue;
+    if (field.type === "multiselect") {
+      values[field.id] = raw;
+    } else if (field.type === "boolean") {
+      values[field.id] = raw[0] === "true";
+    } else if (field.type === "number" || field.type === "integer") {
+      const number = Number(raw[0]);
+      if (Number.isFinite(number)) values[field.id] = field.type === "integer" ? Math.trunc(number) : number;
+    } else {
+      values[field.id] = raw[0] ?? "";
+    }
+  }
+  return { action: "accept", values };
 }
 
 /**
@@ -1282,8 +1408,13 @@ class ProviderAgentSession implements ChannelSession {
   private readonly backlog: Array<{
     text: string;
     images?: Array<{ data: string; mediaType?: string }>;
+    eventId?: string;
   }> = [];
+  /** Visible prompt whose provider turns belong to. Silent split turns keep
+   * extending its `last` chain point without inventing transcript prompts. */
+  private lastTurnEventId: string | undefined;
   private readonly pending = new Map<string, { resolve(d: SessionPermissionDecision): void }>();
+  private readonly pendingInputs = new Map<string, PendingProviderInput>();
   /** ACP can't take a system prompt natively — the first turn of each app
    *  run carries it as a <system> block (codex gets developerInstructions). */
   private sentSystem = false;
@@ -1297,7 +1428,9 @@ class ProviderAgentSession implements ChannelSession {
     provider: SessionProvider,
     nativeModel: string | undefined,
     resume: string | undefined,
+    resumeAt: string | undefined,
     private readonly extras?: SessionExtras,
+    fork = false,
   ) {
     this.nativeModel = nativeModel;
     if (resume?.startsWith(`${providerId}:`)) this.lastSessionId = resume;
@@ -1309,9 +1442,12 @@ class ProviderAgentSession implements ChannelSession {
       ...(nativeModel ? { model: nativeModel } : {}),
       effort: project.effort || DEFAULT_EFFORT,
       ...(nativeResume ? { resume: nativeResume } : {}),
+      ...(nativeResume && provider.sessionCapabilities.fork && resumeAt ? { forkAt: resumeAt } : {}),
+      ...(nativeResume && provider.sessionCapabilities.fork && !resumeAt && fork ? { fork: true } : {}),
       ...(extras?.providerSystem ? { systemPrompt: extras.providerSystem } : {}),
       native: nativePermissions(providerId, this.permissionMode),
       permissions: { decide: (req) => this.decide(req) },
+      input: { respond: (req) => this.requestInput(req) },
     });
   }
 
@@ -1321,10 +1457,12 @@ class ProviderAgentSession implements ChannelSession {
     attachments?: Attachment[],
     silent = false,
   ): void {
+    let eventId: string | undefined;
     if (!silent) {
+      eventId = randomUUID();
       this.pushEvent({
         kind: "user",
-        id: randomUUID(),
+        id: eventId,
         text,
         ...(attachments?.length ? { attachments: attachments } : {}),
         ts: Date.now(),
@@ -1332,16 +1470,19 @@ class ProviderAgentSession implements ChannelSession {
     }
     this.setStatus("working");
     if (this.running) {
-      this.backlog.push({ text, ...(images ? { images } : {}) });
+      this.backlog.push({ text, ...(images ? { images } : {}), ...(eventId ? { eventId } : {}) });
       return;
     }
-    void this.run(text, images);
+    void this.run(text, images, eventId);
   }
 
   private async run(
     text: string,
     images?: Array<{ data: string; mediaType?: string }>,
+    eventId?: string,
   ): Promise<void> {
+    if (eventId) this.lastTurnEventId = eventId;
+    const turnEventId = eventId ?? this.lastTurnEventId;
     this.running = true;
     const started = Date.now();
     let draftId = randomUUID();
@@ -1350,6 +1491,7 @@ class ProviderAgentSession implements ChannelSession {
     let tokens: number | undefined;
     let error: string | undefined;
     let interrupted = false;
+    let planEventId: string | undefined;
     const toolsSeen = new Set<string>();
     // What the harness said before its next tool call is what it said ABOUT
     // that call, so it lands in the transcript first. Text is banked into an
@@ -1381,6 +1523,11 @@ class ProviderAgentSession implements ChannelSession {
         if (event.type === "session") {
           this.lastSessionId = `${this.providerId}:${event.sessionId}`;
           this.events.onSessionId(this.project.id, this.lastSessionId);
+        } else if (event.type === "turn") {
+          if (turnEventId) {
+            if (eventId) this.events.onChain(this.project.id, turnEventId, "user", event.id);
+            this.events.onChain(this.project.id, turnEventId, "last", event.id);
+          }
         } else if (event.type === "text") {
           const piece = spaced(acc, event.text);
           acc += piece;
@@ -1396,6 +1543,10 @@ class ProviderAgentSession implements ChannelSession {
           for (const chip of providerToolEvents(event, this.project)) {
             this.pushEvent({ kind: "tool", id: randomUUID(), ...chip, ts: Date.now() });
           }
+        } else if (event.type === "plan") {
+          bankText();
+          planEventId ??= randomUUID();
+          this.pushEvent({ kind: "plan", id: planEventId, ...event.plan, ts: Date.now() });
         } else if (event.type === "done") {
           costUsd = event.costUsd;
           tokens = usageTokens(event.usage);
@@ -1433,7 +1584,7 @@ class ProviderAgentSession implements ChannelSession {
     this.running = false;
     const next = this.backlog.shift();
     if (next && !this.dead) {
-      void this.run(next.text, next.images);
+      void this.run(next.text, next.images, next.eventId);
     } else {
       this.setStatus(error === undefined ? "idle" : "error");
     }
@@ -1446,6 +1597,8 @@ class ProviderAgentSession implements ChannelSession {
 
   /** The harness asked to do something — show ruri's permission card. */
   private decide(req: SessionPermissionRequest): Promise<SessionPermissionDecision> {
+    const automatic = autoProviderDecision(this.permissionMode, req);
+    if (automatic) return Promise.resolve(automatic);
     return new Promise((resolve) => {
       const requestId = randomUUID();
       this.pending.set(requestId, { resolve });
@@ -1460,9 +1613,39 @@ class ProviderAgentSession implements ChannelSession {
     });
   }
 
-  /** Other harnesses have no AskUserQuestion — nothing ever parks a card. */
-  respondQuestion(): QuestionOutcome {
-    return "none";
+  /** A native harness question or MCP/ACP elicitation uses the same durable
+   * question channel as Claude's AskUserQuestion, but answers its typed field
+   * ids rather than rewriting the user's picks into a prompt. */
+  private requestInput(req: SessionInputRequest): Promise<SessionInputResponse> {
+    const questions = providerInputQuestions(req);
+    // Unknown MCP schema constructs cannot be answered faithfully. Declining
+    // is safer than presenting an empty card that can never be submitted.
+    if (questions.questions.length === 0) return Promise.resolve({ action: "decline" });
+    return new Promise((resolve) => {
+      const requestId = randomUUID();
+      this.pendingInputs.set(requestId, { resolve, request: req, questions });
+      this.events.onPermission({
+        requestId,
+        projectId: this.project.id,
+        toolName: req.kind === "questions" ? "AskUserQuestion" : req.source ?? "Input request",
+        kind: "question",
+        input: questions,
+        ts: Date.now(),
+      });
+      this.setStatus("permission");
+    });
+  }
+
+  respondQuestion(requestId: string, answers?: AskAnswers): QuestionOutcome {
+    const pending = this.pendingInputs.get(requestId);
+    if (!pending) return "none";
+    this.pendingInputs.delete(requestId);
+    pending.resolve(providerInputResponse(pending.request, pending.questions, answers));
+    this.events.onPermissionResolved(requestId);
+    if (this.running && this.pending.size === 0 && this.pendingInputs.size === 0) {
+      this.setStatus("working");
+    }
+    return "answered";
   }
 
   respondPermission(requestId: string, allow: boolean, always = false): boolean {
@@ -1471,12 +1654,12 @@ class ProviderAgentSession implements ChannelSession {
     this.pending.delete(requestId);
     pending.resolve(allow ? (always ? "allow_always" : "allow") : "deny");
     this.events.onPermissionResolved(requestId);
-    if (this.running && this.pending.size === 0) this.setStatus("working");
+    if (this.running && this.pending.size === 0 && this.pendingInputs.size === 0) this.setStatus("working");
     return true;
   }
 
   pendingRequests(): string[] {
-    return [...this.pending.keys()];
+    return [...this.pending.keys(), ...this.pendingInputs.keys()];
   }
 
   private rejectPending(): void {
@@ -1485,10 +1668,16 @@ class ProviderAgentSession implements ChannelSession {
       this.events.onPermissionResolved(requestId);
     }
     this.pending.clear();
+    for (const [requestId, pending] of this.pendingInputs) {
+      pending.resolve({ action: "cancel" });
+      this.events.onPermissionResolved(requestId);
+    }
+    this.pendingInputs.clear();
   }
 
   interrupt(): void {
     this.backlog.length = 0;
+    this.rejectPending();
     void this.session.interrupt();
   }
 
@@ -1637,7 +1826,13 @@ export class SessionManager {
               provider,
               route.model,
               resume,
+              resume && this.providers.canFork?.(route.providerId)
+                ? this.resumeAtFor(project.id)
+                : undefined,
               this.extrasFor(project),
+              resume && this.providers.canFork?.(route.providerId)
+                ? this.forkFor(project.id)
+                : false,
             )
           : new ProviderTurnSession(
               project,

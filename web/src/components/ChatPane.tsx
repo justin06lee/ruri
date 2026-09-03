@@ -318,6 +318,8 @@ export const EventView = memo(function EventView({
         </div>
       );
     }
+    case "plan":
+      return <PlanEvent event={event} />;
     case "result": {
       // the CLI reports a user abort as diagnostic soup — archived events
       // predating the server-side flag still deserve the plain reading
@@ -394,6 +396,35 @@ function permissionSummary(
   };
 }
 
+function PlanEvent({ event }: { event: Extract<TranscriptEvent, { kind: "plan" }> }) {
+  if (event.removed) {
+    return <div className="plan-event removed">plan cleared</div>;
+  }
+  return (
+    <div className="plan-event">
+      <div className="plan-event-head">
+        <Icon d="M4 6h2M4 12h2M4 18h2M9 6h11M9 12h11M9 18h11" />
+        Plan
+      </div>
+      {event.explanation && <div className="plan-event-explanation">{event.explanation}</div>}
+      {event.entries && event.entries.length > 0 && (
+        <div className="plan-event-entries">
+          {event.entries.map((entry, index) => (
+            <div className={`plan-event-entry ${entry.status}`} key={`${index}-${entry.content}`}>
+              <span className="plan-event-mark" aria-hidden>
+                {entry.status === "completed" ? "✓" : entry.status === "in_progress" ? "→" : "·"}
+              </span>
+              <span>{entry.content}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {event.markdown && <Markdown text={event.markdown} />}
+      {event.uri && <span className="plan-event-uri">{event.uri}</span>}
+    </div>
+  );
+}
+
 /** The name to put on a card asking for permission: the harness the channel
  *  runs on, since it is the one asking — not Claude by default. */
 function harnessName(models: ModelChoice[], model: string | undefined): string {
@@ -468,6 +499,25 @@ function SessionControls({ project }: { project: Project }) {
   // mode is set from this). A run-per-turn provider has no approval flow to
   // drive, so it still hides rather than offer a control that does nothing.
   const canSetPermissions = !selected?.provider || selected.agentic === true;
+  const reportedEfforts = selected?.reasoningEfforts;
+  const effortOptions = reportedEfforts?.length
+    ? reportedEfforts.map((effort) => ({
+        value: effort.value,
+        label: effort.value === "xhigh" ? "XHigh" : effort.value[0]!.toUpperCase() + effort.value.slice(1),
+      }))
+    : selected
+      ? []
+      : EFFORT_OPTIONS;
+  const pickedEffort = project.effort || DEFAULT_EFFORT;
+  const supportedEffort = effortOptions.some((option) => option.value === pickedEffort);
+  const fallbackEffort = selected?.defaultEffort ?? effortOptions[0]?.value;
+  // A project can carry xhigh from its previous model. Once a new catalog
+  // says that choice is impossible, move to the model's own default rather
+  // than silently asking the harness for a setting it will ignore.
+  useEffect(() => {
+    if (!selected || effortOptions.length === 0 || supportedEffort || !fallbackEffort) return;
+    send({ type: "set_effort", projectId: project.id, effort: fallbackEffort });
+  }, [selected?.value, pickedEffort, supportedEffort, fallbackEffort, effortOptions.length, project.id]);
   return (
     <div className="composer-controls">
       <Dropdown
@@ -482,13 +532,15 @@ function SessionControls({ project }: { project: Project }) {
         }))}
         onSelect={(model) => send({ type: "set_model", projectId: project.id, model })}
       />
-      <Dropdown
-        up
-        title="Reasoning effort — reaches warm sessions on their next prompt (context resumes)"
-        value={project.effort || DEFAULT_EFFORT}
-        options={EFFORT_OPTIONS}
-        onSelect={(effort) => send({ type: "set_effort", projectId: project.id, effort })}
-      />
+      {effortOptions.length > 0 && (
+        <Dropdown
+          up
+          title="Reasoning effort — choices reported by this model"
+          value={supportedEffort ? pickedEffort : fallbackEffort ?? pickedEffort}
+          options={effortOptions}
+          onSelect={(effort) => send({ type: "set_effort", projectId: project.id, effort })}
+        />
+      )}
       {canSetPermissions && (
         <Dropdown
           up
@@ -1466,9 +1518,10 @@ export function ChatPane({
 
   // Rewind works on every harness; what it can undo differs. Claude rides
   // the CLI's file checkpoints and forks the conversation at the prompt;
-  // every other harness keeps no checkpoints and cannot fork, so it rewinds
-  // the transcript and comes back on a brief of what's kept, files untouched.
-  const claudeRoute = !models.find((m) => m.value === (project.model || DEFAULT_MODEL))?.provider;
+  // Codex keeps its native conversation but no file checkpoints; other
+  // harnesses come back on a brief of what is kept, files untouched.
+  const providerRoute = models.find((m) => m.value === (project.model || DEFAULT_MODEL))?.provider;
+  const claudeRoute = !providerRoute;
   const canRewind = !isHome && !busy;
   const askRewind = canRewind ? startRewind : undefined;
   // Fork: the branch under the pencil — a new session from this exchange
@@ -1714,7 +1767,9 @@ export function ChatPane({
             <div className="confirm-body">
               {claudeRoute
                 ? "The conversation and the project's files go back to the moment before this prompt ran — everything after it is discarded. The prompt itself lands in the composer, so you can edit it there and send when you're ready."
-                : "The conversation goes back to the moment before this prompt ran — everything after it is discarded, and the harness starts again from a brief of what's kept. This harness keeps no file checkpoints, so the files stay as they are. The prompt itself lands in the composer, so you can edit it there and send when you're ready."}
+                : providerRoute === "codex"
+                  ? "The native Codex conversation goes back to the moment before this prompt ran — everything after it is discarded. Codex keeps no file checkpoints, so the files stay as they are. The prompt itself lands in the composer, so you can edit it there and send when you're ready."
+                  : "The conversation goes back to the moment before this prompt ran — everything after it is discarded, and the harness starts again from a brief of what's kept. This harness keeps no file checkpoints, so the files stay as they are. The prompt itself lands in the composer, so you can edit it there and send when you're ready."}
             </div>
             <div className="confirm-actions">
               <button className="ghost" onClick={() => setRewindTarget(null)}>

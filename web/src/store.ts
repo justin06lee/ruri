@@ -60,8 +60,14 @@ const draftTimers = new Map<string, ReturnType<typeof setTimeout>>();
  *  restore. Only a channel we know had something can clear itself. */
 const draftedChannels = new Set<string>();
 /** Attachment ids the server already has bytes for — everything after the
- *  first save is metadata, so editing a caption never re-uploads a video. */
+ *  first save is metadata, so editing a caption never re-uploads a video.
+ *  An id only lands here once its save has actually left the socket: the
+ *  server drops metadata for a file it never received, so believing a
+ *  dropped save went would quietly cost the draft its pictures. */
 const storedAttachments = new Set<string>();
+/** Channels whose last save never reached the server. They go again, bytes
+ *  and all, the moment the socket is back. */
+const unsavedDrafts = new Set<string>();
 
 /** Hand the channel's draft to the server, a beat after typing stops. */
 function persistDraft(channelId: string, draft: ComposerDraft): void {
@@ -72,24 +78,36 @@ function persistDraft(channelId: string, draft: ComposerDraft): void {
       draftTimers.delete(channelId);
       void (async () => {
         const attachments: DraftAttachmentUpload[] = await Promise.all(
-          draft.atts.map(async (att) => {
-            const fresh = !storedAttachments.has(att.id);
-            storedAttachments.add(att.id);
-            return {
-              id: att.id,
-              kind: att.kind,
-              mediaType: att.mediaType,
-              name: att.name,
-              n: att.n,
-              ...(att.regions.length ? { regions: att.regions } : {}),
-              ...(fresh ? { data: await fileToBase64(att.file) } : {}),
-            };
-          }),
+          draft.atts.map(async (att) => ({
+            id: att.id,
+            kind: att.kind,
+            mediaType: att.mediaType,
+            name: att.name,
+            n: att.n,
+            ...(att.regions.length ? { regions: att.regions } : {}),
+            ...(storedAttachments.has(att.id) ? {} : { data: await fileToBase64(att.file) }),
+          })),
         );
-        send({ type: "draft", projectId: channelId, text: draft.text, attachments });
+        if (send({ type: "draft", projectId: channelId, text: draft.text, attachments })) {
+          for (const att of draft.atts) storedAttachments.add(att.id);
+          unsavedDrafts.delete(channelId);
+        } else {
+          unsavedDrafts.add(channelId);
+        }
       })();
     }, 400),
   );
+}
+
+/** Save again everything the socket dropped while it was down. */
+function flushUnsavedDrafts(): void {
+  for (const channelId of [...unsavedDrafts]) {
+    const draft = composerDrafts.get(channelId);
+    if (draft) persistDraft(channelId, draft);
+    else if (send({ type: "draft", projectId: channelId, text: "", attachments: [] })) {
+      unsavedDrafts.delete(channelId);
+    }
+  }
 }
 
 /** Whether a channel is holding anything worth keeping. */
@@ -114,7 +132,13 @@ export function clearComposerDraft(channelId: string): void {
   draftedChannels.delete(channelId);
   clearTimeout(draftTimers.get(channelId));
   draftTimers.delete(channelId);
-  send({ type: "draft", projectId: channelId, text: "", attachments: [] });
+  // a clear the socket drops would bring the sent prompt back as a draft on
+  // the next launch, so it queues behind the reconnect like a save does
+  if (send({ type: "draft", projectId: channelId, text: "", attachments: [] })) {
+    unsavedDrafts.delete(channelId);
+  } else {
+    unsavedDrafts.add(channelId);
+  }
 }
 
 /**
@@ -484,8 +508,13 @@ function emitTerminal(termId: string, message: TerminalMessage): void {
   for (const listener of terminalListeners.get(termId) ?? []) listener(message);
 }
 
-export function send(message: ClientMessage): void {
-  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+/** Say something to the server, if it is listening — and whether it went.
+ *  A dropped message is simply gone; the few that cannot afford that (a
+ *  draft's attachment bytes) look at the answer and try again. */
+export function send(message: ClientMessage): boolean {
+  if (ws?.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify(message));
+  return true;
 }
 
 export function connect(): void {
@@ -496,7 +525,10 @@ export function connect(): void {
     return;
   }
   ws = new WebSocket(WS_URL);
-  ws.onopen = () => useRuri.setState({ connected: true });
+  ws.onopen = () => {
+    useRuri.setState({ connected: true });
+    flushUnsavedDrafts();
+  };
   ws.onmessage = (raw) => apply(JSON.parse(raw.data as string) as ServerMessage);
   ws.onclose = () => {
     useRuri.setState({ connected: false });

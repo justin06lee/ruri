@@ -22,6 +22,7 @@
     "bridge-test": "tsx scripts/bridge.ts",
     "rewind-test": "tsx scripts/rewind.ts",
     "checkpoint-test": "tsx scripts/checkpoint.ts",
+    "chips-test": "RURI_FIXTURE=1 bun scripts/shot.mjs scripts/chips.mjs",
     "fork-test": "tsx scripts/fork.ts",
     "compaction-attachments-test": "tsx scripts/compaction-attachments.ts",
     "sweep-test": "tsx scripts/sweep.ts",

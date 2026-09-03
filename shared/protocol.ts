@@ -256,6 +256,17 @@ export interface ComponentProposal {
 }
 
 /** An installed Claude Code skill, global or local to one project. */
+/** One slash command the composer can offer, as the server knows it. */
+export interface CommandInfo {
+  /** Without the slash. */
+  name: string;
+  /** Who answers it: ruri itself, the harness, an installed skill, or a
+   *  custom command file in .claude/commands. */
+  kind: "ruri" | "harness" | "skill" | "custom";
+  /** One line on what it does, where there is one to give. */
+  description?: string;
+}
+
 export interface SkillInfo {
   /** Folder name under skills/ — what `bmo remove` takes. */
   name: string;
@@ -629,6 +640,9 @@ export type ClientMessage =
   /* ── skills ─────────────────────────────────────────────────────── */
   /** Re-scan global skills and this project's local ones. */
   | { type: "skills_refresh"; projectId?: string }
+  /** Every slash command that means something here, for the composer's
+   *  menu — ruri's own, the harness's, skills, custom command files. */
+  | { type: "commands_refresh"; projectId?: string }
   /** Park a skill in skills-off/ or bring it back. */
   | { type: "skill_toggle"; projectId?: string; scope: "global" | "project"; name: string; on: boolean }
   /** `bmo add <source>` — into ~/.claude/skills, or the project's own. */
@@ -745,6 +759,8 @@ export type ServerMessage =
   /** Installed skills: every global one, plus the named project's own.
    *  `note` carries what bmo said when a command just ran. */
   | { type: "skills"; projectId?: string; skills: SkillInfo[]; note?: string; busy?: boolean }
+  /** The slash commands the composer offers, for the named project. */
+  | { type: "commands"; projectId?: string; commands: CommandInfo[] }
   /** One skill's SKILL.md, frontmatter stripped — markdown, to be rendered. */
   | { type: "skill_body"; name: string; scope: "global" | "project"; body: string }
   | { type: "tracker"; projectId: string; items: TrackerItem[] }

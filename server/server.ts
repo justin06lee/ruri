@@ -33,7 +33,7 @@ import { promptChain, SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief } from "./smallmodel.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
 import { buildCatchup } from "./catchup.js";
-import { knownCommands, splitCommands } from "./commands.js";
+import { knownCommands, listCommands, splitCommands } from "./commands.js";
 import { findProjects, searchRoots } from "./finder.js";
 import { LedgerStore } from "./ledger.js";
 import { importRecent, listRecent } from "./recent.js";
@@ -2130,6 +2130,20 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       /* ── skills ───────────────────────────────────────────────── */
       case "skills_refresh": {
         pushSkills(msg.projectId);
+        break;
+      }
+      case "commands_refresh": {
+        const dir = msg.projectId ? store.get(msg.projectId)?.path : undefined;
+        // the asking socket only: this is a menu being opened, not news
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "commands",
+              ...(msg.projectId ? { projectId: msg.projectId } : {}),
+              commands: listCommands(dir),
+            } satisfies ServerMessage),
+          );
+        }
         break;
       }
       case "skill_toggle": {

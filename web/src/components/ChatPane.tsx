@@ -1729,7 +1729,7 @@ export function ChatPane({
             <div className="confirm-body">
               {claudeRoute
                 ? "The conversation and the project's files go back to the moment before this prompt ran — everything after it is discarded. The prompt itself lands in the composer, so you can edit it there and send when you're ready."
-                : "The conversation goes back to the moment before this prompt ran — everything after it is discarded, and the harness starts again from a brief of what's kept. This harness keeps no file checkpoints, so the files stay as they are. The prompt itself lands in the composer, so you can edit it there and send when you're ready."}
+                : "The conversation and the project's files go back to the moment before this prompt ran — everything after it is discarded, and the harness starts again from a brief of what's kept. This harness keeps no checkpoints of its own, so the files come back from ruri's, which needs the project to be a git repository; if it isn't, they stay as they are and the reply says so. The prompt itself lands in the composer, so you can edit it there and send when you're ready."}
             </div>
             <div className="confirm-actions">
               <button className="ghost" onClick={() => setRewindTarget(null)}>

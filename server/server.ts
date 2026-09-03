@@ -23,6 +23,7 @@ import { SessionArchive } from "./archive.js";
 import { buildCompaction, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
 import { DraftStore } from "./drafts.js";
 import { HomeLog } from "./homelog.js";
+import { createCheckpoints } from "./checkpoints.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
 import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
 import { PrefStore } from "./prefs.js";
@@ -32,7 +33,7 @@ import { promptChain, SessionManager } from "./sessions.js";
 import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief } from "./smallmodel.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
 import { buildCatchup } from "./catchup.js";
-import { knownCommands, splitCommands } from "./commands.js";
+import { knownCommands, listCommands, splitCommands } from "./commands.js";
 import { findProjects, searchRoots } from "./finder.js";
 import { LedgerStore } from "./ledger.js";
 import { importRecent, listRecent } from "./recent.js";
@@ -541,6 +542,26 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
 
   // A "channel" id is HOME_ID or a session id; sessions run with their
   // parent project's cwd/model/permission mode but keep their own state.
+  /** ruri's own file checkpoints, one per prompt, on every harness. */
+  const checkpoints = createCheckpoints();
+
+  /**
+   * Write down the project's files before a prompt goes out, so a rewind to
+   * it can put them back whatever harness ran the turn.
+   *
+   * Home is left out on purpose: its "project" is the whole workspace root,
+   * and it orchestrates rather than edits. The capture runs alongside the
+   * prompt rather than ahead of it — a harness takes seconds to reach its
+   * first edit and git takes milliseconds to read a tree it has read
+   * before, and a prompt is never held up waiting for one.
+   */
+  function checkpoint(channelId: string, eventId: string): void {
+    if (channelId === HOME_ID) return;
+    const project = channelProject(channelId);
+    if (!project?.path) return;
+    void checkpoints.capture(project, channelId, eventId).catch(() => false);
+  }
+
   function channelProject(channelId: string) {
     if (channelId === HOME_ID) return homeProject(store.workspaceDir(), store.homeSettings());
     const found = store.findSession(channelId);
@@ -837,6 +858,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       ts: Date.now(),
     };
     recordEvent(channelId, userEvent);
+    checkpoint(channelId, userEvent.id);
     manager.send(project, brief + processed.text + named, processed.images, undefined, true);
   }
 
@@ -856,6 +878,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       ts: Date.now(),
     };
     recordEvent(channelId, userEvent);
+    checkpoint(channelId, userEvent.id);
     broadcast({ type: "status", projectId: channelId, status: "working" });
     titleSession(channelId, text);
     const epoch = interruptEpochs.get(channelId) ?? 0;
@@ -986,20 +1009,32 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   /**
    * Rewind a session running on a non-Claude harness.
    *
-   * Those harnesses keep no file checkpoints and cannot fork a conversation
-   * at a message, so this rewinds what ruri owns and is honest about the
-   * rest: the transcript truncates, the live session is retired, and the
-   * next prompt re-seeds a fresh one with a brief of everything kept — so
-   * what the model knows matches what is on screen. The files are left
-   * exactly as the discarded turns left them.
+   * Those harnesses cannot fork a conversation at a message, so this rewinds
+   * what ruri owns: the transcript truncates, the live session is retired,
+   * and the next prompt re-seeds a fresh one with a brief of everything kept
+   * — so what the model knows matches what is on screen.
+   *
+   * The files go back too, from ruri's own checkpoint of the moment before
+   * the prompt ran (see checkpoints.ts). That is what makes a rewind here
+   * the same move it is on Claude rather than a conversation-only apology.
+   * A project that is not a git repository has no checkpoint, and the reply
+   * says so instead of implying the files moved.
    */
-  function rewindOnHarness(
+  async function rewindOnHarness(
     ws: WebSocket,
     channelId: string,
     target: Extract<TranscriptEvent, { kind: "user" }>,
-    why = "this harness keeps no file checkpoints, so the files were left as they are, and it restarts from a brief of what's kept",
-  ): void {
+    why?: string,
+  ): Promise<void> {
     const eventId = target.id;
+    const project = channelProject(channelId);
+    const failed =
+      channelId === HOME_ID || !project?.path
+        ? "there are no files to put back"
+        : await checkpoints.restore(project, channelId, eventId);
+    why ??= failed
+      ? `the files were left as they are — ${failed} — and it restarts from a brief of what's kept`
+      : "the files went back with it, and the harness restarts from a brief of what's kept";
     manager.dispose(channelId);
     archive.clearLastSessionId(channelId);
     const removed = archive.truncateFrom(channelId, eventId);
@@ -1008,6 +1043,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       if (tracker.removeForTurns(channelId, removed)) {
         broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
       }
+      // the prompt itself keeps its checkpoint: it is back in the composer,
+      // and sending it again is a new prompt with a new one
+      if (project?.path) void checkpoints.forget(project, channelId, removed.filter((id) => id !== eventId));
     }
     // the brief covers what survived the truncation — the harness comes back
     // knowing that and nothing after it
@@ -1326,7 +1364,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
 
   /** Tear down one project and everything its sessions accumulated. */
   function closeProjectById(projectId: string): void {
-    for (const sessionId of store.get(projectId)?.sessions.map((s) => s.id) ?? []) {
+    const closing = store.get(projectId);
+    for (const sessionId of closing?.sessions.map((s) => s.id) ?? []) {
+      if (closing?.path) void checkpoints.forgetChannel(closing, sessionId).catch(() => undefined);
       manager.dispose(sessionId);
       archive.remove(sessionId);
       removeTurnFiles(sessionId);
@@ -1501,7 +1541,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             // checkpoints to restore, no chain to fork at, and a compaction
             // boundary costs it nothing, since it starts fresh either way.
             if (registry.parse(project.model).providerId !== undefined) {
-              rewindOnHarness(ws, channelId, target);
+              await rewindOnHarness(ws, channelId, target);
               return;
             }
             const chain = archive.chain(channelId);
@@ -1526,12 +1566,10 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             // the same ground a harness rewind stands on, so it takes that path
             // and says so.
             if (events.some((e, i) => i > idx && e.kind === "compaction")) {
-              rewindOnHarness(
-                ws,
-                channelId,
-                target,
-                "the conversation was compacted after this prompt, so there are no file checkpoints left to restore: the files were left as they are, and the session restarts from a brief of what's kept",
-              );
+              // The CLI's session began at that boundary, so it has nothing
+              // to restore — but ruri's checkpoint was taken by ruri, and a
+              // compaction is not a thing that happens to it.
+              await rewindOnHarness(ws, channelId, target);
               return;
             }
             // The prompt's uuid, which the CLI keys its file checkpoints by,
@@ -1557,7 +1595,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             const result = userUuid
               ? await manager.rewindFiles(project, userUuid)
               : { canRewind: false, error: "no checkpoint recorded for that prompt" };
-            const filesKept = result.canRewind
+            // The CLI's own checkpoint is the better one when it is there —
+            // it knows the session. When it isn't, ruri took its own before
+            // the prompt went out, and that is what a relaunch cannot lose.
+            const mine = result.canRewind ? undefined : await checkpoints.restore(project, channelId, eventId);
+            const filesKept = result.canRewind || mine === undefined
               ? undefined
               : (result.error ?? "the CLI couldn't restore the files");
             manager.dispose(channelId);
@@ -1572,6 +1614,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
               if (tracker.removeForTurns(channelId, removed)) {
                 broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
               }
+              void checkpoints.forget(project, channelId, removed.filter((id) => id !== eventId));
             }
             broadcast({ type: "status", projectId: channelId, status: "idle" });
             if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(composeBack(channelId, target)));
@@ -1757,6 +1800,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "remove_session": {
+        const owner = store.findSession(msg.sessionId)?.project;
+        if (owner?.path) void checkpoints.forgetChannel(owner, msg.sessionId).catch(() => undefined);
         manager.dispose(msg.sessionId);
         archive.remove(msg.sessionId);
         removeTurnFiles(msg.sessionId);
@@ -2085,6 +2130,20 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       /* ── skills ───────────────────────────────────────────────── */
       case "skills_refresh": {
         pushSkills(msg.projectId);
+        break;
+      }
+      case "commands_refresh": {
+        const dir = msg.projectId ? store.get(msg.projectId)?.path : undefined;
+        // the asking socket only: this is a menu being opened, not news
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "commands",
+              ...(msg.projectId ? { projectId: msg.projectId } : {}),
+              commands: listCommands(dir),
+            } satisfies ServerMessage),
+          );
+        }
         break;
       }
       case "skill_toggle": {

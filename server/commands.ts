@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { CommandInfo } from "../shared/protocol.js";
 import { scanSkills } from "./skills.js";
 
 /**
@@ -26,6 +27,42 @@ export const RURI_COMMANDS = new Set(["compact"]);
 
 /** What the harness itself answers to when it arrives as a prompt. */
 const HARNESS_COMMANDS = ["clear", "context", "cost", "review", "init", "memory", "todos"];
+
+/** A line each for the commands ruri and the harnesses answer, so the
+ *  composer's menu says what a thing does rather than only its name. */
+const DESCRIBED: Record<string, string> = {
+  compact: "ruri compacts the session itself — instant, and it costs nothing",
+  clear: "start the conversation over",
+  context: "what is in the context window right now",
+  cost: "what this session has spent",
+  review: "review the changes on this branch",
+  init: "write a CLAUDE.md for this project",
+  memory: "edit the memory files",
+  todos: "the harness's own todo list",
+};
+
+/**
+ * Every slash command that means something here, described — what the
+ * composer's menu offers when you type "/". The same names `knownCommands`
+ * lifts out of a prompt, so the menu can only offer what will actually run.
+ */
+export function listCommands(projectDir?: string): CommandInfo[] {
+  const out: CommandInfo[] = [];
+  for (const name of RURI_COMMANDS) out.push({ name, kind: "ruri", description: DESCRIBED[name] ?? "" });
+  for (const name of HARNESS_COMMANDS) {
+    out.push({ name, kind: "harness", ...(DESCRIBED[name] ? { description: DESCRIBED[name] } : {}) });
+  }
+  for (const skill of scanSkills(projectDir)) {
+    if (!skill.enabled) continue;
+    out.push({ name: skill.name, kind: "skill", ...(skill.description ? { description: skill.description } : {}) });
+  }
+  const custom = new Set([
+    ...commandFiles(path.join(os.homedir(), ".claude", "commands")),
+    ...(projectDir ? commandFiles(path.join(projectDir, ".claude", "commands")) : []),
+  ]);
+  for (const name of custom) if (!out.some((c) => c.name === name)) out.push({ name, kind: "custom" });
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
 
 /** Names of the custom commands in a .claude/commands folder. */
 function commandFiles(dir: string): string[] {

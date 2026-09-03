@@ -21,6 +21,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "bridge-test": "tsx scripts/bridge.ts",
     "rewind-test": "tsx scripts/rewind.ts",
+    "checkpoint-test": "tsx scripts/checkpoint.ts",
     "fork-test": "tsx scripts/fork.ts",
     "compaction-attachments-test": "tsx scripts/compaction-attachments.ts",
     "sweep-test": "tsx scripts/sweep.ts",

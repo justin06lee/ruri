@@ -2,7 +2,9 @@
  * Feature parity on a non-Claude harness, end to end through the real
  * server: the session's tool chips (ruri's own vocabulary), the patch under
  * an edit, narration interleaved with the chips it came before, the context
- * gauge, the harness's own limit windows, and a rewind.
+ * gauge, the harness's own limit windows, and a rewind — including the
+ * files going back, which on a harness with no checkpoints of its own is
+ * ruri's own checkpoint doing it.
  *
  * Costs one real turn on that harness — run manually:
  *   bun run provider-test            # codex
@@ -12,6 +14,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 import WebSocket from "ws";
 import type { ClientMessage, ContextUsage, ServerMessage, TranscriptEvent } from "../shared/protocol.js";
 
@@ -20,6 +23,18 @@ const HARNESS = process.env["RURI_TEST_PROVIDER"] ?? "codex";
 const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-provider-config-"));
 const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-provider-project-"));
 fs.writeFileSync(path.join(projectDir, "hello.txt"), "before\n");
+// A git repository, because a rewind here has to put the files back and
+// ruri's own checkpoints are what does that on a harness with none of its
+// own. Without a repository there is nothing to check but the apology.
+for (const args of [
+  ["init", "-b", "master"],
+  ["config", "user.email", "test@ruri"],
+  ["config", "user.name", "ruri test"],
+  ["add", "-A"],
+  ["commit", "-m", "before"],
+]) {
+  execFileSync("git", args, { cwd: projectDir, stdio: "ignore" });
+}
 
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: path.join(import.meta.dirname, ".."),
@@ -148,6 +163,10 @@ function check(): void {
   // only harnesses that publish their windows are held to this one
   const windows = HARNESS === "codex" ? typeof limits?.fiveHour === "number" : true;
   const rewound = removed > 0 && (composed ?? "").startsWith("Read hello.txt");
+  // the turn rewrote the file; ruri's checkpoint is what puts it back on a
+  // harness that keeps none of its own
+  const onDisk = fs.readFileSync(path.join(projectDir, "hello.txt"), "utf8");
+  const restored = onDisk === "before\n";
   // the harness narrates before it acts, so an assistant event must come
   // before the first chip rather than after every one of them
   const firstTool = order.indexOf("tool");
@@ -157,10 +176,11 @@ function check(): void {
   console.log(`${HARNESS} limits: ${JSON.stringify(limits)}`);
   console.log(`event order: ${order.join(" → ")}`);
   console.log(
-    `checks: ruriToolNames=${named} patchUnderEdit=${patched} contextGauge=${gauged} harnessWindows=${windows} rewind=${rewound} interleaved=${ordered}`,
+    `checks: ruriToolNames=${named} patchUnderEdit=${patched} contextGauge=${gauged} harnessWindows=${windows} rewind=${rewound} filesRestored=${restored} interleaved=${ordered}`,
   );
+  if (!restored) console.log(`hello.txt after the rewind: ${JSON.stringify(onDisk)}`);
   if (notice) console.log(`notice: ${notice}`);
-  const ok = named && patched && gauged && windows && rewound && ordered;
+  const ok = named && patched && gauged && windows && rewound && restored && ordered;
   console.log(ok ? "\nPROVIDER SESSION PASS" : "\nPROVIDER SESSION FAIL");
   done(ok ? 0 : 1);
 }

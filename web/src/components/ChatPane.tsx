@@ -587,9 +587,15 @@ export function Composer({
       const after = prev.slice(idx);
       const lead = before && !/\s$/.test(before) ? " " : "";
       const tail = /^\s/.test(after) ? "" : " ";
-      // the caret follows the marker, so the next one lands after it
-      caretRef.current = before.length + lead.length + markers.length + tail.length;
-      return `${before}${lead}${markers}${tail}${after}`;
+      // the caret follows the marker, so the next one lands after it — and
+      // the markers may have landed against another chip, which is what the
+      // spacing rules are for
+      const held = holdMarkersAt(
+        `${before}${lead}${markers}${tail}${after}`,
+        before.length + lead.length + markers.length + tail.length,
+      );
+      caretRef.current = held.caret;
+      return held.text;
     });
   };
 
@@ -687,7 +693,9 @@ export function Composer({
       .filter(markerPresent)
       .find((m) => (e.key === "Backspace" ? at > m.start && at <= m.end : at >= m.start && at < m.end));
     if (!hit) return false;
-    const next = removeMarker(text, hit);
+    // what the chip stood between may now be two words, or two chips
+    const cut = removeMarker(text, hit);
+    const next = holdMarkersAt(cut.text, cut.caret);
     setText(next.text);
     placeCaret(next.caret);
     return true;

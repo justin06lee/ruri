@@ -23,6 +23,14 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
  * marker wrapped in half is two chip fragments, one of them cut off at the
  * edge of the box. The composer writes markers with that space and reads
  * either; the prompt that goes out has plain spaces again.
+ *
+ * The pill is painted a little outside those characters, which is what
+ * makes it a pill rather than a highlight — so the mirror is given room on
+ * either side to paint into (a chip at the start of a line would otherwise
+ * be cut down its left edge), and two chips side by side are held further
+ * apart than two words are, since a single space leaves their pills all but
+ * touching — solid ink needs more air between it than letters do. That
+ * extra space is the composer's, not the prompt's: it goes out as one.
  */
 
 /** A marker as written in the prompt. */
@@ -38,6 +46,11 @@ export interface Marker {
 
 /** The space inside a marker, as the composer writes it. */
 export const MARKER_SPACE = " ";
+
+/** How far outside its characters a chip's pill is painted — the mirror
+ *  keeps this much room on either side so the pill is never cut off at the
+ *  edge of the box. Matches the ring in `.marker-chip`, with a pixel over. */
+export const CHIP_BLEED = 3;
 
 /**
  * An attachment marker with either space inside, or a slash command: a
@@ -83,40 +96,83 @@ function bindMarkers(text: string): string {
 const CLOSERS = ".,;:!?)";
 const OPENERS = "(";
 
+/** Spaces between two chips standing side by side. One leaves their pills
+ *  0.6px apart, which reads as a single wide chip; this is what looks like
+ *  two things. Anything wider that is already there is left alone. */
+const CHIP_GAP = 3;
+
 /**
- * The prompt with a space between every attachment marker and the word
- * against it. A chip is a thing among words, and a word touching it reads
- * as being inside it — so the space is kept, wherever it went. Returns the
- * new text and where a caret at `caret` in the old text now stands: a
- * space put in ahead of it moves it along by one; one put in behind it
- * (between a word just typed and the chip after it) does not.
+ * The prompt with the right amount of space around every chip: one space
+ * between a chip and a word against it — a word touching a chip reads as
+ * being inside it — and `CHIP_GAP` between chip and chip. Only ever adds;
+ * what is already there is left alone.
+ *
+ * Returns the new text and where a caret at `caret` now stands: a space put
+ * in ahead of it moves it along, one put in behind it (between a word just
+ * typed and the chip after it) does not.
  */
 export function spaceMarkers(text: string, caret = 0): { text: string; caret: number } {
-  const cuts: number[] = [];
-  for (const marker of findMarkers(text)) {
-    if (marker.kind === "command") continue;
-    const before = text[marker.start - 1];
-    if (
-      before !== undefined &&
-      !/\s/.test(before) &&
-      !OPENERS.includes(before) &&
-      cuts[cuts.length - 1] !== marker.start
-    ) {
-      cuts.push(marker.start);
+  const markers = findMarkers(text);
+  if (markers.length === 0) return { text, caret };
+  const starts = new Set(markers.map((marker) => marker.start));
+  /** How many spaces to put in at a position. Two chips with nothing at all
+   *  between them are one boundary asked about from both sides, so the
+   *  larger answer is the one that stands. */
+  const inserts = new Map<number, number>();
+  const want = (at: number, n: number) => {
+    if (n > 0) inserts.set(at, Math.max(inserts.get(at) ?? 0, n));
+  };
+  for (const marker of markers) {
+    // the run of spaces on each side of the chip, and what stands past it
+    let left = marker.start;
+    while (text[left - 1] === " ") left -= 1;
+    let right = marker.end;
+    while (text[right] === " ") right += 1;
+    const before = text[left - 1];
+    const after = text[right];
+    // a command is the words the person typed — nothing is ever pushed
+    // into the middle of one being written
+    if (marker.kind !== "command" && before !== undefined && !/\s/.test(before) && !OPENERS.includes(before)) {
+      want(marker.start, 1 - (marker.start - left));
     }
-    const after = text[marker.end];
-    if (after !== undefined && !/\s/.test(after) && !CLOSERS.includes(after)) cuts.push(marker.end);
+    if (after !== undefined && !/\s/.test(after)) {
+      const need = starts.has(right)
+        ? CHIP_GAP
+        : marker.kind === "command"
+          ? 0
+          : CLOSERS.includes(after)
+            ? 0
+            : 1;
+      want(marker.end, need - (right - marker.end));
+    }
   }
-  if (cuts.length === 0) return { text, caret };
+  if (inserts.size === 0) return { text, caret };
   let out = "";
   let at = 0;
   let moved = caret;
-  for (const cut of cuts) {
-    out += `${text.slice(at, cut)} `;
+  for (const cut of [...inserts.keys()].sort((a, b) => a - b)) {
+    const n = inserts.get(cut)!;
+    out += text.slice(at, cut) + " ".repeat(n);
     at = cut;
-    if (caret > cut) moved += 1;
+    if (caret > cut) moved += n;
   }
   return { text: out + text.slice(at), caret: moved };
+}
+
+/** The prompt as it is sent: the space a chip was held apart from its
+ *  neighbour by is the composer's doing, not something typed, so a run
+ *  between two chips comes back down to the one space it reads as. */
+function closeMarkerGaps(text: string): string {
+  const markers = findMarkers(text);
+  let out = "";
+  let at = 0;
+  for (let i = 0; i < markers.length - 1; i += 1) {
+    const gap = text.slice(markers[i]!.end, markers[i + 1]!.start);
+    if (gap.length < 2 || /[^ ]/.test(gap)) continue;
+    out += text.slice(at, markers[i]!.end) + " ";
+    at = markers[i + 1]!.start;
+  }
+  return out + text.slice(at);
 }
 
 /** Markers as the composer keeps them: the space inside each made
@@ -136,29 +192,30 @@ export function holdMarkersAt(text: string, caret: number): { text: string; care
 /** The prompt as it goes out: markers with plain spaces, the way every
  *  reader of them expects. */
 export function releaseMarkers(text: string): string {
-  return text.replace(/\[(image|video|file|region) #(\d+)\]/g, "[$1 #$2]");
+  return closeMarkerGaps(text).replace(/\[(image|video|file|region) #(\d+)\]/g, "[$1 #$2]");
 }
 
 /**
- * The prompt with one marker taken out, along with the one space that
- * separated it from its neighbour, so the words either side close up
- * cleanly. Returns the new text and where the caret belongs: where the
- * marker was.
+ * The prompt with one marker taken out, along with the space that separated
+ * it from its neighbour — all of it, since a chip beside a chip is held
+ * apart by more than one — so the words either side close up cleanly.
+ * Returns the new text and where the caret belongs: where the marker was.
  */
 export function removeMarker(text: string, marker: Marker): { text: string; caret: number } {
-  const spaceAfter = text[marker.end] === " ";
-  const spaceBefore = !spaceAfter && text[marker.start - 1] === " ";
-  const cutStart = spaceBefore ? marker.start - 1 : marker.start;
-  const cutEnd = spaceAfter ? marker.end + 1 : marker.end;
+  let cutEnd = marker.end;
+  while (text[cutEnd] === " ") cutEnd += 1;
+  let cutStart = marker.start;
+  if (cutEnd === marker.end) while (text[cutStart - 1] === " ") cutStart -= 1;
   return { text: text.slice(0, cutStart) + text.slice(cutEnd), caret: cutStart };
 }
 
 /** The prompt with every marker `drop` says yes to taken out. */
 export function stripMarkers(text: string, drop: (marker: Marker) => boolean): string {
   let out = text;
-  // from the end, so the earlier markers' positions stay true
+  // from the end, so the earlier markers' positions stay true — and the
+  // spacing is settled once at the end, for the same reason
   for (const marker of findMarkers(text).filter(drop).reverse()) out = removeMarker(out, marker).text;
-  return out;
+  return spaceMarkers(out).text;
 }
 
 /**
@@ -173,10 +230,10 @@ export function moveMarker(
   to: number,
 ): { text: string; caret: number } {
   const word = text.slice(marker.start, marker.end);
-  const spaceAfter = text[marker.end] === " ";
-  const spaceBefore = !spaceAfter && text[marker.start - 1] === " ";
-  const cutStart = spaceBefore ? marker.start - 1 : marker.start;
-  const cutEnd = spaceAfter ? marker.end + 1 : marker.end;
+  let cutEnd = marker.end;
+  while (text[cutEnd] === " ") cutEnd += 1;
+  let cutStart = marker.start;
+  if (cutEnd === marker.end) while (text[cutStart - 1] === " ") cutStart -= 1;
   const cut = text.slice(0, cutStart) + text.slice(cutEnd);
   let at = to <= cutStart ? to : to >= cutEnd ? to - (cutEnd - cutStart) : cutStart;
   // a drop inside a word lands at the word's nearer edge: a chip between
@@ -192,10 +249,9 @@ export function moveMarker(
   const after = cut.slice(at);
   const lead = before && !/\s$/.test(before) ? " " : "";
   const tail = after && !/^\s/.test(after) ? " " : "";
-  return {
-    text: `${before}${lead}${word}${tail}${after}`,
-    caret: before.length + lead.length + word.length,
-  };
+  // the chip has landed among words that may be chips themselves; the
+  // spacing rules settle what stands either side of it
+  return spaceMarkers(`${before}${lead}${word}${tail}${after}`, before.length + lead.length + word.length);
 }
 
 type Segment = { start: number; text: string; marker?: Marker };
@@ -346,7 +402,10 @@ export function MarkerMirror({
         if (value && inner.style.getPropertyValue(prop) !== value) inner.style.setProperty(prop, value);
       }
       const width = `${area.clientWidth}px`;
-      mirror.style.left = `${area.offsetLeft + area.clientLeft}px`;
+      // the box is the textarea's padding box grown by the pill's bleed on
+      // either side (content-box, so the padding is that room) — the words
+      // still start exactly where the textarea's do
+      mirror.style.left = `${area.offsetLeft + area.clientLeft - CHIP_BLEED}px`;
       mirror.style.top = `${area.offsetTop + area.clientTop}px`;
       mirror.style.width = width;
       mirror.style.height = `${area.clientHeight}px`;

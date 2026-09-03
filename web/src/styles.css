@@ -5294,11 +5294,17 @@ button.sketch-toggle:hover {
   position: relative;
 }
 
-/* placed and sized by Markers.tsx on the textarea's padding box */
+/* Placed and sized by Markers.tsx on the textarea's padding box, grown by
+   the pill's bleed on either side: a chip's pill is painted a little
+   outside its characters, and a mirror clipped exactly to the text would
+   cut the first chip on a line down its left edge. Content-box, so the
+   padding is that room and the words still start where the textarea's do. */
 .composer-mirror {
   position: absolute;
   top: 0;
   left: 0;
+  box-sizing: content-box;
+  padding: 0 3px;
   overflow: hidden;
   pointer-events: none;
   user-select: none;

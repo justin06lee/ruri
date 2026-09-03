@@ -4,6 +4,7 @@ import {
   type BridgeState,
   type ClientMessage,
   type Attachment,
+  type CommandInfo,
   type ContextUsage,
   type DraftAttachment,
   type Idea,
@@ -317,6 +318,10 @@ interface RuriState {
   secrets: SecretMeta[];
   /** Skills as of the last scan: every global one, plus one project's own. */
   skills: SkillInfo[];
+  /** Slash commands the composer's menu offers, and the project they were
+   *  read for (a project's own skills and command files are in there). */
+  commands: CommandInfo[];
+  commandsFor: string | null;
   /** Which project the local half of `skills` belongs to. */
   skillsFor: string | null;
   /** A bmo command is running. */
@@ -393,6 +398,8 @@ export const useRuri = create<RuriState>((set) => ({
   bridges: {},
   secrets: [],
   skills: [],
+  commands: [],
+  commandsFor: null,
   skillsFor: null,
   skillsBusy: false,
   skillsNote: null,
@@ -700,6 +707,10 @@ function apply(msg: ServerMessage): void {
     }
     case "skill_body": {
       setState({ skillBody: { name: msg.name, body: msg.body } });
+      break;
+    }
+    case "commands": {
+      setState({ commands: msg.commands, commandsFor: msg.projectId ?? null });
       break;
     }
     case "skills": {

@@ -65,6 +65,7 @@ function QuestionBlock({
   way,
   onChange,
   onPicked,
+  onDone,
 }: {
   q: AskQuestion;
   draft: Draft;
@@ -73,6 +74,9 @@ function QuestionBlock({
   onChange: (next: Draft) => void;
   /** A single-choice answer landed — the card may move on. */
   onPicked: () => void;
+  /** A typed answer was finished with Enter — the card moves on now, with
+   *  no beat to wait out: there is no mark landing to watch. */
+  onDone: () => void;
 }) {
   // The preview belongs to whichever option is "current": the last one
   // picked, so a multi-select shows the thing you just reached for.
@@ -144,8 +148,17 @@ function QuestionBlock({
           className="ask-other"
           rows={2}
           placeholder="Your answer…"
+          title="Enter moves on to the next question · Shift+Enter for a new line"
           value={draft.other}
           onChange={(e) => onChange({ ...draft, other: e.target.value })}
+          // Enter finishes the answer and moves on, the way picking an
+          // option does; a new line is Shift+Enter, as it is in the
+          // composer. An empty box is not an answer, so it stays put.
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" || e.shiftKey) return;
+            e.preventDefault();
+            if (draft.other.trim()) onDone();
+          }}
         />
       )}
       {preview && <pre className="ask-preview">{preview}</pre>}
@@ -182,12 +195,11 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   const many = questions.length > 1;
   const last = questions.length - 1;
   const [way, setWay] = useState<Way>("next");
-  const go = (to: number) =>
-    setState((s) => {
-      const next = Math.max(0, Math.min(last, to));
-      setWay(next >= s.at ? "next" : "back");
-      return { ...s, at: next };
-    });
+  const go = (to: number) => {
+    const next = Math.max(0, Math.min(last, to));
+    setWay(next >= at ? "next" : "back");
+    setState((s) => ({ ...s, at: next }));
+  };
 
   // The move-on after a pick is a beat later, so the mark is seen landing
   // before the question slides away; a card that unmounts first drops it.
@@ -225,6 +237,17 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
       answers,
       ...(Object.keys(annotations).length > 0 ? { annotations } : {}),
     });
+  };
+
+  /** Done with this question: on to the next one, or — on the last, with
+   *  every question answered — out, which is the only thing left to do and
+   *  exactly what the button beneath would do. */
+  const nextOrSend = () => {
+    if (at < last) {
+      go(at + 1);
+      return;
+    }
+    if (answered) submit();
   };
 
   return (
@@ -278,6 +301,7 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
           setState((s) => ({ ...s, drafts: s.drafts.map((cur, j) => (j === at ? next : cur)) }))
         }
         onPicked={() => picked(at)}
+        onDone={nextOrSend}
       />
       <div className="ask-actions">
         {many && (

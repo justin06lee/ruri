@@ -16,7 +16,7 @@
  *
  * Run manually: bun run recall-test
  */
-import { endsIntact, summarizeReply, smallModelEnabled } from "../server/smallmodel.js";
+import { endsIntact, offTask, summarizePrompt, summarizeReply, smallModelEnabled } from "../server/smallmodel.js";
 
 let failed = 0;
 function check(name: string, ok: boolean, detail?: unknown): void {
@@ -34,6 +34,36 @@ const cut = endsIntact(long, 400);
 check("a long reply keeps its opening", cut.startsWith("HEAD"), cut.slice(0, 20));
 check("and, above all, its close", cut.endsWith("TAIL-MARKER"), cut.slice(-20));
 check("short replies are left alone", endsIntact("small", 400) === "small");
+
+/* ── commentary is not a note ─────────────────────────────────────── */
+
+// The failures seen in real compactions: the model answered the message
+// (asked for files, said it can't see images) or reviewed it ("this isn't a
+// message to compress") instead of compressing it.
+const META_PROMPT =
+  "Compressed list (do these first, before Ruri bridge):\n\n1. Music tab auto-scroll to active on open\n2. Chat auto-naming broken - waits for full prompt before triggering\n3. Home page split agent/all-agents view with token spend stats";
+check(
+  "a review of the message is off task",
+  offTask("This isn't a message to compress—it's a feature request and formatting complaint. Provide the actual user messages that need compaction.", META_PROMPT),
+);
+check(
+  "an answer to the message is off task",
+  offTask("I can't see images, and these questions are outside Google Drive—I only have file management tools here.", "[image #1] fix this [image #2] and this"),
+);
+check(
+  "a question the message never asked is off task",
+  offTask("Can you share the file ID or link to the code for this feature?", "find the naming components feature and tell me where it lives"),
+);
+check(
+  "a note longer than its source is off task",
+  offTask("fix the header flicker on scroll and also shrink the logo a bit while you are at it please", "fix header flicker"),
+);
+check("a real compression passes", !offTask("header flickers on scroll; shrink logo", "hey so when I scroll down the page the header kind of flickers? could we make the logo smaller too"));
+check(
+  "the job's words are fine when the message used them",
+  !offTask("fix compaction model so notes don't do this; small model changeable?", "can you fix the compaction model so it doesn't do this? it's just using a small model that I can change right?"),
+);
+check("an empty note is left to the fallback", !offTask("", "anything"));
 
 if (!smallModelEnabled()) {
   console.log("\nRURI_NO_MEMORY=1 — skipping the model half");
@@ -96,4 +126,16 @@ check("a reply that offered nothing invents nothing", !plain.includes("next:"), 
 check("and still says what changed", /header|resizeobserver/i.test(plain), plain);
 
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
+/* ── the model, handed the messages that broke it ─────────────────── */
+
+const metaNote = await summarizePrompt(META_PROMPT);
+console.log("    meta prompt →", JSON.stringify(metaNote));
+check("a message about compression still gets compressed", metaNote.length > 0 && !offTask(metaNote, META_PROMPT), metaNote);
+check("and the note keeps its items", /music/i.test(metaNote) && /nam/i.test(metaNote), metaNote);
+
+const ADDRESSED = "[image #1] I can't see what you changed. Share the file or tell me where it's located (GitHub repo, Google Drive folder, etc.) and I'll compress your request for the developer.";
+const addressedNote = await summarizePrompt(ADDRESSED);
+console.log("    addressed prompt →", JSON.stringify(addressedNote));
+check("a message that reads as addressed to the helper is compressed, not answered", addressedNote.length > 0 && !offTask(addressedNote, ADDRESSED), addressedNote);
+
 process.exit(failed === 0 ? 0 : 1);

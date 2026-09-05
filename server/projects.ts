@@ -7,6 +7,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_PERMISSION_MODE,
   type HomeSettings,
+  type ModelRole,
   type Project,
   type SessionInfo,
 } from "../shared/protocol.js";
@@ -17,6 +18,8 @@ export type SessionSettings = Pick<SessionInfo, "model" | "permissionMode" | "ef
 
 const SETTING_KEYS = ["model", "permissionMode", "effort"] as const;
 
+/** The built-in fallbacks. The model's is only the floor: the store's
+ *  defaultModel() is what an unset model actually means. */
 const DEFAULTS: Required<SessionSettings> = {
   model: DEFAULT_MODEL,
   permissionMode: DEFAULT_PERMISSION_MODE,
@@ -37,9 +40,11 @@ export class ProjectStore {
   private music: string | undefined;
   private home: HomeSettings = {};
   // The out-of-the-box favourites; a saved list (even an empty one) wins.
-  private starredModelIds: string[] = ["claude-fable-5[1m]", "codex:gpt-5.6-sol"];
+  private starredModelIds: string[] = [DEFAULT_MODEL, "codex:gpt-5.6-sol"];
   /** The double-starred small-tasks model; undefined = built-in default. */
   private smallModelId: string | undefined;
+  /** The triple-starred model new chats start on; undefined = DEFAULT_MODEL. */
+  private defaultModelId: string | undefined;
 
   constructor() {
     try {
@@ -50,6 +55,7 @@ export class ProjectStore {
         home?: HomeSettings;
         starredModels?: string[];
         smallModel?: string;
+        defaultModel?: string;
       };
       this.projects = (raw.projects ?? []).filter(
         (p) => typeof p?.id === "string" && typeof p?.name === "string" && typeof p?.path === "string",
@@ -69,6 +75,7 @@ export class ProjectStore {
         this.starredModelIds = raw.starredModels.filter((m) => typeof m === "string");
       }
       if (typeof raw.smallModel === "string" && raw.smallModel) this.smallModelId = raw.smallModel;
+      if (typeof raw.defaultModel === "string" && raw.defaultModel) this.defaultModelId = raw.defaultModel;
     } catch {
       // first run
     }
@@ -114,22 +121,65 @@ export class ProjectStore {
     return this.smallModelId;
   }
 
+  /** What an unset model means: the crowned default, else the built-in. */
+  defaultModel(): string {
+    return this.defaultModelId ?? DEFAULT_MODEL;
+  }
+
   /**
-   * The star's three-state cycle: none → starred → small-tasks → none.
-   * Only one model holds the small role; a newcomer demotes the old holder
-   * back to plain starred.
+   * Crown a model the default. Nothing that exists moves: every project
+   * (and Home) that was riding the old default is pinned to it first, so
+   * only chats and projects made from here on start on the new one.
    */
-  cycleModelStar(model: string): { starred: string[]; small: string | undefined } {
-    if (this.smallModelId === model) {
-      this.smallModelId = undefined;
+  setDefaultModel(model: string | undefined): void {
+    const was = this.defaultModel();
+    const next = model || undefined;
+    if ((next ?? DEFAULT_MODEL) === was) {
+      this.defaultModelId = next;
+      this.save();
+      return;
+    }
+    for (const project of this.projects) if (!project.model) project.model = was;
+    if (!this.home.model) this.home.model = was;
+    this.defaultModelId = next;
+    this.save();
+  }
+
+  /** The roles as they stand. */
+  modelRoles(): { starred: string[]; small: string | undefined; default: string | undefined } {
+    return { starred: this.starredModels(), small: this.smallModelId, default: this.defaultModelId };
+  }
+
+  /**
+   * The star's cycle: none → starred → small-tasks → default → none. Each
+   * role has one holder; a model taking a role releases the one it held,
+   * and the previous holder drops back to plain starred.
+   */
+  cycleModelStar(model: string): { starred: string[]; small: string | undefined; default: string | undefined } {
+    if (this.defaultModelId === model) {
+      this.setDefaultModel(undefined);
+      if (this.smallModelId === model) this.smallModelId = undefined;
       this.starredModelIds = this.starredModelIds.filter((m) => m !== model);
+    } else if (this.smallModelId === model) {
+      this.smallModelId = undefined;
+      this.setDefaultModel(model);
     } else if (this.starredModelIds.includes(model)) {
       this.smallModelId = model;
     } else {
       this.starredModelIds = [...this.starredModelIds, model];
     }
     this.save();
-    return { starred: this.starredModels(), small: this.smallModelId };
+    return this.modelRoles();
+  }
+
+  /** Hand a role to a model outright: starred if it wasn't, and the role's
+   *  previous holder simply stops holding it. */
+  assignModelRole(model: string, role: ModelRole): { starred: string[]; small: string | undefined; default: string | undefined } {
+    if (!this.starredModelIds.includes(model)) this.starredModelIds = [...this.starredModelIds, model];
+    if (role === "small") this.smallModelId = model;
+    else this.setDefaultModel(model);
+    this.save();
+    return this.modelRoles();
   }
 
   homeSettings(): HomeSettings {
@@ -236,12 +286,12 @@ export class ProjectStore {
     for (const key of SETTING_KEYS) {
       if (!(key in patch)) continue;
       const value = patch[key];
-      const was = project[key] ?? DEFAULTS[key];
+      const was = project[key] ?? (key === "model" ? this.defaultModel() : DEFAULTS[key]);
       for (const sibling of project.sessions) {
         if (sibling.id === sessionId || sibling[key] !== undefined) continue;
         (sibling as unknown as Record<string, unknown>)[key] = was;
       }
-      (session as unknown as Record<string, unknown>)[key] = value || DEFAULTS[key];
+      (session as unknown as Record<string, unknown>)[key] = value || (key === "model" ? this.defaultModel() : DEFAULTS[key]);
       const record = project as unknown as Record<string, unknown>;
       if (value === undefined || value === "") delete record[key];
       else record[key] = value;
@@ -254,7 +304,7 @@ export class ProjectStore {
     const found = this.findSession(sessionId);
     if (!found) return undefined;
     return {
-      model: found.session.model || found.project.model || DEFAULTS.model,
+      model: found.session.model || found.project.model || this.defaultModel(),
       permissionMode: found.session.permissionMode ?? found.project.permissionMode ?? DEFAULTS.permissionMode,
       effort: found.session.effort || found.project.effort || DEFAULTS.effort,
     };
@@ -300,6 +350,7 @@ export class ProjectStore {
           // always written, so "deliberately none" survives restarts
           starredModels: this.starredModelIds,
           ...(this.smallModelId ? { smallModel: this.smallModelId } : {}),
+          ...(this.defaultModelId ? { defaultModel: this.defaultModelId } : {}),
         },
         null,
         2,

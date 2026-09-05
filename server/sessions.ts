@@ -1909,6 +1909,8 @@ export class SessionManager {
    */
   private readonly deferred = new Map<string, Array<() => void>>();
   private readonly events: SessionEvents;
+  /** What an unset model means — the crowned default, else the built-in. */
+  private defaultModelFor: () => string = () => DEFAULT_MODEL;
 
   constructor(
     events: SessionEvents,
@@ -1931,6 +1933,11 @@ export class SessionManager {
         if (status === "idle") this.applyDeferred(projectId);
       },
     };
+  }
+
+  /** Where the default model is read from (the project store's crown). */
+  useDefaultModel(read: () => string): void {
+    this.defaultModelFor = read;
   }
 
   /** Whether a channel's live session is mid-turn (or waiting on the user
@@ -1961,7 +1968,7 @@ export class SessionManager {
   /** The non-Claude provider id a model routes to, if any. An unset model
    *  means the app default (Fable) — never the CLI's own notion of default. */
   private routeOf(model: string | undefined): { providerId?: string; model?: string } {
-    const effective = model || DEFAULT_MODEL;
+    const effective = model || this.defaultModelFor();
     const ref = this.providers ? this.providers.parse(effective) : { model: effective };
     if (ref.providerId && ref.providerId !== "claude") return ref;
     return { ...(ref.model !== undefined ? { model: ref.model } : {}) };

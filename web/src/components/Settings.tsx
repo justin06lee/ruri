@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ModelRole } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 import { getPref, setPref } from "../prefs";
 import {
@@ -22,7 +23,13 @@ function ModelCatalog() {
   const models = useRuri((s) => s.models);
   const starredIds = useRuri((s) => s.starredModels);
   const smallModel = useRuri((s) => s.smallModel);
+  const defaultModel = useRuri((s) => s.defaultModel);
   const [query, setQuery] = useState("");
+  // A role tag in flight: dragged off its row, on its way to another. The
+  // row under it lights up; dropping hands the role over in one move
+  // instead of three clicks round the cycle.
+  const [dragging, setDragging] = useState<ModelRole | null>(null);
+  const [over, setOver] = useState<string | null>(null);
 
   // Ask the harnesses for their current catalogs whenever the catalog is
   // looked at (the server throttles, so this is free on quick re-opens).
@@ -53,16 +60,58 @@ function ModelCatalog() {
         {rows.map((m) => {
           const starred = starredIds.includes(m.value);
           const small = smallModel === m.value;
+          const isDefault = defaultModel === m.value;
+          const tag = (role: ModelRole, label: string, hint: string) => (
+            <span
+              className={`model-role-tag ${role} ${dragging === role ? "lifted" : ""}`}
+              title={`${hint} — drag onto another model to hand it over`}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("text/ruri-model-role", role);
+                e.dataTransfer.effectAllowed = "move";
+                setDragging(role);
+              }}
+              onDragEnd={() => {
+                setDragging(null);
+                setOver(null);
+              }}
+            >
+              {label}
+            </span>
+          );
           return (
-            <div key={m.value} className="model-row">
+            <div
+              key={m.value}
+              className={`model-row ${dragging && over === m.value ? "drop" : ""}`}
+              onDragOver={(e) => {
+                if (!dragging) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (over !== m.value) setOver(m.value);
+              }}
+              onDragLeave={() => {
+                if (over === m.value) setOver(null);
+              }}
+              onDrop={(e) => {
+                const role = (e.dataTransfer.getData("text/ruri-model-role") || dragging) as ModelRole | "";
+                e.preventDefault();
+                setDragging(null);
+                setOver(null);
+                if (!role) return;
+                const holder = role === "small" ? smallModel : defaultModel;
+                if (holder !== m.value) send({ type: "set_model_role", model: m.value, role });
+              }}
+            >
               <button
                 className={`model-star ${starred ? "on" : ""}`}
                 title={
-                  small
-                    ? "Small-tasks model — click to clear"
-                    : starred
-                      ? "Starred — click again to make this the small-tasks model"
-                      : "Star — pin into the picker"
+                  isDefault
+                    ? "Default model — click to clear"
+                    : small
+                      ? "Small-tasks model — click again to make this the default new chats start on"
+                      : starred
+                        ? "Starred — click again to make this the small-tasks model"
+                        : "Star — pin into the picker"
                 }
                 onClick={() => send({ type: "toggle_model_star", model: m.value })}
               >
@@ -71,7 +120,8 @@ function ModelCatalog() {
                 </svg>
               </button>
               <span className="model-name" title={m.value}>{m.displayName}</span>
-              {small && <span className="model-small-tag">small tasks</span>}
+              {small && tag("small", "small tasks", "Runs the small tasks: notes, titles, splitting, the tracker")}
+              {isDefault && tag("default", "default", "What new chats and projects start on")}
               <span className="model-tag">{m.providerLabel ?? "Claude Code"}</span>
             </div>
           );
@@ -79,7 +129,9 @@ function ModelCatalog() {
       </div>
       <div className="model-hint">
         Starred models are what the composer's model picker offers. Star one twice to make it the
-        small-tasks model — session titles, turn summaries, prompt splitting, the tracker.
+        small-tasks model — session titles, turn summaries, prompt splitting, the tracker — and a
+        third time to make it the default that new chats and projects start on (nothing already
+        open moves). Drag either tag onto another model to hand the role over.
       </div>
     </div>
   );
@@ -441,15 +493,6 @@ export function Settings({ onClose }: { onClose(): void }) {
   const canPickFolder = useRuri((s) => s.canPickFolder);
   const [theme, setTheme] = useState<Theme>(currentTheme);
   const [schedule, setSchedule] = useState<ThemeSchedule>(getSchedule);
-  // the one preference the server reads for itself: the retry it does is
-  // the server's behaviour, so the server is where the switch is looked at
-  const [retry, setRetry] = useState(() => getPref("retryDroppedTurns") !== "off");
-
-  const keepRetry = (on: boolean) => {
-    setRetry(on);
-    setPref("retryDroppedTurns", on ? "on" : "off");
-  };
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -603,31 +646,6 @@ export function Settings({ onClose }: { onClose(): void }) {
           </div>
         </section>
 
-        <section className="settings-group">
-          <h2 className="settings-group-name">Sessions</h2>
-
-          <div className="settings-row">
-            <span className="settings-label">Dropped turns</span>
-            <div className="settings-value">
-              <button
-                className={`seg-option toggle ${retry ? "active" : ""}`}
-                title={
-                  retry
-                    ? "A turn the API drops — overloaded, a 5xx, a cut connection — goes again by itself: three tries, backing off, and the session carries on from where it stopped. Anything you send cancels the wait."
-                    : "A turn the API drops stops there, and waits for you to say continue."
-                }
-                onClick={() => keepRetry(!retry)}
-              >
-                {retry ? "Go again" : "Leave it"}
-              </button>
-              <span className="settings-note">
-                {retry
-                  ? "an overload is weather, not a decision — ruri waits it out and picks the turn back up"
-                  : "nothing is retried; a dropped turn stays dropped until you say otherwise"}
-              </span>
-            </div>
-          </div>
-        </section>
 
         <section className="settings-group">
           <h2 className="settings-group-name">Vault</h2>

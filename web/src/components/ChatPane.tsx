@@ -46,6 +46,7 @@ import { HomeBoard } from "./HomeBoard";
 import { CommandMenu, commandPrefix } from "./CommandMenu";
 import {
   MarkerMirror,
+  backspaceHits,
   findMarkers,
   holdMarkers,
   holdMarkersAt,
@@ -60,7 +61,7 @@ import { Sketch, type SketchBackground } from "./Sketch";
 import { Dropdown } from "./Dropdown";
 import { NameCard } from "./NameCard";
 import { QuestionCard } from "./Questions";
-import { Thinking } from "./Thinking";
+import { Thinking, WorkingLine } from "./Thinking";
 import { Tracker } from "./Tracker";
 import { heroFor, heroUrl, launchHero } from "../hero";
 import { fileToBase64 } from "../lib/files";
@@ -699,7 +700,9 @@ export function Composer({
     const at = area.selectionStart;
     const hit = findMarkers(text)
       .filter(markerPresent)
-      .find((m) => (e.key === "Backspace" ? at > m.start && at <= m.end : at >= m.start && at < m.end));
+      .find((m) =>
+        e.key === "Backspace" ? backspaceHits(text, m, at) : at >= m.start && at < m.end,
+      );
     if (!hit) return false;
     // what the chip stood between may now be two words, or two chips
     const cut = removeMarker(text, hit);
@@ -947,6 +950,23 @@ export function Composer({
               }
             }}
           />
+          <MarkerMirror
+            areaRef={areaRef}
+            text={text}
+            present={markerPresent}
+            refit={autosize}
+            onMove={(next) => {
+              setText(next.text);
+              placeCaret(next.caret);
+            }}
+            onOpen={openMarker}
+            onHover={(marker) => setHot(marker ? (attachmentFor(marker)?.id ?? null) : null)}
+          />
+          </div>
+          )}
+          {/* a child of the box, not of the field: what the menu has to
+              stand clear of is the whole box, and the field's top slides
+              down whenever attachments sit above it */}
           {slash && (
             <CommandMenu
               projectId={channelId === HOME_ID ? undefined : projectId}
@@ -970,20 +990,6 @@ export function Composer({
                 setSlash(null);
               }}
             />
-          )}
-          <MarkerMirror
-            areaRef={areaRef}
-            text={text}
-            present={markerPresent}
-            refit={autosize}
-            onMove={(next) => {
-              setText(next.text);
-              placeCaret(next.caret);
-            }}
-            onOpen={openMarker}
-            onHover={(marker) => setHot(marker ? (attachmentFor(marker)?.id ?? null) : null)}
-          />
-          </div>
           )}
           <div className="composer-bar">
             {shell ? <span className="shell-where">{project.name} · shell</span> : <SessionControls project={project} />}
@@ -1078,7 +1084,17 @@ export function Composer({
  * A prompt held app-side while a turn runs — nothing reaches the harness
  * until its turn comes. Editable and removable right up to dispatch.
  */
-function QueuedCard({ projectId, item }: { projectId: string; item: QueuedPrompt }) {
+function QueuedCard({
+  projectId,
+  item,
+  held,
+}: {
+  projectId: string;
+  item: QueuedPrompt;
+  /** The queue is standing by since a stopped turn — nothing is waiting on
+   *  a running answer, it is waiting on you. */
+  held?: boolean;
+}) {
   // Editing takes the prompt out of the queue and puts it back in the
   // composer — the box you wrote it in, with its attachments, not a second
   // one embedded in the card. Sending it queues it again.
@@ -1088,9 +1104,9 @@ function QueuedCard({ projectId, item }: { projectId: string; item: QueuedPrompt
   };
 
   return (
-    <div className="queued-card">
+    <div className={`queued-card ${held ? "standby" : ""}`}>
       <div className="queued-head">
-        <span className="queued-label">queued</span>
+        <span className="queued-label">{held ? "standing by" : "queued"}</span>
         <span className="queued-actions">
           <button
             className="icon-button"
@@ -1237,6 +1253,8 @@ export function ChatPane({
     activeId ? (s.summaries[activeId] ?? NO_SUMMARIES) : NO_SUMMARIES,
   );
   const queuedItems = useRuri((s) => (activeId ? (s.queued[activeId] ?? NO_QUEUED) : NO_QUEUED));
+  const queueHeld = useRuri((s) => (activeId ? s.queueHeld[activeId] === true : false));
+  const turn = useRuri((s) => (activeId ? s.turns[activeId] : undefined));
   const allPermissions = useRuri((s) => s.permissions);
   const permissions = allPermissions.filter((p) => p.projectId === activeId);
   const lastError = useRuri((s) => s.lastError);
@@ -1759,7 +1777,12 @@ export function ChatPane({
               <span className="cursor" />
             </div>
           )}
-          {status === "working" && !draft && <Thinking />}
+          {status === "working" && (
+            <div className="working">
+              {!draft && <Thinking />}
+              {turn && <WorkingLine turn={turn} effort={project.effort || DEFAULT_EFFORT} />}
+            </div>
+          )}
           {permissions.map((request) =>
             // neither a question nor a naming is an allow/deny — each gets
             // its own card, and only a real tool call gets allow/deny
@@ -1772,8 +1795,23 @@ export function ChatPane({
             ),
           )}
           {queuedItems.map((item) => (
-            <QueuedCard key={item.id} projectId={activeId} item={item} />
+            <QueuedCard key={item.id} projectId={activeId} item={item} held={queueHeld} />
           ))}
+          {queueHeld && queuedItems.length > 0 && (
+            <div className="queue-standby">
+              <span>
+                {queuedItems.length === 1 ? "1 prompt" : `${queuedItems.length} prompts`} held by the
+                stop — they go out after your next one
+              </span>
+              <button
+                className="ghost"
+                title="Send what is waiting, now, in the order it was written"
+                onClick={() => send({ type: "queue_send", projectId: activeId })}
+              >
+                Send now
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

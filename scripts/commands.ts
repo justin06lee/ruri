@@ -34,7 +34,33 @@ check("path stays", "/Users/me/file.txt has it", [], "/Users/me/file.txt has it"
 check("skill with args needs its own line", "run /simplify now", [], "run /simplify now");
 check("only a command", "/compact", ["/compact"], "");
 check("indentation kept on untouched lines", "code:\n    indented\n/compact", ["/compact"], "code:\n    indented");
-check("case-insensitive name", "/Compact\nthen", ["/Compact"], "then");
+// ruri's own name comes back in ruri's own spelling, because the server
+// matches it exactly to decide the command is its own — lifted as typed,
+// "/Compact" went to the harness, which has a /compact of its own
+check("case-insensitive name, normalised", "/Compact\nthen", ["/compact"], "then");
+
+// ruri's commands take no arguments, so what follows one on its line is the
+// prompt, not the command's business. Typing "/compact" at the head of a
+// prompt is the ordinary way to ask for one, and it used to hand the whole
+// line to the harness — whose own /compact then ran instead of ruri's.
+check(
+  "compact at the head of a prompt",
+  "/compact Ok analyze this codebase and do all 7 of those things.",
+  ["/compact"],
+  "Ok analyze this codebase and do all 7 of those things.",
+);
+check(
+  "compact at the head of a several-line prompt",
+  "/compact read the provider layer\nthen fix the header",
+  ["/compact"],
+  "read the provider layer\nthen fix the header",
+);
+check(
+  "a harness command at the head keeps its arguments",
+  "/code-review high\nthen commit",
+  ["/code-review high"],
+  "then commit",
+);
 
 if (failed > 0) {
   console.error(`${failed} failed`);

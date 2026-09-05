@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type AskQuestions, DEFAULT_MODEL } from "../shared/protocol.js";
+import { type AskQuestions, DEFAULT_MODEL, DEFAULT_PERMISSION_MODE } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -17,6 +17,7 @@ import type {
   QueuedPrompt,
   ServerMessage,
   TranscriptEvent,
+  TurnProgress,
   UsageLimits,
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
@@ -472,6 +473,46 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   pushUsage(true);
   const contexts = new Map<string, ContextUsage>();
 
+  /**
+   * How the turn in flight is getting on, per channel — the numbers the
+   * working line counts up. Kept here rather than in the window because a
+   * turn outlives a reload, and a clock that restarts at zero every time
+   * the page comes back is worse than no clock.
+   */
+  const turnProgress = new Map<string, TurnProgress>();
+  /** Last broadcast per channel, so a stream of deltas is one message a
+   *  second rather than one a token. */
+  const turnSent = new Map<string, number>();
+  const TURN_TICK_MS = 900;
+  /** Output tokens are about four characters each — close enough for a
+   *  line whose job is "something is still coming back". */
+  const CHARS_PER_TOKEN = 4;
+
+  function pushTurn(channelId: string, force = false): void {
+    const turn = turnProgress.get(channelId);
+    if (!turn) {
+      turnSent.delete(channelId);
+      broadcast({ type: "turn", projectId: channelId, turn: null });
+      return;
+    }
+    const now = Date.now();
+    if (!force && now - (turnSent.get(channelId) ?? 0) < TURN_TICK_MS) return;
+    turnSent.set(channelId, now);
+    broadcast({ type: "turn", projectId: channelId, turn: { ...turn, tokens: Math.round(turn.tokens) } });
+  }
+
+  function startTurn(channelId: string): void {
+    if (turnProgress.has(channelId)) return;
+    const now = Date.now();
+    turnProgress.set(channelId, { startedAt: now, tokens: 0, at: now });
+    pushTurn(channelId, true);
+  }
+
+  function endTurn(channelId: string): void {
+    if (!turnProgress.delete(channelId)) return;
+    pushTurn(channelId);
+  }
+
   // The composer's terminal mode: a row of shell tabs per channel, each in
   // that project's directory, alive for as long as the app is — switching
   // away and back attaches to the same shells, scrollback and all.
@@ -608,6 +649,24 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           note: proposal.note,
           ...(shot ? { image: shot } : {}),
         };
+        // Bypass is the mode where ruri stops asking, and the card is only
+        // ever a confirmation: the model has already named the thing and
+        // photographed it. So in bypass the entry is written the moment it
+        // is proposed, star and screenshot and all, and the name stays
+        // yours to change on the components page whenever you look.
+        const mode = channelProject(channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
+        const straight = shown.name.trim();
+        if (mode === "bypassPermissions" && straight) {
+          const item = components.add(owner.id, {
+            name: straight,
+            files: shown.files,
+            note: shown.note,
+          });
+          if (shown.image) components.addShot(owner.id, item.id, shown.image);
+          pushComponents(owner.id, owner.path);
+          resolve(straight);
+          return;
+        }
         const requestId = randomUUID();
         pendingComponents.set(requestId, { channelId, proposal: shown, resolve });
         const request: PermissionRequest = {
@@ -775,6 +834,14 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     split?: boolean;
   }
   const sendQueues = new Map<string, QueueEntry[]>();
+  /**
+   * Channels whose queue is standing by. Stopping a turn is a change of
+   * mind about *that answer*, not about the prompts waiting behind it — so
+   * the queue survives the stop and simply stops moving. It moves again
+   * when the next prompt goes out (it follows that turn, the way it would
+   * have followed the stopped one) or when the queue is sent on by hand.
+   */
+  const heldQueues = new Set<string>();
   // Bumped on interrupt so an in-flight split resolution knows to stand down.
   const interruptEpochs = new Map<string, number>();
 
@@ -789,17 +856,50 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   }
 
   function broadcastQueue(channelId: string): void {
-    broadcast({ type: "queued", projectId: channelId, items: visibleQueue(channelId) });
+    broadcast({
+      type: "queued",
+      projectId: channelId,
+      items: visibleQueue(channelId),
+      ...(heldQueues.has(channelId) ? { held: true } : {}),
+    });
   }
 
-  /** A turn is running (or blocked on permission), or prompts are queued. */
-  function busy(channelId: string): boolean {
+  /** A turn is actually in flight — as opposed to prompts merely waiting. */
+  function running(channelId: string): boolean {
     const status = manager.statuses()[channelId];
+    return status === "working" || status === "permission";
+  }
+
+  /** A turn is running (or blocked on permission), or prompts are queued.
+   *  A queue standing by after a stop is not busy: the next prompt goes out
+   *  now and the queue falls in behind it. */
+  function busy(channelId: string): boolean {
     return (
-      status === "working" ||
-      status === "permission" ||
-      (sendQueues.get(channelId)?.length ?? 0) > 0
+      running(channelId) ||
+      (!heldQueues.has(channelId) && (sendQueues.get(channelId)?.length ?? 0) > 0)
     );
+  }
+
+  /** Everything queued stops where it is. Nothing is thrown away. */
+  function holdQueue(channelId: string): void {
+    // A split's silent sub-prompts are the stopped answer's own remainder,
+    // not prompts the user is waiting on — stopping means stopping them.
+    const kept = (sendQueues.get(channelId) ?? []).filter((entry) => !entry.silent);
+    if (kept.length > 0) {
+      sendQueues.set(channelId, kept);
+      heldQueues.add(channelId);
+    } else {
+      sendQueues.delete(channelId);
+      heldQueues.delete(channelId);
+    }
+    broadcastQueue(channelId);
+  }
+
+  /** The queue moves again. Returns whether it had been standing by. */
+  function releaseQueue(channelId: string): boolean {
+    if (!heldQueues.delete(channelId)) return false;
+    broadcastQueue(channelId);
+    return true;
   }
 
   // Sessions get their role title the moment their first prompt goes out —
@@ -866,7 +966,13 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
    * The scissors send: one visible prompt, split by the small model into
    * its separate requests and fed to the harness one turn at a time.
    */
-  function dispatchSplit(channelId: string, text: string, uploads: AttachmentUpload[]): void {
+  function dispatchSplit(
+    channelId: string,
+    text: string,
+    uploads: AttachmentUpload[],
+    /** Ahead of a queue standing by since a stop — see `send`. */
+    ahead = false,
+  ): void {
     // The user sees exactly one thing: their prompt, sent now. The
     // split and the turn-by-turn feed happen entirely out of sight.
     const attachments = storeAttachments(uploads);
@@ -879,6 +985,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     };
     recordEvent(channelId, userEvent);
     checkpoint(channelId, userEvent.id);
+    // the split is thinking before the harness is; the clock starts with
+    // the prompt, not with whichever sub-prompt reaches a session first
+    startTurn(channelId);
     broadcast({ type: "status", projectId: channelId, status: "working" });
     titleSession(channelId, text);
     const epoch = interruptEpochs.get(channelId) ?? 0;
@@ -898,11 +1007,12 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           uploads: part.uploads,
           silent: true,
         }));
-        const idle = !busy(channelId);
+        const idle = ahead ? !running(channelId) : !busy(channelId);
         const first = idle ? entries.shift() : undefined;
         if (entries.length > 0) {
           const queue = sendQueues.get(channelId) ?? [];
-          queue.push(...entries);
+          if (ahead) queue.unshift(...entries);
+          else queue.push(...entries);
           sendQueues.set(channelId, queue);
         }
         if (first) dispatch(channelId, first.text, first.uploads, true);
@@ -910,11 +1020,14 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     );
   }
 
-  /** Send the next queued prompt, once the channel settles. */
-  function drainQueue(channelId: string): void {
+  /** Send the next queued prompt, once the channel settles. Answers whether
+   *  one went out — a caller deciding what a finished turn means next needs
+   *  to know, and the send itself is a microtask away. */
+  function drainQueue(channelId: string): boolean {
+    if (heldQueues.has(channelId)) return false;
     const queue = sendQueues.get(channelId);
     const next = queue?.shift();
-    if (!next) return;
+    if (!next) return false;
     if (queue!.length === 0) sendQueues.delete(channelId);
     if (!next.silent) broadcastQueue(channelId);
     // after the session settles its result (it flips to idle right after
@@ -927,6 +1040,92 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         // the channel vanished mid-queue; drop the prompt
       }
     });
+    return true;
+  }
+
+  /**
+   * A turn the API dropped, put back on by itself.
+   *
+   * An overloaded model is not a decision anyone made — it is weather. The
+   * old behaviour was to end the turn, print the CLI's apology, and wait
+   * for the user to come back and type "continue", which could be hours
+   * after the outage cleared. So ruri types it: a short wait, a nudge down
+   * the same session (which still holds the whole conversation), and the
+   * work carries on from where it stopped.
+   *
+   * Three tries over about a minute and a half. That is the shape of a
+   * blip; past it, the API is not having a moment, it is having an outage,
+   * and a person should hear about that rather than a loop keep paying to
+   * find out. Anything the user does — a prompt, a stop — cancels the wait,
+   * because they are now driving.
+   */
+  const RETRY_WAITS_MS = [8_000, 25_000, 60_000];
+  const retries = new Map<string, { attempt: number; timer: NodeJS.Timeout }>();
+  const RETRY_NUDGE =
+    "[ruri] The API dropped the last turn — an overload or a network error on the way, nothing you did, and nothing the user asked to change. Pick up exactly where you left off and carry on. Don't restate the plan or apologise; just continue the work.";
+
+  /** Off by preference; on otherwise. The pref lives with the window's
+   *  others (see server/prefs.ts) — the server reads this one because the
+   *  behaviour it turns off is the server's. */
+  function retryEnabled(): boolean {
+    return prefs.all()["retryDroppedTurns"] !== "off";
+  }
+
+  /** The user took the wheel — whatever was going to be tried again isn't. */
+  function cancelRetry(channelId: string): void {
+    const pending = retries.get(channelId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    retries.delete(channelId);
+  }
+
+  function maybeRetry(channelId: string, event: TranscriptEvent): void {
+    if (event.kind !== "result") return;
+    // a turn that landed clears the count: the next blip starts from one
+    if (event.ok || event.stopped) {
+      cancelRetry(channelId);
+      return;
+    }
+    if (!event.transient || !retryEnabled()) return;
+    // Prompts standing by since an earlier stop are the user's, and they go
+    // out on the user's word — a nudge would jump that line. (Prompts merely
+    // queued are already handled: the caller only asks when the queue had
+    // nothing to send. Note that `running` is still true here, since the
+    // session flips to idle just after emitting this result — which is why
+    // the wait below, not this, is where "is it busy now" is asked.)
+    if (heldQueues.has(channelId)) return;
+    const attempt = (retries.get(channelId)?.attempt ?? 0) + 1;
+    const wait = RETRY_WAITS_MS[attempt - 1];
+    if (wait === undefined) {
+      cancelRetry(channelId);
+      recordEvent(channelId, {
+        kind: "info",
+        id: randomUUID(),
+        text: `${RETRY_WAITS_MS.length} goes and the API is still dropping it — leaving this one to you`,
+        ts: Date.now(),
+      });
+      return;
+    }
+    recordEvent(channelId, {
+      kind: "info",
+      id: randomUUID(),
+      text: `the API dropped that one — going again in ${Math.round(wait / 1000)}s (${attempt} of ${RETRY_WAITS_MS.length})`,
+      ts: Date.now(),
+    });
+    const timer = setTimeout(() => {
+      const project = channelProject(channelId);
+      // gone, or busy with something the user sent while we waited
+      if (!project || busy(channelId)) {
+        retries.delete(channelId);
+        return;
+      }
+      try {
+        manager.send(project, RETRY_NUDGE, undefined, undefined, true);
+      } catch {
+        retries.delete(channelId);
+      }
+    }, wait);
+    retries.set(channelId, { attempt, timer });
   }
 
   /**
@@ -940,16 +1139,21 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     text: string,
     uploads: AttachmentUpload[],
     split: boolean,
+    /** This prompt goes ahead of what is already queued — a queue that has
+     *  been standing by since a stop waited for this one, not the reverse. */
+    ahead = false,
   ): boolean {
     const { commands, rest } = splitCommands(text, knownCommands(ownerProject(channelId)?.path));
     if (commands.length === 0) return false;
-    const wasBusy = busy(channelId);
-    const queue = sendQueues.get(channelId) ?? [];
-    for (const command of commands) {
-      queue.push({ id: randomUUID(), text: command, uploads: [], silent: false });
-    }
+    const wasBusy = ahead ? running(channelId) : busy(channelId);
+    const entries: QueueEntry[] = commands.map((command) => ({
+      id: randomUUID(),
+      text: command,
+      uploads: [],
+      silent: false,
+    }));
     if (rest || uploads.length > 0) {
-      queue.push({
+      entries.push({
         id: randomUUID(),
         text: rest,
         uploads,
@@ -958,6 +1162,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
       });
     }
+    const queue = sendQueues.get(channelId) ?? [];
+    if (ahead) queue.unshift(...entries);
+    else queue.push(...entries);
     sendQueues.set(channelId, queue);
     broadcastQueue(channelId);
     if (!wasBusy) drainQueue(channelId);
@@ -1258,11 +1465,33 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           // a harness without ruri's tools names its components in a file
           const owner = ownerProject(projectId);
           if (owner) drainComponentRequests(owner.path, projectId, componentHost);
-          drainQueue(projectId);
+          // a prompt already waiting is a better answer to a dropped turn
+          // than a nudge is, and it has just gone out
+          if (!drainQueue(projectId)) maybeRetry(projectId, event);
+          else cancelRetry(projectId);
         }
       },
       onDelta: (projectId, messageId, delta) => broadcast({ type: "delta", projectId, messageId, delta }),
-      onStatus: (projectId, status) => broadcast({ type: "status", projectId, status }),
+      onStatus: (projectId, status) => {
+        if (status === "working" || status === "permission") {
+          startTurn(projectId);
+          // coming back from a card the user sat on for ten minutes is not
+          // a silence the model owes anyone an explanation for
+          const turn = turnProgress.get(projectId);
+          if (turn && status === "working") turn.at = Date.now();
+        } else endTurn(projectId);
+        broadcast({ type: "status", projectId, status });
+      },
+      onProgress: (projectId, progress) => {
+        const turn = turnProgress.get(projectId);
+        if (!turn) return;
+        turn.at = Date.now();
+        // an exact count replaces the running estimate; an estimate only
+        // ever adds to it, so the number never walks backwards mid-stream
+        if (progress.tokens !== undefined) turn.tokens = Math.max(turn.tokens, progress.tokens);
+        else if (progress.chars) turn.tokens += progress.chars / CHARS_PER_TOKEN;
+        pushTurn(projectId);
+      },
       onPermission: (raw) => {
         // PreToolUse hooks run before the approval, so the input reaching
         // here may already hold a real vault value — the card shows handles
@@ -1373,7 +1602,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       drafts.remove(sessionId);
       tracker.removeProject(sessionId);
       contexts.delete(sessionId);
+      turnProgress.delete(sessionId);
+      turnSent.delete(sessionId);
+      cancelRetry(sessionId);
       sendQueues.delete(sessionId);
+      heldQueues.delete(sessionId);
       terminals.closeChannel(sessionId);
       closeBridge(sessionId);
     }
@@ -1465,8 +1698,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (msg.text.trim().length === 0 && !msg.attachments?.length) return;
         const channelId = msg.projectId;
         const uploads = msg.attachments ?? [];
-        if (queueWithCommands(channelId, msg.text, uploads, false)) break;
-        if (busy(channelId)) {
+        // the user is driving again: whatever ruri was about to try again
+        // for them, this prompt says it better
+        cancelRetry(channelId);
+        // A queue that has been standing by since a stopped turn: this
+        // prompt is the reason it stopped — a clarification, a correction —
+        // so it goes out now, ahead of the queue, and the queue falls in
+        // behind it and moves again the moment this turn is done.
+        const ahead = releaseQueue(channelId) && !running(channelId);
+        if (queueWithCommands(channelId, msg.text, uploads, false, ahead)) break;
+        if (!ahead && busy(channelId)) {
           // hold it app-side — nothing reaches the harness until the
           // running turn (and everything queued before it) finishes
           const queue = sendQueues.get(channelId) ?? [];
@@ -1488,9 +1729,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (msg.text.trim().length === 0) return;
         const channelId = msg.projectId;
         const uploads = msg.attachments ?? [];
+        cancelRetry(channelId);
         if (!channelProject(channelId)) throw new Error("unknown session");
-        if (queueWithCommands(channelId, msg.text, uploads, true)) break;
-        dispatchSplit(channelId, msg.text, uploads);
+        const ahead = releaseQueue(channelId) && !running(channelId);
+        if (queueWithCommands(channelId, msg.text, uploads, true, ahead)) break;
+        dispatchSplit(channelId, msg.text, uploads, ahead);
         break;
       }
       case "queue_remove": {
@@ -1498,10 +1741,19 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         if (!queue) break;
         const kept = queue.filter((e) => e.id !== msg.itemId || e.silent);
         if (kept.length !== queue.length) {
-          if (kept.length === 0) sendQueues.delete(msg.projectId);
-          else sendQueues.set(msg.projectId, kept);
+          if (kept.length === 0) {
+            sendQueues.delete(msg.projectId);
+            heldQueues.delete(msg.projectId);
+          } else sendQueues.set(msg.projectId, kept);
           broadcastQueue(msg.projectId);
         }
+        break;
+      }
+      case "queue_send": {
+        // Sent on by hand from the queue's own card: what was standing by
+        // since the stop goes out now, in the order it was written.
+        if (!releaseQueue(msg.projectId)) break;
+        if (!running(msg.projectId)) drainQueue(msg.projectId);
         break;
       }
       case "remove_event": {
@@ -1808,6 +2060,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         drafts.remove(msg.sessionId);
         tracker.removeProject(msg.sessionId);
         contexts.delete(msg.sessionId);
+        turnProgress.delete(msg.sessionId);
+        turnSent.delete(msg.sessionId);
+        cancelRetry(msg.sessionId);
         closeBridge(msg.sessionId);
         store.removeSession(msg.sessionId);
         broadcast({ type: "projects", projects: store.list() });
@@ -1833,7 +2088,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       }
       case "interrupt": {
         interruptEpochs.set(msg.projectId, (interruptEpochs.get(msg.projectId) ?? 0) + 1);
-        if (sendQueues.delete(msg.projectId)) broadcastQueue(msg.projectId);
+        cancelRetry(msg.projectId);
+        // The queue is not thrown away with the answer — it stands by. It
+        // moves again on the next prompt (which goes ahead of it) or when
+        // it is sent on from its own card.
+        holdQueue(msg.projectId);
         manager.interrupt(msg.projectId);
         // settle the optimistic "working" a pending split may have shown
         broadcast({
@@ -2287,7 +2546,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         removeTurnFiles(HOME_ID);
         homeLog.endSession();
         sendQueues.delete(HOME_ID);
+        heldQueues.delete(HOME_ID);
         contexts.delete(HOME_ID);
+        cancelRetry(HOME_ID);
         broadcast({ type: "home_reset" });
         break;
       }
@@ -2375,6 +2636,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       components: components.all(boardIds),
       secrets: secrets.meta(),
       queued: Object.fromEntries(projectIds.map((id) => [id, visibleQueue(id)])),
+      queuesHeld: projectIds.filter((id) => heldQueues.has(id)),
       usage: usageLimits,
       // live figures first; anything not yet seen this run falls back to the
       // last one the archive recorded, so a relaunch shows real occupancy
@@ -2385,6 +2647,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           const tokens = archive.contextTokens(id);
           return tokens === undefined ? [] : [[id, { tokens, window: contextWindow(id) }] as const];
         }),
+      ),
+      turns: Object.fromEntries(
+        [...turnProgress].map(([id, turn]) => [id, { ...turn, tokens: Math.round(turn.tokens) }]),
       ),
       stats: ledger.all([...boardIds, HOME_ID]),
       catchups: Object.fromEntries(

@@ -64,6 +64,10 @@ export function installFixture(): void {
     musicDir: "/Users/you/Music/ruri",
     user: "you",
     statuses: { p1: "permission", p2: "working", p3: "idle" },
+    // p2's turn, mid-stream, for the working line under its draft. The
+    // other states that line has — the long quiet one especially — are a
+    // `turns` entry away through __ruri, which is what it is exposed for.
+    turns: { p2: { startedAt: now - 19_000, tokens: 1_340, at: now - 400 } },
     unread: { p2: true },
     models: [
       { value: "claude-fable-5[1m]", displayName: "Fable 5" },
@@ -230,6 +234,14 @@ export function installFixture(): void {
         { kind: "assistant", id: "e6", text: ASSISTANT_MD, ts: now - 50_000 },
         { kind: "result", id: "e7", ok: true, costUsd: 0.3148, durationMs: 42_000, ts: now - 49_000 },
         { kind: "user", id: "e8", text: "Yes — and push it when you're done.", ts: now - 20_000 },
+        {
+          kind: "assistant",
+          id: "e9",
+          text: "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.",
+          ts: now - 16_000,
+        },
+        { kind: "result", id: "e10", ok: false, error: "API Error: 529 Overloaded", transient: true, costUsd: 0.0412, durationMs: 9_000, ts: now - 15_000 },
+        { kind: "info", id: "e11", text: "the API dropped that one — going again in 8s (1 of 3)", ts: now - 15_000 },
       ],
     },
     permissions: [

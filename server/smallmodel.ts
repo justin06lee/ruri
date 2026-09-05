@@ -87,15 +87,37 @@ const REPLY_SUMMARY_SYSTEM = `You compress a coding agent's reply into the fewes
 Telegraphic fragments, almost caveman: keep what changed and where (files, functions, commands), decisions, errors hit, test/build results; drop narration, reasoning, filler.
 Never invent; only compress. Plain text, one line, no markdown, no trailing period.
 Degree of compression: a long reply about moving date parsing into a helper, fixing a type error, and the build passing becomes "date parsing moved to utils.ts; Form.tsx type error fixed; build passes".
-Aim for under 25 words.`;
+Aim for under 25 words.
 
-/** Compress one finished turn's reply to a terse recall note. */
+WORK THE REPLY PUT FORWARD BUT DID NOT DO
+Replies often end by offering what comes next: "next is stage 7 — cited lecture synthesis", a ranked list of things worth building, "want me to start on any of them?". That offer is the one part of a reply the user may still act on days later, so it survives the compression.
+When the reply names such work, append " · next: " to the note and then those items, numbered, in the reply's own order and its own words — one short clause each.
+This half is a record, not a compression: keep EVERY item the reply named, all seven if there are seven, and keep command names, flags, filenames and option names exactly as written. It is exempt from the 25-word aim.
+Only work the reply itself put forward as still to do. Work it already finished belongs in the outcome, not here — and a reply that offers nothing gets no " · next: " at all. Never invent an offer to fill the space.`;
+
+/**
+ * Compress one finished turn's reply to a terse recall note.
+ *
+ * The reply is fed head and tail rather than truncated, because what the
+ * model proposes it does next is written at the end — the exact half a
+ * plain `slice` throws away on the long replies that have most to propose.
+ */
 export async function summarizeReply(turn: Turn): Promise<string> {
   const prompt =
     `CONTEXT — WHAT THE USER HAD ASKED:\n${turn.user.slice(0, 1500)}\n\n` +
     (turn.tools.length ? `TOOLS THE AGENT USED: ${turn.tools.slice(0, 20).join(", ")}\n\n` : "") +
-    `AGENT REPLY TO COMPRESS:\n${turn.assistant.slice(0, 6000)}`;
-  return complete(REPLY_SUMMARY_SYSTEM, prompt, 120);
+    `AGENT REPLY TO COMPRESS:\n${endsIntact(turn.assistant, 8000)}`;
+  return complete(REPLY_SUMMARY_SYSTEM, prompt, 500);
+}
+
+/** Text cut to `budget`, from the middle: a third off the front is kept
+ *  whole and the rest comes off the end, so the close of a long reply —
+ *  where it says what it would do next — is always in what the model sees. */
+export function endsIntact(text: string, budget: number): string {
+  if (text.length <= budget) return text;
+  const head = Math.floor(budget / 3);
+  const tail = budget - head;
+  return `${text.slice(0, head)}\n\n[…${text.length - budget} characters of the middle omitted…]\n\n${text.slice(-tail)}`;
 }
 
 const BRIEF_SYSTEM = `You keep a one-screen brief of a software project: what it is, and what is in it.

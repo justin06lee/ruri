@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { send, useRuri } from "../store";
+import { getPref, setPref } from "../prefs";
 import {
   applyTheme,
   currentTheme,
@@ -440,6 +441,14 @@ export function Settings({ onClose }: { onClose(): void }) {
   const canPickFolder = useRuri((s) => s.canPickFolder);
   const [theme, setTheme] = useState<Theme>(currentTheme);
   const [schedule, setSchedule] = useState<ThemeSchedule>(getSchedule);
+  // the one preference the server reads for itself: the retry it does is
+  // the server's behaviour, so the server is where the switch is looked at
+  const [retry, setRetry] = useState(() => getPref("retryDroppedTurns") !== "off");
+
+  const keepRetry = (on: boolean) => {
+    setRetry(on);
+    setPref("retryDroppedTurns", on ? "on" : "off");
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -590,6 +599,32 @@ export function Settings({ onClose }: { onClose(): void }) {
               >
                 Change
               </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="settings-group">
+          <h2 className="settings-group-name">Sessions</h2>
+
+          <div className="settings-row">
+            <span className="settings-label">Dropped turns</span>
+            <div className="settings-value">
+              <button
+                className={`seg-option toggle ${retry ? "active" : ""}`}
+                title={
+                  retry
+                    ? "A turn the API drops — overloaded, a 5xx, a cut connection — goes again by itself: three tries, backing off, and the session carries on from where it stopped. Anything you send cancels the wait."
+                    : "A turn the API drops stops there, and waits for you to say continue."
+                }
+                onClick={() => keepRetry(!retry)}
+              >
+                {retry ? "Go again" : "Leave it"}
+              </button>
+              <span className="settings-note">
+                {retry
+                  ? "an overload is weather, not a decision — ruri waits it out and picks the turn back up"
+                  : "nothing is retried; a dropped turn stays dropped until you say otherwise"}
+              </span>
             </div>
           </div>
         </section>

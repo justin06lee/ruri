@@ -441,6 +441,13 @@ export type TranscriptEvent =
        *  or the user did: overloaded, a 5xx, a connection cut. The one
        *  class of failure that trying again is an answer to. */
       transient?: boolean;
+      /** The models that answered this turn, by their resolved ids, when the
+       *  harness says (Claude's modelUsage). A chat that switched model
+       *  mid-conversation shows the switch here. */
+      models?: string[];
+      /** Input tokens the turn read back from the prompt cache — the proof a
+       *  model switch (or a switch back) kept the conversation's prefix. */
+      cacheRead?: number;
       ts: number;
     }
   | { kind: "info"; id: string; text: string; ts: number }

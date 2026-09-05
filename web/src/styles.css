@@ -3768,6 +3768,80 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 1px 5px;
 }
 
+/* ── live plans reported by Codex / ACP harnesses ─────────────────── */
+
+.plan-event {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 12px;
+  color: var(--ink-soft);
+  background: var(--paper-dim);
+  border-left: 2px solid var(--edge);
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  animation: rise 160ms ease-out;
+}
+
+.plan-event.removed {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.plan-event-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.plan-event-head .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.plan-event-explanation,
+.plan-event-uri {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+}
+
+.plan-event-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plan-event-entry {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.plan-event-entry.completed {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.plan-event-entry.in_progress {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.plan-event-mark {
+  font-family: var(--mono);
+  text-align: center;
+}
+
 /* ── permissions: a bordered manga panel that demands attention ───── */
 
 .permission-card {
@@ -4266,6 +4340,37 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink);
 }
 
+.ask-hint {
+  margin-top: -4px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+}
+
+.ask-url {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--edge);
+  padding-bottom: 2px;
+}
+
+.ask-url:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.ask-url svg {
+  width: 12px;
+  height: 12px;
+}
+
 .ask-options {
   display: flex;
   flex-direction: column;
@@ -4354,6 +4459,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .ask-other {
+  width: 100%;
+  box-sizing: border-box;
   font: inherit;
   font-size: 12.5px;
   line-height: 1.5;

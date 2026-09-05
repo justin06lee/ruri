@@ -244,13 +244,20 @@ export class SecretStore {
   }
 
   /** How the model is told what it has — names and accounts, never values. */
-  briefing(): string {
+  briefing(placeholders = true): string {
     if (this.records.length === 0) return "";
     const lines = this.records.map((r) => {
-      const parts = [`- {{${r.name}}}`];
-      if (r.username) parts.push(`account "${r.username}" (also {{${r.name}.user}})`);
+      const slug = envSlug(r.name);
+      const parts = [placeholders ? `- {{${r.name}}}` : `- $RURI_SECRET_${slug}`];
+      if (r.username) {
+        parts.push(
+          placeholders
+            ? `account "${r.username}" (also {{${r.name}.user}})`
+            : `account "${r.username}" (also $RURI_USER_${slug})`,
+        );
+      }
       if (r.note) parts.push(r.note);
-      return `${parts[0]}${parts.length > 1 ? ` — ${parts.slice(1).join("; ")}` : ""}, or $RURI_SECRET_${envSlug(r.name)} in a shell`;
+      return `${parts[0]}${parts.length > 1 ? ` — ${parts.slice(1).join("; ")}` : ""}${placeholders ? `, or $RURI_SECRET_${slug} in a shell` : ""}`;
     });
     return [
       "<ruri:vault>",
@@ -258,9 +265,16 @@ export class SecretStore {
       "",
       ...lines,
       "",
-      "Two ways to use one:",
-      "- In a file or a command you write, put the handle literally: {{name}}. ruri replaces it with the real value after you finish writing and before the tool runs.",
-      "- In a shell command, use the environment variable: it is already set in your shell, e.g. `sudo -S true <<< \"$RURI_SECRET_NAME\"`.",
+      ...(placeholders
+        ? [
+            "Two ways to use one:",
+            "- In a file or a command you write, put the handle literally: {{name}}. ruri replaces it with the real value after you finish writing and before the tool runs.",
+            "- In a shell command, use the environment variable: it is already set in your shell, e.g. `sudo -S true <<< \"$RURI_SECRET_NAME\"`.",
+          ]
+        : [
+            "Use the environment variable in a shell command; it is already set in your shell, e.g. `sudo -S true <<< \"$RURI_SECRET_NAME\"`.",
+            "This harness cannot substitute {{handles}} before its tools run, so use the environment variable instead.",
+          ]),
       "",
       "Never echo, cat, print, or log a value. Never ask the user to paste one — you already have it. If a command's output happens to contain one, do not repeat it back.",
       "</ruri:vault>",

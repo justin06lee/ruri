@@ -70,6 +70,37 @@ check("a fork keeps the source chat's settings", store.effectiveSettings(fork.id
 const again = new ProjectStore();
 check("per-chat settings persist", again.effectiveSettings(a.id)?.model === "codex:gpt-5.6-sol" && again.effectiveSettings(c.id)?.effort === "low");
 
+/* ── crowning a default moves nothing that exists ──────────────────── */
+
+const later = new ProjectStore();
+const other = later.add("other", process.env["RURI_CONFIG_DIR"]!);
+check("a new project starts on the built-in default", later.effectiveSettings(other.sessions[0]!.id)?.model === DEFAULT_MODEL);
+const before = later.effectiveSettings(other.sessions[0]!.id)?.model;
+later.assignModelRole("opus[1m]", "default");
+check("the crown is the default from here on", later.defaultModel() === "opus[1m]");
+check("a project riding the old default is pinned to it", later.effectiveSettings(other.sessions[0]!.id)?.model === before);
+check("a chat with its own pick keeps it", later.effectiveSettings(a.id)?.model === "codex:gpt-5.6-sol");
+const newborn = later.add("newborn", process.env["RURI_CONFIG_DIR"]!);
+check("a project made after the crown starts on it", later.effectiveSettings(newborn.sessions[0]!.id)?.model === "opus[1m]");
+check("the crown is starred", later.starredModels().includes("opus[1m]"));
+
+/* ── the star's cycle: none → starred → small → default → none ─────── */
+
+const cyc = new ProjectStore();
+const roles = (m: string) => {
+  const r = cyc.cycleModelStar(m);
+  return `${r.starred.includes(m) ? "starred" : "-"} ${r.small === m ? "small" : "-"} ${r.default === m ? "default" : "-"}`;
+};
+check("one star: starred", roles("sonnet") === "starred - -");
+check("two: small tasks", roles("sonnet") === "starred small -");
+check("three: the default (small released)", roles("sonnet") === "starred - default");
+check("four: none", roles("sonnet") === "- - -");
+check("the previous default went back to plain starred", cyc.defaultModel() === DEFAULT_MODEL && cyc.starredModels().includes("opus[1m]"));
+cyc.assignModelRole("haiku", "small");
+cyc.assignModelRole("sonnet", "small");
+check("a role handed over leaves its old holder", cyc.modelRoles().small === "sonnet");
+check("and the old holder stays starred", cyc.starredModels().includes("haiku"));
+
 /* ── the wholesale form still clears the chats' own picks ──────────── */
 for (const s of again.get(project.id)!.sessions) delete s.model;
 again.update(project.id, { model: "opus" });

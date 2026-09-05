@@ -23,6 +23,8 @@ Ruri: typecheck, production macOS app build, provider event integration, command
 
 The packaged macOS app also boots with an isolated profile and advances native question cards correctly. The provider-event script retains regression coverage for required/optional answers, integer bounds, invalid numeric values, exact boolean and option values, single-answer cardinality and string lengths. The macOS build is unsigned; distribution signing remains separate.
 
+During packaged-app automation, Electron logged a `sandboxed_renderer.bundle.js` startup error (`binding.startupData` was null). The question navigation and model effort controls remained functional. Its cause is unverified; this was not a clean-console check.
+
 ## Dependency and release
 
 Ruri currently uses `file:../yagami`. `make` builds that sibling before installing Ruri dependencies; the packaged app bundles Yagami and requires no sibling at runtime. Yagami 0.8.1 is prepared but not published; the registry still serves 0.6.1. After publishing 0.8.1, switch Ruri back to the registry dependency and regenerate `bun.lock`.

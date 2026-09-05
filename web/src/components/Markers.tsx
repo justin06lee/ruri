@@ -196,6 +196,22 @@ export function releaseMarkers(text: string): string {
 }
 
 /**
+ * Whether a backspace at `at` is aimed at `marker`.
+ *
+ * Inside a chip, or right after it, is the whole chip — the same rule the
+ * attachment markers have always had. Commands need one more position: the
+ * space that finishes a command is what makes it a chip at all (see
+ * MARKER), the composer types it along with the name, and so the caret
+ * comes to rest one past the marker's end. Without this the first
+ * backspace ate only that space, which un-chipped the command and left it
+ * lying there as words to be deleted a letter at a time.
+ */
+export function backspaceHits(text: string, marker: Marker, at: number): boolean {
+  if (at > marker.start && at <= marker.end) return true;
+  return marker.kind === "command" && at === marker.end + 1 && text[marker.end] === " ";
+}
+
+/**
  * The prompt with one marker taken out, along with the space that separated
  * it from its neighbour — all of it, since a chip beside a chip is held
  * apart by more than one — so the words either side close up cleanly.

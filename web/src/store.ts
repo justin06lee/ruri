@@ -24,6 +24,7 @@ import {
   type ServerMessage,
   type TrackerItem,
   type TranscriptEvent,
+  type TurnProgress,
   type UsageLimits,
 } from "../../shared/protocol";
 import type { ComposerAttachment } from "./components/Attachments";
@@ -357,10 +358,16 @@ interface RuriState {
   closeSkillBody(): void;
   /** App-side prompt queue per channel — held until the running turn ends. */
   queued: Record<string, QueuedPrompt[]>;
+  /** Channels whose queue is standing by after a stopped turn: nothing goes
+   *  out until the next prompt pulls it along, or it is sent on by hand. */
+  queueHeld: Record<string, boolean>;
   /** Limit windows per provider id (percent used) for the usage gauges. */
   usage: Record<string, UsageLimits>;
   /** Context-window occupancy per channel. */
   contexts: Record<string, ContextUsage>;
+  /** How the running turn is getting on, per channel — what the working
+   *  line counts. Only channels with a turn in flight are in here. */
+  turns: Record<string, TurnProgress>;
   /** What each project has spent, keyed by PROJECT id (Home under "home"). */
   stats: Record<string, ProjectStats>;
   /** Sessions on disk from outside ruri, per PROJECT id, once asked for. */
@@ -429,9 +436,11 @@ export const useRuri = create<RuriState>((set) => ({
   skillsNote: null,
   skillBody: null,
   queued: {},
+  queueHeld: {},
   terminals: {},
   usage: {},
   contexts: {},
+  turns: {},
   stats: {},
   recent: {},
   catchups: {},
@@ -573,8 +582,10 @@ function apply(msg: ServerMessage): void {
         components: msg.components,
         secrets: msg.secrets,
         queued: msg.queued,
+        queueHeld: Object.fromEntries(msg.queuesHeld.map((id) => [id, true])),
         usage: msg.usage,
         contexts: msg.contexts,
+        turns: msg.turns,
         stats: msg.stats,
         catchups: Object.fromEntries(
           Object.entries(msg.catchups).map(([id, c]) => [id, { busy: false, at: 0, ...(c.built ? { built: c.built } : {}) }]),
@@ -618,7 +629,10 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "queued": {
-      setState((s) => ({ queued: { ...s.queued, [msg.projectId]: msg.items } }));
+      setState((s) => ({
+        queued: { ...s.queued, [msg.projectId]: msg.items },
+        queueHeld: { ...s.queueHeld, [msg.projectId]: msg.held === true },
+      }));
       break;
     }
     case "transcript": {
@@ -682,6 +696,18 @@ function apply(msg: ServerMessage): void {
     }
     case "context": {
       setState((s) => ({ contexts: { ...s.contexts, [msg.projectId]: msg.context } }));
+      break;
+    }
+    case "turn": {
+      setState((s) => {
+        if (msg.turn === null) {
+          if (!(msg.projectId in s.turns)) return {};
+          const turns = { ...s.turns };
+          delete turns[msg.projectId];
+          return { turns };
+        }
+        return { turns: { ...s.turns, [msg.projectId]: msg.turn } };
+      });
       break;
     }
     case "stats": {
@@ -786,7 +812,9 @@ function apply(msg: ServerMessage): void {
         statuses: { ...s.statuses, [HOME_ID]: "idle" },
         unread: { ...s.unread, [HOME_ID]: false },
         queued: { ...s.queued, [HOME_ID]: [] },
+        queueHeld: { ...s.queueHeld, [HOME_ID]: false },
         contexts: Object.fromEntries(Object.entries(s.contexts).filter(([k]) => k !== HOME_ID)),
+        turns: Object.fromEntries(Object.entries(s.turns).filter(([k]) => k !== HOME_ID)),
       }));
       break;
     }

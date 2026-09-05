@@ -58,6 +58,11 @@ export interface SessionEvents {
   /** Context-window occupancy after the session's latest API call, with the
    *  model's own window when the harness reports one (Codex does). */
   onContext(projectId: string, tokens: number, window?: number): void;
+  /** The running turn got further along: `chars` is model output streamed
+   *  since the last call (text or thinking — an estimate, because the
+   *  stream carries no counts), `tokens` the exact cumulative output-token
+   *  count the moment an API call finishes and reports one. */
+  onProgress(projectId: string, progress: { chars?: number; tokens?: number }): void;
   /** A turn's SDK chain uuid landed: the prompt's own uuid ("user", the
    *  file-rewind target) or the turn's latest entry ("last", the fork
    *  point for rewinding past it). Claude sessions only. */
@@ -400,6 +405,9 @@ class ProjectSession implements ChannelSession {
   private turnEventId: string | undefined;
   private readonly pending = new Map<string, PendingPermission>();
   private readonly pendingQuestions = new Map<string, PendingQuestion>();
+  /** Output tokens this turn has produced so far, across its API calls —
+   *  the number under the doodle. Zeroed when a turn starts and ends. */
+  private turnOutput = 0;
   /** File bytes captured by captureBefore, keyed by tool_use_id. */
   private readonly preimages = new Map<string, string | null>();
   /** The vault's substitution, when there is a vault (see secrets.ts). */
@@ -482,6 +490,7 @@ class ProjectSession implements ChannelSession {
         ts: Date.now(),
       });
     }
+    this.turnOutput = 0;
     this.setStatus("working");
     this.interrupted = false;
     this.session.send(text, images?.length ? { images } : {});
@@ -662,8 +671,15 @@ class ProjectSession implements ChannelSession {
     return [...this.pending.keys(), ...this.pendingQuestions.keys()];
   }
 
-  private onPermission = (req: YagamiPermissionRequest): Promise<PermissionDecision> =>
-    new Promise<PermissionDecision>((resolve) => {
+  private onPermission = (req: YagamiPermissionRequest): Promise<PermissionDecision> => {
+    // AskUserQuestion is asked through its card, by the PreToolUse hook
+    // above — by the time the call reaches here the user has already
+    // answered it or waved it past. Asking a second time, as allow/deny
+    // over the raw questions JSON, is a card nobody can act on: there is no
+    // decision left to make and the only thing it can do is confuse. So the
+    // call goes straight through.
+    if (req.toolName === "AskUserQuestion") return Promise.resolve({ behavior: "allow" });
+    return new Promise<PermissionDecision>((resolve) => {
       const requestId = randomUUID();
       this.pending.set(requestId, {
         resolve,
@@ -690,6 +706,7 @@ class ProjectSession implements ChannelSession {
         { once: true },
       );
     });
+  };
 
   private async run(): Promise<void> {
     try {
@@ -714,10 +731,19 @@ class ProjectSession implements ChannelSession {
       this.events.onSessionId(this.project.id, msg.session_id);
       void this.reportModels();
     } else if (msg.type === "stream_event" && msg.parent_tool_use_id === null) {
-      const event = msg.event as { type: string; delta?: { type?: string; text?: string } };
+      const event = msg.event as {
+        type: string;
+        delta?: { type?: string; text?: string; thinking?: string };
+      };
       if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
         this.draftId ??= randomUUID();
         this.events.onDelta(this.project.id, this.draftId, event.delta.text);
+        this.events.onProgress(this.project.id, { chars: event.delta.text.length });
+      } else if (event.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
+        // thinking is not shown, but it is the model working — a long think
+        // with the counter frozen reads like a hang, which is the one thing
+        // the working line exists to tell apart from a real one
+        this.events.onProgress(this.project.id, { chars: (event.delta.thinking ?? "").length });
       }
     } else if (msg.type === "user" && msg.parent_tool_use_id === null) {
       // The prompt's echo carries its chain uuid — pair it with the queued
@@ -760,6 +786,12 @@ class ProjectSession implements ChannelSession {
           (usage.cache_creation_input_tokens ?? 0) +
           (usage.output_tokens ?? 0);
         if (tokens > 0) this.events.onContext(this.project.id, tokens);
+        // the call is over, so its output is counted rather than guessed:
+        // this replaces whatever the stream estimated for it
+        if (usage.output_tokens) {
+          this.turnOutput += usage.output_tokens;
+          this.events.onProgress(this.project.id, { tokens: this.turnOutput });
+        }
       }
       const blocks =
         (msg.message as unknown as { content?: Array<Record<string, unknown> & { type: string }> })
@@ -799,12 +831,27 @@ class ProjectSession implements ChannelSession {
       // card stays, and an answer to it goes out as the next prompt
       for (const requestId of [...this.pendingQuestions.keys()]) this.questionWentLate(requestId);
       this.draftId = null;
+      this.turnOutput = 0;
       const stopped = this.interrupted;
       this.interrupted = false;
-      const ok = msg.subtype === "success";
+      // A turn the API dropped still comes back as subtype "success" — the
+      // CLI finished cleanly, it is the call inside it that did not. The
+      // flag that says so is is_error, and reading only the subtype is how
+      // an overloaded turn used to sign itself "done".
+      const finished = msg.subtype === "success" ? msg : undefined;
+      const apiError = finished !== undefined && finished.is_error === true;
+      const ok = finished !== undefined && !apiError;
+      const status = apiError ? (finished.api_error_status ?? null) : null;
       // the turn's own usage (per turn, main loop) — what the ledger adds up
       const spent = msg.usage as Partial<Usage> | undefined;
       const tokens = usageTokens(spent) ?? 0;
+      // the CLI already said it in full, as a message in the transcript —
+      // the line under it only has to name it, so it takes the first sentence
+      const failure = apiError
+        ? (firstSentence(finished.result) ?? `API error${status ? ` ${status}` : ""}`)
+        : "errors" in msg && msg.errors.length > 0
+          ? msg.errors.join("; ")
+          : msg.subtype;
       this.pushEvent({
         kind: "result",
         id: randomUUID(),
@@ -813,9 +860,8 @@ class ProjectSession implements ChannelSession {
         durationMs: msg.duration_ms,
         ...(tokens > 0 ? { tokens } : {}),
         ...(stopped ? { stopped: true } : {}),
-        ...(ok || stopped
-          ? {}
-          : { error: "errors" in msg && msg.errors.length > 0 ? msg.errors.join("; ") : msg.subtype }),
+        ...(ok || stopped ? {} : { error: failure }),
+        ...(!ok && !stopped && transientFailure(failure, status) ? { transient: true } : {}),
         ts: Date.now(),
       });
       this.setStatus("idle");
@@ -961,9 +1007,13 @@ class ProviderTurnSession implements ChannelSession {
           const piece = spaced(acc, event.text);
           acc += piece;
           this.events.onDelta(this.project.id, draftId, piece);
+          this.events.onProgress(this.project.id, { chars: piece.length });
         } else if (event.type === "done") {
           costUsd = event.costUsd;
           tokens = usageTokens(event.usage);
+          if (event.usage?.output_tokens) {
+            this.events.onProgress(this.project.id, { tokens: event.usage.output_tokens });
+          }
           reportProviderContext(this.events, this.project.id, this.providerId, this.lastSessionId, event.usage);
         }
       }
@@ -997,6 +1047,7 @@ class ProviderTurnSession implements ChannelSession {
       durationMs: Date.now() - started,
       ...(stopped ? { stopped: true } : {}),
       ...(error !== undefined ? { error } : {}),
+      ...(error !== undefined && !stopped && transientFailure(error) ? { transient: true } : {}),
       ts: Date.now(),
     });
     this.running = false;
@@ -1385,6 +1436,7 @@ class ProviderAgentSession implements ChannelSession {
           const piece = spaced(acc, event.text);
           acc += piece;
           this.events.onDelta(this.project.id, draftId, piece);
+          this.events.onProgress(this.project.id, { chars: piece.length });
         } else if (event.type === "thinking") {
           // the harness stopped to think, so whatever it was saying is said:
           // the next message starts its own block rather than running on
@@ -1399,6 +1451,9 @@ class ProviderAgentSession implements ChannelSession {
         } else if (event.type === "done") {
           costUsd = event.costUsd;
           tokens = usageTokens(event.usage);
+          if (event.usage?.output_tokens) {
+            this.events.onProgress(this.project.id, { tokens: event.usage.output_tokens });
+          }
           interrupted = event.stopReason === "interrupted";
           this.reportContext(event.usage);
         }
@@ -1428,6 +1483,7 @@ class ProviderAgentSession implements ChannelSession {
       ...(tokens ? { tokens } : {}),
       durationMs: Date.now() - started,
       ...(error !== undefined ? { error } : interrupted ? { stopped: true } : {}),
+      ...(error !== undefined && transientFailure(error) ? { transient: true } : {}),
       ts: Date.now(),
     });
     this.running = false;
@@ -1542,6 +1598,40 @@ class ProviderAgentSession implements ChannelSession {
     this.status = status;
     this.events.onStatus(this.project.id, status);
   }
+}
+
+/** The first sentence of a message, for a line that has room for one.
+ *  ("API Error: 529 Overloaded. This is a server-side issue, …" → the half
+ *  of it that says what happened.) */
+function firstSentence(text: string | undefined): string | undefined {
+  const trimmed = text?.trim();
+  if (!trimmed) return undefined;
+  const stop = trimmed.search(/[.!?](?:\s|$)/);
+  return stop > 0 ? trimmed.slice(0, stop) : trimmed.slice(0, 200);
+}
+
+/**
+ * Failures that are the wire's fault rather than the conversation's: the
+ * API was overloaded, a gateway fell over, a socket was cut. Sending the
+ * same turn again a moment later is a real answer to every one of them.
+ *
+ * Deliberately narrow. A usage limit is also a "429", and waiting fifteen
+ * seconds is not an answer to it — the window resets in hours, and a retry
+ * loop against it just burns the account's remaining requests. Same for a
+ * bad key, a refusal, a tool that threw: nothing about those changes on a
+ * second attempt, so they are left to the user.
+ */
+const TRANSIENT =
+  /\b5\d\d\b|overloaded|service unavailable|bad gateway|gateway time-?out|internal server error|econnreset|econnrefused|etimedout|epipe|socket hang up|fetch failed|network error|stream (?:error|closed|disconnected)/i;
+/** Limits and refusals wear transient-looking words but are not transient. */
+const NOT_TRANSIENT = /usage limit|rate limit|quota|credit|insufficient|out of (?:credits|tokens)|invalid api key|unauthorized|forbidden|authentication/i;
+
+/** Whether a failed turn's error reads like something worth simply redoing.
+ *  `status` is the HTTP status when the harness names one (Claude does). */
+export function transientFailure(text: string | undefined, status?: number | null): boolean {
+  if (typeof status === "number") return status >= 500 && status < 600;
+  if (!text || NOT_TRANSIENT.test(text)) return false;
+  return TRANSIENT.test(text);
 }
 
 /** A harness's usage report as one number: everything sent, everything back. */

@@ -2,7 +2,17 @@
  * The "thinking" indicator: a two-frame hand-drawn Ruri doodle (traced with
  * potrace from the user's sketches) that flips between poses every half
  * second. Inline SVG with fill: currentColor so it follows the theme ink.
+ *
+ * Beside it, the working line — what a running turn has done so far. A
+ * turn is otherwise a closed box between the prompt and the result, which
+ * is fine for the minute it usually takes and no help at all on the hour
+ * it sometimes takes: a doodle waving at you for forty minutes says the
+ * same thing whether the model is deep in a build or the connection died
+ * an hour ago. The clock, the token count and the gap since anything last
+ * came back are the three numbers that tell those apart.
  */
+import { useEffect, useState } from "react";
+import type { TurnProgress } from "../../../shared/protocol";
 
 const FRAMES: string[] = [
   "M3912 4933 c-46 -22 -81 -68 -88 -114 -5 -32 -16 -48 -53 -77 -95 -76 -178 -170 -245 -277 -118 -187 -231 -358 -275 -413 -49 -62 -31 -63 -219 14 -181 74 -529 187 -1028 333 -213 62 -529 169 -637 214 -21 9 -60 31 -85 49 -40 28 -55 33 -108 33 -50 0 -66 -4 -96 -27 -19 -15 -41 -42 -49 -60 -7 -18 -24 -48 -36 -67 -35 -51 -61 -144 -273 -961 -161 -625 -175 -701 -134 -770 61 -105 212 -109 274 -8 11 18 29 76 41 128 12 52 26 104 32 115 20 40 110 176 113 172 2 -2 15 -120 29 -263 47 -505 48 -509 107 -540 17 -9 57 -19 88 -21 111 -10 159 34 345 317 128 195 247 350 338 438 l54 54 7 -124 c4 -67 16 -224 27 -347 21 -241 35 -297 88 -374 59 -87 113 -110 191 -82 79 28 136 74 230 185 93 111 374 390 392 390 6 0 8 -14 5 -32 -4 -18 -9 -200 -13 -405 l-7 -372 -26 18 c-65 47 -164 65 -224 42 -65 -25 -265 -227 -443 -449 l-83 -103 -10 38 c-38 133 -82 397 -96 573 -8 107 -20 212 -26 233 -31 111 -159 161 -250 97 -32 -23 -68 -89 -69 -124 0 -10 -22 -54 -49 -96 -47 -73 -117 -229 -231 -515 -28 -71 -54 -134 -57 -138 -3 -5 -33 44 -67 110 -111 212 -300 519 -342 554 -34 30 -62 32 -109 9 -57 -28 -101 -81 -115 -139 -18 -75 -23 -593 -11 -1115 13 -554 19 -615 60 -666 34 -42 83 -77 125 -88 55 -15 820 22 1121 54 77 9 263 18 413 21 l272 6 0 -120 c0 -66 3 -148 6 -182 l7 -61 182 0 182 0 6 107 c24 391 -7 520 -143 588 -30 16 -54 17 -195 12 -88 -3 -212 -11 -275 -16 -169 -15 -475 -39 -640 -51 -139 -10 -637 -30 -747 -30 l-53 0 1 328 c1 180 4 358 8 395 l6 68 71 -128 c86 -154 103 -168 210 -168 62 1 76 4 108 28 74 57 144 183 251 455 38 95 72 169 75 165 3 -5 16 -63 28 -130 12 -67 35 -177 51 -245 17 -67 35 -154 41 -192 14 -91 31 -128 71 -157 46 -32 132 -38 176 -10 17 11 92 100 166 199 74 98 198 247 276 330 l141 151 56 -77 c31 -42 83 -105 115 -139 36 -37 59 -70 59 -84 0 -37 46 -105 84 -123 19 -9 56 -16 84 -16 62 0 109 30 138 86 20 40 21 62 27 425 6 437 -8 1334 -22 1394 -5 21 -20 46 -32 56 -50 38 -206 51 -293 25 -51 -15 -123 -78 -404 -348 -85 -82 -157 -148 -162 -148 -10 0 -28 97 -35 190 -3 41 -7 198 -9 349 -5 314 -2 306 -96 354 -88 45 -129 39 -231 -32 -105 -73 -357 -330 -489 -499 -52 -67 -98 -121 -101 -122 -3 0 -9 127 -12 283 -4 155 -11 300 -16 321 -18 73 -145 176 -218 176 -16 0 -38 -7 -49 -15 -10 -8 -22 -15 -26 -15 -13 0 35 147 113 341 43 109 79 204 79 210 0 13 -48 28 490 -149 938 -310 992 -329 1172 -414 203 -96 250 -105 337 -68 64 28 121 90 233 254 71 105 235 326 242 326 1 0 2 -127 1 -282 0 -312 7 -358 62 -430 40 -52 73 -68 135 -68 116 1 211 61 472 304 99 91 181 164 183 162 4 -4 -66 -336 -97 -454 -11 -44 -67 -239 -126 -433 -152 -509 -179 -632 -229 -1029 -29 -228 -90 -547 -131 -685 -49 -166 -73 -269 -93 -403 -12 -74 -23 -137 -25 -140 -2 -4 0 -38 5 -76 7 -53 15 -76 33 -95 14 -14 32 -42 40 -62 19 -45 114 -222 219 -407 l80 -142 154 0 c117 0 153 3 153 13 0 33 -90 197 -319 582 -83 139 -101 177 -101 210 0 57 40 215 120 475 81 260 97 333 150 682 50 329 76 442 162 712 138 430 160 503 219 728 124 472 216 887 226 1015 6 78 4 85 -21 123 -37 56 -79 80 -141 80 -65 0 -104 -25 -148 -92 -19 -29 -72 -89 -118 -133 -71 -67 -152 -131 -466 -369 l-25 -19 7 147 c14 273 20 636 12 668 -27 101 -144 156 -235 111z M3749 3281 c-50 -31 -122 -129 -140 -192 -10 -33 -9 -47 11 -101 12 -35 31 -75 41 -89 56 -79 300 -103 383 -38 39 31 78 120 83 193 8 91 -2 131 -44 177 -57 63 -97 79 -201 79 -80 0 -92 -3 -133 -29z",
@@ -19,6 +29,80 @@ export function Thinking() {
           </g>
         </svg>
       ))}
+    </div>
+  );
+}
+
+/* ── the working line ────────────────────────────────────────────── */
+
+/**
+ * What Ruri is doing, allegedly. The word means nothing — it is there so a
+ * line that is otherwise three numbers has a subject, and so a long wait
+ * visibly keeps moving. Sleepy, dragon-ish, a bit put-upon: the voice the
+ * Home agent already uses.
+ */
+const WORDS = [
+  "Undulating", "Pondering", "Ruminating", "Noodling", "Mulling",
+  "Percolating", "Simmering", "Brooding", "Puzzling", "Untangling",
+  "Rummaging", "Burrowing", "Circling", "Squinting", "Whittling",
+  "Tinkering", "Wrangling", "Hatching", "Scheming", "Sifting",
+  "Prowling", "Lumbering", "Slouching", "Stretching", "Grumbling",
+  "Trundling", "Skulking", "Meandering", "Dawdling", "Smouldering",
+  "Roosting", "Preening", "Hoarding", "Kindling", "Drowsing",
+];
+/** How long each word stays before the next one. */
+const WORD_MS = 5_000;
+/** Nothing back for this long is worth saying out loud — under it, a gap
+ *  is just a tool running, and a warning every time one did would teach
+ *  the user to ignore the line. */
+const QUIET_MS = 90_000;
+
+function words(startedAt: number, now: number): string {
+  // seeded off the start so two turns running side by side don't chant
+  const offset = Math.floor(startedAt / WORD_MS);
+  return WORDS[(offset + Math.floor((now - startedAt) / WORD_MS)) % WORDS.length]!;
+}
+
+/** 42s, 3m 08s, 1h 14m — as long as it has been, in as few characters. */
+function elapsed(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+}
+
+/** 309, 1.3k, 47k — the shape the CLI's own counter uses. */
+function tokens(n: number): string {
+  if (n < 1000) return String(Math.round(n));
+  if (n < 100_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${Math.round(n / 1000)}k`;
+}
+
+export function WorkingLine({ turn, effort }: { turn: TurnProgress; effort: string }) {
+  // one tick a second: the clock has to move, and nothing else on screen
+  // is going to move it while a turn sits in a long tool call
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const quiet = now - turn.at;
+  return (
+    <div className="working-line">
+      <span className="working-word">{words(turn.startedAt, now)}…</span>
+      <span className="working-stats">
+        ({elapsed(now - turn.startedAt)}
+        {turn.tokens > 0 && ` · ↓ ${tokens(turn.tokens)} tokens`}
+        {` · ${effort} effort`}
+        {quiet > QUIET_MS && (
+          // the one part of this line worth reading twice: everything else
+          // says "still going", this says "and nothing has come back since"
+          <span className="working-quiet"> · quiet for {elapsed(quiet)}</span>
+        )}
+        )
+      </span>
     </div>
   );
 }

@@ -111,7 +111,16 @@ export function splitCommands(
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     const whole = COMMAND_LINE.exec(trimmed);
-    if (whole && known.has(whole[1]!.toLowerCase())) {
+    const name = whole?.[1]?.toLowerCase();
+    // The whole line is one command and everything after it — but only for
+    // the commands that take arguments. ruri's own take none, so "/compact
+    // now go and read the provider layer" is a compaction and then a
+    // prompt, not a compaction with a paragraph attached. Reading it whole
+    // here is how a "/compact" typed at the head of a prompt used to reach
+    // the harness intact, and the harness has a /compact of its own — so
+    // that is the one that ran. It falls through to the word pass below,
+    // which is what pulls the two apart.
+    if (name && known.has(name) && !RURI_COMMANDS.has(name)) {
       commands.push(trimmed);
       continue;
     }

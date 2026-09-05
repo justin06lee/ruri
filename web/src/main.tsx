@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { installCopy } from "./copy";
 import { installPressGuard } from "./press";
 import { initTheme, startThemeClock } from "./theme";
 import "@fontsource-variable/space-grotesk";
@@ -11,6 +12,8 @@ startThemeClock();
 if (navigator.userAgent.includes("Electron")) document.body.classList.add("desktop");
 // a press that starts on a button ends on it, however far the button moves
 installPressGuard();
+// copying a reply puts the markdown back, numbers and all
+installCopy();
 
 // A file dropped outside a drop zone must never navigate the window to the
 // file (which would blank the whole app); targeted handlers run first and

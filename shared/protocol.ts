@@ -343,6 +343,23 @@ export interface ProjectStats {
   week: Totals;
 }
 
+/**
+ * What the running turn has done so far — the numbers under the doodle
+ * while it works. A turn is otherwise a black box between the prompt and
+ * the result: this is how long it has been in there, how much has come
+ * back, and when anything last did.
+ */
+export interface TurnProgress {
+  /** When the prompt went out (epoch ms). */
+  startedAt: number;
+  /** Output tokens the harness has sent back this turn — exact as of each
+   *  finished API call, estimated from the stream in between. */
+  tokens: number;
+  /** When something last came back (epoch ms). A long gap here is a stall,
+   *  and the working line says so rather than counting quietly upward. */
+  at: number;
+}
+
 /** Context-window occupancy of a channel's live session, from the last call. */
 export interface ContextUsage {
   /** Tokens in the window right now (input + cache + output of last call). */
@@ -400,6 +417,10 @@ export type TranscriptEvent =
       error?: string;
       /** The turn ended because the user pressed stop — not an error. */
       stopped?: boolean;
+      /** The turn was dropped by the API rather than by anything the model
+       *  or the user did: overloaded, a 5xx, a connection cut. The one
+       *  class of failure that trying again is an answer to. */
+      transient?: boolean;
       ts: number;
     }
   | { kind: "info"; id: string; text: string; ts: number }
@@ -537,6 +558,9 @@ export type ClientMessage =
   /** Drop a prompt still waiting in the app-side queue. Editing one is this
    *  plus a compose: it leaves the queue and lands back in the composer. */
   | { type: "queue_remove"; projectId: string; itemId: string }
+  /** Send a queue that has been standing by since a stopped turn, now —
+   *  the alternative to waiting for the next prompt to pull it along. */
+  | { type: "queue_send"; projectId: string }
   /** Remove a transcript event (a clicked command chip). A user event takes
    *  the rest of its turn with it. */
   | { type: "remove_event"; projectId: string; eventId: string }
@@ -710,10 +734,15 @@ export type ServerMessage =
       secrets: SecretMeta[];
       /** App-side prompt queues per channel (visible entries only). */
       queued: Record<string, QueuedPrompt[]>;
+      /** Channels whose queue is standing by after a stopped turn. */
+      queuesHeld: string[];
       /** Limit windows per provider id (empty until the first read). */
       usage: Record<string, UsageLimits>;
       /** Context occupancy per channel (Claude sessions that have run). */
       contexts: Record<string, ContextUsage>;
+      /** How the turn in flight is getting on, per channel. Only channels
+       *  actually running a turn are in here. */
+      turns: Record<string, TurnProgress>;
       /** What each project has spent, keyed by PROJECT id (Home under its own). */
       stats: Record<string, ProjectStats>;
       /** When each project's catch-up brief was last built from the repo. */
@@ -772,8 +801,10 @@ export type ServerMessage =
   | { type: "starred_models"; models: string[] }
   | { type: "small_model"; model: string }
   | { type: "home_reset" }
-  /** The app-side prompt queue for a channel (visible, editable entries). */
-  | { type: "queued"; projectId: string; items: QueuedPrompt[] }
+  /** The app-side prompt queue for a channel (visible, editable entries).
+   *  `held` = standing by since a stopped turn: nothing goes out until the
+   *  next prompt pulls it along, or it is sent on by hand. */
+  | { type: "queued"; projectId: string; items: QueuedPrompt[]; held?: boolean }
   /** Transcript events were removed (a command chip was clicked away). */
   | { type: "events_removed"; projectId: string; eventIds: string[] }
   /** A whole transcript at once — a session that came into being with
@@ -792,6 +823,9 @@ export type ServerMessage =
   | { type: "usage"; limits: Record<string, UsageLimits> }
   /** A channel's context occupancy changed (after an API call). */
   | { type: "context"; projectId: string; context: ContextUsage }
+  /** The running turn got further along — or, with null, ended. Sent on a
+   *  throttle while the turn runs, so the working line keeps its count. */
+  | { type: "turn"; projectId: string; turn: TurnProgress | null }
   /** A project's spending changed (a turn finished). Keyed by PROJECT id. */
   | { type: "stats"; projectId: string; stats: ProjectStats }
   | { type: "event"; projectId: string; event: TranscriptEvent }

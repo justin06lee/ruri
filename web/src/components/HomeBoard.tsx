@@ -1,23 +1,27 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { HOME_ID, type Project, type ProjectStats, type SessionInfo, type Totals, type TranscriptEvent } from "../../../shared/protocol";
-import { getPref, setPref } from "../prefs";
 import { useRuri } from "../store";
 
 /**
- * The board on Home: every open project as a card, each with a few lines
- * of what its sessions are doing right now, and what it has all cost.
+ * Home's two pages and the strip that swaps them.
  *
  * Home is the one place that is not a project, so it is the one place to
  * see all of them at once — which project is working, which is waiting on
  * you, what the last thing each one did was — without walking the sidebar.
- * The lines are live: a streaming reply's tail moves as it streams, a tool
- * call shows the moment it's made. The figures come off the ledger
+ * That is the projects page: every open project as a card with a few live
+ * lines of what its sessions are doing right now, and what it has all
+ * cost. The lines are live: a streaming reply's tail moves as it streams,
+ * a tool call shows the moment it's made. The figures come off the ledger
  * (server/ledger.ts), which is what makes them true across rewinds,
  * compactions and relaunches.
  *
- * It sits above the Home agent rather than replacing it: the board is what
- * is going on, the agent underneath is where you say what should be.
+ * The other page is the Home agent's chat. They used to share the pane,
+ * the board stacked over the agent, and each got in the other's way: the
+ * board squeezed to half a card's height, the agent pushed to the floor.
+ * Now the strip at the top picks one, and remembers the choice.
  */
+
+export type HomeTab = "chat" | "projects";
 
 /** "1.3M", "84k", "512" — room for one number, not a locale's worth. */
 export function shortCount(n: number): string {
@@ -127,7 +131,7 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
   return (
     <button
       type="button"
-      className={`board-session ${status}`}
+      className="board-session"
       title={`Open ${session.title ?? "this session"}`}
       onClick={() => setActive(session.id)}
     >
@@ -151,44 +155,59 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
   );
 });
 
-function Figures({ totals, label }: { totals: Totals; label: string }) {
+function figuresTitle(label: string, totals: Totals): string {
+  return `${label}: ${totals.tokens.toLocaleString()} tokens, ${money(totals.costUsd)} at API prices, ${totals.turns} turns, ${span(totals.ms)} of turns`;
+}
+
+/** A card's figures for one span: the cost leads, the rest follows. */
+function CardFigures({ totals, label }: { totals: Totals; label: string }) {
   return (
-    <span className="board-figures" title={`${label}: ${totals.tokens.toLocaleString()} tokens, ${money(totals.costUsd)} at API prices, ${totals.turns} turns, ${span(totals.ms)} of turns`}>
-      <span className="board-figure-label">{label}</span>
-      <b>{shortCount(totals.tokens)}</b>
-      <span className="board-figure-unit">tok</span>
-      <b>{money(totals.costUsd)}</b>
-      <b>{totals.turns}</b>
-      <span className="board-figure-unit">{totals.turns === 1 ? "turn" : "turns"}</span>
+    <span className="pcard-fig" title={figuresTitle(label, totals)}>
+      <span className="pcard-fig-label">{label}</span>
+      <span className="pcard-fig-row">
+        <b>{money(totals.costUsd)}</b>
+        <span>{shortCount(totals.tokens)} tok</span>
+        <span>{totals.turns} {totals.turns === 1 ? "turn" : "turns"}</span>
+      </span>
     </span>
   );
 }
 
-function ProjectCard({ project, stats }: { project: Project; stats: ProjectStats | undefined }) {
-  const statuses = useRuri((s) => s.statuses);
+/** The page's own figures for one span — a tile, cost in large type. */
+function StatTile({ totals, label }: { totals: Totals; label: string }) {
+  return (
+    <div className="stat-tile" title={figuresTitle(label, totals)}>
+      <span className="stat-label">{label}</span>
+      <span className="stat-cost">{money(totals.costUsd)}</span>
+      <span className="stat-sub">
+        <span><b>{shortCount(totals.tokens)}</b> tok</span>
+        <span><b>{totals.turns}</b> {totals.turns === 1 ? "turn" : "turns"}</span>
+        {totals.ms > 0 && <span><b>{span(totals.ms)}</b></span>}
+      </span>
+    </div>
+  );
+}
+
+type Status = "permission" | "working" | "error" | "idle";
+
+const WORD: Record<Status, string> = { permission: "needs you", working: "working", error: "error", idle: "idle" };
+
+function ProjectCard({ project, stats, status }: { project: Project; stats: ProjectStats | undefined; status: Status }) {
   const setActive = useRuri((s) => s.setActive);
-  const status = project.sessions.some((x) => statuses[x.id] === "permission")
-    ? "permission"
-    : project.sessions.some((x) => statuses[x.id] === "working")
-      ? "working"
-      : project.sessions.some((x) => statuses[x.id] === "error")
-        ? "error"
-        : "idle";
-  const word = { permission: "needs you", working: "working", error: "error", idle: "idle" }[status];
   const first = project.sessions[0];
   return (
-    <div className={`board-card ${status}`}>
+    <div className={`pcard st-${status}`}>
       <div
-        className="board-card-head"
+        className="pcard-head"
         role={first ? "button" : undefined}
         onClick={() => first && setActive(first.id)}
         title={first ? `Open ${project.name}` : undefined}
       >
         <span className={`dot ${status}`} aria-hidden />
-        <span className="board-card-name">{project.name}</span>
-        <span className="board-card-status">{word}</span>
+        <span className="pcard-name">{project.name}</span>
+        <span className="pcard-status">{WORD[status]}</span>
       </div>
-      <div className="board-card-body">
+      <div className="pcard-body">
         {project.sessions.length === 0 ? (
           <span className="board-line note">no sessions open</span>
         ) : (
@@ -198,77 +217,158 @@ function ProjectCard({ project, stats }: { project: Project; stats: ProjectStats
         )}
       </div>
       {stats && (stats.total.turns > 0 || stats.today.turns > 0) && (
-        <div className="board-card-foot">
-          <Figures totals={stats.today} label="today" />
-          <Figures totals={stats.total} label="all" />
+        <div className="pcard-foot">
+          <CardFigures totals={stats.today} label="today" />
+          <CardFigures totals={stats.total} label="all time" />
         </div>
       )}
     </div>
   );
 }
 
-const RANK = { permission: 0, working: 1, error: 2, idle: 3 } as const;
+const RANK: Record<Status, number> = { permission: 0, working: 1, error: 2, idle: 3 };
 
-export function HomeBoard() {
+/** What a project is up to, from its sessions: the most urgent one wins. */
+function statusOf(project: Project, statuses: Record<string, string>): Status {
+  let best: Status = "idle";
+  for (const session of project.sessions) {
+    const s = statuses[session.id];
+    const status: Status = s === "permission" || s === "working" || s === "error" ? s : "idle";
+    if (RANK[status] < RANK[best]) best = status;
+  }
+  return best;
+}
+
+/**
+ * The strip at the top of Home: chat on one side, projects on the other.
+ * The projects tab carries the count and, while anything is running, the
+ * same pulsing dot the sidebar uses; the chat tab carries Home's own dot,
+ * so a turn you left running shows from the other page.
+ */
+export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) => void }) {
+  const projects = useRuri((s) => s.projects);
+  const statuses = useRuri((s) => s.statuses);
+  const homeStatus = statuses[HOME_ID] ?? "idle";
+  let working = 0;
+  let waiting = 0;
+  for (const project of projects) {
+    for (const session of project.sessions) {
+      if (statuses[session.id] === "working") working++;
+      else if (statuses[session.id] === "permission") waiting++;
+    }
+  }
+  const live = waiting > 0 ? "permission" : working > 0 ? "working" : null;
+  return (
+    <div className="home-tabs">
+      <div className="home-tabs-group" role="tablist" aria-label="Home">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "chat"}
+          className={`home-tab ${tab === "chat" ? "on" : ""}`}
+          title="The Home agent — ask it to open and close projects"
+          onClick={() => onTab("chat")}
+        >
+          chat
+          {(homeStatus === "working" || homeStatus === "permission") && (
+            <span className={`dot ${homeStatus}`} aria-label={homeStatus === "working" ? "Home is working" : "Home needs you"} />
+          )}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "projects"}
+          className={`home-tab ${tab === "projects" ? "on" : ""}`}
+          title={
+            waiting > 0
+              ? `${waiting} waiting on you, ${working} working`
+              : working > 0
+                ? `${working} working`
+                : "Every open project at a glance"
+          }
+          onClick={() => onTab("projects")}
+        >
+          projects
+          {projects.length > 0 && <span className="home-tab-count">{projects.length}</span>}
+          {live && <span className={`dot ${live}`} aria-label={live === "permission" ? "a project needs you" : "projects working"} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Every open project on one page: what they are doing and what it cost. */
+export function ProjectsPage() {
   const projects = useRuri((s) => s.projects);
   const statuses = useRuri((s) => s.statuses);
   const stats = useRuri((s) => s.stats);
-  const [folded, setFolded] = useState(getPref("ruri-home-board") === "folded");
 
-  const ordered = useMemo(() => {
-    const rank = (p: Project) =>
-      Math.min(...p.sessions.map((x) => RANK[statuses[x.id] ?? "idle"]), RANK.idle);
-    return [...projects].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  const { live, idle } = useMemo(() => {
+    const ranked = projects
+      .map((project) => ({ project, status: statusOf(project, statuses) }))
+      .sort((a, b) => RANK[a.status] - RANK[b.status] || a.project.name.localeCompare(b.project.name));
+    return {
+      live: ranked.filter((x) => x.status !== "idle"),
+      idle: ranked.filter((x) => x.status === "idle"),
+    };
   }, [projects, statuses]);
 
-  const working = projects.flatMap((p) => p.sessions).filter((x) => statuses[x.id] === "working").length;
-  const waiting = projects.flatMap((p) => p.sessions).filter((x) => statuses[x.id] === "permission").length;
+  const working = live.filter((x) => x.status === "working").length;
+  const waiting = live.filter((x) => x.status === "permission").length;
+  const errored = live.filter((x) => x.status === "error").length;
   const ids = [...projects.map((p) => p.id), HOME_ID];
   const today = sum(ids.map((id) => stats[id]?.today ?? NONE));
   const week = sum(ids.map((id) => stats[id]?.week ?? NONE));
   const total = sum(ids.map((id) => stats[id]?.total ?? NONE));
 
-  if (projects.length === 0) return null;
-
-  const toggle = () => {
-    setFolded(!folded);
-    setPref("ruri-home-board", folded ? "open" : "folded");
-  };
+  const grid = (items: typeof live) => (
+    <div className="projects-grid">
+      {items.map(({ project, status }) => (
+        <ProjectCard key={project.id} project={project} stats={stats[project.id]} status={status} />
+      ))}
+    </div>
+  );
 
   return (
-    <section className={`home-board ${folded ? "folded" : ""}`}>
-      <div className="home-board-head">
-        <span className="home-board-title">
-          {projects.length === 1 ? "1 project" : `${projects.length} projects`}
-          <span className="home-board-live">
-            {working > 0 && <span className="working">{working} working</span>}
-            {waiting > 0 && <span className="permission">{waiting} waiting on you</span>}
-            {working === 0 && waiting === 0 && <span className="idle">all quiet</span>}
-          </span>
-        </span>
-        <span className="home-board-stats">
-          <Figures totals={today} label="today" />
-          <Figures totals={week} label="week" />
-          <Figures totals={total} label="all" />
-        </span>
-        <button
-          type="button"
-          className="icon-button home-board-fold"
-          title={folded ? "Show the projects" : "Fold the board to its numbers"}
-          onClick={toggle}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d={folded ? "M6 9l6 6 6-6" : "M6 15l6-6 6 6"} />
-          </svg>
-        </button>
-      </div>
-      {!folded && (
-        <div className="home-board-cards">
-          {ordered.map((project) => (
-            <ProjectCard key={project.id} project={project} stats={stats[project.id]} />
-          ))}
+    <div className="board-page projects-page">
+      <div className="board-inner projects-inner">
+        <div className="projects-head">
+          <div className="projects-count">
+            <span className="projects-count-n">
+              {projects.length}
+              <small>{projects.length === 1 ? "project" : "projects"}</small>
+            </span>
+            <span className="projects-live">
+              {waiting > 0 && <span className="st-permission">{waiting} waiting on you</span>}
+              {working > 0 && <span className="st-working">{working} working</span>}
+              {errored > 0 && <span className="st-error">{errored} {errored === 1 ? "error" : "errors"}</span>}
+              {live.length === 0 && <span className="st-idle">{projects.length === 0 ? "nothing open" : "all quiet"}</span>}
+            </span>
+          </div>
+          <StatTile totals={today} label="today" />
+          <StatTile totals={week} label="this week" />
+          <StatTile totals={total} label="all time" />
         </div>
-      )}
-    </section>
+
+        {projects.length === 0 && (
+          <div className="board-empty projects-empty">
+            No projects open. Ask Home on the chat tab to open one — “let's work on X and Y today”.
+          </div>
+        )}
+
+        {live.length > 0 && (
+          <>
+            <div className="projects-group">live</div>
+            {grid(live)}
+          </>
+        )}
+        {idle.length > 0 && (
+          <>
+            {live.length > 0 && <div className="projects-group">idle</div>}
+            {grid(idle)}
+          </>
+        )}
+      </div>
+    </div>
   );
 }

@@ -1056,126 +1056,267 @@ input[type="range"]::-webkit-slider-thumb {
   animation: rise 240ms ease-out;
 }
 
-/* ── the home board ───────────────────────────────────────────────── */
+/* ── home: the tab strip ──────────────────────────────────────────── */
 
-/* Every open project on one board, above the Home agent. On the hero it
-   takes the top of the pane and the hero centres in what is left (the
-   hero's auto margins do that); over a conversation it is a band above the
-   transcript with its own scroll. */
-.home-board {
-  align-self: stretch;
-  flex: 0 1 auto;
-  min-height: 0;
-  max-height: 54%;
+/* Home is two pages under one strip: the agent's chat and the board of
+   every open project. Neither gets in the other's way — the strip picks
+   one and remembers it. On the hero it floats over the top the way the
+   rapid-fire header does, so the face stays centred in the pane; over a
+   conversation or the projects page it is a band of its own. */
+.home-tabs {
   display: flex;
-  flex-direction: column;
-  width: min(1080px, 100%);
-  margin: 0 auto;
-  padding: 14px 24px 6px;
+  align-items: center;
+  justify-content: center;
+  height: 46px;
+  flex-shrink: 0;
   animation: rise 200ms ease-out;
+}
+
+.home-hero .home-tabs {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
 }
 
 .home-hero .hero {
   margin: auto 0;
 }
 
-.chat:not(.home-hero) .home-board {
-  max-height: 38%;
-  border-bottom: 1.5px solid var(--hairline);
-  padding-bottom: 10px;
+.desktop .home-tabs {
+  -webkit-app-region: drag;
 }
 
-.home-board-head {
-  display: flex;
+.desktop .home-tabs button {
+  -webkit-app-region: no-drag;
+}
+
+.home-tabs-group {
+  display: inline-flex;
   align-items: center;
-  gap: 14px;
-  padding: 8px 12px;
+  gap: 2px;
+  padding: 3px;
   border: 1.5px solid var(--hairline);
-  border-radius: var(--radius-s);
+  border-radius: 999px;
+  background-color: var(--paper);
   background-image: var(--tone);
   background-size: 6px 6px;
-  flex-shrink: 0;
 }
 
-.home-board-title {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-weight: 700;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.home-board-live {
-  display: flex;
-  gap: 10px;
-  font-weight: 500;
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-
-.home-board-live .permission {
-  color: var(--ink);
-  font-weight: 700;
-}
-
-.home-board-stats {
-  display: flex;
-  gap: 16px;
-  margin-left: auto;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.board-figures {
+.home-tab {
   display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 13px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--ink-faint);
+  transition:
+    background 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.home-tab:hover {
+  color: var(--ink);
+  background: var(--paper-dim);
+  box-shadow: none;
+}
+
+.home-tab.on,
+.home-tab.on:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.home-tab:active {
+  transform: none;
+}
+
+.home-tab-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.3;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  opacity: 0.75;
+}
+
+/* `.working` is also the transcript's progress line, which pins itself to
+   the start of its column — a dot carrying the status word must not */
+.home-tab .dot,
+.pcard-head .dot,
+.board-session-title .dot {
+  align-self: center;
+}
+
+.home-tab .dot {
+  width: 7px;
+  height: 7px;
+  min-width: 7px;
+}
+
+.home-tab.on .dot.working {
+  background: var(--paper);
+  border-color: var(--paper);
+}
+
+.home-tab.on .dot.permission {
+  border-color: var(--paper);
+}
+
+/* ── home: the projects page ──────────────────────────────────────── */
+
+/* A board page like the tracker's: the page scrolls, the column inside
+   is as tall as its cards. Wider than the others — it is a grid, and a
+   card wants room for a line of a tool call. */
+.board-inner.projects-inner {
+  max-width: 1160px;
+  padding: 6px 28px 56px;
+}
+
+/* the head: how many, what state they are in, and the three spans of
+   spend as tiles — cost in large type, tokens and turns under it */
+.projects-head {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+
+.projects-count {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 14px 18px;
+  border: 1.5px solid var(--hairline);
+  border-radius: var(--radius-m);
+  background-image: var(--tone);
+  background-size: 6px 6px;
+}
+
+.projects-count-n {
+  display: flex;
   align-items: baseline;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--ink-soft);
-  white-space: nowrap;
+  gap: 7px;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 
-.board-figures b {
+.projects-count-n small {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.projects-live {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.projects-live .st-permission {
   color: var(--ink);
   font-weight: 700;
 }
 
-.board-figures b + b {
-  margin-left: 5px;
+.projects-live .st-idle {
+  color: var(--ink-faint);
 }
 
-.board-figure-label {
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 16px 11px;
+  border: 2px solid var(--edge);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  box-shadow: var(--shadow-hard);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+
+[data-theme="dark"] .stat-tile,
+[data-theme="ember"] .stat-tile {
+  border-color: color-mix(in srgb, var(--ink) 22%, var(--paper));
+}
+
+.stat-label,
+.pcard-fig-label,
+.projects-group {
   font-family: var(--mono);
   font-size: 10px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-faint);
-  margin-right: 3px;
 }
 
-.board-figure-unit {
-  font-size: 10.5px;
+.stat-cost {
+  font-size: 23px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.stat-sub {
+  display: flex;
+  gap: 9px;
+  font-size: 11.5px;
   color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
-.home-board-fold {
-  flex-shrink: 0;
+.stat-sub b {
+  color: var(--ink-soft);
+  font-weight: 700;
 }
 
-.home-board-cards {
-  min-height: 0;
-  overflow-y: auto;
+/* the cards come in two runs — the ones doing something, then the rest —
+   each under a small rule with a word on it */
+.projects-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 24px 0 12px;
+}
+
+.projects-group::after {
+  content: "";
+  flex: 1;
+  border-top: 1.5px solid var(--hairline);
+  opacity: 0.35;
+}
+
+.projects-empty {
+  margin-top: 24px;
+}
+
+.projects-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 12px;
-  padding: 12px 2px 6px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
 }
 
-/* a card is a small page: the name on a tab across the top, the lines
-   below it, the figures along the bottom */
-.board-card {
+.projects-head + .projects-grid {
+  margin-top: 24px;
+}
+
+/* a card is a small page: the name across the top, the lines below it,
+   the figures along the bottom. A live one stands off the page on the
+   hard shadow; an idle one sits flatter, so the eye lands on what moves. */
+.pcard {
   display: flex;
   flex-direction: column;
   background: var(--paper);
@@ -1184,61 +1325,89 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: var(--shadow-hard);
   overflow: hidden;
   min-width: 0;
+  animation: rise 200ms ease-out;
 }
 
-[data-theme="dark"] .board-card,
-[data-theme="ember"] .board-card {
+.pcard.st-idle {
+  box-shadow: var(--shadow-soft);
+}
+
+[data-theme="dark"] .pcard,
+[data-theme="ember"] .pcard {
   border-color: color-mix(in srgb, var(--ink) 22%, var(--paper));
 }
 
-.board-card-head {
+.pcard-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 11px;
+  gap: 9px;
+  padding: 9px 13px;
   border-bottom: 1.5px solid var(--hairline);
   cursor: pointer;
   user-select: none;
 }
 
-.board-card-head:hover {
-  background: var(--paper-dim);
+.pcard.st-working .pcard-head,
+.pcard.st-permission .pcard-head {
+  background-image: var(--tone);
+  background-size: 6px 6px;
 }
 
-.board-card-name {
-  font-weight: 700;
-  font-size: 13px;
+.pcard-head:hover {
+  background-color: var(--paper-dim);
+}
+
+.pcard-name {
+  font-weight: 800;
+  font-size: 14px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.board-card-status {
+.pcard-status {
   margin-left: auto;
   font-family: var(--mono);
   font-size: 10px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
+  line-height: 1.4;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1.5px solid transparent;
   color: var(--ink-faint);
   white-space: nowrap;
 }
 
-.board-card.working .board-card-status {
-  color: var(--ink-soft);
+.pcard.st-working .pcard-status {
+  color: var(--paper);
+  background: var(--ink);
+  border-color: var(--ink);
 }
 
-.board-card.permission .board-card-status {
+.pcard.st-permission .pcard-status {
   color: var(--ink);
+  background: var(--paper);
+  border-color: var(--ink);
   font-weight: 700;
+  animation: pulse 1.2s ease-in-out infinite;
 }
 
-.board-card-body {
+.pcard.st-error .pcard-status {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+}
+
+/* room for a session's three lines even when it has said nothing yet, so
+   the cards in a row line up */
+.pcard-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 4px;
+  gap: 3px;
+  padding: 7px 6px;
   flex: 1;
+  min-height: 74px;
 }
 
 /* a session's lines: the same target whether the card has one or three */
@@ -1248,7 +1417,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: stretch;
   gap: 2px;
   width: 100%;
-  padding: 4px 7px;
+  padding: 5px 8px;
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
@@ -1261,6 +1430,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .board-session:hover {
   background: var(--paper-dim);
+  box-shadow: none;
 }
 
 .board-session:active {
@@ -1280,7 +1450,7 @@ input[type="range"]::-webkit-slider-thumb {
 .board-line {
   display: block;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--ink-soft);
   white-space: nowrap;
   overflow: hidden;
@@ -1331,16 +1501,43 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
-.board-card-foot {
+/* the figures: two cells along the foot, today and all time, the cost
+   leading each */
+.pcard-foot {
   display: flex;
-  gap: 14px;
-  padding: 6px 11px 7px;
   border-top: 1.5px solid var(--hairline);
+}
+
+.pcard-fig {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 13px 7px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.pcard-fig + .pcard-fig {
+  border-left: 1.5px solid var(--hairline);
+}
+
+.pcard-fig-label {
+  font-size: 9.5px;
+}
+
+.pcard-fig-row {
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
   overflow: hidden;
 }
 
-.board-card-foot .board-figures {
-  font-size: 11px;
+.pcard-fig-row b {
+  color: var(--ink);
+  font-weight: 700;
 }
 
 /* the circle the face sits in — the frame carries the chrome, the image

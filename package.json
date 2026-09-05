@@ -1,6 +1,6 @@
 {
   "name": "ruri",
-  "version": "0.60.0",
+  "version": "0.61.0",
   "description": "One desktop workspace for all your projects, each a folder of live coding sessions.",
   "private": true,
   "type": "module",
@@ -28,6 +28,8 @@
     "recall-test": "tsx scripts/recall.ts",
     "settings-test": "tsx scripts/session-settings.ts",
     "model-switch-test": "tsx scripts/model-switch.ts",
+    "detach-test": "tsx scripts/detach.ts",
+    "updater-test": "tsx scripts/updater.ts",
     "question-test": "tsx scripts/question.ts",
     "naming-test": "tsx scripts/naming.ts",
     "fork-test": "tsx scripts/fork.ts",
@@ -84,6 +86,10 @@
       "!node_modules/**/*"
     ],
     "npmRebuild": false,
+    "asarUnpack": [
+      "dist-electron/**/*",
+      "dist-web/**/*"
+    ],
     "mac": {
       "target": [
         {

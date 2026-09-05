@@ -264,6 +264,7 @@ export const Sidebar = memo(function Sidebar() {
   const projects = useRuri((s) => s.projects);
   const connected = useRuri((s) => s.connected);
   const user = useRuri((s) => s.user);
+  const updateVersion = useRuri((s) => s.updateVersion);
   const [expandedSet, setExpandedSet] = useState<Set<string>>(loadExpanded);
   const settingsOpen = useRuri((s) => s.settingsOpen);
   const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
@@ -361,6 +362,14 @@ export const Sidebar = memo(function Sidebar() {
           <path d="M4 21c1.5-4 4.4-6 8-6s6.5 2 8 6" />
         </svg>
         <span className="account-name">{user || "account"}</span>
+        {updateVersion && (
+          <span
+            className="update-note"
+            title={`ruri ${updateVersion} is installed. It takes over the moment every session is idle — nothing running is interrupted.`}
+          >
+            v{updateVersion} waiting
+          </span>
+        )}
         {!connected && <span className="conn off" title="Reconnecting…" />}
         <button
           className={`icon-button ${settingsOpen ? "active" : ""}`}

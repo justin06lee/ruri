@@ -2,7 +2,26 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { HomeSettings, Project, SessionInfo } from "../shared/protocol.js";
+import {
+  DEFAULT_EFFORT,
+  DEFAULT_MODEL,
+  DEFAULT_PERMISSION_MODE,
+  type HomeSettings,
+  type Project,
+  type SessionInfo,
+} from "../shared/protocol.js";
+
+/** The settings a chat carries for itself: what SessionInfo holds beyond
+ *  its id and title. */
+export type SessionSettings = Pick<SessionInfo, "model" | "permissionMode" | "effort">;
+
+const SETTING_KEYS = ["model", "permissionMode", "effort"] as const;
+
+const DEFAULTS: Required<SessionSettings> = {
+  model: DEFAULT_MODEL,
+  permissionMode: DEFAULT_PERMISSION_MODE,
+  effort: DEFAULT_EFFORT,
+};
 
 function configDir(): string {
   return process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri");
@@ -198,6 +217,56 @@ export class ProjectStore {
     const found = this.findSession(sessionId);
     if (!found) return;
     found.project.sessions = found.project.sessions.filter((s) => s.id !== sessionId);
+    this.save();
+  }
+
+  /**
+   * A chat picks its own model, effort or mode.
+   *
+   * The pick lands on the session, and becomes the project's default so the
+   * next new chat starts on it — but a sibling that was riding the old
+   * default must not move with it: any sibling without its own value is
+   * first pinned to what it was effectively running on. "" clears a field
+   * back to the built-in default (pinned, not inherited, for the same reason).
+   */
+  setSessionSettings(sessionId: string, patch: SessionSettings): void {
+    const found = this.findSession(sessionId);
+    if (!found) return;
+    const { project, session } = found;
+    for (const key of SETTING_KEYS) {
+      if (!(key in patch)) continue;
+      const value = patch[key];
+      const was = project[key] ?? DEFAULTS[key];
+      for (const sibling of project.sessions) {
+        if (sibling.id === sessionId || sibling[key] !== undefined) continue;
+        (sibling as unknown as Record<string, unknown>)[key] = was;
+      }
+      (session as unknown as Record<string, unknown>)[key] = value || DEFAULTS[key];
+      const record = project as unknown as Record<string, unknown>;
+      if (value === undefined || value === "") delete record[key];
+      else record[key] = value;
+    }
+    this.save();
+  }
+
+  /** What a chat runs on: its own picks over the project's defaults. */
+  effectiveSettings(sessionId: string): Required<SessionSettings> | undefined {
+    const found = this.findSession(sessionId);
+    if (!found) return undefined;
+    return {
+      model: found.session.model || found.project.model || DEFAULTS.model,
+      permissionMode: found.session.permissionMode ?? found.project.permissionMode ?? DEFAULTS.permissionMode,
+      effort: found.session.effort || found.project.effort || DEFAULTS.effort,
+    };
+  }
+
+  /** Copy one chat's effective settings onto another — a fork keeps what it
+   *  forked from, whatever the project's default has become since. */
+  copySessionSettings(fromId: string, toId: string): void {
+    const settings = this.effectiveSettings(fromId);
+    const target = this.findSession(toId)?.session;
+    if (!settings || !target) return;
+    Object.assign(target, settings);
     this.save();
   }
 

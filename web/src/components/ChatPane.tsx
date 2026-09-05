@@ -484,7 +484,9 @@ const EFFORT_OPTIONS = EFFORT_LEVELS.map((level) => ({
   label: level === "xhigh" ? "XHigh" : level[0]!.toUpperCase() + level.slice(1),
 }));
 
-function SessionControls({ project }: { project: Project }) {
+/** The composer's three pickers. `channelId` is who the pick is for — this
+ *  chat (its session id) or Home — never the project: a pick is per chat. */
+function SessionControls({ project, channelId }: { project: Project; channelId: string }) {
   const allModels = useRuri((s) => s.models);
   const starredIds = useRuri((s) => s.starredModels);
   // An unset model IS Fable — there is no ambiguous "default" entry.
@@ -520,13 +522,13 @@ function SessionControls({ project }: { project: Project }) {
   // than silently asking the harness for a setting it will ignore.
   useEffect(() => {
     if (!selected || effortOptions.length === 0 || supportedEffort || !fallbackEffort) return;
-    send({ type: "set_effort", projectId: project.id, effort: fallbackEffort });
-  }, [selected?.value, pickedEffort, supportedEffort, fallbackEffort, effortOptions.length, project.id]);
+    send({ type: "set_effort", projectId: channelId, effort: fallbackEffort });
+  }, [selected?.value, pickedEffort, supportedEffort, fallbackEffort, effortOptions.length, channelId]);
   return (
     <div className="composer-controls">
       <Dropdown
         up
-        title="Model for this project's sessions — star models in Settings to curate this list"
+        title="Model for this chat — new chats start on the last pick; star models in Settings to curate this list"
         value={current}
         options={models.map((m) => ({
           // the model's own name only — which harness serves it is the
@@ -534,7 +536,7 @@ function SessionControls({ project }: { project: Project }) {
           value: m.value,
           label: m.displayName,
         }))}
-        onSelect={(model) => send({ type: "set_model", projectId: project.id, model })}
+        onSelect={(model) => send({ type: "set_model", projectId: channelId, model })}
       />
       {effortOptions.length > 0 && (
         <Dropdown
@@ -542,7 +544,7 @@ function SessionControls({ project }: { project: Project }) {
           title="Reasoning effort — choices reported by this model"
           value={supportedEffort ? pickedEffort : fallbackEffort ?? pickedEffort}
           options={effortOptions}
-          onSelect={(effort) => send({ type: "set_effort", projectId: project.id, effort })}
+          onSelect={(effort) => send({ type: "set_effort", projectId: channelId, effort })}
         />
       )}
       {canSetPermissions && (
@@ -552,7 +554,7 @@ function SessionControls({ project }: { project: Project }) {
           value={project.permissionMode ?? DEFAULT_PERMISSION_MODE}
           options={PERMISSION_MODES}
           onSelect={(mode) =>
-            send({ type: "set_permission_mode", projectId: project.id, mode: mode as PermissionMode })
+            send({ type: "set_permission_mode", projectId: channelId, mode: mode as PermissionMode })
           }
         />
       )}
@@ -1045,7 +1047,7 @@ export function Composer({
             />
           )}
           <div className="composer-bar">
-            {shell ? <span className="shell-where">{project.name} · shell</span> : <SessionControls project={project} />}
+            {shell ? <span className="shell-where">{project.name} · shell</span> : <SessionControls project={project} channelId={channelId} />}
             <div className="composer-actions">
               <button
                 className={`shell-toggle ${shell ? "active" : ""}`}
@@ -1296,9 +1298,17 @@ export function ChatPane({
   const home = useRuri((s) => s.home);
   const isHome = activeId === HOME_ID;
   const session = storeProject?.sessions.find((x) => x.id === activeId);
+  // What this chat runs on: its own model, effort and mode over the
+  // project's defaults — the same merge the server makes, so the pickers,
+  // the gauges and the working line all describe this chat, not its folder.
   const project: Project | undefined = isHome
     ? { id: HOME_ID, name: "ruri", path: workspaceDir, sessions: [], ...home }
-    : storeProject;
+    : storeProject && {
+        ...storeProject,
+        ...(session?.model ? { model: session.model } : {}),
+        ...(session?.permissionMode ? { permissionMode: session.permissionMode } : {}),
+        ...(session?.effort ? { effort: session.effort } : {}),
+      };
   const transcript = useRuri((s) => (activeId ? (s.transcripts[activeId] ?? NO_EVENTS) : NO_EVENTS));
   const draft = useRuri((s) => (activeId ? s.drafts[activeId] : undefined));
   const status = useRuri((s) => (activeId ? (s.statuses[activeId] ?? "idle") : "idle"));

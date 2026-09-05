@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import {
+  DEFAULT_MODEL,
   HOME_ID,
   type BridgeState,
   type ClientMessage,
@@ -395,6 +396,8 @@ interface RuriState {
   /** Starred model ids — the composer picker shows only these. */
   starredModels: string[];
   smallModel: string;
+  /** What an unset model means: the crowned default, else the built-in. */
+  defaultModel: string;
   /** The local account name shown on the sidebar's account bar. */
   user: string;
   /** Whether the host can show a native folder picker (Electron shell). */
@@ -453,6 +456,7 @@ export const useRuri = create<RuriState>((set) => ({
   home: {},
   starredModels: [],
   smallModel: "",
+  defaultModel: DEFAULT_MODEL,
   user: "",
   canPickFolder: false,
   picked: null,
@@ -597,6 +601,7 @@ function apply(msg: ServerMessage): void {
         home: msg.home,
         starredModels: msg.starredModels,
         smallModel: msg.smallModel,
+        defaultModel: msg.defaultModel,
         user: msg.user,
         // a mounted composer re-reads its channel's draft on the bump
         draftBumps: restored.reduce<Record<string, number>>(
@@ -802,6 +807,10 @@ function apply(msg: ServerMessage): void {
     }
     case "small_model": {
       setState({ smallModel: msg.model });
+      break;
+    }
+    case "default_model": {
+      setState({ defaultModel: msg.model });
       break;
     }
     case "home_reset": {

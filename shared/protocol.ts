@@ -3,9 +3,15 @@
 /** The pseudo-project id of the Home view — the workspace-manager agent. */
 export const HOME_ID = "home";
 
-/** The model a session runs on when none is picked — no ambiguous
- *  "default" entries anywhere; unset simply means Fable. */
-export const DEFAULT_MODEL = "claude-fable-5[1m]";
+/** The model a session runs on when none is picked and nothing has been
+ *  crowned the default in Settings (a third star does that). The built-in
+ *  fallback is the newest Fable; an unset model never means "whatever the
+ *  CLI feels like". */
+export const DEFAULT_MODEL = "claude-fable-5-1[1m]";
+
+/** The two roles a starred model can hold: the small-tasks model (notes,
+ *  titles, splitting, the tracker) and the default new chats start on. */
+export type ModelRole = "small" | "default";
 
 /**
  * One live coding session inside a project. Transcripts, statuses,
@@ -761,8 +767,11 @@ export type ClientMessage =
   | { type: "remove_session"; sessionId: string }
   | { type: "set_workspace"; path: string }
   | { type: "set_music_dir"; path: string }
-  /** Cycle a model's star: none → starred → small-tasks model → none. */
+  /** Cycle a model's star: none → starred → small-tasks → default → none. */
   | { type: "toggle_model_star"; model: string }
+  /** Hand a role to a model outright (the tag dragged onto its row); the
+   *  model is starred if it wasn't, and whoever held the role loses it. */
+  | { type: "set_model_role"; model: string; role: ModelRole }
   /** Wipe the Home chat (transcript + session) — it's ephemeral. */
   | { type: "reset_home" }
   /** Re-probe every installed harness's live model catalog. */
@@ -823,6 +832,9 @@ export type ServerMessage =
       starredModels: string[];
       /** The double-starred small-tasks model ("" = the built-in default). */
       smallModel: string;
+      /** The model new chats and projects start on: the triple-starred one,
+       *  else DEFAULT_MODEL. Always a real id, never "". */
+      defaultModel: string;
       /** The local account name shown on the sidebar's account bar. */
       user: string;
       /** This machine's window preferences (theme, the theme clock, which
@@ -864,6 +876,7 @@ export type ServerMessage =
   | { type: "prefs"; prefs: Record<string, string> }
   | { type: "starred_models"; models: string[] }
   | { type: "small_model"; model: string }
+  | { type: "default_model"; model: string }
   | { type: "home_reset" }
   /** The app-side prompt queue for a channel (visible, editable entries).
    *  `held` = standing by since a stopped turn: nothing goes out until the

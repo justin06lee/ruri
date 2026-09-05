@@ -12,7 +12,6 @@ import {
 } from "react";
 import {
   DEFAULT_EFFORT,
-  DEFAULT_MODEL,
   DEFAULT_PERMISSION_MODE,
   EFFORT_LEVELS,
   HOME_ID,
@@ -431,19 +430,30 @@ function PlanEvent({ event }: { event: Extract<TranscriptEvent, { kind: "plan" }
 
 /** The name to put on a card asking for permission: the harness the channel
  *  runs on, since it is the one asking — not Claude by default. */
-function harnessName(models: ModelChoice[], model: string | undefined): string {
-  const choice = models.find((m) => m.value === (model || DEFAULT_MODEL));
+function harnessName(models: ModelChoice[], model: string | undefined, fallback: string): string {
+  const choice = models.find((m) => m.value === (model || fallback));
   return choice?.providerLabel ?? "Claude";
+}
+
+/** "claude-fable-5-1[1m]" → "Fable 5.1": a label for a model id the catalog
+ *  has not described yet (the composer's trigger before the catalog lands). */
+function roughName(id: string): string {
+  const bare = id.replace(/^claude-/, "").replace(/\[1m\]$/, "").replace(/-\d{8}$/, "");
+  const match = /^([a-z]+)(?:-(\d+(?:-\d+)*))?$/.exec(bare);
+  if (!match) return id;
+  const family = `${match[1]![0]!.toUpperCase()}${match[1]!.slice(1)}`;
+  return match[2] ? `${family} ${match[2].replace(/-/g, ".")}` : family;
 }
 
 export function PermissionBanner({ request }: { request: PermissionRequest }) {
   const models = useRuri((s) => s.models);
+  const defaultModel = useRuri((s) => s.defaultModel);
   const model = useRuri(
     (s) =>
       s.projects.find((p) => p.sessions.some((x) => x.id === request.projectId))?.model ??
       (request.projectId === HOME_ID ? s.home.model : undefined),
   );
-  const { title, body } = permissionSummary(request, harnessName(models, model));
+  const { title, body } = permissionSummary(request, harnessName(models, model, defaultModel));
   const respond = (allow: boolean, always = false) =>
     send({ type: "permission_response", requestId: request.requestId, allow, always });
   return (
@@ -489,8 +499,9 @@ const EFFORT_OPTIONS = EFFORT_LEVELS.map((level) => ({
 function SessionControls({ project, channelId }: { project: Project; channelId: string }) {
   const allModels = useRuri((s) => s.models);
   const starredIds = useRuri((s) => s.starredModels);
-  // An unset model IS Fable — there is no ambiguous "default" entry.
-  const current = project.model || DEFAULT_MODEL;
+  const defaultModel = useRuri((s) => s.defaultModel);
+  // An unset model IS the crowned default — there is no "default" row.
+  const current = project.model || defaultModel;
   // The picker shows starred models only (Settings holds the full catalog);
   // with nothing starred yet it falls back to everything. The current pick
   // stays listed even if it was unstarred since.
@@ -499,7 +510,7 @@ function SessionControls({ project, channelId }: { project: Project; channelId: 
   const selected = allModels.find((m) => m.value === current);
   if (selected && !models.includes(selected)) models.push(selected);
   // before the catalog arrives, the trigger still needs a label
-  if (!selected) models.push({ value: DEFAULT_MODEL, displayName: "Fable 5" });
+  if (!selected) models.push({ value: current, displayName: roughName(current) });
   // The dropdown shows wherever the mode can actually be honoured: Claude,
   // and any harness running a real agentic session (its sandbox or session
   // mode is set from this). A run-per-turn provider has no approval flow to
@@ -1392,6 +1403,7 @@ export function ChatPane({
   // is then just typing; nothing sends until you press send. Claude sessions
   // only (file checkpoints), and only while nothing is running.
   const models = useRuri((s) => s.models);
+  const defaultModel = useRuri((s) => s.defaultModel);
   const [rewindTarget, setRewindTarget] = useState<{ id: string; text: string } | null>(null);
   useEffect(() => setRewindTarget(null), [activeId]);
 
@@ -1651,7 +1663,7 @@ export function ChatPane({
   // the CLI's file checkpoints and forks the conversation at the prompt;
   // Codex keeps its native conversation but no file checkpoints; other
   // harnesses come back on a brief of what is kept, files untouched.
-  const providerRoute = models.find((m) => m.value === (project.model || DEFAULT_MODEL))?.provider;
+  const providerRoute = models.find((m) => m.value === (project.model || defaultModel))?.provider;
   const claudeRoute = !providerRoute;
   const canRewind = !isHome && !busy;
   const askRewind = canRewind ? startRewind : undefined;

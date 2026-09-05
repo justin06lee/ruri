@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type AskQuestions, DEFAULT_MODEL, DEFAULT_PERMISSION_MODE } from "../shared/protocol.js";
+import { type AskQuestions, DEFAULT_PERMISSION_MODE } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -285,6 +285,18 @@ function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.Ser
 export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const store = new ProjectStore();
   setSmallModel(store.smallModel());
+
+  /** The roles changed: the small layer and every window hear the new set.
+   *  A new default pins nothing live (the store already did), so the
+   *  projects list goes out too — the pinned values are now on them. */
+  function announceRoles(roles: { starred: string[]; small: string | undefined; default: string | undefined }): void {
+    setSmallModel(roles.small);
+    broadcast({ type: "starred_models", models: roles.starred });
+    broadcast({ type: "small_model", model: roles.small ?? "" });
+    broadcast({ type: "default_model", model: store.defaultModel() });
+    broadcast({ type: "projects", projects: store.list() });
+    broadcast({ type: "home_settings", home: store.homeSettings() });
+  }
   const archive = new SessionArchive();
   // Home is ephemeral — it exists to open projects, not to accumulate
   // context. Every launch starts it blank (no transcript, no resume).
@@ -559,7 +571,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
    * named it; otherwise it is Claude's two sizes, 1M with the [1m] flag.
    */
   function contextWindow(channelId: string): number {
-    const model = channelProject(channelId)?.model || DEFAULT_MODEL;
+    const model = channelProject(channelId)?.model || store.defaultModel();
     const reported = archive.contextWindowOf(channelId, model);
     if (reported) return reported;
     return model.includes("[1m]") ? 1_000_000 : 200_000;
@@ -1078,13 +1090,6 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const RETRY_NUDGE =
     "[ruri] The API dropped the last turn — an overload or a network error on the way, nothing you did, and nothing the user asked to change. Pick up exactly where you left off and carry on. Don't restate the plan or apologise; just continue the work.";
 
-  /** Off by preference; on otherwise. The pref lives with the window's
-   *  others (see server/prefs.ts) — the server reads this one because the
-   *  behaviour it turns off is the server's. */
-  function retryEnabled(): boolean {
-    return prefs.all()["retryDroppedTurns"] !== "off";
-  }
-
   /** The user took the wheel — whatever was going to be tried again isn't. */
   function cancelRetry(channelId: string): void {
     const pending = retries.get(channelId);
@@ -1100,7 +1105,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       cancelRetry(channelId);
       return;
     }
-    if (!event.transient || !retryEnabled()) return;
+    // always: an overload is weather, not a decision, and there is no
+    // switch for waiting it out — a dropped turn is picked back up
+    if (!event.transient) return;
     // Prompts standing by since an earlier stop are the user's, and they go
     // out on the user's word — a nudge would jump that line. (Prompts merely
     // queued are already handled: the caller only asks when the queue had
@@ -1585,7 +1592,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         // the window is recorded first: contextWindow() reads it back, so a
         // harness that names its own is answered with that same number — and
         // recorded against the model that named it, so it dies with it
-        const model = channelProject(projectId)?.model || DEFAULT_MODEL;
+        const model = channelProject(projectId)?.model || store.defaultModel();
         archive.setContextTokens(projectId, tokens, window, model);
         const context: ContextUsage = { tokens, window: contextWindow(projectId) };
         contexts.set(projectId, context);
@@ -1600,7 +1607,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       }
       // the same words wherever the session runs: Claude takes them as an
       // append to its own preset, everything else as its whole system prompt
-      const claude = !registry.parse(project.model || DEFAULT_MODEL).providerId;
+      const claude = !registry.parse(project.model || store.defaultModel()).providerId;
       // the bridge reaches Claude as tools and everything else as one HTTP
       // endpoint on this server — whose port is only known once it listens,
       // which is long before any session is made
@@ -1642,6 +1649,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     (projectId) => archive.takeResumeAt(projectId),
     (projectId) => archive.takeForkNext(projectId),
   );
+  // an unset model is whatever Settings crowned, read live
+  manager.useDefaultModel(() => store.defaultModel());
 
   /** The session's window and apps go with it, and so do its pictures. */
   function closeBridge(sessionId: string): void {
@@ -2641,10 +2650,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "toggle_model_star": {
-        const { starred, small } = store.cycleModelStar(msg.model);
-        setSmallModel(small);
-        broadcast({ type: "starred_models", models: starred });
-        broadcast({ type: "small_model", model: small ?? "" });
+        announceRoles(store.cycleModelStar(msg.model));
+        break;
+      }
+      case "set_model_role": {
+        announceRoles(store.assignModelRole(msg.model, msg.role));
         break;
       }
       case "reset_home": {
@@ -2772,6 +2782,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       home: store.homeSettings(),
       starredModels: store.starredModels(),
       smallModel: store.smallModel() ?? "",
+      defaultModel: store.defaultModel(),
       user: os.userInfo().username,
       prefs: prefs.all(),
       composerDrafts: drafts.all(),

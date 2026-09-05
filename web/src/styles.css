@@ -2082,16 +2082,41 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
 }
 
-/* the double-star role: this model runs the small tasks */
-.model-small-tag {
+/* the star's roles as tags: "small tasks" (two stars) is filled, "default"
+   (three) is outlined. Both are handles — drag one onto another row and the
+   role goes with it; the row under it draws its outline while it hovers. */
+.model-role-tag {
   flex-shrink: 0;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.02em;
   padding: 1px 6px 2px;
   border-radius: 3px;
+  border: 1.5px solid var(--ink);
   background: var(--ink);
   color: var(--paper);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-drag: element;
+}
+
+.model-role-tag.default {
+  background: transparent;
+  color: var(--ink);
+}
+
+.model-role-tag:active {
+  cursor: grabbing;
+}
+
+.model-role-tag.lifted {
+  opacity: 0.4;
+}
+
+.model-row.drop {
+  outline: 1.5px dashed var(--ink);
+  outline-offset: -1.5px;
+  background: var(--paper-dim);
 }
 
 .model-empty,

@@ -8,6 +8,8 @@ APP_KEEP := /tmp/$(APP)-superseded
 all: build install launch
 
 build:
+	bun install --cwd ../yagami
+	bun run --cwd ../yagami build
 	bun install
 	@test -d node_modules/electron/dist/Electron.app || (cd node_modules/electron && node install.js)
 	bun run build

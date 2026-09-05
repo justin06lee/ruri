@@ -1,8 +1,7 @@
 /**
- * The AskUserQuestion card. This is not a permission — the model is asking
- * you something, so the card asks back instead of offering allow/deny. It
- * rides the permission channel (which already survives reconnects) and is
- * told apart by `request.kind === "question"`.
+ * The question card. Claude's AskUserQuestion, Codex request_user_input, and
+ * MCP/ACP form or URL elicitations all arrive here through one durable
+ * channel and answer in their harness's native shape.
  *
  * Answers go back as the tool's own input: `answers` is a field of
  * AskUserQuestion's schema, so the tool reads the picks and reports them to
@@ -22,6 +21,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AskAnswers, AskQuestion, AskQuestions, PermissionRequest } from "../../../shared/protocol";
 import { send } from "../store";
+import { questionError } from "../../../shared/questionInput";
 
 /** What one question's answer looks like while the card is open. */
 interface Draft {
@@ -82,7 +82,8 @@ function QuestionBlock({
   // picked, so a multi-select shows the thing you just reached for.
   const focused = draft.picked[draft.picked.length - 1];
   const preview = q.options.find((o) => o.label === focused)?.preview;
-  const otherRef = useRef<HTMLTextAreaElement>(null);
+  const otherRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
+  const error = questionError(q, valuesOf(q, draft));
 
   const toggle = (label: string) => {
     if (q.multiSelect) {
@@ -116,6 +117,16 @@ function QuestionBlock({
         {q.header && <span className="ask-chip">{q.header}</span>}
         <span className="ask-prompt">{q.question}</span>
       </div>
+      {q.hint && <div className="ask-hint">{q.hint}</div>}
+      {q.url && (
+        <a className="ask-url" href={q.url} target="_blank" rel="noreferrer">
+          Open the requested page
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M14 3h7v7M10 14L21 3" />
+            <path d="M21 14v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h6" />
+          </svg>
+        </a>
+      )}
       <div className="ask-options">
         {q.options.map((o) => {
           const on = draft.picked.includes(o.label);
@@ -134,33 +145,59 @@ function QuestionBlock({
             </button>
           );
         })}
-        <button type="button" className={`ask-option ${draft.otherOn ? "on" : ""}`} onClick={toggleOther}>
-          <Check on={draft.otherOn} multi={q.multiSelect} />
-          <span className="ask-body">
-            <span className="ask-label">Other</span>
-            <span className="ask-desc">Answer in your own words</span>
-          </span>
-        </button>
+        {(q.allowOther !== false || q.options.length === 0) && (
+          <button type="button" className={`ask-option ${draft.otherOn ? "on" : ""}`} onClick={toggleOther}>
+            <Check on={draft.otherOn} multi={q.multiSelect} />
+            <span className="ask-body">
+              <span className="ask-label">{q.options.length === 0 ? "Type an answer" : "Other"}</span>
+              <span className="ask-desc">
+                {q.secret ? "Kept out of the transcript" : "Answer in your own words"}
+              </span>
+            </span>
+          </button>
+        )}
       </div>
       {draft.otherOn && (
-        <textarea
-          ref={otherRef}
-          className="ask-other"
-          rows={2}
-          placeholder="Your answer…"
-          title="Enter moves on to the next question · Shift+Enter for a new line"
-          value={draft.other}
-          onChange={(e) => onChange({ ...draft, other: e.target.value })}
-          // Enter finishes the answer and moves on, the way picking an
-          // option does; a new line is Shift+Enter, as it is in the
-          // composer. An empty box is not an answer, so it stays put.
-          onKeyDown={(e) => {
-            if (e.key !== "Enter" || e.shiftKey) return;
-            e.preventDefault();
-            if (draft.other.trim()) onDone();
-          }}
-        />
+        q.secret || q.inputType === "number" || q.inputType === "integer" ? (
+          <input
+            ref={(node) => { otherRef.current = node; }}
+            className="ask-other"
+            type={q.secret ? "password" : "number"}
+            inputMode={q.secret ? undefined : q.inputType === "integer" ? "numeric" : "decimal"}
+            step={q.inputType === "integer" ? 1 : "any"}
+            min={q.minimum}
+            max={q.maximum}
+            minLength={q.minLength}
+            maxLength={q.maxLength}
+            aria-invalid={Boolean(draft.other && error)}
+            placeholder={q.secret ? "Private answer…" : "Your answer…"}
+            title="Enter moves on to the next question · Shift+Enter for a new line"
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              if (!error) onDone();
+            }}
+            value={draft.other}
+            onChange={(e) => onChange({ ...draft, other: e.target.value })}
+          />
+        ) : (
+          <textarea
+            ref={(node) => { otherRef.current = node; }}
+            className="ask-other"
+            rows={2}
+            placeholder="Your answer…"
+            title="Enter moves on to the next question · Shift+Enter for a new line"
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              if (!error) onDone();
+            }}
+            value={draft.other}
+            onChange={(e) => onChange({ ...draft, other: e.target.value })}
+          />
+        )
       )}
+      {draft.other && error && <div className="ask-hint" role="alert">{error}</div>}
       {preview && <pre className="ask-preview">{preview}</pre>}
     </div>
   );
@@ -169,11 +206,20 @@ function QuestionBlock({
 /** One question's answer string, or "" while it is still unanswered. */
 function answerOf(draft: Draft): string {
   if (draft.otherOn) {
-    const typed = draft.other.trim();
+    const typed = draft.other.trim() ? draft.other : "";
     if (!typed) return "";
     return draft.picked.length > 0 ? [...draft.picked, typed].join(", ") : typed;
   }
   return draft.picked.join(", ");
+}
+
+function valuesOf(question: AskQuestion, draft: Draft): string[] {
+  const picked = draft.picked.map(
+    (label) => question.options.find((option) => option.label === label)?.value ?? label,
+  );
+  if (!draft.otherOn) return picked;
+  const typed = draft.other.trim() ? draft.other : "";
+  return typed ? [...picked, typed] : picked;
 }
 
 export function QuestionCard({ request }: { request: PermissionRequest }) {
@@ -181,7 +227,16 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   const [state, setState] = useState<Held>(
     () =>
       held.get(request.requestId) ?? {
-        drafts: questions.map(() => ({ picked: [], other: "", otherOn: false })),
+        drafts: questions.map((question) => {
+          const values = question.default === undefined ? []
+            : (Array.isArray(question.default) ? question.default : [question.default]).map(String);
+          const picked = values.flatMap((value) => {
+            const option = question.options.find((option) => (option.value ?? option.label) === value);
+            return option ? [option.label] : [];
+          });
+          const other = values.filter((value) => !question.options.some((option) => (option.value ?? option.label) === value)).join(", ");
+          return { picked, other, otherOn: Boolean(other) || question.options.length === 0 };
+        }),
         at: 0,
       },
   );
@@ -191,7 +246,10 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   }, [request.requestId, state]);
 
   const { drafts, at } = state;
-  const answered = useMemo(() => drafts.every((d) => answerOf(d) !== ""), [drafts]);
+  const answered = useMemo(
+    () => drafts.every((draft, index) => !questionError(questions[index]!, valuesOf(questions[index]!, draft))),
+    [drafts, questions],
+  );
   const many = questions.length > 1;
   const last = questions.length - 1;
   const [way, setWay] = useState<Way>("next");
@@ -222,11 +280,14 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   };
 
   const submit = () => {
+    if (!answered) return;
     const answers: AskAnswers["answers"] = {};
+    const values: NonNullable<AskAnswers["values"]> = {};
     const annotations: NonNullable<AskAnswers["annotations"]> = {};
     questions.forEach((q, i) => {
       const draft = drafts[i]!;
       answers[q.question] = answerOf(draft);
+      values[q.id ?? q.question] = valuesOf(q, draft);
       // the tool's schema carries the focused option's preview back, so the
       // model sees the mockup it was judged on rather than just a label
       const focused = draft.picked[draft.picked.length - 1];
@@ -235,6 +296,7 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
     });
     finish({
       answers,
+      values,
       ...(Object.keys(annotations).length > 0 ? { annotations } : {}),
     });
   };
@@ -243,6 +305,7 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
    *  every question answered — out, which is the only thing left to do and
    *  exactly what the button beneath would do. */
   const nextOrSend = () => {
+    if (questionError(questions[at]!, valuesOf(questions[at]!, drafts[at]!))) return;
     if (at < last) {
       go(at + 1);
       return;

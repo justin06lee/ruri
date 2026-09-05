@@ -73,6 +73,18 @@ export interface ModelChoice {
    * they always have one.
    */
   agentic?: boolean;
+  /** Reasoning levels this exact model reports, not a global provider guess. */
+  reasoningEfforts?: Array<{ value: string; description?: string }>;
+  defaultEffort?: string;
+  inputModalities?: string[];
+  supportsAdaptiveThinking?: boolean;
+  supportsFastMode?: boolean;
+  supportsAutoMode?: boolean;
+  supportsPersonality?: boolean;
+  multiAgent?: string;
+  serviceTiers?: Array<{ value: string; label: string; description?: string }>;
+  defaultServiceTier?: string;
+  providerDefault?: boolean;
 }
 
 /** A file attached to a prompt — image, video, or any other file (pdf,
@@ -424,6 +436,20 @@ export type TranscriptEvent =
       ts: number;
     }
   | { kind: "info"; id: string; text: string; ts: number }
+  | {
+      kind: "plan";
+      id: string;
+      explanation?: string;
+      entries?: Array<{
+        content: string;
+        status: "pending" | "in_progress" | "completed";
+        priority?: "high" | "medium" | "low";
+      }>;
+      markdown?: string;
+      uri?: string;
+      removed?: boolean;
+      ts: number;
+    }
   /** A /compact point: the session restarted fresh here; `text` is the
    *  model-facing brief (summaries + full-turn file hooks) and `entries` its
    *  structured prompt/reply pairs, hidden behind the zigzag separator
@@ -489,17 +515,34 @@ export interface PermissionRequest {
 export interface AskOption {
   label: string;
   description: string;
+  /** Provider wire value when it differs from the human label. */
+  value?: string;
   /** Mockup/snippet shown while this option is the focused one. */
   preview?: string;
 }
 
 /** A single question from AskUserQuestion. */
 export interface AskQuestion {
+  /** Provider field id; Claude questions use their question text instead. */
+  id?: string;
   question: string;
   /** Short chip label (≤12 chars) — "Surfaces", "Approach". */
   header: string;
   options: AskOption[];
   multiSelect: boolean;
+  /** Primitive form-field type for native harness/MCP input. */
+  inputType?: "string" | "number" | "integer" | "boolean" | "select" | "multiselect";
+  required?: boolean;
+  secret?: boolean;
+  allowOther?: boolean;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  default?: string | number | boolean | string[];
+  hint?: string;
+  /** URL elicitation target; the card opens it, then accepts confirmation. */
+  url?: string;
 }
 
 /** The AskUserQuestion tool input, as the card needs it. */
@@ -516,6 +559,8 @@ export interface AskAnswers {
   annotations?: Record<string, { preview?: string; notes?: string }>;
   /** Freeform text typed instead of picking anything. */
   response?: string;
+  /** Exact picks keyed by provider field id, before labels are flattened. */
+  values?: Record<string, string[]>;
 }
 
 /** What a native folder pick is for — routed back with the result. */

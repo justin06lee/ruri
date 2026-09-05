@@ -16,6 +16,12 @@ export interface SessionInfo {
   id: string;
   /** Role title, auto-named by the small model ("Frontend UI", …). */
   title?: string;
+  /** This chat's own model, effort and permission mode. Unset means the
+   *  project's — which is only ever what a NEW chat starts on: picking one
+   *  in a chat sets it here, for this chat, and never reaches another. */
+  model?: string;
+  permissionMode?: PermissionMode;
+  effort?: string;
 }
 
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
@@ -41,11 +47,13 @@ export interface Project {
   name: string;
   path: string;
   folder?: string;
-  /** Model override for this project's sessions; the CLI default when unset. */
+  /** What a new session in this project starts on — the last pick made
+   *  in any of its chats. A session that has picked its own carries it on
+   *  itself (SessionInfo); these are the fallback, never an override. */
   model?: string;
-  /** Permission mode for this project's sessions (default "default"). */
+  /** Permission mode a new session starts in (DEFAULT_PERMISSION_MODE when unset). */
   permissionMode?: PermissionMode;
-  /** Reasoning effort for this project's sessions (EFFORT_LEVELS);
+  /** Reasoning effort a new session starts at (EFFORT_LEVELS);
    *  DEFAULT_EFFORT (xhigh) when unset. */
   effort?: string;
   /** Bookmarked: shown in the Starred section above the project tree. */
@@ -653,9 +661,13 @@ export type ClientMessage =
   /** The answer to an AskUserQuestion card. `answers` absent = dismissed,
    *  which lets the turn continue with the model told nothing was chosen. */
   | { type: "question_response"; requestId: string; answers?: AskAnswers }
+  /** Pick a model. `projectId` is a channel — a session id or HOME_ID — and
+   *  the pick is that chat's alone (it also becomes what the project's new
+   *  chats start on). A bare project id is the old wholesale form: every
+   *  session in the project, at once. */
   | { type: "set_model"; projectId: string; model: string }
   | { type: "set_permission_mode"; projectId: string; mode: PermissionMode }
-  /** Set a project's reasoning effort (one of EFFORT_LEVELS). */
+  /** Set a chat's reasoning effort (one of EFFORT_LEVELS); same addressing. */
   | { type: "set_effort"; projectId: string; effort: string }
   /* ── the ideas board (per PROJECT id, not per session) ──────────── */
   | { type: "idea_add"; projectId: string; text: string }

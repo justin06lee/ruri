@@ -1879,9 +1879,19 @@ function providerSessionId(session: ChannelSession): string | undefined {
 
 export class SessionManager {
   private readonly sessions = new Map<string, ChannelSession>();
+  /**
+   * Changes a chat made while its turn was running. A model, effort or mode
+   * pick is never applied to a turn in flight — a warm session would be
+   * retired under it, and even a live model swap would change the model
+   * halfway through a reply — so it waits here, keyed by channel, and lands
+   * the moment the session reports idle. The store already holds the pick,
+   * so a session that dies instead of idling rebuilds on it anyway.
+   */
+  private readonly deferred = new Map<string, Array<() => void>>();
+  private readonly events: SessionEvents;
 
   constructor(
-    private readonly events: SessionEvents,
+    events: SessionEvents,
     /** Where to find the resumable session id for a project (the archive). */
     private readonly resumeFor: (projectId: string) => string | undefined = () => undefined,
     /** Per-project session extras (the Home agent's MCP tools and prompt). */
@@ -1893,7 +1903,40 @@ export class SessionManager {
     private readonly resumeAtFor: (projectId: string) => string | undefined = () => undefined,
     /** A pending tip fork, claimed when a Claude session builds. */
     private readonly forkFor: (projectId: string) => boolean = () => false,
-  ) {}
+  ) {
+    this.events = {
+      ...events,
+      onStatus: (projectId, status) => {
+        events.onStatus(projectId, status);
+        if (status === "idle") this.applyDeferred(projectId);
+      },
+    };
+  }
+
+  /** Whether a channel's live session is mid-turn (or waiting on the user
+   *  inside one) — the state a settings change must not touch. */
+  private inTurn(projectId: string): boolean {
+    const session = this.sessions.get(projectId);
+    return !!session && !session.dead && session.status !== "idle";
+  }
+
+  /** Run a settings change now, or once the running turn is over. */
+  private whenIdle(projectId: string, apply: () => void): void {
+    if (!this.inTurn(projectId)) {
+      apply();
+      return;
+    }
+    const queue = this.deferred.get(projectId) ?? [];
+    queue.push(apply);
+    this.deferred.set(projectId, queue);
+  }
+
+  private applyDeferred(projectId: string): void {
+    const queue = this.deferred.get(projectId);
+    if (!queue) return;
+    this.deferred.delete(projectId);
+    for (const apply of queue) apply();
+  }
 
   /** The non-Claude provider id a model routes to, if any. An unset model
    *  means the app default (Fable) — never the CLI's own notion of default. */
@@ -1995,6 +2038,10 @@ export class SessionManager {
    *  A change that moves to a different harness retires the live session —
    *  the next send rebuilds it on the right provider. */
   setModel(projectId: string, model: string): void {
+    this.whenIdle(projectId, () => this.applyModel(projectId, model));
+  }
+
+  private applyModel(projectId: string, model: string): void {
     const session = this.sessions.get(projectId);
     if (!session || session.dead) return;
     const route = this.routeOf(model);
@@ -2016,16 +2063,18 @@ export class SessionManager {
 
   /** Apply a permission-mode change to the live session, if one is running. */
   setPermissionMode(projectId: string, mode: PermissionMode): void {
-    this.sessions.get(projectId)?.setPermissionMode(mode);
+    this.whenIdle(projectId, () => this.sessions.get(projectId)?.setPermissionMode(mode));
   }
 
   /** Apply an effort change to the live session, if one is running. Only the
    *  run-per-turn path takes it live; warm sessions retire and rebuild
    *  (resuming their context) on the next send. */
   setEffort(projectId: string, effort: string): void {
-    const session = this.sessions.get(projectId);
-    if (!session || session.dead) return;
-    session.setEffort(effort);
+    this.whenIdle(projectId, () => {
+      const session = this.sessions.get(projectId);
+      if (!session || session.dead) return;
+      session.setEffort(effort);
+    });
   }
 
   respondPermission(requestId: string, allow: boolean, always = false): void {

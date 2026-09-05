@@ -423,6 +423,9 @@ class ProjectSession implements ChannelSession {
   private turnOutput = 0;
   /** File bytes captured by captureBefore, keyed by tool_use_id. */
   private readonly preimages = new Map<string, string | null>();
+  /** Each model's running token total as of the last result — the CLI
+   *  reports totals, and a turn's models are the ones whose total moved. */
+  private readonly modelTotals = new Map<string, number>();
   /** The vault's substitution, when there is a vault (see secrets.ts). */
   private readonly secretFill: SessionExtras["fillSecrets"];
 
@@ -860,6 +863,21 @@ class ProjectSession implements ChannelSession {
       // the turn's own usage (per turn, main loop) — what the ledger adds up
       const spent = msg.usage as Partial<Usage> | undefined;
       const tokens = usageTokens(spent) ?? 0;
+      const cacheRead = spent?.cache_read_input_tokens ?? 0;
+      // which models answered this turn: the CLI's per-model usage is a
+      // running total for the whole session, so a model counts only when
+      // its total moved since the last result
+      const usageByModel = ("modelUsage" in msg ? msg.modelUsage : undefined) as
+        | Record<string, { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number }>
+        | undefined;
+      const models: string[] = [];
+      if (usageByModel) {
+        for (const [id, u] of Object.entries(usageByModel)) {
+          const total = (u.inputTokens ?? 0) + (u.outputTokens ?? 0) + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0);
+          if (total > (this.modelTotals.get(id) ?? 0)) models.push(id);
+          this.modelTotals.set(id, total);
+        }
+      }
       // the CLI already said it in full, as a message in the transcript —
       // the line under it only has to name it, so it takes the first sentence
       const failure = apiError
@@ -874,6 +892,8 @@ class ProjectSession implements ChannelSession {
         costUsd: msg.total_cost_usd,
         durationMs: msg.duration_ms,
         ...(tokens > 0 ? { tokens } : {}),
+        ...(cacheRead > 0 ? { cacheRead } : {}),
+        ...(models.length > 0 ? { models } : {}),
         ...(stopped ? { stopped: true } : {}),
         ...(ok || stopped ? {} : { error: failure }),
         ...(!ok && !stopped && transientFailure(failure, status) ? { transient: true } : {}),

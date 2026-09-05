@@ -26,6 +26,7 @@
     "queue-test": "tsx scripts/queue.ts",
     "retry-test": "tsx scripts/retry.ts",
     "recall-test": "tsx scripts/recall.ts",
+    "settings-test": "tsx scripts/session-settings.ts",
     "question-test": "tsx scripts/question.ts",
     "naming-test": "tsx scripts/naming.ts",
     "fork-test": "tsx scripts/fork.ts",

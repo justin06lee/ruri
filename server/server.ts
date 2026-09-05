@@ -603,11 +603,24 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     void checkpoints.capture(project, channelId, eventId).catch(() => false);
   }
 
+  /**
+   * A channel as a Project: the owning project with the channel's own id —
+   * and the chat's own model, effort and mode over the project's defaults,
+   * so everything downstream (sessions, windows, forks) sees what this
+   * chat actually runs on without knowing there are two layers.
+   */
   function channelProject(channelId: string) {
     if (channelId === HOME_ID) return homeProject(store.workspaceDir(), store.homeSettings());
     const found = store.findSession(channelId);
     if (!found) return undefined;
-    return { ...found.project, id: channelId };
+    const { session, project } = found;
+    return {
+      ...project,
+      id: channelId,
+      ...(session.model ? { model: session.model } : {}),
+      ...(session.permissionMode ? { permissionMode: session.permissionMode } : {}),
+      ...(session.effort ? { effort: session.effort } : {}),
+    };
   }
 
   /** The project a channel belongs to — boards are keyed by that, not by
@@ -1974,11 +1987,14 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
             const kept = events.slice(0, end);
             const next = events.slice(end).find((e) => e.kind === "user");
             const compactedSince = events.slice(end).some((e) => e.kind === "compaction");
-            const project = found.project;
-            const fresh = store.newSession(project.id);
+            const project = channelProject(channelId) ?? found.project;
+            const fresh = store.newSession(found.project.id);
             if (!fresh) throw new Error("unknown project");
             const title = found.session.title ? `${found.session.title} fork` : "fork";
             store.setSessionTitle(fresh.id, title);
+            // the fork runs on what it forked from, not on whatever the
+            // project's default has become since
+            store.copySessionSettings(channelId, fresh.id);
             const source = archive.raw(channelId);
             archive.seed(fresh.id, {
               events: kept,
@@ -2278,12 +2294,26 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           republishContext(HOME_ID);
           break;
         }
+        // A chat's pick is that chat's alone: it lands on the session, the
+        // live session takes it once its turn is over, and no other chat
+        // in the project moves. The project id form is wholesale.
+        if (store.findSession(msg.projectId)) {
+          if (store.effectiveSettings(msg.projectId)?.model === msg.model) break;
+          store.setSessionSettings(msg.projectId, { model: msg.model });
+          manager.setModel(msg.projectId, msg.model);
+          broadcast({ type: "projects", projects: store.list() });
+          // the new model may have a different window — remeasure against it
+          republishContext(msg.projectId);
+          break;
+        }
+        const project = store.get(msg.projectId);
+        if (!project) break;
+        for (const s of project.sessions) delete s.model;
         store.update(msg.projectId, { model: msg.model });
         // live sessions are keyed by session id, not project id
-        for (const s of store.get(msg.projectId)?.sessions ?? []) manager.setModel(s.id, msg.model);
+        for (const s of project.sessions) manager.setModel(s.id, msg.model);
         broadcast({ type: "projects", projects: store.list() });
-        // the new model may have a different window — remeasure against it
-        for (const s of store.get(msg.projectId)?.sessions ?? []) republishContext(s.id);
+        for (const s of project.sessions) republishContext(s.id);
         break;
       }
       case "set_permission_mode": {
@@ -2293,10 +2323,18 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           broadcast({ type: "home_settings", home: store.homeSettings() });
           break;
         }
-        store.update(msg.projectId, { permissionMode: msg.mode });
-        for (const s of store.get(msg.projectId)?.sessions ?? []) {
-          manager.setPermissionMode(s.id, msg.mode);
+        if (store.findSession(msg.projectId)) {
+          if (store.effectiveSettings(msg.projectId)?.permissionMode === msg.mode) break;
+          store.setSessionSettings(msg.projectId, { permissionMode: msg.mode });
+          manager.setPermissionMode(msg.projectId, msg.mode);
+          broadcast({ type: "projects", projects: store.list() });
+          break;
         }
+        const project = store.get(msg.projectId);
+        if (!project) break;
+        for (const s of project.sessions) delete s.permissionMode;
+        store.update(msg.projectId, { permissionMode: msg.mode });
+        for (const s of project.sessions) manager.setPermissionMode(s.id, msg.mode);
         broadcast({ type: "projects", projects: store.list() });
         break;
       }
@@ -2308,9 +2346,19 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           broadcast({ type: "home_settings", home: store.homeSettings() });
           break;
         }
-        if ((store.get(msg.projectId)?.effort ?? "") === msg.effort) break;
+        if (store.findSession(msg.projectId)) {
+          if (store.effectiveSettings(msg.projectId)?.effort === msg.effort) break;
+          store.setSessionSettings(msg.projectId, { effort: msg.effort });
+          manager.setEffort(msg.projectId, msg.effort);
+          broadcast({ type: "projects", projects: store.list() });
+          break;
+        }
+        const project = store.get(msg.projectId);
+        if (!project) break;
+        if ((project.effort ?? "") === msg.effort && project.sessions.every((s) => !s.effort)) break;
+        for (const s of project.sessions) delete s.effort;
         store.update(msg.projectId, { effort: msg.effort });
-        for (const s of store.get(msg.projectId)?.sessions ?? []) manager.setEffort(s.id, msg.effort);
+        for (const s of project.sessions) manager.setEffort(s.id, msg.effort);
         broadcast({ type: "projects", projects: store.list() });
         break;
       }

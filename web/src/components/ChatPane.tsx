@@ -34,6 +34,7 @@ import {
   type Region,
 } from "./Attachments";
 import { heroFrame } from "../peek";
+import { getPref, setPref } from "../prefs";
 import { Components } from "./Components";
 import { Ideas } from "./Ideas";
 import { Skills } from "./Skills";
@@ -42,7 +43,7 @@ import type { RapidFire } from "./RapidFire";
 import { RapidBar } from "./RapidFire";
 import { BridgeStrip } from "./Bridge";
 import { DragonGauges } from "./Dragon";
-import { HomeBoard } from "./HomeBoard";
+import { HomeTabs, ProjectsPage, type HomeTab } from "./HomeBoard";
 import { CommandMenu, commandPrefix } from "./CommandMenu";
 import {
   MarkerMirror,
@@ -1337,6 +1338,18 @@ export function ChatPane({
    * and pressing the lit one swaps it back.
    */
   const [page, setPage] = useState<"chat" | "tracker" | "ideas" | "components" | "skills">("chat");
+  /**
+   * Home is two pages under one strip — the agent's chat and the projects
+   * board — and the strip remembers which one you were on across launches.
+   */
+  const [homeTab, setHomeTabState] = useState<HomeTab>(() =>
+    getPref("ruri-home-tab") === "projects" ? "projects" : "chat",
+  );
+  const setHomeTab = useCallback((tab: HomeTab) => {
+    setHomeTabState(tab);
+    setPref("ruri-home-tab", tab);
+  }, []);
+  const homeTabs = isHome && !rapid?.on && <HomeTabs tab={homeTab} onTab={setHomeTab} />;
   const openCount = (trackerItems ?? []).filter((i) => i.status === "open").length;
   const boardId = storeProject?.id;
   // a number, not the list: a selector that mints a fresh array every read
@@ -1706,6 +1719,16 @@ export function ChatPane({
     );
   }
 
+  // Home's other page: every open project, the agent's chat put away.
+  if (homeTabs && homeTab === "projects") {
+    return (
+      <main className={pane("chat home-projects")}>
+        {homeTabs}
+        <ProjectsPage />
+      </main>
+    );
+  }
+
   // No conversation yet (Home or a fresh project): the hero — face, a big
   // title, and the composer front and center.
   if (transcript.length === 0 && !draft && permissions.length === 0) {
@@ -1717,9 +1740,9 @@ export function ChatPane({
           </div>
         )}
         {rapid?.on && header}
-        {/* Home is the one place to see every project at once — the board
-            sits above the agent, which centres in whatever room is left */}
-        {isHome && !rapid?.on && <HomeBoard />}
+        {/* the strip that swaps Home's two pages floats over the top, so
+            the face stays centred in the pane */}
+        {homeTabs}
         <div className="hero">
           <HeroFace n={isHome ? launchHero : heroFor(storeProject?.id ?? activeId)} />
           <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
@@ -1766,7 +1789,7 @@ export function ChatPane({
         </div>
       )}
 
-      {isHome && !rapid?.on && <HomeBoard />}
+      {homeTabs}
 
       {/* the holder ends where the composer begins, so the jump pill always
           floats just above the composer no matter how tall it grows */}

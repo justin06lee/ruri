@@ -13,6 +13,7 @@ import {
   type SecretMeta,
   type SkillInfo,
   type DraftAttachmentUpload,
+  type HarnessInfo,
   type HomeSettings,
   type ModelChoice,
   type PermissionRequest,
@@ -400,6 +401,10 @@ interface RuriState {
   defaultModel: string;
   /** The local account name shown on the sidebar's account bar. */
   user: string;
+  serverVersion: string;
+  /** A newer ruri waiting for every session to go idle. */
+  updateVersion: string | null;
+  harnesses: HarnessInfo[];
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
   /** Latest native-picker result, tagged with what the pick was for. */
@@ -458,6 +463,9 @@ export const useRuri = create<RuriState>((set) => ({
   smallModel: "",
   defaultModel: DEFAULT_MODEL,
   user: "",
+  serverVersion: "",
+  updateVersion: null,
+  harnesses: [],
   canPickFolder: false,
   picked: null,
   lastError: null,
@@ -603,6 +611,9 @@ function apply(msg: ServerMessage): void {
         smallModel: msg.smallModel,
         defaultModel: msg.defaultModel,
         user: msg.user,
+        serverVersion: msg.serverVersion,
+        updateVersion: msg.update?.version ?? null,
+        harnesses: msg.harnesses,
         // a mounted composer re-reads its channel's draft on the bump
         draftBumps: restored.reduce<Record<string, number>>(
           (bumps, [channelId]) => ({
@@ -811,6 +822,14 @@ function apply(msg: ServerMessage): void {
     }
     case "default_model": {
       setState({ defaultModel: msg.model });
+      break;
+    }
+    case "update": {
+      setState({ updateVersion: msg.version });
+      break;
+    }
+    case "harnesses": {
+      setState({ harnesses: msg.harnesses });
       break;
     }
     case "home_reset": {

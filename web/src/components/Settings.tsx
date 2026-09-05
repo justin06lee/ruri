@@ -19,6 +19,94 @@ const STAR_PATH = "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L
  * The device-wide model catalog: every model every installed harness can
  * serve, searchable; starring pins a model into the composer's picker.
  */
+/** "3m ago", "just now", "2h ago" — when the updater last looked. */
+function ago(ts: number | undefined): string {
+  if (!ts) return "not yet";
+  const mins = Math.round((Date.now() - ts) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.floor(mins / 60);
+  return h < 24 ? `${h}h ago` : `${Math.floor(h / 24)}d ago`;
+}
+
+function clock(ts: number): string {
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+const CHANNEL_WORD: Record<string, string> = {
+  self: "its own updater",
+  npm: "npm",
+  bun: "bun",
+  brew: "brew",
+  other: "not managed here",
+};
+
+/**
+ * Every coding CLI on this machine and what the updater did about it: the
+ * version it is, how it is kept current, and what the last round found.
+ * The round runs on the hour by itself; the button runs one now.
+ */
+function Harnesses() {
+  const harnesses = useRuri((s) => s.harnesses);
+  const serverVersion = useRuri((s) => s.serverVersion);
+  const updateVersion = useRuri((s) => s.updateVersion);
+  const checked = harnesses.reduce((latest, h) => Math.max(latest, h.checkedAt ?? 0), 0);
+  return (
+    <section className="settings-group">
+      <h2 className="settings-group-name">Harnesses</h2>
+      <div className="settings-row">
+        <span className="settings-label">ruri</span>
+        <div className="settings-value">
+          <span className="harness-version">v{serverVersion || "dev"}</span>
+          <span className="settings-note">
+            {updateVersion
+              ? `v${updateVersion} is installed and takes over the moment every session is idle`
+              : "the server under every session — quitting the app leaves it running"}
+          </span>
+        </div>
+      </div>
+      {harnesses.length === 0 && (
+        <div className="settings-row">
+          <span className="settings-label">Updates</span>
+          <div className="settings-value">
+            <span className="settings-note">the first round runs a minute or two after launch</span>
+          </div>
+        </div>
+      )}
+      {harnesses.map((h) => (
+        <div className="settings-row" key={h.id}>
+          <span className="settings-label">{h.label}</span>
+          <div className="settings-value">
+            <span className="harness-version" title={h.path}>
+              {h.version ? `v${h.version}` : "?"}
+            </span>
+            <span className="settings-note">
+              {h.updatedAt
+                ? `updated ${h.from ? `from v${h.from} ` : ""}at ${clock(h.updatedAt)} · `
+                : ""}
+              {h.note ? `${h.note} · ` : ""}
+              {CHANNEL_WORD[h.channel] ?? h.channel}
+              {h.pkg ? ` (${h.pkg})` : ""}
+            </span>
+          </div>
+        </div>
+      ))}
+      <div className="settings-row">
+        <span className="settings-label">Checked</span>
+        <div className="settings-value">
+          <button className="seg-option toggle" onClick={() => send({ type: "check_harnesses" })}>
+            Check now
+          </button>
+          <span className="settings-note">
+            {ago(checked || undefined)} · every hour by itself, never under a running turn; an updated
+            harness's warm sessions are retired as each goes idle and resume on the next prompt
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ModelCatalog() {
   const models = useRuri((s) => s.models);
   const starredIds = useRuri((s) => s.starredModels);
@@ -656,6 +744,8 @@ export function Settings({ onClose }: { onClose(): void }) {
           <h2 className="settings-group-name">Models</h2>
           <ModelCatalog />
         </section>
+
+        <Harnesses />
       </div>
       </div>
     </main>

@@ -1940,6 +1940,32 @@ export class SessionManager {
     this.defaultModelFor = read;
   }
 
+  /** Whether any live session on a harness ("claude" for Claude) is
+   *  mid-turn — the updater will not replace a binary under one. */
+  busyOn(harnessId: string): boolean {
+    for (const [channelId, session] of this.sessions) {
+      if (session.dead) continue;
+      const on = providerSessionId(session) ?? "claude";
+      if (on === harnessId && this.inTurn(channelId)) return true;
+    }
+    return false;
+  }
+
+  /** Retire every live session on a harness as each goes idle: the next
+   *  send rebuilds it on the freshly updated binary, resuming the thread. */
+  retireHarness(harnessId: string): void {
+    for (const [channelId, session] of this.sessions) {
+      if (session.dead) continue;
+      if ((providerSessionId(session) ?? "claude") !== harnessId) continue;
+      this.whenIdle(channelId, () => {
+        const live = this.sessions.get(channelId);
+        if (!live || live !== session) return;
+        live.dispose();
+        this.sessions.delete(channelId);
+      });
+    }
+  }
+
   /** Whether a channel's live session is mid-turn (or waiting on the user
    *  inside one) — the state a settings change must not touch. */
   private inTurn(projectId: string): boolean {

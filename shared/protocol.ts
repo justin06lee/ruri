@@ -587,6 +587,29 @@ export interface AskAnswers {
 /** What a native folder pick is for — routed back with the result. */
 export type PickTarget = "workspace" | "music";
 
+/**
+ * One coding CLI on this machine, as the updater sees it: how it was
+ * installed (which is how it gets updated), what version it is, and what
+ * the last round did about it. See server/updater.ts.
+ */
+export interface HarnessInfo {
+  id: string;
+  label: string;
+  path: string;
+  /** "self" = its own updater (claude update, opencode upgrade); "npm"/"bun"
+   *  = a global package; "brew" = a formula; "other" = left alone. */
+  channel: "self" | "npm" | "bun" | "brew" | "other";
+  pkg?: string;
+  version?: string;
+  latest?: string;
+  checkedAt?: number;
+  /** When it was last updated by ruri, and from what. */
+  updatedAt?: number;
+  from?: string;
+  /** Why nothing happened, when nothing did. */
+  note?: string;
+}
+
 /** Home-agent settings (the Home composer's model/effort/permission dropdowns). */
 export interface HomeSettings {
   model?: string;
@@ -776,6 +799,8 @@ export type ClientMessage =
   | { type: "reset_home" }
   /** Re-probe every installed harness's live model catalog. */
   | { type: "refresh_models" }
+  /** Run a harness update round now rather than on the hour. */
+  | { type: "check_harnesses" }
   /* ── the bridge (per channel) ───────────────────────────────────── */
   /** Bring what the session is driving on screen, in front, for the user
    *  to work in. `projectId` is the channel id, as everywhere else. */
@@ -837,6 +862,14 @@ export type ServerMessage =
       defaultModel: string;
       /** The local account name shown on the sidebar's account bar. */
       user: string;
+      /** The version of the server answering — the app that opened it may
+       *  be newer, in which case `update` names what is waiting. */
+      serverVersion: string;
+      /** A newer ruri is installed and its server takes over the moment
+       *  every session is idle; null when nothing is waiting. */
+      update: { version: string } | null;
+      /** Every harness on this machine, as the updater last saw it. */
+      harnesses: HarnessInfo[];
       /** This machine's window preferences (theme, the theme clock, which
        *  folders are unfolded, the player's volume) — the window's own
        *  storage is a cache of these, not the other way round. */
@@ -877,6 +910,9 @@ export type ServerMessage =
   | { type: "starred_models"; models: string[] }
   | { type: "small_model"; model: string }
   | { type: "default_model"; model: string }
+  /** A newer ruri is waiting (or no longer is). */
+  | { type: "update"; version: string | null }
+  | { type: "harnesses"; harnesses: HarnessInfo[] }
   | { type: "home_reset" }
   /** The app-side prompt queue for a channel (visible, editable entries).
    *  `held` = standing by since a stopped turn: nothing goes out until the

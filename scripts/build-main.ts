@@ -7,6 +7,11 @@
  */
 import { build } from "esbuild";
 
+const banner = {
+  js: 'import { createRequire as __ruriCreateRequire } from "node:module"; const require = __ruriCreateRequire(import.meta.url);',
+};
+
+// the shell: the window and everything that needs one
 await build({
   entryPoints: ["desktop/main.ts"],
   bundle: true,
@@ -15,8 +20,19 @@ await build({
   target: "node20",
   outfile: "dist-electron/main.mjs",
   external: ["electron"],
-  banner: {
-    js: 'import { createRequire as __ruriCreateRequire } from "node:module"; const require = __ruriCreateRequire(import.meta.url);',
-  },
+  banner,
+  logLevel: "info",
+});
+
+// the server: spawned detached by the shell, run as plain node under the
+// same Electron binary (ELECTRON_RUN_AS_NODE) — no electron import in it
+await build({
+  entryPoints: ["desktop/server-entry.ts"],
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node20",
+  outfile: "dist-electron/server.mjs",
+  banner,
   logLevel: "info",
 });

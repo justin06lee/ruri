@@ -65,6 +65,8 @@ import { withProjectRunning, type CaptureHost, type ShotTarget } from "./shots.j
 import { SecretStore } from "./secrets.js";
 import { installSkill, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
 import { Terminals } from "./terminal.js";
+import { HostLink } from "./host.js";
+import { HarnessUpdater } from "./updater.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
 import { fetchAllUsageLimits, loadCachedLimits, readCodexCounts, saveCachedLimits } from "./usage.js";
@@ -72,6 +74,9 @@ import { fetchAllUsageLimits, loadCachedLimits, readCodexCounts, saveCachedLimit
 export interface StartServerOptions {
   port: number;
   host?: string;
+  /** What this build is — the shell compares its own against it, and a
+   *  newer shell asks this server to step aside once everything is idle. */
+  version?: string;
   /** When set, GET requests are served from this directory (the built web UI). */
   staticDir?: string;
   /**
@@ -262,24 +267,42 @@ function serveReadFile(req: http.IncomingMessage, res: http.ServerResponse): voi
   }
 }
 
-function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.ServerResponse): void {
+/**
+ * The built UI, read into memory once. The server outlives the bundle it
+ * was started from: an update moves that bundle aside while this process
+ * keeps running, and a page served off the disk would then 404 (or, worse,
+ * serve the newer bundle's page to the older server). Held in memory, the
+ * server serves exactly the UI it was built with until it steps aside.
+ */
+function loadStatic(staticDir: string): Map<string, Buffer> {
+  const files = new Map<string, Buffer>();
+  const root = path.resolve(staticDir);
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile()) files.set(path.relative(root, full).split(path.sep).join("/"), fs.readFileSync(full));
+    }
+  };
+  try {
+    walk(root);
+  } catch {
+    // no UI built: every page is a 404, which is honest
+  }
+  return files;
+}
+
+function serveStatic(files: Map<string, Buffer>, req: http.IncomingMessage, res: http.ServerResponse): void {
   const url = (req.url ?? "/").split("?")[0] ?? "/";
-  const rel = url === "/" ? "index.html" : url.replace(/^\/+/, "");
-  const file = path.resolve(staticDir, rel);
-  if (!file.startsWith(path.resolve(staticDir) + path.sep) && file !== path.resolve(staticDir, "index.html")) {
-    res.writeHead(403);
+  const rel = url === "/" ? "index.html" : decodeURIComponent(url.replace(/^\/+/, ""));
+  const data = files.get(rel) ?? (rel.includes(".") ? undefined : files.get("index.html"));
+  if (!data) {
+    res.writeHead(404);
     res.end();
     return;
   }
-  fs.readFile(file, (err, data) => {
-    if (err) {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
-    res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream" });
-    res.end(data);
-  });
+  res.writeHead(200, { "content-type": MIME[path.extname(rel.includes(".") ? rel : "index.html")] ?? "application/octet-stream" });
+  res.end(data);
 }
 
 export function startServer(options: StartServerOptions): Promise<RuriServer> {
@@ -354,9 +377,20 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
    *  long after. */
   let listeningPort = options.port;
 
+  // The desktop shell, when it is attached over /host: the windows, the
+  // picker and the screenshots live there. An in-process host (a shell that
+  // started this server itself, or a test) takes precedence.
+  const hostLink = new HostLink();
+  const bridgeHost = (): BridgeHost | undefined => options.bridge ?? (hostLink.connected ? hostLink : undefined);
+  const capturer = (): CaptureHost | undefined =>
+    options.capture ?? (hostLink.connected ? (url, targets) => hostLink.capture(url, targets) : undefined);
+  const folderPicker = (): (() => Promise<string | null>) | undefined =>
+    options.pickFolder ?? (hostLink.connected ? () => hostLink.pickFolder() : undefined);
+
   // what the bridge is showing for a channel, as it changes — the strip
   // beside that channel's composer follows it
   options.bridge?.onState((channelId, state) => broadcast({ type: "bridge", projectId: channelId, state }));
+  hostLink.onState((channelId, state) => broadcast({ type: "bridge", projectId: channelId, state }));
 
   /** GET /bridge/preview/<channelId> — the strip's picture, overwritten in
    *  place as the session works, so never cached. */
@@ -401,7 +435,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       return;
     }
     const owner = ownerProject(id);
-    const outcome = await runBridge(options.bridge, { channelId: id, projectId: owner?.id ?? id }, body.tool, body.args);
+    const outcome = await runBridge(bridgeHost(), { channelId: id, projectId: owner?.id ?? id }, body.tool, body.args);
     if (!outcome.ok) {
       reply(200, { ok: false, error: outcome.error });
       return;
@@ -807,14 +841,15 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           ...(item.clicks?.length ? { clicks: item.clicks } : {}),
         }));
       const named = found.length === 0 ? "nothing new to name" : `named ${found.length}`;
-      if (!wantShots || !options.capture || targets.length === 0) {
+      const capture = capturer();
+      if (!wantShots || !capture || targets.length === 0) {
         sweepNote(projectId, named, false);
         return;
       }
       const shots = await withProjectRunning(
         project.path,
         (note) => sweepNote(projectId, note),
-        (url) => options.capture!(url, targets),
+        (url) => capture(url, targets),
       );
       let pinned = 0;
       for (const [componentId, data] of Object.entries(shots ?? {})) {
@@ -1543,7 +1578,11 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           // a silence the model owes anyone an explanation for
           const turn = turnProgress.get(projectId);
           if (turn && status === "working") turn.at = Date.now();
-        } else endTurn(projectId);
+        } else {
+          endTurn(projectId);
+          // the last thing running may just have finished
+          queueMicrotask(maybeStepAside);
+        }
         broadcast({ type: "status", projectId, status });
       },
       onProgress: (projectId, progress) => {
@@ -1613,7 +1652,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       // which is long before any session is made
       const owner = ownerProject(project.id);
       const bridgeCtx = { channelId: project.id, projectId: owner?.id ?? project.id };
-      const bridge = !options.bridge
+      const bridge = !bridgeHost()
         ? ""
         : claude
           ? bridgeToolBriefing()
@@ -1634,7 +1673,19 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         options: {
           mcpServers: {
             ruri: componentTools(componentHost, project.id),
-            bridge: bridgeTools(options.bridge, bridgeCtx),
+            // resolved per call: the shell may come and go under a session
+            bridge: bridgeTools(
+              {
+                run: (c, call) => (bridgeHost() ?? hostLink).run(c, call),
+                close: (id) => (bridgeHost() ?? hostLink).close(id),
+                takeover: (id) => (bridgeHost() ?? hostLink).takeover(id),
+                release: (id) => (bridgeHost() ?? hostLink).release(id),
+                states: () => bridgeHost()?.states() ?? {},
+                onState: () => {},
+                closeAll: () => (bridgeHost() ?? hostLink).closeAll(),
+              },
+              bridgeCtx,
+            ),
           },
           ...(note ? { systemPrompt: { type: "preset", preset: "claude_code", append: note } } : {}),
         },
@@ -1652,9 +1703,17 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   // an unset model is whatever Settings crowned, read live
   manager.useDefaultModel(() => store.defaultModel());
 
+  // the harnesses keep themselves current — never under a running turn
+  const updater = new HarnessUpdater({
+    busy: (harnessId) => manager.busyOn(harnessId),
+    retire: (harnessId) => manager.retireHarness(harnessId),
+    onChange: (harnesses) => broadcast({ type: "harnesses", harnesses }),
+  });
+  updater.start();
+
   /** The session's window and apps go with it, and so do its pictures. */
   function closeBridge(sessionId: string): void {
-    void options.bridge?.close(sessionId);
+    void bridgeHost()?.close(sessionId);
     try {
       fs.rmSync(bridgeDir(sessionId), { recursive: true, force: true });
     } catch {
@@ -1754,7 +1813,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       }
       case "pick_folder": {
         const target = msg.target ?? "workspace";
-        void (options.pickFolder?.() ?? Promise.resolve(null)).then((path) => {
+        void (folderPicker()?.() ?? Promise.resolve(null)).then((path) => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "folder_picked", path, target } satisfies ServerMessage));
           }
@@ -2680,15 +2739,19 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
         break;
       }
       case "bridge_takeover": {
-        void options.bridge?.takeover(msg.projectId);
+        void bridgeHost()?.takeover(msg.projectId);
         break;
       }
       case "bridge_release": {
-        void options.bridge?.release(msg.projectId);
+        void bridgeHost()?.release(msg.projectId);
         break;
       }
       case "bridge_close": {
-        void options.bridge?.close(msg.projectId);
+        void bridgeHost()?.close(msg.projectId);
+        break;
+      }
+      case "check_harnesses": {
+        void updater.check();
         break;
       }
       default: {
@@ -2698,10 +2761,19 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     }
   }
 
+  const staticFiles = options.staticDir ? loadStatic(options.staticDir) : null;
   const server = http.createServer((req, res) => {
     if (req.url === "/healthz") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, service: "ruri" }));
+      res.end(
+        JSON.stringify({
+          ok: true,
+          service: "ruri",
+          version: options.version ?? "dev",
+          pid: process.pid,
+          update: updateWaiting?.version ?? null,
+        }),
+      );
       return;
     }
     if (req.url === "/music/playlists") {
@@ -2729,8 +2801,8 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       serveReadFile(req, res);
       return;
     }
-    if (options.staticDir && (req.method === "GET" || req.method === "HEAD")) {
-      serveStatic(options.staticDir, req, res);
+    if (staticFiles && (req.method === "GET" || req.method === "HEAD")) {
+      serveStatic(staticFiles, req, res);
       return;
     }
     res.writeHead(404);
@@ -2739,7 +2811,64 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
 
   const wss = new WebSocketServer({ server });
 
-  wss.on("connection", (ws) => {
+  /* ── stepping aside for a newer ruri ─────────────────────────────── */
+
+  // A newer app has connected: this server is the old one. It keeps going
+  // — nothing running is interrupted — and exits the moment every session
+  // is idle, whereupon the shell starts the new one in its place. Idle
+  // sessions resume from the archive; only warm state goes.
+  let updateWaiting: { version: string } | null = null;
+  hostLink.onHello((hello) => {
+    const mine = options.version ?? "dev";
+    if (!hello.version || hello.version === mine) {
+      if (updateWaiting) {
+        updateWaiting = null;
+        broadcast({ type: "update", version: null });
+      }
+      return;
+    }
+    if (updateWaiting?.version === hello.version) return;
+    updateWaiting = { version: hello.version };
+    broadcast({ type: "update", version: hello.version });
+    maybeStepAside();
+  });
+
+  function everythingIdle(): boolean {
+    if (retries.size > 0) return false;
+    for (const status of Object.values(manager.statuses())) {
+      if (status === "working" || status === "permission") return false;
+    }
+    return true;
+  }
+
+  function maybeStepAside(): void {
+    if (!updateWaiting || !everythingIdle()) return;
+    const version = updateWaiting.version;
+    console.log(`ruri ${options.version ?? "dev"} stepping aside for ${version}`);
+    updater.stop();
+    clearInterval(usageTimer);
+    if (usageRetry) clearTimeout(usageRetry);
+    terminals.closeAll();
+    manager.disposeAll();
+    archive.flushAll();
+    ledger.flush();
+    for (const client of clients) client.close();
+    server.closeAllConnections();
+    wss.close(() => server.close(() => process.exit(0)));
+    // a socket that will not drain must not keep the old server alive
+    setTimeout(() => process.exit(0), 3_000).unref();
+  }
+
+  wss.on("connection", (ws, req) => {
+    if (req.url === "/host") {
+      hostLink.attach(ws);
+      return;
+    }
+    wsClient(ws);
+  });
+
+
+  function wsClient(ws: WebSocket): void {
     clients.add(ws);
     const projectIds = [...store.sessionIds(), HOME_ID];
     // the boards are the one thing keyed by project rather than by session
@@ -2776,7 +2905,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       catchups: Object.fromEntries(
         boardIds.map((id) => [id, briefs.get(id).built ? { built: briefs.get(id).built } : {}]),
       ),
-      canPickFolder: options.pickFolder !== undefined,
+      canPickFolder: folderPicker() !== undefined,
       workspaceDir: store.workspaceDir(),
       musicDir: musicRoot(),
       home: store.homeSettings(),
@@ -2784,9 +2913,12 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       smallModel: store.smallModel() ?? "",
       defaultModel: store.defaultModel(),
       user: os.userInfo().username,
+      serverVersion: options.version ?? "dev",
+      update: updateWaiting,
+      harnesses: updater.list(),
       prefs: prefs.all(),
       composerDrafts: drafts.all(),
-      bridges: options.bridge?.states() ?? {},
+      bridges: bridgeHost()?.states() ?? {},
     };
     ws.send(JSON.stringify(snapshot));
 
@@ -2803,7 +2935,7 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
       }
     });
     ws.on("close", () => clients.delete(ws));
-  });
+  }
 
   return new Promise((resolve, reject) => {
     // The port is part of the app's identity, not an implementation detail:
@@ -2831,12 +2963,16 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
           new Promise<void>((done) => {
             clearInterval(usageTimer);
             if (usageRetry) clearTimeout(usageRetry);
+            updater.stop();
             terminals.closeAll();
-            void options.bridge?.closeAll();
+            void bridgeHost()?.closeAll();
             manager.disposeAll();
             archive.flushAll();
             ledger.flush();
             for (const client of clients) client.close();
+            // idle keep-alive connections (health probes) would otherwise
+            // hold the listener open indefinitely
+            server.closeAllConnections();
             wss.close(() => server.close(() => done()));
           }),
       });

@@ -364,26 +364,6 @@ textarea::placeholder {
   border-top: 1.5px solid var(--hairline);
 }
 
-/* a newer ruri is installed and waiting for the sessions to go quiet */
-.update-note {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.03em;
-  padding: 1px 6px;
-  border-radius: 999px;
-  border: 1px solid var(--ink-faint);
-  color: var(--ink-soft);
-  white-space: nowrap;
-  animation: pulse 2.4s ease-in-out infinite;
-}
-
-.harness-version {
-  font-family: var(--mono);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  margin-right: 10px;
-}
-
 .account-avatar {
   width: 17px;
   height: 17px;

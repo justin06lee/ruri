@@ -1,25 +1,11 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { app, BrowserWindow, dialog, Menu, screen, shell } from "electron";
+import { startServer } from "../server/server.js";
 import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
-import { HostClient } from "./host.js";
-
-/**
- * The shell and the server are two processes.
- *
- * This one is the app: the window, the menu, the dialogs, the hidden
- * browser windows the bridge drives. The server — every session, every
- * terminal, the ledger, the UI it serves — is a separate process this one
- * spawns detached and then merely connects to. Quit the app and the server
- * carries on with everything in it; open the app again and it finds the
- * server on the port and picks up where it was. Replace the app with a
- * newer one and the old server steps aside on its own, once every session
- * is idle, and the new app spawns the new server in its place. Nothing
- * running is ever interrupted for an update.
- */
 
 /**
  * GUI-launched macOS apps get a minimal PATH (/usr/bin:/bin:...), which would
@@ -55,75 +41,6 @@ function fixPath(): void {
  *  the dev server's, deliberately not shared: a dev run and the installed app
  *  should not fight over one. */
 const DESKTOP_PORT = 7776;
-
-interface Health {
-  ok: boolean;
-  version?: string;
-  pid?: number;
-}
-
-/** Whether a ruri server answers on the port, and which one it is. */
-async function health(port: number): Promise<Health | null> {
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/healthz`, { signal: AbortSignal.timeout(1_500) });
-    if (!res.ok) return null;
-    const body = (await res.json()) as Health & { service?: string };
-    return body.service === "ruri" ? body : null;
-  } catch {
-    return null;
-  }
-}
-
-/** The bundle's files on disk. Packaged, they are unpacked beside the asar
- *  (asarUnpack in package.json) so a plain node process can run them. */
-function bundleRoot(): string {
-  const appPath = app.getAppPath();
-  const unpacked = appPath.replace(/app\.asar$/, "app.asar.unpacked");
-  return fs.existsSync(unpacked) ? unpacked : appPath;
-}
-
-function configDir(): string {
-  return process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri");
-}
-
-/**
- * Start the server, detached: its own process group, its output to a log,
- * unreferenced so this process can exit without it. It runs under this
- * same Electron binary as plain node — no other runtime is installed.
- */
-function spawnServer(port: number): void {
-  const root = bundleRoot();
-  const entry = path.join(root, "dist-electron", "server.mjs");
-  fs.mkdirSync(configDir(), { recursive: true });
-  const log = fs.openSync(path.join(configDir(), "server.log"), "a");
-  const child = spawn(process.execPath, [entry], {
-    detached: true,
-    stdio: ["ignore", log, log],
-    env: {
-      ...process.env,
-      ELECTRON_RUN_AS_NODE: "1",
-      RURI_PORT: String(port),
-      RURI_STATIC: path.join(root, "dist-web"),
-      RURI_VERSION: app.getVersion(),
-    },
-  });
-  child.unref();
-  fs.closeSync(log);
-}
-
-/** A server on the port, spawning one if none answers. */
-async function ensureServer(port: number): Promise<Health> {
-  const found = await health(port);
-  if (found) return found;
-  spawnServer(port);
-  const start = Date.now();
-  while (Date.now() - start < 30_000) {
-    await new Promise((r) => setTimeout(r, 250));
-    const up = await health(port);
-    if (up) return up;
-  }
-  throw new Error("the ruri server did not come up");
-}
 
 function createWindow(port: number): BrowserWindow {
   const win = new BrowserWindow({
@@ -218,62 +135,35 @@ async function main(): Promise<void> {
   await app.whenReady();
   buildMenu();
 
-  const port = Number(process.env["RURI_PORT"] ?? DESKTOP_PORT);
+  const staticDir = path.join(import.meta.dirname, "..", "dist-web");
   // the windows and apps sessions drive to look at what they built — the
   // server owns the tools, this shell owns the windows (desktop/bridge.ts)
   const bridge = new Bridge();
-
-  let server: Health;
-  try {
-    server = await ensureServer(port);
-  } catch (err) {
-    dialog.showErrorBox("ruri", `The server did not start: ${err instanceof Error ? err.message : String(err)}`);
-    app.quit();
-    return;
-  }
-
-  // The page comes from the server. When a newer server takes over, the
-  // page it serves is newer too, and the window is reloaded to get it —
-  // once, at the moment the versions line up.
-  let pageFrom = server.version ?? "";
-  const host = new HostClient(
-    port,
-    {
-      version: app.getVersion(),
-      appPath: app.getAppPath(),
-      bridge,
-      pickFolder: async () => {
-        const win = BrowserWindow.getAllWindows()[0];
-        const opts = {
-          title: "Add project",
-          buttonLabel: "Add",
-          properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">,
-        };
-        const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
-        return result.canceled ? null : (result.filePaths[0] ?? null);
-      },
-      capture: captureTargets,
+  const running = await startServer({
+    // A fixed port on purpose. The window is a page served from it, so the
+    // port is the origin, and the origin is what everything the window keeps
+    // for itself is filed under — a fresh port every launch meant every one
+    // of those preferences started empty. Only one ruri runs at a time (the
+    // single-instance lock above), so this is free; if something else has
+    // taken it the server falls back to an ephemeral port and the app still
+    // comes up, with the server holding the preferences either way.
+    port: Number(process.env["RURI_PORT"] ?? DESKTOP_PORT),
+    staticDir,
+    pickFolder: async () => {
+      const win = BrowserWindow.getAllWindows()[0];
+      const opts = {
+        title: "Add project",
+        buttonLabel: "Add",
+        properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">,
+      };
+      const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+      return result.canceled ? null : (result.filePaths[0] ?? null);
     },
-    async () => {
-      // the server went away (it stepped aside for this build, or died):
-      // bring one back from this bundle
-      try {
-        await ensureServer(port);
-      } catch {
-        // the reconnect loop keeps trying
-      }
-    },
-    () => {
-      void health(port).then((now) => {
-        if (!now?.version || now.version === pageFrom) return;
-        pageFrom = now.version;
-        for (const win of BrowserWindow.getAllWindows()) win.webContents.reload();
-      });
-    },
-  );
-  host.connect();
+    capture: captureTargets,
+    bridge,
+  });
 
-  createWindow(port);
+  createWindow(running.port);
   watchPeeks();
 
   app.on("second-instance", () => {
@@ -285,21 +175,22 @@ async function main(): Promise<void> {
     }
   });
 
-  // macOS: closing the window keeps the app alive; the Dock icon reopens
-  // it. Cmd+Q quits the app — and only the app: the server, and every
-  // session in it, carries on until the next app connects.
+  // macOS: closing the window keeps the app (and its warm sessions) alive;
+  // the Dock icon reopens it. Cmd+Q actually quits and tears sessions down.
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(port);
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(running.port);
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });
   app.on("before-quit", () => {
-    // the windows are this process's; the sessions are not
-    host.close();
+    // nothing a session launched outlives ruri
     void bridge.closeAll();
+    void running.close();
   });
-  process.on("SIGINT", () => app.quit());
+  process.on("SIGINT", () => {
+    void running.close().finally(() => app.quit());
+  });
 }
 
 void main();

@@ -104,15 +104,7 @@ function ModelCatalog() {
             >
               <button
                 className={`model-star ${starred ? "on" : ""}`}
-                title={
-                  isDefault
-                    ? "Default model — click to clear"
-                    : small
-                      ? "Small-tasks model — click again to make this the default new chats start on"
-                      : starred
-                        ? "Starred — click again to make this the small-tasks model"
-                        : "Star — pin into the picker"
-                }
+                title={starred ? "Starred — click to unstar" : "Star — pin into the picker"}
                 onClick={() => send({ type: "toggle_model_star", model: m.value })}
               >
                 <svg viewBox="0 0 24 24" fill={starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
@@ -128,10 +120,11 @@ function ModelCatalog() {
         })}
       </div>
       <div className="model-hint">
-        Starred models are what the composer's model picker offers. Star one twice to make it the
-        small-tasks model — session titles, turn summaries, prompt splitting, the tracker — and a
-        third time to make it the default that new chats and projects start on (nothing already
-        open moves). Drag either tag onto another model to hand the role over.
+        Starred models are what the composer's model picker offers. The star only
+        favourites and unfavourites. The small-tasks model — session titles, turn
+        summaries, prompt splitting, the tracker, starting on GPT Luna — and the
+        default that new chats and projects start on, starting on Fable 5.1, move by
+        dragging their tags onto another model (nothing already open moves).
       </div>
     </div>
   );

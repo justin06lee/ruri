@@ -40,9 +40,9 @@ export class ProjectStore {
   private music: string | undefined;
   private home: HomeSettings = {};
   // The out-of-the-box favourites; a saved list (even an empty one) wins.
-  private starredModelIds: string[] = [DEFAULT_MODEL, "codex:gpt-5.6-sol"];
-  /** The double-starred small-tasks model; undefined = built-in default. */
-  private smallModelId: string | undefined;
+  private starredModelIds: string[] = [DEFAULT_MODEL, "codex:gpt-5.6-luna"];
+  /** The small-tasks model; fresh installs start on GPT Luna. */
+  private smallModelId: string | undefined = "codex:gpt-5.6-luna";
   /** The triple-starred model new chats start on; undefined = DEFAULT_MODEL. */
   private defaultModelId: string | undefined;
 
@@ -151,20 +151,15 @@ export class ProjectStore {
   }
 
   /**
-   * The star's cycle: none → starred → small-tasks → default → none. Each
-   * role has one holder; a model taking a role releases the one it held,
-   * and the previous holder drops back to plain starred.
+   * The star is a favourite, nothing more: starred or not. Roles (small-tasks,
+   * default) are handed over by dragging their tags onto another model, and
+   * unstarring a role holder releases the role.
    */
   cycleModelStar(model: string): { starred: string[]; small: string | undefined; default: string | undefined } {
-    if (this.defaultModelId === model) {
-      this.setDefaultModel(undefined);
-      if (this.smallModelId === model) this.smallModelId = undefined;
+    if (this.starredModelIds.includes(model)) {
       this.starredModelIds = this.starredModelIds.filter((m) => m !== model);
-    } else if (this.smallModelId === model) {
-      this.smallModelId = undefined;
-      this.setDefaultModel(model);
-    } else if (this.starredModelIds.includes(model)) {
-      this.smallModelId = model;
+      if (this.smallModelId === model) this.smallModelId = undefined;
+      if (this.defaultModelId === model) this.setDefaultModel(undefined);
     } else {
       this.starredModelIds = [...this.starredModelIds, model];
     }

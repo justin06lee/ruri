@@ -46,6 +46,7 @@ import { HomeTabs, ProjectsPage, type HomeTab } from "./HomeBoard";
 import { CommandMenu, commandPrefix } from "./CommandMenu";
 import {
   MarkerMirror,
+  fitBox,
   backspaceHits,
   findMarkers,
   holdMarkers,
@@ -825,8 +826,7 @@ export function Composer({
       area.style.height = "";
       return;
     }
-    area.style.height = "auto";
-    area.style.height = `${Math.min(area.scrollHeight, 220)}px`;
+    fitBox(area, 220);
   };
 
   // The draft changed from outside (a review's fix-it prompt, a rewound

@@ -21,7 +21,15 @@ const CDP_PORT = Number(process.env["RURI_CDP_PORT"] ?? 9333);
 
 const child = spawn(
   path.join(root, "node_modules", ".bin", "electron"),
-  [root, `--remote-debugging-port=${CDP_PORT}`],
+  [
+    root,
+    `--remote-debugging-port=${CDP_PORT}`,
+    // the window is driven from behind whatever else is open, and a
+    // covered window paints nothing: no frames, no resize observers, no
+    // layout — every measurement below would be stale
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+  ],
   {
     cwd: root,
     env: {

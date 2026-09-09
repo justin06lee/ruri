@@ -272,6 +272,70 @@ export function moveMarker(
 
 type Segment = { start: number; text: string; marker?: Marker };
 
+/** A prompt ending in a newline has an empty last line, which the mirror
+ *  needs something on to stand as tall as the textarea does. A zero-width
+ *  space, and only here: anywhere else it would sit after a line's trailing
+ *  spaces and stop them hanging off the edge the way the textarea's do. */
+function lineEnd(at: number): React.ReactNode {
+  return (
+    <span key={`end-${at}`} className="line-end" data-start={at}>
+      {"\u200b"}
+    </span>
+  );
+}
+
+/** How tall each textarea's text really is, as last fitted (see `fitBox`). */
+const fitted = new WeakMap<HTMLTextAreaElement, number>();
+
+/**
+ * Fit a textarea to its text, no taller than `cap`, and return the text's
+ * true height.
+ *
+ * The obvious measure, `scrollHeight`, lies: a textarea is a scroll
+ * container, and Chromium keeps room in its scrollable overflow for the
+ * caret — a line whose last glyph ends within about three pixels of the
+ * right edge counts one extra line of overflow, one per such line ending
+ * at a newline or the end of the prompt, none of it drawn. The words wrap
+ * exactly as they do anywhere else; only the number is off. So the box was
+ * fitted a line too tall now and then, and the mirror — which draws the
+ * same words the same way and measures its own height honestly — was told
+ * it disagreed, and took the chips off a prompt whose line happened to end
+ * flush with the edge. With overflow hidden there is no scroll container
+ * and no room kept, and `scrollHeight` is the text's height. The box is
+ * measured that way, for a moment, and put back.
+ *
+ * One catch: a box taller than `cap` scrolls, and where the scrollbar is
+ * the classic kind it takes width from the words, which then wrap sooner.
+ * The first measure has no scrollbar. If it comes out over the cap, the
+ * box is given its height and looked at again with the scrollbar's width
+ * taken out of the words the same way.
+ */
+export function fitBox(area: HTMLTextAreaElement, cap: number): number {
+  const top = area.scrollTop;
+  const measure = () => {
+    area.style.overflow = "hidden";
+    area.style.height = "auto";
+    const h = area.scrollHeight;
+    area.style.overflow = "";
+    return h;
+  };
+  let height = measure();
+  area.style.height = `${Math.min(height, cap)}px`;
+  if (height > cap) {
+    const bar = area.offsetWidth - area.clientWidth - area.clientLeft * 2;
+    if (bar > 0) {
+      const pad = area.style.paddingRight;
+      area.style.paddingRight = `${parseFloat(getComputedStyle(area).paddingRight) + bar}px`;
+      height = measure();
+      area.style.paddingRight = pad;
+      area.style.height = `${Math.min(height, cap)}px`;
+    }
+  }
+  area.scrollTop = top;
+  fitted.set(area, height);
+  return height;
+}
+
 /** The prompt cut into plain runs and markers, in order. */
 function segments(text: string, markers: Marker[]): Segment[] {
   const out: Segment[] = [];
@@ -316,6 +380,9 @@ function indexAt(area: HTMLTextAreaElement, mirror: HTMLElement, x: number, y: n
   const seg = element?.closest<HTMLElement>("[data-start]");
   if (!seg) return null;
   const start = Number(seg.dataset["start"]);
+  // the mark holding an empty last line open stands for no character: a
+  // point over it is the end of the prompt
+  if (seg.classList.contains("line-end")) return start;
   if (seg.classList.contains("marker-chip")) {
     // no dropping inside another chip — before or after it, by halves
     const rect = seg.getBoundingClientRect();
@@ -412,11 +479,14 @@ export function MarkerMirror({
     const inner = textRef.current;
     if (!area || !mirror || !inner) return;
     let frame = 0;
-    let fitted = false;
+    let retry = 0;
+    let refitted = false;
     const check = () => {
       frame = 0;
-      if (Math.abs(inner.offsetHeight - area.scrollHeight) <= 2) {
-        fitted = false;
+      // against the text's true height as last fitted, never `scrollHeight`
+      // straight off the textarea — see `fitBox` for the lie it tells
+      if (Math.abs(inner.offsetHeight - (fitted.get(area) ?? area.scrollHeight)) <= 2) {
+        refitted = false;
         mirror.classList.remove("off");
         return;
       }
@@ -425,15 +495,28 @@ export function MarkerMirror({
       // left unfitted — a window resized with no keystroke after it — reads
       // exactly like a mirror wrapping wrongly. Fit the box and look once
       // more; only a disagreement that survives that is the real thing.
-      if (refit && !fitted) {
-        fitted = true;
+      if (refit && !refitted) {
+        refitted = true;
         refit();
         frame = requestAnimationFrame(check);
         return;
       }
       mirror.classList.add("off");
+      // Off is not final. A disagreement is often a moment's — a box mid-
+      // transition, a font landing, a layout still settling — and nothing
+      // else may come along to look again until the next keystroke. So
+      // while the chips are off, the mirror keeps looking on its own.
+      retry = window.setTimeout(() => {
+        retry = 0;
+        refitted = false;
+        sync();
+      }, 400);
     };
     const sync = () => {
+      if (retry) {
+        clearTimeout(retry);
+        retry = 0;
+      }
       const style = getComputedStyle(area);
       for (const prop of SHAPING) {
         const value = style.getPropertyValue(prop);
@@ -468,6 +551,7 @@ export function MarkerMirror({
     void document.fonts?.ready.then(sync);
     return () => {
       if (frame) cancelAnimationFrame(frame);
+      if (retry) clearTimeout(retry);
       area.removeEventListener("scroll", sync);
       area.removeEventListener("focus", sync);
       document.removeEventListener("selectionchange", sync);
@@ -511,6 +595,24 @@ export function MarkerMirror({
   // the drop caret: the plain run the pointer is over, split where it is
   const dropAt = drag?.moved ? drag.to : null;
 
+  // a plain run: the same characters, invisible, so the chips after it
+  // stand where the textarea's words do; split where a dragged chip would
+  // land, to show the caret
+  const plain = (seg: Segment) => {
+    const drop = dropAt !== null && dropAt >= seg.start && dropAt <= seg.start + seg.text.length ? dropAt - seg.start : null;
+    return drop !== null ? (
+      <span key={seg.start} data-start={seg.start}>
+        {seg.text.slice(0, drop)}
+        <span className="drop-caret" />
+        {seg.text.slice(drop)}
+      </span>
+    ) : (
+      <span key={seg.start} data-start={seg.start}>
+        {seg.text}
+      </span>
+    );
+  };
+
   return (
     <div className={`composer-mirror ${drag?.moved ? "dragging" : ""}`} ref={mirrorRef} aria-hidden>
       <div className="composer-mirror-text" ref={textRef}>
@@ -542,21 +644,11 @@ export function MarkerMirror({
               </>
             )}
           </span>
-        ) : dropAt !== null && dropAt >= seg.start && dropAt <= seg.start + seg.text.length ? (
-          <span key={seg.start} data-start={seg.start}>
-            {seg.text.slice(0, dropAt - seg.start)}
-            <span className="drop-caret" />
-            {seg.text.slice(dropAt - seg.start)}
-          </span>
         ) : (
-          <span key={seg.start} data-start={seg.start}>
-            {seg.text}
-          </span>
+          plain(seg)
         ),
       )}
-      {/* a prompt ending in a newline needs something on its last line for
-          the mirror to stand as tall as the textarea does */}
-      {"​"}
+      {text.endsWith("\n") ? lineEnd(text.length) : null}
       </div>
     </div>
   );

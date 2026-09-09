@@ -579,6 +579,7 @@ textarea::placeholder {
 
 .folder-actions .star,
 .folder-actions .add-session,
+.folder-actions .rename,
 .folder-actions .remove {
   border: none;
   background: none;
@@ -590,13 +591,15 @@ textarea::placeholder {
 
 .folder-actions .star svg,
 .folder-actions .add-session svg,
+.folder-actions .rename svg,
 .folder-actions .remove svg {
   width: 12px;
   height: 12px;
 }
 
 .folder-actions .star:hover,
-.folder-actions .add-session:hover {
+.folder-actions .add-session:hover,
+.folder-actions .rename:hover {
   color: var(--ink);
   background: none;
   transform: none;
@@ -744,6 +747,61 @@ textarea::placeholder {
 
 .project-row:hover .remove {
   display: block;
+}
+
+/* the pencil beside the ×: rename, on hover like the rest */
+.project-row .rename {
+  display: none;
+  border: none;
+  background: none;
+  padding: 2px;
+  color: var(--ink-faint);
+  line-height: 0;
+  box-shadow: none;
+}
+
+.project-row:hover .rename {
+  display: block;
+}
+
+.project-row .rename svg {
+  width: 12px;
+  height: 12px;
+}
+
+.project-row .rename:hover {
+  color: var(--ink);
+}
+
+/* A name being rewritten in place (NameEditor in Sidebar.tsx): the row's
+   own text turned into a box, in the row's own font, with just a hairline
+   under it to say it is being edited. The row's buttons stay out of the
+   way while it is. */
+.rename-box {
+  flex: 1;
+  min-width: 0;
+  margin: -1px 0;
+  padding: 0 2px;
+  border: none;
+  border-bottom: 1.5px solid var(--ink);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  box-shadow: none;
+  outline: none;
+  user-select: text;
+}
+
+.rename-box:focus {
+  box-shadow: none;
+  border-color: var(--ink);
+}
+
+.project-row.renaming .rename,
+.project-row.renaming .remove,
+.folder-row.renaming .folder-actions {
+  display: none;
 }
 
 .project-row .remove:hover {
@@ -5669,7 +5727,9 @@ button.sketch-toggle:hover {
 .composer-controls {
   display: flex;
   gap: 8px;
-  min-width: 0;
+  /* never squeezed: a bar this cannot fit in folds instead (Composer's
+     `compact`), and the fold is measured off this width */
+  flex-shrink: 0;
 }
 
 .composer-box textarea {
@@ -6092,7 +6152,9 @@ button.stop:hover {
 }
 
 .composer-hint {
-  max-width: 800px;
+  /* the box's own span: the dragons stand either side of it, with their
+     readings under them, and the hint has no business under those */
+  max-width: min(800px, calc(100% - 320px));
   margin: 7px auto 0;
   text-align: center;
   font-size: 11px;
@@ -6582,4 +6644,222 @@ button.stop:hover {
 .bridge-toggle.on:hover {
   background: var(--paper);
   color: var(--ink);
+}
+
+/* ── the queue, carried ───────────────────────────────────────────── */
+
+/* The list keeps the column's own rhythm: it is a run of cards in the
+   transcript, not a box around them. */
+.queued-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* a card being carried rides over the others */
+  position: relative;
+}
+
+.queued-list.lifting,
+.queued-list.lifting * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.queued-card {
+  position: relative;
+}
+
+.queued-card.carried {
+  cursor: grab;
+  touch-action: none;
+}
+
+.queued-card.lifting {
+  cursor: grabbing;
+  z-index: 5;
+  border-style: solid;
+  border-color: var(--ink);
+  box-shadow: var(--shadow-hard);
+  transition: none;
+  animation: none;
+  opacity: 0.92;
+}
+
+/* where it would land: a line at the edge it is nearest... */
+.queued-card.drop-before::before,
+.queued-card.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ink);
+}
+
+.queued-card.drop-before::before {
+  top: -7px;
+}
+
+.queued-card.drop-after::after {
+  bottom: -7px;
+}
+
+/* ...or the card itself, when the two are about to become one */
+.queued-card.merge-into {
+  border-style: solid;
+  border-color: var(--ink);
+  background: var(--paper-dim);
+}
+
+/* out of the line while it is rewritten in the composer */
+.queued-card.editing {
+  opacity: 0.55;
+  border-style: dotted;
+}
+
+.composer-editing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px 2px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+}
+
+.composer-editing span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-editing button {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+/* ── the bar, folded ──────────────────────────────────────────────── */
+
+/* Below COMPACT_BELOW (ChatPane.tsx) the three pickers are one and the
+   lesser buttons stand behind a ⋯ — only send and stop stay out. */
+.more-actions {
+  position: relative;
+}
+
+.more-actions .more {
+  background: var(--paper);
+  border-color: var(--edge);
+  color: var(--ink-soft);
+}
+
+.more-actions .more:hover,
+.more-actions .more.active {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.more-menu {
+  right: 0;
+  min-width: 164px;
+}
+
+/* rows, not the round buttons the bar's own rule makes of them */
+.composer-actions .more-menu button {
+  width: 100%;
+  height: auto;
+  padding: 6px 10px;
+  border-radius: var(--radius-s);
+  justify-content: flex-start;
+}
+
+.composer-actions .more-menu button:active {
+  transform: none;
+}
+
+.more-menu .dropdown-item .icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.more-menu .dropdown-item:disabled {
+  opacity: 0.45;
+}
+
+.more-menu .dropdown-item:disabled:hover {
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+/* the folded picker sits at the left, so its menu opens from the left */
+.composer-box.compact .composer-controls .dropdown-menu {
+  right: auto;
+  left: 0;
+}
+
+.dropdown.combo .dropdown-trigger {
+  max-width: 150px;
+}
+
+.dropdown-rule {
+  height: 1.5px;
+  margin: 5px 4px;
+  background: var(--edge);
+}
+
+.dropdown-sub {
+  position: relative;
+}
+
+.dropdown-item.sub-row {
+  gap: 10px;
+}
+
+.dropdown-sub.open .dropdown-item.sub-row {
+  background: var(--paper-dim);
+  color: var(--ink);
+}
+
+.dropdown-sub.open .dropdown-item.sub-row:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.sub-label {
+  flex: 1;
+}
+
+.sub-value {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.sub-chevron {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+}
+
+/* the second list, beside the row that opened it */
+.dropdown-flyout {
+  position: absolute;
+  left: calc(100% + 6px);
+  top: -5px;
+  min-width: 150px;
+  background: var(--raised);
+  border: 1.5px solid var(--edge);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-hard);
+  padding: 5px;
+  z-index: 31;
+  animation: rise 120ms ease-out;
+}
+
+.dropdown-flyout.left {
+  left: auto;
+  right: calc(100% + 6px);
 }

@@ -327,6 +327,11 @@ export interface QueuedPrompt {
   id: string;
   text: string;
   attachments?: Attachment[];
+  /** Out of the line for the moment, being rewritten in the composer: the
+   *  prompts behind it move up and go out without it, and it steps back in
+   *  where it was (relative to what is still there) when the rewrite is
+   *  sent — see queue_edit / queue_update. */
+  editing?: true;
 }
 
 /** A harness's account limit windows (percent USED, 0-100). A missing field
@@ -624,6 +629,32 @@ export type ClientMessage =
   /** Drop a prompt still waiting in the app-side queue. Editing one is this
    *  plus a compose: it leaves the queue and lands back in the composer. */
   | { type: "queue_remove"; projectId: string; itemId: string }
+  /** Put a queued prompt somewhere else in the line: before `beforeId`, or
+   *  at the end when that is not given. */
+  | { type: "queue_move"; projectId: string; itemId: string; beforeId?: string }
+  /** Fold one queued prompt into another — `itemId`'s text first, then
+   *  `intoId`'s — as one prompt standing where `intoId` stood. Both sets of
+   *  attachments come along, renumbered so the merged text still points at
+   *  the right ones. */
+  | { type: "queue_merge"; projectId: string; itemId: string; intoId: string }
+  /** Start rewriting a queued prompt in the composer. It leaves the line
+   *  for now (what is behind it moves up and goes out in its turn), and
+   *  comes back with queue_update or queue_edit_cancel. */
+  | { type: "queue_edit"; projectId: string; itemId: string }
+  /** The rewrite is done: this is the prompt now, back in line where it
+   *  was — after whichever prompts that were ahead of it are still waiting,
+   *  at the front otherwise — and sent at once if nothing is running.
+   *  `split` sends it the scissors way when its turn comes. */
+  | {
+      type: "queue_update";
+      projectId: string;
+      itemId: string;
+      text: string;
+      attachments?: AttachmentUpload[];
+      split?: boolean;
+    }
+  /** Never mind the rewrite: the prompt steps back in line as it was. */
+  | { type: "queue_edit_cancel"; projectId: string; itemId: string }
   /** Send a queue that has been standing by since a stopped turn, now —
    *  the alternative to waiting for the next prompt to pull it along. */
   | { type: "queue_send"; projectId: string }
@@ -763,8 +794,15 @@ export type ClientMessage =
    *  and the small model writes a fix-it prompt for the composer. */
   | { type: "tracker_review"; projectId: string }
   | { type: "toggle_star"; projectId: string }
+  /** Call a project what you like in the sidebar. The folder on disk is
+   *  untouched; this is the name ruri shows and the Home agent answers to. */
+  | { type: "rename_project"; projectId: string; name: string }
   | { type: "new_session"; projectId: string }
   | { type: "remove_session"; sessionId: string }
+  /** Give a session a title by hand. The small model names a session once,
+   *  from its first prompt, and never over a title that is already there —
+   *  so a name given here stands. */
+  | { type: "rename_session"; sessionId: string; title: string }
   | { type: "set_workspace"; path: string }
   | { type: "set_music_dir"; path: string }
   /** Cycle a model's star: none → starred → small-tasks → default → none. */

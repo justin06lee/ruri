@@ -3,6 +3,7 @@ import { ChatPane } from "./components/ChatPane";
 import { Settings } from "./components/Settings";
 import { useRapidFire } from "./components/RapidFire";
 import { Sidebar } from "./components/Sidebar";
+import { Switcher } from "./components/Switcher";
 import { prewarmMarkdown } from "./markdown";
 import { connect, useRuri } from "./store";
 
@@ -99,6 +100,7 @@ export function App() {
     <div className="app">
       <Prewarm />
       <Sidebar />
+      <Switcher />
       {settingsOpen ? (
         <Settings onClose={() => setSettingsOpen(false)} />
       ) : (

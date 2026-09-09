@@ -396,6 +396,23 @@ export const Sidebar = memo(function Sidebar() {
     };
   }, []);
 
+  // A chat reached some other way than a click in here — the switcher, the
+  // Home agent — may sit in a folded folder. It is opened for it.
+  const activeId = useRuri((s) => s.activeId);
+  const owner = useRuri((s) => s.projects.find((p) => p.sessions.some((x) => x.id === activeId))?.id);
+  useEffect(() => {
+    if (!owner || expandedSet.has(owner)) return;
+    const next = new Set(expandedSet);
+    next.add(owner);
+    setExpandedSet(next);
+    try {
+      setPref("ruri-expanded", JSON.stringify([...next]));
+    } catch {
+      // preference just won't persist
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [owner]);
+
   const toggleFolder = (name: string) => {
     const next = new Set(expandedSet);
     if (next.has(name)) next.delete(name);

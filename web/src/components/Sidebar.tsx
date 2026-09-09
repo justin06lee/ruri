@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { PEEKS } from "../peek";
 import { HOME_ID, type Project, type RecentSession, type SessionInfo } from "../../../shared/protocol";
 import { Player } from "./Player";
@@ -64,19 +64,96 @@ function RapidRow() {
 
 const STAR_PATH = "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9 2.9-6z";
 
+/**
+ * A name being rewritten in place: the row's own text, as a box, with the
+ * old name selected so typing replaces it. Enter keeps it, Escape drops it,
+ * and clicking away keeps it too — the same as renaming a file in Finder.
+ * Nothing that happens inside reaches the row underneath: a click here is
+ * not a click on the session, and Enter is not a prompt going out.
+ */
+function NameEditor({
+  value,
+  className,
+  onDone,
+}: {
+  value: string;
+  className: string;
+  /** The new name, or nothing if it is unchanged or blank. */
+  onDone(next: string | null): void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const ref = useRef<HTMLInputElement>(null);
+  const settled = useRef(false);
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+  const settle = (keep: boolean) => {
+    if (settled.current) return;
+    settled.current = true;
+    const next = draft.trim();
+    onDone(keep && next && next !== value ? next : null);
+  };
+  return (
+    <input
+      ref={ref}
+      className={`rename-box ${className}`}
+      value={draft}
+      spellCheck={false}
+      onChange={(e) => setDraft(e.target.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") settle(true);
+        else if (e.key === "Escape") settle(false);
+      }}
+      onBlur={() => settle(true)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    />
+  );
+}
+
+const PENCIL_PATH = "M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3";
+
 function SessionRow({ session }: { session: SessionInfo }) {
   const activeId = useRuri((s) => s.activeId);
   const unread = useRuri((s) => s.unread[session.id] ?? false);
   const setActive = useRuri((s) => s.setActive);
+  const [renaming, setRenaming] = useState(false);
+  const rename = (title: string | null) => {
+    setRenaming(false);
+    if (title) send({ type: "rename_session", sessionId: session.id, title });
+  };
 
   return (
     <div
-      className={`project-row session-row ${activeId === session.id ? "active" : ""}`}
-      title={session.title ?? "New session"}
+      className={`project-row session-row ${activeId === session.id ? "active" : ""} ${renaming ? "renaming" : ""}`}
+      title={renaming ? undefined : `${session.title ?? "New session"} — double-click to rename`}
       onClick={() => setActive(session.id)}
+      onDoubleClick={(e) => {
+        e.preventDefault();
+        setRenaming(true);
+      }}
     >
-      <span className="project-name">{session.title ?? "new session"}</span>
+      {renaming ? (
+        <NameEditor value={session.title ?? ""} className="project-name" onDone={rename} />
+      ) : (
+        <span className="project-name">{session.title ?? "new session"}</span>
+      )}
       {unread && <span className="unread-pip" title="Turn finished" />}
+      <button
+        className="rename"
+        title="Rename session"
+        onClick={(e) => {
+          e.stopPropagation();
+          setRenaming(true);
+        }}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d={PENCIL_PATH} />
+        </svg>
+      </button>
       <button
         className="remove"
         title="Remove session"
@@ -186,9 +263,21 @@ function ProjectFolder({
   collapsed: boolean;
   onToggle(): void;
 }) {
+  const [renaming, setRenaming] = useState(false);
+  const rename = (name: string | null) => {
+    setRenaming(false);
+    if (name) send({ type: "rename_project", projectId: project.id, name });
+  };
   return (
     <div>
-      <div className="folder-row project-folder" onClick={onToggle}>
+      <div
+        className={`folder-row project-folder ${renaming ? "renaming" : ""}`}
+        onClick={onToggle}
+        onDoubleClick={(e) => {
+          e.preventDefault();
+          setRenaming(true);
+        }}
+      >
         <svg
           className={`folder-chevron ${collapsed ? "" : "open"}`}
           viewBox="0 0 24 24"
@@ -204,8 +293,24 @@ function ProjectFolder({
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
         </svg>
-        <span className="folder-name" title={project.path}>{project.name}</span>
+        {renaming ? (
+          <NameEditor value={project.name} className="folder-name" onDone={rename} />
+        ) : (
+          <span className="folder-name" title={`${project.path} — double-click to rename`}>{project.name}</span>
+        )}
         <span className="folder-actions">
+          <button
+            className="rename"
+            title="Rename project"
+            onClick={(e) => {
+              e.stopPropagation();
+              setRenaming(true);
+            }}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d={PENCIL_PATH} />
+            </svg>
+          </button>
           <button
             className={`star ${project.starred ? "on" : ""}`}
             title={project.starred ? "Unstar" : "Star"}

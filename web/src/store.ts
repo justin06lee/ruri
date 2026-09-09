@@ -525,7 +525,12 @@ function emitTerminal(termId: string, message: TerminalMessage): void {
  *  A dropped message is simply gone; the few that cannot afford that (a
  *  draft's attachment bytes) look at the answer and try again. */
 export function send(message: ClientMessage): boolean {
-  if (ws?.readyState !== WebSocket.OPEN) return false;
+  if (ws?.readyState !== WebSocket.OPEN) {
+    // fixture mode has no server: it keeps what would have gone out, for
+    // the scripts that drive it to read back
+    (window as unknown as { __ruriSent?: ClientMessage[] }).__ruriSent?.push(message);
+    return false;
+  }
   ws.send(JSON.stringify(message));
   return true;
 }

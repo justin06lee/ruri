@@ -37,8 +37,17 @@ export function installFixture(): void {
   // and a way to put a prompt with attachments into a composer, which is
   // otherwise only ever done by a person dropping files on it
   (window as unknown as Record<string, unknown>)["__ruriCompose"] = composeInto;
+  // and what the UI tried to tell the server, since there is none
+  (window as unknown as Record<string, unknown>)["__ruriSent"] = [];
   useRuri.setState({
     connected: true,
+    queued: {
+      p1: [
+        { id: "q1", text: "Then run the whole suite again and tell me what broke." },
+        { id: "q2", text: "After that, bump the version and push it." },
+        { id: "q3", text: "And write the release note — short, in the usual voice." },
+      ],
+    },
     projects: [
       {
         id: "prj1",

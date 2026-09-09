@@ -124,6 +124,35 @@ export default async function (page) {
   const back = await resize(page, 900);
   check("and back again", sound(back), back);
 
+  // Every width, not just a few: a line that happens to end flush with the
+  // right edge is where the textarea's own height reading goes wrong (see
+  // fitBox in Markers.tsx), and which widths do that depends on the words
+  // and the font. So a prompt with chips beside punctuation, chips side by
+  // side, a newline, and a trailing space is walked across a range of
+  // widths, and the chips must stand at every one of them.
+  const markers = await page.eval(`document.querySelector('.composer-box textarea').value.match(/\\[image[ \\u00a0]#\\d+\\]/g)`);
+  const chip = markers[0];
+  await page.eval(`(async () => {
+    const area = document.querySelector('.composer-box textarea');
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(area, ${JSON.stringify(
+      `Look at ${chip}, then ${chip}. Compare (${chip}) with ${chip}; and ${chip}? Then a sentence long ` +
+        "enough to wrap a few times so the chips land at the edges of lines at some widths, hopefully.\n" +
+        `${chip}   ${chip} and words after the chips that wrap around and around the box at various widths ` +
+        "so the chips end up at the ends and starts of lines here and there ",
+    )});
+    area.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 300));
+  })()`);
+  const fallen = [];
+  for (let width = 860; width <= 1240; width += 4) {
+    await page.cdp("Emulation.setDeviceMetricsOverride", { width, height: 850, deviceScaleFactor: 0, mobile: false });
+    await page.wait(350);
+    const state = await page.eval(MEASURE);
+    if (state.off || state.visible !== "visible" || state.chips !== 7) fallen.push({ width, ...state });
+  }
+  check("the chips stand at every width", fallen.length === 0, fallen.slice(0, 4));
+
   console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
   if (failed > 0) throw new Error(`${failed} check(s) failed`);
 }

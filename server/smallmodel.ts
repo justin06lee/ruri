@@ -8,7 +8,8 @@ import type { TranscriptEvent } from "../shared/protocol.js";
  * and per finished reply, so cost stays in fractions of a cent. The
  * double-starred model from
  * the Settings catalog wins (any harness — yagami routes qualified ids);
- * RURI_SMALL_MODEL is the fallback override, then "haiku". RURI_NO_MEMORY=1
+ * RURI_SMALL_MODEL is the fallback override, then GPT Luna (codex:gpt-5.6-luna).
+ * RURI_NO_MEMORY=1
  * disables the whole layer.
  */
 
@@ -25,7 +26,7 @@ export function setSmallModel(model: string | undefined): void {
 }
 
 function model(): string {
-  return configured ?? process.env["RURI_SMALL_MODEL"] ?? "haiku";
+  return configured ?? process.env["RURI_SMALL_MODEL"] ?? "codex:gpt-5.6-luna";
 }
 
 /**

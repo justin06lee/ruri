@@ -144,10 +144,13 @@ async function main(): Promise<void> {
     // port is the origin, and the origin is what everything the window keeps
     // for itself is filed under — a fresh port every launch meant every one
     // of those preferences started empty. Only one ruri runs at a time (the
-    // single-instance lock above), so this is free; if something else has
-    // taken it the server falls back to an ephemeral port and the app still
-    // comes up, with the server holding the preferences either way.
+    // single-instance lock above), so the port is ours by rights: if a ruri
+    // that outlived its app is sitting on it, it is retired for it rather
+    // than tiptoed around (reclaimPort, server/port.ts). Anything else on the
+    // port is left alone, and then the app still comes up on an ephemeral one
+    // — and says so, below.
     port: Number(process.env["RURI_PORT"] ?? DESKTOP_PORT),
+    reclaimPort: true,
     staticDir,
     pickFolder: async () => {
       const win = BrowserWindow.getAllWindows()[0];
@@ -165,6 +168,25 @@ async function main(): Promise<void> {
 
   createWindow(running.port);
   watchPeeks();
+
+  // A GUI app's stdout goes nowhere anyone will look, and a window on an
+  // unexpected origin is indistinguishable from a ruri that has lost its
+  // settings. So the one case the server could not fix itself is said out
+  // loud, with the thing to do about it.
+  if (running.portFallback) {
+    const { wanted, reason } = running.portFallback;
+    void dialog.showMessageBox({
+      type: "warning",
+      title: "ruri is on a different port",
+      message: `Port ${wanted} was not available, so ruri started on ${running.port}.`,
+      detail:
+        `${reason[0]!.toUpperCase()}${reason.slice(1)}.\n\n` +
+        `Your projects and sessions are all here — but this window is a new origin, ` +
+        `so anything the window itself remembers (sidebar widths, what was last open) ` +
+        `starts fresh. Free port ${wanted} and relaunch to get it back.`,
+      buttons: ["OK"],
+    });
+  }
 
   app.on("second-instance", () => {
     const win = BrowserWindow.getAllWindows()[0];

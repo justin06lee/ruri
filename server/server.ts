@@ -27,6 +27,7 @@ import { HomeLog } from "./homelog.js";
 import { createCheckpoints } from "./checkpoints.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
 import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
+import { claimPort, type PortClaim } from "./port.js";
 import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
 import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
@@ -93,10 +94,24 @@ export interface StartServerOptions {
    * See server/bridge.ts.
    */
   bridge?: BridgeHost;
+  /**
+   * Take `port` back from a ruri that outlived its app rather than falling
+   * back around it (server/port.ts). The desktop shell sets this, because the
+   * port it asks for is the app's identity; the dev server and the test
+   * harnesses each have a port of their own and leave leftovers alone.
+   */
+  reclaimPort?: boolean;
 }
 
 export interface RuriServer {
   port: number;
+  /**
+   * Set only when `port` is not the port that was asked for: something else
+   * holds that one and this server is on an ephemeral port instead, which
+   * means a window served from it will not find anything it filed under the
+   * usual origin. The shell says so out loud (desktop/main.ts).
+   */
+  portFallback?: { wanted: number; reason: string };
   close(): Promise<void>;
 }
 
@@ -282,7 +297,7 @@ function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.Ser
   });
 }
 
-export function startServer(options: StartServerOptions): Promise<RuriServer> {
+export async function startServer(options: StartServerOptions): Promise<RuriServer> {
   const store = new ProjectStore();
   setSmallModel(store.smallModel());
 
@@ -2701,7 +2716,9 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   const server = http.createServer((req, res) => {
     if (req.url === "/healthz") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, service: "ruri" }));
+      // the pid is how the next launch tells a ruri that outlived its app
+      // from some other program on the port — see server/port.ts
+      res.end(JSON.stringify({ ok: true, service: "ruri", pid: process.pid }));
       return;
     }
     if (req.url === "/music/playlists") {
@@ -2738,6 +2755,17 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
   });
 
   const wss = new WebSocketServer({ server });
+
+  // ws forwards the http server's "error" to the WebSocketServer, and an
+  // "error" event with nobody listening is an uncaught exception — which is
+  // why a port already in use used to take the whole app down instead of
+  // falling back the way the listen handler below intends. The handler down
+  // there is the one that decides what to do; this is only here so the copy
+  // ws re-emits cannot kill the process on its way past.
+  wss.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") return;
+    console.error("ruri websocket server error:", error);
+  });
 
   wss.on("connection", (ws) => {
     clients.add(ws);
@@ -2805,28 +2833,56 @@ export function startServer(options: StartServerOptions): Promise<RuriServer> {
     ws.on("close", () => clients.delete(ws));
   });
 
+  const host = options.host ?? "127.0.0.1";
+
+  // The port is part of the app's identity, not an implementation detail: the
+  // window is served from it, so a different port every launch means a
+  // different origin every launch, and everything the window keeps for itself
+  // (localStorage) starts empty. That is worth more than politeness about a
+  // port, so a ruri that outlived its app is retired for it before the
+  // fallback below is ever reached — see server/port.ts.
+  let claim: PortClaim = { outcome: "free" };
+  if (options.reclaimPort && options.port !== 0) {
+    claim = await claimPort(options.port, host);
+    if (claim.outcome === "reclaimed") {
+      console.log(
+        `ruri took port ${options.port} back from a server that outlived its app (pid ${claim.pid})`,
+      );
+    }
+  }
+
   return new Promise((resolve, reject) => {
-    // The port is part of the app's identity, not an implementation detail:
-    // the window is served from it, so a different port every launch means a
-    // different origin every launch, and everything the window keeps for
-    // itself (localStorage) starts empty. So the asked-for port is tried
-    // first and only a port already in use falls back to an ephemeral one.
+    // Only a port that is still in use after all that falls back to an
+    // ephemeral one, and it says so: a window on the wrong origin looks like
+    // a ruri that has forgotten its preferences, and silence about why is
+    // what makes that a mystery instead of a message.
     let attempt = options.port;
+    let fallback: { wanted: number; reason: string } | undefined;
     server.on("error", (error: NodeJS.ErrnoException) => {
       if (error.code === "EADDRINUSE" && attempt !== 0) {
+        fallback = {
+          wanted: options.port,
+          reason: claim.outcome === "held" ? claim.reason : "another program is using it",
+        };
+        console.warn(
+          `ruri could not have port ${options.port}: ${fallback.reason}. ` +
+            `Falling back to an ephemeral port — this window starts on a new origin, ` +
+            `so anything it keeps for itself will look empty.`,
+        );
         attempt = 0;
-        server.listen(0, options.host ?? "127.0.0.1");
+        server.listen(0, host);
         return;
       }
       reject(error);
     });
-    server.listen(attempt, options.host ?? "127.0.0.1", () => {
+    server.listen(attempt, host, () => {
       const address = server.address();
       const port = typeof address === "object" && address ? address.port : options.port;
       listeningPort = port;
       console.log(`ruri server listening on ws://127.0.0.1:${port}`);
       resolve({
         port,
+        ...(fallback ? { portFallback: fallback } : {}),
         close: () =>
           new Promise<void>((done) => {
             clearInterval(usageTimer);

@@ -2,6 +2,8 @@ import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
 import { Marked } from "marked";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Viewer } from "./components/Attachments";
+import { HTTP_BASE } from "./store";
 
 const marked = new Marked({
   gfm: true,
@@ -35,7 +37,7 @@ const marked = new Marked({
     // Relative paths are the project's; the server resolves them.
     image({ href, title, text }) {
       const local = !/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith("/readfile?");
-      const src = local ? `/readfile?p=${encodeURIComponent(href)}` : href;
+      const src = local ? `${HTTP_BASE}/readfile?p=${encodeURIComponent(href)}` : href;
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
       return `<img src="${escapeHtml(src)}" alt="${escapeHtml(text)}"${titleAttr}${local ? ' class="md-local"' : ""}>`;
     },
@@ -95,9 +97,22 @@ export function prewarmMarkdown(text: string): void {
   if (text && !cache.has(text)) render(text);
 }
 
-/** Copy-button delegation: one handler for every code block in the subtree. */
-function onClick(e: React.MouseEvent<HTMLDivElement>): void {
-  const button = (e.target as HTMLElement).closest(".code-copy");
+/** A picture in a reply, clicked: what the viewer is asked to show. */
+interface Picture {
+  src: string;
+  name: string;
+}
+
+/** Copy-button delegation: one handler for every code block in the subtree —
+ *  and a picture clicked is handed back, to open in the viewer. */
+function onClick(e: React.MouseEvent<HTMLDivElement>, onPicture?: (p: Picture) => void): void {
+  const target = e.target as HTMLElement;
+  if (target instanceof HTMLImageElement && onPicture) {
+    e.preventDefault();
+    onPicture({ src: target.currentSrc || target.src, name: target.alt || target.src.split("/").pop() || "picture" });
+    return;
+  }
+  const button = target.closest(".code-copy");
   if (!(button instanceof HTMLButtonElement)) return;
   const code = button.closest(".codeblock")?.querySelector("code")?.textContent ?? "";
   void navigator.clipboard.writeText(code).then(() => {
@@ -108,8 +123,19 @@ function onClick(e: React.MouseEvent<HTMLDivElement>): void {
 
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const html = useMemo(() => render(text), [text]);
-  // eslint-disable-next-line react/no-danger -- sanitized via DOMPurify above
-  return <div className="md" onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
+  const [picture, setPicture] = useState<Picture | null>(null);
+  return (
+    <>
+      {/* eslint-disable-next-line react/no-danger -- sanitized via DOMPurify above */}
+      <div className="md" onClick={(e) => onClick(e, setPicture)} dangerouslySetInnerHTML={{ __html: html }} />
+      {picture && (
+        <Viewer
+          target={{ kind: "image", src: picture.src, label: picture.name, name: picture.name }}
+          onClose={() => setPicture(null)}
+        />
+      )}
+    </>
+  );
 });
 
 /**

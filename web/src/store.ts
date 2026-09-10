@@ -16,7 +16,9 @@ import {
   type HomeSettings,
   type ModelChoice,
   type PermissionRequest,
+  type PermissionState,
   type PickTarget,
+  type TccRow,
   type Project,
   type ProjectStats,
   type ProjectStatus,
@@ -402,6 +404,9 @@ interface RuriState {
   user: string;
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
+  canPermissions: boolean;
+  /** The macOS grants as last read (Settings asks), or null before that. */
+  grants: { items: PermissionState[]; rows: TccRow[] } | null;
   /** Latest native-picker result, tagged with what the pick was for. */
   picked: { path: string; target: PickTarget } | null;
   lastError: string | null;
@@ -459,6 +464,8 @@ export const useRuri = create<RuriState>((set) => ({
   defaultModel: DEFAULT_MODEL,
   user: "",
   canPickFolder: false,
+  canPermissions: false,
+  grants: null,
   picked: null,
   lastError: null,
   setActive: (id) =>
@@ -600,6 +607,7 @@ function apply(msg: ServerMessage): void {
           Object.entries(msg.catchups).map(([id, c]) => [id, { busy: false, at: 0, ...(c.built ? { built: c.built } : {}) }]),
         ),
         canPickFolder: msg.canPickFolder,
+        canPermissions: msg.canPermissions,
         bridges: msg.bridges,
         workspaceDir: msg.workspaceDir,
         musicDir: msg.musicDir,
@@ -888,6 +896,10 @@ function apply(msg: ServerMessage): void {
     }
     case "models": {
       setState({ models: msg.models });
+      break;
+    }
+    case "permissions": {
+      setState({ grants: { items: msg.items, rows: msg.rows } });
       break;
     }
     case "folder_picked": {

@@ -2,10 +2,11 @@ APP     := ruri
 APP_SRC := dist-app/mac-arm64/$(APP).app
 APP_DST := /Applications/$(APP).app
 APP_KEEP := /tmp/$(APP)-superseded
+BUNDLE_ID := com.justin06lee.ruri
 
-.PHONY: all build install update launch stop icon tuner
+.PHONY: all build install update launch stop icon tuner reset-permissions
 
-all: build install launch
+all: build reset-permissions install launch
 
 build:
 	bun install --cwd ../yagami
@@ -35,7 +36,20 @@ install:
 	@echo "installed $(APP_DST) — relaunch ruri to pick it up"
 
 update: stop
-	$(MAKE) build install launch
+	$(MAKE) build reset-permissions install launch
+
+# macOS ties every privacy grant (Accessibility, Screen Recording, the
+# folders and volumes) to the app's code signature, and an ad-hoc-signed
+# app is re-signed by every build — so the grants made to the last build
+# are void for this one while their switches in System Settings still read
+# "on". The stale rows are dropped here, for ruri's bundle id only, and the
+# new build asks for everything again on its first launch
+# (desktop/permissions.ts). System Settings is quit first: it caches the
+# table, and an open pane hides the reset.
+reset-permissions:
+	-osascript -e 'quit app "System Settings"' >/dev/null 2>&1
+	-tccutil reset All $(BUNDLE_ID) >/dev/null 2>&1
+	@echo "reset macOS grants for $(BUNDLE_ID) — the next launch asks again"
 
 launch:
 	open $(APP_DST)

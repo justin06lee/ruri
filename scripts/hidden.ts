@@ -2,8 +2,8 @@
  * Hidden projects and the Home agent's plain tools.
  *
  * Three things, no harness needed:
- *   1. the drop file — every verb (path/kickoff, new, hide, unhide, remove,
- *      and the old close) reaches the right host call, bad lines skipped.
+ *   1. the drop file — every verb (path/kickoff, new, hide, unhide, close,
+ *      and remove as a spelling of close) reaches the right host call, bad lines skipped.
  *   2. the store — findByQuery answers to an id, a path, a display name or
  *      the folder's own name; hidden survives a save and a reload.
  *   3. the finder — a repo's source tree is not walked, a monorepo's
@@ -53,9 +53,9 @@ const host: ManagerHost = {
     calls.push(`unhide:${q}`);
     return "unhidden";
   },
-  removeProject: (q) => {
-    calls.push(`remove:${q}`);
-    return "removed";
+  closeProject: (q) => {
+    calls.push(`close:${q}`);
+    return "closed";
   },
   listProjects: () => [],
   findProjects: () => [],
@@ -68,13 +68,13 @@ fs.writeFileSync(
     JSON.stringify({ hide: "hifz" }),
     "not json at all",
     JSON.stringify({ unhide: "hifz" }),
-    JSON.stringify({ remove: "old" }),
-    JSON.stringify({ close: "older" }),
+    JSON.stringify({ close: "old" }),
+    JSON.stringify({ remove: "older" }),
     JSON.stringify({ name: "no path, no verb" }),
   ].join("\n") + "\n",
 );
 const results = drainOpenRequests(workspace, host);
-check("drop file: every verb reaches its host call, in order", calls.join(" ") === "open:/tmp/a:go new:fresh hide:hifz unhide:hifz remove:old remove:older", calls);
+check("drop file: every verb reaches its host call, in order", calls.join(" ") === "open:/tmp/a:go new:fresh hide:hifz unhide:hifz close:old close:older", calls);
 check("drop file: one result per applied line", results.length === 6, results);
 check("drop file: consumed after draining", !fs.existsSync(path.join(workspace, ".ruri", "open.jsonl")));
 

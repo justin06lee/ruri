@@ -1892,11 +1892,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       broadcast({ type: "projects", projects: store.list() });
       return `unhidden: ${project.name} (${project.path})`;
     },
-    removeProject: (query) => {
+    closeProject: (query) => {
       const project = store.findByQuery(query);
       if (!project) return `no open project matches "${query}"`;
       closeProjectById(project.id);
-      return `removed: ${project.name} (${project.path}) — files untouched`;
+      return `closed: ${project.name} (${project.path}) — files untouched`;
     },
     listProjects: () => store.list(),
     // only the workspace root from Settings — that is where projects live

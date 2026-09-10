@@ -43,9 +43,9 @@ export interface ManagerHost {
   hideProject(query: string): string;
   /** Bring a hidden project back into the list. */
   unhideProject(query: string): string;
-  /** Remove an open project (matched by name, path, or id) — sidebar entry
+  /** Close an open project (matched by name, path, or id) — sidebar entry
    *  and transcripts go; files on disk are never touched. */
-  removeProject(query: string): string;
+  closeProject(query: string): string;
   listProjects(): Project[];
   /** Folders under the workspace root whose names answer to what the user
    *  said, best first (see server/finder.ts). */
@@ -75,7 +75,7 @@ Your tools are few and plain — one thing each, always by the project's name as
 - mcp__ruri__open_project(path) — put a folder in the sidebar with its own live coding session. With kickoff_prompt, that session starts working immediately.
 - mcp__ruri__new_project(name) — make a fresh folder of that name under the workspace root and open it.
 - mcp__ruri__hide_project(name) / mcp__ruri__unhide_project(name) — tuck an open project under the sidebar's hidden fold, or bring it back. Hidden is still open: sessions, transcripts, everything stays.
-- mcp__ruri__remove_project(name) — take an open project out of ruri: its sessions and transcripts go, the files on disk never do.
+- mcp__ruri__close_project(name) — close an open project: its sessions and transcripts go, the files on disk never do.
 - mcp__ruri__list_projects — what's open right now, hidden ones marked.
 
 When the user names projects they want to work on, that IS the request to open them — don't just list them back or ask permission: find_project once per name, take the best hit (prefer one marked [project]), open_project that path, and when they described concrete work for it pass it as kickoff_prompt. Confirm briefly what you did. Never open folders in Finder or an editor — opening means open_project, nothing else. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's own session. Keep replies short.
@@ -104,7 +104,7 @@ You have no direct tool for the sidebar; ruri watches a drop file instead. When 
    {"path": "/absolute/path/to/project", "name": "optional display name", "folder": "optional sidebar group", "kickoff": "optional first prompt — pass the user's described work so the project's session starts on it immediately"}
    {"new": "name"} — make a fresh folder of that name under the workspace root and open it
    {"hide": "project name or path"} — tuck an open project under the sidebar's hidden fold (still open, nothing lost); {"unhide": "..."} brings it back
-   {"remove": "project name or path"} — take an open project out of ruri (sessions and transcripts go, files on disk never do)
+   {"close": "project name or path"} — close an open project (sessions and transcripts go, files on disk never do)
 3. ruri applies everything in that file the moment your turn ends. Confirm briefly what you queued.
 
 Never open folders in Finder or an editor — opening means the drop file, nothing else. Deep work belongs in each project's own ruri session; prefer delegating via kickoff over doing project work yourself. Keep replies short.
@@ -144,9 +144,9 @@ export function drainOpenRequests(workspaceDir: string, host: ManagerHost): stri
         new?: string;
         hide?: string;
         unhide?: string;
-        remove?: string;
-        /** the old spelling of remove — still honoured */
         close?: string;
+        /** a spelling of close a model may reach for — still honoured */
+        remove?: string;
       };
       if (req.new) {
         results.push(host.newProject(req.new));
@@ -160,8 +160,8 @@ export function drainOpenRequests(workspaceDir: string, host: ManagerHost): stri
         results.push(host.unhideProject(req.unhide));
         continue;
       }
-      if (req.remove || req.close) {
-        results.push(host.removeProject(req.remove ?? req.close ?? ""));
+      if (req.close || req.remove) {
+        results.push(host.closeProject(req.close ?? req.remove ?? ""));
         continue;
       }
       if (!req.path) continue;
@@ -266,13 +266,13 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
         }),
       ),
       tool(
-        "remove_project",
-        "Remove an open project from ruri's sidebar — its sessions and transcripts go; files on disk are never touched.",
+        "close_project",
+        "Close an open project in ruri's sidebar — its sessions and transcripts go; files on disk are never touched.",
         {
-          name: z.string().describe("Name or path of the open project to remove"),
+          name: z.string().describe("Name or path of the open project to close"),
         },
         async (args) => ({
-          content: [{ type: "text", text: host.removeProject(args.name) }],
+          content: [{ type: "text", text: host.closeProject(args.name) }],
         }),
       ),
       tool("list_projects", "List the projects currently open in ruri's sidebar.", {}, async () => ({
@@ -297,7 +297,7 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
       "mcp__ruri__open_project",
       "mcp__ruri__hide_project",
       "mcp__ruri__unhide_project",
-      "mcp__ruri__remove_project",
+      "mcp__ruri__close_project",
       "mcp__ruri__list_projects",
     ],
     options: {

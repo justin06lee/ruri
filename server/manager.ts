@@ -36,11 +36,18 @@ export interface ManagerHost {
     folder?: string;
     kickoffPrompt?: string;
   }): string;
-  /** Close an open project (matched by name, path, or id) — sidebar entry
+  /** Make a folder of that name under the workspace root and open it. */
+  newProject(name: string): string;
+  /** Tuck an open project (by name, path, or id) under the sidebar's
+   *  hidden fold; nothing about it closes. */
+  hideProject(query: string): string;
+  /** Bring a hidden project back into the list. */
+  unhideProject(query: string): string;
+  /** Remove an open project (matched by name, path, or id) — sidebar entry
    *  and transcripts go; files on disk are never touched. */
-  closeProject(query: string): string;
+  removeProject(query: string): string;
   listProjects(): Project[];
-  /** Folders under the workspace whose names answer to what the user
+  /** Folders under the workspace root whose names answer to what the user
    *  said, best first (see server/finder.ts). */
   findProjects(query: string): FoundProject[];
 }
@@ -63,12 +70,15 @@ function managerAppend(workspaceDir: string, logPath: string): string {
 You are also ruri's workspace manager — the Home agent of a desktop app whose sidebar holds one live coding session per project.
 The user's workspace root (where their projects live): ${workspaceDir}
 
-When the user names projects they want to work on, that IS the request to open them — don't just list them back or ask permission:
-1. Find each one with mcp__ruri__find_projects, passing the name the way the user said it. It walks the whole workspace (nested like github.com/<user>/<repo>) and answers with the folders whose names match, best first, each with its full path and whether it looks like a project. Take the best hit — prefer one marked as a project — and open that path. Search once per name; never guess or assemble a path yourself, and never tell the user a project doesn't exist until find_projects has come back empty. Only then look by hand (list the workspace root, try a broader spelling).
-2. Call mcp__ruri__open_project for each one. This is the ONLY way a project opens in ruri's sidebar — never open folders in Finder or an editor instead. When the user described concrete work for a project, pass it as kickoff_prompt so that project's session starts working immediately.
-3. Confirm briefly what you opened and what each session is doing.
+Your tools are few and plain — one thing each, always by the project's name as the user says it:
+- mcp__ruri__find_project(name) — where a folder of that name lives under the workspace root. Fuzzy on the name; answers with full paths, best first, marked [project] when the folder holds a repo or a manifest. This is the ONLY way to locate a project: never guess or assemble a path, and never say a project doesn't exist until find_project has come back empty.
+- mcp__ruri__open_project(path) — put a folder in the sidebar with its own live coding session. With kickoff_prompt, that session starts working immediately.
+- mcp__ruri__new_project(name) — make a fresh folder of that name under the workspace root and open it.
+- mcp__ruri__hide_project(name) / mcp__ruri__unhide_project(name) — tuck an open project under the sidebar's hidden fold, or bring it back. Hidden is still open: sessions, transcripts, everything stays.
+- mcp__ruri__remove_project(name) — take an open project out of ruri: its sessions and transcripts go, the files on disk never do.
+- mcp__ruri__list_projects — what's open right now, hidden ones marked.
 
-mcp__ruri__list_projects shows what's already open (find_projects is for folders on disk; list_projects is for the sidebar). mcp__ruri__close_project closes one (by name or path) when the user is done with it — transcripts go, files on disk are untouched. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's own session. Keep replies short.
+When the user names projects they want to work on, that IS the request to open them — don't just list them back or ask permission: find_project once per name, take the best hit (prefer one marked [project]), open_project that path, and when they described concrete work for it pass it as kickoff_prompt. Confirm briefly what you did. Never open folders in Finder or an editor — opening means open_project, nothing else. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's own session. Keep replies short.
 
 ${logNote(logPath)}
 
@@ -90,9 +100,11 @@ You have no direct tool for the sidebar; ruri watches a drop file instead. When 
 1. Find each project's directory by searching, never by guessing: the workspace is nested (github.com/<user>/<repo>) and holds more than a listing shows. For each name the user said, run
    find "${workspaceDir}" -maxdepth 6 -type d -iname '*<name>*' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null
    (fd or rg --files are fine too), spelling loosely (a fragment of the name, no spaces). Pick the hit that is a repo — has a .git, a package.json, a Makefile, a README. Never tell the user a project doesn't exist until a search has come back empty.
-2. Append one JSON line per project to the file .ruri/open.jsonl in the workspace root, creating it if missing:
+2. Append one JSON line per request to the file .ruri/open.jsonl in the workspace root, creating it if missing:
    {"path": "/absolute/path/to/project", "name": "optional display name", "folder": "optional sidebar group", "kickoff": "optional first prompt — pass the user's described work so the project's session starts on it immediately"}
-   To close an open project instead, append: {"close": "project name or path"}
+   {"new": "name"} — make a fresh folder of that name under the workspace root and open it
+   {"hide": "project name or path"} — tuck an open project under the sidebar's hidden fold (still open, nothing lost); {"unhide": "..."} brings it back
+   {"remove": "project name or path"} — take an open project out of ruri (sessions and transcripts go, files on disk never do)
 3. ruri applies everything in that file the moment your turn ends. Confirm briefly what you queued.
 
 Never open folders in Finder or an editor — opening means the drop file, nothing else. Deep work belongs in each project's own ruri session; prefer delegating via kickoff over doing project work yourself. Keep replies short.
@@ -129,10 +141,27 @@ export function drainOpenRequests(workspaceDir: string, host: ManagerHost): stri
         name?: string;
         folder?: string;
         kickoff?: string;
+        new?: string;
+        hide?: string;
+        unhide?: string;
+        remove?: string;
+        /** the old spelling of remove — still honoured */
         close?: string;
       };
-      if (req.close) {
-        results.push(host.closeProject(req.close));
+      if (req.new) {
+        results.push(host.newProject(req.new));
+        continue;
+      }
+      if (req.hide) {
+        results.push(host.hideProject(req.hide));
+        continue;
+      }
+      if (req.unhide) {
+        results.push(host.unhideProject(req.unhide));
+        continue;
+      }
+      if (req.remove || req.close) {
+        results.push(host.removeProject(req.remove ?? req.close ?? ""));
         continue;
       }
       if (!req.path) continue;
@@ -183,23 +212,23 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
         }),
       ),
       tool(
-        "close_project",
-        "Close an open project in ruri's sidebar — its sessions and transcripts go; files on disk are never touched.",
+        "new_project",
+        "Make a fresh folder of that name under the workspace root and open it in ruri's sidebar with its own session.",
         {
-          project: z.string().describe("Name or path of the open project to close"),
+          name: z.string().describe("The folder name (one path segment, no slashes)"),
         },
         async (args) => ({
-          content: [{ type: "text", text: host.closeProject(args.project) }],
+          content: [{ type: "text", text: host.newProject(args.name) }],
         }),
       ),
       tool(
-        "find_projects",
-        "Find project folders on disk by name: walks the user's workspace (and the usual code folders) and returns the folders whose names match, best first, with full paths. Use this before open_project whenever the user names a project — it is how you find where it lives.",
+        "find_project",
+        "Find a project folder under the workspace root by name — fuzzy on the folder name, best first, with full paths, marked [project] when the folder holds a repo or a manifest. Use this before open_project whenever the user names a project; it is how you find where it lives.",
         {
-          query: z.string().describe("The project name as the user said it (a word or two; fragments match)"),
+          name: z.string().describe("The project name as the user said it (a word or two; fragments match)"),
         },
         async (args) => {
-          const found = host.findProjects(args.query);
+          const found = host.findProjects(args.name);
           return {
             content: [
               {
@@ -210,11 +239,41 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
                       (f) =>
                         `${f.path}${f.project ? "  [project]" : ""}  (match ${f.score})`,
                     )
-                    .join("\n") || `nothing under the workspace is called anything like "${args.query}"`,
+                    .join("\n") || `nothing under the workspace is called anything like "${args.name}"`,
               },
             ],
           };
         },
+      ),
+      tool(
+        "hide_project",
+        "Hide an open project: it leaves the sidebar's list for the hidden fold at the bottom. Still open — sessions and transcripts stay; unhide_project brings it back.",
+        {
+          name: z.string().describe("Name or path of the open project to hide"),
+        },
+        async (args) => ({
+          content: [{ type: "text", text: host.hideProject(args.name) }],
+        }),
+      ),
+      tool(
+        "unhide_project",
+        "Bring a hidden project back into the sidebar's list.",
+        {
+          name: z.string().describe("Name or path of the hidden project"),
+        },
+        async (args) => ({
+          content: [{ type: "text", text: host.unhideProject(args.name) }],
+        }),
+      ),
+      tool(
+        "remove_project",
+        "Remove an open project from ruri's sidebar — its sessions and transcripts go; files on disk are never touched.",
+        {
+          name: z.string().describe("Name or path of the open project to remove"),
+        },
+        async (args) => ({
+          content: [{ type: "text", text: host.removeProject(args.name) }],
+        }),
       ),
       tool("list_projects", "List the projects currently open in ruri's sidebar.", {}, async () => ({
         content: [
@@ -223,7 +282,7 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
             text:
               host
                 .listProjects()
-                .map((p) => `${p.name} (${p.path})${p.folder ? ` [${p.folder}]` : ""}`)
+                .map((p) => `${p.name} (${p.path})${p.folder ? ` [${p.folder}]` : ""}${p.hidden ? "  [hidden]" : ""}`)
                 .join("\n") || "(no projects open)",
           },
         ],
@@ -233,10 +292,13 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
 
   return {
     autoAllow: [
+      "mcp__ruri__new_project",
+      "mcp__ruri__find_project",
       "mcp__ruri__open_project",
-      "mcp__ruri__close_project",
+      "mcp__ruri__hide_project",
+      "mcp__ruri__unhide_project",
+      "mcp__ruri__remove_project",
       "mcp__ruri__list_projects",
-      "mcp__ruri__find_projects",
     ],
     options: {
       mcpServers: { ruri },

@@ -85,6 +85,7 @@ export function Switcher() {
       { id: "settings", kind: "place", name: "Settings", where: "themes, models, the vault", go: () => setSettingsOpen(true) },
     ];
     for (const project of projects) {
+      if (project.hidden) continue; // hidden is hidden here too
       list.push({
         id: `project:${project.id}`,
         kind: "project",

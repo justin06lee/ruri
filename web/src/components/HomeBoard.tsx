@@ -21,6 +21,20 @@ import { useRuri } from "../store";
  * Now the strip at the top picks one, and remembers the choice.
  */
 
+
+/** The projects the board shows: hidden ones stay hidden here too. The
+ *  selector is memoised on the list itself, so nothing re-renders on a
+ *  store change that left the projects alone. */
+let shownFrom: Project[] | undefined;
+let shownCache: Project[] = [];
+function selectShown(s: { projects: Project[] }): Project[] {
+  if (s.projects !== shownFrom) {
+    shownFrom = s.projects;
+    shownCache = s.projects.filter((p) => !p.hidden);
+  }
+  return shownCache;
+}
+
 export type HomeTab = "chat" | "projects";
 
 /** "1.3M", "84k", "512" — room for one number, not a locale's worth. */
@@ -246,7 +260,7 @@ function statusOf(project: Project, statuses: Record<string, string>): Status {
  * so a turn you left running shows from the other page.
  */
 export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) => void }) {
-  const projects = useRuri((s) => s.projects);
+  const projects = useRuri(selectShown);
   const statuses = useRuri((s) => s.statuses);
   const homeStatus = statuses[HOME_ID] ?? "idle";
   let working = 0;
@@ -299,7 +313,7 @@ export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) =
 
 /** Every open project on one page: what they are doing and what it cost. */
 export function ProjectsPage() {
-  const projects = useRuri((s) => s.projects);
+  const projects = useRuri(selectShown);
   const statuses = useRuri((s) => s.statuses);
   const stats = useRuri((s) => s.stats);
 

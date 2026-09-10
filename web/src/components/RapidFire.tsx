@@ -39,7 +39,9 @@ export interface RapidFire {
 
 /** The line as the sidebar reads it, and who in it could take a prompt. */
 function line(): { ids: string[]; ready: string[] } {
-  const { projects, statuses } = useRuri.getState();
+  const { statuses } = useRuri.getState();
+  // hidden projects are out of the line, as they are out of the sidebar
+  const projects = useRuri.getState().projects.filter((p) => !p.hidden);
   const ids = [
     ...projects.filter((p) => p.starred),
     ...projects.filter((p) => !p.starred),

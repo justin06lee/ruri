@@ -24,6 +24,7 @@
     "checkpoint-test": "tsx scripts/checkpoint.ts",
     "chips-test": "RURI_FIXTURE=1 bun scripts/shot.mjs scripts/chips.mjs",
     "queue-test": "tsx scripts/queue.ts",
+    "hidden-test": "tsx scripts/hidden.ts",
     "queue-arrange-test": "tsx scripts/queue-arrange.ts",
     "port-test": "tsx scripts/port.ts",
     "md-image-test": "tsx scripts/md-image.ts",

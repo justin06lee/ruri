@@ -421,6 +421,9 @@ textarea::placeholder {
 
 .project-list {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 10px;
@@ -7173,4 +7176,79 @@ button.stop:hover {
 .md img.md-local,
 .md img {
   cursor: zoom-in;
+}
+
+/* ── hidden projects ──────────────────────────────────────────────── */
+
+/* the hide toggle on a folder row sits with the star, plus and remove */
+.folder-actions .hide {
+  border: none;
+  background: none;
+  padding: 2px;
+  color: var(--ink-faint);
+  line-height: 0;
+  box-shadow: none;
+}
+
+.folder-actions .hide svg {
+  width: 12px;
+  height: 12px;
+}
+
+.folder-actions .hide:hover {
+  color: var(--ink);
+  background: none;
+  transform: none;
+}
+
+.project-folder:has(.star.on):not(:hover) .hide {
+  display: none;
+}
+
+/* a hidden project, once the fold is open: there, but quieter */
+.project-folder.is-hidden {
+  color: var(--ink-faint);
+  opacity: 0.72;
+}
+
+.project-folder.is-hidden:hover {
+  opacity: 1;
+}
+
+/* the fold at the bottom of the list: "show 2 hidden" / "hide 2 hidden" —
+   it sits at the foot of the sidebar, under whatever room the list leaves */
+.hidden-fold {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  margin-top: auto;
+  padding: 14px 10px 4px 8px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-faint);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  text-align: left;
+}
+
+.hidden-fold svg {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  transition: transform 120ms ease-out;
+}
+
+.hidden-fold.open svg {
+  transform: rotate(90deg);
+}
+
+.hidden-fold:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--paper) 42%, var(--paper-dim));
+  transform: none;
 }

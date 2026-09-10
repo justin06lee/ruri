@@ -64,6 +64,10 @@ export interface Project {
   effort?: string;
   /** Bookmarked: shown in the Starred section above the project tree. */
   starred?: boolean;
+  /** Tucked away: out of the sidebar, rapid fire, the switcher and the
+   *  projects board, but still open — sessions and transcripts intact —
+   *  and one click (or the Home agent) brings it back. */
+  hidden?: boolean;
   /** The project's sessions (possibly none — an empty folder is fine). */
   sessions: SessionInfo[];
 }
@@ -831,6 +835,9 @@ export type ClientMessage =
    *  and the small model writes a fix-it prompt for the composer. */
   | { type: "tracker_review"; projectId: string }
   | { type: "toggle_star"; projectId: string }
+  /** Hide a project (or bring it back): it leaves the sidebar's list for
+   *  the fold at the bottom, nothing about it closes. */
+  | { type: "toggle_hidden"; projectId: string }
   /** Call a project what you like in the sidebar. The folder on disk is
    *  untouched; this is the name ruri shows and the Home agent answers to. */
   | { type: "rename_project"; projectId: string; name: string }

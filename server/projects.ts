@@ -202,6 +202,20 @@ export class ProjectStore {
     return [...this.projects];
   }
 
+  /** The open project a person (or the Home agent) means by a name: an id,
+   *  a path, the display name, or the folder's own name — case-insensitive. */
+  findByQuery(query: string): Project | undefined {
+    const q = query.trim().replace(/\/+$/, "");
+    if (!q) return undefined;
+    const lower = q.toLowerCase();
+    const resolved = path.resolve(q.startsWith("~/") ? path.join(os.homedir(), q.slice(2)) : q);
+    return (
+      this.projects.find((p) => p.id === q || p.path.replace(/\/+$/, "") === q || p.path === resolved) ??
+      this.projects.find((p) => p.name.toLowerCase() === lower) ??
+      this.projects.find((p) => path.basename(p.path).toLowerCase() === lower)
+    );
+  }
+
   get(id: string): Project | undefined {
     return this.projects.find((p) => p.id === id);
   }

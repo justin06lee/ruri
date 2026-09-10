@@ -36,7 +36,7 @@ import { extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled
 import { BriefStore, writeCatchupFile } from "./brief.js";
 import { buildCatchup } from "./catchup.js";
 import { knownCommands, listCommands, splitCommands } from "./commands.js";
-import { findProjects, searchRoots } from "./finder.js";
+import { findProjects } from "./finder.js";
 import { LedgerStore } from "./ledger.js";
 import { importRecent, listRecent } from "./recent.js";
 import { sessionBriefing } from "./briefing.js";
@@ -1864,22 +1864,43 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         kickoffPrompt ? " — session started with the kickoff prompt" : ""
       }`;
     },
-    closeProject: (query) => {
-      const q = query.trim().replace(/\/+$/, "");
-      const project = store
-        .list()
-        .find(
-          (p) =>
-            p.id === q ||
-            p.path.replace(/\/+$/, "") === q ||
-            p.name.toLowerCase() === q.toLowerCase(),
-        );
+    newProject: (name) => {
+      const clean = name.trim().replace(/\/+$/, "");
+      if (!clean || clean.includes("/") || clean.startsWith(".")) return `not a folder name: "${name}"`;
+      const dir = path.join(store.workspaceDir(), clean);
+      if (store.findByPath(dir)) return `already open: ${clean} (${dir})`;
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+      } catch (err) {
+        return `failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
+      return managerHost.openProject({ path: dir, name: clean }).replace(/^opened/, "created and opened");
+    },
+    hideProject: (query) => {
+      const project = store.findByQuery(query);
+      if (!project) return `no open project matches "${query}"`;
+      if (project.hidden) return `already hidden: ${project.name}`;
+      store.update(project.id, { hidden: true });
+      broadcast({ type: "projects", projects: store.list() });
+      return `hidden: ${project.name} (${project.path}) — still open, tucked under "hidden" at the bottom of the sidebar`;
+    },
+    unhideProject: (query) => {
+      const project = store.findByQuery(query);
+      if (!project) return `no open project matches "${query}"`;
+      if (!project.hidden) return `not hidden: ${project.name}`;
+      store.update(project.id, { hidden: undefined });
+      broadcast({ type: "projects", projects: store.list() });
+      return `unhidden: ${project.name} (${project.path})`;
+    },
+    removeProject: (query) => {
+      const project = store.findByQuery(query);
       if (!project) return `no open project matches "${query}"`;
       closeProjectById(project.id);
-      return `closed: ${project.name} (${project.path}) — files untouched`;
+      return `removed: ${project.name} (${project.path}) — files untouched`;
     },
     listProjects: () => store.list(),
-    findProjects: (query) => findProjects(searchRoots(store.workspaceDir()), query),
+    // only the workspace root from Settings — that is where projects live
+    findProjects: (query) => findProjects([store.workspaceDir()], query),
   };
 
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
@@ -2894,6 +2915,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const project = store.get(msg.projectId);
         if (project) {
           store.update(msg.projectId, { starred: project.starred ? undefined : true });
+          broadcast({ type: "projects", projects: store.list() });
+        }
+        break;
+      }
+      case "toggle_hidden": {
+        const project = store.get(msg.projectId);
+        if (project) {
+          store.update(msg.projectId, { hidden: project.hidden ? undefined : true });
           broadcast({ type: "projects", projects: store.list() });
         }
         break;

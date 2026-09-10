@@ -55,7 +55,7 @@ function ModelCatalog() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      <div className="model-list">
+      <div className={`model-list ${dragging ? "carrying" : ""}`}>
         {rows.length === 0 && <div className="model-empty">Nothing matches.</div>}
         {rows.map((m) => {
           const starred = starredIds.includes(m.value);
@@ -89,7 +89,9 @@ function ModelCatalog() {
                 e.dataTransfer.dropEffect = "move";
                 if (over !== m.value) setOver(m.value);
               }}
-              onDragLeave={() => {
+              onDragLeave={(e) => {
+                // into a child of the row is not out of the row
+                if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
                 if (over === m.value) setOver(null);
               }}
               onDrop={(e) => {

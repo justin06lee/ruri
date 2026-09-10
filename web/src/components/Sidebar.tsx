@@ -114,8 +114,6 @@ function NameEditor({
   );
 }
 
-const PENCIL_PATH = "M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3";
-
 function SessionRow({ session }: { session: SessionInfo }) {
   const activeId = useRuri((s) => s.activeId);
   const unread = useRuri((s) => s.unread[session.id] ?? false);
@@ -142,18 +140,6 @@ function SessionRow({ session }: { session: SessionInfo }) {
         <span className="project-name">{session.title ?? "new session"}</span>
       )}
       {unread && <span className="unread-pip" title="Turn finished" />}
-      <button
-        className="rename"
-        title="Rename session"
-        onClick={(e) => {
-          e.stopPropagation();
-          setRenaming(true);
-        }}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d={PENCIL_PATH} />
-        </svg>
-      </button>
       <button
         className="remove"
         title="Remove session"
@@ -299,18 +285,6 @@ function ProjectFolder({
           <span className="folder-name" title={`${project.path} — double-click to rename`}>{project.name}</span>
         )}
         <span className="folder-actions">
-          <button
-            className="rename"
-            title="Rename project"
-            onClick={(e) => {
-              e.stopPropagation();
-              setRenaming(true);
-            }}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d={PENCIL_PATH} />
-            </svg>
-          </button>
           <button
             className={`star ${project.starred ? "on" : ""}`}
             title={project.starred ? "Unstar" : "Star"}

@@ -579,7 +579,6 @@ textarea::placeholder {
 
 .folder-actions .star,
 .folder-actions .add-session,
-.folder-actions .rename,
 .folder-actions .remove {
   border: none;
   background: none;
@@ -591,15 +590,13 @@ textarea::placeholder {
 
 .folder-actions .star svg,
 .folder-actions .add-session svg,
-.folder-actions .rename svg,
 .folder-actions .remove svg {
   width: 12px;
   height: 12px;
 }
 
 .folder-actions .star:hover,
-.folder-actions .add-session:hover,
-.folder-actions .rename:hover {
+.folder-actions .add-session:hover {
   color: var(--ink);
   background: none;
   transform: none;
@@ -749,30 +746,6 @@ textarea::placeholder {
   display: block;
 }
 
-/* the pencil beside the ×: rename, on hover like the rest */
-.project-row .rename {
-  display: none;
-  border: none;
-  background: none;
-  padding: 2px;
-  color: var(--ink-faint);
-  line-height: 0;
-  box-shadow: none;
-}
-
-.project-row:hover .rename {
-  display: block;
-}
-
-.project-row .rename svg {
-  width: 12px;
-  height: 12px;
-}
-
-.project-row .rename:hover {
-  color: var(--ink);
-}
-
 /* A name being rewritten in place (NameEditor in Sidebar.tsx): the row's
    own text turned into a box, in the row's own font, with just a hairline
    under it to say it is being edited. The row's buttons stay out of the
@@ -798,7 +771,6 @@ textarea::placeholder {
   border-color: var(--ink);
 }
 
-.project-row.renaming .rename,
 .project-row.renaming .remove,
 .folder-row.renaming .folder-actions {
   display: none;
@@ -2175,6 +2147,13 @@ input[type="range"]::-webkit-slider-thumb {
   outline: 1.5px dashed var(--ink);
   outline-offset: -1.5px;
   background: var(--paper-dim);
+}
+
+/* While a tag is carried, the rows are the only things under the pointer:
+   a drag passing over a star or a name inside a row used to leave the row
+   and re-enter it, and the outline blinked with every crossing. */
+.model-list.carrying .model-row > * {
+  pointer-events: none;
 }
 
 .model-empty,
@@ -6169,6 +6148,17 @@ button.stop:hover {
 
 .md > *:last-child {
   margin-bottom: 0;
+}
+
+/* a picture a reply points at (markdown.tsx image): framed like a Read's */
+.md img {
+  display: block;
+  max-width: min(100%, 480px);
+  height: auto;
+  margin: 0.4em 0 0.7em;
+  border: 1.5px solid var(--edge);
+  border-radius: var(--radius-m);
+  background: var(--paper-bright);
 }
 
 .md p,

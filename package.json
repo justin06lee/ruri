@@ -26,6 +26,7 @@
     "queue-test": "tsx scripts/queue.ts",
     "queue-arrange-test": "tsx scripts/queue-arrange.ts",
     "port-test": "tsx scripts/port.ts",
+    "md-image-test": "tsx scripts/md-image.ts",
     "retry-test": "tsx scripts/retry.ts",
     "recall-test": "tsx scripts/recall.ts",
     "settings-test": "tsx scripts/session-settings.ts",

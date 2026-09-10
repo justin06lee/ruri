@@ -28,6 +28,17 @@ const marked = new Marked({
         `</div>`
       );
     },
+    // A picture the model points at by path — the icon it just drew, a
+    // screenshot it took — is a file on this machine, which a page cannot
+    // open by itself: it goes through the server's /read, which serves the
+    // paths a reply has named (server.ts allowReadImages) and nothing else.
+    // Relative paths are the project's; the server resolves them.
+    image({ href, title, text }) {
+      const local = !/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith("/readfile?");
+      const src = local ? `/readfile?p=${encodeURIComponent(href)}` : href;
+      const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+      return `<img src="${escapeHtml(src)}" alt="${escapeHtml(text)}"${titleAttr}${local ? ' class="md-local"' : ""}>`;
+    },
     link({ href, title, tokens }) {
       const text = this.parser.parseInline(tokens);
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";

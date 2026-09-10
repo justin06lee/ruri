@@ -205,21 +205,46 @@ function serveTrack(req: http.IncomingMessage, res: http.ServerResponse, root: s
  * hands back nothing that a recorded tool event did not already name.
  */
 const readable = new Set<string>();
+/**
+ * A picture a reply pointed at, by the path it wrote (which is what the page
+ * asks for — see markdown.tsx) → the file that is. A relative path is the
+ * project's; "~" is home. The last reply to write a given path wins.
+ */
+const pictured = new Map<string, string>();
+/** Where a channel's relative paths start from — set once the store is up. */
+let pictureBase: (channelId: string) => string | undefined = () => undefined;
 
 /** Register a whole snapshot's worth of transcripts, then hand them back. */
 function allowArchived(
   transcripts: Record<string, TranscriptEvent[]>,
 ): Record<string, TranscriptEvent[]> {
-  for (const events of Object.values(transcripts)) allowReadImages(events);
+  for (const [channelId, events] of Object.entries(transcripts)) {
+    allowReadImages(events, pictureBase(channelId));
+  }
   return transcripts;
 }
 
-/** Register any image paths carried by these events (fresh or archived). */
-function allowReadImages(events: TranscriptEvent[]): void {
+const MD_IMAGE = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+["'][^"']*["'])?\s*\)/g;
+
+/** Register any image paths carried by these events (fresh or archived):
+ *  what a Read showed, and what a reply drew by path in its markdown. */
+function allowReadImages(events: TranscriptEvent[], base?: string): void {
   for (const event of events) {
-    if (event.kind !== "tool" || !event.image) continue;
-    const p = new URL(event.image.url, "http://localhost").searchParams.get("p");
-    if (p) readable.add(p);
+    if (event.kind === "tool" && event.image) {
+      const p = new URL(event.image.url, "http://localhost").searchParams.get("p");
+      if (p) readable.add(p);
+      continue;
+    }
+    if (event.kind !== "assistant") continue;
+    for (const match of event.text.matchAll(MD_IMAGE)) {
+      const raw = match[1]!;
+      if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith("/readfile?")) continue;
+      const expanded = raw.startsWith("~/") ? path.join(os.homedir(), raw.slice(2)) : raw;
+      const abs = path.isAbsolute(expanded) ? expanded : base ? path.resolve(base, expanded) : undefined;
+      if (!abs) continue;
+      readable.add(abs);
+      pictured.set(raw, abs);
+    }
   }
 }
 
@@ -255,8 +280,9 @@ function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
 
 /** Serve one image a tool event read. Anything unregistered is a 403. */
 function serveReadFile(req: http.IncomingMessage, res: http.ServerResponse): void {
-  const filePath = new URL(req.url ?? "/", "http://localhost").searchParams.get("p") ?? "";
-  if (!filePath || !readable.has(filePath)) {
+  const asked = new URL(req.url ?? "/", "http://localhost").searchParams.get("p") ?? "";
+  const filePath = readable.has(asked) ? asked : pictured.get(asked);
+  if (!asked || !filePath) {
     res.writeHead(403);
     res.end();
     return;
@@ -655,6 +681,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   function ownerProject(channelId: string) {
     return store.findSession(channelId)?.project;
   }
+  pictureBase = (channelId) => ownerProject(channelId)?.path;
 
   /**
    * Components the model has just built, waiting to be named. The card rides
@@ -1616,7 +1643,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const manager = new SessionManager(
     {
       onEvent: (projectId, event) => {
-        allowReadImages([event]);
+        allowReadImages([event], pictureBase(projectId));
         recordEvent(projectId, event);
         if (event.kind === "result") {
           pushUsage();

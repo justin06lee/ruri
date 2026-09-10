@@ -257,7 +257,7 @@ function ProjectFolder({
   return (
     <div>
       <div
-        className={`folder-row project-folder ${renaming ? "renaming" : ""}`}
+        className={`folder-row project-folder ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""}`}
         onClick={onToggle}
         onDoubleClick={(e) => {
           e.preventDefault();
@@ -310,6 +310,28 @@ function ProjectFolder({
             </svg>
           </button>
           <button
+            className="hide"
+            title={project.hidden ? "Unhide project" : "Hide project (stays open)"}
+            onClick={(e) => {
+              e.stopPropagation();
+              send({ type: "toggle_hidden", projectId: project.id });
+            }}
+          >
+            {project.hidden ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M3 3l18 18" />
+                <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+                <path d="M9.9 5.1A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1" />
+                <path d="M6.6 6.6A16.6 16.6 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 4.4-1" />
+              </svg>
+            )}
+          </button>
+          <button
             className="remove"
             title="Remove project"
             onClick={(e) => {
@@ -344,6 +366,24 @@ export const Sidebar = memo(function Sidebar() {
   const connected = useRuri((s) => s.connected);
   const user = useRuri((s) => s.user);
   const [expandedSet, setExpandedSet] = useState<Set<string>>(loadExpanded);
+  // The fold at the bottom: hidden projects stay out of sight until it is
+  // opened, and whether it is open is remembered like the folders are.
+  const [showHidden, setShowHidden] = useState<boolean>(() => {
+    try {
+      return getPref("ruri-show-hidden") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleHidden = () => {
+    const next = !showHidden;
+    setShowHidden(next);
+    try {
+      setPref("ruri-show-hidden", next ? "1" : "0");
+    } catch {
+      // preference just won't persist
+    }
+  };
   const settingsOpen = useRuri((s) => s.settingsOpen);
   const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
 
@@ -374,6 +414,13 @@ export const Sidebar = memo(function Sidebar() {
   // Home agent — may sit in a folded folder. It is opened for it.
   const activeId = useRuri((s) => s.activeId);
   const owner = useRuri((s) => s.projects.find((p) => p.sessions.some((x) => x.id === activeId))?.id);
+  const ownerHidden = useRuri((s) => s.projects.find((p) => p.id === owner)?.hidden === true);
+  // a chat inside a hidden project is being looked at: the fold opens so
+  // the row that is active is actually on screen
+  useEffect(() => {
+    if (ownerHidden && !showHidden) setShowHidden(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [owner, ownerHidden]);
   useEffect(() => {
     if (!owner || expandedSet.has(owner)) return;
     const next = new Set(expandedSet);
@@ -401,7 +448,9 @@ export const Sidebar = memo(function Sidebar() {
 
   // Starred projects pin to the top of the one Projects list — no separate
   // section, the filled star on the row is the marker.
-  const ordered = [...projects.filter((p) => p.starred), ...projects.filter((p) => !p.starred)];
+  const shown = projects.filter((p) => !p.hidden);
+  const hidden = projects.filter((p) => p.hidden);
+  const ordered = [...shown.filter((p) => p.starred), ...shown.filter((p) => !p.starred)];
 
   return (
     <aside className="sidebar">
@@ -445,6 +494,29 @@ export const Sidebar = memo(function Sidebar() {
             onToggle={() => toggleFolder(p.id)}
           />
         ))}
+        {hidden.length > 0 && (
+          <>
+            <button
+              className={`hidden-fold ${showHidden ? "open" : ""}`}
+              title={showHidden ? "Tuck the hidden projects away again" : "Show the hidden projects"}
+              onClick={toggleHidden}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+              {showHidden ? "hide" : "show"} {hidden.length} hidden
+            </button>
+            {showHidden &&
+              hidden.map((p) => (
+                <ProjectFolder
+                  key={p.id}
+                  project={p}
+                  collapsed={!expandedSet.has(p.id)}
+                  onToggle={() => toggleFolder(p.id)}
+                />
+              ))}
+          </>
+        )}
       </div>
 
       <Player />

@@ -70,7 +70,9 @@ export function scoreName(name: string, query: string): number {
   return 0;
 }
 
-/** The roots worth looking under: the workspace, and the usual suspects. */
+/** The roots worth looking under when no workspace is set: the usual
+ *  suspects under the home folder. Home's find_project passes only the
+ *  workspace root from Settings — that is where projects live. */
 export function searchRoots(workspaceDir: string): string[] {
   const home = os.homedir();
   const roots = [workspaceDir];
@@ -84,6 +86,9 @@ export function searchRoots(workspaceDir: string): string[] {
 const MAX_DEPTH = 6;
 const MAX_DIRS = 40_000;
 const TIME_BUDGET_MS = 4_000;
+/** How far into a repo the walk goes: a monorepo's packages/ sit one or
+ *  two levels down; deeper than that is source, not projects. */
+const REPO_DEPTH = 2;
 
 /**
  * Walk the roots and return the folders whose names answer to the query,
@@ -99,8 +104,9 @@ export function findProjects(roots: string[], query: string, limit = 12): FoundP
 
   const isProject = (dir: string): boolean =>
     PROJECT_MARKS.some((mark) => fs.existsSync(path.join(dir, mark)));
+  const isRepo = (dir: string): boolean => fs.existsSync(path.join(dir, ".git"));
 
-  const walk = (dir: string, depth: number): void => {
+  const walk = (dir: string, depth: number, inRepo: number): void => {
     if (depth > MAX_DEPTH || visited > MAX_DIRS || Date.now() - started > TIME_BUDGET_MS) return;
     let entries: fs.Dirent[];
     try {
@@ -125,12 +131,15 @@ export function findProjects(roots: string[], query: string, limit = 12): FoundP
       const score = scoreName(entry.name, query);
       const project = isProject(full);
       if (score > 0) found.push({ path: full, name: entry.name, score, project });
-      // inside a matched project is not where the next project is
-      if (!(score > 0 && project)) walk(full, depth + 1);
+      // inside a matched project is not where the next project is, and a
+      // repo's own source tree is not where any project is
+      if (score > 0 && project) continue;
+      const below = inRepo > 0 || isRepo(full) ? inRepo + 1 : 0;
+      if (below <= REPO_DEPTH) walk(full, depth + 1, below);
     }
   };
 
-  for (const root of roots) walk(root, 0);
+  for (const root of roots) walk(root, 0, 0);
   found.sort((a, b) => b.score - a.score || Number(b.project) - Number(a.project) || a.path.length - b.path.length);
   return found.slice(0, limit);
 }

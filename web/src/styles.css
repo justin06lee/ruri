@@ -7046,3 +7046,131 @@ button.stop:hover {
 .switcher-foot-key {
   margin-left: auto;
 }
+
+/* ── macOS grants (Settings) ──────────────────────────────────────── */
+
+.grants {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.grants-note {
+  margin: 0 0 10px;
+}
+
+.grants-note code {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+}
+
+.grants-head {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.grant-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px dashed var(--line-soft, var(--edge));
+}
+
+.grant-status {
+  flex-shrink: 0;
+  width: 84px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 3px 0;
+  border: 1.5px solid var(--edge);
+  border-radius: 999px;
+  color: var(--ink-faint);
+}
+
+.grant-status.granted {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.grant-status.denied {
+  border-style: dashed;
+  color: var(--ink);
+}
+
+.grant-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.grant-name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.grant-why {
+  font-size: 11px;
+  color: var(--ink-faint);
+  line-height: 1.4;
+}
+
+.grant-ask {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  font-size: 11.5px;
+}
+
+.grants-rows {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.grants-rows summary {
+  cursor: pointer;
+  color: var(--ink-faint);
+  user-select: none;
+}
+
+.grants-rows table {
+  width: 100%;
+  margin-top: 6px;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.grants-rows td {
+  padding: 3px 6px 3px 0;
+  border-top: 1px dashed var(--line-soft, var(--edge));
+  white-space: nowrap;
+}
+
+.grants-rows .grants-client {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.grants-rows tr.refused .grants-verdict {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* a picture in a reply opens the viewer like a Read's thumbnail does */
+.md img.md-local,
+.md img {
+  cursor: zoom-in;
+}

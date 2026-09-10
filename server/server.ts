@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type AskQuestions, DEFAULT_PERMISSION_MODE } from "../shared/protocol.js";
+import { type AskQuestions, DEFAULT_PERMISSION_MODE, type PermissionId, type PermissionState, type TccRow } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -80,6 +80,16 @@ export interface StartServerOptions {
    * Resolves to the chosen directory, or null if the user cancelled.
    */
   pickFolder?: () => Promise<string | null>;
+  /**
+   * Host-provided macOS grants (the Electron shell passes one): what macOS
+   * has let ruri do, the asking for it, and the privacy database's rows —
+   * see desktop/permissions.ts.
+   */
+  permissions?: {
+    check(): Promise<PermissionState[]>;
+    request(id?: PermissionId): Promise<PermissionState[]>;
+    rows(): Promise<TccRow[]>;
+  };
   /**
    * Host-provided element screenshots (the Electron shell passes one): load
    * a URL in a window nobody sees and photograph the elements named by
@@ -1893,6 +1903,21 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         });
         break;
       }
+      case "permissions_check":
+      case "permissions_request": {
+        const host = options.permissions;
+        if (!host) break;
+        const asked = msg.type === "permissions_request" ? host.request(msg.id) : host.check();
+        void asked
+          .then(async (items) => ({ items, rows: await host.rows() }))
+          .then(({ items, rows }) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "permissions", items, rows } satisfies ServerMessage));
+            }
+          })
+          .catch(() => {});
+        break;
+      }
       case "remove_project": {
         closeProjectById(msg.projectId);
         break;
@@ -3039,6 +3064,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         boardIds.map((id) => [id, briefs.get(id).built ? { built: briefs.get(id).built } : {}]),
       ),
       canPickFolder: options.pickFolder !== undefined,
+      canPermissions: options.permissions !== undefined,
       workspaceDir: store.workspaceDir(),
       musicDir: musicRoot(),
       home: store.homeSettings(),

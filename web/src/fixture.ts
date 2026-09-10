@@ -41,6 +41,21 @@ export function installFixture(): void {
   (window as unknown as Record<string, unknown>)["__ruriSent"] = [];
   useRuri.setState({
     connected: true,
+    canPermissions: true,
+    grants: {
+      items: [
+        { id: "accessibility", name: "Accessibility", why: "driving native apps in the bridge — clicks, typing, the UI tree", status: "granted" },
+        { id: "screen", name: "Screen Recording", why: "photographing apps and windows a session is looking at", status: "granted" },
+        { id: "automation", name: "Automation", why: "AppleScript to System Events, which the bridge and app_ui use", status: "denied" },
+        { id: "fullDisk", name: "Full Disk Access", why: "sessions reading and writing anywhere without a prompt per folder", status: "granted" },
+        { id: "removable", name: "Removable volumes", why: "projects on an external drive — git in a checkout there fails without this", status: "unasked", detail: "mounted: T7" },
+      ],
+      rows: [
+        { service: "Full Disk Access", client: "com.justin06lee.ruri", allowed: true, at: now - 86_400_000 * 20 },
+        { service: "Removable volumes", client: "/Users/you/.local/share/claude/versions/2.1.231", allowed: true, at: now - 86_400_000 * 28 },
+        { service: "Removable volumes", client: "com.justin06lee.ruri", allowed: false, at: now - 86_400_000 * 2 },
+      ],
+    },
     queued: {
       p1: [
         { id: "q1", text: "Then run the whole suite again and tell me what broke." },

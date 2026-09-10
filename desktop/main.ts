@@ -6,6 +6,7 @@ import { app, BrowserWindow, dialog, Menu, screen, shell } from "electron";
 import { startServer } from "../server/server.js";
 import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
+import { askAgainIfNewBuild, permissions } from "./permissions.js";
 
 /**
  * GUI-launched macOS apps get a minimal PATH (/usr/bin:/bin:...), which would
@@ -164,10 +165,14 @@ async function main(): Promise<void> {
     },
     capture: captureTargets,
     bridge,
+    permissions,
   });
 
   createWindow(running.port);
   watchPeeks();
+  // a fresh build is a stranger to macOS: it asks for its grants again,
+  // dialog by dialog, once the window is up (desktop/permissions.ts)
+  setTimeout(() => void askAgainIfNewBuild().catch(() => {}), 1500);
 
   // A GUI app's stdout goes nowhere anyone will look, and a window on an
   // unexpected origin is indistinguishable from a ruri that has lost its

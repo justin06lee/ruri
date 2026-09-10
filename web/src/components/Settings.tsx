@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ModelRole } from "../../../shared/protocol";
+import type { ModelRole, PermissionId, PermissionState } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 import { getPref, setPref } from "../prefs";
 import {
@@ -651,8 +651,107 @@ export function Settings({ onClose }: { onClose(): void }) {
           <h2 className="settings-group-name">Models</h2>
           <ModelCatalog />
         </section>
+
+        <section className="settings-group">
+          <h2 className="settings-group-name">Permissions</h2>
+          <Grants />
+        </section>
       </div>
       </div>
     </main>
+  );
+}
+
+
+/* ── macOS grants ─────────────────────────────────────────────────── */
+
+const STATUS_WORD: Record<PermissionState["status"], string> = {
+  granted: "granted",
+  denied: "not granted",
+  unasked: "never asked",
+  unknown: "can't tell",
+};
+
+/**
+ * What macOS has let ruri do, as macOS holds it — not as the switches in
+ * System Settings look, which go stale with every rebuild of an ad-hoc
+ * signed app. Each grant can be asked for by hand, so a thing that broke can
+ * be told apart from a grant that lapsed; and under them, the privacy
+ * database's own rows for ruri and the CLIs its sessions run, since each of
+ * those is a client of its own to macOS.
+ */
+function Grants() {
+  const can = useRuri((s) => s.canPermissions);
+  const grants = useRuri((s) => s.grants);
+  const [asking, setAsking] = useState<PermissionId | "all" | null>(null);
+  useEffect(() => {
+    if (can) send({ type: "permissions_check" });
+  }, [can]);
+  useEffect(() => {
+    if (grants) setAsking(null);
+  }, [grants]);
+  const ask = (id?: PermissionId) => {
+    setAsking(id ?? "all");
+    send({ type: "permissions_request", ...(id ? { id } : {}) });
+  };
+  if (!can) return <p className="settings-note">Available in the desktop app.</p>;
+  return (
+    <div className="grants">
+      <p className="settings-note grants-note">
+        macOS ties every grant to the app's signature, and a rebuilt ruri is a new app to it: a
+        switch that reads "on" in System Settings may be for a ruri that no longer exists. This
+        is what macOS actually holds. <code>make update</code> resets them all and the next launch
+        asks again; ask by hand here to tell a broken feature from a lapsed grant.
+      </p>
+      <div className="grants-head">
+        <button className="ghost" disabled={asking !== null} onClick={() => ask()}>
+          {asking === "all" ? "asking…" : "Ask for everything"}
+        </button>
+        <button className="ghost" disabled={asking !== null} onClick={() => send({ type: "permissions_check" })}>
+          Re-read
+        </button>
+      </div>
+      {!grants && <p className="settings-note">reading…</p>}
+      {grants?.items.map((item) => (
+        <div key={item.id} className="grant-row">
+          <span className={`grant-status ${item.status}`}>{STATUS_WORD[item.status]}</span>
+          <span className="grant-body">
+            <span className="grant-name">{item.name}</span>
+            <span className="grant-why">
+              {item.why}
+              {item.detail ? ` — ${item.detail}` : ""}
+            </span>
+          </span>
+          <button
+            className="ghost grant-ask"
+            disabled={asking !== null}
+            title={item.status === "granted" ? "Granted — ask again anyway" : "Put up the dialog, or open the pane where the switch is"}
+            onClick={() => ask(item.id)}
+          >
+            {asking === item.id ? "asking…" : "Ask"}
+          </button>
+        </div>
+      ))}
+      {grants && grants.rows.length > 0 && (
+        <details className="grants-rows">
+          <summary>What macOS remembers — ruri, the CLIs, the shell ({grants.rows.length} rows)</summary>
+          <table>
+            <tbody>
+              {grants.rows.map((row, i) => (
+                <tr key={i} className={row.allowed ? "" : "refused"}>
+                  <td className="grants-service">{row.service}</td>
+                  <td className="grants-client" title={row.client}>{row.client.replace(/^\/Users\/[^/]+/, "~")}</td>
+                  <td className="grants-verdict">{row.allowed ? "allowed" : "refused"}</td>
+                  <td className="grants-when">{new Date(row.at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
+      {grants && grants.rows.length === 0 && (
+        <p className="settings-note">The privacy database itself can't be read — that is what Full Disk Access is for.</p>
+      )}
+    </div>
   );
 }

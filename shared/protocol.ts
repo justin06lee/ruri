@@ -592,6 +592,39 @@ export interface AskAnswers {
 /** What a native folder pick is for — routed back with the result. */
 export type PickTarget = "workspace" | "music";
 
+/** The macOS grants ruri uses (desktop/permissions.ts). */
+export type PermissionId =
+  | "accessibility"
+  | "screen"
+  | "automation"
+  | "fullDisk"
+  | "desktop"
+  | "documents"
+  | "downloads"
+  | "removable"
+  | "network";
+
+export interface PermissionState {
+  id: PermissionId;
+  name: string;
+  /** What ruri does with it. */
+  why: string;
+  /** As macOS actually holds it — "unasked" is a dialog that has never been
+   *  put up, "unknown" is a state that cannot be read from here. */
+  status: "granted" | "denied" | "unasked" | "unknown";
+  detail?: string;
+}
+
+/** One row of the privacy database, for ruri or a CLI its sessions run. */
+export interface TccRow {
+  service: string;
+  /** A bundle id, or the path of a bare executable. */
+  client: string;
+  allowed: boolean;
+  /** When macOS last decided (epoch ms). */
+  at: number;
+}
+
 /** Home-agent settings (the Home composer's model/effort/permission dropdowns). */
 export interface HomeSettings {
   model?: string;
@@ -623,6 +656,10 @@ export interface BridgeState {
 export type ClientMessage =
   | { type: "add_project"; name: string; path: string; folder?: string }
   | { type: "pick_folder"; target?: PickTarget }
+  /** The macOS grants as they stand — no dialogs. */
+  | { type: "permissions_check" }
+  /** Ask macOS for one grant, or (no id) every one in turn. */
+  | { type: "permissions_request"; id?: PermissionId }
   | { type: "remove_project"; projectId: string }
   | { type: "send"; projectId: string; text: string; attachments?: AttachmentUpload[] }
   | { type: "send_split"; projectId: string; text: string; attachments?: AttachmentUpload[] }
@@ -860,6 +897,8 @@ export type ServerMessage =
       catchups: Record<string, { built?: number }>;
       /** Whether the host can show a native folder-picker dialog. */
       canPickFolder: boolean;
+      /** Whether the host can read and ask for macOS grants (the desktop app). */
+      canPermissions: boolean;
       /** The workspace root the Home agent manages (where projects live). */
       workspaceDir: string;
       /** Where the music player's playlists live. */
@@ -886,6 +925,8 @@ export type ServerMessage =
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
+  /** The grants, and the privacy database's rows behind them. */
+  | { type: "permissions"; items: PermissionState[]; rows: TccRow[] }
   | { type: "turn_summary"; projectId: string; turnId: string; summary: string }
   /** A project's ideas board. */
   | { type: "ideas"; projectId: string; items: Idea[] }

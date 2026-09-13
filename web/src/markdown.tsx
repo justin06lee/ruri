@@ -141,41 +141,19 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
 /**
  * A reply as it is being written.
  *
- * The same markdown, but the text changes several times a second and every
- * version of it is thrown away a moment later. Rendering each one costs a
- * parse, a highlight pass and a sanitize — and worse, every half-finished
- * prefix would land in the cache above and push out the finished replies it
- * exists to keep. So a stream renders at most every RENDER_MS, straight
- * through with no caching, and the final text goes through `Markdown`
+ * The server lets a reply through a finished paragraph at a time
+ * (server/paragraphs.ts), so this changes a few times per reply rather than
+ * many times a second, and renders each version straight away. Half-finished
+ * replies are never cached — they would push out the finished replies the
+ * cache above exists to keep — and the final text goes through `Markdown`
  * proper the moment the turn ends and the event replaces the draft.
  */
-const RENDER_MS = 90;
-
 export function StreamingMarkdown({ text }: { text: string }) {
-  const [shown, setShown] = useState(text);
-  const latest = useRef(text);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  latest.current = text;
-
-  useEffect(() => {
-    if (timer.current) return;
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      setShown(latest.current);
-    }, RENDER_MS);
-  }, [text]);
-
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
-
   const html = useMemo(
-    () => DOMPurify.sanitize(marked.parse(shown, { async: false }), { ADD_ATTR: ["target"] }),
-    [shown],
+    () => DOMPurify.sanitize(marked.parse(text, { async: false }), { ADD_ATTR: ["target"] }),
+    [text],
   );
   // eslint-disable-next-line react/no-danger -- sanitized via DOMPurify above
   return <div className="md" onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
 }
+

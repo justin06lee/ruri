@@ -7,6 +7,23 @@ export const HOME_ID = "home";
  *  how many the window keeps of a chat it is not showing. */
 export const TRANSCRIPT_TAIL = 12;
 
+/** The most events the Home chat keeps. It is ephemeral anyway, and an
+ *  orchestrator's long history is exactly what nobody scrolls back through. */
+export const HOME_TRANSCRIPT_MAX = 50;
+
+/**
+ * The newest `max` events, cut where a turn starts when one does — so the
+ * list opens on a prompt rather than halfway through somebody's reply. A
+ * single turn longer than `max` is simply cut at `max`.
+ */
+export function keepRecent<T extends { kind: string }>(events: T[], max: number): T[] {
+  if (events.length <= max) return events;
+  let cut = events.length - max;
+  const start = events.findIndex((e, i) => i >= cut && (e.kind === "user" || e.kind === "compaction"));
+  if (start !== -1) cut = start;
+  return events.slice(cut);
+}
+
 /** The model a session runs on when none is picked and nothing has been
  *  crowned the default in Settings (a third star does that). The built-in
  *  fallback is the newest Fable; an unset model never means "whatever the

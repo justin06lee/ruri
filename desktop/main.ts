@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, Menu, screen, shell } from "electron";
+import { app, BrowserWindow, dialog, Menu, screen, session, shell } from "electron";
 import { startServer } from "../server/server.js";
 import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
@@ -42,6 +42,47 @@ function fixPath(): void {
  *  the dev server's, deliberately not shared: a dev run and the installed app
  *  should not fight over one. */
 const DESKTOP_PORT = 7776;
+
+/** How much Chromium may keep on disk per storage partition. */
+const CACHE_CAP_BYTES = 16 * 1024 * 1024;
+
+/**
+ * The bridge gives every project its own storage partition (cookies and
+ * logins for the sites its sessions drive), and Chromium keeps each one on
+ * disk under userData/Partitions for good — a project closed months ago
+ * still had its cache and its compiled scripts sitting there. Any partition
+ * whose project is no longer in the workspace is removed at launch.
+ */
+function prunePartitions(userData: string): void {
+  const dir = path.join(userData, "Partitions");
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  const alive = new Set(projectIdsOnDisk());
+  if (!alive.size) return;
+  for (const name of names) {
+    if (!name.startsWith("bridge-")) continue;
+    if (alive.has(name.slice("bridge-".length))) continue;
+    fs.rm(path.join(dir, name), { recursive: true, force: true }, () => {});
+  }
+}
+
+/** The workspace's project ids, read straight from the store's file. */
+function projectIdsOnDisk(): string[] {
+  const file = path.join(
+    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
+    "projects.json",
+  );
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf8")) as { projects?: Array<{ id?: unknown }> };
+    return (data.projects ?? []).map((p) => p.id).filter((id): id is string => typeof id === "string");
+  } catch {
+    return [];
+  }
+}
 
 function createWindow(port: number): BrowserWindow {
   const win = new BrowserWindow({
@@ -91,17 +132,19 @@ const PEEK_BAND = 46;
  * and hands window-relative coordinates to the page's __ruriPeekCursor
  * hook, which lifts the head under it. Quiet when the cursor is elsewhere.
  */
-function watchPeeks(): void {
+function watchPeeks(win: BrowserWindow): void {
   let active = false;
-  setInterval(() => {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (!win || win.isDestroyed()) return;
+  let timer: NodeJS.Timeout | undefined;
+  const tick = () => {
+    if (win.isDestroyed()) {
+      stop();
+      return;
+    }
     const point = screen.getCursorScreenPoint();
     const bounds = win.getContentBounds();
     const x = point.x - bounds.x;
     const y = point.y - bounds.y;
-    const inBand =
-      win.isFocused() && x >= 0 && x <= bounds.width && y >= 0 && y <= PEEK_BAND;
+    const inBand = x >= 0 && x <= bounds.width && y >= 0 && y <= PEEK_BAND;
     if (!inBand && !active) return;
     active = inBand;
     win.webContents
@@ -109,7 +152,31 @@ function watchPeeks(): void {
       .catch(() => {
         // page mid-navigation — next tick catches up
       });
-  }, 66);
+  };
+  // Only while the window is the one in front: a ruri behind another app
+  // has no titlebar to hover, and used to keep asking where the cursor was
+  // fifteen times a second all the same, all day, for a head it could not
+  // lift. Focus starts the clock and blur stops it.
+  const start = () => {
+    if (timer || win.isDestroyed()) return;
+    timer = setInterval(tick, 66);
+  };
+  const stop = () => {
+    if (!timer) return;
+    clearInterval(timer);
+    timer = undefined;
+    if (!active) return;
+    active = false;
+    if (!win.isDestroyed()) {
+      win.webContents.executeJavaScript("window.__ruriPeekCursor?.(0,0,false)").catch(() => {});
+    }
+  };
+  win.on("focus", start);
+  win.on("blur", stop);
+  win.on("hide", stop);
+  win.on("minimize", stop);
+  win.on("closed", stop);
+  if (win.isFocused()) start();
 }
 
 function buildMenu(): void {
@@ -132,9 +199,19 @@ async function main(): Promise<void> {
     app.quit();
     return;
   }
+  // The window is a page on 127.0.0.1, and Chromium caches what it fetches
+  // from there as if it were the far side of the world — it had put by
+  // 600 MB of a localhost app's own uploads. A cache of the local disk
+  // saves nothing; capping it small keeps Chromium's bookkeeping and no
+  // more. The cap is per storage partition, so the bridge's windows (real
+  // sites, where a cache does earn its keep) get the same modest one each.
+  app.commandLine.appendSwitch("disk-cache-size", String(CACHE_CAP_BYTES));
   fixPath();
   await app.whenReady();
   buildMenu();
+  // whatever the old, uncapped cache put by is let go of now
+  void session.defaultSession.clearCache().catch(() => {});
+  prunePartitions(app.getPath("userData"));
 
   const staticDir = path.join(import.meta.dirname, "..", "dist-web");
   // the windows and apps sessions drive to look at what they built — the
@@ -168,8 +245,7 @@ async function main(): Promise<void> {
     permissions,
   });
 
-  createWindow(running.port);
-  watchPeeks();
+  watchPeeks(createWindow(running.port));
   // a fresh build is a stranger to macOS: it asks for its grants again,
   // dialog by dialog, once the window is up (desktop/permissions.ts)
   setTimeout(() => void askAgainIfNewBuild().catch(() => {}), 1500);
@@ -205,7 +281,7 @@ async function main(): Promise<void> {
   // macOS: closing the window keeps the app (and its warm sessions) alive;
   // the Dock icon reopens it. Cmd+Q actually quits and tears sessions down.
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(running.port);
+    if (BrowserWindow.getAllWindows().length === 0) watchPeeks(createWindow(running.port));
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();

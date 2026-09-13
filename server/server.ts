@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type AskQuestions, DEFAULT_PERMISSION_MODE, type PermissionId, type PermissionState, type TccRow } from "../shared/protocol.js";
+import { type AskQuestions, DEFAULT_PERMISSION_MODE, type PermissionId, type PermissionState, type TccRow, TRANSCRIPT_TAIL } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -67,7 +67,7 @@ import { SecretStore } from "./secrets.js";
 import { installSkill, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
-import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload } from "./uploads.js";
+import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload, sweepUploads } from "./uploads.js";
 import { fetchAllUsageLimits, loadCachedLimits, readCodexCounts, saveCachedLimits } from "./usage.js";
 
 export interface StartServerOptions {
@@ -616,6 +616,16 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     pushUsage(true);
     pushContexts();
   }, 5 * 60_000);
+  // The uploads nothing mentions any more go, once things have settled
+  // after launch and then twice a day (server/uploads.ts). Neither timer
+  // holds the process open.
+  const sweepTimer = setInterval(() => sweepUploads(), 12 * 60 * 60_000);
+  sweepTimer.unref();
+  const firstSweep = setTimeout(() => {
+    const gone = sweepUploads();
+    if (gone) console.log(`ruri: removed ${gone} upload${gone === 1 ? "" : "s"} nothing refers to`);
+  }, 30_000);
+  firstSweep.unref();
   /**
    * The context window a channel's model gets. A harness that names its own
    * (Codex reports the model's real size) wins — but only for the model that
@@ -2357,6 +2367,23 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         })();
         break;
       }
+      case "transcript_get": {
+        // the rest of a chat the snapshot only carried the tail of — to
+        // the asker alone, with its pictures made readable on the way
+        const id = msg.projectId;
+        if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
+        const events = archive.events(id);
+        allowReadImages(events, pictureBase(id));
+        ws.send(
+          JSON.stringify({
+            type: "transcript",
+            projectId: id,
+            events,
+            summaries: archive.allSummaries([id])[id] ?? {},
+          } satisfies ServerMessage),
+        );
+        break;
+      }
       case "recent_list": {
         // what the harnesses hold for this project that ruri did not make:
         // every id ruri's own chats have ever run on is left out
@@ -3063,7 +3090,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     const snapshot: ServerMessage = {
       type: "snapshot",
       projects: store.list(),
-      transcripts: allowArchived(archive.transcripts(projectIds)),
+      transcripts: allowArchived(archive.tails(projectIds, TRANSCRIPT_TAIL)),
       statuses: manager.statuses(),
       permissions: [...permissions.values()],
       models: allModels(),
@@ -3175,6 +3202,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         close: () =>
           new Promise<void>((done) => {
             clearInterval(usageTimer);
+            clearInterval(sweepTimer);
+            clearTimeout(firstSweep);
             if (usageRetry) clearTimeout(usageRetry);
             terminals.closeAll();
             void options.bridge?.closeAll();

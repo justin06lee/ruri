@@ -163,3 +163,75 @@ export function serveUpload(req: http.IncomingMessage, res: http.ServerResponse)
     res.end();
   }
 }
+
+/** An upload younger than this is left alone whatever refers to it: it may
+ *  be sitting in a composer that has not sent yet. */
+const SWEEP_GRACE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Remove the uploads nothing refers to any more.
+ *
+ * A file lands here for every attachment ever sent, and it stayed for good
+ * — a rewound prompt's pictures, a closed session's, a draft's that was
+ * cleared — long after the last mention of it was gone. This reads every
+ * text file under the config directory that could hold a mention (the
+ * archives, drafts, notes, turn files, component and idea indexes) for
+ * `uploads/<name>` and removes the rest, a day after they were written.
+ * Returns how many went.
+ */
+export function sweepUploads(): number {
+  const dir = uploadsDir();
+  const root = path.dirname(dir);
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  if (names.length === 0) return 0;
+
+  const referenced = new Set<string>();
+  const mention = /uploads\/([A-Za-z0-9._-]+)/g;
+  // what holds pictures of its own rather than mentions of these
+  const skip = new Set(["uploads", "bridge", "checkpoints"]);
+  const walk = (at: string): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(at, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const full = path.join(at, entry.name);
+      if (entry.isDirectory()) {
+        if (at !== root || !skip.has(entry.name)) walk(full);
+        continue;
+      }
+      if (!entry.isFile() || !/\.(json|md|txt)$/i.test(entry.name)) continue;
+      let text: string;
+      try {
+        text = fs.readFileSync(full, "utf8");
+      } catch {
+        continue;
+      }
+      for (const match of text.matchAll(mention)) referenced.add(match[1]!);
+    }
+  };
+  walk(root);
+
+  const cutoff = Date.now() - SWEEP_GRACE_MS;
+  let removed = 0;
+  for (const name of names) {
+    if (name.startsWith(".") || referenced.has(name)) continue;
+    const file = path.join(dir, name);
+    try {
+      if (fs.statSync(file).mtimeMs > cutoff) continue;
+      fs.rmSync(file, { force: true });
+      removed += 1;
+    } catch {
+      // gone already, or not ours to remove
+    }
+  }
+  return removed;
+}

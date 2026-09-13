@@ -6,6 +6,7 @@
  * resolves at runtime.
  */
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { build } from "esbuild";
 
 /**
@@ -18,6 +19,24 @@ import { build } from "esbuild";
  */
 fs.rmSync("dist-electron", { recursive: true, force: true });
 
+/**
+ * One copy of each shared dependency, not two.
+ *
+ * yagami is linked in from a sibling checkout (`file:../yagami`), and a
+ * linked package resolves its own imports from its own node_modules — so
+ * the Agent SDK and zod were bundled twice, once from here and once from
+ * there, at slightly different versions. That was 2.7 MB of a 4.9 MB bundle
+ * doing the same job, loaded and initialised twice at launch. Every import
+ * of these packages, wherever it comes from, now lands on the copies this
+ * repo installs (the newer of the two, and a superset of what yagami uses).
+ */
+const shared = ["@anthropic-ai/claude-agent-sdk", "zod", "@agentclientprotocol/sdk", "ws"];
+const alias = Object.fromEntries(
+  shared
+    .filter((name) => fs.existsSync(path.join("node_modules", name)))
+    .map((name) => [name, path.resolve("node_modules", name)]),
+);
+
 await build({
   entryPoints: ["desktop/main.ts"],
   bundle: true,
@@ -26,6 +45,11 @@ await build({
   target: "node20",
   outfile: "dist-electron/main.mjs",
   external: ["electron"],
+  alias,
+  // half the bytes for the same program — this is a build artifact, and the
+  // parser has less to read at every launch
+  minify: true,
+  legalComments: "none",
   banner: {
     js: 'import { createRequire as __ruriCreateRequire } from "node:module"; const require = __ruriCreateRequire(import.meta.url);',
   },

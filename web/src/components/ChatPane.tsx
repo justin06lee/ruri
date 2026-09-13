@@ -71,6 +71,7 @@ import {
   clearComposerDraft,
   composeInto,
   composerDrafts,
+  ensureTranscript,
   send,
   setComposerDraft,
   useRuri,
@@ -1651,6 +1652,14 @@ export function ChatPane({
         ...(session?.effort ? { effort: session.effort } : {}),
       };
   const transcript = useRuri((s) => (activeId ? (s.transcripts[activeId] ?? NO_EVENTS) : NO_EVENTS));
+  // The snapshot only carries a chat's last few events; the whole history
+  // is asked for when the chat opens, and until it arrives the pane stays
+  // blank rather than showing the tail and then jumping.
+  const loaded = useRuri((s) => (activeId ? s.loaded[activeId] === true : true));
+  const connected = useRuri((s) => s.connected);
+  useEffect(() => {
+    if (activeId && connected && !loaded) ensureTranscript(activeId);
+  }, [activeId, connected, loaded]);
   const draft = useRuri((s) => (activeId ? s.drafts[activeId] : undefined));
   const status = useRuri((s) => (activeId ? (s.statuses[activeId] ?? "idle") : "idle"));
   const summaries = useRuri((s) =>
@@ -1983,7 +1992,7 @@ export function ChatPane({
     [activeId],
   );
 
-  if (!project || !activeId) {
+  if (!project || !activeId || !loaded) {
     return <main className={pane("chat empty")} />;
   }
 

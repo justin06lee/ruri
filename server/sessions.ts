@@ -730,6 +730,9 @@ class ProjectSession implements ChannelSession {
     try {
       for await (const msg of this.session) this.handle(msg);
     } catch (err) {
+      // closed on purpose (idle, compaction, a settings change): nothing
+      // went wrong, and nothing is said
+      if (this.dead) return;
       this.pushEvent({
         kind: "info",
         id: randomUUID(),
@@ -1897,8 +1900,22 @@ function providerSessionId(session: ChannelSession): string | undefined {
   return undefined;
 }
 
+/**
+ * How long a chat's agent process may sit idle before it is closed.
+ *
+ * Every chat that has been prompted keeps a warm CLI process — 150 to 400 MB
+ * of `claude`, `codex app-server` or an ACP agent, plus whatever MCP servers
+ * that process started — and nothing ever closed one short of quitting the
+ * app. A chat left alone this long has its process closed; the next prompt
+ * resumes the same conversation from its session id, exactly as it does
+ * after a relaunch, for a second or two of startup.
+ */
+const IDLE_REAP_MS = Number(process.env["RURI_IDLE_REAP_MS"]) || 10 * 60_000;
+
 export class SessionManager {
   private readonly sessions = new Map<string, ChannelSession>();
+  /** Per channel: the timer that closes its process once it has idled. */
+  private readonly reapTimers = new Map<string, NodeJS.Timeout>();
   /**
    * Changes a chat made while its turn was running. A model, effort or mode
    * pick is never applied to a turn in flight — a warm session would be
@@ -1930,7 +1947,12 @@ export class SessionManager {
       ...events,
       onStatus: (projectId, status) => {
         events.onStatus(projectId, status);
-        if (status === "idle") this.applyDeferred(projectId);
+        if (status === "idle") {
+          this.applyDeferred(projectId);
+          this.scheduleReap(projectId);
+        } else {
+          this.cancelReap(projectId);
+        }
       },
     };
   }
@@ -1956,6 +1978,29 @@ export class SessionManager {
     const queue = this.deferred.get(projectId) ?? [];
     queue.push(apply);
     this.deferred.set(projectId, queue);
+  }
+
+  /** Close this channel's process once it has been idle for IDLE_REAP_MS. */
+  private scheduleReap(projectId: string): void {
+    this.cancelReap(projectId);
+    const timer = setTimeout(() => {
+      this.reapTimers.delete(projectId);
+      const session = this.sessions.get(projectId);
+      // anything but a quiet, settled session is left alone: a turn, a card
+      // waiting on the user, a settings change waiting for the turn to end
+      if (!session || session.dead || session.status !== "idle" || this.deferred.has(projectId)) return;
+      session.dispose();
+      this.sessions.delete(projectId);
+    }, IDLE_REAP_MS);
+    timer.unref?.();
+    this.reapTimers.set(projectId, timer);
+  }
+
+  private cancelReap(projectId: string): void {
+    const timer = this.reapTimers.get(projectId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.reapTimers.delete(projectId);
   }
 
   private applyDeferred(projectId: string): void {
@@ -2052,6 +2097,9 @@ export class SessionManager {
         );
       }
       this.sessions.set(project.id, session);
+      // timed from the start: a session built for a rewind and never sent
+      // to would otherwise never report idle, and never be closed
+      this.scheduleReap(project.id);
     }
     return session;
   }
@@ -2119,6 +2167,7 @@ export class SessionManager {
   }
 
   dispose(projectId: string): void {
+    this.cancelReap(projectId);
     this.sessions.get(projectId)?.dispose();
     this.sessions.delete(projectId);
   }

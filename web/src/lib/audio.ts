@@ -59,6 +59,11 @@ export class AudioEngine {
   private fadeFrom: Deck | null = null;
   private raf = 0;
   private scheduler = 0;
+  /** Whether the frame loop and the crossfade scheduler are running. They
+   *  only run while something plays: a paused player used to go on waking
+   *  the window every frame and four times a second, for the rest of the
+   *  session, once a single song had been played. */
+  private clockRunning = false;
   private lastEmit: PlayerState | null = null;
 
   /** Resolves a track's URL to something the audio element can load. */
@@ -78,12 +83,48 @@ export class AudioEngine {
     this.master.connect(this.analyser);
     this.analyser.connect(this.ctx.destination);
     this.decks = [this.makeDeck(), this.makeDeck()];
-    this.tick();
+  }
+
+  /** Start the clock the moment anything plays. */
+  private startClock(): void {
+    if (this.clockRunning) return;
+    this.clockRunning = true;
+    this.raf = requestAnimationFrame(this.tick);
     // Deciding *when* to crossfade must not depend on animation frames:
     // Chromium stops firing them once the window is occluded, which is exactly
     // when someone has switched apps and left the music going.
     this.scheduler = window.setInterval(this.schedule, 250);
   }
+
+  private stopClock(): void {
+    if (!this.clockRunning) return;
+    this.clockRunning = false;
+    cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    window.clearInterval(this.scheduler);
+    this.scheduler = 0;
+  }
+
+  private onDeckPlaying = (): void => {
+    this.startClock();
+    if (this.ctx.state === "suspended") void this.ctx.resume();
+  };
+
+  /**
+   * A deck stopped. A crossfade hands over from one deck to the other, and
+   * loading the next track stops a deck for a moment, so the check waits a
+   * beat — and only when neither deck is playing does the clock stop and
+   * the audio device get let go of (a running AudioContext keeps the
+   * output hardware awake even when it is playing silence).
+   */
+  private onDeckQuiet = (): void => {
+    window.setTimeout(() => {
+      if (this.decks.some((deck) => !deck.el.paused)) return;
+      this.stopClock();
+      this.emit();
+      if (this.ctx.state === "running") void this.ctx.suspend();
+    }, 50);
+  };
 
   private makeDeck(): Deck {
     const el = new Audio();
@@ -96,6 +137,9 @@ export class AudioEngine {
     gain.gain.value = 0;
     src.connect(gain).connect(this.master);
     el.addEventListener("ended", () => this.onDeckEnded(el));
+    el.addEventListener("playing", this.onDeckPlaying);
+    el.addEventListener("pause", this.onDeckQuiet);
+    el.addEventListener("ended", this.onDeckQuiet);
     return { el, gain };
   }
 
@@ -163,7 +207,7 @@ export class AudioEngine {
 
   private tick = (): void => {
     this.emit();
-    this.raf = requestAnimationFrame(this.tick);
+    if (this.clockRunning) this.raf = requestAnimationFrame(this.tick);
   };
 
   private buildOrder(keepCurrent = true): void {
@@ -379,8 +423,7 @@ export class AudioEngine {
   }
 
   dispose(): void {
-    cancelAnimationFrame(this.raf);
-    window.clearInterval(this.scheduler);
+    this.stopClock();
     this.stop();
     void this.ctx.close();
   }

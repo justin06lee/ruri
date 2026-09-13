@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import {
   DEFAULT_EFFORT,
@@ -1578,6 +1579,8 @@ const SETTLE_FRAMES = 8;
 /** Turns at the tail that are always laid out for real: a session opens at
  *  its bottom, and the bottom cannot be an estimate. */
 const LIVE_TURNS = 4;
+/** How far below the view's top an opened exchange is brought to rest. */
+const REVEAL_GAP = 16;
 /** Where the quiet filling stops. Past this, turns arrive because you
  *  scrolled back for them — a pane that has quietly materialised its whole
  *  history is a pane that costs that much to take down again on the way
@@ -1618,57 +1621,140 @@ function turnExcerpts(turn: Turn): { prompt: string; reply: string } {
   };
 }
 
-/**
- * An exchange folded to its recall notes, laid out like the chat it stands
- * for: the prompt's note in the bubble, the reply's under it — a cut of the
- * text itself for a half whose note isn't written yet. Every exchange above
- * the newest compaction starts out like this; one below it only by the
- * user's hand (the hover chevron). A click anywhere opens the whole thing.
- */
-const FoldedTurn = memo(function FoldedTurn({
-  turnId,
-  note,
-  prompt,
-  reply,
-  count,
-  loading,
+/** A turn shown whole needs no stand-ins. */
+const NO_EXCERPTS = { prompt: "", reply: "" };
+
+/** What a click opens: one half of an exchange, or both. */
+type Half = "prompt" | "reply" | "both";
+
+/** A folded half: its note, standing where the half would. A click (or
+ *  Enter) opens that half; dragging across it to copy a line doesn't. */
+function NoteHalf({
+  className,
+  title,
   onOpen,
+  children,
 }: {
-  turnId: string;
-  note: TurnNote | undefined;
-  prompt: string;
-  reply: string;
-  count: number;
-  /** Opened, and its events still on their way. */
-  loading?: boolean;
-  onOpen(turnId: string): void;
+  className: string;
+  title: string;
+  onOpen(): void;
+  children: ReactNode;
 }) {
-  const asked = note?.user || prompt || "an exchange";
-  const answered = note?.reply || reply;
   return (
     <div
-      className="turn folded"
+      className={className}
       role="button"
       tabIndex={0}
-      title="Show the whole exchange"
+      title={title}
       onClick={(e) => {
-        // dragging across a note to copy it is not asking to open it
         const selection = window.getSelection();
         if (selection && !selection.isCollapsed && e.currentTarget.contains(selection.anchorNode)) return;
-        onOpen(turnId);
+        onOpen();
       }}
       onKeyDown={(e) => {
         if (e.key !== "Enter" && e.key !== " ") return;
         e.preventDefault();
-        onOpen(turnId);
+        onOpen();
       }}
     >
-      <div className="msg user note">{asked}</div>
-      {answered && <div className="msg assistant note">{answered}</div>}
-      <span className="folded-open">
-        <Icon d="M9 6l6 6-6 6" />
-        {loading ? "opening…" : `full exchange · ${count} events`}
-      </span>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * One exchange, each half on its own. A half is either shown in full or
+ * folded to its recall note, laid out like the chat either way: the
+ * prompt's note in a dashed bubble on the right, the reply's under it — a
+ * cut of the text itself for a note not written yet. A click on a note
+ * opens that half alone; "full exchange" opens both; the chevron folds the
+ * pair back. Every exchange above the newest compaction starts folded, one
+ * below it open.
+ */
+const Exchange = memo(function Exchange({
+  turnId,
+  events,
+  note,
+  prompt,
+  reply,
+  count,
+  promptOpen,
+  replyOpen,
+  loading,
+  far,
+  project,
+  channelId,
+  onRewind,
+  onFork,
+  onOpen,
+  onFold,
+}: {
+  turnId: string;
+  /** Its events — absent for an earlier exchange until the history comes. */
+  events: TranscriptEvent[] | undefined;
+  note: TurnNote | undefined;
+  /** Stand-ins for the notes while they're unwritten. */
+  prompt: string;
+  reply: string;
+  count: number;
+  promptOpen: boolean;
+  replyOpen: boolean;
+  /** Opened, and its events still on their way. */
+  loading?: boolean;
+  far?: boolean;
+  project?: Project;
+  channelId?: string;
+  onRewind?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
+  onFork?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
+  onOpen(turnId: string, half: Half): void;
+  onFold(turnId: string): void;
+}) {
+  const head = promptOpen ? events?.[0] : undefined;
+  const rest = replyOpen && events ? events.slice(1) : undefined;
+  const folded = !head && !rest;
+  const asked = note?.user || prompt || "an exchange";
+  const answered = note?.reply || reply;
+  const view = (event: TranscriptEvent) => (
+    <EventView
+      key={event.id}
+      event={event}
+      project={project}
+      channelId={channelId}
+      onRewind={onRewind}
+      onFork={onFork}
+    />
+  );
+  return (
+    <div className={`turn${folded ? " folded" : ""}${far ? " far" : ""}`} data-turn={turnId}>
+      {!folded && (
+        <button className="icon-button turn-fold" title="Fold this exchange to its notes" onClick={() => onFold(turnId)}>
+          <Icon d="M6 15l6-6 6 6" />
+        </button>
+      )}
+      {head ? (
+        <div className="exchange-half" data-half="prompt">
+          {view(head)}
+        </div>
+      ) : (
+        <NoteHalf className="msg user note" title="Show your whole prompt" onOpen={() => onOpen(turnId, "prompt")}>
+          {asked}
+        </NoteHalf>
+      )}
+      {rest ? (
+        <div className="exchange-half" data-half="reply">
+          {rest.map(view)}
+        </div>
+      ) : answered ? (
+        <NoteHalf className="msg assistant note" title="Show the whole reply" onOpen={() => onOpen(turnId, "reply")}>
+          {answered}
+        </NoteHalf>
+      ) : null}
+      {!(head && rest) && (
+        <button className="folded-open" title="Show the whole exchange" onClick={() => onOpen(turnId, "both")}>
+          <Icon d="M9 6l6 6-6 6" />
+          {loading ? "opening…" : `full exchange · ${count} events`}
+        </button>
+      )}
     </div>
   );
 });
@@ -1817,19 +1903,6 @@ export function ChatPane({
     setPage("chat");
   }, [activeId]);
 
-  // Turns below the newest compaction show in full. A hover chevron folds
-  // one to its notes when wanted.
-  const [folded, setFolded] = useState<Set<string>>(new Set());
-  useEffect(() => setFolded(new Set()), [activeId]);
-  const unfold = useCallback(
-    (turnId: string) =>
-      setFolded((prev) => {
-        const next = new Set(prev);
-        next.delete(turnId);
-        return next;
-      }),
-    [],
-  );
 
   // Rewind: pencil on a past prompt → a plain confirmation → the
   // conversation and the project's files go back to just before it ran and
@@ -2079,34 +2152,66 @@ export function ChatPane({
   // fetches the history's bodies.
   const earlier = useRuri((s) => (activeId ? (s.earlier[activeId] ?? NO_EARLIER) : NO_EARLIER));
   const history = useRuri((s) => (activeId ? s.history[activeId] : undefined));
-  const [openedEarlier, setOpenedEarlier] = useState<Set<string>>(new Set());
+  // Which halves of which exchanges are open, where that differs from how
+  // each starts — open below the newest compaction, folded above it.
+  const [opens, setOpens] = useState<Record<string, { prompt?: boolean; reply?: boolean }>>({});
   const [wantHistory, setWantHistory] = useState(false);
   useEffect(() => {
-    setOpenedEarlier(new Set());
+    setOpens({});
     setWantHistory(false);
   }, [activeId]);
+  const earlierIds = useMemo(
+    () => new Set(earlier.flatMap((item) => (item.kind === "turn" ? [item.turnId] : []))),
+    [earlier],
+  );
+  const needHistory =
+    wantHistory || Object.entries(opens).some(([id, open]) => (open.prompt || open.reply) && earlierIds.has(id));
   useEffect(() => {
-    if (activeId && !history && (wantHistory || openedEarlier.size > 0)) requestHistory(activeId);
-  }, [activeId, history, wantHistory, openedEarlier]);
+    if (activeId && !history && needHistory) requestHistory(activeId);
+  }, [activeId, history, needHistory]);
   // the history's turns by id — a mark's under `compaction-<id>`
   const historyTurns = useMemo(
     () => new Map((history ? groupTurns(history) : []).map((turn) => [turn.turnId, turn])),
     [history],
   );
-  const openEarlier = useCallback(
-    (turnId: string) => setOpenedEarlier((prev) => new Set(prev).add(turnId)),
-    [],
-  );
-  const closeEarlier = useCallback(
-    (turnId: string) =>
-      setOpenedEarlier((prev) => {
-        const next = new Set(prev);
-        next.delete(turnId);
-        return next;
-      }),
+  /** What was just opened, for the view to go to the top of once it's on screen. */
+  const revealRef = useRef<{ turnId: string; half: Half } | null>(null);
+  const openHalf = useCallback((turnId: string, half: Half) => {
+    // reading back, not following: nothing may re-bottom the view now
+    pinnedRef.current = false;
+    revealRef.current = { turnId, half };
+    setOpens((prev) => ({
+      ...prev,
+      [turnId]: half === "both" ? { prompt: true, reply: true } : { ...prev[turnId], [half]: true },
+    }));
+  }, []);
+  const foldExchange = useCallback(
+    (turnId: string) => setOpens((prev) => ({ ...prev, [turnId]: { prompt: false, reply: false } })),
     [],
   );
   const loadHistory = useCallback(() => setWantHistory(true), []);
+
+  // Something just opened: the view goes to its top, to read it from the
+  // start. Left alone, the view stayed put while the exchange grew — pinned
+  // to the bottom it followed the growth to the end, and scrolled up the
+  // browser's scroll anchoring held whatever was below in place, which comes
+  // to the same thing. An earlier exchange waits here for its events.
+  useLayoutEffect(() => {
+    const want = revealRef.current;
+    const scroller = scrollRef.current;
+    if (!want || !scroller) return;
+    const turn = scroller.querySelector<HTMLElement>(`[data-turn="${CSS.escape(want.turnId)}"]`);
+    if (!turn) {
+      revealRef.current = null;
+      return;
+    }
+    const half = turn.querySelector<HTMLElement>(`[data-half="${want.half === "reply" ? "reply" : "prompt"}"]`);
+    if (!half) return;
+    revealRef.current = null;
+    // a reply with nothing in it (a stopped turn) has no top of its own
+    const target = want.half === "both" || half.childElementCount === 0 ? turn : half;
+    scroller.scrollTop += target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - REVEAL_GAP;
+  });
 
   // Above the early return: a hook that only some renders reach is a hook
   // React counts differently on the render after the pane finds a project.
@@ -2312,32 +2417,40 @@ export function ChatPane({
                   </div>
                 );
               }
-              const opened = openedEarlier.has(item.turnId);
-              const full = opened ? historyTurns.get(item.turnId) : undefined;
-              if (!full) {
-                return (
-                  <FoldedTurn
-                    key={`earlier-${item.turnId}`}
-                    turnId={item.turnId}
-                    note={summaries[item.turnId]}
-                    prompt={item.prompt}
-                    reply={item.reply}
-                    count={item.count}
-                    loading={opened && !history}
-                    onOpen={openEarlier}
-                  />
-                );
-              }
+              const open = opens[item.turnId];
+              const promptOpen = open?.prompt ?? false;
+              const replyOpen = open?.reply ?? false;
               return (
-                <div className="turn" key={`earlier-${item.turnId}`}>
-                  <button
-                    className="icon-button turn-fold"
-                    title="Fold this exchange back to its notes"
-                    onClick={() => closeEarlier(item.turnId)}
-                  >
-                    <Icon d="M6 15l6-6 6 6" />
-                  </button>
-                  {full.events.map((event) => (
+                <Exchange
+                  key={`earlier-${item.turnId}`}
+                  turnId={item.turnId}
+                  events={promptOpen || replyOpen ? historyTurns.get(item.turnId)?.events : undefined}
+                  note={summaries[item.turnId]}
+                  prompt={item.prompt}
+                  reply={item.reply}
+                  count={item.count}
+                  promptOpen={promptOpen}
+                  replyOpen={replyOpen}
+                  loading={(promptOpen || replyOpen) && !history}
+                  project={project}
+                  channelId={activeId}
+                  onRewind={askRewind}
+                  onFork={askFork}
+                  onOpen={openHalf}
+                  onFold={foldExchange}
+                />
+              );
+            })}
+          {shownTurns.map((turn, index) => {
+            const head = turn.events[0];
+            // far enough up that the browser may skip laying it out until
+            // it comes near the viewport — see .turn.far
+            const far = index < shownTurns.length - LIVE_TURNS;
+            // a compaction mark, or what came before the first prompt
+            if (turn.solo || head?.kind !== "user") {
+              return (
+                <div className={far ? "turn far" : "turn"} key={turn.turnId}>
+                  {turn.events.map((event) => (
                     <EventView
                       key={event.id}
                       event={event}
@@ -2349,48 +2462,30 @@ export function ChatPane({
                   ))}
                 </div>
               );
-            })}
-          {shownTurns.map((turn, index) => {
-            const head = turn.events[0];
-            // far enough up that the browser may skip laying it out until
-            // it comes near the viewport — see .turn.far
-            const far = index < shownTurns.length - LIVE_TURNS;
-            if (folded.has(turn.turnId)) {
-              const { prompt, reply } = turnExcerpts(turn);
-              return (
-                <FoldedTurn
-                  key={turn.turnId}
-                  turnId={turn.turnId}
-                  note={summaries[turn.turnId]}
-                  prompt={prompt}
-                  reply={reply}
-                  count={turn.events.length}
-                  onOpen={unfold}
-                />
-              );
             }
+            const open = opens[turn.turnId];
+            const promptOpen = open?.prompt ?? true;
+            const replyOpen = open?.reply ?? true;
+            const cut = promptOpen && replyOpen ? NO_EXCERPTS : turnExcerpts(turn);
             return (
-              <div className={far ? "turn far" : "turn"} key={turn.turnId}>
-                {!turn.solo && head?.kind === "user" && (
-                  <button
-                    className="icon-button turn-fold"
-                    title="Fold this exchange to its notes"
-                    onClick={() => setFolded(new Set(folded).add(turn.turnId))}
-                  >
-                    <Icon d="M6 15l6-6 6 6" />
-                  </button>
-                )}
-                {turn.events.map((event) => (
-                  <EventView
-                    key={event.id}
-                    event={event}
-                    project={project}
-                    channelId={activeId}
-                    onRewind={askRewind}
-                    onFork={askFork}
-                  />
-                ))}
-              </div>
+              <Exchange
+                key={turn.turnId}
+                turnId={turn.turnId}
+                events={turn.events}
+                note={summaries[turn.turnId]}
+                prompt={cut.prompt}
+                reply={cut.reply}
+                count={turn.events.length}
+                promptOpen={promptOpen}
+                replyOpen={replyOpen}
+                far={far}
+                project={project}
+                channelId={activeId}
+                onRewind={askRewind}
+                onFork={askFork}
+                onOpen={openHalf}
+                onFold={foldExchange}
+              />
             );
           })}
           {draft && (

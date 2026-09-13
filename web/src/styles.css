@@ -2806,8 +2806,7 @@ input[type="range"]::-webkit-slider-thumb {
   width: 46px;
   height: 46px;
   margin: 6px 0;
-  /* the dragon gauges' ink, so the two drawings read as one hand */
-  color: var(--ink);
+  color: var(--ink-soft);
   transform: scaleX(-1);
   animation: think-wiggle 4s linear infinite;
 }
@@ -4475,9 +4474,10 @@ input[type="range"]::-webkit-slider-thumb {
     height 320ms ease-out;
 }
 
+/* the thinking indicator's softer ink, so the two drawings read as one hand */
 .dragon-body,
 .dragon-stroke {
-  fill: var(--ink);
+  fill: var(--ink-soft);
 }
 
 .dragon-detail {

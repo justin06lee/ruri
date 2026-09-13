@@ -128,6 +128,9 @@ interface ChannelSession {
   /** Restore tracked files to their state at a user message's chain uuid
    *  (Claude only — other harnesses answer canRewind: false). */
   rewindFiles(uuid: string): Promise<{ canRewind: boolean; error?: string }>;
+  /** Work the harness is still doing in the background of an idle session
+   *  (a shell left running, a subagent) — closing the process would kill it. */
+  hasBackgroundWork?(): boolean;
   dispose(): void;
   respondPermission(requestId: string, allow: boolean, always?: boolean): boolean;
   /** Answer an AskUserQuestion card. Omitted answers = the user dismissed it,
@@ -428,6 +431,9 @@ class ProjectSession implements ChannelSession {
   private readonly modelTotals = new Map<string, number>();
   /** The vault's substitution, when there is a vault (see secrets.ts). */
   private readonly secretFill: SessionExtras["fillSecrets"];
+  /** Background tasks the CLI reports live (a shell run in the background,
+   *  a subagent). They live in the CLI's process, so it stays while any do. */
+  private backgroundTasks = 0;
 
   constructor(
     private readonly project: Project,
@@ -746,7 +752,16 @@ class ProjectSession implements ChannelSession {
     }
   }
 
+  hasBackgroundWork(): boolean {
+    return this.backgroundTasks > 0;
+  }
+
   private handle(msg: SDKMessage): void {
+    if (msg.type === "system" && msg.subtype === "background_tasks_changed") {
+      // a level, not an edge: the whole live set each time
+      this.backgroundTasks = msg.tasks.length;
+      return;
+    }
     if (msg.type === "system" && msg.subtype === "init") {
       this.lastSessionId = msg.session_id;
       this.events.onSessionId(this.project.id, msg.session_id);
@@ -1908,7 +1923,10 @@ function providerSessionId(session: ChannelSession): string | undefined {
  * that process started — and nothing ever closed one short of quitting the
  * app. A chat left alone this long has its process closed; the next prompt
  * resumes the same conversation from its session id, exactly as it does
- * after a relaunch, for a second or two of startup.
+ * after a relaunch, for a second or two of startup. A session with work
+ * still running in the background (a dev server the model started, a
+ * build, a subagent) is not closed — that work lives in its process — and
+ * is looked at again after another round.
  */
 const IDLE_REAP_MS = Number(process.env["RURI_IDLE_REAP_MS"]) || 10 * 60_000;
 
@@ -1989,6 +2007,10 @@ export class SessionManager {
       // anything but a quiet, settled session is left alone: a turn, a card
       // waiting on the user, a settings change waiting for the turn to end
       if (!session || session.dead || session.status !== "idle" || this.deferred.has(projectId)) return;
+      if (session.hasBackgroundWork?.()) {
+        this.scheduleReap(projectId);
+        return;
+      }
       session.dispose();
       this.sessions.delete(projectId);
     }, IDLE_REAP_MS);

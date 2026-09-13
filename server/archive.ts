@@ -5,9 +5,19 @@ import { keepRecent, type TranscriptEvent } from "../shared/protocol.js";
 
 /**
  * Per-project session archive: the single source of truth for transcripts,
- * turn summaries, and the resumable Claude session id — persisted under
- * ~/.config/ruri/sessions/<projectId>.json so nothing is lost across app
- * restarts and compaction can be instant (summaries are precomputed).
+ * turn summaries, and the resumable Claude session id — persisted so nothing
+ * is lost across app restarts and compaction can be instant (summaries are
+ * precomputed).
+ *
+ * A channel's transcript is kept in two parts. The live part —
+ * ~/.config/ruri/sessions/<id>.json — runs from the newest compaction mark
+ * to now; it is what the chat shows, what every event rewrites, and so it
+ * stays small. Everything before that mark is the history —
+ * ~/.config/ruri/history/<id>.jsonl, one event per line — which a compaction
+ * appends to and nothing else touches: it is read only for a rewind or a
+ * fork that reaches back past the mark, a compaction's brief (which covers
+ * the whole conversation), and the chat's "earlier" view. The history is
+ * capped (HISTORY_MAX_BYTES); past that its oldest exchanges are dropped.
  */
 
 /** A turn's recall notes: the prompt's and the reply's, each written by the
@@ -68,6 +78,29 @@ function archiveDir(): string {
   );
 }
 
+function historyDir(): string {
+  return path.join(
+    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
+    "history",
+  );
+}
+
+function historyFile(projectId: string): string {
+  return path.join(historyDir(), `${projectId}.jsonl`);
+}
+
+/** How big a channel's history may grow before its oldest exchanges go. */
+const HISTORY_MAX_BYTES = Number(process.env["RURI_HISTORY_MAX_BYTES"]) || 16 * 1024 * 1024;
+/** What a trim cuts it back to, as a share of the cap — so a history at the
+ *  cap is trimmed once in a while rather than on every compaction. */
+const HISTORY_TRIM_TO = 0.75;
+
+/** The index of the newest compaction mark, or -1. */
+function lastMark(events: TranscriptEvent[]): number {
+  for (let i = events.length - 1; i >= 0; i--) if (events[i]!.kind === "compaction") return i;
+  return -1;
+}
+
 /**
  * How long a change waits before the file is rewritten. A turn streams
  * many events a second, and every one of them used to schedule a rewrite
@@ -82,6 +115,11 @@ export class SessionArchive {
   private readonly timers = new Map<string, NodeJS.Timeout>();
   /** Channels that keep only their newest events (Home), and how many. */
   private readonly caps = new Map<string, number>();
+  private readonly historyMax: number;
+
+  constructor(options: { historyMaxBytes?: number } = {}) {
+    this.historyMax = options.historyMaxBytes ?? HISTORY_MAX_BYTES;
+  }
 
   /** Keep only the newest `max` events of this channel, from now on. */
   cap(projectId: string, max: number): void {
@@ -142,7 +180,124 @@ export class SessionArchive {
     }
     this.trim(projectId, entry);
     this.data.set(projectId, entry);
+    // an archive from before the history carries every compaction's past
+    // inline — moved out once, here, and the smaller file written at once
+    if (this.fold(projectId, entry)) this.flush(projectId);
     return entry;
+  }
+
+  /* ── the history ─────────────────────────────────────────────────── */
+
+  /** Everything before the live part, oldest first. Read from disk each
+   *  time: it is never wanted on the hot path. */
+  history(projectId: string): TranscriptEvent[] {
+    let text: string;
+    try {
+      text = fs.readFileSync(historyFile(projectId), "utf8");
+    } catch {
+      return [];
+    }
+    const events: TranscriptEvent[] = [];
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try {
+        events.push(JSON.parse(line) as TranscriptEvent);
+      } catch {
+        // a line torn by a crash mid-append
+      }
+    }
+    return events;
+  }
+
+  hasHistory(projectId: string): boolean {
+    try {
+      return fs.statSync(historyFile(projectId)).size > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** The whole conversation: the history, then the live part. */
+  allEvents(projectId: string): TranscriptEvent[] {
+    const live = this.load(projectId).events;
+    const earlier = this.history(projectId);
+    return earlier.length > 0 ? [...earlier, ...live] : live;
+  }
+
+  /**
+   * Move everything before the newest compaction mark into the history.
+   * Idempotent — what the history already holds is not written again, so a
+   * crash between the append and the live file's rewrite heals on the next
+   * load. True when anything moved.
+   */
+  private fold(projectId: string, entry: ArchiveData): boolean {
+    const mark = lastMark(entry.events);
+    if (mark <= 0) return false;
+    const moved = entry.events.splice(0, mark);
+    try {
+      fs.mkdirSync(historyDir(), { recursive: true });
+      const have = this.hasHistory(projectId)
+        ? new Set(this.history(projectId).map((event) => event.id))
+        : new Set<string>();
+      const fresh = moved.filter((event) => !have.has(event.id));
+      if (fresh.length > 0) {
+        fs.appendFileSync(historyFile(projectId), fresh.map((event) => JSON.stringify(event)).join("\n") + "\n");
+      }
+      this.capHistory(projectId, entry);
+    } catch {
+      // best-effort, like the live file
+    }
+    return true;
+  }
+
+  /** Hold the history to its cap: the oldest exchanges go, cut where a turn
+   *  starts, and their notes and chain uuids with them. */
+  private capHistory(projectId: string, entry: ArchiveData): void {
+    let size: number;
+    try {
+      size = fs.statSync(historyFile(projectId)).size;
+    } catch {
+      return;
+    }
+    if (size <= this.historyMax) return;
+    const events = this.history(projectId);
+    const budget = this.historyMax * HISTORY_TRIM_TO;
+    let used = 0;
+    let start = events.length;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const bytes = JSON.stringify(events[i]).length + 1;
+      if (used + bytes > budget) break;
+      used += bytes;
+      start = i;
+    }
+    let cut = start;
+    while (cut < events.length && events[cut]!.kind !== "user" && events[cut]!.kind !== "compaction") cut++;
+    if (cut >= events.length) cut = start;
+    for (const event of events.slice(0, cut)) {
+      delete entry.summaries[event.id];
+      if (entry.chain) delete entry.chain[event.id];
+    }
+    this.writeHistory(projectId, events.slice(cut));
+  }
+
+  private writeHistory(projectId: string, events: TranscriptEvent[]): void {
+    const file = historyFile(projectId);
+    if (events.length === 0) {
+      fs.rmSync(file, { force: true });
+      return;
+    }
+    fs.mkdirSync(historyDir(), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, events.map((event) => JSON.stringify(event)).join("\n") + "\n");
+    fs.renameSync(tmp, file);
+  }
+
+  /** Write the live file now rather than on the debounce. */
+  private flushNow(projectId: string): void {
+    const timer = this.timers.get(projectId);
+    if (timer) clearTimeout(timer);
+    this.timers.delete(projectId);
+    this.flush(projectId);
   }
 
   private scheduleWrite(projectId: string): void {
@@ -183,7 +338,14 @@ export class SessionArchive {
     const existing = events.findIndex((candidate) => candidate.id === event.id);
     if (existing === -1) events.push(event);
     else events[existing] = event;
-    this.trim(projectId, this.load(projectId));
+    const entry = this.load(projectId);
+    this.trim(projectId, entry);
+    // a compaction mark: everything before it moves to the history, and
+    // the live file shrinks to the mark — written at once, so the two agree
+    if (event.kind === "compaction" && this.fold(projectId, entry)) {
+      this.flushNow(projectId);
+      return;
+    }
     this.scheduleWrite(projectId);
   }
 
@@ -356,7 +518,15 @@ export class SessionArchive {
         : {}),
     };
     this.data.set(projectId, entry);
-    this.scheduleWrite(projectId);
+    // a fork of a compacted conversation gets the same split: its own
+    // history up to the newest mark, its live part from there
+    try {
+      this.writeHistory(projectId, []);
+    } catch {
+      // nothing there to clear
+    }
+    if (this.fold(projectId, entry)) this.flushNow(projectId);
+    else this.scheduleWrite(projectId);
   }
 
   /** Everything the archive holds for a channel, for a fork to copy from. */
@@ -369,13 +539,31 @@ export class SessionArchive {
   truncateFrom(projectId: string, eventId: string): string[] {
     const entry = this.load(projectId);
     const start = entry.events.findIndex((e) => e.id === eventId);
-    if (start === -1) return [];
-    const removed = entry.events.splice(start).map((e) => e.id);
+    let removed: string[];
+    if (start !== -1) {
+      removed = entry.events.splice(start).map((e) => e.id);
+    } else {
+      // A prompt from before the newest compaction: everything kept is
+      // history now, so both parts are rebuilt from it — the history up to
+      // the kept part's own newest mark, the live part from there.
+      const earlier = this.history(projectId);
+      const at = earlier.findIndex((e) => e.id === eventId);
+      if (at === -1) return [];
+      removed = [...earlier.slice(at), ...entry.events].map((e) => e.id);
+      const kept = earlier.slice(0, at);
+      const mark = lastMark(kept);
+      entry.events = mark > 0 ? kept.slice(mark) : kept;
+      try {
+        this.writeHistory(projectId, mark > 0 ? kept.slice(0, mark) : []);
+      } catch {
+        // the live file below still holds what matters most
+      }
+    }
     for (const id of removed) {
       delete entry.summaries[id];
       if (entry.chain) delete entry.chain[id];
     }
-    this.scheduleWrite(projectId);
+    this.flushNow(projectId);
     return removed;
   }
 
@@ -403,6 +591,7 @@ export class SessionArchive {
     this.timers.delete(projectId);
     try {
       fs.rmSync(path.join(archiveDir(), `${projectId}.json`), { force: true });
+      fs.rmSync(historyFile(projectId), { force: true });
     } catch {
       // best-effort
     }

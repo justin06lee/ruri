@@ -204,8 +204,14 @@ export function installFixture(): void {
     ],
     summaries: {
       p1: {
-        e0: "Investigated flaky sidebar unread dot: race between snapshot and event broadcast in server.ts; fixed by ordering broadcasts after archive append. Tests green.",
-        e1: "Fixed ws reconnect backoff in web/src/store.ts: moved state out of connect(), capped 30s, added jitter; typecheck+tests pass.",
+        e0: {
+          user: "sidebar unread dot flaky",
+          reply: "race between snapshot and event broadcast in server.ts; broadcasts now after archive append; tests green",
+        },
+        e1: {
+          user: "fix ws reconnect backoff",
+          reply: "web/src/store.ts: state out of connect(), capped 30s, jitter added; typecheck+tests pass",
+        },
       },
     },
     transcripts: {

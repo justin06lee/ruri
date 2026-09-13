@@ -11,6 +11,7 @@ import {
   type CommandInfo,
   type ContextUsage,
   type DraftAttachment,
+  type EarlierItem,
   type Idea,
   type NamedComponent,
   type SecretMeta,
@@ -30,6 +31,7 @@ import {
   type ServerMessage,
   type TrackerItem,
   type TranscriptEvent,
+  type TurnNote,
   type TurnProgress,
   type UsageLimits,
 } from "../../shared/protocol";
@@ -331,16 +333,20 @@ interface RuriState {
    *  for its history (ensureTranscript) and lands here when it arrives; the
    *  least recently opened are let go of again, back to their tail. */
   loaded: Record<string, true>;
-  /** A chat's history — the exchanges before its newest compaction — while
-   *  its "earlier" view is open. Only ever the open chat's. */
+  /** A chat's history — every event before its newest compaction — once
+   *  one of its earlier exchanges is opened in full. Only ever the open
+   *  chat's. */
   history: Record<string, TranscriptEvent[]>;
+  /** The outline of each loaded chat's history: the exchanges it shows
+   *  folded above its newest compaction mark. Arrives with the transcript. */
+  earlier: Record<string, EarlierItem[]>;
   drafts: Record<string, Draft | undefined>;
   statuses: Record<string, ProjectStatus>;
   permissions: PermissionRequest[];
   unread: Record<string, boolean>;
   models: ModelChoice[];
-  /** Turn summaries per project, keyed by the turn's user-event id. */
-  summaries: Record<string, Record<string, string>>;
+  /** Recall notes per project, keyed by the turn's user-event id. */
+  summaries: Record<string, Record<string, TurnNote>>;
   /** Feature-tracker checklists per project. */
   tracker: Record<string, TrackerItem[]>;
   /** Ideas boards, keyed by PROJECT id (the tracker is keyed by session). */
@@ -438,6 +444,7 @@ export const useRuri = create<RuriState>((set) => ({
   transcripts: {},
   loaded: {},
   history: {},
+  earlier: {},
   drafts: {},
   statuses: {},
   permissions: [],
@@ -577,9 +584,14 @@ export function ensureTranscript(channelId: string): void {
   if (send({ type: "transcript_get", projectId: channelId })) requested.add(channelId);
 }
 
-/** Ask for a chat's history — the exchanges before its newest compaction. */
+/** Histories asked for and not yet arrived. */
+const historyAsked = new Set<string>();
+
+/** Ask for a chat's history — every event before its newest compaction —
+ *  unless it is already on its way. */
 export function requestHistory(channelId: string): void {
-  send({ type: "history_get", projectId: channelId });
+  if (historyAsked.has(channelId)) return;
+  if (send({ type: "history_get", projectId: channelId })) historyAsked.add(channelId);
 }
 
 export function connect(): void {
@@ -629,12 +641,14 @@ function apply(msg: ServerMessage): void {
       // the snapshot carries tails: every chat is unloaded again, and the
       // one on screen asks for itself (ChatPane)
       requested.clear();
+      historyAsked.clear();
       opened.length = 0;
       setState((s) => ({
         projects: msg.projects,
         transcripts: msg.transcripts,
         loaded: {},
         history: {},
+        earlier: {},
         statuses: msg.statuses,
         permissions: msg.permissions,
         models: msg.models,
@@ -700,6 +714,7 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "history": {
+      historyAsked.delete(msg.projectId);
       setState((s) => ({ history: { ...s.history, [msg.projectId]: msg.events } }));
       break;
     }
@@ -708,6 +723,7 @@ function apply(msg: ServerMessage): void {
       setState((s) => {
         const transcripts = { ...s.transcripts, [msg.projectId]: msg.events };
         const loaded: Record<string, true> = { ...s.loaded, [msg.projectId]: true };
+        const earlier = { ...s.earlier, [msg.projectId]: msg.earlier ?? [] };
         // most recently opened last; the ones past the budget go back to
         // their tail — never the one on screen
         const at = opened.indexOf(msg.projectId);
@@ -719,12 +735,14 @@ function apply(msg: ServerMessage): void {
           const [gone] = opened.splice(oldest, 1);
           if (!gone) break;
           delete loaded[gone];
+          delete earlier[gone];
           const events = transcripts[gone];
           if (events && events.length > TRANSCRIPT_TAIL) transcripts[gone] = events.slice(-TRANSCRIPT_TAIL);
         }
         return {
           transcripts,
           loaded,
+          earlier,
           summaries: { ...s.summaries, [msg.projectId]: msg.summaries },
           // the transcript was rewritten (a compaction, a rewind): whatever
           // history was showing is out of date
@@ -995,7 +1013,7 @@ function apply(msg: ServerMessage): void {
       setState((s) => ({
         summaries: {
           ...s.summaries,
-          [msg.projectId]: { ...s.summaries[msg.projectId], [msg.turnId]: msg.summary },
+          [msg.projectId]: { ...s.summaries[msg.projectId], [msg.turnId]: msg.note },
         },
       }));
       break;

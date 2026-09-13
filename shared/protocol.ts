@@ -447,6 +447,41 @@ export interface CompactionEntry {
   reply: string;
 }
 
+/** A turn's recall notes on the wire: the prompt's and the reply's, each
+ *  there once the small model has written it. */
+export interface TurnNote {
+  user?: string;
+  reply?: string;
+}
+
+/**
+ * One line of a chat's outline of its history (everything before its newest
+ * compaction): an exchange — with a cut of its prompt and of its last reply
+ * to stand in until its notes are written, and how many events it holds —
+ * or a compaction mark. The bodies stay on the server until one is opened.
+ */
+export type EarlierItem =
+  | { kind: "turn"; turnId: string; prompt: string; reply: string; count: number; ts: number }
+  | { kind: "compaction"; id: string; ts: number };
+
+/** A reply with its markdown marks taken off, so a cut of it reads as the
+ *  plain line it stands in for rather than as `**stars**` and backticks. */
+export function unmarked(text: string): string {
+  return text
+    .replace(/```[\s\S]*?(```|$)/g, " ")
+    .replace(/`([^`\n]*)`/g, "$1")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^[ \t]*(#{1,6}|[-*+]|\d+[.)])[ \t]+/gm, "");
+}
+
+/** Text flattened to one line and cut to `max` characters — what stands in
+ *  for a recall note the small model hasn't written. */
+export function excerpt(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
+}
+
 export type TranscriptEvent =
   | { kind: "user"; id: string; text: string; attachments?: Attachment[]; ts: number }
   | { kind: "assistant"; id: string; text: string; ts: number }
@@ -909,8 +944,8 @@ export type ServerMessage =
       statuses: Record<string, ProjectStatus>;
       permissions: PermissionRequest[];
       models: ModelChoice[];
-      /** Turn summaries per project, keyed by the turn's user-event id. */
-      summaries: Record<string, Record<string, string>>;
+      /** Recall notes per project, keyed by the turn's user-event id. */
+      summaries: Record<string, Record<string, TurnNote>>;
       /** Feature-tracker checklists per project. */
       tracker: Record<string, TrackerItem[]>;
       /** Ideas boards, keyed by PROJECT id. */
@@ -966,7 +1001,8 @@ export type ServerMessage =
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
   /** The grants, and the privacy database's rows behind them. */
   | { type: "permissions"; items: PermissionState[]; rows: TccRow[] }
-  | { type: "turn_summary"; projectId: string; turnId: string; summary: string }
+  /** A turn's recall notes, after one half of them was written. */
+  | { type: "turn_summary"; projectId: string; turnId: string; note: TurnNote }
   /** A project's ideas board. */
   | { type: "ideas"; projectId: string; items: Idea[] }
   /** A project's component index. */
@@ -1004,8 +1040,17 @@ export type ServerMessage =
   | { type: "events_removed"; projectId: string; eventIds: string[] }
   /** A whole transcript at once — a session that came into being with
    *  history already in it (a fork, an imported chat). */
-  | { type: "transcript"; projectId: string; events: TranscriptEvent[]; summaries: Record<string, string> }
-  /** A chat's history: every event before its newest compaction mark. */
+  | {
+      type: "transcript";
+      projectId: string;
+      events: TranscriptEvent[];
+      summaries: Record<string, TurnNote>;
+      /** The outline of what came before `events` — the exchanges the
+       *  chat shows folded above its newest compaction. Absent: none. */
+      earlier?: EarlierItem[];
+    }
+  /** A chat's history: every event before its newest compaction mark —
+   *  asked for when one of its exchanges is opened in full. */
   | { type: "history"; projectId: string; events: TranscriptEvent[] }
   /** A session you asked for exists (a fork, an import) — go there. Sent
    *  to the asker alone. */

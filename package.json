@@ -1,6 +1,6 @@
 {
   "name": "ruri",
-  "version": "0.69.0",
+  "version": "0.70.0",
   "description": "One desktop workspace for all your projects, each a folder of live coding sessions.",
   "private": true,
   "type": "module",
@@ -42,6 +42,7 @@
     "idle-reap-test": "tsx scripts/idle-reap.ts",
     "bridge-close-test": "tsx scripts/bridge-close.ts",
     "history-test": "tsx scripts/history.ts",
+    "notes-test": "tsx scripts/notes.ts",
     "orphans-test": "tsx scripts/orphans.ts",
     "home-cap-test": "tsx scripts/home-cap.ts",
     "commands-test": "tsx scripts/commands.ts",

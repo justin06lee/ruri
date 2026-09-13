@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type AskQuestions, DEFAULT_PERMISSION_MODE, type PermissionId, type PermissionState, type TccRow, TRANSCRIPT_TAIL } from "../shared/protocol.js";
+import { type AskQuestions, DEFAULT_PERMISSION_MODE, type PermissionId, type PermissionState, type TccRow, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -61,6 +61,7 @@ import {
   type ComponentHost,
 } from "./components.js";
 import { IdeaStore } from "./ideas.js";
+import { ParagraphGate } from "./paragraphs.js";
 import { sweepProject } from "./sweep.js";
 import { withProjectRunning, type CaptureHost, type ShotTarget } from "./shots.js";
 import { SecretStore } from "./secrets.js";
@@ -349,6 +350,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     broadcast({ type: "home_settings", home: store.homeSettings() });
   }
   const archive = new SessionArchive();
+  // Home is ephemeral: it keeps its newest events and lets the rest go
+  archive.cap(HOME_ID, HOME_TRANSCRIPT_MAX);
   // Home is ephemeral — it exists to open projects, not to accumulate
   // context. Every launch starts it blank (no transcript, no resume).
   archive.remove(HOME_ID);
@@ -1627,6 +1630,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
    * rewinding matches a prompt against what the CLI recorded, and rewriting
    * it here would break that for the sake of a value the user chose to type.
    */
+  /** Each channel's reply in progress, held back to whole paragraphs
+   *  (server/paragraphs.ts). */
+  const gates = new Map<string, { messageId: string; gate: ParagraphGate }>();
+
   function recordEvent(projectId: string, raw: TranscriptEvent): void {
     const event =
       raw.kind === "assistant" || raw.kind === "info"
@@ -1663,6 +1670,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const manager = new SessionManager(
     {
       onEvent: (projectId, event) => {
+        // the finished message carries its whole text — the held tail too
+        if (event.kind === "assistant" && gates.get(projectId)?.messageId === event.id) gates.delete(projectId);
         allowReadImages([event], pictureBase(projectId));
         recordEvent(projectId, event);
         if (event.kind === "result") {
@@ -1687,7 +1696,15 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           else cancelRetry(projectId);
         }
       },
-      onDelta: (projectId, messageId, delta) => broadcast({ type: "delta", projectId, messageId, delta }),
+      onDelta: (projectId, messageId, delta) => {
+        let held = gates.get(projectId);
+        if (!held || held.messageId !== messageId) {
+          held = { messageId, gate: new ParagraphGate() };
+          gates.set(projectId, held);
+        }
+        const ready = held.gate.push(delta);
+        if (ready) broadcast({ type: "delta", projectId, messageId, delta: ready });
+      },
       onStatus: (projectId, status) => {
         if (status === "working" || status === "permission") {
           startTurn(projectId);
@@ -1695,7 +1712,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           // a silence the model owes anyone an explanation for
           const turn = turnProgress.get(projectId);
           if (turn && status === "working") turn.at = Date.now();
-        } else endTurn(projectId);
+        } else {
+          endTurn(projectId);
+          gates.delete(projectId);
+        }
         broadcast({ type: "status", projectId, status });
       },
       onProgress: (projectId, progress) => {

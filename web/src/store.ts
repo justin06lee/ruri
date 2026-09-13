@@ -2,6 +2,8 @@ import { create } from "zustand";
 import {
   DEFAULT_MODEL,
   HOME_ID,
+  HOME_TRANSCRIPT_MAX,
+  keepRecent,
   TRANSCRIPT_TAIL,
   type BridgeState,
   type ClientMessage,
@@ -904,6 +906,8 @@ function apply(msg: ServerMessage): void {
         if (!s.loaded[msg.projectId] && transcript.length > TRANSCRIPT_TAIL) {
           transcript = transcript.slice(-TRANSCRIPT_TAIL);
         }
+        // Home keeps its newest events, the same cut the server makes
+        if (msg.projectId === HOME_ID) transcript = keepRecent(transcript, HOME_TRANSCRIPT_MAX);
         const drafts = { ...s.drafts };
         if (msg.event.kind === "assistant" && drafts[msg.projectId]?.messageId === msg.event.id) {
           drafts[msg.projectId] = undefined;

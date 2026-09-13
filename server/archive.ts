@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { TranscriptEvent } from "../shared/protocol.js";
+import { keepRecent, type TranscriptEvent } from "../shared/protocol.js";
 
 /**
  * Per-project session archive: the single source of truth for transcripts,
@@ -80,6 +80,30 @@ const WRITE_DELAY_MS = 1000;
 export class SessionArchive {
   private readonly data = new Map<string, ArchiveData>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  /** Channels that keep only their newest events (Home), and how many. */
+  private readonly caps = new Map<string, number>();
+
+  /** Keep only the newest `max` events of this channel, from now on. */
+  cap(projectId: string, max: number): void {
+    this.caps.set(projectId, max);
+    const entry = this.data.get(projectId);
+    if (entry && this.trim(projectId, entry)) this.scheduleWrite(projectId);
+  }
+
+  /** Apply a channel's cap; true when anything was dropped. The dropped
+   *  turns' notes and chain uuids go with them. */
+  private trim(projectId: string, entry: ArchiveData): boolean {
+    const max = this.caps.get(projectId);
+    if (max === undefined || entry.events.length <= max) return false;
+    const kept = keepRecent(entry.events, max);
+    const dropped = entry.events.slice(0, entry.events.length - kept.length);
+    entry.events = kept;
+    for (const event of dropped) {
+      delete entry.summaries[event.id];
+      if (entry.chain) delete entry.chain[event.id];
+    }
+    return true;
+  }
 
   private load(projectId: string): ArchiveData {
     let entry = this.data.get(projectId);
@@ -116,6 +140,7 @@ export class SessionArchive {
     } catch {
       entry = { events: [], summaries: {} };
     }
+    this.trim(projectId, entry);
     this.data.set(projectId, entry);
     return entry;
   }
@@ -158,6 +183,7 @@ export class SessionArchive {
     const existing = events.findIndex((candidate) => candidate.id === event.id);
     if (existing === -1) events.push(event);
     else events[existing] = event;
+    this.trim(projectId, this.load(projectId));
     this.scheduleWrite(projectId);
   }
 

@@ -410,7 +410,57 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
 
   // what the bridge is showing for a channel, as it changes — the strip
   // beside that channel's composer follows it
-  options.bridge?.onState((channelId, state) => broadcast({ type: "bridge", projectId: channelId, state }));
+  /**
+   * The bridge closes when a turn is over.
+   *
+   * A session opens a hidden window (or launches an app) to look at what it
+   * built, and used to leave it there — a page running at full speed, and
+   * its renderer's hundred-odd megabytes — until the session itself was
+   * closed or the model thought to call web_close. Now whatever a channel
+   * holds is closed a moment after its turn ends, unless the user has taken
+   * it over to work in. A window handed back while nothing is running goes
+   * the same way. The moment's grace is for a queued prompt, which starts
+   * the next turn straight away and wants the page it was just looking at.
+   */
+  const BRIDGE_GRACE_MS = 3000;
+  const bridgeClosers = new Map<string, NodeJS.Timeout>();
+
+  function channelBusy(channelId: string): boolean {
+    const status = manager.statuses()[channelId];
+    return status === "working" || status === "permission";
+  }
+
+  function closeBridgeSoon(channelId: string): void {
+    if (!options.bridge) return;
+    cancelBridgeClose(channelId);
+    const timer = setTimeout(() => {
+      bridgeClosers.delete(channelId);
+      const state = options.bridge?.states()[channelId];
+      if (!state || state.takenOver || channelBusy(channelId)) return;
+      void options.bridge?.close(channelId);
+    }, BRIDGE_GRACE_MS);
+    timer.unref?.();
+    bridgeClosers.set(channelId, timer);
+  }
+
+  function cancelBridgeClose(channelId: string): void {
+    const timer = bridgeClosers.get(channelId);
+    if (!timer) return;
+    clearTimeout(timer);
+    bridgeClosers.delete(channelId);
+  }
+
+  /** Whether each channel's window was last seen taken over. */
+  const takenOver = new Map<string, boolean>();
+
+  options.bridge?.onState((channelId, state) => {
+    broadcast({ type: "bridge", projectId: channelId, state });
+    const was = takenOver.get(channelId) === true;
+    if (state) takenOver.set(channelId, state.takenOver);
+    else takenOver.delete(channelId);
+    // handed back with no turn running: nobody is driving it any more
+    if (was && state && !state.takenOver && !channelBusy(channelId)) closeBridgeSoon(channelId);
+  });
 
   /** GET /bridge/preview/<channelId> — the strip's picture, overwritten in
    *  place as the session works, so never cached. */
@@ -1707,6 +1757,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       },
       onStatus: (projectId, status) => {
         if (status === "working" || status === "permission") {
+          cancelBridgeClose(projectId);
           startTurn(projectId);
           // coming back from a card the user sat on for ten minutes is not
           // a silence the model owes anyone an explanation for
@@ -1715,6 +1766,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         } else {
           endTurn(projectId);
           gates.delete(projectId);
+          closeBridgeSoon(projectId);
         }
         broadcast({ type: "status", projectId, status });
       },

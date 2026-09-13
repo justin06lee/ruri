@@ -331,6 +331,9 @@ interface RuriState {
    *  for its history (ensureTranscript) and lands here when it arrives; the
    *  least recently opened are let go of again, back to their tail. */
   loaded: Record<string, true>;
+  /** A chat's history — the exchanges before its newest compaction — while
+   *  its "earlier" view is open. Only ever the open chat's. */
+  history: Record<string, TranscriptEvent[]>;
   drafts: Record<string, Draft | undefined>;
   statuses: Record<string, ProjectStatus>;
   permissions: PermissionRequest[];
@@ -434,6 +437,7 @@ export const useRuri = create<RuriState>((set) => ({
   activeId: HOME_ID,
   transcripts: {},
   loaded: {},
+  history: {},
   drafts: {},
   statuses: {},
   permissions: [],
@@ -485,6 +489,8 @@ export const useRuri = create<RuriState>((set) => ({
       if ((s.activeId === HOME_ID) !== (id === HOME_ID)) send({ type: "reset_home" });
       return {
         activeId: id,
+        // the earlier view belongs to the chat it was opened in
+        history: {},
         rapid: false,
         settingsOpen: false,
         unread: id ? { ...s.unread, [id]: false } : s.unread,
@@ -571,6 +577,11 @@ export function ensureTranscript(channelId: string): void {
   if (send({ type: "transcript_get", projectId: channelId })) requested.add(channelId);
 }
 
+/** Ask for a chat's history — the exchanges before its newest compaction. */
+export function requestHistory(channelId: string): void {
+  send({ type: "history_get", projectId: channelId });
+}
+
 export function connect(): void {
   // Dev-only fixture mode (?fixture): canned data instead of a live server,
   // so the UI can be screenshotted deterministically without spending tokens.
@@ -623,6 +634,7 @@ function apply(msg: ServerMessage): void {
         projects: msg.projects,
         transcripts: msg.transcripts,
         loaded: {},
+        history: {},
         statuses: msg.statuses,
         permissions: msg.permissions,
         models: msg.models,
@@ -687,6 +699,10 @@ function apply(msg: ServerMessage): void {
       }));
       break;
     }
+    case "history": {
+      setState((s) => ({ history: { ...s.history, [msg.projectId]: msg.events } }));
+      break;
+    }
     case "transcript": {
       requested.delete(msg.projectId);
       setState((s) => {
@@ -710,6 +726,9 @@ function apply(msg: ServerMessage): void {
           transcripts,
           loaded,
           summaries: { ...s.summaries, [msg.projectId]: msg.summaries },
+          // the transcript was rewritten (a compaction, a rewind): whatever
+          // history was showing is out of date
+          history: Object.fromEntries(Object.entries(s.history).filter(([id]) => id !== msg.projectId)),
         };
       });
       break;

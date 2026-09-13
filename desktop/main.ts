@@ -51,8 +51,13 @@ const CACHE_CAP_BYTES = 16 * 1024 * 1024;
  * logins for the sites its sessions drive), and Chromium keeps each one on
  * disk under userData/Partitions for good — a project closed months ago
  * still had its cache and its compiled scripts sitting there. Any partition
- * whose project is no longer in the workspace is removed at launch.
+ * whose project is no longer in the workspace is removed at launch, and the
+ * ones that stay lose their caches — logins and cookies are kept, the
+ * pages' cached files and compiled scripts are not (nothing has a bridge
+ * window open yet this early, so nothing is reading them).
  */
+const PARTITION_CACHES = ["Cache", "Code Cache", "GPUCache", "DawnGraphiteCache", "DawnWebGPUCache"];
+
 function prunePartitions(userData: string): void {
   const dir = path.join(userData, "Partitions");
   let names: string[];
@@ -65,7 +70,12 @@ function prunePartitions(userData: string): void {
   if (!alive.size) return;
   for (const name of names) {
     if (!name.startsWith("bridge-")) continue;
-    if (alive.has(name.slice("bridge-".length))) continue;
+    if (alive.has(name.slice("bridge-".length))) {
+      for (const cache of PARTITION_CACHES) {
+        fs.rm(path.join(dir, name, cache), { recursive: true, force: true }, () => {});
+      }
+      continue;
+    }
     fs.rm(path.join(dir, name), { recursive: true, force: true }, () => {});
   }
 }

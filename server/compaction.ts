@@ -103,6 +103,15 @@ function turnFile(turn: ArchivedTurn, n: number): string {
 function writeTurnFiles(channelId: string, turns: ArchivedTurn[]): string[] {
   const dir = turnsDir(channelId);
   fs.mkdirSync(dir, { recursive: true });
+  // records past the end are from exchanges that are gone (a rewind, the
+  // history's cap) — numbered as they were, and naming nothing now
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (/^\d+\.md$/.test(name) && Number.parseInt(name, 10) > turns.length) fs.rmSync(path.join(dir, name), { force: true });
+    }
+  } catch {
+    // stale records only cost disk
+  }
   return turns.map((turn, i) => {
     const file = path.join(dir, `${String(i + 1).padStart(3, "0")}.md`);
     try {
@@ -156,12 +165,17 @@ export function buildCompaction(
 /**
  * Upgrade turn records written by older Ruri versions, which kept an image's
  * marker but omitted its stored path. Only an existing compaction directory
- * is refreshed: merely launching Ruri must not archive active sessions.
+ * is refreshed: merely launching Ruri must not archive active sessions. It
+ * is a one-time repair, so a directory it has been through is marked and
+ * skipped from then on — the events are only read when it has work to do,
+ * and every launch used to read every transcript here to find out.
  */
-export function refreshArchivedTurnFiles(channelId: string, events: TranscriptEvent[]): void {
+const REFRESHED = ".refreshed";
+
+export function refreshArchivedTurnFiles(channelId: string, events: () => TranscriptEvent[]): void {
   const dir = turnsDir(channelId);
-  if (!fs.existsSync(dir)) return;
-  const turns = groupTurns(events);
+  if (!fs.existsSync(dir) || fs.existsSync(path.join(dir, REFRESHED))) return;
+  const turns = groupTurns(events());
   let files: string[];
   try {
     files = fs.readdirSync(dir).filter((file) => /^\d+\.md$/.test(file));
@@ -184,6 +198,11 @@ export function refreshArchivedTurnFiles(channelId: string, events: TranscriptEv
     } catch {
       // best-effort migration; a future /compact gets another chance
     }
+  }
+  try {
+    fs.writeFileSync(path.join(dir, REFRESHED), "");
+  } catch {
+    // it only means the check runs again next launch
   }
 }
 

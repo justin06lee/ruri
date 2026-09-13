@@ -76,6 +76,7 @@ import {
   setComposerDraft,
   useRuri,
 } from "../store";
+import { spinStar } from "../lib/spin";
 
 /* The shell panel brings xterm with it — a quarter of the app's JavaScript,
    for a mode most sessions never turn on. It arrives when the `>_` button is
@@ -2045,7 +2046,7 @@ export function ChatPane({
         >
           <Icon d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" />
           {freshComponents > 0 && (
-            <span className="comp-star just header" aria-label="new components">
+            <span className="comp-star just header" aria-label="new components" ref={spinStar}>
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                 <path d="M12 2.5l2.7 6.1 6.6.7-4.9 4.5 1.4 6.5L12 17l-5.8 3.3 1.4-6.5L2.7 9.3l6.6-.7z" />
               </svg>

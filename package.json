@@ -1,6 +1,6 @@
 {
   "name": "ruri",
-  "version": "0.67.0",
+  "version": "0.68.0",
   "description": "One desktop workspace for all your projects, each a folder of live coding sessions.",
   "private": true,
   "type": "module",
@@ -40,6 +40,7 @@
     "uploads-sweep-test": "tsx scripts/uploads-sweep.ts",
     "paragraphs-test": "tsx scripts/paragraphs.ts",
     "idle-reap-test": "tsx scripts/idle-reap.ts",
+    "bridge-close-test": "tsx scripts/bridge-close.ts",
     "home-cap-test": "tsx scripts/home-cap.ts",
     "commands-test": "tsx scripts/commands.ts",
     "provider-check": "tsx scripts/provider-check.ts",
@@ -50,7 +51,7 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.245",
     "@fontsource-variable/space-grotesk": "^5.3.0",
-    "@justin06lee/yagami": "file:../yagami",
+    "@justin06lee/yagami": "^0.8.2",
     "@types/node": "^24.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",

@@ -27,6 +27,6 @@ During packaged-app automation, Electron logged a `sandboxed_renderer.bundle.js`
 
 ## Dependency and release
 
-Ruri currently uses `file:../yagami`. `make` builds that sibling before installing Ruri dependencies; the packaged app bundles Yagami and requires no sibling at runtime. Yagami 0.8.1 is prepared but not published; the registry still serves 0.6.1. After publishing 0.8.1, switch Ruri back to the registry dependency and regenerate `bun.lock`.
+Ruri takes Yagami from the registry (`^0.8.2`); the packaged app bundles it and needs nothing else at runtime. For work on both at once, point the dependency at `file:../yagami` temporarily and build the sibling first, then return to the registry once the Yagami change is published.
 
 The checks validate integration and reliability, not a measured increase in model intelligence or a universal performance optimum. No global model, reasoning, permission or delegation defaults were changed.

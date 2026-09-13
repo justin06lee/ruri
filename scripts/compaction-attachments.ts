@@ -75,7 +75,7 @@ try {
   // Archives made before this feature are repaired on launch from the
   // attachment metadata which was always retained in the session JSON.
   fs.writeFileSync(turnPath, "legacy archive containing only [image #2]\n");
-  refreshArchivedTurnFiles(channelId, events);
+  refreshArchivedTurnFiles(channelId, () => events);
   const refreshed = fs.readFileSync(turnPath, "utf8");
   if (!refreshed.includes("[image #2]") || !refreshed.includes(imagePath)) {
     console.error("FAIL: an existing legacy archive is not refreshed with its image path");
@@ -86,14 +86,16 @@ try {
     ...events,
     { kind: "user", id: "user-2", text: "A turn after the last compaction", ts: 1_700_000_000_002 },
   ];
-  refreshArchivedTurnFiles(channelId, laterEvents);
+  // the repair marks a directory done; unmarked, it runs again for this check
+  fs.rmSync(path.join(configDir, "turns", channelId, ".refreshed"), { force: true });
+  refreshArchivedTurnFiles(channelId, () => laterEvents);
   if (fs.existsSync(path.join(configDir, "turns", channelId, "002.md"))) {
     console.error("FAIL: startup refresh archived a newer, still-active turn");
     bad++;
   }
 
   const activeChannel = "not-compacted";
-  refreshArchivedTurnFiles(activeChannel, events);
+  refreshArchivedTurnFiles(activeChannel, () => events);
   if (fs.existsSync(path.join(configDir, "turns", activeChannel))) {
     console.error("FAIL: refreshing old archives created files for an active, uncompacted session");
     bad++;

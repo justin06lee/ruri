@@ -9,8 +9,6 @@ BUNDLE_ID := com.justin06lee.ruri
 all: build reset-permissions install launch
 
 build:
-	bun install --cwd ../yagami
-	bun run --cwd ../yagami build
 	bun install
 	@test -d node_modules/electron/dist/Electron.app || (cd node_modules/electron && node install.js)
 	bun run build

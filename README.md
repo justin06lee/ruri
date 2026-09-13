@@ -22,9 +22,6 @@ make update     # stop the running app, rebuild, reset grants, reinstall, tidy, 
 
 Installing moves the old bundle aside rather than deleting it (a running ruri may still be reading it) and sweeps every set-aside bundle no running ruri was started from. `tidy` removes test scratch directories an hour old or more and files older versions wrote that nothing reads now; ruri itself clears its bridge windows' caches and anything closed sessions left behind at launch.
 
-```sh
-```
-
 macOS ties every privacy grant (Accessibility, Screen Recording, Full Disk Access, the folders and volumes) to the app's code signature, and an ad-hoc-signed app is re-signed by every build — so a grant made to the last build is void for this one while its switch in System Settings still reads "on". `make` and `make update` drop ruri's stale rows (`tccutil reset All com.justin06lee.ruri`) before installing, and the new build asks for everything again on its first launch. Settings → **Permissions** shows each grant as macOS actually holds it, asks for any of them by hand, and lists the privacy database's own rows for ruri, the harness CLIs, and the shell — so a feature that broke can be told apart from a grant that lapsed. (A checkout on an external drive whose `git` fails with "Operation not permitted" is the classic case: that is Removable Volumes, not git.)
 
 Requires a signed-in coding CLI (Claude Code, Codex, or an installed ACP agent). [`yagami`](https://github.com/justin06lee/yagami) comes from the registry (`^0.8.2`) like any other dependency. The packaged app bundles the whole backend into one file and ships no node_modules; the Claude engine is your installed `claude` binary, resolved at runtime (with your login shell's PATH, so tools inside sessions behave like your terminal).

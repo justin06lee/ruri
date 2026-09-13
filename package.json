@@ -37,6 +37,7 @@
     "fork-test": "tsx scripts/fork.ts",
     "compaction-attachments-test": "tsx scripts/compaction-attachments.ts",
     "sweep-test": "tsx scripts/sweep.ts",
+    "uploads-sweep-test": "tsx scripts/uploads-sweep.ts",
     "commands-test": "tsx scripts/commands.ts",
     "provider-check": "tsx scripts/provider-check.ts",
     "provider-events": "tsx scripts/provider-events.ts",
@@ -88,6 +89,9 @@
       "!node_modules/**/*"
     ],
     "npmRebuild": false,
+    "electronLanguages": [
+      "en"
+    ],
     "mac": {
       "target": [
         {

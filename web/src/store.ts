@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   DEFAULT_MODEL,
   HOME_ID,
+  TRANSCRIPT_TAIL,
   type BridgeState,
   type ClientMessage,
   type Attachment,
@@ -321,7 +322,13 @@ interface RuriState {
   connected: boolean;
   projects: Project[];
   activeId: string | null;
+  /** Every channel's events — whole for the chats marked in `loaded`, the
+   *  last few for the rest (what the Home board's lines need). */
   transcripts: Record<string, TranscriptEvent[]>;
+  /** The channels whose transcript is here in full. A chat opens by asking
+   *  for its history (ensureTranscript) and lands here when it arrives; the
+   *  least recently opened are let go of again, back to their tail. */
+  loaded: Record<string, true>;
   drafts: Record<string, Draft | undefined>;
   statuses: Record<string, ProjectStatus>;
   permissions: PermissionRequest[];
@@ -424,6 +431,7 @@ export const useRuri = create<RuriState>((set) => ({
   projects: [],
   activeId: HOME_ID,
   transcripts: {},
+  loaded: {},
   drafts: {},
   statuses: {},
   permissions: [],
@@ -542,6 +550,25 @@ export function send(message: ClientMessage): boolean {
   return true;
 }
 
+/** How many chats the window keeps whole at once. Opening a fifth lets the
+ *  least recently opened go back to its tail; opening it again asks. */
+const KEEP_LOADED = 4;
+/** Loaded chats, least recently opened first. */
+const opened: string[] = [];
+/** Asked for and not yet arrived — so a re-render does not ask twice. */
+const requested = new Set<string>();
+
+/**
+ * Ask for a chat's whole history, unless it is here or on its way. The
+ * snapshot only carries the last few events of each (TRANSCRIPT_TAIL);
+ * this is what fills a chat in when it opens.
+ */
+export function ensureTranscript(channelId: string): void {
+  const state = useRuri.getState();
+  if (state.loaded[channelId] || requested.has(channelId)) return;
+  if (send({ type: "transcript_get", projectId: channelId })) requested.add(channelId);
+}
+
 export function connect(): void {
   // Dev-only fixture mode (?fixture): canned data instead of a live server,
   // so the UI can be screenshotted deterministically without spending tokens.
@@ -586,9 +613,14 @@ function apply(msg: ServerMessage): void {
         // lands in the strip when it arrives
         if (draft.attachments?.length) void restoreAttachments(channelId, draft.attachments);
       }
+      // the snapshot carries tails: every chat is unloaded again, and the
+      // one on screen asks for itself (ChatPane)
+      requested.clear();
+      opened.length = 0;
       setState((s) => ({
         projects: msg.projects,
         transcripts: msg.transcripts,
+        loaded: {},
         statuses: msg.statuses,
         permissions: msg.permissions,
         models: msg.models,
@@ -654,10 +686,30 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "transcript": {
-      setState((s) => ({
-        transcripts: { ...s.transcripts, [msg.projectId]: msg.events },
-        summaries: { ...s.summaries, [msg.projectId]: msg.summaries },
-      }));
+      requested.delete(msg.projectId);
+      setState((s) => {
+        const transcripts = { ...s.transcripts, [msg.projectId]: msg.events };
+        const loaded: Record<string, true> = { ...s.loaded, [msg.projectId]: true };
+        // most recently opened last; the ones past the budget go back to
+        // their tail — never the one on screen
+        const at = opened.indexOf(msg.projectId);
+        if (at !== -1) opened.splice(at, 1);
+        opened.push(msg.projectId);
+        while (opened.length > KEEP_LOADED) {
+          const oldest = opened.findIndex((id) => id !== s.activeId);
+          if (oldest === -1) break;
+          const [gone] = opened.splice(oldest, 1);
+          if (!gone) break;
+          delete loaded[gone];
+          const events = transcripts[gone];
+          if (events && events.length > TRANSCRIPT_TAIL) transcripts[gone] = events.slice(-TRANSCRIPT_TAIL);
+        }
+        return {
+          transcripts,
+          loaded,
+          summaries: { ...s.summaries, [msg.projectId]: msg.summaries },
+        };
+      });
       break;
     }
     case "open_session": {
@@ -829,6 +881,8 @@ function apply(msg: ServerMessage): void {
     case "home_reset": {
       setState((s) => ({
         transcripts: { ...s.transcripts, [HOME_ID]: [] },
+        // empty is the whole of it
+        loaded: { ...s.loaded, [HOME_ID]: true },
         summaries: { ...s.summaries, [HOME_ID]: {} },
         drafts: { ...s.drafts, [HOME_ID]: undefined },
         statuses: { ...s.statuses, [HOME_ID]: "idle" },
@@ -842,10 +896,14 @@ function apply(msg: ServerMessage): void {
     }
     case "event": {
       setState((s) => {
-        const transcript = [...(s.transcripts[msg.projectId] ?? [])];
+        let transcript = [...(s.transcripts[msg.projectId] ?? [])];
         const existing = transcript.findIndex((event) => event.id === msg.event.id);
         if (existing === -1) transcript.push(msg.event);
         else transcript[existing] = msg.event;
+        // a chat nobody is looking at keeps only its tail
+        if (!s.loaded[msg.projectId] && transcript.length > TRANSCRIPT_TAIL) {
+          transcript = transcript.slice(-TRANSCRIPT_TAIL);
+        }
         const drafts = { ...s.drafts };
         if (msg.event.kind === "assistant" && drafts[msg.projectId]?.messageId === msg.event.id) {
           drafts[msg.projectId] = undefined;

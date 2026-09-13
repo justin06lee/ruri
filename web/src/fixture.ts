@@ -353,4 +353,8 @@ export function installFixture(): void {
       },
     ],
   });
+  // there is no server to ask: every chat is here whole already
+  useRuri.setState((s) => ({
+    loaded: Object.fromEntries(Object.keys(s.transcripts).map((id) => [id, true as const])),
+  }));
 }

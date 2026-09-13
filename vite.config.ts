@@ -177,9 +177,17 @@ export default defineConfig({
   server: {
     port: 5173,
   },
+  // no license banners in the bundle — the notices ship in node_modules
+  esbuild: { legalComments: "none" },
   build: {
     outDir: "../dist-web",
     emptyOutDir: true,
+    // The built page only ever runs inside this app's own Electron, so it
+    // is compiled for that Chromium and nothing older: no down-levelling,
+    // no helpers for syntax the engine already has.
+    target: "chrome140",
+    // gzip figures for a bundle nobody serves over a network
+    reportCompressedSize: false,
     // the tuner is a dev tool; only the app itself is built
     rollupOptions: { input: "web/index.html" },
   },

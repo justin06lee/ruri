@@ -17,7 +17,7 @@ import * as apps from "./apps.js";
  * The bridge's hands: the half that needs Electron.
  *
  * Per channel, a browser window nobody sees — made on the first web_open,
- * destroyed on web_close or when the session goes — and whatever apps the
+ * destroyed on web_close, a few seconds after the turn that opened it ends (unless the user has taken it over; server.ts), or when the session goes — and whatever apps the
  * session has launched (desktop/apps.ts). The window is driven through its
  * own webContents debugger, which is the DevTools protocol in-process, so
  * the driver in server/cdp.ts does the work and this file only has to say

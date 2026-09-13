@@ -180,7 +180,7 @@ const DESCRIPTIONS: Record<BridgeTool, string> = {
   web_wait_for:
     "Wait until the open page shows a selector, says some text, reaches a URL, or goes quiet on the network. Answers with a screenshot once it does; fails with what it was still waiting for.",
   web_where: "The open page's URL, title and viewport size, and whether the user has taken the window over.",
-  web_close: "Close this session's hidden browser window.",
+  web_close: "Close this session's hidden browser window now. ruri also closes it, and quits anything you launched, a few seconds after your turn ends unless the user has taken it over.",
   app_launch:
     "Launch a macOS app in the background (by name or path), or run a command that starts a dev-built Electron app and attach to it over the DevTools protocol. The user's focus stays where it is. Answers with a handle and its kind: 'electron' handles take app_click/app_type/app_press/app_scroll/app_eval/app_wait_for/app_logs/app_screenshot; 'native' handles take app_ui_tree, app_ui and app_screenshot.",
   app_click: "Click in a launched Electron app's page: by selector, by the words on it, or at coordinates. Answers with a screenshot.",
@@ -305,7 +305,7 @@ export function bridgeToolBriefing(): string {
   return [
     "<ruri:bridge>",
     "You can see and drive what you build without interrupting the user: the mcp__bridge__* tools. web_open loads a page (a dev server, a file) in a window ruri keeps hidden; web_click, web_type, web_press and web_scroll drive it with real input; web_wait_for, web_eval and web_logs read it; web_screenshot photographs it, and every driving tool returns a picture of the result. app_launch starts a macOS app or a dev-built Electron app in the background: Electron ones take app_click/app_type/app_press/app_eval/app_screenshot, native ones take app_ui_tree, app_ui (AppleScript UI scripting) and app_screenshot; app_quit and web_close when done.",
-    "After building or changing anything visible: open it, drive it, look at the screenshot, fix what is wrong, and only then report. The user sees a small live preview and can take the window over; it never appears in front of them otherwise.",
+    "After building or changing anything visible: open it, drive it, look at the screenshot, fix what is wrong, and only then report. The user sees a small live preview and can take the window over; it never appears in front of them otherwise. Everything you open or launch is closed a few seconds after your turn ends, unless the user has taken it over, so open it again in a later turn rather than expecting it to still be there.",
     "</ruri:bridge>",
   ].join("\n");
 }
@@ -318,7 +318,7 @@ export function bridgeHttpBriefing(endpoint: string): string {
     `  curl -s -X POST ${endpoint} -H 'content-type: application/json' -d '{"tool":"web_open","args":{"url":"http://localhost:5173"}}'`,
     "Web (a page in a window ruri keeps hidden): web_open {url} · web_click {selector | text | x,y} · web_type {text, selector?} · web_press {key} · web_scroll {selector?, dx?, dy?} · web_wait_for {selector | text | url | idle} · web_eval {js} · web_logs {kind} · web_screenshot {selector?, full?} · web_where · web_close.",
     "Apps (launched in the background): app_launch {app | command, args?, cwd?} → {handle, kind} · Electron: app_click / app_type / app_press / app_scroll / app_eval / app_wait_for / app_logs / app_screenshot {handle, …} · native: app_ui_tree {handle}, app_ui {handle, script} (AppleScript inside `tell process`), app_screenshot {handle} · app_list · app_quit {handle}.",
-    "After building or changing anything visible: open it, drive it, look at the picture, fix what is wrong, and only then report. Keep the endpoint to yourself.",
+    "After building or changing anything visible: open it, drive it, look at the picture, fix what is wrong, and only then report. Everything you open or launch is closed a few seconds after your turn ends, unless the user has taken it over, so open it again in a later turn rather than expecting it to still be there. Keep the endpoint to yourself.",
     "</ruri:bridge>",
   ].join("\n");
 }

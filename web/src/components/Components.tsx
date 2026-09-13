@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { NamedComponent } from "../../../shared/protocol";
 import { ToolImage } from "./Attachments";
 import { fileToBase64 } from "../lib/files";
+import { spinStar } from "../lib/spin";
 import { send, useRuri } from "../store";
 
 /**
@@ -75,12 +76,14 @@ function showPath(item: NamedComponent): string {
 /**
  * The star a new component wears. It turns, because a page of identical
  * cards is exactly the place a still mark goes unnoticed — and it turns
- * slowly, because this is a page you read.
+ * slowly, because this is a page you read. The turning is lib/spin.ts: ten
+ * steps a second off one shared clock, not an endless CSS animation.
  */
 function Star({ where }: { where: "just" | "still" }) {
   return (
     <span
       className={`comp-star ${where}`}
+      ref={spinStar}
       title={where === "just" ? "Named just now" : "New since you last looked"}
       aria-label="new"
     >

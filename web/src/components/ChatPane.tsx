@@ -1643,14 +1643,21 @@ export function ChatPane({
   // What this chat runs on: its own model, effort and mode over the
   // project's defaults — the same merge the server makes, so the pickers,
   // the gauges and the working line all describe this chat, not its folder.
-  const project: Project | undefined = isHome
-    ? { id: HOME_ID, name: "ruri", path: workspaceDir, sessions: [], ...home }
-    : storeProject && {
-        ...storeProject,
-        ...(session?.model ? { model: session.model } : {}),
-        ...(session?.permissionMode ? { permissionMode: session.permissionMode } : {}),
-        ...(session?.effort ? { effort: session.effort } : {}),
-      };
+  // Kept as one object while its inputs stand still: every message on
+  // screen takes it as a prop, and a fresh copy per render (several a
+  // second while a reply streams) re-rendered all of them each time.
+  const project = useMemo<Project | undefined>(
+    () =>
+      isHome
+        ? { id: HOME_ID, name: "ruri", path: workspaceDir, sessions: [], ...home }
+        : storeProject && {
+            ...storeProject,
+            ...(session?.model ? { model: session.model } : {}),
+            ...(session?.permissionMode ? { permissionMode: session.permissionMode } : {}),
+            ...(session?.effort ? { effort: session.effort } : {}),
+          },
+    [isHome, workspaceDir, home, storeProject, session],
+  );
   const transcript = useRuri((s) => (activeId ? (s.transcripts[activeId] ?? NO_EVENTS) : NO_EVENTS));
   // The snapshot only carries a chat's last few events; the whole history
   // is asked for when the chat opens, and until it arrives the pane stays

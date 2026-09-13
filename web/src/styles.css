@@ -3477,12 +3477,21 @@ input[type="range"]::-webkit-slider-thumb {
 /* ── the new-component star ───────────────────────────────────────── */
 
 /* Turning, because a page of identical cards is exactly where a still mark
-   goes unnoticed — and slowly, because this is a page you read. */
+   goes unnoticed — and slowly, because this is a page you read. But only a
+   few turns when it appears: an animation that never ends makes the window
+   draw a fresh frame 60 to 120 times a second for as long as it is on
+   screen, and this star can sit in the chat header all day. Hovering what
+   it sits on sets it turning again. */
 .comp-star {
   flex-shrink: 0;
   display: inline-flex;
   color: var(--ink);
-  animation: comp-star-turn 5.5s linear infinite;
+  animation: comp-star-turn 5.5s linear 3;
+}
+
+.comp-toggle:hover .comp-star,
+.comp-card:hover .comp-star {
+  animation: comp-star-again 5.5s linear 1;
 }
 
 .comp-star svg {
@@ -3532,6 +3541,16 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 @keyframes comp-star-turn {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* the same turn under another name, so a hover restarts it */
+@keyframes comp-star-again {
   from {
     transform: rotate(0deg);
   }

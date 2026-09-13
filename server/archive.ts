@@ -68,7 +68,14 @@ function archiveDir(): string {
   );
 }
 
-const WRITE_DELAY_MS = 500;
+/**
+ * How long a change waits before the file is rewritten. A turn streams
+ * many events a second, and every one of them used to schedule a rewrite
+ * of the whole transcript half a second later — a chat a few megabytes long
+ * was serialised twice a second for as long as the reply lasted. A second
+ * is still well inside what a crash can afford to lose.
+ */
+const WRITE_DELAY_MS = 1000;
 
 export class SessionArchive {
   private readonly data = new Map<string, ArchiveData>();
@@ -129,10 +136,14 @@ export class SessionArchive {
     if (!entry) return;
     try {
       fs.mkdirSync(archiveDir(), { recursive: true });
-      fs.writeFileSync(
-        path.join(archiveDir(), `${projectId}.json`),
-        JSON.stringify(entry, null, 2),
-      );
+      const file = path.join(archiveDir(), `${projectId}.json`);
+      // Compact: nobody reads these by eye, and the indentation was a third
+      // of every file and of every write. Written beside and renamed over,
+      // so a crash mid-write leaves the last good file rather than half of
+      // this one.
+      const tmp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(entry));
+      fs.renameSync(tmp, file);
     } catch {
       // persistence is best-effort; in-memory state stays correct
     }
@@ -374,6 +385,24 @@ export class SessionArchive {
   /** Transcripts for a set of projects (used for the connect snapshot). */
   transcripts(projectIds: Iterable<string>): Record<string, TranscriptEvent[]> {
     return Object.fromEntries([...projectIds].map((id) => [id, this.events(id)]));
+  }
+
+  /**
+   * The last `count` events of each — what the connect snapshot carries.
+   *
+   * The snapshot used to carry every transcript whole: thirty chats, tens of
+   * megabytes of JSON, serialised on every connect and held in the window's
+   * memory for as long as it stayed open, when all but one of them showed
+   * three lines on the Home board. A tail is enough for those lines; a chat
+   * gets its whole history when it is opened (`transcript_get`).
+   */
+  tails(projectIds: Iterable<string>, count: number): Record<string, TranscriptEvent[]> {
+    return Object.fromEntries(
+      [...projectIds].map((id) => {
+        const events = this.events(id);
+        return [id, events.length > count ? events.slice(-count) : events];
+      }),
+    );
   }
 
   /** Fold notes for the connect snapshot — the wire keeps single strings. */

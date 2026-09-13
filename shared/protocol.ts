@@ -3,6 +3,10 @@
 /** The pseudo-project id of the Home view — the workspace-manager agent. */
 export const HOME_ID = "home";
 
+/** How many of a channel's latest events the connect snapshot carries, and
+ *  how many the window keeps of a chat it is not showing. */
+export const TRANSCRIPT_TAIL = 12;
+
 /** The model a session runs on when none is picked and nothing has been
  *  crowned the default in Settings (a third star does that). The built-in
  *  fallback is the newest Fable; an unset model never means "whatever the
@@ -717,6 +721,10 @@ export type ClientMessage =
   /** The sessions on disk for this project that ruri did not make —
    *  answered with `recent`. */
   | { type: "recent_list"; projectId: string }
+  /** A channel's whole transcript — the snapshot carries only the last
+   *  TRANSCRIPT_TAIL events of each, and a chat asks for the rest when it
+   *  opens. Answered with `transcript`, to the asker alone. */
+  | { type: "transcript_get"; projectId: string }
   /** Bring one of them in: a new session holding its conversation, which
    *  the next prompt resumes for real when the project runs on the same
    *  harness (and continues from a brief of it when it doesn't). */
@@ -873,6 +881,9 @@ export type ServerMessage =
   | {
       type: "snapshot";
       projects: Project[];
+      /** The tail of each channel's transcript (its last TRANSCRIPT_TAIL
+       *  events): enough for the Home board's lines. A chat that opens
+       *  asks for the whole thing (`transcript_get`). */
       transcripts: Record<string, TranscriptEvent[]>;
       statuses: Record<string, ProjectStatus>;
       permissions: PermissionRequest[];

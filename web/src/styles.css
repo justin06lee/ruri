@@ -3032,54 +3032,60 @@ input[type="range"]::-webkit-slider-thumb {
   white-space: nowrap;
 }
 
-/* a summarized turn, folded to its recall note — click restores the full events */
+/* an exchange folded to its recall notes, laid out like the chat it stands
+   for: the prompt's note in the bubble, the reply's under it. The bubble is
+   dashed — quoted material, like the raw brief — because neither line is
+   what was actually said. A click anywhere on it opens the whole exchange. */
 
-.turn-compact {
+.turn.folded {
+  cursor: pointer;
+  gap: 8px;
+  border-radius: var(--radius-s);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+
+.turn.folded .msg {
+  animation: none;
+}
+
+.msg.user.note {
+  border-style: dashed;
+  box-shadow: none;
+  color: var(--ink-soft);
+}
+
+.msg.assistant.note {
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.folded-open {
   display: flex;
   align-items: center;
-  gap: 9px;
-  width: 100%;
-  text-align: left;
-  padding: 7px 12px;
-  font-size: 12.5px;
-  color: var(--ink-soft);
-  background: var(--paper-dim);
-  border: 1px dashed var(--line-soft);
-  border-radius: var(--radius-s);
-  box-shadow: none;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
 }
 
-.turn-compact:hover {
-  color: var(--ink);
-  border-color: var(--ink);
-  border-style: solid;
-  background: var(--paper-dim);
-  transform: none;
-}
-
-.turn-compact .icon {
+.folded-open .icon {
   width: 11px;
   height: 11px;
-  flex-shrink: 0;
-  color: var(--ink-faint);
 }
 
-.turn-compact-summary {
-  flex: 1;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.turn.folded:hover .msg.user.note {
+  border-color: var(--ink);
+  color: var(--ink);
 }
 
-.turn-compact-count {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--ink-faint);
-  border: 1px solid var(--line-soft);
-  border-radius: 99px;
-  padding: 1px 7px;
-  flex-shrink: 0;
+.turn.folded:hover .msg.assistant.note,
+.turn.folded:hover .folded-open {
+  color: var(--ink);
+}
+
+.turn.folded:focus-visible {
+  outline: 1.5px dashed var(--ink-faint);
+  outline-offset: 4px;
 }
 
 .header-controls .icon-button.active {

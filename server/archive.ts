@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { keepRecent, type TranscriptEvent } from "../shared/protocol.js";
+import { excerpt, keepRecent, unmarked, type EarlierItem, type TranscriptEvent, type TurnNote } from "../shared/protocol.js";
 
 /**
  * Per-project session archive: the single source of truth for transcripts,
@@ -21,11 +21,9 @@ import { keepRecent, type TranscriptEvent } from "../shared/protocol.js";
  */
 
 /** A turn's recall notes: the prompt's and the reply's, each written by the
- *  small model the moment its half exists. */
-export interface TurnSummary {
-  user?: string;
-  reply?: string;
-}
+ *  small model the moment its half exists. An empty string is a half the
+ *  model was asked for and gave nothing usable — asked, so not asked again. */
+export type TurnSummary = TurnNote;
 
 interface ArchiveData {
   events: TranscriptEvent[];
@@ -63,12 +61,49 @@ interface ArchiveData {
   contextWindowModel?: string;
 }
 
-/** Collapse a turn's two notes into the single fold-note string the UI shows. */
-function displaySummary(note: TurnSummary | undefined): string {
-  const user = note?.user?.trim();
-  const reply = note?.reply?.trim();
-  if (user && reply) return `${user} — ${reply}`;
-  return user || reply || "";
+/** A turn's notes as the wire carries them: only the halves with words in. */
+function wireNote(note: TurnSummary | undefined): TurnNote {
+  const out: TurnNote = {};
+  if (note?.user?.trim()) out.user = note.user.trim();
+  if (note?.reply?.trim()) out.reply = note.reply.trim();
+  return out;
+}
+
+/** How much of a prompt, and of a reply's last message, stands in for its
+ *  note in the earlier view until the note is written. */
+const PROMPT_EXCERPT = 220;
+const REPLY_EXCERPT = 240;
+
+/**
+ * What the earlier view needs of a history: each exchange — its id, a cut
+ * of its prompt and its last reply for while its notes are missing, how
+ * many events it holds — and each compaction mark, without the bodies. A
+ * history is mostly tool output and briefs (megabytes, for a long chat);
+ * this is a few dozen kilobytes, and the bodies come only for an exchange
+ * somebody opens.
+ */
+function outline(events: TranscriptEvent[]): EarlierItem[] {
+  const items: EarlierItem[] = [];
+  let open: Extract<EarlierItem, { kind: "turn" }> | null = null;
+  let reply = "";
+  for (const event of events) {
+    if (event.kind === "compaction" || event.kind === "user") {
+      if (open) open.reply = excerpt(unmarked(reply), REPLY_EXCERPT);
+      open = null;
+      reply = "";
+    }
+    if (event.kind === "compaction") {
+      items.push({ kind: "compaction", id: event.id, ts: event.ts });
+    } else if (event.kind === "user") {
+      open = { kind: "turn", turnId: event.id, prompt: excerpt(event.text, PROMPT_EXCERPT), reply: "", count: 1, ts: event.ts };
+      items.push(open);
+    } else if (open) {
+      open.count += 1;
+      if (event.kind === "assistant" && event.text.trim()) reply = event.text;
+    }
+  }
+  if (open) open.reply = excerpt(unmarked(reply), REPLY_EXCERPT);
+  return items;
 }
 
 function archiveDir(): string {
@@ -115,6 +150,7 @@ export class SessionArchive {
   private readonly timers = new Map<string, NodeJS.Timeout>();
   /** Channels that keep only their newest events (Home), and how many. */
   private readonly caps = new Map<string, number>();
+  private readonly outlines = new Map<string, { size: number; mtimeMs: number; items: EarlierItem[] }>();
   private readonly historyMax: number;
 
   constructor(options: { historyMaxBytes?: number } = {}) {
@@ -207,6 +243,24 @@ export class SessionArchive {
       }
     }
     return events;
+  }
+
+  /** The history's outline (see `outline`), kept while its file is unchanged
+   *  — every opening of a chat asks for it, and the file changes only when
+   *  a compaction, a rewind or the cap rewrites it. */
+  earlier(projectId: string): EarlierItem[] {
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(historyFile(projectId));
+    } catch {
+      this.outlines.delete(projectId);
+      return [];
+    }
+    const kept = this.outlines.get(projectId);
+    if (kept && kept.size === stat.size && kept.mtimeMs === stat.mtimeMs) return kept.items;
+    const items = outline(this.history(projectId));
+    this.outlines.set(projectId, { size: stat.size, mtimeMs: stat.mtimeMs, items });
+    return items;
   }
 
   hasHistory(projectId: string): boolean {
@@ -382,9 +436,9 @@ export class SessionArchive {
     this.scheduleWrite(projectId);
   }
 
-  /** A turn's fold note for the UI: "prompt — reply", whichever halves exist. */
-  summaryDisplay(projectId: string, turnId: string): string {
-    return displaySummary(this.load(projectId).summaries[turnId]);
+  /** A turn's notes as the wire carries them. */
+  note(projectId: string, turnId: string): TurnNote {
+    return wireNote(this.load(projectId).summaries[turnId]);
   }
 
   contextTokens(projectId: string): number | undefined {
@@ -586,6 +640,7 @@ export class SessionArchive {
   /** Forget a removed project entirely (memory + file). */
   remove(projectId: string): void {
     this.data.delete(projectId);
+    this.outlines.delete(projectId);
     const timer = this.timers.get(projectId);
     if (timer) clearTimeout(timer);
     this.timers.delete(projectId);
@@ -620,15 +675,16 @@ export class SessionArchive {
     );
   }
 
-  /** Fold notes for the connect snapshot — the wire keeps single strings. */
-  allSummaries(projectIds: Iterable<string>): Record<string, Record<string, string>> {
+  /** Recall notes for the wire, both halves apart — a folded exchange shows
+   *  the prompt's in a bubble and the reply's under it. */
+  allSummaries(projectIds: Iterable<string>): Record<string, Record<string, TurnNote>> {
     return Object.fromEntries(
       [...projectIds].map((id) => [
         id,
         Object.fromEntries(
           Object.entries(this.summaries(id))
-            .map(([turnId, note]) => [turnId, displaySummary(note)])
-            .filter(([, display]) => display !== ""),
+            .map(([turnId, note]) => [turnId, wireNote(note)] as const)
+            .filter(([, note]) => note.user !== undefined || note.reply !== undefined),
         ),
       ]),
     );

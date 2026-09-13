@@ -682,12 +682,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     if (orphans) console.log(`ruri: removed ${orphans} file${orphans === 1 ? "" : "s"} left by closed sessions`);
   }, 30_000);
   firstSweep.unref();
-  // notes the small model missed lately — a spent quota, a quit mid-call —
-  // once launch has settled, then hourly (backfillNotes)
-  const recentNotes = () => backfillNotes(store.sessionIds(), { since: Date.now() - BACKFILL_RECENT_MS });
-  const firstNotes = setTimeout(recentNotes, 45_000);
+  // every note the small model missed — a spent quota, a quit mid-call —
+  // right after launch, so a chat is noted before anyone opens it, then
+  // hourly (backfillNotes)
+  const allNotes = () => backfillNotes(store.sessionIds());
+  const firstNotes = setTimeout(allNotes, 5_000);
   firstNotes.unref();
-  const notesTimer = setInterval(recentNotes, 60 * 60_000);
+  const notesTimer = setInterval(allNotes, 60 * 60_000);
   notesTimer.unref();
   /**
    * The context window a channel's model gets. A harness that names its own
@@ -1600,73 +1601,96 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   }
 
   /**
-   * Recall notes the small model never wrote, written now — one at a time,
-   * in the background. A note goes missing whenever the small model can't
-   * answer (its subscription out of quota, the machine offline, the app
-   * quit mid-call), and a missing note used to stay missing: the folded
+   * Recall notes the small model never wrote, written now, in the
+   * background. A note goes missing whenever the small model can't answer
+   * (its subscription out of quota, the machine offline, the app quit
+   * mid-call), and a missing note used to stay missing: the folded
    * exchanges above a compaction and every later brief fell back to a raw
-   * cut of the text. Runs after launch and hourly for the last few days of
-   * every chat, and for the whole of a chat when it opens or compacts (that
-   * chat first). A half the model answered with nothing usable is kept as
-   * "" and not asked for again; three failures in a row end the run until
-   * the next thing starts one.
+   * cut of the text — and a chat opened before its notes were written
+   * showed that cut, then swapped to the notes a few seconds later. So the
+   * whole backlog is worked through right after launch, and again hourly
+   * (after the first run there's nothing left, so that costs nothing); a
+   * chat that opens or compacts jumps the queue. NOTE_WORKERS calls run at
+   * once. A half the model answered with nothing usable is kept as "" and
+   * not asked for again; three failures in a row end the run until the
+   * next thing starts one.
    */
-  const backfillQueue: Array<{ channelId: string; since: number }> = [];
-  let backfilling = false;
-  /** How far back the launch and hourly runs look. */
-  const BACKFILL_RECENT_MS = 3 * 24 * 60 * 60_000;
+  interface NoteJob {
+    channelId: string;
+    turn: Turn;
+    part: "user" | "reply";
+    key: string;
+  }
+  const NOTE_WORKERS = 3;
+  const noteJobs: NoteJob[] = [];
+  /** Jobs queued or in flight, by channel:turn:part — never twice at once. */
+  const noteKeys = new Set<string>();
+  let noteWorkers = 0;
+  let noteMisses = 0;
 
-  function backfillNotes(channelIds: Iterable<string>, options: { first?: boolean; since?: number } = {}): void {
+  function backfillNotes(channelIds: Iterable<string>, options: { first?: boolean } = {}): void {
     if (!smallModelEnabled()) return;
-    const since = options.since ?? 0;
+    const fresh: NoteJob[] = [];
     for (const channelId of channelIds) {
       if (channelId === HOME_ID) continue;
-      const at = backfillQueue.findIndex((job) => job.channelId === channelId);
-      if (at !== -1) {
-        const queued = backfillQueue[at]!;
-        if (!options.first && queued.since <= since) continue;
-        backfillQueue.splice(at, 1);
-        if (queued.since < since) continue;
-      }
-      if (options.first) backfillQueue.unshift({ channelId, since });
-      else backfillQueue.push({ channelId, since });
-    }
-    if (backfilling || backfillQueue.length === 0) return;
-    backfilling = true;
-    void (async () => {
-      let misses = 0;
-      while (backfillQueue.length > 0 && misses < 3) {
-        const { channelId, since: from } = backfillQueue.shift()!;
-        for (const job of missingNotes(channelId, from)) {
-          // a chat closed meanwhile, or a model that stopped answering
-          if (misses >= 3 || !store.sessionIds().includes(channelId)) break;
-          try {
-            const note = job.part === "user" ? await summarizePrompt(job.turn.user) : await summarizeReply(job.turn);
-            misses = 0;
-            // a rewind may have taken the turn while its note was written
-            if (!turnStands(channelId, job.turn.turnId)) continue;
-            if (note) noteSummary(channelId, job.turn.turnId, job.part, note);
-            else archive.setSummary(channelId, job.turn.turnId, job.part, "");
-          } catch {
-            misses += 1;
-          }
+      for (const { turn, part } of missingNotes(channelId)) {
+        const key = `${channelId}:${turn.turnId}:${part}`;
+        if (noteKeys.has(key)) {
+          // already waiting: a chat on screen pulls its own to the front
+          const at = options.first ? noteJobs.findIndex((job) => job.key === key) : -1;
+          if (at !== -1) fresh.push(...noteJobs.splice(at, 1));
+          continue;
         }
+        noteKeys.add(key);
+        fresh.push({ channelId, turn, part, key });
       }
-      if (misses >= 3) backfillQueue.length = 0;
-      backfilling = false;
-    })();
+    }
+    if (options.first) noteJobs.unshift(...fresh);
+    else noteJobs.push(...fresh);
+    // something new asked: the models get a fresh chance
+    noteMisses = 0;
+    while (noteWorkers < NOTE_WORKERS && noteJobs.length > 0) void noteWorker();
   }
 
-  /** A chat's missing note halves from `since` on, newest first — the ones
-   *  nearest the bottom of the chat are the ones looked at. */
-  function missingNotes(channelId: string, since: number): Array<{ turn: Turn; part: "user" | "reply" }> {
+  async function noteWorker(): Promise<void> {
+    noteWorkers += 1;
+    try {
+      while (noteJobs.length > 0 && noteMisses < 3) {
+        const job = noteJobs.shift()!;
+        try {
+          // a chat closed meanwhile, or a note the live path wrote first
+          if (!store.sessionIds().includes(job.channelId)) continue;
+          if (archive.summaries(job.channelId)[job.turn.turnId]?.[job.part] !== undefined) continue;
+          const note = job.part === "user" ? await summarizePrompt(job.turn.user) : await summarizeReply(job.turn);
+          noteMisses = 0;
+          // a rewind may have taken the turn while its note was written
+          if (!turnStands(job.channelId, job.turn.turnId)) continue;
+          if (note) noteSummary(job.channelId, job.turn.turnId, job.part, note);
+          else archive.setSummary(job.channelId, job.turn.turnId, job.part, "");
+        } catch {
+          noteMisses += 1;
+        } finally {
+          noteKeys.delete(job.key);
+        }
+      }
+      if (noteMisses >= 3) {
+        for (const job of noteJobs) noteKeys.delete(job.key);
+        noteJobs.length = 0;
+      }
+    } finally {
+      noteWorkers -= 1;
+    }
+  }
+
+  /** A chat's missing note halves, newest first — the ones nearest the
+   *  bottom of the chat are the ones looked at. */
+  function missingNotes(channelId: string): Array<{ turn: Turn; part: "user" | "reply" }> {
     const notes = archive.summaries(channelId);
     // anything this young is still being noted live
     const settled = Date.now() - 2 * 60_000;
     const jobs: Array<{ turn: Turn; part: "user" | "reply" }> = [];
     for (const { turn, ts, finished } of assembleTurns(archive.allEvents(channelId)).reverse()) {
       if (ts > settled) continue;
-      if (ts < since) break;
       const note = notes[turn.turnId];
       if (note?.user === undefined && turn.user.trim()) jobs.push({ turn, part: "user" });
       if (note?.reply === undefined && finished && turn.assistant.trim()) jobs.push({ turn, part: "reply" });

@@ -3035,17 +3035,29 @@ input[type="range"]::-webkit-slider-thumb {
 /* an exchange folded to its recall notes, laid out like the chat it stands
    for: the prompt's note in the bubble, the reply's under it. The bubble is
    dashed — quoted material, like the raw brief — because neither line is
-   what was actually said. A click anywhere on it opens the whole exchange. */
+   what was actually said. Each half opens on its own: a click on a note
+   shows that half in full, "full exchange" opens both. */
 
 .turn.folded {
-  cursor: pointer;
   gap: 8px;
-  border-radius: var(--radius-s);
   content-visibility: auto;
   contain-intrinsic-size: auto 96px;
 }
 
-.turn.folded .msg {
+/* one half of an exchange shown in full — beside the other, maybe folded */
+.exchange-half {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.exchange-half:empty {
+  display: none;
+}
+
+.msg.note {
+  cursor: pointer;
   animation: none;
 }
 
@@ -3060,32 +3072,46 @@ input[type="range"]::-webkit-slider-thumb {
   line-height: 1.55;
 }
 
+.msg.user.note:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.msg.assistant.note:hover {
+  color: var(--ink);
+}
+
+.msg.note:focus-visible {
+  outline: 1.5px dashed var(--ink-faint);
+  outline-offset: 3px;
+}
+
+/* opens both halves at once — in the result lines' voice, like the
+   compaction label, which is also a button that doesn't look like one */
 .folded-open {
+  align-self: flex-start;
   display: flex;
   align-items: center;
   gap: 5px;
+  padding: 0;
   font-size: 11.5px;
+  font-weight: 400;
   color: var(--ink-faint);
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.folded-open:hover {
+  color: var(--ink);
+  background: none;
+  transform: none;
 }
 
 .folded-open .icon {
   width: 11px;
   height: 11px;
-}
-
-.turn.folded:hover .msg.user.note {
-  border-color: var(--ink);
-  color: var(--ink);
-}
-
-.turn.folded:hover .msg.assistant.note,
-.turn.folded:hover .folded-open {
-  color: var(--ink);
-}
-
-.turn.folded:focus-visible {
-  outline: 1.5px dashed var(--ink-faint);
-  outline-offset: 4px;
 }
 
 .header-controls .icon-button.active {

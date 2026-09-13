@@ -742,6 +742,10 @@ export type ClientMessage =
    *  TRANSCRIPT_TAIL events of each, and a chat asks for the rest when it
    *  opens. Answered with `transcript`, to the asker alone. */
   | { type: "transcript_get"; projectId: string }
+  /** The exchanges before a chat's newest compaction — its history, which
+   *  the live transcript no longer carries. Answered with `history`, to
+   *  the asker alone. */
+  | { type: "history_get"; projectId: string }
   /** Bring one of them in: a new session holding its conversation, which
    *  the next prompt resumes for real when the project runs on the same
    *  harness (and continues from a brief of it when it doesn't). */
@@ -1001,6 +1005,8 @@ export type ServerMessage =
   /** A whole transcript at once — a session that came into being with
    *  history already in it (a fork, an imported chat). */
   | { type: "transcript"; projectId: string; events: TranscriptEvent[]; summaries: Record<string, string> }
+  /** A chat's history: every event before its newest compaction mark. */
+  | { type: "history"; projectId: string; events: TranscriptEvent[] }
   /** A session you asked for exists (a fork, an import) — go there. Sent
    *  to the asker alone. */
   | { type: "open_session"; projectId: string }

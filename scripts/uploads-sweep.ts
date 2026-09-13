@@ -32,6 +32,7 @@ put("cccc-kept-by-draft.pdf");
 put("dddd-orphan.png");
 put("eeee-orphan-but-fresh.png", false);
 put("ffff-mentioned-only-from-bridge.png");
+put("hhhh-kept-by-history.png");
 
 fs.writeFileSync(
   path.join(root, "sessions", "s1.json"),
@@ -42,6 +43,11 @@ fs.writeFileSync(
   `the file was saved at ${path.join(uploads, "bbbb-kept-by-turn-file.mov")} — inspect it`,
 );
 fs.writeFileSync(path.join(root, "drafts.json"), JSON.stringify({ s1: { attachments: [{ url: "/uploads/cccc-kept-by-draft.pdf" }] } }));
+fs.mkdirSync(path.join(root, "history"), { recursive: true });
+fs.writeFileSync(
+  path.join(root, "history", "s1.jsonl"),
+  JSON.stringify({ kind: "user", attachments: [{ url: "/uploads/hhhh-kept-by-history.png" }] }) + "\n",
+);
 // a bridge file is a picture, not an index: a mention in there does not count
 fs.writeFileSync(path.join(root, "bridge", "abc", "note.md"), "/uploads/ffff-mentioned-only-from-bridge.png");
 
@@ -52,6 +58,7 @@ const checks: Array<[string, boolean]> = [
   ["the archive's stays", left.has("aaaa-kept-by-archive.png")],
   ["the turn file's stays", left.has("bbbb-kept-by-turn-file.mov")],
   ["the draft's stays", left.has("cccc-kept-by-draft.pdf")],
+  ["one mentioned only in a history stays", left.has("hhhh-kept-by-history.png")],
   ["the orphan goes", !left.has("dddd-orphan.png")],
   ["a fresh orphan stays for now", left.has("eeee-orphan-but-fresh.png")],
   ["a mention from under bridge/ does not count", !left.has("ffff-mentioned-only-from-bridge.png")],

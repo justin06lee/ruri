@@ -208,7 +208,7 @@ export function sweepUploads(): number {
         if (at !== root || !skip.has(entry.name)) walk(full);
         continue;
       }
-      if (!entry.isFile() || !/\.(json|md|txt)$/i.test(entry.name)) continue;
+      if (!entry.isFile() || !/\.(json|jsonl|md|txt)$/i.test(entry.name)) continue;
       let text: string;
       try {
         text = fs.readFileSync(full, "utf8");

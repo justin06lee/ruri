@@ -62,6 +62,7 @@ import {
 } from "./components.js";
 import { IdeaStore } from "./ideas.js";
 import { ParagraphGate } from "./paragraphs.js";
+import { sweepOrphans } from "./orphans.js";
 import { sweepProject } from "./sweep.js";
 import { withProjectRunning, type CaptureHost, type ShotTarget } from "./shots.js";
 import { SecretStore } from "./secrets.js";
@@ -385,7 +386,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       // Older compacted exchanges retained attachment metadata in the
       // transcript but not in their .md record. Rewriting only archives that
       // already exist makes those images available to the model immediately.
-      refreshArchivedTurnFiles(session.id, archive.events(session.id));
+      refreshArchivedTurnFiles(session.id, () => archive.allEvents(session.id));
     }
   }
   // half-written prompts, per channel — outliving both the wiped Home
@@ -677,6 +678,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const firstSweep = setTimeout(() => {
     const gone = sweepUploads();
     if (gone) console.log(`ruri: removed ${gone} upload${gone === 1 ? "" : "s"} nothing refers to`);
+    const orphans = sweepOrphans();
+    if (orphans) console.log(`ruri: removed ${orphans} file${orphans === 1 ? "" : "s"} left by closed sessions`);
   }, 30_000);
   firstSweep.unref();
   /**
@@ -1404,7 +1407,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
    * the summaries are precomputed, so this is instant.
    */
   function compactChannel(channelId: string): void {
-    const built = buildCompaction(channelId, archive.events(channelId), archive.summaries(channelId));
+    const built = buildCompaction(channelId, archive.allEvents(channelId), archive.summaries(channelId));
     if (built === null) {
       const event: TranscriptEvent = {
         kind: "info",
@@ -1434,9 +1437,25 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       entries: built.entries,
       ts: Date.now(),
     };
+    // the mark folds everything before it into the history (archive.ts);
+    // every window gets the live part as it now stands — the mark, alone
     archive.append(channelId, event);
-    broadcast({ type: "event", projectId: channelId, event });
+    pushTranscript(channelId);
     drainQueue(channelId);
+  }
+
+  /** A channel's live transcript to every client, replacing what they hold:
+   *  after anything that rewrites it rather than adding to it — a
+   *  compaction folding the past away, a rewind reaching back into it. */
+  function pushTranscript(channelId: string): void {
+    const events = archive.events(channelId);
+    allowReadImages(events, pictureBase(channelId));
+    broadcast({
+      type: "transcript",
+      projectId: channelId,
+      events,
+      summaries: archive.allSummaries([channelId])[channelId] ?? {},
+    });
   }
 
   /**
@@ -1473,6 +1492,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     const removed = archive.truncateFrom(channelId, eventId);
     if (removed.length > 0) {
       broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
+      pushTranscript(channelId);
       if (tracker.removeForTurns(channelId, removed)) {
         broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
       }
@@ -1482,7 +1502,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     }
     // the brief covers what survived the truncation — the harness comes back
     // knowing that and nothing after it
-    const kept = buildCompaction(channelId, archive.events(channelId), archive.summaries(channelId));
+    const kept = buildCompaction(channelId, archive.allEvents(channelId), archive.summaries(channelId));
     // nothing survived: the next prompt opens a genuinely new session, so
     // any brief left from before must not ride along
     archive.setPendingBrief(channelId, kept?.brief ?? "");
@@ -1521,6 +1541,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     const removed = archive.truncateFrom(channelId, target.id);
     if (removed.length > 0) {
       broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
+      pushTranscript(channelId);
       if (tracker.removeForTurns(channelId, removed)) {
         broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
       }
@@ -2216,7 +2237,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         void (async () => {
           try {
             if (busy(channelId)) throw new Error("stop the running turn first");
-            const events = archive.events(channelId);
+            const events = archive.allEvents(channelId);
             const idx = events.findIndex((e) => e.id === eventId);
             const target = idx >= 0 ? events[idx] : undefined;
             if (!target || target.kind !== "user") throw new Error("that prompt is gone");
@@ -2305,6 +2326,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             const removed = archive.truncateFrom(channelId, eventId);
             if (removed.length > 0) {
               broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
+      pushTranscript(channelId);
               // items are tied to the prompts they were split from — the
               // rewound prompt's items (and every discarded later prompt's)
               // go too; the edited prompt re-extracts fresh ones on send
@@ -2349,7 +2371,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           try {
             const found = store.findSession(channelId);
             if (!found) throw new Error("only a project's session can be forked");
-            const events = archive.events(channelId);
+            const events = archive.allEvents(channelId);
             const idx = events.findIndex((e) => e.id === msg.eventId);
             const target = idx >= 0 ? events[idx] : undefined;
             if (!target || target.kind !== "user") throw new Error("that prompt is gone");
@@ -2454,6 +2476,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             summaries: archive.allSummaries([id])[id] ?? {},
           } satisfies ServerMessage),
         );
+        break;
+      }
+      case "history_get": {
+        const id = msg.projectId;
+        if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
+        const events = archive.history(id);
+        allowReadImages(events, pictureBase(id));
+        ws.send(JSON.stringify({ type: "history", projectId: id, events } satisfies ServerMessage));
         break;
       }
       case "recent_list": {

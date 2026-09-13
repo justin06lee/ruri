@@ -72,6 +72,7 @@ import {
   composeInto,
   composerDrafts,
   ensureTranscript,
+  requestHistory,
   send,
   setComposerDraft,
   useRuri,
@@ -171,7 +172,14 @@ function ZigzagRule() {
  * brief only the model reads. The user just sees the zigzag line — the
  * label unfolds the prompt/reply notes the model was handed.
  */
-function CompactionMark({ event }: { event: Extract<TranscriptEvent, { kind: "compaction" }> }) {
+function CompactionMark({
+  event,
+  earlier,
+}: {
+  event: Extract<TranscriptEvent, { kind: "compaction" }>;
+  /** On the chat's newest mark: the exchanges before it, folded, on demand. */
+  earlier?: { shown: boolean; loading: boolean; toggle(): void };
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="compaction">
@@ -198,6 +206,15 @@ function CompactionMark({ event }: { event: Extract<TranscriptEvent, { kind: "co
           </svg>
           compacted
         </button>
+        {earlier && (
+          <button
+            className="compaction-label"
+            title={earlier.shown ? "Hide the exchanges before this" : "Show the exchanges before this, folded to their notes"}
+            onClick={earlier.toggle}
+          >
+            {earlier.loading ? "loading…" : earlier.shown ? "hide earlier" : "earlier"}
+          </button>
+        )}
         <ZigzagRule />
       </div>
       {open &&
@@ -1580,6 +1597,13 @@ function groupTurns(events: TranscriptEvent[]): Turn[] {
   return turns;
 }
 
+/** An earlier exchange with no recall note: its prompt, flattened. */
+function earlierNote(turn: Turn): string {
+  const first = turn.events[0];
+  const flat = (first?.kind === "user" ? first.text : "").replace(/\s+/g, " ").trim();
+  return flat.length > 140 ? `${flat.slice(0, 139)}…` : flat || "an exchange";
+}
+
 /**
  * A turn folded down to its recall note — only ever by the user's hand (the
  * hover chevron); clicking it pulls the full prompt/response back.
@@ -1985,6 +2009,25 @@ export function ChatPane({
         : allTurns.slice(allTurns.length - renderedTurns),
     [allTurns, renderedTurns],
   );
+  // What a compaction left behind it: the live transcript opens on the
+  // newest mark, and the exchanges before it are the history — fetched
+  // when asked for and shown folded to their notes, each one opening on a
+  // click.
+  const history = useRuri((s) => (activeId ? s.history[activeId] : undefined));
+  const [showEarlier, setShowEarlier] = useState(false);
+  const [openedEarlier, setOpenedEarlier] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setShowEarlier(false);
+    setOpenedEarlier(new Set());
+  }, [activeId]);
+  const earlierTurns = useMemo(
+    () => (showEarlier && history ? groupTurns(history) : []),
+    [showEarlier, history],
+  );
+  const toggleEarlier = () => {
+    if (!showEarlier && activeId && !history) requestHistory(activeId);
+    setShowEarlier(!showEarlier);
+  };
 
   // Above the early return: a hook that only some renders reach is a hook
   // React counts differently on the render after the pane finds a project.
@@ -2173,7 +2216,53 @@ export function ChatPane({
         onKeyDown={noteGesture}
       >
         <div className="transcript-inner" ref={observeInner}>
+          {showEarlier &&
+            earlierTurns.map((turn) => {
+              const head = turn.events[0];
+              if (turn.solo && head?.kind === "compaction") {
+                return (
+                  <div className="turn" key={`earlier-${turn.turnId}`}>
+                    <CompactionMark event={head} />
+                  </div>
+                );
+              }
+              if (!openedEarlier.has(turn.turnId)) {
+                return (
+                  <CompactTurn
+                    key={`earlier-${turn.turnId}`}
+                    summary={summaries[turn.turnId] ?? earlierNote(turn)}
+                    count={turn.events.length}
+                    onExpand={() => setOpenedEarlier(new Set(openedEarlier).add(turn.turnId))}
+                  />
+                );
+              }
+              return (
+                <div className="turn" key={`earlier-${turn.turnId}`}>
+                  {turn.events.map((event) => (
+                    <EventView
+                      key={event.id}
+                      event={event}
+                      project={project}
+                      channelId={activeId}
+                      onRewind={askRewind}
+                      onFork={askFork}
+                    />
+                  ))}
+                </div>
+              );
+            })}
           {shownTurns.map((turn, index) => {
+            const head = turn.events[0];
+            if (turn.solo && turn === allTurns[0] && head?.kind === "compaction") {
+              return (
+                <div className="turn" key={turn.turnId}>
+                  <CompactionMark
+                    event={head}
+                    earlier={{ shown: showEarlier, loading: showEarlier && !history, toggle: toggleEarlier }}
+                  />
+                </div>
+              );
+            }
             const summary = summaries[turn.turnId];
             // far enough up that the browser may skip laying it out until
             // it comes near the viewport — see .turn.far

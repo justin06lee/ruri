@@ -14,13 +14,17 @@ import {
   DEFAULT_EFFORT,
   DEFAULT_PERMISSION_MODE,
   EFFORT_LEVELS,
+  excerpt,
   HOME_ID,
+  type EarlierItem,
   type ModelChoice,
   type PermissionMode,
   type PermissionRequest,
   type Project,
   type QueuedPrompt,
   type TranscriptEvent,
+  type TurnNote,
+  unmarked,
 } from "../../../shared/protocol";
 import {
   AttachmentStrip,
@@ -174,13 +178,15 @@ function ZigzagRule() {
  */
 function CompactionMark({
   event,
-  earlier,
+  load,
 }: {
   event: Extract<TranscriptEvent, { kind: "compaction" }>;
-  /** On the chat's newest mark: the exchanges before it, folded, on demand. */
-  earlier?: { shown: boolean; loading: boolean; toggle(): void };
+  /** For a mark known only from the history's outline, which leaves out
+   *  its brief: fetch the history the brief is in. */
+  load?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const bodiless = !event.entries?.length && !event.text;
   return (
     <div className="compaction">
       <div className="compaction-line">
@@ -188,7 +194,10 @@ function CompactionMark({
         <button
           className="compaction-label"
           title={open ? "Hide what the model was handed" : "Show what the model was handed"}
-          onClick={() => setOpen(!open)}
+          onClick={() => {
+            if (!open && bodiless) load?.();
+            setOpen(!open);
+          }}
         >
           <svg
             className="icon"
@@ -206,15 +215,6 @@ function CompactionMark({
           </svg>
           compacted
         </button>
-        {earlier && (
-          <button
-            className="compaction-label"
-            title={earlier.shown ? "Hide the exchanges before this" : "Show the exchanges before this, folded to their notes"}
-            onClick={earlier.toggle}
-          >
-            {earlier.loading ? "loading…" : earlier.shown ? "hide earlier" : "earlier"}
-          </button>
-        )}
         <ZigzagRule />
       </div>
       {open &&
@@ -230,6 +230,8 @@ function CompactionMark({
               </div>
             ))}
           </div>
+        ) : bodiless ? (
+          <div className="compaction-brief raw">loading…</div>
         ) : (
           // compactions from before the structured entries: the raw brief
           <pre className="compaction-brief raw">{event.text}</pre>
@@ -1597,28 +1599,79 @@ function groupTurns(events: TranscriptEvent[]): Turn[] {
   return turns;
 }
 
-/** An earlier exchange with no recall note: its prompt, flattened. */
-function earlierNote(turn: Turn): string {
-  const first = turn.events[0];
-  const flat = (first?.kind === "user" ? first.text : "").replace(/\s+/g, " ").trim();
-  return flat.length > 140 ? `${flat.slice(0, 139)}…` : flat || "an exchange";
+/** How much of a prompt, and of a reply's last message, stands in for a
+ *  note not written yet — the server cuts the history's outline the same. */
+const PROMPT_EXCERPT = 220;
+const REPLY_EXCERPT = 240;
+
+/** A live turn's stand-ins for its notes: its prompt, and its last reply. */
+function turnExcerpts(turn: Turn): { prompt: string; reply: string } {
+  const head = turn.events[0];
+  let reply = "";
+  for (let i = turn.events.length - 1; i > 0 && !reply; i--) {
+    const event = turn.events[i]!;
+    if (event.kind === "assistant" && event.text.trim()) reply = event.text;
+  }
+  return {
+    prompt: excerpt(head?.kind === "user" ? head.text : "", PROMPT_EXCERPT),
+    reply: excerpt(unmarked(reply), REPLY_EXCERPT),
+  };
 }
 
 /**
- * A turn folded down to its recall note — only ever by the user's hand (the
- * hover chevron); clicking it pulls the full prompt/response back.
+ * An exchange folded to its recall notes, laid out like the chat it stands
+ * for: the prompt's note in the bubble, the reply's under it — a cut of the
+ * text itself for a half whose note isn't written yet. Every exchange above
+ * the newest compaction starts out like this; one below it only by the
+ * user's hand (the hover chevron). A click anywhere opens the whole thing.
  */
-function CompactTurn({ summary, count, onExpand }: { summary: string; count: number; onExpand(): void }) {
+const FoldedTurn = memo(function FoldedTurn({
+  turnId,
+  note,
+  prompt,
+  reply,
+  count,
+  loading,
+  onOpen,
+}: {
+  turnId: string;
+  note: TurnNote | undefined;
+  prompt: string;
+  reply: string;
+  count: number;
+  /** Opened, and its events still on their way. */
+  loading?: boolean;
+  onOpen(turnId: string): void;
+}) {
+  const asked = note?.user || prompt || "an exchange";
+  const answered = note?.reply || reply;
   return (
-    <button className="turn-compact" title="Show the full turn" onClick={onExpand}>
-      <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d="M9 6l6 6-6 6" />
-      </svg>
-      <span className="turn-compact-summary">{summary}</span>
-      <span className="turn-compact-count">{count}</span>
-    </button>
+    <div
+      className="turn folded"
+      role="button"
+      tabIndex={0}
+      title="Show the whole exchange"
+      onClick={(e) => {
+        // dragging across a note to copy it is not asking to open it
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed && e.currentTarget.contains(selection.anchorNode)) return;
+        onOpen(turnId);
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        onOpen(turnId);
+      }}
+    >
+      <div className="msg user note">{asked}</div>
+      {answered && <div className="msg assistant note">{answered}</div>}
+      <span className="folded-open">
+        <Icon d="M9 6l6 6-6 6" />
+        {loading ? "opening…" : `full exchange · ${count} events`}
+      </span>
+    </div>
   );
-}
+});
 
 /** A hero face in its circle, framed the way the tuner left it. */
 function HeroFace({ n }: { n: number }) {
@@ -1644,7 +1697,8 @@ function HeroFace({ n }: { n: number }) {
 // Stable fallback so selectors never mint a fresh reference per read —
 // an unstable snapshot makes useSyncExternalStore loop (React error #185).
 const NO_EVENTS: TranscriptEvent[] = [];
-const NO_SUMMARIES: Record<string, string> = {};
+const NO_SUMMARIES: Record<string, TurnNote> = {};
+const NO_EARLIER: EarlierItem[] = [];
 const NO_QUEUED: QueuedPrompt[] = [];
 
 export function ChatPane({
@@ -1763,10 +1817,19 @@ export function ChatPane({
     setPage("chat");
   }, [activeId]);
 
-  // Turns show in full — the summaries are the model's memory aid, not the
-  // user's view. A hover chevron folds a turn to its note when wanted.
+  // Turns below the newest compaction show in full. A hover chevron folds
+  // one to its notes when wanted.
   const [folded, setFolded] = useState<Set<string>>(new Set());
   useEffect(() => setFolded(new Set()), [activeId]);
+  const unfold = useCallback(
+    (turnId: string) =>
+      setFolded((prev) => {
+        const next = new Set(prev);
+        next.delete(turnId);
+        return next;
+      }),
+    [],
+  );
 
   // Rewind: pencil on a past prompt → a plain confirmation → the
   // conversation and the project's files go back to just before it ran and
@@ -2010,24 +2073,40 @@ export function ChatPane({
     [allTurns, renderedTurns],
   );
   // What a compaction left behind it: the live transcript opens on the
-  // newest mark, and the exchanges before it are the history — fetched
-  // when asked for and shown folded to their notes, each one opening on a
-  // click.
+  // newest mark, and the exchanges before it come with it as an outline
+  // (`earlier`) — shown above the mark, each folded to its notes and
+  // opening on a click. Opening one (or an older mark's brief) is what
+  // fetches the history's bodies.
+  const earlier = useRuri((s) => (activeId ? (s.earlier[activeId] ?? NO_EARLIER) : NO_EARLIER));
   const history = useRuri((s) => (activeId ? s.history[activeId] : undefined));
-  const [showEarlier, setShowEarlier] = useState(false);
   const [openedEarlier, setOpenedEarlier] = useState<Set<string>>(new Set());
+  const [wantHistory, setWantHistory] = useState(false);
   useEffect(() => {
-    setShowEarlier(false);
     setOpenedEarlier(new Set());
+    setWantHistory(false);
   }, [activeId]);
-  const earlierTurns = useMemo(
-    () => (showEarlier && history ? groupTurns(history) : []),
-    [showEarlier, history],
+  useEffect(() => {
+    if (activeId && !history && (wantHistory || openedEarlier.size > 0)) requestHistory(activeId);
+  }, [activeId, history, wantHistory, openedEarlier]);
+  // the history's turns by id — a mark's under `compaction-<id>`
+  const historyTurns = useMemo(
+    () => new Map((history ? groupTurns(history) : []).map((turn) => [turn.turnId, turn])),
+    [history],
   );
-  const toggleEarlier = () => {
-    if (!showEarlier && activeId && !history) requestHistory(activeId);
-    setShowEarlier(!showEarlier);
-  };
+  const openEarlier = useCallback(
+    (turnId: string) => setOpenedEarlier((prev) => new Set(prev).add(turnId)),
+    [],
+  );
+  const closeEarlier = useCallback(
+    (turnId: string) =>
+      setOpenedEarlier((prev) => {
+        const next = new Set(prev);
+        next.delete(turnId);
+        return next;
+      }),
+    [],
+  );
+  const loadHistory = useCallback(() => setWantHistory(true), []);
 
   // Above the early return: a hook that only some renders reach is a hook
   // React counts differently on the render after the pane finds a project.
@@ -2216,29 +2295,49 @@ export function ChatPane({
         onKeyDown={noteGesture}
       >
         <div className="transcript-inner" ref={observeInner}>
-          {showEarlier &&
-            earlierTurns.map((turn) => {
-              const head = turn.events[0];
-              if (turn.solo && head?.kind === "compaction") {
+          {/* the earlier exchanges wait for every live turn below them to
+              be laid out — until then the tail is what's on screen */}
+          {shownTurns.length === allTurns.length &&
+            earlier.map((item) => {
+              if (item.kind === "compaction") {
+                const full = historyTurns.get(`compaction-${item.id}`)?.events[0];
                 return (
-                  <div className="turn" key={`earlier-${turn.turnId}`}>
-                    <CompactionMark event={head} />
+                  <div className="turn" key={`earlier-${item.id}`}>
+                    <CompactionMark
+                      event={
+                        full?.kind === "compaction" ? full : { kind: "compaction", id: item.id, text: "", ts: item.ts }
+                      }
+                      load={loadHistory}
+                    />
                   </div>
                 );
               }
-              if (!openedEarlier.has(turn.turnId)) {
+              const opened = openedEarlier.has(item.turnId);
+              const full = opened ? historyTurns.get(item.turnId) : undefined;
+              if (!full) {
                 return (
-                  <CompactTurn
-                    key={`earlier-${turn.turnId}`}
-                    summary={summaries[turn.turnId] ?? earlierNote(turn)}
-                    count={turn.events.length}
-                    onExpand={() => setOpenedEarlier(new Set(openedEarlier).add(turn.turnId))}
+                  <FoldedTurn
+                    key={`earlier-${item.turnId}`}
+                    turnId={item.turnId}
+                    note={summaries[item.turnId]}
+                    prompt={item.prompt}
+                    reply={item.reply}
+                    count={item.count}
+                    loading={opened && !history}
+                    onOpen={openEarlier}
                   />
                 );
               }
               return (
-                <div className="turn" key={`earlier-${turn.turnId}`}>
-                  {turn.events.map((event) => (
+                <div className="turn" key={`earlier-${item.turnId}`}>
+                  <button
+                    className="icon-button turn-fold"
+                    title="Fold this exchange back to its notes"
+                    onClick={() => closeEarlier(item.turnId)}
+                  >
+                    <Icon d="M6 15l6-6 6 6" />
+                  </button>
+                  {full.events.map((event) => (
                     <EventView
                       key={event.id}
                       event={event}
@@ -2253,40 +2352,29 @@ export function ChatPane({
             })}
           {shownTurns.map((turn, index) => {
             const head = turn.events[0];
-            if (turn.solo && turn === allTurns[0] && head?.kind === "compaction") {
-              return (
-                <div className="turn" key={turn.turnId}>
-                  <CompactionMark
-                    event={head}
-                    earlier={{ shown: showEarlier, loading: showEarlier && !history, toggle: toggleEarlier }}
-                  />
-                </div>
-              );
-            }
-            const summary = summaries[turn.turnId];
             // far enough up that the browser may skip laying it out until
             // it comes near the viewport — see .turn.far
             const far = index < shownTurns.length - LIVE_TURNS;
-            if (summary !== undefined && folded.has(turn.turnId)) {
+            if (folded.has(turn.turnId)) {
+              const { prompt, reply } = turnExcerpts(turn);
               return (
-                <CompactTurn
+                <FoldedTurn
                   key={turn.turnId}
-                  summary={summary}
+                  turnId={turn.turnId}
+                  note={summaries[turn.turnId]}
+                  prompt={prompt}
+                  reply={reply}
                   count={turn.events.length}
-                  onExpand={() => {
-                    const next = new Set(folded);
-                    next.delete(turn.turnId);
-                    setFolded(next);
-                  }}
+                  onOpen={unfold}
                 />
               );
             }
             return (
               <div className={far ? "turn far" : "turn"} key={turn.turnId}>
-                {summary !== undefined && !turn.solo && (
+                {!turn.solo && head?.kind === "user" && (
                   <button
                     className="icon-button turn-fold"
-                    title="Fold this exchange to its summary"
+                    title="Fold this exchange to its notes"
                     onClick={() => setFolded(new Set(folded).add(turn.turnId))}
                   >
                     <Icon d="M6 15l6-6 6 6" />

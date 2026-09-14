@@ -79,6 +79,10 @@ export interface SessionEvents {
   /** Something a subagent did, for its own log (`key` is its card's
    *  SubagentState.key) — never for the chat. */
   onAgentEvent?(projectId: string, key: string, event: TranscriptEvent): void;
+  /** The work running in the background of the session changed — a
+   *  background task started or ended, a subagent finished. The manager
+   *  looks again at whether an idle session can close. */
+  onBackground?(projectId: string): void;
 }
 
 /** Extra per-project session config (the Home agent's MCP tools live here). */
@@ -454,6 +458,13 @@ class AgentBook {
     return this.cards.get(key)?.event.agent?.background === true;
   }
 
+  /** Whether any agent is still working — after a turn, only ones left in
+   *  the background (and whatever they started) can be. */
+  anyRunning(): boolean {
+    for (const card of this.cards.values()) if (card.event.agent?.status === "running") return true;
+    return false;
+  }
+
   /** A new agent: its card goes out where it was started from, and its log
    *  opens with the brief it was handed. */
   start(event: ToolEvent, parent?: string): void {
@@ -486,6 +497,8 @@ class AgentBook {
     card.event = { ...card.event, agent: next };
     if (card.parent) this.events.onAgentEvent?.(this.projectId, card.parent, card.event);
     else (this.events.onEventUpdate ?? this.events.onEvent)(this.projectId, card.event);
+    // one fewer agent at work: the session may be free to close
+    if (current.status === "running" && next.status !== "running") this.events.onBackground?.(this.projectId);
   }
 
   /** Something the agent did, for its log. */
@@ -975,7 +988,9 @@ class ProjectSession implements ChannelSession {
   }
 
   hasBackgroundWork(): boolean {
-    return this.backgroundTasks > 0;
+    // the CLI's own count, and the agents' cards besides: a background
+    // agent is the one thing it would be worst to cut off
+    return this.backgroundTasks > 0 || this.agents.anyRunning();
   }
 
   /** A tool_use block as the transcript shows it: its chip, with the patch
@@ -1066,6 +1081,7 @@ class ProjectSession implements ChannelSession {
     if (msg.type === "system" && msg.subtype === "background_tasks_changed") {
       // a level, not an edge: the whole live set each time
       this.backgroundTasks = msg.tasks.length;
+      this.events.onBackground?.(this.project.id);
       return;
     }
     if (
@@ -2206,6 +2222,10 @@ class ProviderAgentSession implements ChannelSession {
     void this.session.close();
   }
 
+  hasBackgroundWork(): boolean {
+    return this.agents.anyRunning();
+  }
+
   dispose(): void {
     this.dead = true;
     this.backlog.length = 0;
@@ -2312,18 +2332,26 @@ function providerSessionId(session: ChannelSession): string | undefined {
 }
 
 /**
- * How long a chat's agent process may sit idle before it is closed.
+ * When a chat's agent process closes.
  *
- * Every chat that has been prompted keeps a warm CLI process — 150 to 400 MB
- * of `claude`, `codex app-server` or an ACP agent, plus whatever MCP servers
- * that process started — and nothing ever closed one short of quitting the
- * app. A chat left alone this long has its process closed; the next prompt
- * resumes the same conversation from its session id, exactly as it does
- * after a relaunch, for a second or two of startup. A session with work
- * still running in the background (a dev server the model started, a
- * build, a subagent) is not closed — that work lives in its process — and
- * is looked at again after another round.
+ * Every chat that has been prompted can hold a warm CLI process — 150 to
+ * 400 MB of `claude`, `codex app-server` or an ACP agent, plus whatever MCP
+ * servers that process started. A process is only worth keeping for what it
+ * is about to do, so it closes the moment there is nothing left for it: the
+ * turn over, nothing of its own still running in the background, and nobody
+ * with the chat open to type the next prompt. REAP_GRACE_MS is the moment —
+ * long enough for a queued prompt, an auto-retry, or the CLI's own
+ * follow-up turn (a background agent reporting back) to claim it first.
+ *
+ * Work in the background (a subagent, a shell the model left running) lives
+ * in the process, so it holds the process for as long as it runs; the
+ * session says when that changes, and the moment the last of it ends the
+ * same rule applies. A chat that is open keeps its process until it is left
+ * — or until it has sat idle IDLE_REAP_MS, a window left open on a chat
+ * overnight. The next prompt resumes the same conversation from its session
+ * id, exactly as after a relaunch, for a second or two of startup.
  */
+const REAP_GRACE_MS = Number(process.env["RURI_REAP_GRACE_MS"]) || 3000;
 const IDLE_REAP_MS = Number(process.env["RURI_IDLE_REAP_MS"]) || 10 * 60_000;
 
 export class SessionManager {
@@ -2342,6 +2370,10 @@ export class SessionManager {
   private readonly events: SessionEvents;
   /** What an unset model means — the crowned default, else the built-in. */
   private defaultModelFor: () => string = () => DEFAULT_MODEL;
+  /** Whether something still wants a channel's process between turns — the
+   *  chat open in a window, a prompt queued behind the turn, a retry
+   *  waiting to go (the server's to say). */
+  private keepWarm: (projectId: string) => boolean = () => false;
 
   constructor(
     events: SessionEvents,
@@ -2363,10 +2395,14 @@ export class SessionManager {
         events.onStatus(projectId, status);
         if (status === "idle") {
           this.applyDeferred(projectId);
-          this.scheduleReap(projectId);
+          this.settle(projectId);
         } else {
           this.cancelReap(projectId);
         }
+      },
+      onBackground: (projectId) => {
+        events.onBackground?.(projectId);
+        this.settle(projectId);
       },
     };
   }
@@ -2374,6 +2410,11 @@ export class SessionManager {
   /** Where the default model is read from (the project store's crown). */
   useDefaultModel(read: () => string): void {
     this.defaultModelFor = read;
+  }
+
+  /** Where "something still wants this process" is read from. */
+  useKeepWarm(read: (projectId: string) => boolean): void {
+    this.keepWarm = read;
   }
 
   /** Whether a channel's live session is mid-turn (or waiting on the user
@@ -2394,8 +2435,23 @@ export class SessionManager {
     this.deferred.set(projectId, queue);
   }
 
-  /** Close this channel's process once it has been idle for IDLE_REAP_MS. */
-  private scheduleReap(projectId: string): void {
+  /**
+   * An idle channel's process: when it closes, looked at again whenever
+   * anything that decides it changes — the turn ending, background work
+   * ending, the chat being opened or left. Not idle: nothing to do (a turn
+   * cancels the timer when it starts).
+   */
+  settle(projectId: string): void {
+    const session = this.sessions.get(projectId);
+    if (!session || session.dead || session.status !== "idle") return;
+    // background work is waited out by its end, not by a clock: the long
+    // timer is only a look-again in case that end went unheard
+    const held = session.hasBackgroundWork?.() || this.keepWarm(projectId);
+    this.scheduleReap(projectId, held ? IDLE_REAP_MS : REAP_GRACE_MS);
+  }
+
+  /** Close this channel's process in `ms`, if it is still idle and free. */
+  private scheduleReap(projectId: string, ms: number): void {
     this.cancelReap(projectId);
     const timer = setTimeout(() => {
       this.reapTimers.delete(projectId);
@@ -2404,12 +2460,14 @@ export class SessionManager {
       // waiting on the user, a settings change waiting for the turn to end
       if (!session || session.dead || session.status !== "idle" || this.deferred.has(projectId)) return;
       if (session.hasBackgroundWork?.()) {
-        this.scheduleReap(projectId);
+        this.scheduleReap(projectId, IDLE_REAP_MS);
         return;
       }
+      // what was holding it (an open chat, a queued prompt) still is, but
+      // it has waited a whole IDLE_REAP_MS: that is the cap
       session.dispose();
       this.sessions.delete(projectId);
-    }, IDLE_REAP_MS);
+    }, ms);
     timer.unref?.();
     this.reapTimers.set(projectId, timer);
   }
@@ -2517,7 +2575,7 @@ export class SessionManager {
       this.sessions.set(project.id, session);
       // timed from the start: a session built for a rewind and never sent
       // to would otherwise never report idle, and never be closed
-      this.scheduleReap(project.id);
+      this.settle(project.id);
     }
     return session;
   }

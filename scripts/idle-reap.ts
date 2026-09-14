@@ -1,9 +1,13 @@
 /**
- * The idle reaper (server/sessions.ts): a chat left idle has its agent
- * process closed, the close says nothing in the transcript, and the next
- * prompt resumes the same conversation. Boots the server with a 5-second
- * idle limit, plants a word on Haiku, waits for the process to go, then
- * asks for the word back. Costs two short turns' tokens — run manually:
+ * When a chat's agent process closes (server/sessions.ts), and who hears a
+ * chat's work as it happens (server/server.ts, the `view` message).
+ *
+ * Boots the server, opens a chat in one window and plants a word on Haiku,
+ * then checks: the open chat keeps its process past the grace; leaving it
+ * closes the process straight away, saying nothing in the transcript; a
+ * second window without the chat open heard the turn end and nothing of the
+ * reply; and the next prompt resumes the same conversation. Costs two short
+ * turns' tokens — run manually:
  *   bun run idle-reap-test
  */
 import { execFileSync, spawn } from "node:child_process";
@@ -14,7 +18,7 @@ import WebSocket from "ws";
 import type { ClientMessage, ServerMessage, TranscriptEvent } from "../shared/protocol.js";
 
 const PORT = 7895;
-const REAP_MS = 5000;
+const GRACE_MS = 2000;
 const WORD = "marmalade";
 const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-reap-config-"));
 const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-reap-project-"));
@@ -27,7 +31,9 @@ const server = spawn("bunx", ["tsx", "server/index.ts"], {
     RURI_PORT: String(PORT),
     RURI_CONFIG_DIR: configDir,
     RURI_NO_MEMORY: "1",
-    RURI_IDLE_REAP_MS: String(REAP_MS),
+    RURI_REAP_GRACE_MS: String(GRACE_MS),
+    // the open-chat cap, well past anything this waits for
+    RURI_IDLE_REAP_MS: "120000",
   },
   stdio: ["ignore", "pipe", "inherit"],
 });
@@ -101,12 +107,34 @@ async function until(test: () => boolean, ms: number): Promise<boolean> {
   return test();
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// a second window, open on nothing: it should hear the chat's turns end
+// and none of the work in between. Connected first — nothing may be
+// awaited between the main window connecting and it listening, or its
+// snapshot goes by unheard.
+const bystander = await connect();
+bystander.send(JSON.stringify({ type: "view", channels: [], live: true } satisfies ClientMessage));
+const overheard: string[] = [];
+
 const ws = await connect();
 const send = (msg: ClientMessage) => ws.send(JSON.stringify(msg));
+/** The chat on screen here, or none. */
+const view = (channels: string[]) => send({ type: "view", channels, live: true });
+
 let sessionId: string | undefined;
 let phase: "plant" | "ask" = "plant";
 let reply = "";
 const events: TranscriptEvent[] = [];
+
+bystander.on("message", (raw) => {
+  const msg = JSON.parse(String(raw)) as ServerMessage;
+  if (!sessionId) return;
+  if (msg.type === "event" && msg.projectId === sessionId) overheard.push(`event:${msg.event.kind}`);
+  else if ((msg.type === "delta" || msg.type === "turn" || msg.type === "agent_event") && msg.projectId === sessionId) {
+    overheard.push(msg.type);
+  }
+});
 
 ws.on("message", (raw) => {
   const msg = JSON.parse(String(raw)) as ServerMessage;
@@ -117,7 +145,8 @@ ws.on("message", (raw) => {
     if (!project) return;
     sessionId = project.sessions[0]!.id;
     send({ type: "set_model", projectId: project.id, model: "haiku" });
-    console.log(`[t] planting the word in ${sessionId}`);
+    view([sessionId]);
+    console.log(`[t] planting the word in ${sessionId}, with the chat open`);
     send({ type: "send", projectId: sessionId, text: `Remember this word for later: ${WORD}. Reply with just "ok".` });
   } else if (msg.type === "event" && msg.projectId === sessionId) {
     events.push(msg.event);
@@ -130,14 +159,24 @@ ws.on("message", (raw) => {
 
 async function afterPlant(): Promise<void> {
   check("the chat has a live claude process after its turn", claudes() >= 1);
-  console.log(`[t] waiting up to ${(REAP_MS + 15_000) / 1000}s for the idle process to be closed`);
-  check("the idle process is closed", await until(() => claudes() === 0, REAP_MS + 15_000));
+  await sleep(GRACE_MS + 4000);
+  check("an open chat keeps its process past the grace", claudes() >= 1);
+  check("the window without the chat open heard the turn end", overheard.includes("event:result"));
+  check(
+    "and nothing of the work in between",
+    overheard.every((kind) => kind === "event:result"),
+  );
+  if (!overheard.every((kind) => kind === "event:result")) console.log(`[t] overheard: ${overheard.join(", ")}`);
+  console.log("[t] leaving the chat");
+  view([]);
+  check("leaving it closes the idle process at once", await until(() => claudes() === 0, GRACE_MS + 8000));
   check(
     "the close says nothing in the transcript",
     !events.some((e) => e.kind === "info" && /session error/i.test(e.text)),
   );
   phase = "ask";
-  console.log("[t] asking for the word back");
+  console.log("[t] opening the chat again and asking for the word back");
+  view([sessionId!]);
   send({ type: "send", projectId: sessionId!, text: "What was the word I asked you to remember? Reply with just the word." });
 }
 

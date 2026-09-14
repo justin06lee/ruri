@@ -287,6 +287,10 @@ function lineEnd(at: number): React.ReactNode {
 /** How tall each textarea's text really is, as last fitted (see `fitBox`). */
 const fitted = new WeakMap<HTMLTextAreaElement, number>();
 
+/** How many times (400ms apart) the mirror looks again on its own while it
+ *  and the textarea disagree, before it waits for something to change. */
+const MIRROR_RETRIES = 8;
+
 /**
  * Fit a textarea to its text, no taller than `cap`, and return the text's
  * true height.
@@ -478,15 +482,24 @@ export function MarkerMirror({
     const mirror = mirrorRef.current;
     const inner = textRef.current;
     if (!area || !mirror || !inner) return;
+    // No chips, nothing to line up. An empty prompt — every chat's, most of
+    // the time — has no line box in the mirror at all, so the two could
+    // only ever disagree, and the check below used to go round every 400ms
+    // for as long as the chat was open, measuring and restyling for nothing.
+    // The first chip re-renders this and it starts looking.
+    if (markers.length === 0) return;
     let frame = 0;
     let retry = 0;
     let refitted = false;
+    /** Looks taken on its own since the last time the two agreed. */
+    let tries = 0;
     const check = () => {
       frame = 0;
       // against the text's true height as last fitted, never `scrollHeight`
       // straight off the textarea — see `fitBox` for the lie it tells
       if (Math.abs(inner.offsetHeight - (fitted.get(area) ?? area.scrollHeight)) <= 2) {
         refitted = false;
+        tries = 0;
         mirror.classList.remove("off");
         return;
       }
@@ -505,10 +518,15 @@ export function MarkerMirror({
       // Off is not final. A disagreement is often a moment's — a box mid-
       // transition, a font landing, a layout still settling — and nothing
       // else may come along to look again until the next keystroke. So
-      // while the chips are off, the mirror keeps looking on its own.
+      // while the chips are off, the mirror keeps looking on its own — for
+      // a few seconds, not for ever: one that outlasts those is settled,
+      // and a keystroke, a resize, a scroll or the window coming back will
+      // look again.
+      if (tries >= MIRROR_RETRIES) return;
       retry = window.setTimeout(() => {
         retry = 0;
         refitted = false;
+        tries += 1;
         sync();
       }, 400);
     };

@@ -88,6 +88,7 @@ import {
   send,
   setComposerDraft,
   useRuri,
+  watchChannel,
 } from "../store";
 import { spinStar } from "../lib/spin";
 import { beat, useNow } from "../lib/beat";
@@ -2055,6 +2056,10 @@ export function ChatPane({
   // blank rather than showing the tail and then jumping.
   const loaded = useRuri((s) => (activeId ? s.loaded[activeId] === true : true));
   const connected = useRuri((s) => s.connected);
+  // On screen: this chat, and no other, is sent its conversation as it
+  // happens, and keeps its agent process warm between turns. Before the
+  // effect below, so the server knows before the history is asked for.
+  useEffect(() => (activeId ? watchChannel(activeId) : undefined), [activeId]);
   useEffect(() => {
     if (activeId && connected && !loaded) ensureTranscript(activeId);
   }, [activeId, connected, loaded]);

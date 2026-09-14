@@ -3,7 +3,12 @@ import type { Playlist, Track } from "../../../shared/protocol";
 import { AudioEngine, type PlayerState, type RepeatMode } from "../lib/audio";
 import { getPref as ls, setPref as lsSet } from "../prefs";
 import { HTTP_BASE, useRuri } from "../store";
+import { whileAwake } from "../lib/beat";
 import { Dropdown } from "./Dropdown";
+
+/** How often the waveform and the notes move: enough to read as live,
+ *  an eighth of the display's rate. */
+const MOTION_MS = 66;
 
 const EMPTY: PlayerState = {
   playing: false,
@@ -21,22 +26,27 @@ function mmss(seconds: number): string {
 }
 
 /** Five tiny bars fed by the engine's analyser, riding the gap between
- *  the track title and the chevron while music plays. */
+ *  the track title and the chevron while music plays — read fifteen times
+ *  a second while ruri is in front, laid flat while it is not. */
 function Waveform({ engineRef }: { engineRef: React.RefObject<AudioEngine | null> }) {
   const barsRef = useRef<Array<HTMLSpanElement | null>>([]);
-  useEffect(() => {
-    let raf = 0;
-    const step = () => {
-      const levels = engineRef.current?.levels(5);
-      levels?.forEach((v, i) => {
-        const bar = barsRef.current[i];
-        if (bar) bar.style.transform = `scaleY(${Math.max(0.15, Math.min(1, v * 1.6)).toFixed(3)})`;
-      });
-      raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [engineRef]);
+  useEffect(
+    () =>
+      whileAwake(
+        () => {
+          const levels = engineRef.current?.levels(5);
+          levels?.forEach((v, i) => {
+            const bar = barsRef.current[i];
+            if (bar) bar.style.transform = `scaleY(${Math.max(0.15, Math.min(1, v * 1.6)).toFixed(3)})`;
+          });
+        },
+        MOTION_MS,
+        () => {
+          for (const bar of barsRef.current) if (bar) bar.style.transform = "scaleY(0.15)";
+        },
+      ),
+    [engineRef],
+  );
   return (
     <span className="wave" aria-hidden>
       {Array.from({ length: 5 }, (_, i) => (
@@ -51,12 +61,83 @@ function Waveform({ engineRef }: { engineRef: React.RefObject<AudioEngine | null
   );
 }
 
-/** Faint little notes wobbling upward while music plays. */
+/** Each note's rise: seconds before its first, and seconds per rise. */
+const NOTES: Array<{ delay: number; period: number }> = [
+  { delay: 0, period: 5.2 },
+  { delay: 1.8, period: 5.8 },
+  { delay: 3.2, period: 4.7 },
+];
+
+/** A slow rise with a side-to-side wobble, fading in and out — the path
+ *  (at, x, y) and the fade (at, opacity), each point to point. */
+const RISE_PATH: Array<[number, number, number]> = [
+  [0, 0, 0],
+  [0.3, 4, -15],
+  [0.5, -3, -27],
+  [0.7, 3, -39],
+  [1, -2, -52],
+];
+const RISE_FADE: Array<[number, number]> = [
+  [0, 0],
+  [0.12, 0.55],
+  [0.5, 0.45],
+  [1, 0],
+];
+
+function along<T extends number[]>(points: T[], at: number): number[] {
+  let i = 1;
+  while (i < points.length - 1 && points[i]![0]! < at) i++;
+  const a = points[i - 1]!;
+  const b = points[i]!;
+  const f = (at - a[0]!) / (b[0]! - a[0]! || 1);
+  return a.slice(1).map((v, k) => v + (b[k + 1]! - v) * f);
+}
+
+/**
+ * Faint little notes wobbling upward while music plays. Moved from here,
+ * fifteen times a second while ruri is in front, rather than by an endless
+ * CSS animation that redrew the window at the display's rate for as long
+ * as the music lasted; behind another app they are simply gone.
+ */
 function FloatingNotes() {
+  const notesRef = useRef<Array<SVGSVGElement | null>>([]);
+  useEffect(() => {
+    const started = performance.now();
+    return whileAwake(
+      () => {
+        const seconds = (performance.now() - started) / 1000;
+        NOTES.forEach(({ delay, period }, i) => {
+          const note = notesRef.current[i];
+          if (!note) return;
+          if (seconds < delay) return;
+          const at = ((seconds - delay) % period) / period;
+          const [x, y] = along(RISE_PATH, at);
+          const [opacity] = along(RISE_FADE, at);
+          note.style.transform = `translate(${x!.toFixed(1)}px, ${y!.toFixed(1)}px)`;
+          note.style.opacity = opacity!.toFixed(2);
+        });
+      },
+      MOTION_MS,
+      () => {
+        for (const note of notesRef.current) if (note) note.style.opacity = "0";
+      },
+    );
+  }, []);
   return (
     <span className="note-float" aria-hidden>
       {[0, 1, 2].map((i) => (
-        <svg key={i} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          key={i}
+          ref={(el) => {
+            notesRef.current[i] = el;
+          }}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d="M9 18V5l12-2v13" />
           <circle cx="6" cy="18" r="3" />
           <circle cx="18" cy="16" r="3" />

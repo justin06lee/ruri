@@ -416,7 +416,26 @@ textarea::placeholder {
 .conn.off {
   background: transparent;
   border: 2px solid var(--ink);
-  animation: pulse 1.2s ease-in-out infinite;
+}
+
+/* ── what moves by itself, stepped by web/src/lib/beat.ts ────────────
+   Nothing here is an animation: an infinite one redraws the whole window
+   at the display's rate for as long as it is on screen. The clock sets
+   data-<kind> on the few elements that move, a few times a second and only
+   while ruri is in front; these say what each step looks like. Step 0 is
+   the resting pose. */
+
+[data-pulse="1"],
+[data-pulse="3"] {
+  opacity: 0.65;
+}
+
+[data-pulse="2"] {
+  opacity: 0.3;
+}
+
+[data-blink="1"] {
+  visibility: hidden;
 }
 
 .project-list {
@@ -501,13 +520,11 @@ textarea::placeholder {
 .dot.working {
   background: var(--ink);
   border-color: var(--edge);
-  animation: pulse 1.2s ease-in-out infinite;
 }
 
 .dot.permission {
   background: transparent;
   border: 2.5px solid var(--ink);
-  animation: pulse 1.2s ease-in-out infinite;
 }
 
 .dot.error {
@@ -693,11 +710,6 @@ textarea::placeholder {
   transform: rotate(45deg);
 }
 
-@keyframes pulse {
-  50% {
-    opacity: 0.3;
-  }
-}
 
 .project-row .star {
   display: none;
@@ -829,9 +841,10 @@ textarea::placeholder {
   height: 11px;
   color: var(--ink-soft);
   opacity: 0;
-  animation: note-rise 5.2s linear infinite;
 }
 
+/* the rise itself is Player.tsx's FloatingNotes: stepped, and only while
+   ruri is in front — never an endless animation */
 .note-float svg:nth-child(1) {
   left: 16px;
 }
@@ -840,41 +853,12 @@ textarea::placeholder {
   left: 34px;
   width: 9px;
   height: 9px;
-  animation-delay: 1.8s;
-  animation-duration: 5.8s;
 }
 
 .note-float svg:nth-child(3) {
   left: 52px;
   width: 10px;
   height: 10px;
-  animation-delay: 3.2s;
-  animation-duration: 4.7s;
-}
-
-/* a slow rise with a side-to-side wobble, fading in and out */
-@keyframes note-rise {
-  0% {
-    transform: translate(0, 0);
-    opacity: 0;
-  }
-  12% {
-    opacity: 0.55;
-  }
-  30% {
-    transform: translate(4px, -15px);
-  }
-  50% {
-    transform: translate(-3px, -27px);
-    opacity: 0.45;
-  }
-  70% {
-    transform: translate(3px, -39px);
-  }
-  100% {
-    transform: translate(-2px, -52px);
-    opacity: 0;
-  }
 }
 
 .player-toggle {
@@ -1424,7 +1408,6 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--paper);
   border-color: var(--ink);
   font-weight: 700;
-  animation: pulse 1.2s ease-in-out infinite;
 }
 
 .pcard.st-error .pcard-status {
@@ -1525,13 +1508,6 @@ input[type="range"]::-webkit-slider-thumb {
   margin-left: 3px;
   vertical-align: -0.1em;
   background: var(--ink);
-  animation: blink 1s steps(2, start) infinite;
-}
-
-@keyframes blink {
-  to {
-    visibility: hidden;
-  }
 }
 
 /* the figures: two cells along the foot, today and all time, the cost
@@ -2758,7 +2734,6 @@ input[type="range"]::-webkit-slider-thumb {
   vertical-align: text-bottom;
   background: var(--ink);
   border-radius: 1px;
-  animation: pulse 0.9s ease-in-out infinite;
 }
 
 /* thinking: the two-frame hand-drawn doodle, flipping poses every 0.5s —
@@ -2807,43 +2782,38 @@ input[type="range"]::-webkit-slider-thumb {
   height: 46px;
   margin: 6px 0;
   color: var(--ink-soft);
-  transform: scaleX(-1);
-  animation: think-wiggle 4s linear infinite;
+  transform: scaleX(-1) rotate(-5deg);
 }
 
-@keyframes think-wiggle {
-  0%,
-  12.4% {
-    transform: scaleX(-1) rotate(-5deg);
-  }
-  12.5%,
-  24.9% {
-    transform: scaleX(-1) rotate(6deg);
-  }
-  25%,
-  37.4% {
-    transform: scaleX(-1) rotate(-7deg);
-  }
-  37.5%,
-  49.9% {
-    transform: scaleX(-1) rotate(4deg);
-  }
-  50%,
-  62.4% {
-    transform: scaleX(-1) rotate(-6deg);
-  }
-  62.5%,
-  74.9% {
-    transform: scaleX(-1) rotate(7deg);
-  }
-  75%,
-  87.4% {
-    transform: scaleX(-1) rotate(-4deg);
-  }
-  87.5%,
-  100% {
-    transform: scaleX(-1) rotate(5deg);
-  }
+/* eight half-second steps on the clock (data-doodle, beat.ts): a tilt each,
+   and every other one the second pose — the same hard swaps the doodle
+   always made, drawn twice a second instead of 120 times */
+.thinking[data-doodle="1"] {
+  transform: scaleX(-1) rotate(6deg);
+}
+
+.thinking[data-doodle="2"] {
+  transform: scaleX(-1) rotate(-7deg);
+}
+
+.thinking[data-doodle="3"] {
+  transform: scaleX(-1) rotate(4deg);
+}
+
+.thinking[data-doodle="4"] {
+  transform: scaleX(-1) rotate(-6deg);
+}
+
+.thinking[data-doodle="5"] {
+  transform: scaleX(-1) rotate(7deg);
+}
+
+.thinking[data-doodle="6"] {
+  transform: scaleX(-1) rotate(-4deg);
+}
+
+.thinking[data-doodle="7"] {
+  transform: scaleX(-1) rotate(5deg);
 }
 
 .thinking-frame {
@@ -2853,50 +2823,16 @@ input[type="range"]::-webkit-slider-thumb {
   height: 100%;
 }
 
-.thinking-frame.f1 {
-  animation: think-frame-a 1s linear infinite;
-}
-
 .thinking-frame.f2 {
   opacity: 0;
-  animation: think-frame-b 1s linear infinite;
 }
 
-/* flat opacity segments — a hard frame swap, no crossfade */
-@keyframes think-frame-a {
-  0%,
-  49.9% {
-    opacity: 1;
-  }
-  50%,
-  100% {
-    opacity: 0;
-  }
+.thinking:is([data-doodle="1"], [data-doodle="3"], [data-doodle="5"], [data-doodle="7"]) .thinking-frame.f1 {
+  opacity: 0;
 }
 
-@keyframes think-frame-b {
-  0%,
-  49.9% {
-    opacity: 0;
-  }
-  50%,
-  100% {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .thinking {
-    animation: none;
-  }
-
-  .thinking-frame {
-    animation: none;
-  }
-
-  .thinking-frame.f2 {
-    opacity: 0;
-  }
+.thinking:is([data-doodle="1"], [data-doodle="3"], [data-doodle="5"], [data-doodle="7"]) .thinking-frame.f2 {
+  opacity: 1;
 }
 
 /* queued prompts: user-bubble look, dashed — waiting for their turn */
@@ -4282,18 +4218,20 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 50%;
   border: 1.5px solid currentColor;
   border-right-color: transparent;
-  animation: agent-turn 900ms linear infinite;
 }
+
+/* an eighth of a turn per step of the clock (data-spin, beat.ts) */
+.agent-status[data-spin="1"]::before { transform: rotate(45deg); }
+.agent-status[data-spin="2"]::before { transform: rotate(90deg); }
+.agent-status[data-spin="3"]::before { transform: rotate(135deg); }
+.agent-status[data-spin="4"]::before { transform: rotate(180deg); }
+.agent-status[data-spin="5"]::before { transform: rotate(225deg); }
+.agent-status[data-spin="6"]::before { transform: rotate(270deg); }
+.agent-status[data-spin="7"]::before { transform: rotate(315deg); }
 
 .agent-status.failed {
   color: var(--ink);
   font-weight: 700;
-}
-
-@keyframes agent-turn {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* indented under the name, so the three lines read as one thing */

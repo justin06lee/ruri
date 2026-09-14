@@ -1,6 +1,12 @@
 import { memo, useMemo } from "react";
 import { HOME_ID, type Project, type ProjectStats, type SessionInfo, type Totals, type TranscriptEvent } from "../../../shared/protocol";
 import { useRuri } from "../store";
+import { beat } from "../lib/beat";
+
+/** A status dot's ref: on the clock while its status is one that pulses. */
+function pulsing(status: string): ReturnType<typeof beat> | undefined {
+  return status === "working" || status === "permission" ? beat("pulse") : undefined;
+}
 
 /**
  * Home's two pages and the strip that swaps them.
@@ -151,7 +157,7 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
     >
       {many && (
         <span className="board-session-title">
-          <span className={`dot ${status}`} aria-hidden />
+          <span className={`dot ${status}`} aria-hidden ref={pulsing(status)} />
           {session.title ?? "new session"}
         </span>
       )}
@@ -161,7 +167,7 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
         lines.map((line, i) => (
           <span key={i} className={`board-line ${line.kind}`}>
             {line.text}
-            {line.kind === "live" && <span className="board-cursor" aria-hidden />}
+            {line.kind === "live" && <span className="board-cursor" aria-hidden ref={beat("blink")} />}
           </span>
         ))
       )}
@@ -217,9 +223,11 @@ function ProjectCard({ project, stats, status }: { project: Project; stats: Proj
         onClick={() => first && setActive(first.id)}
         title={first ? `Open ${project.name}` : undefined}
       >
-        <span className={`dot ${status}`} aria-hidden />
+        <span className={`dot ${status}`} aria-hidden ref={pulsing(status)} />
         <span className="pcard-name">{project.name}</span>
-        <span className="pcard-status">{WORD[status]}</span>
+        <span className="pcard-status" ref={status === "permission" ? beat("pulse") : undefined}>
+          {WORD[status]}
+        </span>
       </div>
       <div className="pcard-body">
         {project.sessions.length === 0 ? (
@@ -285,7 +293,11 @@ export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) =
         >
           chat
           {(homeStatus === "working" || homeStatus === "permission") && (
-            <span className={`dot ${homeStatus}`} aria-label={homeStatus === "working" ? "Home is working" : "Home needs you"} />
+            <span
+              className={`dot ${homeStatus}`}
+              aria-label={homeStatus === "working" ? "Home is working" : "Home needs you"}
+              ref={beat("pulse")}
+            />
           )}
         </button>
         <button
@@ -304,7 +316,13 @@ export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) =
         >
           projects
           {projects.length > 0 && <span className="home-tab-count">{projects.length}</span>}
-          {live && <span className={`dot ${live}`} aria-label={live === "permission" ? "a project needs you" : "projects working"} />}
+          {live && (
+            <span
+              className={`dot ${live}`}
+              aria-label={live === "permission" ? "a project needs you" : "projects working"}
+              ref={beat("pulse")}
+            />
+          )}
         </button>
       </div>
     </div>

@@ -445,6 +445,19 @@ export interface Playlist {
 export interface CompactionEntry {
   user: string;
   reply: string;
+  /** The exchange's number in the whole conversation — the name of its
+   *  record's file. Absent on marks from before the digest, which listed
+   *  every exchange and so counted from 1. */
+  n?: number;
+}
+
+/** The oldest exchanges of a long conversation condensed together by the
+ *  small model, rather than listed one by one (server/compaction.ts). */
+export interface CompactionDigest {
+  text: string;
+  /** How many of the conversation's exchanges, from its start, it covers —
+   *  0 when all it covers is history since dropped by the history's cap. */
+  through: number;
 }
 
 /** A turn's recall notes on the wire: the prompt's and the reply's, each
@@ -543,7 +556,7 @@ export type TranscriptEvent =
    *  model-facing brief (summaries + full-turn file hooks) and `entries` its
    *  structured prompt/reply pairs, hidden behind the zigzag separator
    *  unless the user unfolds it. */
-  | { kind: "compaction"; id: string; text: string; entries?: CompactionEntry[]; ts: number };
+  | { kind: "compaction"; id: string; text: string; entries?: CompactionEntry[]; digest?: CompactionDigest; ts: number };
 
 /**
  * A subagent a harness started — Claude's Agent tool, Codex's spawn_agent —

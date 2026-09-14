@@ -1,8 +1,10 @@
 import {
+  createContext,
   lazy,
   memo,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -23,6 +25,7 @@ import {
   type PermissionRequest,
   type Project,
   type QueuedPrompt,
+  type SubagentState,
   type TranscriptEvent,
   type TurnNote,
   unmarked,
@@ -73,10 +76,14 @@ import { heroFor, heroUrl, launchHero } from "../hero";
 import { fileToBase64 } from "../lib/files";
 import { Markdown, StreamingMarkdown } from "../markdown";
 import {
+  agentLogKey,
+  backAgent,
   clearComposerDraft,
+  closeAgent,
   composeInto,
   composerDrafts,
   ensureTranscript,
+  openAgent,
   requestHistory,
   send,
   setComposerDraft,
@@ -241,6 +248,229 @@ function CompactionMark({
   );
 }
 
+/* ── subagents ────────────────────────────────────────────────────── */
+
+/** Where an agent card sits: in the chat it opens as the panel's only
+ *  agent; inside the panel it opens on top of the one showing. */
+const AgentHost = createContext<"chat" | "panel">("chat");
+
+const AGENT_STATUS: Record<SubagentState["status"], string> = {
+  running: "working",
+  done: "done",
+  failed: "failed",
+  stopped: "stopped",
+};
+
+function tokenCount(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+function span(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+/** A clock for a running agent's time — ticking only while it runs. */
+function useTick(on: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!on) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [on]);
+  return now;
+}
+
+/** The numbers under an agent: tools run, tokens spent, for how long, and
+ *  whether it was left working in the background. */
+function AgentMeta({ agent }: { agent: SubagentState }) {
+  const now = useTick(agent.status === "running");
+  const line = [
+    agent.tools ? `${agent.tools} tool${agent.tools === 1 ? "" : "s"}` : undefined,
+    agent.tokens ? `${tokenCount(agent.tokens)} tokens` : undefined,
+    span((agent.endedAt ?? now) - agent.startedAt),
+    agent.background ? "in the background" : undefined,
+    agent.model,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return <span className="agent-card-meta">{line}</span>;
+}
+
+function AgentHead({ agent }: { agent: SubagentState }) {
+  return (
+    <span className="agent-head">
+      <Icon d={TOOL_ICONS["agent"]!} />
+      <span className="agent-type">{agent.type ?? "Agent"}</span>
+      <span className="agent-desc">{agent.description}</span>
+      <span className={`agent-status ${agent.status}`}>{AGENT_STATUS[agent.status]}</span>
+    </span>
+  );
+}
+
+/**
+ * A subagent in the chat: what it was sent to do, what it is doing right
+ * now (or what it came back with), and how far it has got. It opens onto
+ * its own conversation — the brief, everything it read, ran and said.
+ */
+function AgentCard({ agent, channelId }: { agent: SubagentState; channelId?: string }) {
+  const host = useContext(AgentHost);
+  const line =
+    agent.status === "running" ? agent.activity : agent.result ? excerpt(unmarked(agent.result), 220) : undefined;
+  return (
+    <button
+      className={`agent-card ${agent.status}`}
+      title="Open this agent — its brief, everything it did, and what it came back with"
+      onClick={() => channelId && openAgent(channelId, agent.key, host === "panel")}
+    >
+      <AgentHead agent={agent} />
+      {line && <span className="agent-card-line">{line}</span>}
+      <AgentMeta agent={agent} />
+    </button>
+  );
+}
+
+type Ruri = ReturnType<typeof useRuri.getState>;
+
+/** An agent's card as it stands: in the chat, or — an agent's own agent —
+ *  in the log of the one that started it. */
+function findAgent(s: Ruri, channelId: string, key: string): SubagentState | undefined {
+  const hit = (events: TranscriptEvent[] | undefined) =>
+    events?.find((e): e is Extract<TranscriptEvent, { kind: "tool" }> => e.kind === "tool" && e.agent?.key === key)
+      ?.agent;
+  const found = hit(s.transcripts[channelId]);
+  if (found) return found;
+  for (const [id, events] of Object.entries(s.agentLogs)) {
+    if (!id.startsWith(`${channelId}\u0000`)) continue;
+    const nested = hit(events);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+/**
+ * The agents panel, over the right of the chat: one agent's own
+ * conversation — the brief it was handed, what it said, every tool it ran,
+ * live while it works — or, with none picked, every agent the chat has
+ * started. The chat and its composer stay where they are beside it.
+ */
+function AgentPanel({
+  channelId,
+  project,
+  agents,
+}: {
+  channelId: string;
+  project?: Project;
+  agents: SubagentState[];
+}) {
+  const panel = useRuri((s) => (s.agentPanel?.projectId === channelId ? s.agentPanel : null));
+  const key = panel?.keys.at(-1);
+  const log = useRuri((s) => (key ? s.agentLogs[agentLogKey(channelId, key)] : undefined));
+  const agent = useRuri((s) => (key ? findAgent(s, channelId, key) : undefined));
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // at the newest thing the agent did, for as long as you stay down there
+  const pinned = useRef(true);
+  useEffect(() => {
+    pinned.current = true;
+  }, [key]);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (body && pinned.current) body.scrollTop = body.scrollHeight;
+  }, [log, key]);
+  useEffect(() => {
+    if (!panel) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if ((e.target as HTMLElement | null)?.closest("textarea, input, [contenteditable]")) return;
+      closeAgent();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [panel]);
+  if (!panel) return null;
+
+  // its report, when it said more than its last message did
+  const said = log && [...log].reverse().find((e) => e.kind === "assistant");
+  const report =
+    agent?.result && agent.status !== "running" && (said?.kind !== "assistant" || said.text.trim() !== agent.result.trim())
+      ? agent.result
+      : undefined;
+  return (
+    <aside className="agent-panel" aria-label="Agents">
+      <div className="agent-panel-head">
+        {key && (
+          <button
+            className="icon-button"
+            title={panel.keys.length > 1 ? "Back to the agent under this one" : "Every agent in this chat"}
+            onClick={backAgent}
+          >
+            <Icon d="M15 18l-6-6 6-6" />
+          </button>
+        )}
+        <div className="agent-panel-title">
+          {key && agent ? (
+            <>
+              <AgentHead agent={agent} />
+              <AgentMeta agent={agent} />
+            </>
+          ) : (
+            <span className="agent-head">
+              <Icon d={TOOL_ICONS["agent"]!} />
+              <span className="agent-type">Agents</span>
+              <span className="agent-desc">
+                {agents.length} in this chat
+                {agents.some((a) => a.status === "running") &&
+                  ` · ${agents.filter((a) => a.status === "running").length} working`}
+              </span>
+            </span>
+          )}
+        </div>
+        <button className="icon-button" title="Close (Esc)" onClick={closeAgent}>
+          <Icon d="M18 6L6 18M6 6l12 12" />
+        </button>
+      </div>
+      <div
+        className="agent-panel-body"
+        ref={bodyRef}
+        onScroll={(e) => {
+          const body = e.currentTarget;
+          pinned.current = body.scrollHeight - body.scrollTop - body.clientHeight < 48;
+        }}
+      >
+        <AgentHost.Provider value="panel">
+          {!key ? (
+            agents.length > 0 ? (
+              agents.map((a) => <AgentCard key={a.key} agent={a} channelId={channelId} />)
+            ) : (
+              <div className="agent-panel-empty">no agents in this chat</div>
+            )
+          ) : (
+            <>
+              {log && log.length > 0 ? (
+                log.map((event) => <EventView key={event.id} event={event} project={project} channelId={channelId} />)
+              ) : (
+                <div className="agent-panel-empty">
+                  {log ? "nothing was kept of what this one did" : "opening…"}
+                </div>
+              )}
+              {report && (
+                <div className="agent-panel-report">
+                  <div className="agent-panel-label">what it came back with</div>
+                  <Markdown text={report} />
+                </div>
+              )}
+              {agent?.status === "running" && (
+                <div className="agent-panel-live">{agent.activity ? `${agent.activity}…` : "working…"}</div>
+              )}
+            </>
+          )}
+        </AgentHost.Provider>
+      </div>
+    </aside>
+  );
+}
+
 /**
  * One transcript event. Memoised: an event never changes once it's written,
  * so a re-render of the pane — a delta arriving, older turns filling in
@@ -317,6 +547,7 @@ export const EventView = memo(function EventView({
         </div>
       );
     case "tool": {
+      if (event.agent) return <AgentCard agent={event.agent} channelId={channelId} />;
       // The question itself is the card that asked it — a chip repeating the
       // questions above it says nothing the user has not just answered. The
       // event stays in the archive, so a compaction still carries the ask.
@@ -1844,6 +2075,22 @@ export function ChatPane({
   const permissions = allPermissions.filter((p) => p.projectId === activeId);
   const lastError = useRuri((s) => s.lastError);
   const dismissError = useRuri((s) => s.dismissError);
+  // Every agent this chat has started — the header's count, the panel's
+  // list — the ones still working first, then the newest.
+  const agents = useMemo(
+    () =>
+      transcript
+        .flatMap((e) => (e.kind === "tool" && e.agent ? [e.agent] : []))
+        .sort((a, b) => Number(b.status === "running") - Number(a.status === "running") || b.startedAt - a.startedAt),
+    [transcript],
+  );
+  const agentsWorking = agents.filter((a) => a.status === "running").length;
+  const agentsOpen = useRuri((s) => s.agentPanel !== null && s.agentPanel.projectId === activeId);
+  // the panel belongs to its chat: going to another one puts it away
+  useEffect(() => {
+    const panel = useRuri.getState().agentPanel;
+    if (panel && panel.projectId !== activeId) closeAgent();
+  }, [activeId]);
 
   // Native-picker results land here (always mounted) and route by target.
   const picked = useRuri((s) => s.picked);
@@ -2257,6 +2504,20 @@ export function ChatPane({
         </div>
       </div>
       <div className="header-controls">
+        {agents.length > 0 && (
+          <button
+            className={`icon-button ${agentsOpen ? "active" : ""}`}
+            title={
+              agentsWorking > 0
+                ? `Agents — ${agentsWorking} still working; open one to watch it`
+                : "Agents — every one this chat has started, and what each did"
+            }
+            onClick={() => (agentsOpen ? closeAgent() : activeId && openAgent(activeId))}
+          >
+            <Icon d={TOOL_ICONS["agent"]!} />
+            {agentsWorking > 0 && <span className="tracker-badge">{agentsWorking}</span>}
+          </button>
+        )}
         <button
           className={`icon-button ${page === "skills" ? "active" : ""}`}
           title="Skills — what this project and this machine load before working"
@@ -2539,6 +2800,7 @@ export function ChatPane({
       )}
       {rapid?.on && <RapidBar rapid={rapid} floating />}
       {activeId && <BridgeStrip channelId={activeId} stacked={rapid?.on} />}
+      {activeId && agentsOpen && <AgentPanel channelId={activeId} project={project} agents={agents} />}
       </div>
 
       {rewindTarget && (

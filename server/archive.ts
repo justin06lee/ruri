@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { excerpt, keepRecent, unmarked, type EarlierItem, type TranscriptEvent, type TurnNote } from "../shared/protocol.js";
+import { settleAgent } from "./agents.js";
 
 /**
  * Per-project session archive: the single source of truth for transcripts,
@@ -196,7 +197,9 @@ export class SessionArchive {
         }
       }
       entry = {
-        events: Array.isArray(raw.events) ? raw.events : [],
+        // an agent card still running on disk belonged to a process that
+        // ended with the last run: it was stopped, whatever it last said
+        events: Array.isArray(raw.events) ? raw.events.map(settleAgent) : [],
         summaries,
         ...(typeof raw.lastSessionId === "string" ? { lastSessionId: raw.lastSessionId } : {}),
         ...(Array.isArray(raw.sessionIds) ? { sessionIds: raw.sessionIds.filter((id) => typeof id === "string") } : {}),
@@ -237,7 +240,7 @@ export class SessionArchive {
     for (const line of text.split("\n")) {
       if (!line) continue;
       try {
-        events.push(JSON.parse(line) as TranscriptEvent);
+        events.push(settleAgent(JSON.parse(line) as TranscriptEvent));
       } catch {
         // a line torn by a crash mid-append
       }
@@ -401,6 +404,18 @@ export class SessionArchive {
       return;
     }
     this.scheduleWrite(projectId);
+  }
+
+  /** Replace an event still in the live transcript — a subagent's card
+   *  moving along. One already folded into the history, or removed, is
+   *  left there: an update is never a reason to bring it back. */
+  replace(projectId: string, event: TranscriptEvent): boolean {
+    const events = this.load(projectId).events;
+    const at = events.findIndex((candidate) => candidate.id === event.id);
+    if (at === -1) return false;
+    events[at] = event;
+    this.scheduleWrite(projectId);
+    return true;
   }
 
   /** Remove one event; a user event takes the rest of its turn (everything

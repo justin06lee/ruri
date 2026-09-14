@@ -408,6 +408,103 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     }
   }
 
+  /**
+   * What each window has on screen (the `view` message).
+   *
+   * A chat's conversation as it happens — a reply's paragraphs, each tool
+   * call, its agents at work, the turn's counter — goes only to the windows
+   * showing that chat. Every other window hears the chat's status and its
+   * finished turns, and catches up the moment the chat is opened. Before,
+   * every agent's every step re-rendered a window that was showing none of
+   * them.
+   */
+  interface ClientView {
+    /** The chats on screen, whether or not the window can be seen. */
+    channels: Set<string>;
+    /** The window can be seen (not hidden, not minimised). */
+    live: boolean;
+    /** Home's projects page is up: it shows every chat's last few lines. */
+    board: boolean;
+    /** Each chat that left the screen, and its revision as it went. Back
+     *  unchanged, it needs nothing; changed, it is sent whole again. */
+    seen: Map<string, number>;
+  }
+  const views = new Map<WebSocket, ClientView>();
+  const NOTHING: ReadonlySet<string> = new Set();
+  /** Per channel, moved on by every change to its transcript. */
+  const revisions = new Map<string, number>();
+
+  function touch(channelId: string): void {
+    revisions.set(channelId, (revisions.get(channelId) ?? 0) + 1);
+  }
+
+  /** The chats a window is being sent as they happen. */
+  function showing(view: ClientView): ReadonlySet<string> {
+    return view.live ? view.channels : NOTHING;
+  }
+
+  /** To the windows showing this chat — and, `board`, to any on Home's
+   *  projects page. A window that has not said what it shows (a script, the
+   *  moment between the snapshot and its first view) is sent everything. */
+  function toViewers(channelId: string, message: ServerMessage, board = false): void {
+    let payload: string | undefined;
+    for (const client of clients) {
+      if (client.readyState !== WebSocket.OPEN) continue;
+      const view = views.get(client);
+      if (view && !(showing(view).has(channelId) || (board && view.live && view.board))) continue;
+      payload ??= JSON.stringify(message);
+      client.send(payload);
+    }
+  }
+
+  /** Some window has this chat open, seen or not — what keeps its agent
+   *  process warm between turns. */
+  function isOpen(channelId: string): boolean {
+    for (const view of views.values()) if (view.channels.has(channelId)) return true;
+    return false;
+  }
+
+  /** One transcript event out: to the windows showing its chat and the
+   *  projects page — and a turn's end to every window, which is how a chat
+   *  not on screen gets its "finished" pip. */
+  function pushEvent(channelId: string, event: TranscriptEvent): void {
+    touch(channelId);
+    if (event.kind === "result") broadcast({ type: "event", projectId: channelId, event });
+    else toViewers(channelId, { type: "event", projectId: channelId, event }, true);
+  }
+
+  /** A channel's live transcript, whole, as a window takes it. */
+  function transcriptOf(channelId: string): ServerMessage {
+    const events = archive.events(channelId);
+    allowReadImages(events, pictureBase(channelId));
+    return {
+      type: "transcript",
+      projectId: channelId,
+      events,
+      summaries: archive.allSummaries([channelId])[channelId] ?? {},
+      earlier: archive.earlier(channelId),
+    };
+  }
+
+  /** A chat just come on screen in `ws`: whatever it missed while it was
+   *  not. Never shown here before, the window holds only its tail and asks
+   *  for the rest itself (transcript_get). */
+  function catchUp(ws: WebSocket, view: ClientView, channelId: string): void {
+    const seen = view.seen.get(channelId);
+    view.seen.delete(channelId);
+    const out: ServerMessage[] = [];
+    if (seen !== undefined && seen !== (revisions.get(channelId) ?? 0)) out.push(transcriptOf(channelId));
+    const held = gates.get(channelId);
+    out.push({
+      type: "reply",
+      projectId: channelId,
+      draft: held?.shown ? { messageId: held.messageId, text: held.shown } : null,
+    });
+    const turn = turnProgress.get(channelId);
+    out.push({ type: "turn", projectId: channelId, turn: turn ? { ...turn, tokens: Math.round(turn.tokens) } : null });
+    for (const message of out) ws.send(JSON.stringify(message));
+  }
+
   /** The port this server actually listens on, known once it does. A
    *  session's bridge endpoint is written with it, and sessions are made
    *  long after. */
@@ -613,13 +710,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     const turn = turnProgress.get(channelId);
     if (!turn) {
       turnSent.delete(channelId);
-      broadcast({ type: "turn", projectId: channelId, turn: null });
+      toViewers(channelId, { type: "turn", projectId: channelId, turn: null });
       return;
     }
     const now = Date.now();
     if (!force && now - (turnSent.get(channelId) ?? 0) < TURN_TICK_MS) return;
     turnSent.set(channelId, now);
-    broadcast({ type: "turn", projectId: channelId, turn: { ...turn, tokens: Math.round(turn.tokens) } });
+    toViewers(channelId, { type: "turn", projectId: channelId, turn: { ...turn, tokens: Math.round(turn.tokens) } });
   }
 
   function startTurn(channelId: string): void {
@@ -1428,7 +1525,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         ts: Date.now(),
       };
       archive.append(channelId, event);
-      broadcast({ type: "event", projectId: channelId, event });
+      pushEvent(channelId, event);
       drainQueue(channelId);
       return;
     }
@@ -1458,19 +1555,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     backfillNotes([channelId], { first: true });
   }
 
-  /** A channel's live transcript to every client, replacing what they hold:
-   *  after anything that rewrites it rather than adding to it — a
-   *  compaction folding the past away, a rewind reaching back into it. */
+  /** A channel's live transcript to the windows showing it, replacing what
+   *  they hold: after anything that rewrites it rather than adding to it — a
+   *  compaction folding the past away, a rewind reaching back into it. The
+   *  rest are sent it when they open the chat (catchUp). */
   function pushTranscript(channelId: string): void {
-    const events = archive.events(channelId);
-    allowReadImages(events, pictureBase(channelId));
-    broadcast({
-      type: "transcript",
-      projectId: channelId,
-      events,
-      summaries: archive.allSummaries([channelId])[channelId] ?? {},
-      earlier: archive.earlier(channelId),
-    });
+    touch(channelId);
+    toViewers(channelId, transcriptOf(channelId));
   }
 
   /**
@@ -1822,8 +1913,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
    * it here would break that for the sake of a value the user chose to type.
    */
   /** Each channel's reply in progress, held back to whole paragraphs
-   *  (server/paragraphs.ts). */
-  const gates = new Map<string, { messageId: string; gate: ParagraphGate }>();
+   *  (server/paragraphs.ts) — and what has been let through so far, for a
+   *  window that opens the chat halfway through it. */
+  const gates = new Map<string, { messageId: string; gate: ParagraphGate; shown: string }>();
 
   /** An event with the vault's values taken back out of everything it
    *  shows — a subagent's card included: its brief, its line, its report. */
@@ -1845,7 +1937,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     archive.append(projectId, event);
     turns.observe(projectId, event);
     if (projectId === HOME_ID) homeLog.observe(event);
-    broadcast({ type: "event", projectId, event });
+    pushEvent(projectId, event);
     // every prompt gets its recall note AND its tracker split the moment
     // it's sent — neither waits on (or survives only with) a finished turn,
     // so interrupted turns and "continue" follow-ups can't lose requests.
@@ -1901,22 +1993,25 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // a subagent's card moving along: replaced where it stands, and
         // only while it still stands in the live transcript
         const event = redacted(raw);
-        if (archive.replace(projectId, event)) broadcast({ type: "event", projectId, event });
+        if (archive.replace(projectId, event)) pushEvent(projectId, event);
       },
       onAgentEvent: (projectId, key, raw) => {
         const event = redacted(raw);
         allowReadImages([event], pictureBase(projectId));
         agentLogs.append(projectId, key, event);
-        broadcast({ type: "agent_event", projectId, key, event });
+        // an agent's log is only ever open in the chat that started it
+        toViewers(projectId, { type: "agent_event", projectId, key, event });
       },
       onDelta: (projectId, messageId, delta) => {
         let held = gates.get(projectId);
         if (!held || held.messageId !== messageId) {
-          held = { messageId, gate: new ParagraphGate() };
+          held = { messageId, gate: new ParagraphGate(), shown: "" };
           gates.set(projectId, held);
         }
         const ready = held.gate.push(delta);
-        if (ready) broadcast({ type: "delta", projectId, messageId, delta: ready });
+        if (!ready) return;
+        held.shown += ready;
+        toViewers(projectId, { type: "delta", projectId, messageId, delta: ready });
       },
       onStatus: (projectId, status) => {
         if (status === "working" || status === "permission") {
@@ -2038,6 +2133,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   );
   // an unset model is whatever Settings crowned, read live
   manager.useDefaultModel(() => store.defaultModel());
+  // between turns a process stays for the chat open in a window, a prompt
+  // queued behind the turn, or a retry about to go — for nothing else
+  manager.useKeepWarm((id) => isOpen(id) || (sendQueues.get(id)?.length ?? 0) > 0 || retries.has(id));
 
   /** The session's window and apps go with it, and so do its pictures. */
   function closeBridge(sessionId: string): void {
@@ -2610,19 +2708,39 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // the asker alone, with its pictures made readable on the way
         const id = msg.projectId;
         if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
-        const events = archive.events(id);
-        allowReadImages(events, pictureBase(id));
-        ws.send(
-          JSON.stringify({
-            type: "transcript",
-            projectId: id,
-            events,
-            summaries: archive.allSummaries([id])[id] ?? {},
-            earlier: archive.earlier(id),
-          } satisfies ServerMessage),
-        );
+        ws.send(JSON.stringify(transcriptOf(id)));
         // the chat on screen gets its missing notes before any other
         backfillNotes([id], { first: true });
+        break;
+      }
+      case "view": {
+        const known = new Set([...store.sessionIds(), HOME_ID]);
+        const view = views.get(ws) ?? { channels: new Set<string>(), live: true, board: false, seen: new Map() };
+        const before = new Set(showing(view));
+        const wasOpen = view.channels;
+        const hadBoard = view.live && view.board;
+        view.channels = new Set(msg.channels.filter((id) => known.has(id)));
+        view.live = msg.live;
+        view.board = msg.board === true;
+        views.set(ws, view);
+        const now = showing(view);
+        for (const id of before) if (!now.has(id)) view.seen.set(id, revisions.get(id) ?? 0);
+        for (const id of now) if (!before.has(id)) catchUp(ws, view, id);
+        // the projects page coming up: every chat's tail as it now stands,
+        // since the ones not on screen stopped hearing about their work
+        if (view.live && view.board && !hadBoard) {
+          const others = [...known].filter((id) => !now.has(id));
+          ws.send(
+            JSON.stringify({
+              type: "tails",
+              transcripts: allowArchived(archive.tails(others, TRANSCRIPT_TAIL)),
+            } satisfies ServerMessage),
+          );
+        }
+        // a chat opened or left: its process looks again at whether it stays
+        for (const id of new Set([...wasOpen, ...view.channels])) {
+          if (wasOpen.has(id) !== view.channels.has(id)) manager.settle(id);
+        }
         break;
       }
       case "agent_log": {
@@ -3405,7 +3523,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         );
       }
     });
-    ws.on("close", () => clients.delete(ws));
+    ws.on("close", () => {
+      clients.delete(ws);
+      const view = views.get(ws);
+      views.delete(ws);
+      // a window gone is every chat it had open, left
+      for (const id of view?.channels ?? []) manager.settle(id);
+    });
   });
 
   const host = options.host ?? "127.0.0.1";

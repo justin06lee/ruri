@@ -816,6 +816,15 @@ export type ClientMessage =
    *  TRANSCRIPT_TAIL events of each, and a chat asks for the rest when it
    *  opens. Answered with `transcript`, to the asker alone. */
   | { type: "transcript_get"; projectId: string }
+  /** What this window has on screen — sent whenever it changes. Only the
+   *  chats in `channels` get their conversation live (a reply's paragraphs,
+   *  tool calls, agents at work, the turn's counter); every other chat gets
+   *  its status and its finished turns, and catches up when it is opened.
+   *  `live` false (the window hidden) pauses even those. `board`: Home's
+   *  projects page is up, which shows every chat's last few lines. The chats
+   *  in `channels` also keep their agent process warm between turns; a chat
+   *  nobody has open closes its process the moment its work is done. */
+  | { type: "view"; channels: string[]; live: boolean; board?: boolean }
   /** The exchanges before a chat's newest compaction — its history, which
    *  the live transcript no longer carries. Answered with `history`, to
    *  the asker alone. */
@@ -1115,6 +1124,13 @@ export type ServerMessage =
   /** Something a subagent just did — for its log, never the chat. */
   | { type: "agent_event"; projectId: string; key: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }
+  /** The reply in progress as it stands, replacing whatever the window
+   *  holds (null = none streaming) — for a chat that has just been opened,
+   *  whose deltas went nowhere while it was not on screen. */
+  | { type: "reply"; projectId: string; draft: { messageId: string; text: string } | null }
+  /** Every chat's last few events, for Home's projects page as it opens:
+   *  the chats not on screen stopped hearing about their work. */
+  | { type: "tails"; transcripts: Record<string, TranscriptEvent[]> }
   | { type: "status"; projectId: string; status: ProjectStatus }
   | { type: "permission_request"; request: PermissionRequest }
   | { type: "permission_resolved"; requestId: string }

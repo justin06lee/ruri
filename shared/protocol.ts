@@ -494,6 +494,9 @@ export type TranscriptEvent =
       image?: { url: string; name: string };
       /** Set when the tool changed a file — the transcript shows the patch. */
       diff?: FileDiff;
+      /** Set when the tool started a subagent — the chip is the agent's card,
+       *  sent again with this updated as it works, and opens its own log. */
+      agent?: SubagentState;
       ts: number;
     }
   | {
@@ -541,6 +544,39 @@ export type TranscriptEvent =
    *  structured prompt/reply pairs, hidden behind the zigzag separator
    *  unless the user unfolds it. */
   | { kind: "compaction"; id: string; text: string; entries?: CompactionEntry[]; ts: number };
+
+/**
+ * A subagent a harness started — Claude's Agent tool, Codex's spawn_agent —
+ * as its card in the chat shows it. What the agent itself did (its brief,
+ * what it said, every tool it ran) is kept apart from the chat, as its own
+ * log under `key`: the chat stays the conversation, and the card opens
+ * the agent's side of it.
+ */
+export interface SubagentState {
+  /** The spawning call's id (Claude's tool_use id, Codex's item id) — the
+   *  key its log is kept under. */
+  key: string;
+  /** The agent's kind, when the harness names one ("Explore"). */
+  type?: string;
+  /** What it was sent to do, in a line. */
+  description: string;
+  /** The whole brief it was handed. */
+  prompt?: string;
+  model?: string;
+  status: "running" | "done" | "failed" | "stopped";
+  /** Left working while the conversation carried on without it. */
+  background?: boolean;
+  /** What it is doing right now: the harness's own progress summary, or
+   *  else the latest tool it ran. */
+  activity?: string;
+  tokens?: number;
+  /** How many tools it has run. */
+  tools?: number;
+  startedAt: number;
+  endedAt?: number;
+  /** Its final report, once it has given one. */
+  result?: string;
+}
 
 /** One line of a patch, in git's three flavours. */
 export interface DiffLine {
@@ -758,6 +794,9 @@ export type ClientMessage =
   /** Remove a transcript event (a clicked command chip). A user event takes
    *  the rest of its turn with it. */
   | { type: "remove_event"; projectId: string; eventId: string }
+  /** A subagent's own log (everything it did), for its opened card —
+   *  answered with `agent_log`, then kept current by `agent_event`. */
+  | { type: "agent_log"; projectId: string; key: string }
   /** Rewind to just before this user event ran. On Claude that is the
    *  conversation AND the code (it rides the CLI's file checkpoints); on
    *  every other harness it is the conversation, re-seeded from a brief,
@@ -1071,6 +1110,10 @@ export type ServerMessage =
   /** A project's spending changed (a turn finished). Keyed by PROJECT id. */
   | { type: "stats"; projectId: string; stats: ProjectStats }
   | { type: "event"; projectId: string; event: TranscriptEvent }
+  /** A subagent's log so far (`key` is its SubagentState.key). */
+  | { type: "agent_log"; projectId: string; key: string; events: TranscriptEvent[] }
+  /** Something a subagent just did — for its log, never the chat. */
+  | { type: "agent_event"; projectId: string; key: string; event: TranscriptEvent }
   | { type: "delta"; projectId: string; messageId: string; delta: string }
   | { type: "status"; projectId: string; status: ProjectStatus }
   | { type: "permission_request"; request: PermissionRequest }

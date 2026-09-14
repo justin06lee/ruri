@@ -21,6 +21,7 @@ import type {
   UsageLimits,
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
+import { AgentLogs } from "./agents.js";
 import { buildCompaction, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
 import { DraftStore } from "./drafts.js";
 import { HomeLog } from "./homelog.js";
@@ -351,12 +352,15 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     broadcast({ type: "home_settings", home: store.homeSettings() });
   }
   const archive = new SessionArchive();
+  /** What each subagent did, apart from the chat that started it. */
+  const agentLogs = new AgentLogs();
   // Home is ephemeral: it keeps its newest events and lets the rest go
   archive.cap(HOME_ID, HOME_TRANSCRIPT_MAX);
   // Home is ephemeral — it exists to open projects, not to accumulate
   // context. Every launch starts it blank (no transcript, no resume).
   archive.remove(HOME_ID);
   removeTurnFiles(HOME_ID);
+  agentLogs.remove(HOME_ID);
   // Home's chat is ephemeral, but its activity persists in the write-ahead
   // log — appended programmatically per event, grepped by the model.
   const homeLog = new HomeLog();
@@ -1821,13 +1825,23 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
    *  (server/paragraphs.ts). */
   const gates = new Map<string, { messageId: string; gate: ParagraphGate }>();
 
+  /** An event with the vault's values taken back out of everything it
+   *  shows — a subagent's card included: its brief, its line, its report. */
+  function redacted(raw: TranscriptEvent): TranscriptEvent {
+    if (raw.kind === "assistant" || raw.kind === "info") return { ...raw, text: secrets.redact(raw.text) };
+    if (raw.kind !== "tool") return raw;
+    const agent = raw.agent && {
+      ...raw.agent,
+      description: secrets.redact(raw.agent.description),
+      ...(raw.agent.prompt ? { prompt: secrets.redact(raw.agent.prompt) } : {}),
+      ...(raw.agent.activity ? { activity: secrets.redact(raw.agent.activity) } : {}),
+      ...(raw.agent.result ? { result: secrets.redact(raw.agent.result) } : {}),
+    };
+    return { ...raw, summary: secrets.redact(raw.summary), ...(agent ? { agent } : {}) };
+  }
+
   function recordEvent(projectId: string, raw: TranscriptEvent): void {
-    const event =
-      raw.kind === "assistant" || raw.kind === "info"
-        ? { ...raw, text: secrets.redact(raw.text) }
-        : raw.kind === "tool"
-          ? { ...raw, summary: secrets.redact(raw.summary) }
-          : raw;
+    const event = redacted(raw);
     archive.append(projectId, event);
     turns.observe(projectId, event);
     if (projectId === HOME_ID) homeLog.observe(event);
@@ -1882,6 +1896,18 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           if (!drainQueue(projectId)) maybeRetry(projectId, event);
           else cancelRetry(projectId);
         }
+      },
+      onEventUpdate: (projectId, raw) => {
+        // a subagent's card moving along: replaced where it stands, and
+        // only while it still stands in the live transcript
+        const event = redacted(raw);
+        if (archive.replace(projectId, event)) broadcast({ type: "event", projectId, event });
+      },
+      onAgentEvent: (projectId, key, raw) => {
+        const event = redacted(raw);
+        allowReadImages([event], pictureBase(projectId));
+        agentLogs.append(projectId, key, event);
+        broadcast({ type: "agent_event", projectId, key, event });
       },
       onDelta: (projectId, messageId, delta) => {
         let held = gates.get(projectId);
@@ -2031,6 +2057,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       manager.dispose(sessionId);
       archive.remove(sessionId);
       removeTurnFiles(sessionId);
+      agentLogs.remove(sessionId);
       drafts.remove(sessionId);
       tracker.removeProject(sessionId);
       contexts.delete(sessionId);
@@ -2598,6 +2625,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         backfillNotes([id], { first: true });
         break;
       }
+      case "agent_log": {
+        const id = msg.projectId;
+        if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
+        const events = agentLogs.read(id, msg.key);
+        allowReadImages(events, pictureBase(id));
+        ws.send(JSON.stringify({ type: "agent_log", projectId: id, key: msg.key, events } satisfies ServerMessage));
+        break;
+      }
       case "history_get": {
         const id = msg.projectId;
         if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
@@ -2674,6 +2709,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         manager.dispose(msg.sessionId);
         archive.remove(msg.sessionId);
         removeTurnFiles(msg.sessionId);
+        agentLogs.remove(msg.sessionId);
         drafts.remove(msg.sessionId);
         tracker.removeProject(msg.sessionId);
         contexts.delete(msg.sessionId);
@@ -3217,6 +3253,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         manager.dispose(HOME_ID);
         archive.remove(HOME_ID);
         removeTurnFiles(HOME_ID);
+        agentLogs.remove(HOME_ID);
         homeLog.endSession();
         sendQueues.delete(HOME_ID);
         heldQueues.delete(HOME_ID);
@@ -3431,6 +3468,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             void options.bridge?.closeAll();
             manager.disposeAll();
             archive.flushAll();
+            agentLogs.flushAll();
             ledger.flush();
             for (const client of clients) client.close();
             wss.close(() => server.close(() => done()));

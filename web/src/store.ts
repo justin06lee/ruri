@@ -428,6 +428,13 @@ interface RuriState {
   /** Latest native-picker result, tagged with what the pick was for. */
   picked: { path: string; target: PickTarget } | null;
   lastError: string | null;
+  /** Subagent logs — everything an agent did — for the agents whose cards
+   *  have been opened (keyed by agentLogKey), kept current while here. */
+  agentLogs: Record<string, TranscriptEvent[]>;
+  /** The agents panel: the chat it belongs to and the agents opened in it,
+   *  the one showing last (an agent's own agents open on top of it). No
+   *  keys = the list of every agent in the chat. */
+  agentPanel: { projectId: string; keys: string[] } | null;
   /** Picking a session by hand also leaves rapid fire — the line is only
    *  ever showing you one, and this is you choosing another. */
   setActive(id: string | null): void;
@@ -448,6 +455,8 @@ export const useRuri = create<RuriState>((set) => ({
   drafts: {},
   statuses: {},
   permissions: [],
+  agentLogs: {},
+  agentPanel: null,
   unread: {},
   models: [],
   summaries: {},
@@ -594,6 +603,57 @@ export function requestHistory(channelId: string): void {
   if (send({ type: "history_get", projectId: channelId })) historyAsked.add(channelId);
 }
 
+/** A subagent log's key in `agentLogs`: its chat, and its card's key. */
+export function agentLogKey(projectId: string, key: string): string {
+  return `${projectId}\u0000${key}`;
+}
+
+/** How many agents' logs the window keeps at once. Opening another lets the
+ *  least recently opened go — it is on disk, a click away. */
+const KEEP_AGENT_LOGS = 6;
+/** Logs asked for, least recently opened first. */
+const agentLogOrder: string[] = [];
+
+/** Ask for an agent's log. It is held (empty) while it is on its way, so
+ *  what the agent does meanwhile lands in it too. */
+function requestAgentLog(projectId: string, key: string): void {
+  const id = agentLogKey(projectId, key);
+  const at = agentLogOrder.indexOf(id);
+  if (at !== -1) agentLogOrder.splice(at, 1);
+  agentLogOrder.push(id);
+  const logs = { ...useRuri.getState().agentLogs };
+  while (agentLogOrder.length > KEEP_AGENT_LOGS) delete logs[agentLogOrder.shift()!];
+  logs[id] ??= [];
+  useRuri.setState({ agentLogs: logs });
+  send({ type: "agent_log", projectId, key });
+}
+
+/**
+ * Open an agent's card in the panel: as its only agent, or — `stack`, from
+ * inside the panel — on top of the one showing (an agent's own agent, or
+ * one picked from the list). No key opens the list of every agent.
+ */
+export function openAgent(projectId: string, key?: string, stack = false): void {
+  const panel = useRuri.getState().agentPanel;
+  const keys = !key
+    ? []
+    : stack && panel?.projectId === projectId
+      ? [...panel.keys.filter((k) => k !== key), key]
+      : [key];
+  useRuri.setState({ agentPanel: { projectId, keys } });
+  if (key) requestAgentLog(projectId, key);
+}
+
+/** Step back out of the agent on top — to the one under it, or the list. */
+export function backAgent(): void {
+  const panel = useRuri.getState().agentPanel;
+  if (panel) useRuri.setState({ agentPanel: { ...panel, keys: panel.keys.slice(0, -1) } });
+}
+
+export function closeAgent(): void {
+  if (useRuri.getState().agentPanel) useRuri.setState({ agentPanel: null });
+}
+
 export function connect(): void {
   // Dev-only fixture mode (?fixture): canned data instead of a live server,
   // so the UI can be screenshotted deterministically without spending tokens.
@@ -685,6 +745,9 @@ function apply(msg: ServerMessage): void {
           { ...s.draftBumps },
         ),
         drafts: {},
+        // what the agents did while the window was away is on the server:
+        // every log goes, and the one on screen asks again below
+        agentLogs: {},
         activeId:
           s.activeId &&
           (s.activeId === HOME_ID ||
@@ -692,6 +755,30 @@ function apply(msg: ServerMessage): void {
             ? s.activeId
             : HOME_ID,
       }));
+      agentLogOrder.length = 0;
+      const panel = useRuri.getState().agentPanel;
+      const showing = panel?.keys.at(-1);
+      if (panel && showing) requestAgentLog(panel.projectId, showing);
+      break;
+    }
+    case "agent_log": {
+      const id = agentLogKey(msg.projectId, msg.key);
+      setState((s) => {
+        // anything that came live while this was on its way stays in it
+        const live = s.agentLogs[id] ?? [];
+        const ids = new Set(msg.events.map((event) => event.id));
+        return { agentLogs: { ...s.agentLogs, [id]: [...msg.events, ...live.filter((event) => !ids.has(event.id))] } };
+      });
+      break;
+    }
+    case "agent_event": {
+      const id = agentLogKey(msg.projectId, msg.key);
+      // only the logs someone has opened are kept here; the rest wait on disk
+      const log = useRuri.getState().agentLogs[id];
+      if (!log) break;
+      const at = log.findIndex((event) => event.id === msg.event.id);
+      const next = at === -1 ? [...log, msg.event] : log.map((event, i) => (i === at ? msg.event : event));
+      setState((s) => ({ agentLogs: { ...s.agentLogs, [id]: next } }));
       break;
     }
     case "projects": {

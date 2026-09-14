@@ -45,6 +45,7 @@ import {
   type ProjectStatus,
   type SubagentState,
   type TranscriptEvent,
+  unmarked,
 } from "../shared/protocol.js";
 
 type PermissionUpdate = NonNullable<YagamiPermissionRequest["suggestions"]>[number];
@@ -517,7 +518,6 @@ interface TaskMessage {
   subagent_type?: string;
   is_backgrounded?: boolean;
   usage?: { total_tokens: number; tool_uses: number };
-  summary?: string;
   status?: "completed" | "failed" | "stopped";
   patch?: { status?: string; is_backgrounded?: boolean; error?: string };
 }
@@ -673,10 +673,9 @@ class ProjectSession implements ChannelSession {
         // snapshot files before edits, so a rewind can restore them
         enableFileCheckpointing: true,
         // A subagent's whole conversation, not just its tool calls — what
-        // its card opens onto — and every ~30s a line on what it is doing,
-        // written by a fork that rides the agent's own prompt cache.
+        // its card opens onto. Its line is the last thing it did; no model
+        // is paid to summarise it on a timer (agentProgressSummaries).
         forwardSubagentText: true,
-        agentProgressSummaries: true,
         // AskUserQuestion is a question, not a permission — it has to reach
         // the user in every mode, and bypassPermissions skips canUseTool
         // entirely. A PreToolUse hook fires regardless of mode, and its
@@ -1014,6 +1013,7 @@ class ProjectSession implements ChannelSession {
       .join("");
     if (text.trim()) {
       this.agents.log(parent, { kind: "assistant", id: randomUUID(), text, ts: Date.now() });
+      this.agents.update(parent, { activity: headline(unmarked(text)) });
       this.events.onProgress(this.project.id, { chars: text.length });
     }
     for (const block of blocks) {
@@ -1047,8 +1047,7 @@ class ProjectSession implements ChannelSession {
     if (!key) return;
     const counts = msg.usage ? { tokens: msg.usage.total_tokens, tools: msg.usage.tool_uses } : {};
     if (msg.subtype === "task_progress") {
-      const summary = msg.summary?.trim();
-      this.agents.update(key, { ...counts, ...(summary ? { activity: summary } : {}) });
+      this.agents.update(key, counts);
     } else if (msg.subtype === "task_updated") {
       const next = msg.patch?.status;
       const status = next === "completed" ? "done" : next === "failed" ? "failed" : next === "killed" ? "stopped" : undefined;
@@ -2237,6 +2236,7 @@ class ProviderAgentSession implements ChannelSession {
     if (event.type === "text") {
       if (!event.text.trim()) return;
       this.agents.log(key, { kind: "assistant", id: randomUUID(), text: event.text, ts: Date.now() });
+      this.agents.update(key, { activity: headline(unmarked(event.text)) });
       this.events.onProgress(this.project.id, { chars: event.text.length });
     } else if (event.type === "tool_call" && event.status === "started") {
       for (const chip of providerToolEvents(event, this.project)) {

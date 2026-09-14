@@ -179,7 +179,7 @@ check(
     log[2]?.kind === "assistant" && log[2].text === "All tests pass.",
   log,
 );
-check("the card's line followed its latest tool", first?.activity?.includes("bun test") === true, first);
+check("the card's line is the last thing it did — here, what it said after its tool", first?.activity === "All tests pass.", first);
 check("an agent still working stays working while its session lives", beforeDispose === "running", beforeDispose);
 check("and is stopped when the session goes", card("spawn-2")?.status === "stopped", card("spawn-2"));
 

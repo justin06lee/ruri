@@ -90,6 +90,7 @@ import {
   useRuri,
 } from "../store";
 import { spinStar } from "../lib/spin";
+import { beat, useNow } from "../lib/beat";
 
 /* The shell panel brings xterm with it — a quarter of the app's JavaScript,
    for a mode most sessions never turn on. It arrives when the `>_` button is
@@ -270,22 +271,11 @@ function span(ms: number): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
 }
 
-/** A clock for a running agent's time — ticking only while it runs. */
-function useTick(on: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!on) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [on]);
-  return now;
-}
-
 /** The numbers under an agent: tools run, tokens spent, for how long, and
- *  whether it was left working in the background. */
+ *  whether it was left working in the background. Its clock ticks only
+ *  while it runs and ruri is in front. */
 function AgentMeta({ agent }: { agent: SubagentState }) {
-  const now = useTick(agent.status === "running");
+  const now = useNow(1000, agent.status === "running");
   const line = [
     agent.tools ? `${agent.tools} tool${agent.tools === 1 ? "" : "s"}` : undefined,
     agent.tokens ? `${tokenCount(agent.tokens)} tokens` : undefined,
@@ -304,7 +294,12 @@ function AgentHead({ agent }: { agent: SubagentState }) {
       <Icon d={TOOL_ICONS["agent"]!} />
       <span className="agent-type">{agent.type ?? "Agent"}</span>
       <span className="agent-desc">{agent.description}</span>
-      <span className={`agent-status ${agent.status}`}>{AGENT_STATUS[agent.status]}</span>
+      <span
+        className={`agent-status ${agent.status}`}
+        ref={agent.status === "running" ? beat("spin") : undefined}
+      >
+        {AGENT_STATUS[agent.status]}
+      </span>
     </span>
   );
 }
@@ -2752,7 +2747,7 @@ export function ChatPane({
           {draft && (
             <div className="msg assistant streaming">
               <StreamingMarkdown text={draft.text} />
-              <span className="cursor" />
+              <span className="cursor" ref={beat("blink")} />
             </div>
           )}
           {status === "working" && (

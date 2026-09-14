@@ -57,7 +57,6 @@ export class AudioEngine {
   private fading = false;
   private fadeTimer = 0;
   private fadeFrom: Deck | null = null;
-  private raf = 0;
   private scheduler = 0;
   /** Whether the frame loop and the crossfade scheduler are running. They
    *  only run while something plays: a paused player used to go on waking
@@ -89,18 +88,17 @@ export class AudioEngine {
   private startClock(): void {
     if (this.clockRunning) return;
     this.clockRunning = true;
-    this.raf = requestAnimationFrame(this.tick);
-    // Deciding *when* to crossfade must not depend on animation frames:
-    // Chromium stops firing them once the window is occluded, which is exactly
-    // when someone has switched apps and left the music going.
-    this.scheduler = window.setInterval(this.schedule, 250);
+    // One timer, four times a second: the position the panel shows and the
+    // decision *when* to crossfade. Not animation frames — those fire at the
+    // display's rate (120 a second on ProMotion) to move a clock that reads
+    // in whole seconds, and stop altogether once the window is occluded,
+    // which is exactly when someone has switched apps and left music going.
+    this.scheduler = window.setInterval(this.tick, 250);
   }
 
   private stopClock(): void {
     if (!this.clockRunning) return;
     this.clockRunning = false;
-    cancelAnimationFrame(this.raf);
-    this.raf = 0;
     window.clearInterval(this.scheduler);
     this.scheduler = 0;
   }
@@ -207,7 +205,7 @@ export class AudioEngine {
 
   private tick = (): void => {
     this.emit();
-    if (this.clockRunning) this.raf = requestAnimationFrame(this.tick);
+    this.schedule();
   };
 
   private buildOrder(keepCurrent = true): void {

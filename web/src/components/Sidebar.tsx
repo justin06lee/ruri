@@ -4,6 +4,7 @@ import { HOME_ID, type Project, type RecentSession, type SessionInfo } from "../
 import { Player } from "./Player";
 import { getPref, setPref } from "../prefs";
 import { send, useRuri } from "../store";
+import { beat } from "../lib/beat";
 
 function HomeRow() {
   const activeId = useRuri((s) => s.activeId);
@@ -529,7 +530,7 @@ export const Sidebar = memo(function Sidebar() {
           <path d="M4 21c1.5-4 4.4-6 8-6s6.5 2 8 6" />
         </svg>
         <span className="account-name">{user || "account"}</span>
-        {!connected && <span className="conn off" title="Reconnecting…" />}
+        {!connected && <span className="conn off" title="Reconnecting…" ref={beat("pulse")} />}
         <button
           className={`icon-button ${settingsOpen ? "active" : ""}`}
           title="Settings"

@@ -228,11 +228,21 @@ function CompactionMark({
         <ZigzagRule />
       </div>
       {open &&
-        (event.entries?.length ? (
+        (event.entries?.length || event.digest ? (
           <div className="compaction-brief">
-            {event.entries.map((entry, i) => (
-              <div className="compaction-turn" key={i}>
-                <span className="compaction-n">{i + 1}</span>
+            {/* the oldest exchanges, condensed together — a long chat's
+                list stops at its newest few (server/compaction.ts) */}
+            {event.digest && (
+              <div className="compaction-turn compaction-digest">
+                <span className="compaction-n">{event.digest.through > 0 ? `1–${event.digest.through}` : "…"}</span>
+                <div className="compaction-pair">
+                  <div className="compaction-condensed">{event.digest.text}</div>
+                </div>
+              </div>
+            )}
+            {(event.entries ?? []).map((entry, i) => (
+              <div className="compaction-turn" key={entry.n ?? i}>
+                <span className="compaction-n">{entry.n ?? i + 1}</span>
                 <div className="compaction-pair">
                   <div className="compaction-you">{entry.user}</div>
                   <div className="compaction-reply">{entry.reply}</div>
@@ -1889,14 +1899,64 @@ function NoteHalf({
   );
 }
 
+/** How long a click on an open half waits to be sure it is not the first
+ *  of a double click — which selects a word, and folds nothing. */
+const FOLD_CLICK_MS = 250;
+
+/**
+ * An open half. Clicking its message folds it back to its note — the click
+ * that opened it closes it — when `folds`. A click on anything in it that
+ * does something of its own (a link, a button, a picture), on the space
+ * beside the message, a drag that selects text, or a double click folds
+ * nothing.
+ */
+function OpenHalf({
+  half,
+  folds,
+  onFold,
+  children,
+}: {
+  half: "prompt" | "reply";
+  folds: boolean;
+  onFold: () => void;
+  children: React.ReactNode;
+}) {
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  return (
+    <div
+      className={`exchange-half${folds ? " folds" : ""}`}
+      data-half={half}
+      onClick={
+        folds
+          ? (e) => {
+              window.clearTimeout(timer.current);
+              if (e.detail > 1) return;
+              const target = e.target as HTMLElement;
+              if (!target.closest(".msg")) return;
+              if (target.closest("a, button, input, textarea, select, label, summary, img, video, [role='button']")) return;
+              const selection = window.getSelection();
+              if (selection && !selection.isCollapsed && e.currentTarget.contains(selection.anchorNode)) return;
+              timer.current = window.setTimeout(onFold, FOLD_CLICK_MS);
+            }
+          : undefined
+      }
+    >
+      {children}
+    </div>
+  );
+}
+
 /**
  * One exchange, each half on its own. A half is either shown in full or
  * folded to its recall note, laid out like the chat either way: the
  * prompt's note in a dashed bubble on the right, the reply's under it — a
  * cut of the text itself for a note not written yet. A click on a note
- * opens that half alone; "full exchange" opens both; the chevron folds the
- * pair back. Every exchange above the newest compaction starts folded, one
- * below it open.
+ * opens that half alone, and a click on it open folds it again; "full
+ * exchange" opens both; the chevron folds the pair back. Every exchange
+ * above the newest compaction starts folded, one below it open — and a
+ * reply open from the start folds only by the chevron, so clicking about in
+ * the one being read never folds it.
  */
 const Exchange = memo(function Exchange({
   turnId,
@@ -1907,6 +1967,7 @@ const Exchange = memo(function Exchange({
   count,
   promptOpen,
   replyOpen,
+  replyFolds,
   loading,
   far,
   project,
@@ -1915,6 +1976,7 @@ const Exchange = memo(function Exchange({
   onFork,
   onOpen,
   onFold,
+  onFoldHalf,
 }: {
   turnId: string;
   /** Its events — absent for an earlier exchange until the history comes. */
@@ -1926,6 +1988,8 @@ const Exchange = memo(function Exchange({
   count: number;
   promptOpen: boolean;
   replyOpen: boolean;
+  /** A click on the open reply folds it: it was opened from its note. */
+  replyFolds: boolean;
   /** Opened, and its events still on their way. */
   loading?: boolean;
   far?: boolean;
@@ -1935,6 +1999,7 @@ const Exchange = memo(function Exchange({
   onFork?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
   onOpen(turnId: string, half: Half): void;
   onFold(turnId: string): void;
+  onFoldHalf(turnId: string, half: "prompt" | "reply"): void;
 }) {
   const head = promptOpen ? events?.[0] : undefined;
   const rest = replyOpen && events ? events.slice(1) : undefined;
@@ -1959,18 +2024,18 @@ const Exchange = memo(function Exchange({
         </button>
       )}
       {head ? (
-        <div className="exchange-half" data-half="prompt">
+        <OpenHalf half="prompt" folds onFold={() => onFoldHalf(turnId, "prompt")}>
           {view(head)}
-        </div>
+        </OpenHalf>
       ) : (
         <NoteHalf className="msg user note" title="Show your whole prompt" onOpen={() => onOpen(turnId, "prompt")}>
           {asked}
         </NoteHalf>
       )}
       {rest ? (
-        <div className="exchange-half" data-half="reply">
+        <OpenHalf half="reply" folds={replyFolds} onFold={() => onFoldHalf(turnId, "reply")}>
           {rest.map(view)}
-        </div>
+        </OpenHalf>
       ) : answered ? (
         <NoteHalf className="msg assistant note" title="Show the whole reply" onOpen={() => onOpen(turnId, "reply")}>
           {answered}
@@ -2436,6 +2501,13 @@ export function ChatPane({
     (turnId: string) => setOpens((prev) => ({ ...prev, [turnId]: { prompt: false, reply: false } })),
     [],
   );
+  // one half back to its note; the other stays as it is (unset still means
+  // how it starts, so a live reply stays open under a folded prompt)
+  const foldHalf = useCallback(
+    (turnId: string, half: "prompt" | "reply") =>
+      setOpens((prev) => ({ ...prev, [turnId]: { ...prev[turnId], [half]: false } })),
+    [],
+  );
   const loadHistory = useCallback(() => setWantHistory(true), []);
 
   // Something just opened: the view goes to its top, to read it from the
@@ -2692,6 +2764,7 @@ export function ChatPane({
                   count={item.count}
                   promptOpen={promptOpen}
                   replyOpen={replyOpen}
+                  replyFolds={replyOpen}
                   loading={(promptOpen || replyOpen) && !history}
                   project={project}
                   channelId={activeId}
@@ -2699,6 +2772,7 @@ export function ChatPane({
                   onFork={askFork}
                   onOpen={openHalf}
                   onFold={foldExchange}
+                  onFoldHalf={foldHalf}
                 />
               );
             })}
@@ -2739,6 +2813,7 @@ export function ChatPane({
                 count={turn.events.length}
                 promptOpen={promptOpen}
                 replyOpen={replyOpen}
+                replyFolds={open?.reply === true}
                 far={far}
                 project={project}
                 channelId={activeId}
@@ -2746,6 +2821,7 @@ export function ChatPane({
                 onFork={askFork}
                 onOpen={openHalf}
                 onFold={foldExchange}
+                onFoldHalf={foldHalf}
               />
             );
           })}

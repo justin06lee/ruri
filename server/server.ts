@@ -22,7 +22,7 @@ import type {
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
 import { AgentLogs } from "./agents.js";
-import { buildCompaction, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
+import { buildCompaction, DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
 import { DraftStore } from "./drafts.js";
 import { HomeLog } from "./homelog.js";
 import { createCheckpoints } from "./checkpoints.js";
@@ -33,7 +33,7 @@ import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
 import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
 import { promptChain, SessionManager } from "./sessions.js";
-import { assembleTurns, extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief, type Turn } from "./smallmodel.js";
+import { assembleTurns, digestHistory, extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief, type Turn } from "./smallmodel.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
 import { buildCatchup } from "./catchup.js";
 import { knownCommands, listCommands, splitCommands } from "./commands.js";
@@ -1516,7 +1516,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
    * the summaries are precomputed, so this is instant.
    */
   function compactChannel(channelId: string): void {
-    const built = buildCompaction(channelId, archive.allEvents(channelId), archive.summaries(channelId));
+    const built = buildCompaction(
+      channelId,
+      archive.allEvents(channelId),
+      archive.summaries(channelId),
+      archive.digest(channelId),
+    );
     if (built === null) {
       const event: TranscriptEvent = {
         kind: "info",
@@ -1544,6 +1549,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       id: randomUUID(),
       text: built.brief,
       entries: built.entries,
+      ...(built.digest ? { digest: built.digest } : {}),
       ts: Date.now(),
     };
     // the mark folds everything before it into the history (archive.ts);
@@ -1608,7 +1614,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     }
     // the brief covers what survived the truncation — the harness comes back
     // knowing that and nothing after it
-    const kept = buildCompaction(channelId, archive.allEvents(channelId), archive.summaries(channelId));
+    const kept = buildCompaction(
+      channelId,
+      archive.allEvents(channelId),
+      archive.summaries(channelId),
+      archive.digest(channelId),
+    );
     // nothing survived: the next prompt opens a genuinely new session, so
     // any brief left from before must not ride along
     archive.setPendingBrief(channelId, kept?.brief ?? "");
@@ -1690,9 +1701,15 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   }
 
   /** Store one half of a turn's recall note and push the turn's notes. */
+  /** Each chat's condensed oldest exchanges, kept caught up so a compaction
+   *  brief lists only the newest (server/compaction.ts). */
+  const digests = new DigestFolder(archive, digestHistory);
+
   function noteSummary(projectId: string, turnId: string, part: "user" | "reply", note: string): void {
     archive.setSummary(projectId, turnId, part, note);
     broadcast({ type: "turn_summary", projectId, turnId, note: archive.note(projectId, turnId) });
+    // an exchange just got its last note: the list may be past its cap
+    if (part === "reply") void digests.run(projectId);
   }
 
   /**
@@ -2664,7 +2681,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
               }
             }
             if (!forked) {
-              const built = buildCompaction(fresh.id, kept, archive.summaries(fresh.id));
+              // the source's digest comes along when the fork keeps all it
+              // folded; one that reaches past the fork point would remember
+              // exchanges the fork never had
+              const source = archive.digest(channelId);
+              const digest =
+                source && kept.some((e) => e.kind === "user" && e.id === source.through) ? source : undefined;
+              if (digest) archive.setDigest(fresh.id, digest);
+              const built = buildCompaction(fresh.id, kept, archive.summaries(fresh.id), digest);
               if (built) archive.setPendingBrief(fresh.id, built.brief);
             }
             broadcast({ type: "projects", projects: store.list() });
@@ -2711,6 +2735,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         ws.send(JSON.stringify(transcriptOf(id)));
         // the chat on screen gets its missing notes before any other
         backfillNotes([id], { first: true });
+        // and its digest caught up, ahead of the compaction it may be near
+        void digests.run(id);
         break;
       }
       case "view": {

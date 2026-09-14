@@ -2668,6 +2668,20 @@ input[type="range"]::-webkit-slider-thumb {
   border-top: 1px solid var(--line-faint);
 }
 
+/* the oldest exchanges, condensed into one memory: its lines as written,
+   under a range rather than a number */
+.compaction-digest .compaction-n {
+  min-width: 34px;
+}
+
+.compaction-condensed {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
 .compaction-n {
   flex-shrink: 0;
   min-width: 16px;
@@ -2985,6 +2999,11 @@ input[type="range"]::-webkit-slider-thumb {
 
 .exchange-half:empty {
   display: none;
+}
+
+/* a half opened from its note: a click on its message folds it again */
+.exchange-half.folds .msg {
+  cursor: pointer;
 }
 
 .msg.note {

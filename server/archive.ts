@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { excerpt, keepRecent, unmarked, type EarlierItem, type TranscriptEvent, type TurnNote } from "../shared/protocol.js";
 import { settleAgent } from "./agents.js";
+import type { Digest } from "./compaction.js";
 
 /**
  * Per-project session archive: the single source of truth for transcripts,
@@ -38,6 +39,10 @@ interface ArchiveData {
   /** A finished compaction's brief, waiting to ride the next prompt into the
    *  fresh session (persisted so a restart in between loses nothing). */
   pendingBrief?: string;
+  /** The conversation's oldest exchanges, condensed by the small model, and
+   *  the last of them — what a brief opens with instead of listing them
+   *  (see server/compaction.ts). */
+  digest?: Digest;
   /** SDK chain uuids per turn (keyed by the opening user-event id): the
    *  prompt's own uuid (`user` — the file-rewind target) and the turn's
    *  latest chain uuid (`last` — the fork point when rewinding PAST it). */
@@ -204,6 +209,9 @@ export class SessionArchive {
         ...(typeof raw.lastSessionId === "string" ? { lastSessionId: raw.lastSessionId } : {}),
         ...(Array.isArray(raw.sessionIds) ? { sessionIds: raw.sessionIds.filter((id) => typeof id === "string") } : {}),
         ...(typeof raw.pendingBrief === "string" ? { pendingBrief: raw.pendingBrief } : {}),
+        ...(raw.digest && typeof raw.digest.text === "string" && typeof raw.digest.through === "string"
+          ? { digest: { text: raw.digest.text, through: raw.digest.through } }
+          : {}),
         ...(raw.chain && typeof raw.chain === "object" ? { chain: raw.chain } : {}),
         ...(typeof raw.resumeAt === "string" ? { resumeAt: raw.resumeAt } : {}),
         ...(raw.forkNext === true ? { forkNext: true } : {}),
@@ -437,6 +445,9 @@ export class SessionArchive {
     const removed = entry.events.slice(start, end).map((e) => e.id);
     entry.events.splice(start, end - start);
     delete entry.summaries[eventId];
+    // the digest ended on this exchange: with it gone there is no telling
+    // where the digest stops, so it is folded again from the start
+    if (entry.digest?.through === eventId) delete entry.digest;
     this.scheduleWrite(projectId);
     return removed;
   }
@@ -632,6 +643,9 @@ export class SessionArchive {
       delete entry.summaries[id];
       if (entry.chain) delete entry.chain[id];
     }
+    // rewound back past what the digest folded in: it remembers exchanges
+    // that, as far as the conversation now goes, never happened
+    if (entry.digest && removed.includes(entry.digest.through)) delete entry.digest;
     this.flushNow(projectId);
     return removed;
   }
@@ -639,6 +653,26 @@ export class SessionArchive {
   setPendingBrief(projectId: string, brief: string): void {
     this.load(projectId).pendingBrief = brief;
     this.scheduleWrite(projectId);
+  }
+
+  /** The conversation's condensed oldest exchanges, once it is long enough
+   *  to have any. */
+  digest(projectId: string): Digest | undefined {
+    return this.load(projectId).digest;
+  }
+
+  setDigest(projectId: string, digest: Digest): void {
+    this.load(projectId).digest = digest;
+    this.scheduleWrite(projectId);
+  }
+
+  /** Every exchange's id, oldest first: the history's, off its outline
+   *  (kept while the file is unchanged), then the live part's. Cheap enough
+   *  to ask after every turn, which reading the history itself is not. */
+  turnIds(projectId: string): string[] {
+    const earlier = this.earlier(projectId).flatMap((item) => (item.kind === "turn" ? [item.turnId] : []));
+    const live = this.load(projectId).events.flatMap((event) => (event.kind === "user" ? [event.id] : []));
+    return earlier.length > 0 ? [...earlier, ...live] : live;
   }
 
   /** Claim the pending compaction brief (cleared once taken). */

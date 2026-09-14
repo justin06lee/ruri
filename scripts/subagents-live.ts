@@ -10,7 +10,7 @@
  *
  * Costs one small real turn — run manually: bun run subagents-live-test
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -35,6 +35,28 @@ function check(name: string, ok: boolean, detail?: unknown): void {
     failed += 1;
     if (detail !== undefined) console.log("    ", JSON.stringify(detail));
   }
+}
+
+/** `claude` processes anywhere under the server. */
+function claudes(): number {
+  const listing = execFileSync("ps", ["-A", "-o", "pid=,ppid=,comm="], { encoding: "utf8" });
+  const rows = listing
+    .split("\n")
+    .map((line) => line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/))
+    .filter((m): m is RegExpMatchArray => m !== null)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), comm: m[3]! }));
+  const under = new Set([server.pid!]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const row of rows) {
+      if (!under.has(row.pid) && under.has(row.ppid)) {
+        under.add(row.pid);
+        grew = true;
+      }
+    }
+  }
+  return rows.filter((row) => under.has(row.pid) && /(^|\/)claude$/.test(row.comm)).length;
 }
 
 function cleanup(code: number): never {
@@ -132,6 +154,25 @@ send({
 
 await until("the turn to finish", () => worked && status === "idle", 240_000);
 await new Promise((r) => setTimeout(r, 2000));
+
+// The CLI may leave the agent working in the background after the turn —
+// it usually does now. Then the chat's process has to stay for as long as
+// the agent runs (it lives there), and go once the agent has reported.
+const first = [...cards.values()][0];
+if (first?.background && first.status === "running") {
+  console.log("[t] the agent went to the background; waiting for it to report");
+  check("a background agent keeps the chat's process alive", claudes() >= 1);
+  await until("the background agent", () => [...cards.values()][0]?.status !== "running", 180_000);
+  await until("the turn it reports into", () => status === "idle", 120_000);
+  // nobody has this chat open (no `view`): with the agent done and the
+  // turn over, the process closes after the grace
+  const closed = await new Promise<boolean>((resolve) => {
+    const end = Date.now() + 15_000;
+    const look = () => (claudes() === 0 ? resolve(true) : Date.now() > end ? resolve(false) : setTimeout(look, 500));
+    look();
+  });
+  check("and once it has reported, the process closes", closed);
+}
 
 const card = [...cards.values()][0];
 console.log(`card: ${JSON.stringify(card)}`);

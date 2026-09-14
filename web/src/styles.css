@@ -421,21 +421,14 @@ textarea::placeholder {
 /* ── what moves by itself, stepped by web/src/lib/beat.ts ────────────
    Nothing here is an animation: an infinite one redraws the whole window
    at the display's rate for as long as it is on screen. The clock sets
-   data-<kind> on the few elements that move, a few times a second and only
-   while ruri is in front; these say what each step looks like. Step 0 is
-   the resting pose. */
-
-[data-pulse="1"],
-[data-pulse="3"] {
-  opacity: 0.65;
-}
-
-[data-pulse="2"] {
-  opacity: 0.3;
-}
+   data-<kind> on the few elements that move — all of them in the open chat
+   — only as often as each one changes, and only while ruri is in front;
+   these say what each step looks like. Every mover sits on its own layer
+   (will-change), and a step only changes that layer's opacity or transform,
+   so nothing is repainted for it. Step 0 is the resting pose. */
 
 [data-blink="1"] {
-  visibility: hidden;
+  opacity: 0;
 }
 
 .project-list {
@@ -502,8 +495,9 @@ textarea::placeholder {
   white-space: nowrap;
 }
 
-/* status dots: idle = hollow, working = filled pulse,
-   permission = thick ring pulse, error = filled diamond */
+/* status dots: idle = hollow, working = filled, permission = thick ring,
+   error = filled diamond — held still: they mark chats that are not the
+   one open, and nothing outside the open chat moves */
 
 .dot {
   width: 8px;
@@ -1499,15 +1493,6 @@ input[type="range"]::-webkit-slider-thumb {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-}
-
-.board-cursor {
-  display: inline-block;
-  width: 5px;
-  height: 0.9em;
-  margin-left: 3px;
-  vertical-align: -0.1em;
-  background: var(--ink);
 }
 
 /* the figures: two cells along the foot, today and all time, the cost
@@ -2734,6 +2719,8 @@ input[type="range"]::-webkit-slider-thumb {
   vertical-align: text-bottom;
   background: var(--ink);
   border-radius: 1px;
+  /* its own layer: a blink is an opacity flip, never a repaint */
+  will-change: opacity;
 }
 
 /* thinking: the two-frame hand-drawn doodle, flipping poses every 0.5s —
@@ -2758,6 +2745,8 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 12px;
   color: var(--ink-soft);
   animation: rise 180ms ease-out;
+  /* its clock ticks once a second: the repaint stays inside this line */
+  contain: layout paint;
 }
 
 .working-word {
@@ -2783,6 +2772,11 @@ input[type="range"]::-webkit-slider-thumb {
   margin: 6px 0;
   color: var(--ink-soft);
   transform: scaleX(-1) rotate(-5deg);
+  /* a sealed box on its own layer: a step turns the layer and swaps which
+     pose is opaque, and nothing outside these 46px — nor inside — is
+     painted again for it */
+  contain: strict;
+  will-change: transform;
 }
 
 /* eight half-second steps on the clock (data-doodle, beat.ts): a tilt each,
@@ -2821,6 +2815,7 @@ input[type="range"]::-webkit-slider-thumb {
   inset: 0;
   width: 100%;
   height: 100%;
+  will-change: opacity;
 }
 
 .thinking-frame.f2 {
@@ -4218,6 +4213,7 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 50%;
   border: 1.5px solid currentColor;
   border-right-color: transparent;
+  will-change: transform;
 }
 
 /* an eighth of a turn per step of the clock (data-spin, beat.ts) */

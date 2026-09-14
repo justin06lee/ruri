@@ -590,7 +590,109 @@ const requested = new Set<string>();
 export function ensureTranscript(channelId: string): void {
   const state = useRuri.getState();
   if (state.loaded[channelId] || requested.has(channelId)) return;
+  // the chat goes on screen first, so nothing it does between the history
+  // leaving the server and the view arriving there falls in the gap
+  if (viewQueued) sendView();
   if (send({ type: "transcript_get", projectId: channelId })) requested.add(channelId);
+}
+
+/* ── what this window has on screen ──────────────────────────────── */
+
+/**
+ * The chats on screen, and whether Home's projects page is — told to the
+ * server whenever that changes (the `view` message). Only these get their
+ * conversation as it happens; every other chat's work waits on the server
+ * until the chat is opened, and arrives then, whole. The server also keeps
+ * an open chat's agent process warm between turns, and closes the rest the
+ * moment their work is done. Counted, because a hand-off (rapid fire, a
+ * remount) briefly has the old pane and the new one both mounted.
+ */
+const onScreen = new Map<string, number>();
+let boardsUp = 0;
+/** The last view the server was told, so a re-render says nothing twice. */
+let lastView = "";
+let viewQueued = false;
+
+function sendView(): void {
+  viewQueued = false;
+  const message: ClientMessage = {
+    type: "view",
+    channels: [...onScreen.keys()],
+    // a hidden window is showing nothing: what it misses, it catches up on
+    live: !document.hidden,
+    ...(boardsUp > 0 ? { board: true } : {}),
+  };
+  const json = JSON.stringify(message);
+  if (json !== lastView && send(message)) lastView = json;
+}
+
+/** Say it once, after whatever else this moment changes: a switch from one
+ *  chat to another is one message, not an "off" and then an "on". */
+function syncView(): void {
+  if (viewQueued) return;
+  viewQueued = true;
+  queueMicrotask(() => {
+    if (viewQueued) sendView();
+  });
+}
+
+/** Put a chat on screen; the function returned takes it off again. */
+export function watchChannel(channelId: string): () => void {
+  const count = onScreen.get(channelId) ?? 0;
+  onScreen.set(channelId, count + 1);
+  syncView();
+  const panel = useRuri.getState().agentPanel;
+  const key = count === 0 && panel?.projectId === channelId ? panel.keys.at(-1) : undefined;
+  // an agent's log left open here heard nothing while the chat was away —
+  // asked for again once the view has gone out ahead of it
+  if (key) queueMicrotask(() => requestAgentLog(channelId, key));
+  return () => {
+    const left = (onScreen.get(channelId) ?? 1) - 1;
+    if (left > 0) onScreen.set(channelId, left);
+    else onScreen.delete(channelId);
+    syncView();
+  };
+}
+
+/** Home's projects page is up; the function returned says it went. */
+export function watchBoard(): () => void {
+  boardsUp += 1;
+  syncView();
+  return () => {
+    boardsUp -= 1;
+    syncView();
+  };
+}
+
+document.addEventListener("visibilitychange", syncView);
+
+/**
+ * A transcript sent again, keeping every event that did not change as the
+ * very object already on screen — so a chat that catches up after a while
+ * away re-renders only what moved, and not at all when nothing did.
+ */
+function reuse(held: TranscriptEvent[] | undefined, next: TranscriptEvent[]): TranscriptEvent[] {
+  if (!held || held.length === 0) return next;
+  const byId = new Map(held.map((event) => [event.id, event]));
+  let same = held.length === next.length;
+  const out = next.map((event, i) => {
+    const prev = byId.get(event.id);
+    const kept = prev && JSON.stringify(prev) === JSON.stringify(event) ? prev : event;
+    if (kept !== held[i]) same = false;
+    return kept;
+  });
+  return same ? held : out;
+}
+
+/** A newer tail laid over the end of a whole chat held from before: what
+ *  it has, replaced; what is new, added. Anything in between arrives when
+ *  the chat is opened. */
+function overlay(held: TranscriptEvent[], tail: TranscriptEvent[]): TranscriptEvent[] {
+  const fresh = new Map(tail.map((event) => [event.id, event]));
+  const out = held.map((event) => fresh.get(event.id) ?? event);
+  const have = new Set(held.map((event) => event.id));
+  for (const event of tail) if (!have.has(event.id)) out.push(event);
+  return out;
 }
 
 /** Histories asked for and not yet arrived. */
@@ -665,6 +767,9 @@ export function connect(): void {
   ws.onopen = () => {
     useRuri.setState({ connected: true });
     flushUnsavedDrafts();
+    // a new connection knows nothing of what is on screen
+    lastView = "";
+    sendView();
   };
   ws.onmessage = (raw) => apply(JSON.parse(raw.data as string) as ServerMessage);
   ws.onclose = () => {
@@ -808,7 +913,7 @@ function apply(msg: ServerMessage): void {
     case "transcript": {
       requested.delete(msg.projectId);
       setState((s) => {
-        const transcripts = { ...s.transcripts, [msg.projectId]: msg.events };
+        const transcripts = { ...s.transcripts, [msg.projectId]: reuse(s.transcripts[msg.projectId], msg.events) };
         const loaded: Record<string, true> = { ...s.loaded, [msg.projectId]: true };
         const earlier = { ...s.earlier, [msg.projectId]: msg.earlier ?? [] };
         // most recently opened last; the ones past the budget go back to
@@ -1057,6 +1162,23 @@ function apply(msg: ServerMessage): void {
             ? { messageId: msg.messageId, text: prev.text + msg.delta }
             : { messageId: msg.messageId, text: msg.delta };
         return { drafts: { ...s.drafts, [msg.projectId]: draft } };
+      });
+      break;
+    }
+    case "reply": {
+      setState((s) => ({ drafts: { ...s.drafts, [msg.projectId]: msg.draft ?? undefined } }));
+      break;
+    }
+    case "tails": {
+      setState((s) => {
+        const transcripts = { ...s.transcripts };
+        for (const [id, tail] of Object.entries(msg.transcripts)) {
+          const held = transcripts[id];
+          // a whole chat stays whole, its end brought up to date; a chat
+          // held only as a tail simply takes the newer tail
+          transcripts[id] = s.loaded[id] && held ? overlay(held, tail) : tail;
+        }
+        return { transcripts };
       });
       break;
     }

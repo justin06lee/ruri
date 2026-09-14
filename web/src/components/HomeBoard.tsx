@@ -1,12 +1,6 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { HOME_ID, type Project, type ProjectStats, type SessionInfo, type Totals, type TranscriptEvent } from "../../../shared/protocol";
-import { useRuri } from "../store";
-import { beat } from "../lib/beat";
-
-/** A status dot's ref: on the clock while its status is one that pulses. */
-function pulsing(status: string): ReturnType<typeof beat> | undefined {
-  return status === "working" || status === "permission" ? beat("pulse") : undefined;
-}
+import { useRuri, watchBoard } from "../store";
 
 /**
  * Home's two pages and the strip that swaps them.
@@ -14,10 +8,12 @@ function pulsing(status: string): ReturnType<typeof beat> | undefined {
  * Home is the one place that is not a project, so it is the one place to
  * see all of them at once — which project is working, which is waiting on
  * you, what the last thing each one did was — without walking the sidebar.
- * That is the projects page: every open project as a card with a few live
- * lines of what its sessions are doing right now, and what it has all
- * cost. The lines are live: a streaming reply's tail moves as it streams,
- * a tool call shows the moment it's made. The figures come off the ledger
+ * That is the projects page: every open project as a card with a few
+ * lines of what its sessions have been doing, and what it has all cost.
+ * The lines move a finished step at a time — a tool call, a reply once it
+ * is written — and nothing on the page animates: the words of a reply as
+ * they come, and anything that moves, belong to the chat that is open, and
+ * nowhere else. The figures come off the ledger
  * (server/ledger.ts), which is what makes them true across rewinds,
  * compactions and relaunches.
  *
@@ -87,12 +83,6 @@ function clip(text: string, max = LINE_CHARS): string {
   return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
 }
 
-/** The tail of what's streaming: the last words, not the first. */
-function tail(text: string, max = 84): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > max ? `…${flat.slice(-(max - 1)).trimStart()}` : flat;
-}
-
 function lineOf(event: TranscriptEvent): Line | null {
   switch (event.kind) {
     case "tool":
@@ -122,14 +112,13 @@ function lineOf(event: TranscriptEvent): Line | null {
   }
 }
 
-/** How many lines a session shows: the streaming tail and the last few. */
+/** How many lines a session shows: its last few steps. */
 const LINES = 3;
 
 const NO_EVENTS: TranscriptEvent[] = [];
 
 const SessionLines = memo(function SessionLines({ session, many }: { session: SessionInfo; many: boolean }) {
   const events = useRuri((s) => s.transcripts[session.id] ?? NO_EVENTS);
-  const draft = useRuri((s) => s.drafts[session.id]);
   const status = useRuri((s) => s.statuses[session.id] ?? "idle");
   const setActive = useRuri((s) => s.setActive);
   const lines = useMemo(() => {
@@ -138,15 +127,14 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
       const line = lineOf(events[i]!);
       if (line) out.unshift(line);
     }
-    if (draft?.text.trim()) {
-      out.push({ kind: "live", text: tail(draft.text) });
-      if (out.length > LINES) out.shift();
-    } else if (status === "working" && out[out.length - 1]?.kind !== "tool") {
+    // a reply being written is the open chat's business: here it is
+    // "thinking" until it is done, and then it is a line
+    if (status === "working" && out[out.length - 1]?.kind !== "tool") {
       out.push({ kind: "live", text: "thinking" });
       if (out.length > LINES) out.shift();
     }
     return out;
-  }, [events, draft, status]);
+  }, [events, status]);
 
   return (
     <button
@@ -157,7 +145,7 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
     >
       {many && (
         <span className="board-session-title">
-          <span className={`dot ${status}`} aria-hidden ref={pulsing(status)} />
+          <span className={`dot ${status}`} aria-hidden />
           {session.title ?? "new session"}
         </span>
       )}
@@ -167,7 +155,6 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
         lines.map((line, i) => (
           <span key={i} className={`board-line ${line.kind}`}>
             {line.text}
-            {line.kind === "live" && <span className="board-cursor" aria-hidden ref={beat("blink")} />}
           </span>
         ))
       )}
@@ -223,9 +210,9 @@ function ProjectCard({ project, stats, status }: { project: Project; stats: Proj
         onClick={() => first && setActive(first.id)}
         title={first ? `Open ${project.name}` : undefined}
       >
-        <span className={`dot ${status}`} aria-hidden ref={pulsing(status)} />
+        <span className={`dot ${status}`} aria-hidden />
         <span className="pcard-name">{project.name}</span>
-        <span className="pcard-status" ref={status === "permission" ? beat("pulse") : undefined}>
+        <span className="pcard-status">
           {WORD[status]}
         </span>
       </div>
@@ -296,7 +283,6 @@ export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) =
             <span
               className={`dot ${homeStatus}`}
               aria-label={homeStatus === "working" ? "Home is working" : "Home needs you"}
-              ref={beat("pulse")}
             />
           )}
         </button>
@@ -320,7 +306,6 @@ export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) =
             <span
               className={`dot ${live}`}
               aria-label={live === "permission" ? "a project needs you" : "projects working"}
-              ref={beat("pulse")}
             />
           )}
         </button>
@@ -334,6 +319,9 @@ export function ProjectsPage() {
   const projects = useRuri(selectShown);
   const statuses = useRuri((s) => s.statuses);
   const stats = useRuri((s) => s.stats);
+  // while this is up, every chat's finished steps come here (and, as it
+  // opens, every chat's last few lines as they now stand)
+  useEffect(() => watchBoard(), []);
 
   const { live, idle } = useMemo(() => {
     const ranked = projects

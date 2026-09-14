@@ -8,9 +8,11 @@
  * ten steps a second, a turn every 5.5 seconds as before. Each star is on
  * its own layer (`will-change: transform` in styles.css), so a step only
  * re-composites that little square, never the page. The timer only runs
- * while a star is mounted and the window can be seen, and not at all for
- * someone who has asked their system for reduced motion.
+ * while a star is mounted and the window is in front (seen and focused —
+ * a ruri behind the app you're using holds its star still), and not at all
+ * for someone who has asked their system for reduced motion.
  */
+import { isAwake, subscribeAwake } from "./beat";
 
 const FRAME_MS = 100;
 const TURN_MS = 5500;
@@ -32,7 +34,7 @@ function step(): void {
 
 /** Start or stop the clock to match: stars on screen, window visible. */
 function settle(): void {
-  const wanted = stars.size > 0 && !document.hidden;
+  const wanted = stars.size > 0 && isAwake();
   if (wanted && timer === undefined) timer = window.setInterval(step, FRAME_MS);
   else if (!wanted && timer !== undefined) {
     window.clearInterval(timer);
@@ -40,7 +42,7 @@ function settle(): void {
   }
 }
 
-document.addEventListener("visibilitychange", settle);
+subscribeAwake(settle);
 
 /** A ref for anything that should turn with the stars. */
 export function spinStar(el: HTMLElement | null): void | (() => void) {

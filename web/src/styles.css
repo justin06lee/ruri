@@ -4204,6 +4204,202 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 100%;
 }
 
+/* ── subagents: a card in the chat, its own conversation in a panel ── */
+
+/* a chip that grew a second and third line: what it was sent to do, what
+   it is doing (or came back with), and how far it has got */
+.agent-card {
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: min(100%, 560px);
+  padding: 7px 12px 8px;
+  border-radius: var(--radius-s);
+  background: var(--paper-dim);
+  border: 1px solid var(--line-soft);
+  color: var(--ink-soft);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  animation: rise 180ms ease-out;
+  transition: border-color 120ms ease;
+}
+
+.agent-card:hover {
+  border-color: var(--ink-faint);
+}
+
+.agent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.agent-head .icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--ink);
+}
+
+.agent-type {
+  flex: none;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.agent-desc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the one moving thing on a card: a ring turning while the agent works */
+.agent-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.agent-status.running {
+  color: var(--ink-soft);
+}
+
+.agent-status.running::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  animation: agent-turn 900ms linear infinite;
+}
+
+.agent-status.failed {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+@keyframes agent-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* indented under the name, so the three lines read as one thing */
+.agent-card-line,
+.agent-card-meta {
+  padding-left: 21px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-card-line {
+  font-size: 12.5px;
+}
+
+.agent-card-meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+/* The panel slides over the right of the chat, under the header and down
+   to where the floating composer's room begins (--composer-h, measured by
+   ChatPane) — the textbox, its dragons and its buttons stay usable under
+   it, the whole time it is open. */
+.agent-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: calc(var(--composer-h) + 8px);
+  z-index: 25;
+  width: min(540px, 64%);
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border-left: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  border-bottom-left-radius: var(--radius-m);
+  box-shadow: -14px 0 30px -22px rgba(0, 0, 0, 0.5);
+  animation: agent-panel-in 170ms ease-out;
+}
+
+@keyframes agent-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+
+.agent-panel-head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 10px 10px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.agent-panel-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 5px;
+}
+
+.agent-panel-title .agent-card-meta {
+  padding-left: 21px;
+}
+
+.agent-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 22px;
+}
+
+.agent-panel-body .msg {
+  max-width: 100%;
+}
+
+/* what it came back with, when it said more than its last message did */
+.agent-panel-report {
+  padding: 8px 12px;
+  border-left: 2px solid var(--ink-faint);
+  background: var(--paper-dim);
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+}
+
+.agent-panel-label,
+.agent-panel-empty,
+.agent-panel-live {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.agent-panel-label {
+  margin-bottom: 4px;
+}
+
 /* bounded so a tall screenshot cannot push the conversation off screen —
    the viewer is one click away for the full size */
 .tool-image {

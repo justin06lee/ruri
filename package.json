@@ -1,6 +1,6 @@
 {
   "name": "ruri",
-  "version": "0.71.2",
+  "version": "0.72.0",
   "description": "One desktop workspace for all your projects, each a folder of live coding sessions.",
   "private": true,
   "type": "module",
@@ -48,6 +48,8 @@
     "commands-test": "tsx scripts/commands.ts",
     "provider-check": "tsx scripts/provider-check.ts",
     "provider-events": "tsx scripts/provider-events.ts",
+    "subagents-test": "tsx scripts/subagents.ts",
+    "subagents-live-test": "tsx scripts/subagents-live.ts",
     "provider-test": "tsx scripts/provider-session.ts",
     "rewind-compaction-test": "tsx scripts/rewind-compaction.ts"
   },

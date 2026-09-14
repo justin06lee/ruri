@@ -43,6 +43,7 @@ import {
   type PermissionRequest,
   type Project,
   type ProjectStatus,
+  type SubagentState,
   type TranscriptEvent,
 } from "../shared/protocol.js";
 
@@ -71,6 +72,12 @@ export interface SessionEvents {
    *  file-rewind target) or the turn's latest entry ("last", the fork
    *  point for rewinding past it). Claude sessions only. */
   onChain(projectId: string, eventId: string, kind: "user" | "last", uuid: string): void;
+  /** An event already sent, sent again changed — a subagent's card moving
+   *  along. Replaces it where it is; never adds it. Omitted = onEvent. */
+  onEventUpdate?(projectId: string, event: TranscriptEvent): void;
+  /** Something a subagent did, for its own log (`key` is its card's
+   *  SubagentState.key) — never for the chat. */
+  onAgentEvent?(projectId: string, key: string, event: TranscriptEvent): void;
 }
 
 /** Extra per-project session config (the Home agent's MCP tools live here). */
@@ -366,6 +373,209 @@ interface PendingProviderInput {
 }
 
 /** What answering a question card did. */
+type ToolEvent = Extract<TranscriptEvent, { kind: "tool" }>;
+
+/** A string field of a tool input, when it is a non-empty one. */
+function field(input: Record<string, unknown>, key: string): string | undefined {
+  const value = input[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+/** The first line of a brief, short enough to title a card. */
+function headline(text: string): string {
+  const line = text.trim().split("\n")[0]!.trim();
+  return line.length > 120 ? `${line.slice(0, 119).trimEnd()}…` : line;
+}
+
+/** The text of a tool_result block's content (a string or text blocks). */
+function resultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => (block && typeof block === "object" && (block as { type?: unknown }).type === "text"
+      ? String((block as { text?: unknown }).text ?? "")
+      : ""))
+    .join("\n")
+    .trim();
+}
+
+/** A subagent's card, as the tool call that started it describes it. */
+function agentCard(
+  key: string,
+  input: Record<string, unknown>,
+  project: Project,
+  fallback?: string,
+): ToolEvent {
+  const prompt = field(input, "prompt") ?? fallback;
+  const description = field(input, "description") ?? (prompt ? headline(prompt) : "subagent");
+  const type = field(input, "subagent_type") ?? field(input, "agent_type");
+  const model = field(input, "model");
+  const ts = Date.now();
+  return {
+    kind: "tool",
+    id: randomUUID(),
+    name: "Agent",
+    summary: clip(shortenPaths(description, project)),
+    agent: {
+      key,
+      description,
+      ...(type ? { type } : {}),
+      ...(prompt ? { prompt } : {}),
+      ...(model ? { model } : {}),
+      status: "running",
+      ...(input["run_in_background"] === true ? { background: true } : {}),
+      startedAt: ts,
+    },
+    ts,
+  };
+}
+
+/**
+ * The subagents one session has started, by the spawning call's id: each
+ * one's card — the chip in the chat, or in its parent agent's log when an
+ * agent started it — and where that card lives. Every change to an agent
+ * goes out as the same card again, so the chip is always the agent as it
+ * stands; what the agent does goes to its own log.
+ */
+class AgentBook {
+  private readonly cards = new Map<string, { event: ToolEvent; parent?: string; said?: string }>();
+
+  constructor(
+    private readonly projectId: string,
+    private readonly events: SessionEvents,
+  ) {}
+
+  has(key: string): boolean {
+    return this.cards.has(key);
+  }
+
+  isBackground(key: string): boolean {
+    return this.cards.get(key)?.event.agent?.background === true;
+  }
+
+  /** A new agent: its card goes out where it was started from, and its log
+   *  opens with the brief it was handed. */
+  start(event: ToolEvent, parent?: string): void {
+    const agent = event.agent;
+    if (!agent || this.cards.has(agent.key)) return;
+    this.cards.set(agent.key, { event, ...(parent ? { parent } : {}) });
+    if (parent) this.events.onAgentEvent?.(this.projectId, parent, event);
+    else this.events.onEvent(this.projectId, event);
+    if (agent.prompt) {
+      this.log(agent.key, { kind: "user", id: `${agent.key}:brief`, text: agent.prompt, ts: event.ts });
+    }
+  }
+
+  /** Move an agent's card along. A finished agent stays finished — a late
+   *  progress report, or a "shut down" after it had already reported, is
+   *  not a reason to say anything else about how it ended. */
+  update(key: string, patch: Partial<Omit<SubagentState, "key">>): void {
+    const card = this.cards.get(key);
+    const current = card?.event.agent;
+    if (!card || !current) return;
+    const next: SubagentState = { ...current, ...patch };
+    if (current.status !== "running") next.status = current.status;
+    if (next.status !== "running") {
+      next.endedAt ??= Date.now();
+      // the last thing it said is its report, when nothing else is
+      if (!next.result && card.said) next.result = card.said;
+    }
+    const changed = (Object.keys(next) as Array<keyof SubagentState>).some((k) => next[k] !== current[k]);
+    if (!changed) return;
+    card.event = { ...card.event, agent: next };
+    if (card.parent) this.events.onAgentEvent?.(this.projectId, card.parent, card.event);
+    else (this.events.onEventUpdate ?? this.events.onEvent)(this.projectId, card.event);
+  }
+
+  /** Something the agent did, for its log. */
+  log(key: string, event: TranscriptEvent): void {
+    const card = this.cards.get(key);
+    if (card && event.kind === "assistant") card.said = event.text;
+    this.events.onAgentEvent?.(this.projectId, key, event);
+  }
+
+  /** Every agent still running (that `which` picks) has ended — stopped,
+   *  as a rule: the process that ran them is gone, or the turn that waited
+   *  on them was cut short. `nested`: an agent started it, not the chat. */
+  settle(
+    status: "stopped" | "done" = "stopped",
+    which: (agent: SubagentState, nested: boolean) => boolean = () => true,
+  ): void {
+    for (const [key, card] of this.cards) {
+      const agent = card.event.agent;
+      if (agent?.status === "running" && which(agent, card.parent !== undefined)) this.update(key, { status });
+    }
+  }
+}
+
+/** A Claude task message, the fields ruri reads (task_started,
+ *  task_progress, task_updated, task_notification). */
+interface TaskMessage {
+  subtype: "task_started" | "task_progress" | "task_updated" | "task_notification";
+  task_id: string;
+  tool_use_id?: string;
+  subagent_type?: string;
+  is_backgrounded?: boolean;
+  usage?: { total_tokens: number; tool_uses: number };
+  summary?: string;
+  status?: "completed" | "failed" | "stopped";
+  patch?: { status?: string; is_backgrounded?: boolean; error?: string };
+}
+
+/** An agent's report as the tool hands it back, without the bookkeeping
+ *  the CLI appends for the model (its id for resuming, its usage). */
+function agentReport(content: unknown): string {
+  return resultText(content)
+    .replace(/<usage>[\s\S]*?<\/usage>/g, "")
+    .replace(/^agentId:.*$/gm, "")
+    .trim();
+}
+
+/** Harness tool names that start an agent: Codex's spawn_agent, an ACP
+ *  agent's Task / Agent. Codex's other collab calls (wait, close_agent, …)
+ *  stay ordinary chips. */
+function spawnsAgent(name: string): boolean {
+  const n = name.toLowerCase();
+  return n === "spawn_agent" || n === "task" || n === "agent";
+}
+
+/** The threads a Codex collab call names as its agents. */
+function receiverThreads(input: unknown): string[] {
+  const ids = (input as { receiverThreadIds?: unknown } | undefined)?.receiverThreadIds;
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+}
+
+/** What a Codex collab call last knew of each agent it touched
+ *  (agentsStates, keyed by thread), as card changes. */
+function collabStates(output: unknown): Array<[string, Partial<Omit<SubagentState, "key">>]> {
+  if (!output || typeof output !== "object" || Array.isArray(output)) return [];
+  const out: Array<[string, Partial<Omit<SubagentState, "key">>]> = [];
+  for (const [thread, value] of Object.entries(output as Record<string, unknown>)) {
+    const state = value as { status?: unknown; message?: unknown } | null;
+    if (!state || typeof state !== "object" || typeof state.status !== "string") continue;
+    const status: SubagentState["status"] | undefined =
+      state.status === "completed"
+        ? "done"
+        : state.status === "errored"
+          ? "failed"
+          : state.status === "interrupted" || state.status === "shutdown"
+            ? "stopped"
+            : undefined;
+    const message = typeof state.message === "string" && state.message.trim() ? state.message.trim() : undefined;
+    out.push([
+      thread,
+      { ...(status ? { status } : {}), ...(message ? (status ? { result: message } : { activity: message }) : {}) },
+    ]);
+  }
+  return out;
+}
+
+/** A finished tool call's output as text, when it has any. */
+function outputText(output: unknown): string {
+  if (typeof output === "string") return output.trim();
+  return resultText(output);
+}
+
 export type QuestionOutcome = "answered" | "late" | "none";
 
 /** How long a question card may sit unanswered before the CLI gives up on
@@ -434,6 +644,11 @@ class ProjectSession implements ChannelSession {
   /** Background tasks the CLI reports live (a shell run in the background,
    *  a subagent). They live in the CLI's process, so it stays while any do. */
   private backgroundTasks = 0;
+  /** The subagents this session's turns have started. */
+  private readonly agents: AgentBook;
+  /** The CLI's task ids for them, to their spawning tool_use ids — task
+   *  messages name the tool_use only some of the time. */
+  private readonly taskKeys = new Map<string, string>();
 
   constructor(
     private readonly project: Project,
@@ -446,6 +661,7 @@ class ProjectSession implements ChannelSession {
   ) {
     this.lastSessionId = resume;
     this.secretFill = extras?.fillSecrets;
+    this.agents = new AgentBook(project.id, events);
     this.session = new AgentSession({
       cwd: project.path,
       appName: "ruri",
@@ -456,6 +672,11 @@ class ProjectSession implements ChannelSession {
       options: {
         // snapshot files before edits, so a rewind can restore them
         enableFileCheckpointing: true,
+        // A subagent's whole conversation, not just its tool calls — what
+        // its card opens onto — and every ~30s a line on what it is doing,
+        // written by a fork that rides the agent's own prompt cache.
+        forwardSubagentText: true,
+        agentProgressSummaries: true,
         // AskUserQuestion is a question, not a permission — it has to reach
         // the user in every mode, and bypassPermissions skips canUseTool
         // entirely. A PreToolUse hook fires regardless of mode, and its
@@ -749,6 +970,8 @@ class ProjectSession implements ChannelSession {
     } finally {
       this.dead = true;
       this.rejectAllPending();
+      // the process is gone, and every agent it was running with it
+      this.agents.settle();
     }
   }
 
@@ -756,10 +979,104 @@ class ProjectSession implements ChannelSession {
     return this.backgroundTasks > 0;
   }
 
+  /** A tool_use block as the transcript shows it: its chip, with the patch
+   *  or picture it carries — or, for the Agent tool, the agent's card. */
+  private toolEvent(block: Record<string, unknown>): ToolEvent {
+    const name = typeof block["name"] === "string" ? (block["name"] as string) : "tool";
+    const input = (block["input"] ?? {}) as Record<string, unknown>;
+    const useId = typeof block["id"] === "string" ? (block["id"] as string) : "";
+    if ((name === "Agent" || name === "Task") && useId) return agentCard(useId, input, this.project);
+    const image = readImage(name, input);
+    const captured = this.preimages.get(useId);
+    this.preimages.delete(useId);
+    const diff = toolDiff(name, input, this.project, captured);
+    return {
+      kind: "tool",
+      id: randomUUID(),
+      name,
+      summary: toolSummary(name, input, this.project),
+      ...(image ? { image } : {}),
+      ...(diff ? { diff } : {}),
+      ts: Date.now(),
+    };
+  }
+
+  /** A subagent's message: what it said and each tool it ran, for its log,
+   *  the card's line following its latest tool. It is the turn working
+   *  too — a long agent is not a stalled turn. */
+  private subagentSaid(parent: string, msg: { message: unknown; subagent_type?: string }): void {
+    const blocks =
+      (msg.message as { content?: Array<Record<string, unknown> & { type: string }> } | undefined)?.content ?? [];
+    if (msg.subagent_type) this.agents.update(parent, { type: msg.subagent_type });
+    const text = blocks
+      .filter((b) => b.type === "text")
+      .map((b) => (typeof b["text"] === "string" ? (b["text"] as string) : ""))
+      .join("");
+    if (text.trim()) {
+      this.agents.log(parent, { kind: "assistant", id: randomUUID(), text, ts: Date.now() });
+      this.events.onProgress(this.project.id, { chars: text.length });
+    }
+    for (const block of blocks) {
+      if (block.type !== "tool_use") continue;
+      const event = this.toolEvent(block);
+      if (event.agent) {
+        this.agents.start(event, parent);
+        continue;
+      }
+      this.agents.log(parent, event);
+      this.agents.update(parent, { activity: `${event.name} ${event.summary}`.trim() });
+      this.events.onProgress(this.project.id, { chars: 1 });
+    }
+  }
+
+  /** The CLI's own account of a subagent: started (and whether in the
+   *  background), how far along, a change of state, its end. Shells and
+   *  the rest ride the same messages; only agents with a card are read. */
+  private onTask(msg: TaskMessage): void {
+    if (msg.subtype === "task_started") {
+      if (!msg.tool_use_id || !this.agents.has(msg.tool_use_id)) return;
+      this.taskKeys.set(msg.task_id, msg.tool_use_id);
+      this.agents.update(msg.tool_use_id, {
+        ...(msg.subagent_type ? { type: msg.subagent_type } : {}),
+        ...(msg.is_backgrounded ? { background: true } : {}),
+      });
+      return;
+    }
+    const key =
+      msg.tool_use_id && this.agents.has(msg.tool_use_id) ? msg.tool_use_id : this.taskKeys.get(msg.task_id);
+    if (!key) return;
+    const counts = msg.usage ? { tokens: msg.usage.total_tokens, tools: msg.usage.tool_uses } : {};
+    if (msg.subtype === "task_progress") {
+      const summary = msg.summary?.trim();
+      this.agents.update(key, { ...counts, ...(summary ? { activity: summary } : {}) });
+    } else if (msg.subtype === "task_updated") {
+      const next = msg.patch?.status;
+      const status = next === "completed" ? "done" : next === "failed" ? "failed" : next === "killed" ? "stopped" : undefined;
+      this.agents.update(key, {
+        ...(status ? { status } : {}),
+        ...(msg.patch?.is_backgrounded ? { background: true } : {}),
+        ...(status === "failed" && msg.patch?.error ? { result: msg.patch.error } : {}),
+      });
+    } else {
+      const status = msg.status === "completed" ? "done" : msg.status === "failed" ? "failed" : "stopped";
+      this.agents.update(key, { ...counts, status });
+    }
+  }
+
   private handle(msg: SDKMessage): void {
     if (msg.type === "system" && msg.subtype === "background_tasks_changed") {
       // a level, not an edge: the whole live set each time
       this.backgroundTasks = msg.tasks.length;
+      return;
+    }
+    if (
+      msg.type === "system" &&
+      (msg.subtype === "task_started" ||
+        msg.subtype === "task_progress" ||
+        msg.subtype === "task_updated" ||
+        msg.subtype === "task_notification")
+    ) {
+      this.onTask(msg as unknown as TaskMessage);
       return;
     }
     if (msg.type === "system" && msg.subtype === "init") {
@@ -798,6 +1115,23 @@ class ProjectSession implements ChannelSession {
         }
         if (this.turnEventId) this.events.onChain(this.project.id, this.turnEventId, "last", uuid);
       }
+      // An agent's tool_result is its report — and, for one the turn waited
+      // on, its end. One left in the background answered "started" here;
+      // its end comes as a task notification.
+      const blocks = (msg.message as { content?: unknown }).content;
+      if (Array.isArray(blocks)) {
+        for (const block of blocks as Array<Record<string, unknown>>) {
+          const key = block["type"] === "tool_result" ? block["tool_use_id"] : undefined;
+          if (typeof key !== "string" || !this.agents.has(key) || this.agents.isBackground(key)) continue;
+          const report = agentReport(block["content"]);
+          this.agents.update(key, {
+            status: block["is_error"] === true ? "failed" : "done",
+            ...(report ? { result: report } : {}),
+          });
+        }
+      }
+    } else if (msg.type === "assistant" && msg.parent_tool_use_id !== null) {
+      this.subagentSaid(msg.parent_tool_use_id, msg as unknown as { message: unknown; subagent_type?: string });
     } else if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
       const chainUuid = (msg as { uuid?: string }).uuid;
       if (chainUuid && this.turnEventId) {
@@ -841,24 +1175,10 @@ class ProjectSession implements ChannelSession {
       }
       this.draftId = null;
       for (const block of blocks) {
-        if (block.type === "tool_use") {
-          const name = typeof block["name"] === "string" ? (block["name"] as string) : "tool";
-          const input = (block["input"] ?? {}) as Record<string, unknown>;
-          const image = readImage(name, input);
-          const useId = typeof block["id"] === "string" ? (block["id"] as string) : "";
-          const captured = this.preimages.get(useId);
-          this.preimages.delete(useId);
-          const diff = toolDiff(name, input, this.project, captured);
-          this.pushEvent({
-            kind: "tool",
-            id: randomUUID(),
-            name,
-            summary: toolSummary(name, input, this.project),
-            ...(image ? { image } : {}),
-            ...(diff ? { diff } : {}),
-            ts: Date.now(),
-          });
-        }
+        if (block.type !== "tool_use") continue;
+        const event = this.toolEvent(block);
+        if (event.agent) this.agents.start(event);
+        else this.pushEvent(event);
       }
     } else if (msg.type === "result") {
       this.lastSessionId = msg.session_id;
@@ -870,6 +1190,10 @@ class ProjectSession implements ChannelSession {
       this.turnOutput = 0;
       const stopped = this.interrupted;
       this.interrupted = false;
+      // The agents this turn waited on are over with it: their reports came
+      // back before the result could — or, stopped, they were cut off.
+      // Ones in the background (and whatever they started) carry on.
+      this.agents.settle(stopped ? "stopped" : "done", (agent, nested) => !agent.background && !nested);
       // A turn the API dropped still comes back as subtype "success" — the
       // CLI finished cleanly, it is the call inside it that did not. The
       // flag that says so is is_error, and reading only the subtype is how
@@ -1519,6 +1843,14 @@ class ProviderAgentSession implements ChannelSession {
   private sentSystem = false;
   /** The mode this session was opened with; changing it rebuilds. */
   private permissionMode: PermissionMode = DEFAULT_PERMISSION_MODE;
+  /** The subagents this session's turns have started (Codex's spawn_agent,
+   *  an ACP agent's Task). */
+  private readonly agents: AgentBook;
+  /** A spawned agent's thread, to its card's key. */
+  private readonly threadKeys = new Map<string, string>();
+  /** A thread's work that came before the call that spawned it said which
+   *  thread it was — held until it does. */
+  private readonly strays = new Map<string, AgentEvent[]>();
 
   constructor(
     private readonly project: Project,
@@ -1532,6 +1864,7 @@ class ProviderAgentSession implements ChannelSession {
     fork = false,
   ) {
     this.nativeModel = nativeModel;
+    this.agents = new AgentBook(project.id, events);
     if (resume?.startsWith(`${providerId}:`)) this.lastSessionId = resume;
     const nativeResume = this.lastSessionId?.slice(providerId.length + 1);
     this.permissionMode = project.permissionMode ?? DEFAULT_PERMISSION_MODE;
@@ -1620,6 +1953,12 @@ class ProviderAgentSession implements ChannelSession {
           ] as ContentBlockParam[])
         : prompt;
       for await (const event of this.session.send(input)) {
+        // a subagent's own work, tagged with its thread (Codex)
+        const thread = (event as { thread?: unknown }).thread;
+        if (typeof thread === "string") {
+          this.subagentEvent(thread, event);
+          continue;
+        }
         if (event.type === "session") {
           this.lastSessionId = `${this.providerId}:${event.sessionId}`;
           this.events.onSessionId(this.project.id, this.lastSessionId);
@@ -1639,6 +1978,30 @@ class ProviderAgentSession implements ChannelSession {
           // the next message starts its own block rather than running on
           bankText();
         } else if (event.type === "tool_call") {
+          // what a collab call knows of the agents it touched (Codex's wait
+          // and close_agent answer with their states and last messages)
+          for (const [agentThread, patch] of collabStates(event.output)) {
+            const key = this.threadKeys.get(agentThread);
+            if (key) this.agents.update(key, patch);
+          }
+          if (spawnsAgent(event.name)) {
+            if (!this.agents.has(event.id)) {
+              bankText();
+              const title = event.title && event.title !== event.name ? event.title : undefined;
+              this.agents.start(agentCard(event.id, (event.input ?? {}) as Record<string, unknown>, this.project, title));
+            }
+            const receivers = receiverThreads(event.input);
+            for (const receiver of receivers) this.adoptThread(receiver, event.id);
+            if (event.status === "failed") {
+              this.agents.update(event.id, { status: "failed" });
+            } else if (event.status === "completed" && receivers.length === 0) {
+              // an agent that runs inside its call (an ACP agent's Task)
+              // ends with it; a Codex spawn only started one
+              const report = outputText(event.output);
+              this.agents.update(event.id, { status: "done", ...(report ? { result: report } : {}) });
+            }
+            continue;
+          }
           if (event.status !== "started" || toolsSeen.has(event.id)) continue;
           toolsSeen.add(event.id);
           bankText();
@@ -1849,6 +2212,39 @@ class ProviderAgentSession implements ChannelSession {
     this.backlog.length = 0;
     this.rejectPending();
     void this.session.close();
+    this.agents.settle();
+  }
+
+  /** A spawned agent's thread is known: its card's, and anything it did
+   *  before that was known goes to its log now. */
+  private adoptThread(thread: string, key: string): void {
+    this.threadKeys.set(thread, key);
+    const held = this.strays.get(thread);
+    this.strays.delete(thread);
+    for (const event of held ?? []) this.subagentEvent(thread, event);
+  }
+
+  /** A subagent's own work — its thread's messages and tool calls — for its
+   *  log, the card's line following its latest tool. */
+  private subagentEvent(thread: string, event: AgentEvent): void {
+    const key = this.threadKeys.get(thread);
+    if (!key) {
+      const held = this.strays.get(thread) ?? [];
+      if (held.length < 200) held.push(event);
+      this.strays.set(thread, held);
+      return;
+    }
+    if (event.type === "text") {
+      if (!event.text.trim()) return;
+      this.agents.log(key, { kind: "assistant", id: randomUUID(), text: event.text, ts: Date.now() });
+      this.events.onProgress(this.project.id, { chars: event.text.length });
+    } else if (event.type === "tool_call" && event.status === "started") {
+      for (const chip of providerToolEvents(event, this.project)) {
+        this.agents.log(key, { kind: "tool", id: randomUUID(), ...chip, ts: Date.now() });
+        this.agents.update(key, { activity: `${chip.name} ${chip.summary}`.trim() });
+      }
+      this.events.onProgress(this.project.id, { chars: 1 });
+    }
   }
 
   private pushEvent(event: TranscriptEvent): void {

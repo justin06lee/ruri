@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ModelRole, PermissionId, PermissionState } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
+import { useNow } from "../lib/beat";
 import { getPref, setPref } from "../prefs";
 import {
   applyTheme,
@@ -336,20 +337,10 @@ function ScheduleClock({
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const held = useRef<Theme | null>(null);
-  const [now, setNow] = useState(() => {
-    const at = new Date();
-    return at.getHours() * 60 + at.getMinutes();
-  });
-
-  // the hand keeps up with the clock it is drawing
-  useEffect(() => {
-    const tick = () => {
-      const at = new Date();
-      setNow(at.getHours() * 60 + at.getMinutes());
-    };
-    const timer = setInterval(tick, 30_000);
-    return () => clearInterval(timer);
-  }, []);
+  // the hand keeps up with the clock it is drawing — while ruri is awake to
+  // show it; asleep it holds, and catches up on waking (lib/beat.ts)
+  const at = new Date(useNow(30_000));
+  const now = at.getHours() * 60 + at.getMinutes();
 
   // in the order the day runs, so each one ends where the next begins
   const order = [...THEMES].sort((a, b) => schedule[a] - schedule[b]);

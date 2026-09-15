@@ -37,6 +37,9 @@ const child = spawn(
       RURI_CONFIG_DIR: process.env["RURI_CONFIG_DIR"] ?? "/tmp/ruri-shot-config",
       RURI_USER_DATA: process.env["RURI_USER_DATA"] ?? "/tmp/ruri-shot-user",
       RURI_PORT: process.env["RURI_PORT"] ?? "7789",
+      // and it is never the window in front, which to ruri is a window
+      // nobody can see: asleep, it would hold everything (web/src/lib/awake.ts)
+      RURI_AWAKE: "1",
     },
     stdio: "ignore",
   },

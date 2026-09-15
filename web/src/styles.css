@@ -1,7 +1,17 @@
 /* ── ruri — manga theme: warm paper, black ink, screentone shading ──
    Paper is deliberately warm (low blue channel) so the panel reads like
    an e-ink page rather than a backlit screen. Everything is grayscale;
-   state is carried by shape and pattern, not hue. */
+   state is carried by shape and pattern, not hue.
+
+   Nothing is drawn around and nothing stands off the page: no panel here
+   is ruled off with a line, and no shadow is cast to the lower right. One
+   surface is told from the next by the shade it is printed in — the
+   sidebar a shade off the page, a card a shade off that. Where a frame is
+   genuinely needed (a tile, a picture's white ground) it is --rim: ink
+   mixed most of the way into the paper, an edge of the surface rather
+   than a line around it. --edge is what is left of the old rules — a
+   border that holds its space and shows nothing, in every theme, so a
+   surface keeps the size it was drawn at. */
 
 :root {
   --paper: #f6f1e6;
@@ -11,12 +21,13 @@
   --ink: #191510;
   --ink-soft: #464035;
   --ink-faint: #8b8271;
-  --edge: #191510;
-  --hairline: #191510;
-  --raised: #f6f1e6;
+  --edge: transparent;
+  --rim: color-mix(in srgb, var(--ink) 22%, var(--paper));
+  --hairline: rgba(25, 21, 16, 0.1);
+  --raised: #fffdf7;
   --line: #191510;
-  --line-soft: rgba(25, 21, 16, 0.28);
-  --line-faint: rgba(25, 21, 16, 0.14);
+  --line-soft: rgba(25, 21, 16, 0.18);
+  --line-faint: rgba(25, 21, 16, 0.09);
   --tone: radial-gradient(circle, rgba(25, 21, 16, 0.16) 1px, transparent 1.4px);
   --stripes: repeating-linear-gradient(
     45deg,
@@ -40,8 +51,6 @@
   --radius-s: 6px;
   --radius-m: 9px;
   --radius-l: 13px;
-  --shadow-hard: 3px 3px 0 var(--ink);
-  --shadow-soft: 2px 2px 0 rgba(25, 21, 16, 0.22);
   color-scheme: light;
 }
 
@@ -55,7 +64,6 @@
   --ink: #ececec;
   --ink-soft: #b4b4b4;
   --ink-faint: #707070;
-  --edge: transparent;
   --hairline: rgba(236, 236, 236, 0.08);
   --raised: #1e1e1e;
   --line: #ececec;
@@ -67,8 +75,6 @@
     transparent 0 5px,
     rgba(236, 236, 236, 0.08) 5px 10px
   );
-  --shadow-hard: 3px 3px 0 rgba(0, 0, 0, 0.55);
-  --shadow-soft: 2px 2px 0 rgba(0, 0, 0, 0.35);
   color-scheme: dark;
 }
 
@@ -83,7 +89,6 @@
   --ink: #f0bd82;
   --ink-soft: #c39257;
   --ink-faint: #8a6338;
-  --edge: transparent;
   --hairline: rgba(240, 189, 130, 0.09);
   --raised: #221308;
   --line: #f0bd82;
@@ -95,8 +100,6 @@
     transparent 0 5px,
     rgba(240, 189, 130, 0.08) 5px 10px
   );
-  --shadow-hard: 3px 3px 0 rgba(0, 0, 0, 0.6);
-  --shadow-soft: 2px 2px 0 rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }
 
@@ -165,6 +168,24 @@ video {
   background: transparent;
 }
 
+/* A box in the chat with a height cap — a patch, a compaction's brief, a
+   permission's command — scrolls only once you are in it (lib/scrollGate.ts).
+   Until then it does not scroll at all, and the wheel goes past it to the
+   chat. The gutter is held either way, so the scrollbar arriving rewraps
+   nothing under it. */
+.scroll-gate {
+  scrollbar-gutter: stable;
+}
+
+.scroll-gate:not([data-engaged]) {
+  overflow: hidden;
+}
+
+/* in it: the thumb appears, which is the sign that the wheel is the box's */
+.scroll-gate[data-engaged]::-webkit-scrollbar-thumb {
+  background: var(--ink-soft);
+}
+
 /* ── controls ─────────────────────────────────────────────────────── */
 
 button {
@@ -176,11 +197,9 @@ button {
   border-radius: var(--radius-s);
   padding: 4px 14px;
   cursor: pointer;
-  box-shadow: var(--shadow-soft);
   transition:
     background 100ms ease-out,
     color 100ms ease-out,
-    box-shadow 100ms ease-out,
     transform 100ms ease-out;
 }
 
@@ -188,26 +207,27 @@ button:hover {
   background: var(--paper-dim);
 }
 
+/* Pressed, a button shrinks towards its centre. It used to slide down and
+   right instead, into the shadow it was standing on; with the shadow gone
+   there is nothing there to press it into, and a button that merely moves
+   reads as a button that was nudged. */
 button:active {
-  transform: translate(2px, 2px);
-  box-shadow: none;
+  transform: scale(0.97);
 }
 
 /*
- * A press slides the button down and right, out from under a pointer resting
- * near its top or left edge, and the release then landed on the page behind
- * it — the press animated and nothing else happened. An overhanging strip
- * used to sit here to keep the vacated edge hittable; it only ever covered
- * two edges, and covered nothing at all for the round composer buttons,
- * which shrink towards their centre and so retreat from every edge at once.
- * web/src/press.ts handles it properly now, by capturing the pointer so
- * where the button went stops mattering.
+ * A press takes the button out from under a pointer resting near its edge,
+ * and the release then landed on the page behind it — the press animated
+ * and nothing else happened. An overhanging strip used to sit here to keep
+ * the vacated edge hittable; it only ever covered the two edges a sliding
+ * button left, and covers nothing at all for a button that retreats from
+ * every edge at once. web/src/press.ts handles it properly now, by
+ * capturing the pointer so where the button went stops mattering.
  */
 
 button:disabled {
   opacity: 0.4;
   cursor: default;
-  box-shadow: none;
 }
 
 button.primary {
@@ -225,7 +245,6 @@ button.ghost {
   background: transparent;
   border-color: transparent;
   color: var(--ink-faint);
-  box-shadow: none;
 }
 
 button.ghost:hover {
@@ -244,16 +263,13 @@ select {
   border-radius: var(--radius-s);
   padding: 6px 10px;
   outline: none;
-  transition:
-    border-color 100ms ease-out,
-    box-shadow 100ms ease-out;
+  transition: border-color 100ms ease-out;
 }
 
 input:focus,
 textarea:focus,
 select:focus {
   border-color: var(--ink);
-  box-shadow: var(--shadow-soft);
 }
 
 input::placeholder,
@@ -391,7 +407,6 @@ textarea::placeholder {
   padding: 0;
   border: none;
   background: transparent;
-  box-shadow: none;
   color: var(--ink-faint);
   border-radius: var(--radius-s);
 }
@@ -486,7 +501,6 @@ textarea::placeholder {
   border-color: var(--edge);
   color: var(--ink);
   font-weight: 600;
-  box-shadow: var(--shadow-soft);
 }
 
 .project-name {
@@ -539,7 +553,6 @@ textarea::placeholder {
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
-  box-shadow: none;
   color: var(--ink-faint);
   font-size: 12.5px;
   font-weight: 600;
@@ -600,7 +613,6 @@ textarea::placeholder {
   padding: 2px;
   color: var(--ink-faint);
   line-height: 0;
-  box-shadow: none;
 }
 
 .folder-actions .star svg,
@@ -713,7 +725,6 @@ textarea::placeholder {
   padding: 2px;
   color: var(--ink-faint);
   line-height: 0;
-  box-shadow: none;
   flex-shrink: 0;
 }
 
@@ -744,7 +755,6 @@ textarea::placeholder {
   padding: 2px;
   color: var(--ink-faint);
   line-height: 0;
-  box-shadow: none;
 }
 
 .project-row .remove svg {
@@ -771,13 +781,11 @@ textarea::placeholder {
   background: transparent;
   color: var(--ink);
   font: inherit;
-  box-shadow: none;
   outline: none;
   user-select: text;
 }
 
 .rename-box:focus {
-  box-shadow: none;
   border-color: var(--ink);
 }
 
@@ -864,7 +872,6 @@ textarea::placeholder {
   padding: 9px 14px;
   background: transparent;
   border: none;
-  box-shadow: none;
   border-radius: 0;
   color: var(--ink-soft);
   font-size: 12.5px;
@@ -949,7 +956,6 @@ textarea::placeholder {
   background: transparent;
   border: none;
   border-radius: 4px;
-  box-shadow: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1010,13 +1016,8 @@ input[type="range"] {
   padding: 0;
   border: none;
   background: transparent;
-  box-shadow: none;
   flex: 1;
   cursor: pointer;
-}
-
-input[type="range"]:focus {
-  box-shadow: none;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
@@ -1124,7 +1125,6 @@ input[type="range"]::-webkit-slider-thumb {
   border: none;
   border-radius: 999px;
   background: transparent;
-  box-shadow: none;
   font-size: 12.5px;
   font-weight: 700;
   line-height: 1.4;
@@ -1137,7 +1137,6 @@ input[type="range"]::-webkit-slider-thumb {
 .home-tab:hover {
   color: var(--ink);
   background: var(--paper-dim);
-  box-shadow: none;
 }
 
 .home-tab.on,
@@ -1253,17 +1252,11 @@ input[type="range"]::-webkit-slider-thumb {
   flex-direction: column;
   gap: 3px;
   padding: 12px 16px 11px;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--rim);
   border-radius: var(--radius-m);
   background: var(--paper);
-  box-shadow: var(--shadow-hard);
   font-variant-numeric: tabular-nums;
   min-width: 0;
-}
-
-[data-theme="dark"] .stat-tile,
-[data-theme="ember"] .stat-tile {
-  border-color: color-mix(in srgb, var(--ink) 22%, var(--paper));
 }
 
 .stat-label,
@@ -1327,27 +1320,17 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* a card is a small page: the name across the top, the lines below it,
-   the figures along the bottom. A live one stands off the page on the
-   hard shadow; an idle one sits flatter, so the eye lands on what moves. */
+   the figures along the bottom. Live or idle, it sits flat on the page —
+   its heading says which, and what moves on it is what draws the eye. */
 .pcard {
   display: flex;
   flex-direction: column;
   background: var(--paper);
-  border: 2px solid var(--edge);
+  border: 2px solid var(--rim);
   border-radius: var(--radius-m);
-  box-shadow: var(--shadow-hard);
   overflow: hidden;
   min-width: 0;
   animation: rise 200ms ease-out;
-}
-
-.pcard.st-idle {
-  box-shadow: var(--shadow-soft);
-}
-
-[data-theme="dark"] .pcard,
-[data-theme="ember"] .pcard {
-  border-color: color-mix(in srgb, var(--ink) 22%, var(--paper));
 }
 
 .pcard-head {
@@ -1433,7 +1416,6 @@ input[type="range"]::-webkit-slider-thumb {
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
-  box-shadow: none;
   text-align: left;
   font-weight: 400;
   color: inherit;
@@ -1442,7 +1424,6 @@ input[type="range"]::-webkit-slider-thumb {
 
 .board-session:hover {
   background: var(--paper-dim);
-  box-shadow: none;
 }
 
 .board-session:active {
@@ -1543,9 +1524,8 @@ input[type="range"]::-webkit-slider-thumb {
   width: 132px;
   height: 132px;
   border-radius: 50%;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--rim);
   background: #fff;
-  box-shadow: var(--shadow-hard);
   margin-bottom: 12px;
   overflow: hidden;
   flex-shrink: 0;
@@ -1563,13 +1543,6 @@ input[type="range"]::-webkit-slider-thumb {
   max-height: 100%;
   display: block;
   transform: translate(-50%, -50%);
-}
-
-/* In dark mode --edge is transparent, so the white image ground would
-   bleed through the border ring — pin an opaque dark-gray ring instead. */
-[data-theme="dark"] .hero-frame,
-[data-theme="ember"] .hero-frame {
-  border-color: color-mix(in srgb, var(--ink) 28%, var(--paper));
 }
 
 .hero-title {
@@ -2037,7 +2010,6 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 0;
   border: none;
   background: none;
-  box-shadow: none;
   color: var(--ink-faint);
   cursor: pointer;
   flex-shrink: 0;
@@ -2046,7 +2018,6 @@ input[type="range"]::-webkit-slider-thumb {
 .model-star:hover,
 .model-star:active {
   background: none;
-  box-shadow: none;
   transform: none;
 }
 
@@ -2139,7 +2110,6 @@ input[type="range"]::-webkit-slider-thumb {
 .seg-option {
   border: none;
   background: transparent;
-  box-shadow: none;
   padding: 3px 14px;
   font-size: 12.5px;
   color: var(--ink-soft);
@@ -2214,6 +2184,14 @@ input[type="range"]::-webkit-slider-thumb {
   position: relative;
 }
 
+/* and hangs it off its own corner, 6px clear of the button — further than
+   the 2px between them, so without this the ideas button's count sits on
+   the tracker's icon and reads as the tracker's. The room is taken by the
+   button carrying one, so the rest stay tight against each other. */
+.header-controls .icon-button:has(> .tracker-badge) {
+  margin-right: 6px;
+}
+
 /* ── dropdown (custom select) ─────────────────────────────────────── */
 
 .dropdown {
@@ -2231,7 +2209,6 @@ input[type="range"]::-webkit-slider-thumb {
   background: transparent;
   border-color: transparent;
   max-width: 190px;
-  box-shadow: none;
 }
 
 .dropdown-trigger:hover,
@@ -2243,7 +2220,6 @@ input[type="range"]::-webkit-slider-thumb {
 
 .dropdown-trigger.open {
   background: var(--raised);
-  box-shadow: var(--shadow-soft);
 }
 
 .dropdown-label {
@@ -2271,7 +2247,6 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--raised);
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-m);
-  box-shadow: var(--shadow-hard);
   padding: 5px;
   z-index: 30;
   animation: rise 120ms ease-out;
@@ -2293,7 +2268,6 @@ input[type="range"]::-webkit-slider-thumb {
   background: transparent;
   border: none;
   border-radius: var(--radius-s);
-  box-shadow: none;
   color: var(--ink-soft);
   white-space: nowrap;
 }
@@ -2401,7 +2375,6 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: var(--radius-l);
   border-bottom-right-radius: 3px;
   padding: 9px 14px;
-  box-shadow: var(--shadow-soft);
 }
 
 /* edit-and-rewind: the pencil surfacing on a prompt's left shoulder */
@@ -2473,9 +2446,8 @@ input[type="range"]::-webkit-slider-thumb {
 .confirm-card {
   width: min(440px, calc(100% - 48px));
   background: var(--paper-bright);
-  border: 2px solid var(--ink);
+  border: 2px solid var(--rim);
   border-radius: var(--radius-l);
-  box-shadow: var(--shadow-hard);
   padding: 16px 18px 14px;
   display: flex;
   flex-direction: column;
@@ -2535,7 +2507,6 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: var(--shadow-soft);
 }
 
 .msg.command-chip:hover {
@@ -2635,7 +2606,6 @@ input[type="range"]::-webkit-slider-thumb {
   border: none;
   border-radius: 0;
   padding: 2px 4px;
-  box-shadow: none;
 }
 
 .compaction-label .icon {
@@ -3032,7 +3002,6 @@ input[type="range"]::-webkit-slider-thumb {
   background: none;
   border: none;
   border-radius: 0;
-  box-shadow: none;
   cursor: pointer;
 }
 
@@ -3053,7 +3022,6 @@ input[type="range"]::-webkit-slider-thumb {
 .exchange-half .half-rail:hover,
 .exchange-half .half-rail:active {
   background: none;
-  box-shadow: none;
   transform: none;
 }
 
@@ -3078,7 +3046,6 @@ input[type="range"]::-webkit-slider-thumb {
 
 .msg.user.note {
   border-style: dashed;
-  box-shadow: none;
   color: var(--ink-soft);
 }
 
@@ -3127,7 +3094,6 @@ input[type="range"]::-webkit-slider-thumb {
   background: none;
   border: none;
   border-radius: 0;
-  box-shadow: none;
 }
 
 .folded-open:hover {
@@ -3280,7 +3246,6 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1.5px solid var(--line-soft);
   border-radius: 99px;
   background: var(--paper);
-  box-shadow: var(--shadow-soft);
 }
 
 .rapid-count {
@@ -3416,7 +3381,6 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 0;
   border: none;
   background: none;
-  box-shadow: none;
   color: var(--ink);
   cursor: pointer;
 }
@@ -3454,7 +3418,6 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 2px;
   border: none;
   background: none;
-  box-shadow: none;
   color: var(--ink-faint);
   opacity: 0;
   cursor: pointer;
@@ -3663,7 +3626,6 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1.5px solid var(--line-soft);
   border-radius: var(--radius-s);
   background: var(--paper-dim);
-  box-shadow: none;
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -3781,7 +3743,6 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1.5px solid var(--line-soft);
   border-radius: 999px;
   background: var(--paper-dim);
-  box-shadow: none;
   cursor: pointer;
   transition:
     background-color 160ms ease,
@@ -3818,7 +3779,6 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 0;
   border: none;
   background: none;
-  box-shadow: none;
   color: inherit;
   cursor: pointer;
 }
@@ -3850,7 +3810,6 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--paper);
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-m);
-  box-shadow: var(--shadow-hard);
   overflow: hidden;
 }
 
@@ -4023,13 +3982,12 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--raised);
   border: 1.5px solid var(--edge);
   color: var(--ink);
-  box-shadow: var(--shadow-hard);
   animation: rise 160ms ease-out;
   z-index: 2;
 }
 
 .jump-latest:active {
-  transform: translate(2px, 2px);
+  transform: scale(0.97);
 }
 
 .jump-latest .icon {
@@ -4050,10 +4008,9 @@ input[type="range"]::-webkit-slider-thumb {
   width: 116px;
   height: 116px;
   border-radius: 50%;
-  border: 2px solid var(--edge);
+  border: 2px solid var(--rim);
   background: #fff;
   object-fit: cover;
-  box-shadow: var(--shadow-hard);
   margin-bottom: 20px;
 }
 
@@ -4159,7 +4116,6 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: var(--radius-m);
   padding: 14px 16px;
   background: var(--raised);
-  box-shadow: var(--shadow-hard);
   animation: rise 180ms ease-out;
 }
 
@@ -4376,7 +4332,6 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--paper-bright);
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-l);
-  box-shadow: var(--shadow-hard);
 }
 
 .agent-brief {
@@ -4547,7 +4502,6 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-s);
   background: var(--paper-dim);
-  box-shadow: none;
   line-height: 0;
   cursor: zoom-in;
   animation: rise 180ms ease-out;
@@ -4630,7 +4584,6 @@ input[type="range"]::-webkit-slider-thumb {
   background: none;
   border: none;
   border-radius: 0;
-  box-shadow: none;
 }
 
 .diff-head:hover {
@@ -4878,7 +4831,6 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: var(--radius-m);
   padding: 15px 16px 14px;
   background: var(--raised);
-  box-shadow: var(--shadow-hard);
   animation: rise 180ms ease-out;
 }
 
@@ -5009,7 +4961,6 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1.5px solid var(--line-soft);
   border-radius: var(--radius-s);
   background: var(--paper-dim);
-  box-shadow: none;
 }
 
 .ask-option:hover {
@@ -5158,7 +5109,6 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 50%;
   border: 1.5px solid var(--line-soft);
   background: var(--paper-dim);
-  box-shadow: none;
 }
 
 .ask-dot:hover {
@@ -5441,7 +5391,6 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1.5px solid var(--line-soft);
   border-bottom: none;
   border-radius: 7px 7px 0 0;
-  box-shadow: none;
 }
 
 .note-att svg {
@@ -5578,7 +5527,6 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 99px;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
-  box-shadow: none;
   line-height: 0;
 }
 
@@ -5640,7 +5588,6 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 0;
   border: 1.5px solid var(--line-soft);
   border-radius: 50%;
-  box-shadow: none;
 }
 
 .sketch-swatch.active {
@@ -5661,7 +5608,6 @@ input[type="range"]::-webkit-slider-thumb {
   justify-content: center;
   border: none;
   background: transparent;
-  box-shadow: none;
   border-radius: var(--radius-s);
   color: var(--ink-faint);
 }
@@ -5724,16 +5670,10 @@ input[type="range"]::-webkit-slider-thumb {
   width: auto;
   height: auto;
   object-fit: contain;
-  border: 1.5px solid var(--edge);
-  box-shadow: var(--shadow-hard);
+  border: 1.5px solid var(--rim);
   background: var(--paper);
   touch-action: none;
   cursor: crosshair;
-}
-
-[data-theme="dark"] .sketch-canvas,
-[data-theme="ember"] .sketch-canvas {
-  border-color: color-mix(in srgb, var(--ink) 22%, var(--paper));
 }
 
 .sketch-canvas.tool-text {
@@ -5789,7 +5729,6 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 13px;
   border: 1.5px solid var(--line-soft);
   background: var(--paper-bright);
-  box-shadow: none;
 }
 
 .sketch-font.active {
@@ -5804,19 +5743,6 @@ input[type="range"]::-webkit-slider-thumb {
 
 .sketch-text-gap {
   flex: 1;
-}
-
-/* the composer's pen: next to the shell toggle, the same size */
-button.sketch-toggle {
-  color: var(--ink-faint);
-  background: transparent;
-  border: 1.5px solid var(--line-soft);
-}
-
-button.sketch-toggle:hover {
-  color: var(--ink);
-  border-color: var(--ink);
-  background: var(--paper-bright);
 }
 
 .viewer-draw {
@@ -5854,7 +5780,6 @@ button.sketch-toggle:hover {
   background: var(--raised);
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-m);
-  box-shadow: var(--shadow-hard);
   padding: 12px 14px 14px;
   overflow: hidden;
 }
@@ -6053,8 +5978,6 @@ button.sketch-toggle:hover {
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-l);
   padding: 12px 12px 10px 16px;
-  box-shadow: var(--shadow-hard);
-  transition: box-shadow 100ms ease-out;
 }
 
 .composer-bar {
@@ -6079,10 +6002,6 @@ button.sketch-toggle:hover {
   padding: 3px 0;
   max-height: 220px;
   line-height: 1.5;
-}
-
-.composer-box textarea:focus {
-  box-shadow: none;
 }
 
 /* ── the markers, as chips ────────────────────────────────────────── */
@@ -6154,7 +6073,6 @@ button.sketch-toggle:hover {
   background: var(--paper-bright);
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-m);
-  box-shadow: var(--shadow-hard);
   animation: rise 120ms ease-out;
 }
 
@@ -6308,7 +6226,6 @@ button.sketch-toggle:hover {
   height: 30px;
   padding: 0;
   border-radius: 50%;
-  box-shadow: none;
 }
 
 .composer-actions button:active {
@@ -6388,7 +6305,6 @@ button.stop:hover {
 .term-tabs button {
   background: none;
   border: none;
-  box-shadow: none;
   padding: 0;
   color: inherit;
   border-radius: var(--radius-s);
@@ -6665,7 +6581,6 @@ button.stop:hover {
   background: var(--paper);
   border: 1px solid var(--line-soft);
   color: var(--ink-soft);
-  box-shadow: none;
 }
 
 .md .code-copy svg {
@@ -6820,7 +6735,6 @@ button.stop:hover {
   height: 15px;
   background: var(--ink);
   border: 1.5px solid var(--paper);
-  box-shadow: var(--shadow-soft);
   cursor: grab;
   pointer-events: auto;
   touch-action: none;
@@ -6894,7 +6808,6 @@ button.stop:hover {
   border: 1.5px solid var(--line-soft);
   border-radius: var(--radius-m);
   background: var(--paper);
-  box-shadow: var(--shadow-soft);
 }
 
 /* the picture: a window's worth, cropped from the top, on screentone
@@ -7028,7 +6941,6 @@ button.stop:hover {
   z-index: 5;
   border-style: solid;
   border-color: var(--ink);
-  box-shadow: var(--shadow-hard);
   transition: none;
   animation: none;
   opacity: 0.92;
@@ -7203,7 +7115,6 @@ button.stop:hover {
   background: var(--raised);
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-m);
-  box-shadow: var(--shadow-hard);
   padding: 5px;
   z-index: 31;
   animation: rise 120ms ease-out;
@@ -7235,9 +7146,8 @@ button.stop:hover {
   display: flex;
   flex-direction: column;
   background: var(--paper-bright);
-  border: 1.5px solid var(--edge);
+  border: 1.5px solid var(--rim);
   border-radius: var(--radius-l);
-  box-shadow: 5px 5px 0 var(--ink);
   animation: rise 120ms ease-out;
   overflow: hidden;
 }
@@ -7278,14 +7188,9 @@ button.stop:hover {
   border: none;
   background: transparent;
   color: var(--ink);
-  box-shadow: none;
   outline: none;
   /* the ghost under it draws the text; this draws only the caret */
   position: relative;
-}
-
-.switcher-input:focus {
-  box-shadow: none;
 }
 
 .switcher-input::placeholder {
@@ -7331,7 +7236,6 @@ button.stop:hover {
   border: none;
   border-radius: var(--radius-s);
   background: none;
-  box-shadow: none;
   text-align: left;
   cursor: pointer;
   color: var(--ink);
@@ -7544,7 +7448,6 @@ button.stop:hover {
   padding: 2px;
   color: var(--ink-faint);
   line-height: 0;
-  box-shadow: none;
 }
 
 .folder-actions .hide svg {
@@ -7584,7 +7487,6 @@ button.stop:hover {
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
-  box-shadow: none;
   color: var(--ink-faint);
   font-size: 10.5px;
   font-weight: 700;

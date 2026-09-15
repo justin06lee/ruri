@@ -232,7 +232,7 @@ function CompactionMark({
       </div>
       {open &&
         (event.entries?.length || event.digest ? (
-          <div className="compaction-brief">
+          <div className="compaction-brief scroll-gate">
             {/* the oldest exchanges, condensed together — a long chat's
                 list stops at its newest few (server/compaction.ts) */}
             {event.digest && (
@@ -257,7 +257,7 @@ function CompactionMark({
           <div className="compaction-brief raw">loading…</div>
         ) : (
           // compactions from before the structured entries: the raw brief
-          <pre className="compaction-brief raw">{event.text}</pre>
+          <pre className="compaction-brief raw scroll-gate">{event.text}</pre>
         ))}
     </div>
   );
@@ -834,7 +834,7 @@ function permissionSummary(
     return {
       title: `${asker} finished planning and wants to start building`,
       body: (
-        <div className="permission-plan">
+        <div className="permission-plan scroll-gate">
           <Markdown text={input["plan"] as string} />
         </div>
       ),
@@ -848,7 +848,7 @@ function permissionSummary(
         : undefined;
   return {
     title: `${asker} wants to use ${request.toolName}`,
-    body: <pre className="permission-input">{detail ?? JSON.stringify(request.input, null, 2)}</pre>,
+    body: <pre className="permission-input scroll-gate">{detail ?? JSON.stringify(request.input, null, 2)}</pre>,
   };
 }
 

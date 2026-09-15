@@ -48,7 +48,7 @@ export const DiffView = memo(function DiffView({ diff }: { diff: FileDiff }) {
         <span className="diff-removed">−{diff.removed}</span>
       </button>
       {open && (
-        <div className="diff-body">
+        <div className="diff-body scroll-gate">
           {diff.hunks.map((hunk, h) => {
             const nums = numbersFor(hunk.oldStart, hunk.newStart, hunk);
             return (

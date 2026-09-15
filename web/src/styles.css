@@ -420,12 +420,13 @@ textarea::placeholder {
 
 /* ── what moves by itself, stepped by web/src/lib/beat.ts ────────────
    Nothing here is an animation: an infinite one redraws the whole window
-   at the display's rate for as long as it is on screen. The clock sets
-   data-<kind> on the few elements that move — all of them in the open chat
-   — only as often as each one changes, and only while ruri is in front;
-   these say what each step looks like. Every mover sits on its own layer
-   (will-change), and a step only changes that layer's opacity or transform,
-   so nothing is repainted for it. Step 0 is the resting pose. */
+   at the display's rate for as long as it is on screen. The clocks set
+   data-<kind> (or, for the agent ring, --spin) on the few elements that
+   move — all of them in the open chat — only as often as each one changes,
+   and only while ruri is awake; these say what each step looks like. Every
+   mover sits on its own layer (will-change), and a step only changes that
+   layer's opacity or transform, so nothing is repainted for it. Step 0 is
+   the resting pose. */
 
 [data-blink="1"] {
   opacity: 0;
@@ -4300,6 +4301,8 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-soft);
 }
 
+/* a thirtieth of a turn per step of the ring's clock (--spin, beat.ts):
+   fifteen steps a second, on the ring's own layer */
 .agent-status.running::before {
   content: "";
   width: 7px;
@@ -4307,17 +4310,9 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 50%;
   border: 1.5px solid currentColor;
   border-right-color: transparent;
+  transform: rotate(calc(var(--spin, 0) * 12deg));
   will-change: transform;
 }
-
-/* an eighth of a turn per step of the clock (data-spin, beat.ts) */
-.agent-status[data-spin="1"]::before { transform: rotate(45deg); }
-.agent-status[data-spin="2"]::before { transform: rotate(90deg); }
-.agent-status[data-spin="3"]::before { transform: rotate(135deg); }
-.agent-status[data-spin="4"]::before { transform: rotate(180deg); }
-.agent-status[data-spin="5"]::before { transform: rotate(225deg); }
-.agent-status[data-spin="6"]::before { transform: rotate(270deg); }
-.agent-status[data-spin="7"]::before { transform: rotate(315deg); }
 
 .agent-status.failed {
   color: var(--ink);

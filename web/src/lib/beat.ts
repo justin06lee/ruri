@@ -1,7 +1,8 @@
 /**
- * One slow clock for everything on screen that moves by itself — the
- * thinking doodle, the streaming cursor, an agent's turning ring. All three
- * live in the chat that is open; nothing anywhere else in the window moves.
+ * One slow clock per pace for everything on screen that moves by itself —
+ * the thinking doodle, the streaming cursor, an agent's turning ring. All
+ * three live in the chat that is open; nothing anywhere else in the window
+ * moves.
  *
  * Each of those used to be an infinite CSS animation, and an infinite
  * animation has Chromium draw the window afresh at the display's rate — up
@@ -9,109 +10,93 @@
  * screen, even when what it shows changes twice a second (the doodle's poses
  * are hard half-second swaps).
  *
- * Here nothing is animated. A mover is an element whose `data-<kind>` this
- * clock steps, and the clock ticks exactly as often as the fastest mover on
- * screen changes, never more — the doodle alone is two ticks a second — and
- * a tick that would leave an element as it is does not touch it. Each mover
- * is its own compositor layer (styles.css), so a step changes a transform or
- * an opacity on that one layer: nothing on the page is repainted for it. The
- * clock runs only while a mover is mounted and the window is both visible
- * and in front: a ruri behind the app you are working in holds still in its
- * resting pose (step 0), and someone who has asked for reduced motion never
- * sees it move at all.
+ * Here nothing is animated. A mover is an element whose step a clock sets —
+ * as `data-<kind>`, or for the ring as a `--spin` its turn is worked out
+ * from — and each clock ticks exactly as often as its movers change, never
+ * more: the doodle and the cursor share the half-second clock, so their
+ * steps land on the same frame, and the ring has its own at fifteen steps a
+ * second. A tick that would leave an element as it is does not touch it.
+ * Each mover is its own compositor layer (styles.css), so a step changes a
+ * transform or an opacity on that one layer: nothing on the page is
+ * repainted for it. A clock runs only while one of its movers is mounted and
+ * the window is awake (lib/awake.ts). Asleep, everything holds exactly where
+ * it was — nothing is written, so nothing is drawn — and picks up from there
+ * on waking. Someone who has asked for reduced motion never sees it move.
  */
 import { useEffect, useState } from "react";
+import { isAwake, subscribeAwake } from "./awake";
+
+export { isAwake, subscribeAwake };
 
 /** `data-turn` is taken — every exchange in a transcript carries its turn
  *  id under it — so the ring's kind is "spin". */
 export type Beat = "blink" | "doodle" | "spin";
 
-/** How long each step of each kind lasts, and how many steps it has. */
-const KINDS: Record<Beat, { ms: number; steps: number }> = {
+/** How long each step of each kind lasts and how many steps it has — and,
+ *  for a kind whose CSS works its pose out from the step rather than
+ *  listing every one, the custom property the step is written to. */
+const KINDS: Record<Beat, { ms: number; steps: number; prop?: string }> = {
   // half a second on, half a second off
   blink: { ms: 500, steps: 2 },
   // a pose swap every half second; the tilts come round every four
   doodle: { ms: 500, steps: 8 },
-  // an eighth of a turn a step, a whole turn every two seconds
-  spin: { ms: 250, steps: 8 },
+  // twelve degrees a step at fifteen steps a second: a whole turn every two
+  // seconds, as it always took, in thirty steps where it had eight
+  spin: { ms: 67, steps: 30, prop: "--spin" },
 };
 
 const movers = new Map<HTMLElement, Beat>();
-/** Time on the clock: what it has counted rather than what the wall says,
- *  so a tick that lands late still moves every mover exactly one step. */
-let elapsed = 0;
-/** What the clock ticks at now; 0 is stopped. */
-let every = 0;
-let timer: number | undefined;
+/** The clocks running, one per pace, and how many ticks each has counted:
+ *  what it has counted rather than what the wall says, so a tick that
+ *  lands late still moves every mover exactly one step. */
+const clocks = new Map<number, { timer: number; ticks: number }>();
+/** Where each stopped clock stood, so it picks up rather than starting over. */
+const stood = new Map<number, number>();
 
 function reducedMotion(): boolean {
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** The window can be seen and is the one being used. */
-export function isAwake(): boolean {
-  return !document.hidden && document.hasFocus();
-}
-
-const wakeListeners = new Set<() => void>();
-
-/** Hear about the window coming to the front or going behind. */
-export function subscribeAwake(listener: () => void): () => void {
-  wakeListeners.add(listener);
-  return () => wakeListeners.delete(listener);
-}
-
-function gcd(a: number, b: number): number {
-  return b === 0 ? a : gcd(b, a % b);
-}
-
-/** The slowest tick that still lands on every step of what is mounted. */
-function tickFor(): number {
-  let ms = 0;
-  for (const kind of new Set(movers.values())) ms = gcd(ms, KINDS[kind].ms);
-  return ms;
-}
-
 function stepOf(kind: Beat): string {
   const { ms, steps } = KINDS[kind];
-  return String(Math.floor(elapsed / ms) % steps);
+  return String((clocks.get(ms)?.ticks ?? stood.get(ms) ?? 0) % steps);
 }
 
-function step(): void {
-  elapsed += every;
-  for (const [el, kind] of movers) {
-    const next = stepOf(kind);
-    if (el.dataset[kind] !== next) el.dataset[kind] = next;
+function write(el: HTMLElement, kind: Beat): void {
+  const step = stepOf(kind);
+  const prop = KINDS[kind].prop;
+  if (prop) {
+    if (el.style.getPropertyValue(prop) !== step) el.style.setProperty(prop, step);
+  } else if (el.dataset[kind] !== step) {
+    el.dataset[kind] = step;
   }
 }
 
-/** Start, stop or re-pace the clock to match: what is mounted, and a
- *  window to see it in. */
+function tick(ms: number): void {
+  const clock = clocks.get(ms);
+  if (!clock) return;
+  clock.ticks += 1;
+  for (const [el, kind] of movers) if (KINDS[kind].ms === ms) write(el, kind);
+}
+
+/** Start or stop each clock to match: movers of its pace mounted, and a
+ *  window awake to see them in. */
 function settle(): void {
-  const want = isAwake() && !reducedMotion() ? tickFor() : 0;
-  if (want === every) return;
-  if (timer !== undefined) window.clearInterval(timer);
-  timer = undefined;
-  every = want;
-  if (want > 0) {
-    // re-paced: stay on a boundary of the new tick
-    elapsed -= elapsed % want;
-    timer = window.setInterval(step, want);
-  } else {
-    // holding still means the resting pose, not wherever it happened to stop
-    elapsed = 0;
-    for (const [el, kind] of movers) el.dataset[kind] = "0";
+  const want = new Set<number>();
+  if (isAwake() && !reducedMotion()) for (const kind of movers.values()) want.add(KINDS[kind].ms);
+  for (const [ms, clock] of clocks) {
+    if (want.has(ms)) continue;
+    window.clearInterval(clock.timer);
+    clocks.delete(ms);
+    stood.set(ms, clock.ticks);
+  }
+  for (const ms of want) {
+    if (clocks.has(ms)) continue;
+    clocks.set(ms, { ticks: stood.get(ms) ?? 0, timer: window.setInterval(() => tick(ms), ms) });
   }
 }
 
-function wake(): void {
-  settle();
-  for (const listener of wakeListeners) listener();
-}
-
-window.addEventListener("focus", wake);
-window.addEventListener("blur", wake);
-document.addEventListener("visibilitychange", wake);
+subscribeAwake(settle);
 
 const refs = new Map<Beat, (el: HTMLElement | null) => void | (() => void)>();
 
@@ -129,10 +114,12 @@ export function beat(kind: Beat): (el: HTMLElement | null) => void | (() => void
       movers.set(el, kind);
       settle();
       // in step with the others already moving
-      el.dataset[kind] = every > 0 ? stepOf(kind) : "0";
+      write(el, kind);
       return () => {
         movers.delete(el);
-        delete el.dataset[kind];
+        const prop = KINDS[kind].prop;
+        if (prop) el.style.removeProperty(prop);
+        else delete el.dataset[kind];
         settle();
       };
     };
@@ -142,9 +129,10 @@ export function beat(kind: Beat): (el: HTMLElement | null) => void | (() => void
 }
 
 /**
- * Run `step` every `ms` while the window is in front, and `rest` (the still
- * pose) whenever it goes behind — for the few things that must move faster
- * than the beat (the music waveform). Returns the cleanup, for an effect.
+ * Run `step` every `ms` while the window is awake, and `rest` (the still
+ * pose) whenever it goes to sleep — for the few things that must move
+ * faster than the beat (the music waveform). Returns the cleanup, for an
+ * effect.
  */
 export function whileAwake(step: () => void, ms: number, rest?: () => void): () => void {
   let timer: number | undefined;
@@ -168,10 +156,10 @@ export function whileAwake(step: () => void, ms: number, rest?: () => void): () 
 }
 
 /**
- * The time, for a line that counts up (a turn's clock, an agent's). It
- * moves every `everyMs` while the window is in front and stands still
- * while it is not — a count nobody can see is a render for nothing — then
- * catches up the moment the window comes back. `on` false stops it.
+ * The time, for a line that counts up (a turn's clock, an agent's, the
+ * gauges' countdowns). It moves every `everyMs` while the window is awake
+ * and stands still while it is not — a count nobody can see is a render for
+ * nothing — then catches up the moment the window wakes. `on` false stops it.
  */
 export function useNow(everyMs: number, on = true): number {
   const [now, setNow] = useState(() => Date.now());

@@ -115,7 +115,13 @@ function createWindow(port: number): BrowserWindow {
     void shell.openExternal(url);
     return { action: "deny" };
   });
-  void win.loadURL(`http://127.0.0.1:${port}/${process.env["RURI_FIXTURE"] ? "?fixture" : ""}`);
+  // ?fixture: canned data, for screenshots; ?awake: a window driven from
+  // behind everything else, which must not go to sleep on its driver
+  // (scripts/shot.mjs, web/src/lib/awake.ts)
+  const query = [process.env["RURI_FIXTURE"] && "fixture", process.env["RURI_AWAKE"] && "awake"]
+    .filter(Boolean)
+    .join("&");
+  void win.loadURL(`http://127.0.0.1:${port}/${query ? `?${query}` : ""}`);
 
   const screenshot = process.env["RURI_SCREENSHOT"];
   if (screenshot) {

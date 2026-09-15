@@ -3001,9 +3001,72 @@ input[type="range"]::-webkit-slider-thumb {
   display: none;
 }
 
-/* a half opened from its note: a click on its message folds it again */
-.exchange-half.folds .msg {
+/* An open prompt that folds on a click says so under the pointer: the
+   bubble takes the note's dashed edge, the look the click takes it back to. */
+.exchange-half.folds[data-half="prompt"] .msg.user {
   cursor: pointer;
+}
+
+.exchange-half.folds[data-half="prompt"] .msg.user:hover {
+  border-style: dashed;
+  border-color: var(--ink);
+}
+
+/* An open reply folds by its rail: a line down its left edge, the reply's
+   whole height — to hand wherever in a long one you are. Under the pointer
+   it darkens, and the reply beside it dims: what a click folds. */
+.exchange-half.folds[data-half="reply"] {
+  position: relative;
+  padding-left: 22px;
+}
+
+.exchange-half .half-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 14px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.exchange-half .half-rail::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 6px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--line-soft);
+  transition:
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.exchange-half .half-rail:hover,
+.exchange-half .half-rail:active {
+  background: none;
+  box-shadow: none;
+  transform: none;
+}
+
+.exchange-half .half-rail:hover::before,
+.exchange-half .half-rail:focus-visible::before {
+  background: var(--ink);
+  transform: scaleX(1.5);
+}
+
+.exchange-half.folds[data-half="reply"] > :not(.half-rail) {
+  transition: opacity 120ms ease;
+}
+
+.exchange-half:has(> .half-rail:hover) > :not(.half-rail) {
+  opacity: 0.45;
 }
 
 .msg.note {
@@ -3028,6 +3091,18 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .msg.assistant.note:hover {
+  color: var(--ink);
+}
+
+/* a folded exchange lights up whole under the pointer, as it did when one
+   click opened all of it: the prompt's note, the reply's, "full exchange" */
+.turn.folded:hover .msg.user.note {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.turn.folded:hover .msg.assistant.note,
+.turn.folded:hover .folded-open {
   color: var(--ink);
 }
 

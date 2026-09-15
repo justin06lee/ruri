@@ -1899,16 +1899,21 @@ function NoteHalf({
   );
 }
 
-/** How long a click on an open half waits to be sure it is not the first
- *  of a double click — which selects a word, and folds nothing. */
-const FOLD_CLICK_MS = 250;
-
 /**
- * An open half. Clicking its message folds it back to its note — the click
- * that opened it closes it — when `folds`. A click on anything in it that
- * does something of its own (a link, a button, a picture), on the space
- * beside the message, a drag that selects text, or a double click folds
- * nothing.
+ * An open half, and the way it folds back to its note.
+ *
+ * A prompt folds on a click on its bubble, at once. Under the pointer the
+ * bubble takes the note's dashed edge — the look the click takes it back
+ * to — so the click is never a surprise. A click on anything in it that
+ * does something of its own (a link, a button, a picture), or a drag that
+ * selects text, folds nothing.
+ *
+ * A reply folds by the rail down its left edge, never by a click on it. A
+ * reply is long and full of things that do something of their own — tool
+ * chips, patches, links — so "click anywhere" was both easy to do by
+ * accident and hard to find a spot for. The rail runs its whole height, to
+ * hand wherever in the reply you are, and hovering it dims the reply: what
+ * a click would fold, before it does.
  */
 function OpenHalf({
   half,
@@ -1921,23 +1926,35 @@ function OpenHalf({
   onFold: () => void;
   children: React.ReactNode;
 }) {
-  const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  if (half === "reply") {
+    return (
+      <div className={`exchange-half${folds ? " folds" : ""}`} data-half="reply">
+        {folds && (
+          <button
+            type="button"
+            className="half-rail"
+            title="Fold the reply back to its note"
+            aria-label="Fold the reply back to its note"
+            onClick={onFold}
+          />
+        )}
+        {children}
+      </div>
+    );
+  }
   return (
     <div
       className={`exchange-half${folds ? " folds" : ""}`}
-      data-half={half}
+      data-half="prompt"
       onClick={
         folds
           ? (e) => {
-              window.clearTimeout(timer.current);
-              if (e.detail > 1) return;
               const target = e.target as HTMLElement;
               if (!target.closest(".msg")) return;
               if (target.closest("a, button, input, textarea, select, label, summary, img, video, [role='button']")) return;
               const selection = window.getSelection();
               if (selection && !selection.isCollapsed && e.currentTarget.contains(selection.anchorNode)) return;
-              timer.current = window.setTimeout(onFold, FOLD_CLICK_MS);
+              onFold();
             }
           : undefined
       }
@@ -1952,11 +1969,11 @@ function OpenHalf({
  * folded to its recall note, laid out like the chat either way: the
  * prompt's note in a dashed bubble on the right, the reply's under it — a
  * cut of the text itself for a note not written yet. A click on a note
- * opens that half alone, and a click on it open folds it again; "full
- * exchange" opens both; the chevron folds the pair back. Every exchange
- * above the newest compaction starts folded, one below it open — and a
- * reply open from the start folds only by the chevron, so clicking about in
- * the one being read never folds it.
+ * opens that half alone, and it folds back the way it came: a prompt by a
+ * click on it, a reply by its rail (see OpenHalf). "Full exchange" opens
+ * both; the chevron folds the pair back. Every exchange above the newest
+ * compaction starts folded, one below it open — and a reply open from the
+ * start has no rail, and folds only by the chevron.
  */
 const Exchange = memo(function Exchange({
   turnId,
@@ -2033,7 +2050,7 @@ const Exchange = memo(function Exchange({
         </NoteHalf>
       )}
       {rest ? (
-        <OpenHalf half="reply" folds={replyFolds} onFold={() => onFoldHalf(turnId, "reply")}>
+        <OpenHalf half="reply" folds={replyFolds && rest.length > 0} onFold={() => onFoldHalf(turnId, "reply")}>
           {rest.map(view)}
         </OpenHalf>
       ) : answered ? (

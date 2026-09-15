@@ -86,7 +86,10 @@ import {
   openAgent,
   requestHistory,
   send,
+  sendAgent,
   setComposerDraft,
+  startAgent,
+  stopAgent,
   useRuri,
   watchChannel,
 } from "../store";
@@ -262,9 +265,9 @@ function CompactionMark({
 
 /* ── subagents ────────────────────────────────────────────────────── */
 
-/** Where an agent card sits: in the chat it opens as the panel's only
- *  agent; inside the panel it opens on top of the one showing. */
-const AgentHost = createContext<"chat" | "panel">("chat");
+/** Where an agent card sits: in the chat it opens as the agents page's
+ *  only agent; on the page it opens on top of the one showing. */
+const AgentHost = createContext<"chat" | "page">("chat");
 
 const AGENT_STATUS: Record<SubagentState["status"], string> = {
   running: "working",
@@ -287,12 +290,16 @@ function span(ms: number): string {
  *  while it runs and ruri is in front. */
 function AgentMeta({ agent }: { agent: SubagentState }) {
   const now = useNow(1000, agent.status === "running");
+  // the model by its own name, when the catalog knows it
+  const model = useRuri((s) =>
+    agent.model ? (s.models.find((m) => m.value === agent.model)?.displayName ?? agent.model) : undefined,
+  );
   const line = [
     agent.tools ? `${agent.tools} tool${agent.tools === 1 ? "" : "s"}` : undefined,
     agent.tokens ? `${tokenCount(agent.tokens)} tokens` : undefined,
     span((agent.endedAt ?? now) - agent.startedAt),
     agent.background ? "in the background" : undefined,
-    agent.model,
+    model,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -303,7 +310,7 @@ function AgentHead({ agent }: { agent: SubagentState }) {
   return (
     <span className="agent-head">
       <Icon d={TOOL_ICONS["agent"]!} />
-      <span className="agent-type">{agent.type ?? "Agent"}</span>
+      <span className="agent-type">{agent.type ?? (agent.mine ? "yours" : "Agent")}</span>
       <span className="agent-desc">{agent.description}</span>
       <span
         className={`agent-status ${agent.status}`}
@@ -328,7 +335,7 @@ function AgentCard({ agent, channelId }: { agent: SubagentState; channelId?: str
     <button
       className={`agent-card ${agent.status}`}
       title="Open this agent — its brief, everything it did, and what it came back with"
-      onClick={() => channelId && openAgent(channelId, agent.key, host === "panel")}
+      onClick={() => channelId && openAgent(channelId, agent.key, host === "page")}
     >
       <AgentHead agent={agent} />
       {line && <span className="agent-card-line">{line}</span>}
@@ -339,13 +346,13 @@ function AgentCard({ agent, channelId }: { agent: SubagentState; channelId?: str
 
 type Ruri = ReturnType<typeof useRuri.getState>;
 
-/** An agent's card as it stands: in the chat, or — an agent's own agent —
- *  in the log of the one that started it. */
+/** An agent's card as it stands: in the chat, among the ones you started,
+ *  or — an agent's own agent — in the log of the one that started it. */
 function findAgent(s: Ruri, channelId: string, key: string): SubagentState | undefined {
   const hit = (events: TranscriptEvent[] | undefined) =>
     events?.find((e): e is Extract<TranscriptEvent, { kind: "tool" }> => e.kind === "tool" && e.agent?.key === key)
       ?.agent;
-  const found = hit(s.transcripts[channelId]);
+  const found = hit(s.transcripts[channelId]) ?? s.crew[channelId]?.find((a) => a.key === key);
   if (found) return found;
   for (const [id, events] of Object.entries(s.agentLogs)) {
     if (!id.startsWith(`${channelId}\u0000`)) continue;
@@ -356,124 +363,310 @@ function findAgent(s: Ruri, channelId: string, key: string): SubagentState | und
 }
 
 /**
- * The agents panel, over the right of the chat: one agent's own
- * conversation — the brief it was handed, what it said, every tool it ran,
- * live while it works — or, with none picked, every agent the chat has
- * started. The chat and its composer stay where they are beside it.
+ * The agents page, in place of the chat as the project's other pages are:
+ * every agent the chat has — the ones the model started and the ones you
+ * did — or, with one picked, that agent's own conversation: the brief it
+ * was handed, what it said, every tool it ran, live while it works. It is
+ * also where you start agents of your own: a brief and a model, and it
+ * goes off to work in the project by itself, reporting back here. Esc
+ * steps out — from an agent to the list, from the list to the chat.
  */
-function AgentPanel({
+function AgentsPage({
   channelId,
   project,
   agents,
 }: {
   channelId: string;
-  project?: Project;
+  project: Project;
   agents: SubagentState[];
 }) {
-  const panel = useRuri((s) => (s.agentPanel?.projectId === channelId ? s.agentPanel : null));
-  const key = panel?.keys.at(-1);
-  const log = useRuri((s) => (key ? s.agentLogs[agentLogKey(channelId, key)] : undefined));
-  const agent = useRuri((s) => (key ? findAgent(s, channelId, key) : undefined));
-  const bodyRef = useRef<HTMLDivElement>(null);
-  // at the newest thing the agent did, for as long as you stay down there
-  const pinned = useRef(true);
+  const key = useRuri((s) => (s.agentPanel?.projectId === channelId ? s.agentPanel.keys.at(-1) : undefined));
+  const depth = useRuri((s) => (s.agentPanel?.projectId === channelId ? s.agentPanel.keys.length : 0));
   useEffect(() => {
-    pinned.current = true;
-  }, [key]);
-  useLayoutEffect(() => {
-    const body = bodyRef.current;
-    if (body && pinned.current) body.scrollTop = body.scrollHeight;
-  }, [log, key]);
-  useEffect(() => {
-    if (!panel) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      if ((e.target as HTMLElement | null)?.closest("textarea, input, [contenteditable]")) return;
-      closeAgent();
+      // typing, or a menu that Esc closes first
+      if ((e.target as HTMLElement | null)?.closest("textarea, input, [contenteditable], .dropdown")) return;
+      if (useRuri.getState().agentPanel?.keys.length) backAgent();
+      else closeAgent();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [panel]);
-  if (!panel) return null;
+  }, []);
+  return key ? (
+    <AgentView key={key} channelId={channelId} project={project} agentKey={key} depth={depth} />
+  ) : (
+    <AgentList channelId={channelId} project={project} agents={agents} />
+  );
+}
 
+/** A card waiting on the user: a question, a naming, or an allow/deny. */
+function AskCard({ request }: { request: PermissionRequest }) {
+  return request.kind === "question" ? (
+    <QuestionCard request={request} />
+  ) : request.kind === "component" ? (
+    <NameCard request={request} />
+  ) : (
+    <PermissionBanner request={request} />
+  );
+}
+
+/** Every agent in the chat, the working ones first — under the box that
+ *  starts one of your own. */
+function AgentList({
+  channelId,
+  project,
+  agents,
+}: {
+  channelId: string;
+  project: Project;
+  agents: SubagentState[];
+}) {
+  // what your own agents are waiting on you for
+  const asks = useRuri((s) => s.permissions).filter((p) => p.projectId === channelId && p.agent);
+  const working = agents.filter((a) => a.status === "running");
+  const finished = agents.filter((a) => a.status !== "running");
+  return (
+    <section className="board-page agents-page">
+      <div className="board-inner">
+        <div className="board-head">
+          <span className="board-title">Agents</span>
+          <span className="board-sub">
+            {agents.length === 0
+              ? "none in this chat yet"
+              : `${agents.length} in this chat${working.length > 0 ? ` · ${working.length} working` : ""}`}
+          </span>
+          <button className="icon-button" title="Back to the chat (Esc)" onClick={closeAgent}>
+            <Icon d="M18 6L6 18M6 6l12 12" />
+          </button>
+        </div>
+        <AgentBrief channelId={channelId} project={project} />
+        {asks.length > 0 && (
+          <div className="agents-asks">
+            {asks.map((request) => (
+              <AskCard key={request.requestId} request={request} />
+            ))}
+          </div>
+        )}
+        <AgentHost.Provider value="page">
+          {working.length > 0 && <div className="agents-group">working</div>}
+          {working.map((a) => (
+            <AgentCard key={a.key} agent={a} channelId={channelId} />
+          ))}
+          {finished.length > 0 && <div className="agents-group">finished</div>}
+          {finished.map((a) => (
+            <AgentCard key={a.key} agent={a} channelId={channelId} />
+          ))}
+        </AgentHost.Provider>
+        {agents.length === 0 && (
+          <div className="board-empty">
+            The agents the model starts show up here as it starts them. Brief one of your own above and it goes
+            off to work in {project.name} by itself — you can watch it here, tell it more, or stop it.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** Where an agent of your own starts: its brief, and the model it runs on
+ *  — the chat's, unless you pick another from the composer's list. */
+function AgentBrief({ channelId, project }: { channelId: string; project: Project }) {
+  const allModels = useRuri((s) => s.models);
+  const starredIds = useRuri((s) => s.starredModels);
+  const defaultModel = useRuri((s) => s.defaultModel);
+  const [text, setText] = useState("");
+  const [model, setModel] = useState(() => project.model || defaultModel);
+  const starred = allModels.filter((m) => starredIds.includes(m.value));
+  const options = (starred.length > 0 ? starred : allModels).map((m) => ({ value: m.value, label: m.displayName }));
+  if (!options.some((o) => o.value === model)) {
+    options.push({ value: model, label: allModels.find((m) => m.value === model)?.displayName ?? roughName(model) });
+  }
+  const start = () => {
+    const brief = text.trim();
+    if (!brief) return;
+    startAgent(channelId, brief, model);
+    setText("");
+  };
+  return (
+    <div className="agent-brief">
+      <textarea
+        rows={3}
+        value={text}
+        placeholder={`Brief an agent of your own — it works in ${project.name} by itself and reports back here`}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            start();
+          }
+        }}
+      />
+      <div className="agent-brief-bar">
+        <Dropdown
+          value={model}
+          options={options}
+          onSelect={setModel}
+          title="The model it runs on — this chat's, unless you pick another"
+        />
+        <span className="agent-brief-hint">Enter to start · Shift+Enter for a new line</span>
+        <button className="primary" disabled={!text.trim()} onClick={start}>
+          Start
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** One agent's own conversation, the whole page: the brief it was handed,
+ *  everything it said and ran, live while it works — and, for one of your
+ *  own, a line to tell it more or stop it. */
+function AgentView({
+  channelId,
+  project,
+  agentKey,
+  depth,
+}: {
+  channelId: string;
+  project: Project;
+  agentKey: string;
+  depth: number;
+}) {
+  const log = useRuri((s) => s.agentLogs[agentLogKey(channelId, agentKey)]);
+  const agent = useRuri((s) => findAgent(s, channelId, agentKey));
+  const asks = useRuri((s) => s.permissions).filter((p) => p.projectId === channelId && p.agent === agentKey);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // at the newest thing the agent did, for as long as you stay down there
+  const pinned = useRef(true);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (body && pinned.current) body.scrollTop = body.scrollHeight;
+  }, [log, agent?.status, asks.length]);
   // its report, when it said more than its last message did
   const said = log && [...log].reverse().find((e) => e.kind === "assistant");
   const report =
     agent?.result && agent.status !== "running" && (said?.kind !== "assistant" || said.text.trim() !== agent.result.trim())
       ? agent.result
       : undefined;
+  const handed = agent?.status !== "running" ? agent?.result : undefined;
   return (
-    <aside className="agent-panel" aria-label="Agents">
-      <div className="agent-panel-head">
-        {key && (
+    <section className="agents-page agent-view">
+      <div className="agent-view-top">
+        <div className="board-head agent-view-head">
           <button
             className="icon-button"
-            title={panel.keys.length > 1 ? "Back to the agent under this one" : "Every agent in this chat"}
+            title={depth > 1 ? "Back to the agent under this one (Esc)" : "Every agent in this chat (Esc)"}
             onClick={backAgent}
           >
             <Icon d="M15 18l-6-6 6-6" />
           </button>
-        )}
-        <div className="agent-panel-title">
-          {key && agent ? (
-            <>
-              <AgentHead agent={agent} />
-              <AgentMeta agent={agent} />
-            </>
-          ) : (
-            <span className="agent-head">
-              <Icon d={TOOL_ICONS["agent"]!} />
-              <span className="agent-type">Agents</span>
-              <span className="agent-desc">
-                {agents.length} in this chat
-                {agents.some((a) => a.status === "running") &&
-                  ` · ${agents.filter((a) => a.status === "running").length} working`}
+          <div className="agent-view-title">
+            {agent ? (
+              <>
+                <AgentHead agent={agent} />
+                <AgentMeta agent={agent} />
+              </>
+            ) : (
+              <span className="agent-head">
+                <Icon d={TOOL_ICONS["agent"]!} />
+                <span className="agent-type">Agent</span>
               </span>
-            </span>
+            )}
+          </div>
+          {handed && (
+            <button
+              className="ghost agent-hand"
+              title="Put what it came back with in this chat's composer"
+              onClick={() => {
+                composeInto(channelId, handed);
+                closeAgent();
+              }}
+            >
+              Put in the composer
+            </button>
           )}
+          <button className="icon-button" title="Back to the chat" onClick={closeAgent}>
+            <Icon d="M18 6L6 18M6 6l12 12" />
+          </button>
         </div>
-        <button className="icon-button" title="Close (Esc)" onClick={closeAgent}>
-          <Icon d="M18 6L6 18M6 6l12 12" />
-        </button>
       </div>
       <div
-        className="agent-panel-body"
+        className="agent-view-body"
         ref={bodyRef}
         onScroll={(e) => {
           const body = e.currentTarget;
           pinned.current = body.scrollHeight - body.scrollTop - body.clientHeight < 48;
         }}
       >
-        <AgentHost.Provider value="panel">
-          {!key ? (
-            agents.length > 0 ? (
-              agents.map((a) => <AgentCard key={a.key} agent={a} channelId={channelId} />)
+        <div className="agent-view-inner">
+          <AgentHost.Provider value="page">
+            {log && log.length > 0 ? (
+              log.map((event) => <EventView key={event.id} event={event} project={project} channelId={channelId} />)
             ) : (
-              <div className="agent-panel-empty">no agents in this chat</div>
-            )
-          ) : (
-            <>
-              {log && log.length > 0 ? (
-                log.map((event) => <EventView key={event.id} event={event} project={project} channelId={channelId} />)
-              ) : (
-                <div className="agent-panel-empty">
-                  {log ? "nothing was kept of what this one did" : "opening…"}
-                </div>
-              )}
-              {report && (
-                <div className="agent-panel-report">
-                  <div className="agent-panel-label">what it came back with</div>
-                  <Markdown text={report} />
-                </div>
-              )}
-              {agent?.status === "running" && (
-                <div className="agent-panel-live">{agent.activity ? `${agent.activity}…` : "working…"}</div>
-              )}
-            </>
-          )}
-        </AgentHost.Provider>
+              <div className="board-empty">{log ? "nothing was kept of what this one did" : "opening…"}</div>
+            )}
+            {report && (
+              <div className="agent-report">
+                <div className="agent-report-label">what it came back with</div>
+                <Markdown text={report} />
+              </div>
+            )}
+            {asks.map((request) => (
+              <AskCard key={request.requestId} request={request} />
+            ))}
+            {agent?.status === "running" && (
+              <div className="agent-live">
+                <Thinking />
+                <span className="agent-live-line">{agent.activity ? `${agent.activity}…` : "working…"}</span>
+              </div>
+            )}
+          </AgentHost.Provider>
+        </div>
       </div>
-    </aside>
+      {agent?.mine && <AgentReply channelId={channelId} agent={agent} />}
+    </section>
+  );
+}
+
+/** The line under one of your own agents: more to do once it is done, or
+ *  a stop while it works. */
+function AgentReply({ channelId, agent }: { channelId: string; agent: SubagentState }) {
+  const [text, setText] = useState("");
+  const running = agent.status === "running";
+  const go = () => {
+    const more = text.trim();
+    if (!more || running) return;
+    sendAgent(channelId, agent.key, more);
+    setText("");
+  };
+  return (
+    <div className="agent-reply">
+      <div className="agent-reply-box">
+        <textarea
+          rows={2}
+          value={text}
+          placeholder={running ? "It's working — tell it more once it's done" : "Tell it more — it picks up where it left off"}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              go();
+            }
+          }}
+        />
+        {running ? (
+          <button className="stop" title="Stop this agent" onClick={() => stopAgent(channelId, agent.key)}>
+            <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          </button>
+        ) : (
+          <button className="send" title="Send (Enter)" onClick={go} disabled={!text.trim()}>
+            <Icon d="M12 19V5M5 12l7-7 7 7" />
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -714,6 +907,10 @@ export function PermissionBanner({ request }: { request: PermissionRequest }) {
       (request.projectId === HOME_ID ? s.home.model : undefined),
   );
   const { title, body } = permissionSummary(request, harnessName(models, model, defaultModel));
+  // one of your own agents asking, not the chat's model
+  const from = useRuri((s) =>
+    request.agent ? s.crew[request.projectId]?.find((a) => a.key === request.agent)?.description : undefined,
+  );
   const respond = (allow: boolean, always = false) =>
     send({ type: "permission_response", requestId: request.requestId, allow, always });
   return (
@@ -725,6 +922,7 @@ export function PermissionBanner({ request }: { request: PermissionRequest }) {
         </span>
         {title}
       </div>
+      {request.agent && <div className="permission-from">asked by your agent{from ? ` “${from}”` : ""}</div>}
       {body}
       <div className="permission-actions">
         <button className="primary" onClick={() => respond(true)}>
@@ -2157,18 +2355,20 @@ export function ChatPane({
   const permissions = allPermissions.filter((p) => p.projectId === activeId);
   const lastError = useRuri((s) => s.lastError);
   const dismissError = useRuri((s) => s.dismissError);
-  // Every agent this chat has started — the header's count, the panel's
-  // list — the ones still working first, then the newest.
+  // Every agent this chat has — the model's, from its transcript, and the
+  // ones you started yourself — for the header's count and the agents
+  // page: the ones still working first, then the newest.
+  const crewAgents = useRuri((s) => (activeId ? s.crew[activeId] : undefined));
   const agents = useMemo(
     () =>
-      transcript
-        .flatMap((e) => (e.kind === "tool" && e.agent ? [e.agent] : []))
-        .sort((a, b) => Number(b.status === "running") - Number(a.status === "running") || b.startedAt - a.startedAt),
-    [transcript],
+      [...transcript.flatMap((e) => (e.kind === "tool" && e.agent ? [e.agent] : [])), ...(crewAgents ?? [])].sort(
+        (a, b) => Number(b.status === "running") - Number(a.status === "running") || b.startedAt - a.startedAt,
+      ),
+    [transcript, crewAgents],
   );
   const agentsWorking = agents.filter((a) => a.status === "running").length;
   const agentsOpen = useRuri((s) => s.agentPanel !== null && s.agentPanel.projectId === activeId);
-  // the panel belongs to its chat: going to another one puts it away
+  // the agents page belongs to its chat: going to another one puts it away
   useEffect(() => {
     const panel = useRuri.getState().agentPanel;
     if (panel && panel.projectId !== activeId) closeAgent();
@@ -2231,6 +2431,11 @@ export function ChatPane({
   useEffect(() => {
     setPage("chat");
   }, [activeId]);
+  // another of the project's pages takes the agents page's place, as it
+  // would the chat's
+  useEffect(() => {
+    if (page !== "chat") closeAgent();
+  }, [page]);
 
 
   // Rewind: pencil on a past prompt → a plain confirmation → the
@@ -2593,20 +2798,26 @@ export function ChatPane({
         </div>
       </div>
       <div className="header-controls">
-        {agents.length > 0 && (
-          <button
-            className={`icon-button ${agentsOpen ? "active" : ""}`}
-            title={
-              agentsWorking > 0
-                ? `Agents — ${agentsWorking} still working; open one to watch it`
-                : "Agents — every one this chat has started, and what each did"
+        <button
+          className={`icon-button ${agentsOpen ? "active" : ""}`}
+          title={
+            agentsOpen
+              ? "Back to the chat"
+              : agentsWorking > 0
+                ? `Agents — ${agentsWorking} still working; watch one, or start one of your own`
+                : "Agents — start one of your own, and see every one this chat has started"
+          }
+          onClick={() => {
+            if (agentsOpen) closeAgent();
+            else if (activeId) {
+              setPage("chat");
+              openAgent(activeId);
             }
-            onClick={() => (agentsOpen ? closeAgent() : activeId && openAgent(activeId))}
-          >
-            <Icon d={TOOL_ICONS["agent"]!} />
-            {agentsWorking > 0 && <span className="tracker-badge">{agentsWorking}</span>}
-          </button>
-        )}
+          }}
+        >
+          <Icon d={TOOL_ICONS["agent"]!} />
+          {agentsWorking > 0 && <span className="tracker-badge">{agentsWorking}</span>}
+        </button>
         <button
           className={`icon-button ${page === "skills" ? "active" : ""}`}
           title="Skills — what this project and this machine load before working"
@@ -2677,6 +2888,16 @@ export function ChatPane({
 
   // No conversation yet (Home or a fresh project): the hero — face, a big
   // title, and the composer front and center.
+  // The agents page takes the whole pane, the way the project's other pages do.
+  if (agentsOpen && activeId) {
+    return (
+      <main className={pane("chat")}>
+        {header}
+        <AgentsPage channelId={activeId} project={project} agents={agents} />
+      </main>
+    );
+  }
+
   if (transcript.length === 0 && !draft && permissions.length === 0) {
     return (
       <main className={pane("chat home-hero")}>
@@ -2685,7 +2906,9 @@ export function ChatPane({
             {lastError} <span className="dismiss">dismiss</span>
           </div>
         )}
-        {rapid?.on && header}
+        {/* a project chat's header — the agents, skills and boards — is
+            there before its first prompt too; Home has none */}
+        {header}
         {/* the strip that swaps Home's two pages floats over the top, so
             the face stays centred in the pane */}
         {homeTabs}
@@ -2893,7 +3116,6 @@ export function ChatPane({
       )}
       {rapid?.on && <RapidBar rapid={rapid} floating />}
       {activeId && <BridgeStrip channelId={activeId} stacked={rapid?.on} />}
-      {activeId && agentsOpen && <AgentPanel channelId={activeId} project={project} agents={agents} />}
       </div>
 
       {rewindTarget && (

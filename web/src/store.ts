@@ -5,6 +5,7 @@ import {
   HOME_TRANSCRIPT_MAX,
   keepRecent,
   TRANSCRIPT_TAIL,
+  briefLine,
   type BridgeState,
   type ClientMessage,
   type Attachment,
@@ -16,6 +17,7 @@ import {
   type NamedComponent,
   type SecretMeta,
   type SkillInfo,
+  type SubagentState,
   type DraftAttachmentUpload,
   type HomeSettings,
   type ModelChoice,
@@ -432,10 +434,13 @@ interface RuriState {
   /** Subagent logs — everything an agent did — for the agents whose cards
    *  have been opened (keyed by agentLogKey), kept current while here. */
   agentLogs: Record<string, TranscriptEvent[]>;
-  /** The agents panel: the chat it belongs to and the agents opened in it,
+  /** The agents page: the chat it belongs to and the agents opened on it,
    *  the one showing last (an agent's own agents open on top of it). No
    *  keys = the list of every agent in the chat. */
   agentPanel: { projectId: string; keys: string[] } | null;
+  /** The agents the user started from each chat's agents page (its crew),
+   *  keyed by chat. */
+  crew: Record<string, SubagentState[]>;
   /** Picking a session by hand also leaves rapid fire — the line is only
    *  ever showing you one, and this is you choosing another. */
   setActive(id: string | null): void;
@@ -458,6 +463,7 @@ export const useRuri = create<RuriState>((set) => ({
   permissions: [],
   agentLogs: {},
   agentPanel: null,
+  crew: {},
   unread: {},
   models: [],
   summaries: {},
@@ -693,6 +699,7 @@ function replaces(msg: ServerMessage): string | undefined {
     case "reply":
     case "queued":
     case "stats":
+    case "crew":
       return `${msg.type}:${msg.projectId}`;
     case "usage":
     case "projects":
@@ -823,8 +830,8 @@ function requestAgentLog(projectId: string, key: string): void {
 }
 
 /**
- * Open an agent's card in the panel: as its only agent, or — `stack`, from
- * inside the panel — on top of the one showing (an agent's own agent, or
+ * Open an agent on the agents page: as its only agent, or — `stack`, from
+ * the page itself — on top of the one showing (an agent's own agent, or
  * one picked from the list). No key opens the list of every agent.
  */
 export function openAgent(projectId: string, key?: string, stack = false): void {
@@ -846,6 +853,52 @@ export function backAgent(): void {
 
 export function closeAgent(): void {
   if (useRuri.getState().agentPanel) useRuri.setState({ agentPanel: null });
+}
+
+/** Move one of the user's own agents' cards along here, ahead of the
+ *  server's word on it, so the page answers the press at once. */
+function crewCard(projectId: string, key: string, change: (agent: SubagentState) => SubagentState): void {
+  useRuri.setState((s) => ({
+    crew: { ...s.crew, [projectId]: (s.crew[projectId] ?? []).map((a) => (a.key === key ? change(a) : a)) },
+  }));
+}
+
+/**
+ * Start an agent of the user's own in a chat — `text` its brief, on
+ * `model` (the chat's when unset) — and open its page. It works in the
+ * chat's project by itself; its card and its log arrive as it goes.
+ */
+export function startAgent(projectId: string, text: string, model?: string): void {
+  const key = `crew-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  if (!send({ type: "agent_start", projectId, key, text, ...(model ? { model } : {}) })) return;
+  const agent: SubagentState = {
+    key,
+    description: briefLine(text),
+    prompt: text,
+    status: "running",
+    mine: true,
+    startedAt: Date.now(),
+    ...(model ? { model } : {}),
+  };
+  useRuri.setState((s) => ({ crew: { ...s.crew, [projectId]: [...(s.crew[projectId] ?? []), agent] } }));
+  openAgent(projectId, key);
+}
+
+/** Tell one of the user's own agents something more, once it is done. */
+export function sendAgent(projectId: string, key: string, text: string): void {
+  if (!send({ type: "agent_send", projectId, key, text })) return;
+  crewCard(projectId, key, (agent) => {
+    const next: SubagentState = { ...agent, status: "running", startedAt: Date.now() };
+    delete next.endedAt;
+    delete next.result;
+    delete next.activity;
+    return next;
+  });
+}
+
+/** Stop one of the user's own agents where it is. */
+export function stopAgent(projectId: string, key: string): void {
+  send({ type: "agent_stop", projectId, key });
 }
 
 export function connect(): void {
@@ -945,6 +998,7 @@ function apply(msg: ServerMessage): void {
         // what the agents did while the window was away is on the server:
         // every log goes, and the one on screen asks again below
         agentLogs: {},
+        crew: msg.crew,
         activeId:
           s.activeId &&
           (s.activeId === HOME_ID ||
@@ -976,6 +1030,13 @@ function apply(msg: ServerMessage): void {
       const at = log.findIndex((event) => event.id === msg.event.id);
       const next = at === -1 ? [...log, msg.event] : log.map((event, i) => (i === at ? msg.event : event));
       setState((s) => ({ agentLogs: { ...s.agentLogs, [id]: next } }));
+      break;
+    }
+    case "crew": {
+      // a chat coming back on screen is sent its crew whether it moved or not
+      const known = useRuri.getState().crew[msg.projectId];
+      if (known && JSON.stringify(known) === JSON.stringify(msg.agents)) break;
+      setState((s) => ({ crew: { ...s.crew, [msg.projectId]: msg.agents } }));
       break;
     }
     case "projects": {

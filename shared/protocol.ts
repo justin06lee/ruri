@@ -589,6 +589,17 @@ export interface SubagentState {
   endedAt?: number;
   /** Its final report, once it has given one. */
   result?: string;
+  /** Started by the user from the chat's agents page rather than by the
+   *  model: it works on its own, takes follow-ups there, and can be
+   *  stopped there. */
+  mine?: boolean;
+}
+
+/** What an agent the user starts is called on its card: its brief's first
+ *  line, cut to fit. */
+export function briefLine(text: string): string {
+  const line = text.trim().split("\n")[0]!.trim();
+  return line.length > 120 ? `${line.slice(0, 119)}…` : line;
 }
 
 /** One line of a patch, in git's three flavours. */
@@ -643,6 +654,10 @@ export interface PermissionRequest {
    *  CLI gave up on the hook): the card stays, and answering it sends the
    *  answers as a new prompt instead. */
   late?: boolean;
+  /** Asked by an agent the user started (its SubagentState.key) rather
+   *  than by the chat's own model — `projectId` is still the chat's. The
+   *  card shows on that agent's page as well, and says whose it is. */
+  agent?: string;
   ts: number;
 }
 
@@ -810,6 +825,17 @@ export type ClientMessage =
   /** A subagent's own log (everything it did), for its opened card —
    *  answered with `agent_log`, then kept current by `agent_event`. */
   | { type: "agent_log"; projectId: string; key: string }
+  /** Start an agent of the user's own from a chat's agents page. It works
+   *  in the chat's project by itself with `text` as its brief — on `model`
+   *  (the chat's when unset) at the chat's effort and permissions — and
+   *  reports back on the page. `key` (`crew-…`) is the window's name for
+   *  it, so the page can open onto it straight away. */
+  | { type: "agent_start"; projectId: string; key: string; text: string; model?: string }
+  /** Tell one of the user's own agents something more, once it is done:
+   *  it picks its conversation up where it left off. */
+  | { type: "agent_send"; projectId: string; key: string; text: string }
+  /** Stop one of the user's own agents where it is. */
+  | { type: "agent_stop"; projectId: string; key: string }
   /** Rewind to just before this user event ran. On Claude that is the
    *  conversation AND the code (it rides the CLI's file checkpoints); on
    *  every other harness it is the conversation, re-seeded from a brief,
@@ -833,7 +859,8 @@ export type ClientMessage =
    *  chats in `channels` get their conversation live (a reply's paragraphs,
    *  tool calls, agents at work, the turn's counter); every other chat gets
    *  its status and its finished turns, and catches up when it is opened.
-   *  `live` false (the window hidden) pauses even those. `board`: Home's
+   *  `live` false (a window nobody can see: behind another app, minimised,
+   *  hidden) pauses even those. `board`: Home's
    *  projects page is up, which shows every chat's last few lines. The chats
    *  in `channels` also keep their agent process warm between turns; a chat
    *  nobody has open closes its process the moment its work is done. */
@@ -1057,6 +1084,8 @@ export type ServerMessage =
       composerDrafts: Record<string, ComposerDraftState>;
       /** What the bridge is showing per channel (see BridgeState). */
       bridges: Record<string, BridgeState>;
+      /** The agents the user started from each chat's agents page. */
+      crew: Record<string, SubagentState[]>;
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
@@ -1136,6 +1165,8 @@ export type ServerMessage =
   | { type: "agent_log"; projectId: string; key: string; events: TranscriptEvent[] }
   /** Something a subagent just did — for its log, never the chat. */
   | { type: "agent_event"; projectId: string; key: string; event: TranscriptEvent }
+  /** The agents the user started in a chat (its crew), as they now stand. */
+  | { type: "crew"; projectId: string; agents: SubagentState[] }
   | { type: "delta"; projectId: string; messageId: string; delta: string }
   /** The reply in progress as it stands, replacing whatever the window
    *  holds (null = none streaming) — for a chat that has just been opened,

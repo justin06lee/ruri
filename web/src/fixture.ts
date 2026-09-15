@@ -3,7 +3,7 @@
  * permission, folder groups, and per-project statuses — so the whole UI can be
  * eyeballed and screenshotted without a live server or a single token.
  */
-import { composeInto, useRuri } from "./store";
+import { agentLogKey, composeInto, useRuri } from "./store";
 
 const now = Date.now();
 
@@ -432,6 +432,31 @@ export function installFixture(): void {
         { kind: "assistant", id: "b2", text: "Twenty-odd scripts. Running the ones that touch the socket first.", ts: now - 38_000 },
         { kind: "tool", id: "b3", name: "Bash", summary: "bun run queue-test", ts: now - 30_000 },
         { kind: "tool", id: "b4", name: "Bash", summary: "bun run retry-test", ts: now - 12_000 },
+      ],
+      // and the one the user started from the agents page
+      [agentLogKey("p1", "crew-fixture1")]: [
+        { kind: "user", id: "c0", text: "Find why the retry test is flaky on a cold cache. Run it a few times and read the backoff code.", ts: now - 30_000 },
+        { kind: "tool", id: "c1", name: "Bash", summary: "for i in 1 2 3; do bun run retry-test; done", ts: now - 28_000 },
+        { kind: "tool", id: "c2", name: "Read", summary: "ruri/scripts/retry.ts", ts: now - 20_000 },
+        { kind: "assistant", id: "c3", text: "The retry test waits a flat 50 ms for the reconnect, but on a cold cache the first `connect()` takes about 80 ms. Waiting on the `connected` state instead of the clock fixes it — `scripts/retry.ts:41`.", ts: now - 9_000 },
+      ],
+    },
+    // an agent the user started from p1's agents page, finished
+    crew: {
+      p1: [
+        {
+          key: "crew-fixture1",
+          description: "Find why the retry test is flaky on a cold cache. Run it a few times and read the backoff code.",
+          prompt: "Find why the retry test is flaky on a cold cache. Run it a few times and read the backoff code.",
+          model: "claude-sonnet-5",
+          status: "done",
+          mine: true,
+          tools: 9,
+          tokens: 31_800,
+          startedAt: now - 30_000,
+          endedAt: now - 9_000,
+          result: "The retry test waits a flat 50 ms for the reconnect, but on a cold cache the first `connect()` takes about 80 ms. Waiting on the `connected` state instead of the clock fixes it — `scripts/retry.ts:41`.",
+        },
       ],
     },
   });

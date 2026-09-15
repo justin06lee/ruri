@@ -198,7 +198,7 @@ function QuestionBlock({
         )
       )}
       {draft.other && error && <div className="ask-hint" role="alert">{error}</div>}
-      {preview && <pre className="ask-preview">{preview}</pre>}
+      {preview && <pre className="ask-preview scroll-gate">{preview}</pre>}
     </div>
   );
 }

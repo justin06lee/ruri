@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { installCopy } from "./copy";
+import { installScrollGate } from "./lib/scrollGate";
 import { installPressGuard } from "./press";
 import { initTheme, startThemeClock } from "./theme";
 import "@fontsource-variable/space-grotesk";
@@ -12,6 +13,8 @@ startThemeClock();
 if (navigator.userAgent.includes("Electron")) document.body.classList.add("desktop");
 // a press that starts on a button ends on it, however far the button moves
 installPressGuard();
+// a capped box in the chat scrolls once you are in it, not as a flick goes past
+installScrollGate();
 // copying a reply puts the markdown back, numbers and all
 installCopy();
 

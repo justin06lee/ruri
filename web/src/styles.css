@@ -1049,9 +1049,10 @@ input[type="range"]::-webkit-slider-thumb {
   right: 0;
 }
 
-/* rapid fire brings the header to a session with nothing in it yet — it
-   pins to the top the way the error bar does, so the hero stays centered
-   in the pane rather than sitting under a shrunk-to-fit bar */
+/* a project chat with nothing in it yet still has its header (the robot
+   button starts agents before the first prompt) — it pins to the top the
+   way the error bar does, so the hero stays centered in the pane rather
+   than sitting under a shrunk-to-fit bar */
 .home-hero .chat-header {
   position: absolute;
   top: 0;
@@ -4230,7 +4231,7 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 100%;
 }
 
-/* ── subagents: a card in the chat, its own conversation in a panel ── */
+/* ── subagents: a card in the chat, its own conversation on a page ─── */
 
 /* a chip that grew a second and third line: what it was sent to do, what
    it is doing (or came back with), and how far it has got */
@@ -4339,44 +4340,109 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
 }
 
-/* The panel slides over the right of the chat, under the header and down
-   to where the floating composer's room begins (--composer-h, measured by
-   ChatPane) — the textbox, its dragons and its buttons stay usable under
-   it, the whole time it is open. */
-.agent-panel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: calc(var(--composer-h) + 8px);
-  z-index: 25;
-  width: min(540px, 64%);
+/* ── the agents page ──────────────────────────────────────────────────
+   In place of the chat, as the project's other pages are: the list — the
+   box that starts an agent of your own, then every agent in the chat — or
+   one agent's own conversation, its head and its reply line fixed and the
+   log scrolling between them. */
+
+.agents-page .board-head {
+  margin-bottom: 14px;
+}
+
+.agents-page .agent-card {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.agents-group {
+  margin: 16px 2px 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.agents-asks {
   display: flex;
   flex-direction: column;
-  background: var(--paper);
-  border-left: 1px solid var(--line-soft);
-  border-bottom: 1px solid var(--line-soft);
-  border-bottom-left-radius: var(--radius-m);
-  box-shadow: -14px 0 30px -22px rgba(0, 0, 0, 0.5);
-  animation: agent-panel-in 170ms ease-out;
+  gap: 10px;
+  margin-top: 14px;
 }
 
-@keyframes agent-panel-in {
-  from {
-    opacity: 0;
-    transform: translateX(14px);
-  }
-}
-
-.agent-panel-head {
-  flex: none;
+/* the composer's box, for a brief and for a follow-up */
+.agent-brief,
+.agent-reply-box {
   display: flex;
+  background: var(--paper-bright);
+  border: 1.5px solid var(--edge);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-hard);
+}
+
+.agent-brief {
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 12px 10px 16px;
+}
+
+.agent-brief textarea,
+.agent-reply-box textarea {
+  width: 100%;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.agent-brief-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-brief-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* one agent, the whole page */
+.agent-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: rise 160ms ease-out;
+}
+
+.agent-view-top,
+.agent-reply {
+  flex: none;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 18px 24px 0;
+}
+
+.agent-reply {
+  padding: 10px 24px 18px;
+}
+
+.agent-view-head {
   align-items: flex-start;
   gap: 6px;
-  padding: 10px 10px 10px 14px;
-  border-bottom: 1px solid var(--line-soft);
+  padding: 8px 8px 8px 6px;
 }
 
-.agent-panel-title {
+.agent-view-title {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -4385,42 +4451,93 @@ input[type="range"]::-webkit-slider-thumb {
   padding-top: 5px;
 }
 
-.agent-panel-title .agent-card-meta {
-  padding-left: 21px;
+.agent-hand {
+  flex: none;
+  align-self: center;
+  font-size: 11.5px;
+  white-space: nowrap;
 }
 
-.agent-panel-body {
+.agent-view-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px 22px;
 }
 
-.agent-panel-body .msg {
-  max-width: 100%;
+.agent-view-inner {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 18px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 /* what it came back with, when it said more than its last message did */
-.agent-panel-report {
+.agent-report {
   padding: 8px 12px;
   border-left: 2px solid var(--ink-faint);
   background: var(--paper-dim);
   border-radius: 0 var(--radius-s) var(--radius-s) 0;
 }
 
-.agent-panel-label,
-.agent-panel-empty,
-.agent-panel-live {
+.agent-report-label,
+.agent-live-line,
+.permission-from {
   font-family: var(--mono);
   font-size: 10.5px;
   color: var(--ink-faint);
 }
 
-.agent-panel-label {
+.agent-report-label {
   margin-bottom: 4px;
+}
+
+.permission-from {
+  margin: -2px 0 6px;
+}
+
+.agent-live {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.agent-live-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-reply-box {
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 8px 8px 16px;
+}
+
+.agent-reply-box textarea {
+  flex: 1;
+  align-self: center;
+  max-height: 160px;
+}
+
+.agent-reply-box button {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1.5px solid;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.agent-reply-box button .icon {
+  width: 15px;
+  height: 15px;
 }
 
 /* bounded so a tall screenshot cannot push the conversation off screen —

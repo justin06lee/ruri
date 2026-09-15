@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type AskQuestions, DEFAULT_PERMISSION_MODE, type PermissionId, type PermissionState, type TccRow, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
+import { type AskQuestions, briefLine, DEFAULT_PERMISSION_MODE, type PermissionId, type PermissionState, type SubagentState, type TccRow, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -21,7 +21,7 @@ import type {
   UsageLimits,
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
-import { AgentLogs } from "./agents.js";
+import { AgentLogs, Crew } from "./agents.js";
 import { buildCompaction, DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
 import { DraftStore } from "./drafts.js";
 import { HomeLog } from "./homelog.js";
@@ -354,6 +354,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const archive = new SessionArchive();
   /** What each subagent did, apart from the chat that started it. */
   const agentLogs = new AgentLogs();
+  const crew = new Crew();
   // Home is ephemeral: it keeps its newest events and lets the rest go
   archive.cap(HOME_ID, HOME_TRANSCRIPT_MAX);
   // Home is ephemeral — it exists to open projects, not to accumulate
@@ -502,6 +503,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     });
     const turn = turnProgress.get(channelId);
     out.push({ type: "turn", projectId: channelId, turn: turn ? { ...turn, tokens: Math.round(turn.tokens) } : null });
+    // the agents the user started here moved on without this window
+    const agents = crew.list(channelId);
+    if (agents.length > 0) out.push({ type: "crew", projectId: channelId, agents });
     for (const message of out) ws.send(JSON.stringify(message));
   }
 
@@ -2154,6 +2158,173 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // queued behind the turn, or a retry about to go — for nothing else
   manager.useKeepWarm((id) => isOpen(id) || (sendQueues.get(id)?.length ?? 0) > 0 || retries.has(id));
 
+  /**
+   * The agents the user starts themselves, from a chat's agents page (the
+   * crew, server/agents.ts). Each is a session of its own on a manager of
+   * its own, so nothing that watches the chats — their status, the sidebar,
+   * the queue, retries, the recall notes — ever sees one: its channel is its
+   * card's key, and everything it does goes to its log and its card, both
+   * filed under the chat that started it. It runs in the chat's project at
+   * the chat's effort and permissions (on the chat's model unless another
+   * was picked), and closes a moment after each turn, like a chat nobody
+   * has open.
+   */
+  const CREW_BRIEFING = [
+    "<ruri:agent>",
+    "The user started you from a ruri chat's agents page, as an agent of their own, and the brief is your task.",
+    "Work in this project on your own — ask only if you are truly stuck — and finish with a short report of what you did and what you found: that report is what the user reads first, and what they may hand back to the chat.",
+    "</ruri:agent>",
+  ].join("\n");
+
+  /** The last thing each of the user's agents said this turn: its report. */
+  const crewSaid = new Map<string, string>();
+
+  /** An agent of the user's as a Project: the chat's, under the agent's key. */
+  function crewProject(chatId: string, key: string, model?: string) {
+    const chat = channelProject(chatId);
+    return chat && { ...chat, id: key, ...(model ? { model } : {}) };
+  }
+
+  /** Move one of the user's agents' cards along, and show the chat its crew. */
+  function crewCard(key: string, patch: Partial<SubagentState>): void {
+    const chatId = crew.owner(key);
+    if (!chatId || !crew.update(key, patch)) return;
+    toViewers(chatId, { type: "crew", projectId: chatId, agents: crew.list(chatId) });
+  }
+
+  /** Something one of the user's agents did, into a log (its own, or an
+   *  agent of its own's): true when it is new there. */
+  function crewLog(key: string, logKey: string, raw: TranscriptEvent): boolean {
+    const chatId = crew.owner(key);
+    if (!chatId) return false;
+    const event = redacted(raw);
+    allowReadImages([event], pictureBase(chatId));
+    const added = agentLogs.append(chatId, logKey, event);
+    toViewers(chatId, { type: "agent_event", projectId: chatId, key: logKey, event });
+    return added;
+  }
+
+  /** Another turn for one of the user's agents, once it is done: more to
+   *  do, or the answers to its questions. */
+  function followCrew(key: string, text: string): void {
+    const chatId = crew.owner(key);
+    const member = crew.member(key);
+    const project = chatId && member ? crewProject(chatId, key, member.agent.model) : undefined;
+    if (!project || member?.agent.status === "running") return;
+    crewSaid.delete(key);
+    crewCard(key, { status: "running", startedAt: Date.now(), endedAt: undefined, result: undefined, activity: undefined });
+    crewManager.send(project, text);
+  }
+
+  /** One of the user's agents finished a turn: its card says how, and
+   *  what it came back with; what it spent is its project's. */
+  function settleCrew(key: string, event: Extract<TranscriptEvent, { kind: "result" }>): void {
+    const chatId = crew.owner(key);
+    const card = crew.member(key)?.agent;
+    if (!chatId || !card) return;
+    const said = crewSaid.get(key);
+    crewSaid.delete(key);
+    crewCard(key, {
+      status: event.stopped ? "stopped" : event.ok ? "done" : "failed",
+      endedAt: Date.now(),
+      activity: undefined,
+      ...(event.tokens ? { tokens: (card.tokens ?? 0) + event.tokens } : {}),
+      ...(said ? { result: said } : event.error && !event.ok ? { result: secrets.redact(event.error) } : {}),
+    });
+    const owner = ownerProject(chatId);
+    if (owner && (event.tokens || event.costUsd || event.durationMs)) {
+      ledger.record(owner.id, {
+        ...(event.tokens ? { tokens: event.tokens } : {}),
+        ...(event.costUsd ? { costUsd: event.costUsd } : {}),
+        ...(event.durationMs ? { ms: event.durationMs } : {}),
+      });
+      broadcast({ type: "stats", projectId: owner.id, stats: ledger.stats(owner.id) });
+    }
+    pushUsage();
+  }
+
+  const crewManager = new SessionManager(
+    {
+      onEvent: (key, raw) => {
+        if (raw.kind === "result") {
+          settleCrew(key, raw);
+          return;
+        }
+        const added = crewLog(key, key, raw);
+        if (raw.kind === "assistant") crewSaid.set(key, secrets.redact(raw.text));
+        if (raw.kind === "tool" && added) {
+          const card = crew.member(key)?.agent;
+          crewCard(key, {
+            tools: (card?.tools ?? 0) + 1,
+            activity: secrets.redact(`${raw.name} ${raw.summary}`.trim()),
+          });
+        }
+      },
+      // its own agents' cards moving along, and what they did: its log
+      onEventUpdate: (key, raw) => void crewLog(key, key, raw),
+      onAgentEvent: (key, nested, raw) => void crewLog(key, nested, raw),
+      // its log takes whole messages, the way a harness's agents' logs do
+      onDelta: () => {},
+      onStatus: (key, status) => {
+        if (crew.member(key)?.agent.status !== "running") return;
+        if (status === "permission") crewCard(key, { activity: "waiting on you: allow or deny it" });
+        // a process gone without a word about its turn
+        else if (status === "error") crewCard(key, { status: "failed", endedAt: Date.now() });
+      },
+      onPermission: (raw) => {
+        // the chat's card — marked as this agent's — so it shows wherever
+        // the chat does, and on the agent's own page
+        const chatId = crew.owner(raw.projectId);
+        if (!chatId) return;
+        const request: PermissionRequest = {
+          ...raw,
+          projectId: chatId,
+          agent: raw.projectId,
+          input: secrets.redactInput(raw.input),
+        };
+        permissions.set(request.requestId, request);
+        broadcast({ type: "permission_request", request });
+      },
+      onPermissionResolved: (requestId) => {
+        permissions.delete(requestId);
+        broadcast({ type: "permission_resolved", requestId });
+      },
+      onQuestionLate: (requestId) => {
+        const request = permissions.get(requestId);
+        if (!request || request.late) return;
+        const late = { ...request, late: true };
+        permissions.set(requestId, late);
+        broadcast({ type: "permission_request", request: late });
+      },
+      onModels: () => {},
+      onSessionId: (key, sessionId) => crew.setSessionId(key, sessionId),
+      onContext: () => {},
+      onProgress: () => {},
+      onChain: () => {},
+    },
+    (key) => crew.sessionId(key),
+    (project) => {
+      const claude = !registry.parse(project.model || store.defaultModel()).providerId;
+      const note = [
+        sessionBriefing({ projectDir: project.path, projectName: project.name, secrets, claude, naming: "" }),
+        CREW_BRIEFING,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      return {
+        fillSecrets: (input) => (secrets.wanted(JSON.stringify(input)) ? secrets.fillInput(input) : undefined),
+        options: { systemPrompt: { type: "preset", preset: "claude_code", append: note } },
+        providerSystem: note,
+      };
+    },
+    {
+      parse: (model) => registry.parse(model),
+      create: (id, workDir) => registry.createFor(id, workDir),
+      canFork: (id) => registry.canForkSession(id),
+    },
+  );
+  crewManager.useDefaultModel(() => store.defaultModel());
+
   /** The session's window and apps go with it, and so do its pictures. */
   function closeBridge(sessionId: string): void {
     void options.bridge?.close(sessionId);
@@ -2172,6 +2343,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       manager.dispose(sessionId);
       archive.remove(sessionId);
       removeTurnFiles(sessionId);
+      for (const key of crew.remove(sessionId)) crewManager.dispose(key);
       agentLogs.remove(sessionId);
       drafts.remove(sessionId);
       tracker.removeProject(sessionId);
@@ -2777,6 +2949,38 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         ws.send(JSON.stringify({ type: "agent_log", projectId: id, key: msg.key, events } satisfies ServerMessage));
         break;
       }
+      case "agent_start": {
+        const chatId = msg.projectId;
+        const text = msg.text.trim();
+        if (chatId === HOME_ID || !text || !/^crew-[a-z0-9]{6,32}$/.test(msg.key) || crew.owner(msg.key)) break;
+        const project = crewProject(chatId, msg.key, msg.model);
+        if (!project) break;
+        crew.add(chatId, {
+          key: msg.key,
+          description: briefLine(text),
+          prompt: text,
+          model: project.model || store.defaultModel(),
+          status: "running",
+          mine: true,
+          startedAt: Date.now(),
+        });
+        toViewers(chatId, { type: "crew", projectId: chatId, agents: crew.list(chatId) });
+        crewManager.send(project, text);
+        break;
+      }
+      case "agent_send": {
+        if (crew.owner(msg.key) !== msg.projectId || !msg.text.trim()) break;
+        followCrew(msg.key, msg.text.trim());
+        break;
+      }
+      case "agent_stop": {
+        if (crew.owner(msg.key) !== msg.projectId) break;
+        const status = crewManager.statuses()[msg.key];
+        if (status && status !== "idle") crewManager.interrupt(msg.key);
+        // nothing running to stop: only the card still thought so
+        else crewCard(msg.key, { status: "stopped", endedAt: Date.now(), activity: undefined });
+        break;
+      }
       case "history_get": {
         const id = msg.projectId;
         if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
@@ -2853,6 +3057,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         manager.dispose(msg.sessionId);
         archive.remove(msg.sessionId);
         removeTurnFiles(msg.sessionId);
+        for (const key of crew.remove(msg.sessionId)) crewManager.dispose(key);
         agentLogs.remove(msg.sessionId);
         drafts.remove(msg.sessionId);
         tracker.removeProject(msg.sessionId);
@@ -2970,6 +3175,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       case "permission_response": {
         manager.respondPermission(msg.requestId, msg.allow, msg.always ?? false);
+        crewManager.respondPermission(msg.requestId, msg.allow, msg.always ?? false);
         break;
       }
       case "question_response": {
@@ -2978,7 +3184,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // CLI gave up on the hook), they go out as a prompt of their own —
         // never into a hole.
         const request = permissions.get(msg.requestId);
-        const outcome = manager.respondQuestion(msg.requestId, msg.answers);
+        let outcome = manager.respondQuestion(msg.requestId, msg.answers);
+        if (outcome === "none") outcome = crewManager.respondQuestion(msg.requestId, msg.answers);
         if (outcome === "answered") break;
         if (outcome === "none") {
           permissions.delete(msg.requestId);
@@ -2993,6 +3200,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         });
         if (lines.length === 0) break;
         const text = `My answers to your questions:\n${lines.join("\n")}`;
+        // an agent of the user's own asked: the answers are its, not the chat's
+        if (request.agent) {
+          followCrew(request.agent, text);
+          break;
+        }
         const channelId = request.projectId;
         if (busy(channelId)) {
           const queue = sendQueues.get(channelId) ?? [];
@@ -3534,6 +3746,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       prefs: prefs.all(),
       composerDrafts: drafts.all(),
       bridges: options.bridge?.states() ?? {},
+      crew: crew.all(projectIds),
     };
     ws.send(JSON.stringify(snapshot));
 
@@ -3617,8 +3830,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             terminals.closeAll();
             void options.bridge?.closeAll();
             manager.disposeAll();
+            crewManager.disposeAll();
             archive.flushAll();
             agentLogs.flushAll();
+            crew.flushAll();
             ledger.flush();
             for (const client of clients) client.close();
             wss.close(() => server.close(() => done()));

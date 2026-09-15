@@ -1,13 +1,12 @@
 /**
  * A press that starts on a button ends on that button.
  *
- * Everything clickable here animates under the press — most buttons slide
- * 2px down and right, the round composer ones shrink to 92%. That animation
- * moves the element out from under a pointer resting near its edge, and a
- * click is only generated where the press and the release agree: the release
- * landed on the page behind, so the button lit up and then did nothing. Worse
- * near a corner, and worst on the small round buttons, where 8% of 30px is
- * most of the margin you had.
+ * Everything clickable here shrinks under the press — most buttons to 97%,
+ * the round composer ones to 92%. That animation moves the element out from
+ * under a pointer resting near its edge, and a click is only generated where
+ * the press and the release agree: the release landed on the page behind, so
+ * the button lit up and then did nothing. Worse near a corner, and worst on
+ * the small round buttons, where 8% of 30px is most of the margin you had.
  *
  * Widening the hit area cannot fix it, because the widened area moves too.
  * The fix is to stop asking where the pointer ended up: on pointerdown the

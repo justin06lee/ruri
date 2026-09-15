@@ -3,7 +3,7 @@ import type { Playlist, Track } from "../../../shared/protocol";
 import { AudioEngine, type PlayerState, type RepeatMode } from "../lib/audio";
 import { getPref as ls, setPref as lsSet } from "../prefs";
 import { HTTP_BASE, useRuri } from "../store";
-import { whileAwake } from "../lib/beat";
+import { isAwake, subscribeAwake, whileAwake } from "../lib/beat";
 import { Dropdown } from "./Dropdown";
 
 /** How often the waveform and the notes move: enough to read as live,
@@ -176,11 +176,27 @@ export function Player() {
     return Number.isFinite(v) && v > 0 ? v : 0.6;
   });
   const engineRef = useRef<AudioEngine | null>(null);
+  /** The engine's latest state while ruri was asleep, not yet shown. */
+  const unseen = useRef<PlayerState | null>(null);
+  useEffect(
+    () =>
+      subscribeAwake(() => {
+        if (!isAwake() || !unseen.current) return;
+        setState(unseen.current);
+        unseen.current = null;
+      }),
+    [],
+  );
 
   const engine = (): AudioEngine => {
     if (!engineRef.current) {
       const e = new AudioEngine((t: Track) => HTTP_BASE + t.url);
-      e.onState = setState;
+      // the position moves four times a second while music plays: asleep
+      // (lib/awake.ts) only the latest is kept, and shown on waking
+      e.onState = (next) => {
+        if (isAwake()) setState(next);
+        else unseen.current = next;
+      };
       e.setVolume(volume);
       e.setShuffle(shuffle);
       e.setRepeat(repeat);

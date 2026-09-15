@@ -8,11 +8,11 @@
  * ten steps a second, a turn every 5.5 seconds as before. Each star is on
  * its own layer (`will-change: transform` in styles.css), so a step only
  * re-composites that little square, never the page. The timer only runs
- * while a star is mounted and the window is in front (seen and focused —
- * a ruri behind the app you're using holds its star still), and not at all
- * for someone who has asked their system for reduced motion.
+ * while a star is mounted and the window is awake (lib/awake.ts — seen and
+ * in front: a ruri behind the app you're using holds its star still), and
+ * not at all for someone who has asked their system for reduced motion.
  */
-import { isAwake, subscribeAwake } from "./beat";
+import { isAwake, subscribeAwake } from "./awake";
 
 const FRAME_MS = 100;
 const TURN_MS = 5500;

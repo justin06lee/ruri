@@ -12,6 +12,7 @@
  * ./prefs, which is localStorage in front of the server's copy, so a
  * relaunch finds the theme you left on.
  */
+import { isAwake, subscribeAwake } from "./lib/awake";
 import { getPref, setPref, watchPref } from "./prefs";
 
 export type Theme = "light" | "dark" | "ember";
@@ -118,19 +119,19 @@ export function initTheme(): void {
 /**
  * Keep the page in step with the clock while the app is open. Half a minute
  * is fine — a boundary you cross is a boundary you're not watching — and a
- * window coming back to the front checks straight away.
+ * window waking checks straight away. Asleep (lib/awake.ts) it stays on the
+ * old page until then: turning it is a redraw of everything, for nobody.
  */
 export function startThemeClock(): () => void {
   const tick = () => {
+    if (!isAwake()) return;
     const due = currentTheme();
     if (document.documentElement.dataset["theme"] !== due) applyTheme(due, false);
   };
   const timer = setInterval(tick, 30_000);
-  document.addEventListener("visibilitychange", tick);
-  window.addEventListener("focus", tick);
+  const off = subscribeAwake(tick);
   return () => {
     clearInterval(timer);
-    document.removeEventListener("visibilitychange", tick);
-    window.removeEventListener("focus", tick);
+    off();
   };
 }

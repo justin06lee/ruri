@@ -37,6 +37,7 @@ import {
 } from "../../shared/protocol";
 import type { ComposerAttachment } from "./components/Attachments";
 import { hydratePrefs } from "./prefs";
+import { isAwake, subscribeAwake } from "./lib/awake";
 import { fileToBase64 } from "./lib/files";
 
 export interface Draft {
@@ -618,8 +619,9 @@ function sendView(): void {
   const message: ClientMessage = {
     type: "view",
     channels: [...onScreen.keys()],
-    // a hidden window is showing nothing: what it misses, it catches up on
-    live: !document.hidden,
+    // a window nobody can see (lib/awake.ts) is showing nothing: what it
+    // misses, it catches up on as it wakes
+    live: isAwake(),
     ...(boardsUp > 0 ? { board: true } : {}),
   };
   const json = JSON.stringify(message);
@@ -664,7 +666,97 @@ export function watchBoard(): () => void {
   };
 }
 
-document.addEventListener("visibilitychange", syncView);
+/* ── while nobody can see the window ─────────────────────────────── */
+
+/**
+ * What the server says while the window is asleep (lib/awake.ts), held
+ * unapplied until it wakes: applying it would redraw a window nobody can
+ * see. The conversation itself is not sent while asleep — the view says
+ * `live: false` — so what arrives is the little every window is told (a
+ * chat's status, a turn's end, the gauges) and a shell's output. A message
+ * that only ever replaces the one before it takes that one's place rather
+ * than queueing behind it, and a shell's output is joined into one piece.
+ */
+const held: Array<ServerMessage | null> = [];
+/** Where in `held` the message each replaceable one would replace sits. */
+const heldAt = new Map<string, number>();
+/** Past this the window catches up anyway, rather than hold without end
+ *  (asleep all night under a very chatty shell). */
+const HOLD_MAX = 5000;
+
+/** Whose a message is, when a newer one of it makes it moot. */
+function replaces(msg: ServerMessage): string | undefined {
+  switch (msg.type) {
+    case "status":
+    case "context":
+    case "turn":
+    case "reply":
+    case "queued":
+    case "stats":
+      return `${msg.type}:${msg.projectId}`;
+    case "usage":
+    case "projects":
+    case "models":
+      return msg.type;
+    default:
+      return undefined;
+  }
+}
+
+function hold(msg: ServerMessage): void {
+  // a snapshot starts the window over: nothing held before it matters
+  if (msg.type === "snapshot") {
+    held.length = 0;
+    heldAt.clear();
+  }
+  const last = held.at(-1);
+  if (
+    msg.type === "terminal_data" &&
+    last?.type === "terminal_data" &&
+    last.projectId === msg.projectId &&
+    last.termId === msg.termId &&
+    !last.replay &&
+    !msg.replay
+  ) {
+    held[held.length - 1] = { ...last, data: last.data + msg.data };
+    return;
+  }
+  const key = replaces(msg);
+  if (key !== undefined) {
+    const at = heldAt.get(key);
+    if (at !== undefined) held[at] = null;
+    heldAt.set(key, held.length);
+  }
+  held.push(msg);
+  if (held.length > HOLD_MAX) applyHeld();
+}
+
+/** Everything held, applied in the order it came — one render for all of it. */
+function applyHeld(): void {
+  const batch = held.splice(0);
+  heldAt.clear();
+  for (const msg of batch) if (msg) apply(msg);
+}
+
+function receive(msg: ServerMessage): void {
+  if (isAwake()) apply(msg);
+  else hold(msg);
+}
+
+subscribeAwake(() => {
+  const awake = isAwake();
+  if (awake) applyHeld();
+  // live again, or not: one view says so — and waking, the server sends
+  // each chat on screen whatever it missed
+  syncView();
+  const panel = useRuri.getState().agentPanel;
+  const key = panel?.keys.at(-1);
+  // an agent's log open here heard nothing while asleep: asked for again,
+  // once the view has gone out ahead of it
+  if (awake && panel && key && onScreen.has(panel.projectId)) {
+    queueMicrotask(() => requestAgentLog(panel.projectId, key));
+  }
+});
 
 /**
  * A transcript sent again, keeping every event that did not change as the
@@ -771,7 +863,7 @@ export function connect(): void {
     lastView = "";
     sendView();
   };
-  ws.onmessage = (raw) => apply(JSON.parse(raw.data as string) as ServerMessage);
+  ws.onmessage = (raw) => receive(JSON.parse(raw.data as string) as ServerMessage);
   ws.onclose = () => {
     useRuri.setState({ connected: false });
     setTimeout(connect, 1500);

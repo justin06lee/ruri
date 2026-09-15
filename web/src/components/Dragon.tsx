@@ -18,9 +18,10 @@
  * around.
  */
 
-import { useEffect, useId, useState } from "react";
+import { useId } from "react";
 import type { ContextUsage, UsageLimits } from "../../../shared/protocol";
 import { DRAGON, DRAGON_H, DRAGON_W } from "../dragonArt";
+import { useNow } from "../lib/beat";
 import { useRuri } from "../store";
 
 /** Where the drawing swaps to the sweating one. */
@@ -184,14 +185,10 @@ function gaugesFor(context: ContextUsage | undefined, usage: UsageLimits, now: n
 }
 
 /** Now, to the minute. The countdowns are the only thing here that moves on
- *  its own — the readings themselves arrive on their own poll. */
+ *  its own — the readings themselves arrive on their own poll — and they
+ *  hold while ruri is asleep, catching up as it wakes (lib/beat.ts). */
 function useMinute(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
+  return useNow(30_000);
 }
 
 /**

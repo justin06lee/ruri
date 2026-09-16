@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import type { SecretMeta } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The vault: passwords, tokens and the accounts they belong to, held by ruri
@@ -69,7 +70,8 @@ export class SecretStore {
       this.records = (Array.isArray(raw.secrets) ? raw.secrets : []).filter(
         (r) => typeof r?.name === "string" && typeof r?.value === "string",
       );
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("secrets", err, "new SecretStore");
       this.records = [];
     }
   }
@@ -79,7 +81,8 @@ export class SecretStore {
       // every save is a fresh temp file renamed into place, so the mode
       // takes each time rather than only on the first
       writeJsonAtomic(secretsFile(), { secrets: this.records }, 2, 0o600);
-    } catch {
+    } catch (err) {
+      warn("secrets", err, "save");
       // best-effort persistence
     }
   }

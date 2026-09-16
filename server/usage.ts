@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { configPath } from "./configDir.js";
 import type { UsageLimits } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The usage gauges' account side: each harness's own limit windows, keyed by
@@ -21,7 +22,8 @@ function parseToken(raw: string): string | null {
   try {
     const data = JSON.parse(raw) as { claudeAiOauth?: { accessToken?: string } };
     return data.claudeAiOauth?.accessToken ?? null;
-  } catch {
+  } catch (err) {
+    warn("usage", err, "parseToken");
     return null;
   }
 }
@@ -42,7 +44,8 @@ async function accessToken(): Promise<string | null> {
   }
   try {
     return parseToken(fs.readFileSync(path.join(os.homedir(), ".claude", ".credentials.json"), "utf8"));
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("usage", err, "accessToken");
     return null;
   }
 }
@@ -107,7 +110,8 @@ export async function fetchUsageLimits(): Promise<UsageLimits | null> {
       limits.resets = resets;
     }
     return limits;
-  } catch {
+  } catch (err) {
+    warn("usage", err, "fetchUsageLimits");
     return null;
   }
 }
@@ -163,7 +167,8 @@ function tokenCounts(file: string): TokenCount[] {
   let text: string;
   try {
     text = tail(file, 64 * 1024);
-  } catch {
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) warn("usage", err, "tokenCounts");
     return [];
   }
   const entries: TokenCount[] = [];
@@ -175,7 +180,8 @@ function tokenCounts(file: string): TokenCount[] {
       const entry = JSON.parse(line) as { payload?: TokenCount } & TokenCount;
       const payload = entry.payload ?? entry;
       if (payload.rate_limits || payload.info) entries.push(payload);
-    } catch {
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) warn("usage", err, "tokenCounts");
       // a half-written last line is normal — keep walking back
     }
   }
@@ -266,7 +272,8 @@ function childrenDesc(dir: string, filter: (name: string) => boolean): string[] 
       .filter((name) => !name.startsWith(".") && filter(name))
       .sort()
       .reverse();
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("usage", err, "childrenDesc");
     return [];
   }
 }
@@ -292,7 +299,8 @@ function rolloutFor(session: string): string | undefined {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("usage", err, "rolloutFor");
       continue;
     }
     for (const entry of entries) {
@@ -346,7 +354,8 @@ export function loadCachedLimits(): Record<string, UsageLimits> {
       fresh[provider] = limits;
     }
     return fresh;
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("usage", err, "loadCachedLimits");
     // first run, or a file worth starting over from
     return {};
   }
@@ -356,7 +365,8 @@ export function saveCachedLimits(limits: Record<string, UsageLimits>): void {
   try {
     fs.mkdirSync(path.dirname(cacheFile()), { recursive: true });
     fs.writeFileSync(cacheFile(), JSON.stringify(limits));
-  } catch {
+  } catch (err) {
+    warn("usage", err, "saveCachedLimits");
     // the gauges just start blank next launch
   }
 }

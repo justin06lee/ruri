@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import type { ProjectStats, Totals } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * What each project has cost, by the day.
@@ -53,7 +54,8 @@ export class LedgerStore {
         for (const [day, totals] of Object.entries(days)) map.set(day, add(ZERO, totals));
         this.days.set(projectId, map);
       }
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("ledger", err, "new LedgerStore");
       // nothing spent yet
     }
   }
@@ -66,7 +68,8 @@ export class LedgerStore {
         const out: Record<string, Record<string, Totals>> = {};
         for (const [projectId, days] of this.days) out[projectId] = Object.fromEntries(days);
         writeJsonAtomic(ledgerFile(), out, 1);
-      } catch {
+      } catch (err) {
+        warn("ledger", err, "save");
         // best-effort; the in-memory sums stay right
       }
     }, WRITE_DELAY_MS);
@@ -113,7 +116,8 @@ export class LedgerStore {
       const out: Record<string, Record<string, Totals>> = {};
       for (const [projectId, days] of this.days) out[projectId] = Object.fromEntries(days);
       writeJsonAtomic(ledgerFile(), out, 1);
-    } catch {
+    } catch (err) {
+      warn("ledger", err, "flush");
       // best-effort
     }
   }

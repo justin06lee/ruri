@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { SkillInfo } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Skills: the folders of instructions a harness reads before it starts, and
@@ -38,7 +39,8 @@ function frontmatter(file: string): Record<string, string> {
   let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("skills", err, "frontmatter");
     return {};
   }
   if (!raw.startsWith("---")) return {};
@@ -64,7 +66,8 @@ function listDir(dir: string, scope: "global" | "project", enabled: boolean): Sk
   let names: string[];
   try {
     names = fs.readdirSync(dir);
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("skills", err, "listDir");
     return [];
   }
   const out: SkillInfo[] = [];
@@ -104,7 +107,8 @@ function bmoMeta(cwd: string): Map<string, { source?: string; updated?: number }
         ...(Number.isFinite(updated) ? { updated } : {}),
       });
     }
-  } catch {
+  } catch (err) {
+    warn("skills", err, "bmoMeta");
     // bmo not installed, or nothing tracked — the filesystem still answers
   }
   return out;
@@ -198,7 +202,8 @@ export function removeSkill(
   if (fs.existsSync(path.join(dirs(scope, projectDir)?.off ?? "", name))) {
     try {
       toggleSkill(scope, projectDir, name, true);
-    } catch {
+    } catch (err) {
+      warn("skills", err, "removeSkill");
       // it will fail again below, with a better message
     }
   }

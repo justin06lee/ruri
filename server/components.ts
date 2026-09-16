@@ -7,6 +7,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { ComponentProposal, Attachment, NamedComponent } from "../shared/protocol.js";
 import { storedFilePath } from "./uploads.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The component index: the user's own names for the parts of a project, and
@@ -75,7 +76,8 @@ export class ComponentStore {
         note: typeof item.note === "string" ? item.note : "",
       }));
       if (typeof raw.sweptAt === "number") this.swept.set(projectId, raw.sweptAt);
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("components", err, "load");
       items = [];
     }
     this.data.set(projectId, items);
@@ -90,7 +92,8 @@ export class ComponentStore {
         { items: this.data.get(projectId) ?? [], ...(sweptAt ? { sweptAt } : {}) },
         2,
       );
-    } catch {
+    } catch (err) {
+      warn("components", err, "save");
       // best-effort persistence
     }
   }
@@ -254,7 +257,8 @@ export class ComponentStore {
     this.data.delete(projectId);
     try {
       fs.rmSync(path.join(componentsDir(), `${projectId}.json`), { force: true });
-    } catch {
+    } catch (err) {
+      warn("components", err, "removeProject");
       // best-effort
     }
   }
@@ -332,7 +336,8 @@ export function writeIndexFile(projectDir: string, items: NamedComponent[]): voi
       ...items.flatMap((item) => [...entryLines(item), ""]),
     ].join("\n");
     fs.writeFileSync(file, body);
-  } catch {
+  } catch (err) {
+    warn("components", err, "writeIndexFile");
     // a read-only project directory is not worth failing a save over
   }
 }
@@ -434,12 +439,14 @@ export function drainComponentRequests(
   let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("components", err, "drainComponentRequests");
     return;
   }
   try {
     fs.rmSync(file, { force: true });
-  } catch {
+  } catch (err) {
+    warn("components", err, "drainComponentRequests");
     // a repeat next turn is harmless — the card is the user's to dismiss
   }
   for (const line of raw.split("\n")) {
@@ -454,7 +461,8 @@ export function drainComponentRequests(
         note: typeof req.note === "string" ? req.note : "",
         ...(req.shot ? { shot: req.shot } : {}),
       });
-    } catch {
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) warn("components", err, "drainComponentRequests");
       // not JSON — skip the line
     }
   }

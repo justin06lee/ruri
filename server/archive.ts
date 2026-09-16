@@ -5,6 +5,7 @@ import { configPath } from "./configDir.js";
 import { excerpt, keepRecent, unmarked, type EarlierItem, type TranscriptEvent, type TurnNote } from "../shared/protocol.js";
 import { settleAgent } from "./agents.js";
 import type { Digest } from "./compaction.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Per-project session archive: the single source of truth for transcripts,
@@ -217,7 +218,8 @@ export class SessionArchive {
           ? { contextWindow: raw.contextWindow, contextWindowModel: raw.contextWindowModel }
           : {}),
       };
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("archive", err, "load");
       entry = { events: [], summaries: {} };
     }
     this.trim(projectId, entry);
@@ -236,7 +238,8 @@ export class SessionArchive {
     let text: string;
     try {
       text = fs.readFileSync(historyFile(projectId), "utf8");
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("archive", err, "history");
       return [];
     }
     const events: TranscriptEvent[] = [];
@@ -244,7 +247,8 @@ export class SessionArchive {
       if (!line) continue;
       try {
         events.push(settleAgent(JSON.parse(line) as TranscriptEvent));
-      } catch {
+      } catch (err) {
+        if (!(err instanceof SyntaxError)) warn("archive", err, "history");
         // a line torn by a crash mid-append
       }
     }
@@ -258,7 +262,8 @@ export class SessionArchive {
     let stat: fs.Stats;
     try {
       stat = fs.statSync(historyFile(projectId));
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("archive", err, "earlier");
       this.outlines.delete(projectId);
       return [];
     }
@@ -272,7 +277,8 @@ export class SessionArchive {
   hasHistory(projectId: string): boolean {
     try {
       return fs.statSync(historyFile(projectId)).size > 0;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("archive", err, "hasHistory");
       return false;
     }
   }
@@ -304,7 +310,8 @@ export class SessionArchive {
         fs.appendFileSync(historyFile(projectId), fresh.map((event) => JSON.stringify(event)).join("\n") + "\n");
       }
       this.capHistory(projectId, entry);
-    } catch {
+    } catch (err) {
+      warn("archive", err, "fold");
       // best-effort, like the live file
     }
     return true;
@@ -316,7 +323,8 @@ export class SessionArchive {
     let size: number;
     try {
       size = fs.statSync(historyFile(projectId)).size;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("archive", err, "capHistory");
       return;
     }
     if (size <= this.historyMax) return;
@@ -375,7 +383,8 @@ export class SessionArchive {
       // Compact: nobody reads these by eye, and the indentation was a third
       // of every file and of every write.
       writeJsonAtomic(path.join(archiveDir(), `${projectId}.json`), entry);
-    } catch {
+    } catch (err) {
+      warn("archive", err, "flush");
       // persistence is best-effort; in-memory state stays correct
     }
   }
@@ -588,7 +597,8 @@ export class SessionArchive {
     // history up to the newest mark, its live part from there
     try {
       this.writeHistory(projectId, []);
-    } catch {
+    } catch (err) {
+      warn("archive", err, "takeForkNext");
       // nothing there to clear
     }
     if (this.fold(projectId, entry)) this.flushNow(projectId);
@@ -621,7 +631,8 @@ export class SessionArchive {
       entry.events = mark > 0 ? kept.slice(mark) : kept;
       try {
         this.writeHistory(projectId, mark > 0 ? kept.slice(0, mark) : []);
-      } catch {
+      } catch (err) {
+        warn("archive", err, "truncateFrom");
         // the live file below still holds what matters most
       }
     }
@@ -682,7 +693,8 @@ export class SessionArchive {
     try {
       fs.rmSync(path.join(archiveDir(), `${projectId}.json`), { force: true });
       fs.rmSync(historyFile(projectId), { force: true });
-    } catch {
+    } catch (err) {
+      warn("archive", err, "remove");
       // best-effort
     }
   }

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Finding a project by the name a person uses for it.
@@ -111,7 +112,8 @@ export function findProjects(roots: string[], query: string, limit = 12): FoundP
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("finder", err, "walk");
       return;
     }
     visited += 1;
@@ -123,7 +125,8 @@ export function findProjects(roots: string[], query: string, limit = 12): FoundP
       try {
         real = fs.realpathSync(full);
         if (!fs.statSync(real).isDirectory()) continue;
-      } catch {
+      } catch (err) {
+        if (!isMissing(err)) warn("finder", err, "walk");
         continue;
       }
       if (seen.has(real)) continue;

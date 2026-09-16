@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import { StringDecoder } from "node:string_decoder";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Real shells behind the composer's terminal mode — as many per channel as
@@ -96,7 +97,8 @@ export class Terminals {
         const clean = ids.filter((id): id is string => typeof id === "string").slice(0, MAX_TABS);
         if (clean.length > 0) this.tabs.set(channelId, clean);
       }
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("terminal", err, "load");
       // no tabs remembered yet, which is the same as none open
     }
   }
@@ -104,7 +106,8 @@ export class Terminals {
   private save(): void {
     try {
       writeJsonAtomic(tabsFile(), Object.fromEntries(this.tabs), 2);
-    } catch {
+    } catch (err) {
+      warn("terminal", err, "save");
       // best-effort persistence
     }
   }
@@ -181,7 +184,8 @@ export class Terminals {
       child = pty
         ? spawn(EXPECT, ["-c", expectScript(shell, cols, rows)], { cwd, env })
         : spawn(shell, ["-i"], { cwd, env });
-    } catch {
+    } catch (err) {
+      warn("terminal", err, "open");
       return false;
     }
     const entry: Shell = {

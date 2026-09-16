@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import type { SubagentState, TranscriptEvent } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Subagent logs: everything an agent a harness started did — its brief,
@@ -61,7 +62,8 @@ export class AgentLogs {
       if (!Array.isArray(raw)) return [];
       const events = raw as TranscriptEvent[];
       return fs.statSync(file).mtimeMs < STARTED ? events.map(settleAgent) : events;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("agents", err, "read");
       return [];
     }
   }
@@ -98,7 +100,8 @@ export class AgentLogs {
     const file = this.file(channelId, key);
     try {
       writeJsonAtomic(file, log);
-    } catch {
+    } catch (err) {
+      warn("agents", err, "write");
       // a log is a window onto the work, not the work: losing a write
       // costs a view of it, never the conversation
     }
@@ -168,7 +171,8 @@ export class Crew {
               : member,
         );
       }
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("agents", err, "load");
       // no crew yet
     }
     this.chats.set(chatId, members);
@@ -254,7 +258,8 @@ export class Crew {
     const file = this.file(chatId);
     try {
       writeJsonAtomic(file, members);
-    } catch {
+    } catch (err) {
+      warn("agents", err, "write");
       // the cards are a view onto the work: a lost write costs a stale card
     }
   }

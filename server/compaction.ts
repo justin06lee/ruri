@@ -4,6 +4,7 @@ import { configPath } from "./configDir.js";
 import type { Attachment, CompactionDigest, CompactionEntry, TranscriptEvent } from "../shared/protocol.js";
 import type { TurnSummary } from "./archive.js";
 import { storedFilePath } from "./uploads.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * ruri's own compaction, replacing the harness's built-in one. /compact
@@ -105,14 +106,16 @@ function writeTurnFiles(channelId: string, turns: ArchivedTurn[]): string[] {
     for (const name of fs.readdirSync(dir)) {
       if (/^\d+\.md$/.test(name) && Number.parseInt(name, 10) > turns.length) fs.rmSync(path.join(dir, name), { force: true });
     }
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("compaction", err, "writeTurnFiles");
     // stale records only cost disk
   }
   return turns.map((turn, i) => {
     const file = path.join(dir, `${String(i + 1).padStart(3, "0")}.md`);
     try {
       fs.writeFileSync(file, turnFile(turn, i + 1));
-    } catch {
+    } catch (err) {
+      warn("compaction", err, "writeTurnFiles");
       // the notes still carry the gist; the hook just won't resolve
     }
     return file;
@@ -235,7 +238,8 @@ export class DigestFolder {
         if (this.store.digest(channelId)?.through !== digest?.through) return;
         this.store.setDigest(channelId, { text, through });
       }
-    } catch {
+    } catch (err) {
+      warn("compaction", err, "run");
       // folded next time: a digest that lags only means a longer brief
     } finally {
       this.running.delete(channelId);
@@ -315,7 +319,8 @@ export function refreshArchivedTurnFiles(channelId: string, events: () => Transc
   let files: string[];
   try {
     files = fs.readdirSync(dir).filter((file) => /^\d+\.md$/.test(file));
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("compaction", err, "refreshArchivedTurnFiles");
     return;
   }
   for (const name of files) {
@@ -331,13 +336,15 @@ export function refreshArchivedTurnFiles(channelId: string, events: () => Transc
       const current = fs.readFileSync(file, "utf8");
       if (expected.every((attachmentPath) => current.includes(attachmentPath))) continue;
       fs.writeFileSync(file, turnFile(turn, n));
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("compaction", err, "refreshArchivedTurnFiles");
       // best-effort migration; a future /compact gets another chance
     }
   }
   try {
     fs.writeFileSync(path.join(dir, REFRESHED), "");
-  } catch {
+  } catch (err) {
+    warn("compaction", err, "refreshArchivedTurnFiles");
     // it only means the check runs again next launch
   }
 }
@@ -346,7 +353,8 @@ export function refreshArchivedTurnFiles(channelId: string, events: () => Transc
 export function removeTurnFiles(channelId: string): void {
   try {
     fs.rmSync(turnsDir(channelId), { recursive: true, force: true });
-  } catch {
+  } catch (err) {
+    warn("compaction", err, "removeTurnFiles");
     // best-effort
   }
 }

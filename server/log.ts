@@ -12,9 +12,11 @@ export function errorMessage(err: unknown): string {
 
 /** Node's errno code, when the error carries one. */
 export function errorCode(err: unknown): string | undefined {
-  return err instanceof Error && typeof (err as NodeJS.ErrnoException).code === "string"
-    ? (err as NodeJS.ErrnoException).code
-    : undefined;
+  if (!(err instanceof Error)) return undefined;
+  const code = (err as NodeJS.ErrnoException).code;
+  if (typeof code === "string") return code;
+  // fetch wraps the socket error it met as the cause
+  return errorCode(err.cause);
 }
 
 /** True for the one failure that is usually expected: the file is not there. */

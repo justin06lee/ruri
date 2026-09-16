@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import type { ComposerDraftState, DraftAttachment } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Unsent composer prompts, one per channel, held between launches — the text
@@ -46,7 +47,8 @@ export class DraftStore {
           this.drafts.set(channelId, draft);
         }
       }
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("drafts", err, "new DraftStore");
       // first run, or a file worth starting over from
     }
   }
@@ -82,7 +84,8 @@ export class DraftStore {
       this.timer = undefined;
       try {
         writeJsonAtomic(draftsFile(), this.all(), 2);
-      } catch {
+      } catch (err) {
+        warn("drafts", err, "scheduleWrite");
         // persistence is best-effort; in-memory state stays correct
       }
     }, WRITE_DELAY_MS);

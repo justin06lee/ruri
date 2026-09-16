@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Playlist, Track } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /* Chromium (Electron) ships proprietary codecs, so AAC/MP3 play everywhere;
    Opus/Vorbis/FLAC/WAV come free. */
@@ -53,7 +54,8 @@ function tracksIn(dir: string): Track[] {
   let names: string[];
   try {
     names = fs.readdirSync(dir);
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("music", err, "tracksIn");
     return [];
   }
   const tracks: Track[] = [];
@@ -63,7 +65,8 @@ function tracksIn(dir: string): Track[] {
     const full = path.join(dir, name);
     try {
       if (!fs.statSync(full).isFile()) continue;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("music", err, "tracksIn");
       continue;
     }
     tracks.push({
@@ -97,7 +100,8 @@ export function scan(root: string = defaultMusicDir()): Playlist[] {
       fs.mkdirSync(root, { recursive: true });
       fs.writeFileSync(path.join(root, "README.txt"), README);
     }
-  } catch {
+  } catch (err) {
+    warn("music", err, "scan");
     return [];
   }
 
@@ -109,7 +113,8 @@ export function scan(root: string = defaultMusicDir()): Playlist[] {
   let names: string[] = [];
   try {
     names = fs.readdirSync(root);
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("music", err, "scan");
     return playlists;
   }
   for (const name of names.sort((a, b) => a.localeCompare(b))) {
@@ -117,7 +122,8 @@ export function scan(root: string = defaultMusicDir()): Playlist[] {
     const full = path.join(root, name);
     try {
       if (!fs.statSync(full).isDirectory()) continue;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("music", err, "scan");
       continue;
     }
     const tracks = tracksIn(full);

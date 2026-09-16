@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { configPath } from "./configDir.js";
 import type { TranscriptEvent } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The Home agent's write-ahead log. Home's chat stays ephemeral, but its
@@ -48,7 +49,8 @@ export class HomeLog {
       for (const match of raw.matchAll(/^SESSION (\d+) /gm)) {
         last = Math.max(last, Number(match[1]));
       }
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("homelog", err, "new HomeLog");
       // no log yet — numbering starts at 1
     }
     this.nextSession = last + 1;
@@ -87,7 +89,8 @@ export class HomeLog {
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
       fs.appendFileSync(this.file, out);
-    } catch {
+    } catch (err) {
+      warn("homelog", err, "observe");
       // the log is a nicety; losing a line never breaks the turn
     }
   }

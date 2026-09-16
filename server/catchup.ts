@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { Project } from "../shared/protocol.js";
 import { catchupBrief, type FullBrief } from "./smallmodel.js";
 import { describeFile, sweepCandidates } from "./sweep.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The catch-up brief, written whole.
@@ -40,7 +41,8 @@ function readHead(file: string, chars: number): string | undefined {
   try {
     const raw = fs.readFileSync(file, "utf8");
     return raw.length > chars ? `${raw.slice(0, chars)}\n…` : raw;
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("catchup", err, "readHead");
     return undefined;
   }
 }
@@ -52,7 +54,8 @@ function tree(dir: string): string {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("catchup", err, "list");
       return;
     }
     const dirs = entries.filter((e) => e.isDirectory() && !SKIP_DIRS.has(e.name) && !e.name.startsWith("."));
@@ -62,7 +65,8 @@ function tree(dir: string): string {
       let count = 0;
       try {
         count = fs.readdirSync(path.join(dir, child)).length;
-      } catch {
+      } catch (err) {
+        if (!isMissing(err)) warn("catchup", err, "list");
         // unreadable
       }
       lines.push(`${"  ".repeat(depth)}${d.name}/ (${count})`);
@@ -88,7 +92,8 @@ function manifest(dir: string): string | undefined {
         if (parsed[key] !== undefined) keep[key] = parsed[key];
       }
       return `package.json:\n${JSON.stringify(keep, null, 1).slice(0, MANIFEST_CHARS)}`;
-    } catch {
+    } catch (err) {
+      warn("catchup", err, "manifest");
       return `package.json:\n${pkg.slice(0, MANIFEST_CHARS)}`;
     }
   }

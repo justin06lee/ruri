@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { CommandInfo } from "../shared/protocol.js";
 import { scanSkills } from "./skills.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Slash commands written inside a prompt.
@@ -71,7 +72,8 @@ function commandFiles(dir: string): string[] {
       .readdirSync(dir)
       .filter((name) => name.endsWith(".md"))
       .map((name) => name.slice(0, -3));
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("commands", err, "commandFiles");
     return [];
   }
 }

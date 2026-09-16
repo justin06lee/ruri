@@ -72,6 +72,7 @@ import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload, sweepUploads } from "./uploads.js";
 import { fetchAllUsageLimits, loadCachedLimits, readCodexCounts, saveCachedLimits } from "./usage.js";
+import { errorMessage, isMissing, warn } from "./log.js";
 
 export interface StartServerOptions {
   port: number;
@@ -173,7 +174,8 @@ function serveTrack(req: http.IncomingMessage, res: http.ServerResponse, root: s
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) throw new Error("not a file");
     size = stat.size;
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("server", err, "serveTrack");
     res.writeHead(404, MUSIC_CORS);
     res.end();
     return;
@@ -310,7 +312,8 @@ function serveReadFile(req: http.IncomingMessage, res: http.ServerResponse): voi
       "cache-control": "no-cache",
     });
     fs.createReadStream(filePath).pipe(res);
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("server", err, "serveReadFile");
     res.writeHead(404);
     res.end();
   }
@@ -578,7 +581,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       if (!id || !stat.isFile()) throw new Error("not a file");
       res.writeHead(200, { "content-type": "image/png", "content-length": stat.size, "cache-control": "no-cache" });
       fs.createReadStream(file).pipe(res);
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("server", err, "serveBridgePreview");
       res.writeHead(404);
       res.end();
     }
@@ -957,7 +961,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       const { url } = storeUpload(upload);
       const { data: _data, regions: _regions, ...meta } = upload;
       return { ...meta, url };
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("server", err, "storeShot");
       return undefined;
     }
   }
@@ -1056,7 +1061,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       pushComponents(projectId, project.path);
       sweepNote(projectId, `${named}, ${pinned || "no"} picture${pinned === 1 ? "" : "s"}`, false);
-    } catch {
+    } catch (err) {
+      warn("server", err, "runSweep");
       sweepNote(projectId, "the sweep didn't finish — try it again", false);
     } finally {
       sweeping.delete(projectId);
@@ -1383,8 +1389,16 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       try {
         if (next.split) dispatchSplit(channelId, next.text, next.uploads);
         else dispatch(channelId, next.text, next.uploads, next.silent);
-      } catch {
-        // the channel vanished mid-queue; drop the prompt
+      } catch (err) {
+        // the send failed (the channel vanished, the harness would not
+        // start): the prompt goes back to the head of the line rather than
+        // into the void, and the user hears why
+        warn("server", err, `drainQueue ${channelId}`);
+        const back = sendQueues.get(channelId) ?? [];
+        back.unshift(next);
+        sendQueues.set(channelId, back);
+        broadcastQueue(channelId);
+        broadcast({ type: "error", message: `queued prompt not sent: ${errorMessage(err)}` });
       }
     });
     return true;
@@ -1463,7 +1477,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       try {
         manager.send(project, RETRY_NUDGE, undefined, undefined, true);
-      } catch {
+      } catch (err) {
+        warn("server", err, "retry nudge");
         retries.delete(channelId);
       }
     }, wait);
@@ -1783,7 +1798,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           if (!turnStands(job.channelId, job.turn.turnId)) continue;
           if (note) noteSummary(job.channelId, job.turn.turnId, job.part, note);
           else archive.setSummary(job.channelId, job.turn.turnId, job.part, "");
-        } catch {
+        } catch (err) {
+          warn("server", err, "noteWorker");
           noteMisses += 1;
         } finally {
           noteKeys.delete(job.key);
@@ -1881,7 +1897,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       writeCatchupFile(project.path, project.name, briefs.write(projectId, built, true));
       catchupNote(projectId, false, "brief written");
-    } catch {
+    } catch (err) {
+      warn("server", err, "rebuildCatchup");
       catchupNote(projectId, false, "the brief could not be written — try again");
     } finally {
       catchingUp.delete(projectId);
@@ -2330,7 +2347,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     void options.bridge?.close(sessionId);
     try {
       fs.rmSync(bridgeDir(sessionId), { recursive: true, force: true });
-    } catch {
+    } catch (err) {
+      warn("server", err, "closeBridge");
       // best-effort
     }
   }

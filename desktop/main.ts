@@ -7,6 +7,7 @@ import { startServer } from "../server/server.js";
 import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
 import { askAgainIfNewBuild, permissions } from "./permissions.js";
+import { warn } from "../server/log.js";
 
 /**
  * GUI-launched macOS apps get a minimal PATH (/usr/bin:/bin:...), which would
@@ -311,5 +312,11 @@ async function main(): Promise<void> {
     void running.close().finally(() => app.quit());
   });
 }
+
+// A GUI app has no terminal to die into: what nobody caught is logged and
+// the app stays up, since the window and its sessions are worth more than
+// a clean exit code.
+process.on("unhandledRejection", (err) => warn("desktop", err, "unhandled rejection"));
+process.on("uncaughtException", (err) => warn("desktop", err, "uncaught exception"));
 
 void main();

@@ -1,5 +1,6 @@
 import * as net from "node:net";
 import WebSocket from "ws";
+import { errorMessage, warn } from "./log.js";
 
 /**
  * Driving a page over the DevTools protocol.
@@ -49,7 +50,8 @@ export class CdpSocket implements CdpLink {
       };
       try {
         message = JSON.parse(raw.toString()) as typeof message;
-      } catch {
+      } catch (err) {
+        warn("cdp", err, "a message that is not JSON");
         return;
       }
       if (message.method) {
@@ -107,7 +109,8 @@ export class CdpSocket implements CdpLink {
     this.closed = true;
     try {
       this.ws.close();
-    } catch {
+    } catch (err) {
+      warn("cdp", err, "close");
       // already gone
     }
   }
@@ -135,6 +138,7 @@ export interface PageTarget {
 /** The first page target a debugging port offers, once it is listening. */
 export async function findPageTarget(port: number, timeoutMs: number): Promise<PageTarget> {
   const until = Date.now() + timeoutMs;
+  let lastErr: unknown;
   while (Date.now() < until) {
     try {
       const list = (await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json())) as Array<{
@@ -147,12 +151,16 @@ export async function findPageTarget(port: number, timeoutMs: number): Promise<P
       if (page?.webSocketDebuggerUrl) {
         return { webSocketDebuggerUrl: page.webSocketDebuggerUrl, title: page.title ?? "", url: page.url ?? "" };
       }
-    } catch {
-      // not listening yet
+    } catch (err) {
+      // not listening yet — said once, with the last reason, if it never does
+      lastErr = err;
     }
     await sleep(250);
   }
-  throw new Error(`no page target on port ${port} after ${Math.round(timeoutMs / 1000)}s — did the app start with --remote-debugging-port?`);
+  throw new Error(
+    `no page target on port ${port} after ${Math.round(timeoutMs / 1000)}s — did the app start with --remote-debugging-port?` +
+      (lastErr ? ` (${errorMessage(lastErr)})` : ""),
+  );
 }
 
 export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -739,7 +747,8 @@ export function stringify(value: unknown): string {
         },
         2,
       ) ?? String(value);
-    } catch {
+    } catch (err) {
+      warn("cdp", err, "stringify");
       text = String(value);
     }
   }

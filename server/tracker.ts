@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { configPath } from "./configDir.js";
 import type { Attachment, TrackerItem, TrackerStatus } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Feature/prompt tracker: a per-project checklist of things the user should
@@ -26,7 +27,8 @@ export class TrackerStore {
         fs.readFileSync(path.join(trackerDir(), `${projectId}.json`), "utf8"),
       ) as { items?: TrackerItem[] };
       items = Array.isArray(raw.items) ? raw.items : [];
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("tracker", err, "load");
       items = [];
     }
     this.data.set(projectId, items);
@@ -40,7 +42,8 @@ export class TrackerStore {
         path.join(trackerDir(), `${projectId}.json`),
         JSON.stringify({ items: this.data.get(projectId) ?? [] }, null, 2),
       );
-    } catch {
+    } catch (err) {
+      warn("tracker", err, "save");
       // best-effort persistence
     }
   }
@@ -146,7 +149,8 @@ export class TrackerStore {
     this.data.delete(projectId);
     try {
       fs.rmSync(path.join(trackerDir(), `${projectId}.json`), { force: true });
-    } catch {
+    } catch (err) {
+      warn("tracker", err, "removeProject");
       // best-effort
     }
   }

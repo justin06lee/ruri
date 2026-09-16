@@ -30,6 +30,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
 import { readCodexCounts } from "./usage.js";
+import { warn } from "./log.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_PERMISSION_MODE,
@@ -286,7 +287,8 @@ export async function promptChain(
     // up to it is kept, the prompt and its turn are not
     const before = messages[messages.findIndex((m) => m.uuid === match.uuid) - 1]?.uuid;
     return { user: match.uuid, ...(before ? { before } : {}) };
-  } catch {
+  } catch (err) {
+    warn("sessions", err, "promptChain");
     // no transcript on disk (a provider session, a pruned file) — the
     // caller falls back to rewinding the conversation alone
     return undefined;
@@ -1273,7 +1275,8 @@ class ProjectSession implements ChannelSession {
         ...(model.supportsFastMode ? { supportsFastMode: true } : {}),
         ...(model.supportsAutoMode ? { supportsAutoMode: true } : {}),
       })));
-    } catch {
+    } catch (err) {
+      warn("sessions", err, "reportModels");
       // model list is a nicety; the picker just stays empty
     }
   }
@@ -1437,7 +1440,8 @@ class ProviderTurnSession implements ChannelSession {
     // before the result lands, so the sidebar is current when "done" shows
     try {
       this.extras?.onProviderTurnEnd?.();
-    } catch {
+    } catch (err) {
+      warn("sessions", err, "onProviderTurnEnd");
       // a bad drop file must not kill the turn pipeline
     }
     this.pushEvent({
@@ -2055,7 +2059,8 @@ class ProviderAgentSession implements ChannelSession {
     // pick up anything the turn dropped for the app (Home's open requests)
     try {
       this.extras?.onProviderTurnEnd?.();
-    } catch {
+    } catch (err) {
+      warn("sessions", err, "onProviderTurnEnd");
       // a bad drop file must not kill the turn pipeline
     }
     this.pushEvent({

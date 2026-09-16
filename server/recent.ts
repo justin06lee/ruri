@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import type { Project, RecentSession, TranscriptEvent } from "../shared/protocol.js";
 import { readImage, toolSummary } from "./sessions.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The chats that happened outside ruri.
@@ -50,7 +51,8 @@ function sameDir(a: string, b: string): boolean {
   const norm = (p: string) => {
     try {
       return fs.realpathSync(p).replace(/\/+$/, "");
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("recent", err, "norm");
       return path.resolve(p).replace(/\/+$/, "");
     }
   };
@@ -72,7 +74,8 @@ async function listClaude(project: Project, taken: Set<string>): Promise<RecentS
         ...(s.gitBranch ? { branch: s.gitBranch } : {}),
       }))
       ;
-  } catch {
+  } catch (err) {
+    warn("recent", err, "listClaude");
     return [];
   }
 }
@@ -89,7 +92,8 @@ function claudeSessionFile(project: Project, sessionId: string): string | undefi
       const file = path.join(root, dir, `${sessionId}.jsonl`);
       if (fs.existsSync(file)) return file;
     }
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("recent", err, "claudeSessionFile");
     // no projects dir
   }
   return undefined;
@@ -110,7 +114,8 @@ function readClaude(project: Project, file: string): TranscriptEvent[] {
   let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("recent", err, "readClaude");
     return events;
   }
   let inTurn = false;
@@ -125,7 +130,8 @@ function readClaude(project: Project, file: string): TranscriptEvent[] {
     let entry: ClaudeLine;
     try {
       entry = JSON.parse(line) as ClaudeLine;
-    } catch {
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) warn("recent", err, "readClaude");
       continue;
     }
     if (entry.isSidechain || entry.isMeta) continue;
@@ -192,7 +198,8 @@ function recentRollouts(): string[] {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("recent", err, "walk");
       return;
     }
     for (const entry of entries) {
@@ -203,7 +210,8 @@ function recentRollouts(): string[] {
         try {
           const at = fs.statSync(full).mtimeMs;
           if (at >= cutoff) files.push({ file: full, at });
-        } catch {
+        } catch (err) {
+          if (!isMissing(err)) warn("recent", err, "walk");
           // unreadable — skip
         }
       }
@@ -236,7 +244,8 @@ function rolloutMeta(file: string): CodexMeta | undefined {
     } finally {
       fs.closeSync(fd);
     }
-  } catch {
+  } catch (err) {
+    warn("recent", err, "rolloutMeta");
     return undefined;
   }
 }
@@ -251,7 +260,8 @@ function rolloutLines(file: string): RolloutLine[] {
   let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("recent", err, "rolloutLines");
     return [];
   }
   const lines: RolloutLine[] = [];
@@ -259,7 +269,8 @@ function rolloutLines(file: string): RolloutLine[] {
     if (!line.startsWith("{")) continue;
     try {
       lines.push(JSON.parse(line) as RolloutLine);
-    } catch {
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) warn("recent", err, "rolloutLines");
       // a half-written last line
     }
   }
@@ -288,7 +299,8 @@ function codexTool(payload: Record<string, unknown>): { name: string; summary: s
     if (cmd?.[1]) {
       try {
         summary = JSON.parse(`"${cmd[1]}"`) as string;
-      } catch {
+      } catch (err) {
+        if (!(err instanceof SyntaxError)) warn("recent", err, "codexTool");
         summary = cmd[1];
       }
     } else {
@@ -296,7 +308,8 @@ function codexTool(payload: Record<string, unknown>): { name: string; summary: s
         const parsed = JSON.parse(input) as Record<string, unknown>;
         const command = parsed["command"] ?? parsed["cmd"];
         summary = Array.isArray(command) ? command.join(" ") : typeof command === "string" ? command : input;
-      } catch {
+      } catch (err) {
+        if (!(err instanceof SyntaxError)) warn("recent", err, "codexTool");
         summary = input;
       }
     }
@@ -335,7 +348,8 @@ function listCodex(project: Project, taken: Set<string>): RecentSession[] {
     let at = Date.now();
     try {
       at = fs.statSync(file).mtimeMs;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("recent", err, "listCodex");
       // keep now
     }
     out.push({ id: `codex:${meta.id}`, provider: "codex", title: titleOf(title) || "untitled", at });
@@ -357,7 +371,8 @@ function scanFor(sessionId: string): string | undefined {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("recent", err, "scanFor");
       continue;
     }
     for (const entry of entries) {

@@ -10,6 +10,7 @@ import {
   type ProviderConfigEntry,
 } from "@justin06lee/yagami";
 import type { ModelChoice } from "../shared/protocol.js";
+import { warn } from "./log.js";
 
 /** A Claude model as its source describes it — the startup catalog gives all
  *  of this, a live session's own report only the first two. */
@@ -150,7 +151,8 @@ export class ProviderRegistry {
     let host: ReturnType<typeof loadHostEngineConfig>;
     try {
       host = loadHostEngineConfig();
-    } catch {
+    } catch (err) {
+      warn("providers", err, "new ProviderRegistry");
       host = {};
     }
     this.config = host.providerConfig ?? {};
@@ -160,7 +162,8 @@ export class ProviderRegistry {
         if (id === "claude") this.claude = provider;
         else this.installed.set(id, provider);
       }
-    } catch {
+    } catch (err) {
+      warn("providers", err, "new ProviderRegistry");
       // no providers is fine — ruri just stays Claude-only
     }
   }
@@ -208,7 +211,8 @@ export class ProviderRegistry {
         try {
           if (!this.claude) return [];
           return cleanClaudeModels(await probe(this.claude));
-        } catch {
+        } catch (err) {
+          warn("providers", err, "probe");
           return [];
         }
       })(),
@@ -229,7 +233,8 @@ export class ProviderRegistry {
                 ...modelCapabilities(m),
               }));
             }
-          } catch {
+          } catch (err) {
+            warn("providers", err, "probe");
             // fall through to the default-model entry
           }
           return [

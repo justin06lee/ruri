@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { writeTextAtomic } from "./atomic.js";
 import { configDir } from "./configDir.js";
+import { isMissing, warn } from "./log.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
@@ -74,7 +75,8 @@ export class ProjectStore {
       }
       if (typeof raw.smallModel === "string" && raw.smallModel) this.smallModelId = raw.smallModel;
       if (typeof raw.defaultModel === "string" && raw.defaultModel) this.defaultModelId = raw.defaultModel;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("projects", err, "new ProjectStore");
       // first run
     }
   }

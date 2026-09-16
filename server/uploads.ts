@@ -3,6 +3,7 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { configPath } from "./configDir.js";
 import type { Attachment, AttachmentUpload } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Prompt attachments: incoming base64 files (images, videos, pdfs, text,
@@ -155,7 +156,8 @@ export function serveUpload(req: http.IncomingMessage, res: http.ServerResponse)
       "content-length": stat.size,
     });
     fs.createReadStream(filePath).pipe(res);
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("uploads", err, "serveUpload");
     res.writeHead(404, CORS);
     res.end();
   }
@@ -182,7 +184,8 @@ export function sweepUploads(): number {
   let names: string[];
   try {
     names = fs.readdirSync(dir);
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("uploads", err, "sweepUploads");
     return 0;
   }
   if (names.length === 0) return 0;
@@ -195,7 +198,8 @@ export function sweepUploads(): number {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(at, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("uploads", err, "walk");
       return;
     }
     for (const entry of entries) {
@@ -209,7 +213,8 @@ export function sweepUploads(): number {
       let text: string;
       try {
         text = fs.readFileSync(full, "utf8");
-      } catch {
+      } catch (err) {
+        if (!isMissing(err)) warn("uploads", err, "walk");
         continue;
       }
       for (const match of text.matchAll(mention)) referenced.add(match[1]!);
@@ -226,7 +231,8 @@ export function sweepUploads(): number {
       if (fs.statSync(file).mtimeMs > cutoff) continue;
       fs.rmSync(file, { force: true });
       removed += 1;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("uploads", err, "walk");
       // gone already, or not ours to remove
     }
   }

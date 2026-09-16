@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { NamedComponent } from "../shared/protocol.js";
 import { nameProjectParts, type SweptComponent } from "./smallmodel.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The repo sweep: name everything in a project that nobody has named yet.
@@ -69,7 +70,8 @@ function repoFiles(dir: string): string[] {
     });
     const listed = out.split("\n").filter(Boolean);
     if (listed.length) return listed;
-  } catch {
+  } catch (err) {
+    warn("sweep", err, "repoFiles");
     // not a git repo, or git isn't there — walk it by hand
   }
   const found: string[] = [];
@@ -78,7 +80,8 @@ function repoFiles(dir: string): string[] {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("sweep", err, "walk");
       return;
     }
     for (const entry of entries) {
@@ -145,7 +148,8 @@ export function describeFile(dir: string, rel: string, chars: number): { path: s
     const full = path.join(dir, rel);
     if (fs.statSync(full).size > 400_000) return undefined;
     source = fs.readFileSync(full, "utf8");
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("sweep", err, "describeFile");
     return undefined;
   }
   if (!source.trim()) return undefined;
@@ -167,7 +171,8 @@ function touchedSince(dir: string, rel: string, since: number): boolean {
   if (!since) return true;
   try {
     return fs.statSync(path.join(dir, rel)).mtimeMs > since;
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("sweep", err, "touchedSince");
     return true;
   }
 }

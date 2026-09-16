@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { configPath } from "./configDir.js";
 import type { Idea } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The ideas board: one list per project of things the user wants, in their
@@ -34,7 +35,8 @@ export class IdeaStore {
         fs.readFileSync(path.join(ideasDir(), `${projectId}.json`), "utf8"),
       ) as { items?: Idea[] };
       items = Array.isArray(raw.items) ? raw.items : [];
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("ideas", err, "load");
       items = [];
     }
     this.data.set(projectId, items);
@@ -48,7 +50,8 @@ export class IdeaStore {
         path.join(ideasDir(), `${projectId}.json`),
         JSON.stringify({ items: this.data.get(projectId) ?? [] }, null, 2),
       );
-    } catch {
+    } catch (err) {
+      warn("ideas", err, "save");
       // best-effort persistence
     }
   }
@@ -87,7 +90,8 @@ export class IdeaStore {
     this.data.delete(projectId);
     try {
       fs.rmSync(path.join(ideasDir(), `${projectId}.json`), { force: true });
-    } catch {
+    } catch (err) {
+      warn("ideas", err, "removeProject");
       // best-effort
     }
   }

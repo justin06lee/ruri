@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { configDir } from "./configDir.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * What closed sessions and projects left behind.
@@ -22,7 +23,8 @@ export function sweepOrphans(): number {
   let data: { projects?: Array<{ id?: unknown; sessions?: Array<{ id?: unknown }> }> };
   try {
     data = JSON.parse(fs.readFileSync(path.join(root, "projects.json"), "utf8")) as typeof data;
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("orphans", err, "sweepOrphans");
     return 0;
   }
   const projects = new Set<string>();
@@ -39,7 +41,8 @@ export function sweepOrphans(): number {
     let names: string[];
     try {
       names = fs.readdirSync(path.join(root, dir));
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("orphans", err, "sweep");
       return;
     }
     for (const name of names) {
@@ -50,7 +53,8 @@ export function sweepOrphans(): number {
         if (fs.statSync(full).mtimeMs > cutoff) continue;
         fs.rmSync(full, { recursive: true, force: true });
         removed += 1;
-      } catch {
+      } catch (err) {
+        if (!isMissing(err)) warn("orphans", err, "sweep");
         // gone already
       }
     }

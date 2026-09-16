@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import type { ComposerDraftState, DraftAttachment } from "../shared/protocol.js";
 
@@ -81,8 +81,7 @@ export class DraftStore {
     this.timer = setTimeout(() => {
       this.timer = undefined;
       try {
-        fs.mkdirSync(path.dirname(draftsFile()), { recursive: true });
-        fs.writeFileSync(draftsFile(), JSON.stringify(this.all(), null, 2));
+        writeJsonAtomic(draftsFile(), this.all(), 2);
       } catch {
         // persistence is best-effort; in-memory state stays correct
       }

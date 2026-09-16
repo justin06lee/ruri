@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
-import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import { StringDecoder } from "node:string_decoder";
 
@@ -103,8 +103,7 @@ export class Terminals {
 
   private save(): void {
     try {
-      fs.mkdirSync(path.dirname(tabsFile()), { recursive: true });
-      fs.writeFileSync(tabsFile(), JSON.stringify(Object.fromEntries(this.tabs), null, 2));
+      writeJsonAtomic(tabsFile(), Object.fromEntries(this.tabs), 2);
     } catch {
       // best-effort persistence
     }

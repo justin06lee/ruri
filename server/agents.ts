@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import type { SubagentState, TranscriptEvent } from "../shared/protocol.js";
 
@@ -96,10 +97,7 @@ export class AgentLogs {
     if (!log) return;
     const file = this.file(channelId, key);
     try {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      const tmp = `${file}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(log));
-      fs.renameSync(tmp, file);
+      writeJsonAtomic(file, log);
     } catch {
       // a log is a window onto the work, not the work: losing a write
       // costs a view of it, never the conversation
@@ -255,10 +253,7 @@ export class Crew {
     if (!members) return;
     const file = this.file(chatId);
     try {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      const tmp = `${file}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(members));
-      fs.renameSync(tmp, file);
+      writeJsonAtomic(file, members);
     } catch {
       // the cards are a view onto the work: a lost write costs a stale card
     }

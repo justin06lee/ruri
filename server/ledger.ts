@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import type { ProjectStats, Totals } from "../shared/protocol.js";
 
@@ -63,10 +63,9 @@ export class LedgerStore {
     this.timer = setTimeout(() => {
       this.timer = null;
       try {
-        fs.mkdirSync(path.dirname(ledgerFile()), { recursive: true });
         const out: Record<string, Record<string, Totals>> = {};
         for (const [projectId, days] of this.days) out[projectId] = Object.fromEntries(days);
-        fs.writeFileSync(ledgerFile(), JSON.stringify(out, null, 1));
+        writeJsonAtomic(ledgerFile(), out, 1);
       } catch {
         // best-effort; the in-memory sums stay right
       }
@@ -113,7 +112,7 @@ export class LedgerStore {
     try {
       const out: Record<string, Record<string, Totals>> = {};
       for (const [projectId, days] of this.days) out[projectId] = Object.fromEntries(days);
-      fs.writeFileSync(ledgerFile(), JSON.stringify(out, null, 1));
+      writeJsonAtomic(ledgerFile(), out, 1);
     } catch {
       // best-effort
     }

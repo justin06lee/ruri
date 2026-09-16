@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 
 /**
@@ -61,8 +61,7 @@ export class PrefStore {
 
   private save(): void {
     try {
-      fs.mkdirSync(path.dirname(prefsFile()), { recursive: true });
-      fs.writeFileSync(prefsFile(), JSON.stringify(this.data ?? {}, null, 2));
+      writeJsonAtomic(prefsFile(), this.data ?? {}, 2);
     } catch {
       // best-effort persistence
     }

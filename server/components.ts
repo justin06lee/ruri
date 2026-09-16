@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
@@ -83,15 +84,11 @@ export class ComponentStore {
 
   private save(projectId: string): void {
     try {
-      fs.mkdirSync(componentsDir(), { recursive: true });
       const sweptAt = this.swept.get(projectId);
-      fs.writeFileSync(
+      writeJsonAtomic(
         path.join(componentsDir(), `${projectId}.json`),
-        JSON.stringify(
-          { items: this.data.get(projectId) ?? [], ...(sweptAt ? { sweptAt } : {}) },
-          null,
-          2,
-        ),
+        { items: this.data.get(projectId) ?? [], ...(sweptAt ? { sweptAt } : {}) },
+        2,
       );
     } catch {
       // best-effort persistence

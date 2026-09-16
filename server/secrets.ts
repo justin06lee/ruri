@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
-import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import type { SecretMeta } from "../shared/protocol.js";
 
@@ -76,13 +76,9 @@ export class SecretStore {
 
   private save(): void {
     try {
-      const file = secretsFile();
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      // written by hand rather than through writeFileSync's mode option: the
-      // mode only applies when the file is created, and this file outlives
-      // the first save
-      fs.writeFileSync(file, JSON.stringify({ secrets: this.records }, null, 2));
-      fs.chmodSync(file, 0o600);
+      // every save is a fresh temp file renamed into place, so the mode
+      // takes each time rather than only on the first
+      writeJsonAtomic(secretsFile(), { secrets: this.records }, 2, 0o600);
     } catch {
       // best-effort persistence
     }

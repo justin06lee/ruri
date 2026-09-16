@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeJsonAtomic, writeTextAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import { excerpt, keepRecent, unmarked, type EarlierItem, type TranscriptEvent, type TurnNote } from "../shared/protocol.js";
 import { settleAgent } from "./agents.js";
@@ -345,10 +346,7 @@ export class SessionArchive {
       fs.rmSync(file, { force: true });
       return;
     }
-    fs.mkdirSync(historyDir(), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, events.map((event) => JSON.stringify(event)).join("\n") + "\n");
-    fs.renameSync(tmp, file);
+    writeTextAtomic(file, events.map((event) => JSON.stringify(event)).join("\n") + "\n");
   }
 
   /** Write the live file now rather than on the debounce. */
@@ -374,15 +372,9 @@ export class SessionArchive {
     const entry = this.data.get(projectId);
     if (!entry) return;
     try {
-      fs.mkdirSync(archiveDir(), { recursive: true });
-      const file = path.join(archiveDir(), `${projectId}.json`);
       // Compact: nobody reads these by eye, and the indentation was a third
-      // of every file and of every write. Written beside and renamed over,
-      // so a crash mid-write leaves the last good file rather than half of
-      // this one.
-      const tmp = `${file}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(entry));
-      fs.renameSync(tmp, file);
+      // of every file and of every write.
+      writeJsonAtomic(path.join(archiveDir(), `${projectId}.json`), entry);
     } catch {
       // persistence is best-effort; in-memory state stays correct
     }

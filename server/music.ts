@@ -10,25 +10,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Playlist, Track } from "../shared/protocol.js";
 import { isMissing, warn } from "./log.js";
+import { AUDIO_MIME } from "./mime.js";
 
-/* Chromium (Electron) ships proprietary codecs, so AAC/MP3 play everywhere;
-   Opus/Vorbis/FLAC/WAV come free. */
-const AUDIO_EXT = new Set([
-  ".mp3", ".m4a", ".mp4", ".aac", ".flac", ".wav", ".ogg", ".oga", ".opus", ".webm",
-]);
-
-export const MIME: Record<string, string> = {
-  ".mp3": "audio/mpeg",
-  ".m4a": "audio/mp4",
-  ".mp4": "audio/mp4",
-  ".aac": "audio/aac",
-  ".flac": "audio/flac",
-  ".wav": "audio/wav",
-  ".ogg": "audio/ogg",
-  ".oga": "audio/ogg",
-  ".opus": "audio/ogg",
-  ".webm": "audio/webm",
-};
+/** What counts as a track: whatever the server knows how to serve. */
+const AUDIO_EXT: ReadonlySet<string> = new Set(Object.keys(AUDIO_MIME));
 
 /** Where the library lives when the user hasn't pointed it elsewhere. */
 export function defaultMusicDir(): string {

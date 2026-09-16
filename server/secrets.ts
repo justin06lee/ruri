@@ -50,7 +50,7 @@ function secretsFile(): string {
 }
 
 /** The environment-variable half of a name: RURI_SECRET_<THIS>. */
-export function envSlug(name: string): string {
+function envSlug(name: string): string {
   return name
     .trim()
     .replace(/[^\p{L}\p{N}]+/gu, "_")
@@ -104,7 +104,7 @@ export class SecretStore {
 
   /** Add or edit one. An absent `secret` leaves the stored value alone, so
    *  fixing a typo in a note never costs you the password. */
-  save1(patch: {
+  upsert(patch: {
     id?: string;
     name: string;
     username?: string;

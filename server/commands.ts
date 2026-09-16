@@ -24,7 +24,7 @@ import { isMissing, warn } from "./log.js";
  */
 
 /** ruri's own, run by the server rather than sent anywhere. */
-export const RURI_COMMANDS = new Set(["compact"]);
+const RURI_COMMANDS = new Set(["compact"]);
 
 /** What the harness itself answers to when it arrives as a prompt. */
 const HARNESS_COMMANDS = ["clear", "context", "cost", "review", "init", "memory", "todos"];

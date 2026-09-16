@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import type { Project, RecentSession, TranscriptEvent } from "../shared/protocol.js";
 import { readImage, toolSummary } from "./sessions.js";
+import { codexHome } from "./usage.js";
 import { isMissing, warn } from "./log.js";
 
 /**
@@ -184,10 +185,6 @@ function readClaude(project: Project, file: string): TranscriptEvent[] {
 }
 
 /* ── Codex ──────────────────────────────────────────────────────── */
-
-function codexHome(): string {
-  return process.env["CODEX_HOME"] ?? path.join(os.homedir(), ".codex");
-}
 
 /** Every rollout written in the last while, newest first. */
 function recentRollouts(): string[] {

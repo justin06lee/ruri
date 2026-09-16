@@ -1,6 +1,6 @@
 import { Yagami } from "@justin06lee/yagami";
 import type { TranscriptEvent } from "../shared/protocol.js";
-import { warn } from "./log.js";
+import { errorMessage, warn } from "./log.js";
 
 /**
  * The "small model" behind turn summaries, session titles, prompt splitting,
@@ -63,7 +63,7 @@ const REST_MS = 10 * 60_000;
 
 /** A failure that asking again soon will only repeat. */
 function exhausted(error: unknown): boolean {
-  const text = error instanceof Error ? error.message : String(error);
+  const text = errorMessage(error);
   return /usage limit|rate.?limit|quota|credits|\b429\b/i.test(text);
 }
 

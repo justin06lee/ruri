@@ -58,7 +58,7 @@ function epoch(iso: string | null | undefined): number | undefined {
 }
 
 /** Fetch the account's limit windows; null when unavailable. */
-export async function fetchUsageLimits(): Promise<UsageLimits | null> {
+async function fetchUsageLimits(): Promise<UsageLimits | null> {
   const token = await accessToken();
   if (!token) return null;
   try {
@@ -123,7 +123,8 @@ function seconds(at: number | undefined): number | undefined {
   return typeof at === "number" && at > 0 ? at * 1000 : undefined;
 }
 
-function codexHome(): string {
+/** Where Codex keeps its rollouts — shared with recent.ts. */
+export function codexHome(): string {
   return process.env["CODEX_HOME"] ?? path.join(os.homedir(), ".codex");
 }
 

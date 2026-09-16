@@ -161,7 +161,7 @@ export class BriefStore {
  * The brief as the model reads it — the format is the point: a header it can
  * parse at a glance, then one line per thing the project does.
  */
-export function briefText(name: string, brief: ProjectBrief): string {
+function briefText(name: string, brief: ProjectBrief): string {
   const lines = [
     `# ${name} — catch-up`,
     "",

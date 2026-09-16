@@ -123,7 +123,7 @@ export function cleanClaudeModels(
  * prepend the group to the label ("OpenCode Zen/Big Pickle") — display
  * names carry no provenance, so everything up to the last "/" comes off.
  */
-export function bareModelName(name: string): string {
+function bareModelName(name: string): string {
   const last = name.split("/").pop()?.trim();
   return last || name;
 }

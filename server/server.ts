@@ -30,7 +30,8 @@ import { DraftStore } from "./drafts.js";
 import { HomeLog } from "./homelog.js";
 import { createCheckpoints } from "./checkpoints.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
-import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
+import { AUDIO_MIME, IMAGE_MIME, mimeOf, STATIC_MIME } from "./mime.js";
+import { defaultMusicDir, isAllowed, scan as scanMusic } from "./music.js";
 import { claimPort, type PortClaim } from "./port.js";
 import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
@@ -146,18 +147,6 @@ export interface RuriServer {
 const USAGE_RETRY_MIN_MS = 5_000;
 const USAGE_RETRY_MAX_MS = 120_000;
 
-const MIME: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-  ".json": "application/json",
-  ".map": "application/json",
-  ".woff2": "font/woff2",
-};
-
 /**
  * The desktop app is same-origin, but the vite dev server (:5173) is not —
  * and a cross-origin MediaElementSource without CORS taints the Web Audio
@@ -193,7 +182,7 @@ function serveTrack(req: http.IncomingMessage, res: http.ServerResponse, root: s
     return;
   }
 
-  const type = AUDIO_MIME[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
+  const type = mimeOf(filePath, AUDIO_MIME);
   const match = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range?.trim() ?? "");
 
   if (match && (match[1] !== "" || match[2] !== "")) {
@@ -292,17 +281,6 @@ function allowReadImages(events: TranscriptEvent[], base?: string): void {
   }
 }
 
-const IMAGE_MIME: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".bmp": "image/bmp",
-  ".svg": "image/svg+xml",
-  ".avif": "image/avif",
-};
-
 /** A request body, whole, or an error past `limit` bytes. */
 function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -367,7 +345,7 @@ function serveReadFile(req: http.IncomingMessage, res: http.ServerResponse): voi
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) throw new Error("not a file");
     res.writeHead(200, {
-      "content-type": IMAGE_MIME[path.extname(filePath).toLowerCase()] ?? "application/octet-stream",
+      "content-type": mimeOf(filePath, IMAGE_MIME),
       "content-length": stat.size,
       // the file can be overwritten in place between reads
       "cache-control": "no-cache",
@@ -395,7 +373,7 @@ function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.Ser
       res.end();
       return;
     }
-    res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream" });
+    res.writeHead(200, { "content-type": mimeOf(file, STATIC_MIME) });
     res.end(data);
   });
 }
@@ -667,7 +645,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     try {
       body = JSON.parse(await readBody(req, 1024 * 1024)) as typeof body;
     } catch (err) {
-      reply(400, { ok: false, error: `bad request: ${err instanceof Error ? err.message : String(err)}` });
+      reply(400, { ok: false, error: `bad request: ${errorMessage(err)}` });
       return;
     }
     if (!body || typeof body.tool !== "string") {
@@ -2457,7 +2435,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           project = store.add(name ?? "", projectPath, folder);
           opened = true;
         } catch (err) {
-          return `failed: ${err instanceof Error ? err.message : String(err)}`;
+          return `failed: ${errorMessage(err)}`;
         }
         broadcast({ type: "projects", projects: store.list() });
         // a project new to ruri gets told what it is before anyone asks
@@ -2487,7 +2465,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       try {
         fs.mkdirSync(dir, { recursive: true });
       } catch (err) {
-        return `failed: ${err instanceof Error ? err.message : String(err)}`;
+        return `failed: ${errorMessage(err)}`;
       }
       return managerHost.openProject({ path: dir, name: clean }).replace(/^opened/, "created and opened");
     },
@@ -2862,7 +2840,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
               ws.send(
                 JSON.stringify({
                   type: "error",
-                  message: `rewind failed: ${err instanceof Error ? err.message : String(err)}`,
+                  message: `rewind failed: ${errorMessage(err)}`,
                 } satisfies ServerMessage),
               );
             }
@@ -2973,7 +2951,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
               ws.send(
                 JSON.stringify({
                   type: "error",
-                  message: `fork failed: ${err instanceof Error ? err.message : String(err)}`,
+                  message: `fork failed: ${errorMessage(err)}`,
                 } satisfies ServerMessage),
               );
             }
@@ -3491,7 +3469,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
 
       /* ── the vault ────────────────────────────────────────────── */
       case "secret_save": {
-        secrets.save1({
+        secrets.upsert({
           ...(msg.id ? { id: msg.id } : {}),
           name: msg.name,
           ...(msg.username !== undefined ? { username: msg.username } : {}),
@@ -3562,7 +3540,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       case "skill_remove":
       case "skill_update": {
         const dir = msg.projectId ? store.get(msg.projectId)?.path : undefined;
-        // bmo clones and copies — long enough that the page says so
+        // bmo clones and copies — long enough that the page says so (the
+        // list as the filesystem has it; bmo's own notes come with the push
+        // when the work is done)
         broadcast({
           type: "skills",
           ...(msg.projectId ? { projectId: msg.projectId } : {}),
@@ -3880,7 +3860,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         ws.send(
           JSON.stringify({
             type: "error",
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
           } satisfies ServerMessage),
         );
       }

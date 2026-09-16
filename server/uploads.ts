@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 import { configPath } from "./configDir.js";
+import { mimeOf, UPLOAD_EXT, UPLOAD_MIME } from "./mime.js";
 import type { Attachment, AttachmentUpload } from "../shared/protocol.js";
 import { isMissing, warn } from "./log.js";
 
@@ -11,27 +12,6 @@ import { isMissing, warn } from "./log.js";
  * /uploads/<file>, so transcript events carry small URLs instead of
  * megabytes of base64.
  */
-
-const EXT: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif",
-  "video/mp4": "mp4",
-  "video/quicktime": "mov",
-  "video/webm": "webm",
-  "application/pdf": "pdf",
-};
-
-const MIME: Record<string, string> = {
-  ...Object.fromEntries(Object.entries(EXT).map(([mime, ext]) => [ext, mime])),
-  // preview types for common "file" attachments; anything else streams as
-  // octet-stream (the viewer fetches text previews itself, so that's fine)
-  txt: "text/plain; charset=utf-8",
-  md: "text/plain; charset=utf-8",
-  json: "application/json",
-  csv: "text/csv; charset=utf-8",
-};
 
 function uploadsDir(): string {
   return configPath("uploads");
@@ -48,7 +28,7 @@ function uploadPath(upload: AttachmentUpload): string {
   // arbitrary files keep their own extension (browsers often report no or
   // bogus MIME types for source files), sanitized down to alphanumerics
   const nameExt = path.extname(upload.name).slice(1).toLowerCase().replace(/[^a-z0-9]/g, "");
-  const ext = EXT[upload.mediaType] ?? (nameExt || "bin");
+  const ext = UPLOAD_EXT[upload.mediaType] ?? (nameExt || "bin");
   const stem = path
     .basename(upload.name, path.extname(upload.name))
     .replace(/[^A-Za-z0-9._-]+/g, "-")
@@ -146,13 +126,12 @@ const CORS: Record<string, string> = { "access-control-allow-origin": "*" };
 export function serveUpload(req: http.IncomingMessage, res: http.ServerResponse): void {
   const name = (req.url ?? "").replace("/uploads/", "").split("?")[0] ?? "";
   const filePath = path.join(uploadsDir(), path.basename(name));
-  const ext = path.extname(filePath).slice(1);
   try {
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) throw new Error("not a file");
     res.writeHead(200, {
       ...CORS,
-      "content-type": MIME[ext] ?? "application/octet-stream",
+      "content-type": mimeOf(filePath, UPLOAD_MIME),
       "content-length": stat.size,
     });
     fs.createReadStream(filePath).pipe(res);

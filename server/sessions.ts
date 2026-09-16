@@ -29,8 +29,9 @@ import {
   type PreToolUseHookSpecificOutput,
 } from "@anthropic-ai/claude-agent-sdk";
 import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
+import { IMAGE_EXTS } from "./mime.js";
 import { readCodexCounts } from "./usage.js";
-import { warn } from "./log.js";
+import { errorMessage, warn } from "./log.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_PERMISSION_MODE,
@@ -296,8 +297,6 @@ export async function promptChain(
 }
 
 /** Extensions the transcript will show inline — what Read itself can take. */
-const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif"]);
-
 /**
  * A Read of an image earns a thumbnail in the transcript: reading a
  * screenshot and only seeing its path back is the one case where the tool
@@ -765,7 +764,7 @@ class ProjectSession implements ChannelSession {
       const result = await this.session.rewindFiles(uuid);
       return { canRewind: result.canRewind, ...(result.error ? { error: result.error } : {}) };
     } catch (err) {
-      return { canRewind: false, error: err instanceof Error ? err.message : String(err) };
+      return { canRewind: false, error: errorMessage(err) };
     }
   }
 
@@ -977,7 +976,7 @@ class ProjectSession implements ChannelSession {
       this.pushEvent({
         kind: "info",
         id: randomUUID(),
-        text: `session error: ${err instanceof Error ? err.message : String(err)}`,
+        text: `session error: ${errorMessage(err)}`,
         ts: Date.now(),
       });
       this.setStatus("error");
@@ -1430,7 +1429,7 @@ class ProviderTurnSession implements ChannelSession {
       } else if (err instanceof ProviderNotInstalledError) {
         error = err.message;
       } else {
-        error = err instanceof Error ? err.message : String(err);
+        error = errorMessage(err);
       }
     } finally {
       this.abort = null;
@@ -2051,7 +2050,7 @@ class ProviderAgentSession implements ChannelSession {
       } else if (err instanceof ProviderNotInstalledError) {
         error = err.message;
       } else {
-        error = err instanceof Error ? err.message : String(err);
+        error = errorMessage(err);
       }
     }
     this.rejectPending();
@@ -2311,7 +2310,7 @@ const NOT_TRANSIENT = /usage limit|rate limit|quota|credit|insufficient|out of (
 
 /** Whether a failed turn's error reads like something worth simply redoing.
  *  `status` is the HTTP status when the harness names one (Claude does). */
-export function transientFailure(text: string | undefined, status?: number | null): boolean {
+function transientFailure(text: string | undefined, status?: number | null): boolean {
   if (typeof status === "number") return status >= 500 && status < 600;
   if (!text || NOT_TRANSIENT.test(text)) return false;
   return TRANSIENT.test(text);

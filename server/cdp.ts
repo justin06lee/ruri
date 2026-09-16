@@ -340,7 +340,7 @@ const MAC_COMMANDS: Record<string, string> = {
 };
 
 /** A chord as typed ("Meta+Shift+A", "Enter") into the parts CDP wants. */
-export function parseChord(
+function parseChord(
   chord: string,
   extraModifiers: string[] = [],
 ): { def: KeyDef; modifiers: number; commands: string[] } {
@@ -691,7 +691,7 @@ export class PageDriver {
         }
       } catch (err) {
         // a page mid-navigation has no document to ask — look again
-        last = err instanceof Error ? err.message : String(err);
+        last = errorMessage(err);
         if (last.startsWith("give a ")) throw err;
       }
       if (Date.now() >= until) throw new Error(`timed out after ${Math.round(timeoutMs / 1000)}s: ${last}`);

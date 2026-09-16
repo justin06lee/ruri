@@ -5,6 +5,19 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
 /**
+ * The two endpoints below write files — src/peek.ts and PNGs under
+ * web/public — on a plain POST to :5173, so a page on any other origin
+ * open in the same browser could post to them. A request is taken only
+ * from the dev server's own page: its Origin (or, for the odd client that
+ * sends none, its Referer) must be the dev server itself.
+ */
+const DEV_ORIGINS = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
+function fromDevPage(req: import("node:http").IncomingMessage): boolean {
+  const origin = req.headers.origin ?? (req.headers.referer ? new URL(req.headers.referer).origin : undefined);
+  return origin !== undefined && DEV_ORIGINS.has(origin);
+}
+
+/**
  * The art tuner's save button (`make tuner` → /tuner.html) posts here, and
  * this rewrites the two lists in src/peek.ts — the file the app reads. Dev
  * server only: the tuner page and this endpoint never enter a build.
@@ -25,6 +38,11 @@ function tunerSave(): Plugin {
         if (req.method !== "POST") {
           res.statusCode = 405;
           res.end();
+          return;
+        }
+        if (!fromDevPage(req)) {
+          res.statusCode = 403;
+          res.end("not from the dev page");
           return;
         }
         let body = "";
@@ -145,6 +163,11 @@ function tunerImages(): Plugin {
         if (req.method !== "POST") {
           res.statusCode = 405;
           res.end();
+          return;
+        }
+        if (!fromDevPage(req)) {
+          res.statusCode = 403;
+          res.end("not from the dev page");
           return;
         }
         let body = "";

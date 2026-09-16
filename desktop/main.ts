@@ -1,28 +1,34 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { promisify } from "node:util";
 import { app, BrowserWindow, dialog, Menu, screen, session, shell } from "electron";
 import { startServer } from "../server/server.js";
 import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
 import { askAgainIfNewBuild, permissions } from "./permissions.js";
 
+const execFileAsync = promisify(execFile);
+
 /**
  * GUI-launched macOS apps get a minimal PATH (/usr/bin:/bin:...), which would
  * break both finding the `claude` CLI and every Bash/git/npm invocation inside
  * sessions. Recover the user's real PATH from their login shell, with common
- * install dirs appended as a safety net.
+ * install dirs appended as a safety net. Async, so it overlaps Electron's
+ * own start-up instead of holding it for however long the rc files take.
  */
-function fixPath(): void {
+async function fixPath(): Promise<void> {
   if (process.platform !== "darwin") return;
   try {
     const shellBin = process.env["SHELL"] ?? "/bin/zsh";
-    const out = execFileSync(shellBin, ["-ilc", 'printf "__RURI__%s__RURI__" "$PATH"'], {
+    // -ilc, not -lc: PATH is commonly set in .zshrc/.bashrc, which only an
+    // interactive shell reads; a login shell alone would miss it
+    const { stdout } = await execFileAsync(shellBin, ["-ilc", 'printf "__RURI__%s__RURI__" "$PATH"'], {
       encoding: "utf8",
       timeout: 5000,
     });
-    const match = /__RURI__(.*)__RURI__/s.exec(out);
+    const match = /__RURI__(.*)__RURI__/s.exec(stdout);
     if (match?.[1]) process.env["PATH"] = match[1];
   } catch {
     // fall through to the append below
@@ -45,6 +51,9 @@ const DESKTOP_PORT = 7776;
 
 /** How much Chromium may keep on disk per storage partition. */
 const CACHE_CAP_BYTES = 16 * 1024 * 1024;
+
+/** How long a quit waits for the bridge and the server to close. */
+const QUIT_TIMEOUT_MS = 5_000;
 
 /**
  * The bridge gives every project its own storage partition (cookies and
@@ -111,9 +120,30 @@ function createWindow(port: number): BrowserWindow {
       plugins: true,
     },
   });
+  // Links open outside, and only web links: anything a page could hand
+  // shell.openExternal is handed the user's default app for its scheme,
+  // so schemes are allowlisted rather than passed through.
+  const origin = `http://127.0.0.1:${port}`;
+  const openOutside = (url: string): void => {
+    let scheme: string;
+    try {
+      scheme = new URL(url).protocol;
+    } catch {
+      return;
+    }
+    if (scheme === "http:" || scheme === "https:" || scheme === "mailto:") void shell.openExternal(url);
+  };
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    openOutside(url);
     return { action: "deny" };
+  });
+  // the window is the app's own page and nothing else: a navigation off
+  // the origin (a link without target, a redirect) is stopped here and
+  // sent outside the same way
+  win.webContents.on("will-navigate", (event, url) => {
+    if (url === origin || url.startsWith(`${origin}/`)) return;
+    event.preventDefault();
+    openOutside(url);
   });
   // ?fixture: canned data, for screenshots; ?awake: a window driven from
   // behind everything else, which must not go to sleep on its driver
@@ -222,8 +252,9 @@ async function main(): Promise<void> {
   // more. The cap is per storage partition, so the bridge's windows (real
   // sites, where a cache does earn its keep) get the same modest one each.
   app.commandLine.appendSwitch("disk-cache-size", String(CACHE_CAP_BYTES));
-  fixPath();
-  await app.whenReady();
+  // the login shell and Electron's own start-up take their time side by
+  // side; the server (which spawns CLIs off PATH) starts after both
+  await Promise.all([fixPath(), app.whenReady()]);
   buildMenu();
   // whatever the old, uncapped cache put by is let go of now
   void session.defaultSession.clearCache().catch(() => {});
@@ -302,10 +333,20 @@ async function main(): Promise<void> {
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });
-  app.on("before-quit", () => {
-    // nothing a session launched outlives ruri
-    void bridge.closeAll();
-    void running.close();
+  // Quit waits for the teardown: nothing a session launched outlives ruri,
+  // and the archive writes transcripts and drafts on a debounce that
+  // close() flushes — a quit that did not wait lost whatever had not
+  // landed. The first before-quit is cancelled and the teardown started;
+  // when it finishes (or QUIT_TIMEOUT_MS is up, for a bridge app that
+  // will not go), quit() is called again and the flag lets it through.
+  let quitting = false;
+  app.on("before-quit", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    quitting = true;
+    const teardown = Promise.allSettled([bridge.closeAll(), running.close()]);
+    const deadline = new Promise<void>((resolve) => setTimeout(resolve, QUIT_TIMEOUT_MS).unref?.());
+    void Promise.race([teardown, deadline]).then(() => app.quit());
   });
   process.on("SIGINT", () => {
     void running.close().finally(() => app.quit());

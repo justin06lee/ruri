@@ -9,17 +9,20 @@ import type { PermissionId, PermissionState, TccRow } from "../shared/protocol.j
  * What macOS has let ruri do, and the asking for it.
  *
  * Every grant — Accessibility, Screen Recording, the folders, the volumes —
- * is tied to the app's code signature. An ad-hoc-signed app is re-signed by
- * every build, so a grant made to last week's ruri is silently void for
- * this week's while the switch in System Settings still reads "on". That
- * is the shape of every "it worked yesterday" permission bug, and it is
- * invisible unless something shows the grants as macOS actually holds them.
+ * is tied to the app's code signature. Builds are signed with a stable
+ * self-signed identity (`make identity`, in the Makefile), so a grant made
+ * to last week's ruri still holds for this week's. Without that identity
+ * a build is ad-hoc-signed — re-signed by every build — and the grant is
+ * silently void while the switch in System Settings still reads "on".
+ * That is the shape of every "it worked yesterday" permission bug, and it
+ * is invisible unless something shows the grants as macOS actually holds
+ * them.
  *
  * So: each permission ruri uses, with its state as read (not guessed), a
  * way to ask for it by hand, and — since ruri has Full Disk Access — the
  * privacy database's own rows for ruri and the CLIs its sessions run, so a
- * denial can be seen for what it is. `make update` resets the lot
- * (tccutil, in the Makefile) and the next launch asks again.
+ * denial can be seen for what it is. For an ad-hoc build, `make update`
+ * resets the lot (tccutil, in the Makefile) and the next launch asks again.
  */
 
 const HOME = os.homedir();
@@ -298,13 +301,31 @@ export const permissions: PermissionHost = {
 };
 
 /**
- * A new build is a stranger to macOS (see the top of this file), so the
- * first launch of one asks for everything again — which is the second half
- * of what `make update` does when it resets the grants. Dev runs and test
- * harnesses are not builds and are left alone.
+ * Whether this bundle carries an ad-hoc signature — no identity, so a
+ * signature that is new with every build. `codesign -dv` on the bundle
+ * says `Signature=adhoc` for one, and names the authority for a signed
+ * build (`Authority=ruri dev`, the identity `make identity` creates).
+ * Unreadable is taken as signed: better to ask nothing than nine times.
+ */
+async function adHocSigned(): Promise<boolean> {
+  // …/ruri.app/Contents/MacOS/ruri → …/ruri.app
+  const bundle = path.resolve(app.getPath("exe"), "..", "..", "..");
+  if (!bundle.endsWith(".app")) return false;
+  const { code, err } = await run("/usr/bin/codesign", ["-dv", bundle]);
+  return code === 0 && /^Signature=adhoc$/m.test(err);
+}
+
+/**
+ * An ad-hoc-signed build is a stranger to macOS (see the top of this
+ * file), so the first launch of one asks for everything again — which is
+ * the second half of what `make update` does when it resets the grants.
+ * A build signed with the stable identity is the same app to macOS as the
+ * last one and its grants carry over, so nothing is asked. Dev runs and
+ * test harnesses are not builds and are left alone.
  */
 export async function askAgainIfNewBuild(): Promise<void> {
   if (!app.isPackaged) return;
+  if (!(await adHocSigned())) return;
   const marker = path.join(app.getPath("userData"), "asked-permissions-for");
   let last = "";
   try {

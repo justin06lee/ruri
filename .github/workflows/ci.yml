@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # macOS on purpose: the server shells out to macOS tools in places, and
+    # the packaged app is a macOS bundle; a Linux runner would prove less.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run typecheck
+
+      - run: bun run lint
+
+      # Advisory until the tree has been formatted once (that run happens
+      # after every open branch merges). Drop `continue-on-error` then, and
+      # this step becomes required.
+      - run: bun run format:check
+        continue-on-error: true
+
+      - run: bun test
+
+      # The token-free integration scripts. The one that needs the `claude`
+      # binary (retry) skips itself on a runner without it.
+      - run: bun run test:scripts
+
+      - run: bun run build:web
+
+      - run: bun run build:main
+
+      # build:app (electron-builder + the local signing identity) is not run
+      # here: the bundle is signed with a self-signed identity that lives in
+      # the developer's login keychain, and nothing downstream consumes a CI
+      # build. `bun run build` locally is the release check.

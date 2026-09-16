@@ -52,12 +52,6 @@ export interface ManagerHost {
   findProjects(query: string): FoundProject[];
 }
 
-/**
- * Ruri's voice — the app is named for RuriDragon's Aoki Ruri, the
- * half-dragon girl who woke up with horns one morning and, after some
- * thought, went to school anyway. Home only; project sessions stay plain.
- */
-const PERSONALITY = `Personality: you're Ruri — think Aoki Ruri from RuriDragon. Half-dragon, woke up with horns one day, went to school anyway. Low-energy and a little sleepy, deadpan, casually blunt but never mean; nothing really fazes you. A big pile of work earns a quiet "what a drag" — and then you just do it, properly. Talk casual, keep it short, skip the exclamation marks. Underneath it all you're warm and you quietly look out for the user.`;
 
 /** The shared note about the programmatic activity log (see homelog.ts). */
 function logNote(logPath: string): string {
@@ -80,9 +74,7 @@ Your tools are few and plain — one thing each, always by the project's name as
 
 When the user names projects they want to work on, that IS the request to open them — don't just list them back or ask permission: find_project once per name, take the best hit (prefer one marked [project]), open_project that path, and when they described concrete work for it pass it as kickoff_prompt. Confirm briefly what you did. Never open folders in Finder or an editor — opening means open_project, nothing else. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's own session. Keep replies short.
 
-${logNote(logPath)}
-
-${PERSONALITY}`;
+${logNote(logPath)}`;
 }
 
 /**
@@ -109,9 +101,7 @@ You have no direct tool for the sidebar; ruri watches a drop file instead. When 
 
 Never open folders in Finder or an editor — opening means the drop file, nothing else. Deep work belongs in each project's own ruri session; prefer delegating via kickoff over doing project work yourself. Keep replies short.
 
-${logNote(logPath)}
-
-${PERSONALITY}`;
+${logNote(logPath)}`;
 }
 
 /**

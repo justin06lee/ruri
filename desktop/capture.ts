@@ -60,7 +60,9 @@ function locateScript(selector: string): string {
     const el = document.querySelector(${JSON.stringify(selector)});
     if (!el) return null;
     el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
-    try { await document.fonts.ready; } catch {}
+    // fonts.ready rejecting is rare and harmless (the shot is taken with
+    // whatever is drawn), but it is worth a line in the page's console
+    try { await document.fonts.ready; } catch (err) { console.warn("ruri capture: document.fonts.ready rejected", err); }
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const r = el.getBoundingClientRect();
     if (r.width < 8 || r.height < 8) return null;

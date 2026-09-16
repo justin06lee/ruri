@@ -1,0 +1,9 @@
+dist-*/
+node_modules/
+bun.lock
+web/public/
+assets/
+*.md
+.ruri/
+build/
+.claude/

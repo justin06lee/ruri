@@ -238,6 +238,23 @@ const readable = new Set<string>();
  * project's; "~" is home. The last reply to write a given path wins.
  */
 const pictured = new Map<string, string>();
+/** How many of each are kept. Both grew for the life of the process — every
+ *  image every session ever read — so past this the oldest entry goes. A
+ *  picture that old is off every screen; if a transcript asks again, its
+ *  events are re-registered on the way out (allowArchived). */
+const READABLE_MAX = 5_000;
+
+/** Sets and Maps iterate in insertion order, so the first key is the oldest. */
+function remember(store: Set<string>, key: string): void {
+  if (store.has(key)) store.delete(key);
+  store.add(key);
+  if (store.size > READABLE_MAX) store.delete(store.keys().next().value!);
+}
+function rememberPicture(raw: string, abs: string): void {
+  if (pictured.has(raw)) pictured.delete(raw);
+  pictured.set(raw, abs);
+  if (pictured.size > READABLE_MAX) pictured.delete(pictured.keys().next().value!);
+}
 /** Where a channel's relative paths start from — set once the store is up. */
 let pictureBase: (channelId: string) => string | undefined = () => undefined;
 
@@ -259,7 +276,7 @@ function allowReadImages(events: TranscriptEvent[], base?: string): void {
   for (const event of events) {
     if (event.kind === "tool" && event.image) {
       const p = new URL(event.image.url, "http://localhost").searchParams.get("p");
-      if (p) readable.add(p);
+      if (p) remember(readable, p);
       continue;
     }
     if (event.kind !== "assistant") continue;
@@ -269,8 +286,8 @@ function allowReadImages(events: TranscriptEvent[], base?: string): void {
       const expanded = raw.startsWith("~/") ? path.join(os.homedir(), raw.slice(2)) : raw;
       const abs = path.isAbsolute(expanded) ? expanded : base ? path.resolve(base, expanded) : undefined;
       if (!abs) continue;
-      readable.add(abs);
-      pictured.set(raw, abs);
+      remember(readable, abs);
+      rememberPicture(raw, abs);
     }
   }
 }

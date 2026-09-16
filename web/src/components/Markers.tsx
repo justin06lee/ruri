@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 /**
  * The [image #1] markers and the /commands in the composer, as things
@@ -477,6 +477,9 @@ export function MarkerMirror({
   // since any of those can move the words; and if after all that the two
   // still disagree on how many lines the prompt is, the chips come off
   // rather than stand on the wrong words.
+  /** The sync as this render made it — the listeners below, registered
+   *  once, call whichever is current. Null while there are no chips. */
+  const syncRef = useRef<(() => void) | null>(null);
   useLayoutEffect(() => {
     const area = areaRef.current;
     const mirror = mirrorRef.current;
@@ -487,7 +490,10 @@ export function MarkerMirror({
     // only ever disagree, and the check below used to go round every 400ms
     // for as long as the chat was open, measuring and restyling for nothing.
     // The first chip re-renders this and it starts looking.
-    if (markers.length === 0) return;
+    if (markers.length === 0) {
+      syncRef.current = null;
+      return;
+    }
     let frame = 0;
     let retry = 0;
     let refitted = false;
@@ -554,7 +560,22 @@ export function MarkerMirror({
       // fitted to the text (that happens after this, in the composer)
       if (!frame) frame = requestAnimationFrame(check);
     };
+    syncRef.current = sync;
     sync();
+    return () => {
+      syncRef.current = null;
+      if (frame) cancelAnimationFrame(frame);
+      if (retry) clearTimeout(retry);
+    };
+  });
+
+  // Every scroll, focus, resize, font arrival and return to the window can
+  // move the words, so each looks again — through whichever sync stands,
+  // so the listeners are registered once, not on every keystroke.
+  useEffect(() => {
+    const area = areaRef.current;
+    if (!area) return;
+    const sync = () => syncRef.current?.();
     area.addEventListener("scroll", sync);
     area.addEventListener("focus", sync);
     document.addEventListener("selectionchange", sync);
@@ -568,8 +589,6 @@ export function MarkerMirror({
     observer.observe(area);
     void document.fonts?.ready.then(sync);
     return () => {
-      if (frame) cancelAnimationFrame(frame);
-      if (retry) clearTimeout(retry);
       area.removeEventListener("scroll", sync);
       area.removeEventListener("focus", sync);
       document.removeEventListener("selectionchange", sync);
@@ -577,7 +596,7 @@ export function MarkerMirror({
       document.removeEventListener("visibilitychange", sync);
       observer.disconnect();
     };
-  });
+  }, [areaRef]);
 
   const startDrag = (e: React.PointerEvent<HTMLSpanElement>, marker: Marker) => {
     if (e.button !== 0) return;

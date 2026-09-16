@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HOME_ID } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 
@@ -141,14 +141,14 @@ export function Switcher() {
       ? picked.name.slice(query.length)
       : "";
 
-  const close = () => {
+  const close = useCallback(() => {
     setOpen(false);
     setQuery("");
     setCursor(0);
     const back = before.current;
     before.current = null;
     requestAnimationFrame(() => back?.focus());
-  };
+  }, []);
   const go = (entry: Entry | undefined) => {
     if (!entry) return;
     close();
@@ -203,8 +203,7 @@ export function Switcher() {
       window.removeEventListener("keyup", onUp, true);
       window.removeEventListener("blur", onBlur);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [close]);
 
   useEffect(() => {
     if (open) requestAnimationFrame(() => inputRef.current?.focus());

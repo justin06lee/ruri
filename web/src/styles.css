@@ -13,12 +13,23 @@
    border that holds its space and shows nothing, in every theme, so a
    surface keeps the size it was drawn at. */
 
+/* Each theme's own paper and ink, named for the theme rather than the
+   page, so they mean the same thing whichever theme is on: the settings
+   clock paints its three stretches of the day in them, and a swatch of
+   dark has to look like dark while you are reading it in light. Each
+   theme's block takes its own from here. */
 :root {
-  --paper: #f6f1e6;
+  --theme-light-paper: #f6f1e6;
+  --theme-light-ink: #191510;
+  --theme-dark-paper: #101010;
+  --theme-dark-ink: #ececec;
+  --theme-ember-paper: #140b05;
+  --theme-ember-ink: #f0bd82;
+  --paper: var(--theme-light-paper);
   --paper-dim: #efe9da;
   --paper-deep: #e7e0cf;
   --paper-bright: #fdfaf3;
-  --ink: #191510;
+  --ink: var(--theme-light-ink);
   --ink-soft: #464035;
   --ink-faint: #8b8271;
   --edge: transparent;
@@ -34,34 +45,46 @@
     transparent 0 5px,
     rgba(25, 21, 16, 0.1) 5px 10px
   );
-  /* Each theme's own paper and ink, held here rather than in the theme
-     blocks below, so they mean the same thing whichever theme is on: they
-     are what the settings clock paints its three stretches of the day in,
-     and a swatch of dark has to look like dark while you are reading it in
-     light. Keep them in step with the blocks below by hand — there are six
-     numbers and they change about once a year. */
-  --theme-light-paper: #f6f1e6;
-  --theme-light-ink: #191510;
-  --theme-dark-paper: #101010;
-  --theme-dark-ink: #ececec;
-  --theme-ember-paper: #140b05;
-  --theme-ember-ink: #f0bd82;
+  /* Monochrome everywhere else, but a diff without add/remove color is a
+     puzzle — these tints are the quietest that still separate at a glance
+     on cream and on near-black. */
+  --diff-add-bg: rgba(74, 124, 89, 0.14);
+  --diff-add-ink: #3f6b4b;
+  --diff-del-bg: rgba(168, 71, 60, 0.12);
+  --diff-del-ink: #8f3f34;
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
   --sidebar-w: 264px;
   --radius-s: 6px;
   --radius-m: 9px;
   --radius-l: 13px;
+  /* the small sizes: labels, metadata, the fine print under things */
+  --fs-xs: 10.5px;
+  --fs-sm: 11.5px;
+  --fs-md: 12.5px;
+  /* Stacking, lowest to highest — nothing sets a z-index outside this. */
+  --z-raised: 1; /* a control lifted over its siblings (a turn's fold) */
+  --z-pill: 2; /* the jump pill over the transcript */
+  --z-dock: 3; /* the composer dock over the transcript */
+  --z-strip: 4; /* strips over the dock: rapid fire's bar, the bridge */
+  --z-carried: 5; /* a queued card being carried */
+  --z-command: 6; /* the command menu over the composer */
+  --z-popover: 30; /* menus, selection flags, the peek skyline */
+  --z-flyout: 31; /* a menu's second list over its first */
+  --z-confirm: 40; /* a question over the pane */
+  --z-rapid: 60; /* rapid fire's intro over the pane */
+  --z-overlay: 70; /* the viewer, a skill: over the window */
+  --z-veil: 80; /* the switcher, over all of it */
   color-scheme: light;
 }
 
 /* dark mode: the same manga page at night — ink and paper swap roles,
    every component flips automatically through the tokens */
 :root[data-theme="dark"] {
-  --paper: #101010;
+  --paper: var(--theme-dark-paper);
   --paper-dim: #181818;
   --paper-deep: #262626;
   --paper-bright: #1c1c1c;
-  --ink: #ececec;
+  --ink: var(--theme-dark-ink);
   --ink-soft: #b4b4b4;
   --ink-faint: #707070;
   --hairline: rgba(236, 236, 236, 0.08);
@@ -75,6 +98,10 @@
     transparent 0 5px,
     rgba(236, 236, 236, 0.08) 5px 10px
   );
+  --diff-add-bg: rgba(110, 180, 130, 0.15);
+  --diff-add-ink: #83c795;
+  --diff-del-bg: rgba(220, 110, 95, 0.14);
+  --diff-del-ink: #e08a7c;
   color-scheme: dark;
 }
 
@@ -82,11 +109,11 @@
    blue is the thing keeping you up. Every color here is red through amber —
    no blue channel to speak of — so it reads warm rather than merely dark. */
 :root[data-theme="ember"] {
-  --paper: #140b05;
+  --paper: var(--theme-ember-paper);
   --paper-dim: #1b0f07;
   --paper-deep: #2a180b;
   --paper-bright: #21130a;
-  --ink: #f0bd82;
+  --ink: var(--theme-ember-ink);
   --ink-soft: #c39257;
   --ink-faint: #8a6338;
   --hairline: rgba(240, 189, 130, 0.09);
@@ -100,6 +127,10 @@
     transparent 0 5px,
     rgba(240, 189, 130, 0.08) 5px 10px
   );
+  --diff-add-bg: rgba(200, 160, 60, 0.15);
+  --diff-add-ink: #d8ac52;
+  --diff-del-bg: rgba(190, 80, 45, 0.16);
+  --diff-del-ink: #d4704a;
   color-scheme: dark;
 }
 
@@ -138,10 +169,6 @@ img,
 video {
   user-select: none;
   -webkit-user-drag: none;
-}
-
-.hero {
-  user-select: none;
 }
 
 /* hairline scrollbars — barely-there thumb, no track, no buttons */
@@ -334,12 +361,13 @@ textarea::placeholder {
    header, clipped at its bottom edge so only horns and hair show. Hovering
    one lifts it slightly — just enough to see the face — and that is the
    whole feature. Pure background: nothing here is clickable, the traffic
-   lights and gear just sit on top, window dragging works through it. */
+   lights and gear just sit on top, and the bar around the heads drags the
+   window. */
 .logo-peeks {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  z-index: 30;
+  z-index: var(--z-popover);
 }
 
 .peek-head {
@@ -347,15 +375,12 @@ textarea::placeholder {
   top: var(--drop, 0px);
   height: auto;
   transition: transform 180ms cubic-bezier(0.3, 0.9, 0.3, 1);
-  /* the heads stay part of the header's window-drag region (no no-drag) so
-     the bar always moves the window. Drag regions swallow real mouse events,
-     so in the desktop app :hover can never fire here — the Electron main
-     process polls the cursor instead and toggles .lift (see desktop/main.ts
-     + the __ruriPeekCursor hook in Sidebar). :hover stays for browser dev. */
+  /* the bar is a window-drag region, and a drag region swallows mouse
+     events — so the heads alone are cut out of it, and :hover reaches them */
+  -webkit-app-region: no-drag;
 }
 
-.peek-head:hover,
-.peek-head.lift {
+.peek-head:hover {
   transform: translateY(var(--lift, -14px));
 }
 
@@ -390,7 +415,7 @@ textarea::placeholder {
 .account-name {
   flex: 1;
   min-width: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--ink-soft);
   overflow: hidden;
@@ -466,7 +491,7 @@ textarea::placeholder {
 
 .group-label {
   padding: 14px 10px 5px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -554,7 +579,7 @@ textarea::placeholder {
   border-radius: var(--radius-s);
   background: transparent;
   color: var(--ink-faint);
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   text-align: left;
 }
@@ -675,7 +700,7 @@ textarea::placeholder {
 
 .recent-note {
   padding: 2px 10px 8px 30px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
 
@@ -874,7 +899,7 @@ textarea::placeholder {
   border: none;
   border-radius: 0;
   color: var(--ink-soft);
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
 }
 
@@ -981,7 +1006,7 @@ textarea::placeholder {
 
 .player-time {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--ink-faint);
   min-width: 30px;
 }
@@ -1067,6 +1092,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   width: min(640px, 84%);
   padding-bottom: 6vh;
+  user-select: none;
   animation: rise 240ms ease-out;
 }
 
@@ -1125,7 +1151,7 @@ input[type="range"]::-webkit-slider-thumb {
   border: none;
   border-radius: 999px;
   background: transparent;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 700;
   line-height: 1.4;
   color: var(--ink-faint);
@@ -1278,7 +1304,7 @@ input[type="range"]::-webkit-slider-thumb {
 .stat-sub {
   display: flex;
   gap: 9px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
   white-space: nowrap;
   overflow: hidden;
@@ -1434,7 +1460,7 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--ink-soft);
   margin-bottom: 1px;
@@ -1492,7 +1518,7 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 1px;
   padding: 6px 13px 7px;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -1553,11 +1579,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .hero-composer {
-  margin-top: 8px;
-}
-
-.hero-composer {
   width: 100%;
+  margin-top: 8px;
 }
 
 .hero-composer .composer {
@@ -1640,7 +1663,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .settings-group-name {
   margin: 0 0 2px 2px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -1768,30 +1791,21 @@ input[type="range"]::-webkit-slider-thumb {
 
 .dial-grip.light {
   stroke: var(--theme-light-ink);
-}
-
-.dial-grip.dark {
-  stroke: var(--theme-dark-ink);
-}
-
-.dial-grip.ember {
-  stroke: var(--theme-ember-ink);
-}
-
-.dial-grip:active {
-  cursor: grabbing;
-}
-
-.dial-grip.light {
   fill: var(--theme-light-paper);
 }
 
 .dial-grip.dark {
+  stroke: var(--theme-dark-ink);
   fill: var(--theme-dark-paper);
 }
 
 .dial-grip.ember {
+  stroke: var(--theme-ember-ink);
   fill: var(--theme-ember-paper);
+}
+
+.dial-grip:active {
+  cursor: grabbing;
 }
 
 .dial-grip:hover {
@@ -1840,7 +1854,7 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
 }
 
 .schedule-name {
@@ -1850,7 +1864,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .schedule-from {
   color: var(--ink-faint);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
 }
 
 /* a time you set by nudging its parts — the app's own control, not the
@@ -1913,7 +1927,7 @@ input[type="range"]::-webkit-slider-thumb {
 .settings-label {
   width: 92px;
   flex-shrink: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--ink-soft);
 }
@@ -1938,7 +1952,7 @@ input[type="range"]::-webkit-slider-thumb {
 .settings-path {
   flex: 1;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-soft);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1954,10 +1968,6 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-top: 6px;
-}
-
-.vault {
   padding-top: 6px;
 }
 
@@ -2095,7 +2105,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .model-empty,
 .model-hint {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
 
@@ -2111,7 +2121,7 @@ input[type="range"]::-webkit-slider-thumb {
   border: none;
   background: transparent;
   padding: 3px 14px;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   color: var(--ink-soft);
 }
 
@@ -2248,7 +2258,7 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-m);
   padding: 5px;
-  z-index: 30;
+  z-index: var(--z-popover);
   animation: rise 120ms ease-out;
 }
 
@@ -2263,7 +2273,7 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 8px;
   width: 100%;
   padding: 6px 10px;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   text-align: left;
   background: transparent;
   border: none;
@@ -2436,7 +2446,7 @@ input[type="range"]::-webkit-slider-thumb {
 .confirm-overlay {
   position: absolute;
   inset: 0;
-  z-index: 40;
+  z-index: var(--z-confirm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2463,7 +2473,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* which prompt this is about, in its own words — the card trims it, because
    it asks a question and is not the place to read a long prompt back */
 .confirm-quote {
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   line-height: 1.5;
   color: var(--ink-soft);
   background: var(--paper-dim);
@@ -2504,7 +2514,7 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 99px;
   padding: 4px 15px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   cursor: pointer;
 }
@@ -2552,7 +2562,7 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
   opacity: 0;
   transition: opacity 140ms ease;
-  z-index: 1;
+  z-index: var(--z-raised);
 }
 
 .turn:hover > .turn-fold {
@@ -2599,7 +2609,7 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   font-weight: 400;
   color: var(--ink-faint);
   background: none;
@@ -2672,14 +2682,14 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .compaction-you {
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   line-height: 1.5;
   color: var(--ink);
   overflow-wrap: break-word;
 }
 
 .compaction-reply {
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   line-height: 1.5;
   color: var(--ink-soft);
   overflow-wrap: break-word;
@@ -2819,6 +2829,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* queued prompts: user-bubble look, dashed — waiting for their turn */
 
 .queued-card {
+  position: relative; /* the carrying below moves it by transform */
   align-self: flex-end;
   width: 76%;
   background: var(--raised);
@@ -2881,7 +2892,7 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 10px;
   width: 76%;
   padding: 0 4px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-soft);
   animation: rise 180ms ease-out;
 }
@@ -2894,7 +2905,7 @@ input[type="range"]::-webkit-slider-thumb {
 .queue-standby button {
   flex-shrink: 0;
   padding: 4px 10px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
 }
 
 .queued-text {
@@ -3088,7 +3099,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 5px;
   padding: 0;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   font-weight: 400;
   color: var(--ink-faint);
   background: none;
@@ -3171,7 +3182,7 @@ input[type="range"]::-webkit-slider-thumb {
 .rapid-intro {
   position: absolute;
   inset: 0 0 0 var(--sidebar-w);
-  z-index: 60;
+  z-index: var(--z-rapid);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3227,7 +3238,7 @@ input[type="range"]::-webkit-slider-thumb {
   left: 0;
   right: 0;
   bottom: calc(var(--composer-box-h) + 14px);
-  z-index: 4;
+  z-index: var(--z-strip);
   padding: 0 var(--rapid-inset, 0px) 0 0;
 }
 
@@ -3285,7 +3296,7 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 999px;
   background: var(--ink);
   color: var(--paper);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -3443,7 +3454,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .board-foot {
   padding: 6px 2px 2px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
 
@@ -3467,7 +3478,7 @@ input[type="range"]::-webkit-slider-thumb {
 .catchup-rebuild {
   margin-left: auto;
   padding: 3px 11px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
 }
 
 .board-foot code,
@@ -3561,7 +3572,7 @@ input[type="range"]::-webkit-slider-thumb {
    than as something you can press. */
 .comp-sweep {
   flex-shrink: 0;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   padding: 3px 11px;
 }
@@ -3589,7 +3600,7 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
 
@@ -3601,14 +3612,14 @@ input[type="range"]::-webkit-slider-thumb {
 
 .comp-field input {
   flex: 1;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   padding: 4px 8px;
 }
 
 .comp-note {
   min-height: 46px;
   resize: vertical;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   line-height: 1.6;
 }
 
@@ -3710,7 +3721,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .skill-group-head {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: var(--ink-faint);
   padding: 0 2px 6px;
@@ -3793,7 +3804,7 @@ input[type="range"]::-webkit-slider-thumb {
 .skill-overlay {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: var(--z-overlay);
   background: rgba(0, 0, 0, 0.35);
   display: flex;
   align-items: center;
@@ -3849,13 +3860,13 @@ input[type="range"]::-webkit-slider-thumb {
 
 .skill-source {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--ink-faint);
 }
 
 .skill-desc {
   margin: 2px 0 0;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.55;
   color: var(--ink-faint);
   display: -webkit-box;
@@ -3872,6 +3883,7 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding-top: 6px;
 }
 
 .vault-row {
@@ -3887,7 +3899,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .vault-who {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
 
@@ -3900,12 +3912,12 @@ input[type="range"]::-webkit-slider-thumb {
 .vault-form input {
   flex: 1;
   min-width: 120px;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   padding: 5px 8px;
 }
 
 .vault-hint {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.6;
   color: var(--ink-faint);
 }
@@ -3915,7 +3927,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 12px;
   padding: 2px 0;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
 
@@ -3983,7 +3995,7 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1.5px solid var(--edge);
   color: var(--ink);
   animation: rise 160ms ease-out;
-  z-index: 2;
+  z-index: var(--z-pill);
 }
 
 .jump-latest:active {
@@ -3993,45 +4005,6 @@ input[type="range"]::-webkit-slider-thumb {
 .jump-latest .icon {
   width: 12px;
   height: 12px;
-}
-
-/* ── empty states ─────────────────────────────────────────────────── */
-
-.empty-state {
-  align-self: center;
-  text-align: center;
-  padding: 48px 24px;
-  animation: rise 240ms ease-out;
-}
-
-.empty-face {
-  width: 116px;
-  height: 116px;
-  border-radius: 50%;
-  border: 2px solid var(--rim);
-  background: #fff;
-  object-fit: cover;
-  margin-bottom: 20px;
-}
-
-.empty-title {
-  font-weight: 700;
-  font-size: 15px;
-  margin-bottom: 6px;
-}
-
-.empty-hint {
-  color: var(--ink-soft);
-  font-size: 13px;
-}
-
-.empty-hint code {
-  font-family: var(--mono);
-  font-size: 12px;
-  background: var(--paper-dim);
-  border: 1px solid var(--line-soft);
-  border-radius: 4px;
-  padding: 1px 5px;
 }
 
 /* ── live plans reported by Codex / ACP harnesses ─────────────────── */
@@ -4051,7 +4024,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .plan-event.removed {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--ink-faint);
 }
 
@@ -4060,7 +4033,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 6px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -4074,7 +4047,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .plan-event-explanation,
 .plan-event-uri {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.45;
   color: var(--ink-faint);
 }
@@ -4250,7 +4223,7 @@ input[type="range"]::-webkit-slider-thumb {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--ink-faint);
 }
 
@@ -4287,12 +4260,12 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .agent-card-line {
-  font-size: 12.5px;
+  font-size: var(--fs-md);
 }
 
 .agent-card-meta {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--ink-faint);
 }
 
@@ -4314,7 +4287,7 @@ input[type="range"]::-webkit-slider-thumb {
 .agents-group {
   margin: 16px 2px 8px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--ink-faint);
 }
 
@@ -4409,7 +4382,7 @@ input[type="range"]::-webkit-slider-thumb {
 .agent-hand {
   flex: none;
   align-self: center;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   white-space: nowrap;
 }
 
@@ -4440,7 +4413,7 @@ input[type="range"]::-webkit-slider-thumb {
 .agent-live-line,
 .permission-from {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--ink-faint);
 }
 
@@ -4535,29 +4508,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── the patch under a Write or Edit ──────────────────────────────── */
 
-/* Monochrome everywhere else, but a diff without add/remove color is a
-   puzzle — these two tints are the quietest ones that still separate at a
-   glance on cream and on near-black. */
-:root {
-  --diff-add-bg: rgba(74, 124, 89, 0.14);
-  --diff-add-ink: #3f6b4b;
-  --diff-del-bg: rgba(168, 71, 60, 0.12);
-  --diff-del-ink: #8f3f34;
-}
-
-:root[data-theme="dark"] {
-  --diff-add-bg: rgba(110, 180, 130, 0.15);
-  --diff-add-ink: #83c795;
-  --diff-del-bg: rgba(220, 110, 95, 0.14);
-  --diff-del-ink: #e08a7c;
-}
-
-:root[data-theme="ember"] {
-  --diff-add-bg: rgba(200, 160, 60, 0.15);
-  --diff-add-ink: #d8ac52;
-  --diff-del-bg: rgba(190, 80, 45, 0.16);
-  --diff-del-ink: #d4704a;
-}
+/* the add/remove tints are --diff-* in the theme blocks at the top */
 
 .diff {
   display: flex;
@@ -4635,7 +4586,7 @@ input[type="range"]::-webkit-slider-thumb {
   overflow-x: hidden;
   border-top: 1px solid var(--line-faint);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.55;
 }
 
@@ -4701,7 +4652,7 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 4px 10px;
   border-top: 1px solid var(--line-faint);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--ink-faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4713,7 +4664,7 @@ input[type="range"]::-webkit-slider-thumb {
 .diff-more {
   padding: 5px 10px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--ink-faint);
   border-top: 1px solid var(--line-faint);
 }
@@ -4852,7 +4803,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* the card outlived its tool call: said plainly, next to the title */
 .ask-late {
   font-weight: 400;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
   margin-left: 4px;
 }
@@ -4894,7 +4845,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .ask-chip {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--paper);
@@ -4913,7 +4864,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .ask-hint {
   margin-top: -4px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.45;
   color: var(--ink-faint);
 }
@@ -4985,7 +4936,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .ask-label {
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--ink);
 }
@@ -5032,7 +4983,7 @@ input[type="range"]::-webkit-slider-thumb {
   width: 100%;
   box-sizing: border-box;
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   line-height: 1.5;
   color: var(--ink);
   background: var(--paper-bright);
@@ -5196,7 +5147,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .board-sub {
   flex: 1;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
 
@@ -5209,7 +5160,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .board-empty {
   color: var(--ink-faint);
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   line-height: 1.7;
   padding: 8px 2px;
 }
@@ -5268,7 +5219,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .tracker-text {
   flex: 1;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   line-height: 1.5;
 }
 
@@ -5364,7 +5315,7 @@ input[type="range"]::-webkit-slider-thumb {
 .tracker-note-edit {
   width: 100%;
   margin-top: 6px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   resize: none;
 }
 
@@ -5646,7 +5597,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .sketch-attach {
   padding: 4px 14px;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
 }
 
 /* the pad sits in the middle of a toned field, at the largest size that
@@ -5768,7 +5719,7 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 70;
+  z-index: var(--z-overlay);
   animation: rise 120ms ease-out;
 }
 
@@ -5801,7 +5752,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .viewer-hint {
   flex: 1;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
 
@@ -5848,7 +5799,7 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 12px 14px;
   background: var(--paper-dim);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
@@ -5859,7 +5810,7 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 36px 20px;
   text-align: center;
   color: var(--ink-faint);
-  font-size: 12.5px;
+  font-size: var(--fs-md);
 }
 
 /* Both edges inside the box, never outside it.
@@ -5890,7 +5841,7 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 99px;
   background: var(--ink);
   color: var(--paper);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   line-height: 18px;
   text-align: center;
@@ -5920,7 +5871,7 @@ input[type="range"]::-webkit-slider-thumb {
 .region-marker {
   flex: 1;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
 
@@ -5935,7 +5886,7 @@ input[type="range"]::-webkit-slider-thumb {
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 3;
+  z-index: var(--z-dock);
   pointer-events: none;
 }
 
@@ -6064,7 +6015,7 @@ input[type="range"]::-webkit-slider-thumb {
      3px down, and landing that on the composer's border read as one
      stuck-together thing rather than a list standing over a box */
   bottom: calc(100% + 14px);
-  z-index: 6;
+  z-index: var(--z-command);
   max-height: 264px;
   overflow-y: auto;
   display: flex;
@@ -6111,7 +6062,7 @@ input[type="range"]::-webkit-slider-thumb {
 .command-what {
   flex: 1;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
   white-space: nowrap;
   overflow: hidden;
@@ -6396,7 +6347,7 @@ button.stop:hover {
 /* which shell you're looking at, where the model pickers sit in prompt mode */
 .shell-where {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--ink-faint);
   padding-left: 2px;
 }
@@ -6431,6 +6382,7 @@ button.stop:hover {
   display: block;
   max-width: min(100%, 480px);
   height: auto;
+  cursor: zoom-in; /* opens the viewer, like a Read's thumbnail */
   margin: 0.4em 0 0.7em;
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-m);
@@ -6563,7 +6515,7 @@ button.stop:hover {
 .md .code-lang {
   margin-right: auto;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: lowercase;
   letter-spacing: 0.05em;
@@ -6622,7 +6574,7 @@ button.stop:hover {
   background: none;
   border: none;
   padding: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   line-height: 1.55;
 }
 
@@ -6708,7 +6660,7 @@ button.stop:hover {
    text. Ink with a paper rim, so it reads on a selection's own ink. */
 .sel-flag {
   position: fixed;
-  z-index: 30;
+  z-index: var(--z-popover);
   width: 0;
   pointer-events: none;
 }
@@ -6774,7 +6726,7 @@ button.stop:hover {
   left: 0;
   right: 0;
   bottom: calc(var(--composer-box-h) + 14px);
-  z-index: 4;
+  z-index: var(--z-strip);
   display: flex;
   /* `safe`: a plain flex-end pushes anything too wide out of the LEFT of
      the pane, which is where the sidebar is — the plate would climb out of
@@ -6927,10 +6879,6 @@ button.stop:hover {
   -webkit-user-select: none;
 }
 
-.queued-card {
-  position: relative;
-}
-
 .queued-card.carried {
   cursor: grab;
   touch-action: none;
@@ -6938,7 +6886,7 @@ button.stop:hover {
 
 .queued-card.lifting {
   cursor: grabbing;
-  z-index: 5;
+  z-index: var(--z-carried);
   border-style: solid;
   border-color: var(--ink);
   transition: none;
@@ -6985,7 +6933,7 @@ button.stop:hover {
   gap: 10px;
   padding: 0 2px 2px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.02em;
   color: var(--ink-faint);
 }
@@ -7116,7 +7064,7 @@ button.stop:hover {
   border: 1.5px solid var(--edge);
   border-radius: var(--radius-m);
   padding: 5px;
-  z-index: 31;
+  z-index: var(--z-flyout);
   animation: rise 120ms ease-out;
 }
 
@@ -7131,7 +7079,7 @@ button.stop:hover {
 .switcher-veil {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: var(--z-veil);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -7325,7 +7273,7 @@ button.stop:hover {
 
 .grants-note code {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   padding: 1px 4px;
   border: 1px solid var(--edge);
   border-radius: 4px;
@@ -7380,7 +7328,7 @@ button.stop:hover {
 }
 
 .grant-name {
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
 }
 
@@ -7393,7 +7341,7 @@ button.stop:hover {
 .grant-ask {
   flex-shrink: 0;
   padding: 3px 10px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
 }
 
 .grants-rows {
@@ -7413,7 +7361,7 @@ button.stop:hover {
   margin-top: 6px;
   border-collapse: collapse;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
 }
 
 .grants-rows td {
@@ -7431,12 +7379,6 @@ button.stop:hover {
 .grants-rows tr.refused .grants-verdict {
   color: var(--ink);
   font-weight: 700;
-}
-
-/* a picture in a reply opens the viewer like a Read's thumbnail does */
-.md img.md-local,
-.md img {
-  cursor: zoom-in;
 }
 
 /* ── hidden projects ──────────────────────────────────────────────── */
@@ -7488,7 +7430,7 @@ button.stop:hover {
   border-radius: var(--radius-s);
   background: transparent;
   color: var(--ink-faint);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -7510,4 +7452,18 @@ button.stop:hover {
   color: var(--ink);
   background: color-mix(in srgb, var(--paper) 42%, var(--paper-dim));
   transform: none;
+}
+
+/* ── reduced motion ───────────────────────────────────────────────── */
+
+/* Nothing plays for someone who has asked their system for stillness: the
+   JS clocks (lib/beat.ts, lib/spin.ts) already hold, and this stops every
+   keyframe and transition the same way. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }

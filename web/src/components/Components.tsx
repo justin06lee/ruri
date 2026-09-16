@@ -329,7 +329,9 @@ export function Components({ projectId }: { projectId: string }) {
   // ref keeps the send out of the effect's dependencies, so it fires once
   // on the way out rather than on every index update.
   const starred = useRef(false);
-  starred.current = items.some((item) => item.star);
+  useEffect(() => {
+    starred.current = items.some((item) => item.star);
+  }, [items]);
   useEffect(
     () => () => {
       if (starred.current) send({ type: "component_seen", projectId });

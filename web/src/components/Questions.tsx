@@ -20,7 +20,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AskAnswers, AskQuestion, AskQuestions, PermissionRequest } from "../../../shared/protocol";
-import { send } from "../store";
+import { send, showError, useRuri } from "../store";
 import { questionError } from "../../../shared/questionInput";
 
 /** What one question's answer looks like while the card is open. */
@@ -39,6 +39,13 @@ interface Held {
 }
 
 const held = new Map<string, Held>();
+
+// a request answered elsewhere, or withdrawn, takes its drafts with it
+useRuri.subscribe((s, prev) => {
+  if (s.permissions === prev.permissions) return;
+  const live = new Set(s.permissions.map((p) => p.requestId));
+  for (const id of held.keys()) if (!live.has(id)) held.delete(id);
+});
 
 /** How long a picked answer stays on screen before the card moves on. */
 const ADVANCE_MS = 260;
@@ -275,8 +282,11 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   };
 
   const finish = (answers?: AskAnswers) => {
-    held.delete(request.requestId);
-    send({ type: "question_response", requestId: request.requestId, ...(answers ? { answers } : {}) });
+    if (send({ type: "question_response", requestId: request.requestId, ...(answers ? { answers } : {}) })) {
+      held.delete(request.requestId);
+    } else {
+      showError("Not connected — the answer did not go through; try again once ruri is back.");
+    }
   };
 
   const submit = () => {

@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import { app, BrowserWindow, dialog, Menu, screen, session, shell } from "electron";
+import { app, BrowserWindow, dialog, Menu, session, shell } from "electron";
 import { startServer } from "../server/server.js";
 import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
@@ -169,62 +169,6 @@ function createWindow(port: number): BrowserWindow {
   return win;
 }
 
-/** Height of the titlebar band the peek skyline lives in (see styles.css). */
-const PEEK_BAND = 46;
-
-/**
- * Hover for the titlebar skyline. The whole bar is a window-drag region, so
- * the page never sees mouse events there — instead main polls the cursor
- * and hands window-relative coordinates to the page's __ruriPeekCursor
- * hook, which lifts the head under it. Quiet when the cursor is elsewhere.
- */
-function watchPeeks(win: BrowserWindow): void {
-  let active = false;
-  let timer: NodeJS.Timeout | undefined;
-  const tick = () => {
-    if (win.isDestroyed()) {
-      stop();
-      return;
-    }
-    const point = screen.getCursorScreenPoint();
-    const bounds = win.getContentBounds();
-    const x = point.x - bounds.x;
-    const y = point.y - bounds.y;
-    const inBand = x >= 0 && x <= bounds.width && y >= 0 && y <= PEEK_BAND;
-    if (!inBand && !active) return;
-    active = inBand;
-    win.webContents
-      .executeJavaScript(`window.__ruriPeekCursor?.(${x},${y},${inBand})`)
-      .catch(() => {
-        // page mid-navigation — next tick catches up
-      });
-  };
-  // Only while the window is the one in front: a ruri behind another app
-  // has no titlebar to hover, and used to keep asking where the cursor was
-  // fifteen times a second all the same, all day, for a head it could not
-  // lift. Focus starts the clock and blur stops it.
-  const start = () => {
-    if (timer || win.isDestroyed()) return;
-    timer = setInterval(tick, 66);
-  };
-  const stop = () => {
-    if (!timer) return;
-    clearInterval(timer);
-    timer = undefined;
-    if (!active) return;
-    active = false;
-    if (!win.isDestroyed()) {
-      win.webContents.executeJavaScript("window.__ruriPeekCursor?.(0,0,false)").catch(() => {});
-    }
-  };
-  win.on("focus", start);
-  win.on("blur", stop);
-  win.on("hide", stop);
-  win.on("minimize", stop);
-  win.on("closed", stop);
-  if (win.isFocused()) start();
-}
-
 function buildMenu(): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
@@ -292,7 +236,7 @@ async function main(): Promise<void> {
     permissions,
   });
 
-  watchPeeks(createWindow(running.port));
+  createWindow(running.port);
   // a fresh build is a stranger to macOS: it asks for its grants again,
   // dialog by dialog, once the window is up (desktop/permissions.ts)
   setTimeout(() => void askAgainIfNewBuild().catch(() => {}), 1500);
@@ -328,7 +272,7 @@ async function main(): Promise<void> {
   // macOS: closing the window keeps the app (and its warm sessions) alive;
   // the Dock icon reopens it. Cmd+Q actually quits and tears sessions down.
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) watchPeeks(createWindow(running.port));
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(running.port);
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();

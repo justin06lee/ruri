@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { PEEKS } from "../peek";
 import { HOME_ID, type Project, type RecentSession, type SessionInfo } from "../../../shared/protocol";
+import { useConfirm } from "./Confirm";
 import { Player } from "./Player";
 import { getPref, setPref } from "../prefs";
 import { send, useRuri } from "../store";
@@ -119,6 +120,7 @@ function SessionRow({ session }: { session: SessionInfo }) {
   const unread = useRuri((s) => s.unread[session.id] ?? false);
   const setActive = useRuri((s) => s.setActive);
   const [renaming, setRenaming] = useState(false);
+  const { confirm: ask, card } = useConfirm();
   const rename = (title: string | null) => {
     setRenaming(false);
     if (title) send({ type: "rename_session", sessionId: session.id, title });
@@ -140,14 +142,19 @@ function SessionRow({ session }: { session: SessionInfo }) {
         <span className="project-name">{session.title ?? "new session"}</span>
       )}
       {unread && <span className="unread-pip" title="Turn finished" />}
+      {card}
       <button
         className="remove"
         title="Remove session"
         onClick={(e) => {
           e.stopPropagation();
-          if (confirm("Remove this session? Its transcript is deleted; files are untouched.")) {
-            send({ type: "remove_session", sessionId: session.id });
-          }
+          void ask({
+            title: "Remove this session?",
+            body: "Its transcript is deleted; files are untouched.",
+            ok: "Remove",
+          }).then((yes) => {
+            if (yes) send({ type: "remove_session", sessionId: session.id });
+          });
         }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -250,6 +257,7 @@ function ProjectFolder({
   onToggle(): void;
 }) {
   const [renaming, setRenaming] = useState(false);
+  const { confirm: ask, card } = useConfirm();
   const rename = (name: string | null) => {
     setRenaming(false);
     if (name) send({ type: "rename_project", projectId: project.id, name });
@@ -331,14 +339,19 @@ function ProjectFolder({
               </svg>
             )}
           </button>
+          {card}
           <button
             className="remove"
             title="Remove project"
             onClick={(e) => {
               e.stopPropagation();
-              if (confirm(`Remove "${project.name}" and all its sessions? (files are untouched)`)) {
-                send({ type: "remove_project", projectId: project.id });
-              }
+              void ask({
+                title: `Remove "${project.name}"?`,
+                body: "All its sessions go with it; files are untouched.",
+                ok: "Remove",
+              }).then((yes) => {
+                if (yes) send({ type: "remove_project", projectId: project.id });
+              });
             }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -387,29 +400,6 @@ export const Sidebar = memo(function Sidebar() {
   const settingsOpen = useRuri((s) => s.settingsOpen);
   const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
 
-  // Desktop hover-over-drag: the titlebar drag region never delivers mouse
-  // events to the page, so Electron's main process polls the cursor and
-  // calls this hook — we lift whichever head sits under it. (:hover still
-  // covers browser dev, where there are no drag regions.)
-  useEffect(() => {
-    let lifted: Element | null = null;
-    (window as unknown as Record<string, unknown>)["__ruriPeekCursor"] = (
-      x: number,
-      y: number,
-      inBand: boolean,
-    ) => {
-      const el = inBand ? document.elementFromPoint(x, y) : null;
-      const head = el?.classList.contains("peek-head") ? el : null;
-      if (head === lifted) return;
-      lifted?.classList.remove("lift");
-      head?.classList.add("lift");
-      lifted = head;
-    };
-    return () => {
-      delete (window as unknown as Record<string, unknown>)["__ruriPeekCursor"];
-    };
-  }, []);
-
   // A chat reached some other way than a click in here — the switcher, the
   // Home agent — may sit in a folded folder. It is opened for it.
   const activeId = useRuri((s) => s.activeId);
@@ -418,32 +408,32 @@ export const Sidebar = memo(function Sidebar() {
   // a chat inside a hidden project is being looked at: the fold opens so
   // the row that is active is actually on screen
   useEffect(() => {
-    if (ownerHidden && !showHidden) setShowHidden(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (ownerHidden) setShowHidden(true);
   }, [owner, ownerHidden]);
   useEffect(() => {
-    if (!owner || expandedSet.has(owner)) return;
-    const next = new Set(expandedSet);
-    next.add(owner);
-    setExpandedSet(next);
+    if (owner) setExpandedSet((prev) => (prev.has(owner) ? prev : new Set(prev).add(owner)));
+  }, [owner]);
+  // remembered whenever it changes, however it changed — not on mount,
+  // where what was loaded is what is saved (and setPref would mark the
+  // key as this session's, shutting the snapshot's copy out)
+  const loadedExpanded = useRef(false);
+  useEffect(() => {
+    if (!loadedExpanded.current) {
+      loadedExpanded.current = true;
+      return;
+    }
     try {
-      setPref("ruri-expanded", JSON.stringify([...next]));
+      setPref("ruri-expanded", JSON.stringify([...expandedSet]));
     } catch {
       // preference just won't persist
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [owner]);
+  }, [expandedSet]);
 
   const toggleFolder = (name: string) => {
     const next = new Set(expandedSet);
     if (next.has(name)) next.delete(name);
     else next.add(name);
     setExpandedSet(next);
-    try {
-      setPref("ruri-expanded", JSON.stringify([...next]));
-    } catch {
-      // preference just won't persist
-    }
   };
 
   // Starred projects pin to the top of the one Projects list — no separate

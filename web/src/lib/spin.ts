@@ -2,23 +2,23 @@
  * One clock for every spinning star.
  *
  * A CSS animation that never ends has the window draw a fresh frame 60 to
- * 120 times a second for as long as it is on screen — cheap frames, but
- * each one wakes the GPU, and the new-component star can sit in the chat
- * header all day. So the stars are turned from here instead: one timer,
- * ten steps a second, a turn every 5.5 seconds as before. Each star is on
- * its own layer (`will-change: transform` in styles.css), so a step only
- * re-composites that little square, never the page. The timer only runs
- * while a star is mounted and the window is awake (lib/awake.ts — seen and
- * in front: a ruri behind the app you're using holds its star still), and
- * not at all for someone who has asked their system for reduced motion.
+ * 120 times a second for as long as it is on screen, and the new-component
+ * star can sit in the chat header all day. So the stars are turned from
+ * here: one timer, ten steps a second, a turn every 5.5 seconds. Each star
+ * is on its own layer (`will-change: transform` in styles.css), so a step
+ * re-composites that little square, never the page. The timer runs only
+ * while a star is in view (lib/awake.ts watchSeen) and the window is awake;
+ * a star scrolled away holds still and snaps to the clock's angle when it
+ * comes back. Not at all for someone who has asked for reduced motion.
  */
-import { isAwake, subscribeAwake } from "./awake";
+import { isAwake, subscribeAwake, watchSeen } from "./awake";
 
 const FRAME_MS = 100;
 const TURN_MS = 5500;
 const STEP_DEG = (360 * FRAME_MS) / TURN_MS;
 
-const stars = new Set<HTMLElement>();
+/** The stars in view — the only ones a step turns. */
+const seen = new Set<HTMLElement>();
 let angle = 0;
 let timer: number | undefined;
 
@@ -26,15 +26,18 @@ function reducedMotion(): boolean {
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-function step(): void {
-  angle = (angle + STEP_DEG) % 360;
-  const transform = `rotate(${angle.toFixed(1)}deg)`;
-  for (const star of stars) star.style.transform = transform;
+function turn(star: HTMLElement): void {
+  star.style.transform = `rotate(${angle.toFixed(1)}deg)`;
 }
 
-/** Start or stop the clock to match: stars on screen, window visible. */
+function step(): void {
+  angle = (angle + STEP_DEG) % 360;
+  for (const star of seen) turn(star);
+}
+
+/** Start or stop the clock to match: stars in view, window awake. */
 function settle(): void {
-  const wanted = stars.size > 0 && isAwake();
+  const wanted = seen.size > 0 && isAwake();
   if (wanted && timer === undefined) timer = window.setInterval(step, FRAME_MS);
   else if (!wanted && timer !== undefined) {
     window.clearInterval(timer);
@@ -47,11 +50,19 @@ subscribeAwake(settle);
 /** A ref for anything that should turn with the stars. */
 export function spinStar(el: HTMLElement | null): void | (() => void) {
   if (!el || reducedMotion()) return;
-  el.style.transform = `rotate(${angle.toFixed(1)}deg)`;
-  stars.add(el);
-  settle();
+  turn(el);
+  const unwatch = watchSeen(el, (inView) => {
+    if (inView) {
+      seen.add(el);
+      turn(el);
+    } else {
+      seen.delete(el);
+    }
+    settle();
+  });
   return () => {
-    stars.delete(el);
+    unwatch();
+    seen.delete(el);
     settle();
   };
 }

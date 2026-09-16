@@ -178,6 +178,12 @@ export function TerminalPanel({ channelId }: { channelId: string }) {
   }, [channelId, active]);
 
   const open = tabs ?? [];
+  /** The row as the key handler below sees it, without re-registering
+   *  the handler for every change of it. */
+  const openRef = useRef<string[]>(open);
+  useEffect(() => {
+    openRef.current = tabs ?? [];
+  }, [tabs]);
 
   // The shortcuts a terminal is expected to have. Capture phase, because
   // xterm has the keyboard while a shell is focused and would otherwise
@@ -192,14 +198,14 @@ export function TerminalPanel({ channelId }: { channelId: string }) {
       }
       const nth = Number(e.key);
       if (!Number.isInteger(nth) || nth < 1 || nth > 9) return;
-      const target = open[nth - 1];
+      const target = openRef.current[nth - 1];
       if (!target) return;
       e.preventDefault();
       setActive(target);
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [channelId, open]);
+  }, [channelId]);
 
   return (
     <div className="terminal">

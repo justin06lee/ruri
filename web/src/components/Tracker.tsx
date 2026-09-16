@@ -3,6 +3,7 @@ import type { TrackerItem, TrackerStatus } from "../../../shared/protocol";
 import { fileKind } from "./Attachments";
 import { fileToBase64 } from "../lib/files";
 import { send, useRuri } from "../store";
+import { tooBigNotice, useConfirm } from "./Confirm";
 
 /**
  * The feature tracker page: a checklist of things worth testing by hand,
@@ -88,7 +89,9 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
   // Closing the page unmounts the textarea before its blur can fire — an
   // unsaved note draft would silently vanish. Save it on the way out.
   const latest = useRef({ note: noteDraft, saved: item.note });
-  latest.current = { note: noteDraft, saved: item.note };
+  useEffect(() => {
+    latest.current = { note: noteDraft, saved: item.note };
+  }, [noteDraft, item.note]);
   useEffect(
     () => () => {
       const { note, saved } = latest.current;
@@ -99,12 +102,12 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
     [projectId, item.id],
   );
 
+  const { confirm: ask, card } = useConfirm();
   const attachFiles = async (files: File[]) => {
+    const tooBig = files.filter((file) => file.size > 25 * 1024 * 1024);
+    if (tooBig.length) void ask(tooBigNotice(tooBig));
     for (const [i, file] of files.entries()) {
-      if (file.size > 25 * 1024 * 1024) {
-        alert(`${file.name} is over 25MB — too big to attach.`);
-        continue;
-      }
+      if (tooBig.includes(file)) continue;
       send({
         type: "tracker_attach",
         projectId,
@@ -127,6 +130,7 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
 
   return (
     <div className={`tracker-item ${item.status}`}>
+      {card}
       <div
         className="tracker-item-main"
         title="Once: works · twice: needs fixing · again: clear"

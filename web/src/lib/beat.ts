@@ -1,30 +1,24 @@
 /**
  * One slow clock per pace for everything on screen that moves by itself —
- * the thinking doodle, the streaming cursor, an agent's turning ring. All
- * three live in the chat that is open; nothing anywhere else in the window
- * moves.
+ * the thinking doodle, the streaming cursor, an agent's turning ring.
  *
- * Each of those used to be an infinite CSS animation, and an infinite
- * animation has Chromium draw the window afresh at the display's rate — up
- * to 120 frames a second on a ProMotion screen — for as long as it is on
- * screen, even when what it shows changes twice a second (the doodle's poses
- * are hard half-second swaps).
+ * None of these is a CSS animation: an infinite animation has Chromium
+ * draw the window afresh at the display's rate for as long as it is on
+ * screen, even when what it shows changes twice a second. Instead a mover
+ * is an element whose step a clock sets — as `data-<kind>`, or for the
+ * ring as a `--spin` its turn is worked out from — and each clock ticks
+ * exactly as often as its movers change. A tick that would leave an
+ * element as it is does not touch it. Each mover is its own compositor
+ * layer (styles.css), so a step changes one layer and repaints nothing.
  *
- * Here nothing is animated. A mover is an element whose step a clock sets —
- * as `data-<kind>`, or for the ring as a `--spin` its turn is worked out
- * from — and each clock ticks exactly as often as its movers change, never
- * more: the doodle and the cursor share the half-second clock, so their
- * steps land on the same frame, and the ring has its own at fifteen steps a
- * second. A tick that would leave an element as it is does not touch it.
- * Each mover is its own compositor layer (styles.css), so a step changes a
- * transform or an opacity on that one layer: nothing on the page is
- * repainted for it. A clock runs only while one of its movers is mounted and
- * the window is awake (lib/awake.ts). Asleep, everything holds exactly where
- * it was — nothing is written, so nothing is drawn — and picks up from there
- * on waking. Someone who has asked for reduced motion never sees it move.
+ * A clock runs only while one of its movers is mounted, in view
+ * (lib/awake.ts watchSeen) and the window is awake. Asleep, or scrolled
+ * out of view, a mover holds where it was and is not written to; coming
+ * back it snaps to the clock's current step. Someone who has asked for
+ * reduced motion never sees any of it move.
  */
 import { useEffect, useState } from "react";
-import { isAwake, subscribeAwake } from "./awake";
+import { isAwake, subscribeAwake, watchSeen } from "./awake";
 
 export { isAwake, subscribeAwake };
 
@@ -46,6 +40,8 @@ const KINDS: Record<Beat, { ms: number; steps: number; prop?: string }> = {
 };
 
 const movers = new Map<HTMLElement, Beat>();
+/** The movers currently in view — the only ones a tick writes to. */
+const seen = new Set<HTMLElement>();
 /** The clocks running, one per pace, and how many ticks each has counted:
  *  what it has counted rather than what the wall says, so a tick that
  *  lands late still moves every mover exactly one step. */
@@ -76,14 +72,22 @@ function tick(ms: number): void {
   const clock = clocks.get(ms);
   if (!clock) return;
   clock.ticks += 1;
-  for (const [el, kind] of movers) if (KINDS[kind].ms === ms) write(el, kind);
+  for (const el of seen) {
+    const kind = movers.get(el);
+    if (kind && KINDS[kind].ms === ms) write(el, kind);
+  }
 }
 
-/** Start or stop each clock to match: movers of its pace mounted, and a
+/** Start or stop each clock to match: movers of its pace in view, and a
  *  window awake to see them in. */
 function settle(): void {
   const want = new Set<number>();
-  if (isAwake() && !reducedMotion()) for (const kind of movers.values()) want.add(KINDS[kind].ms);
+  if (isAwake() && !reducedMotion()) {
+    for (const el of seen) {
+      const kind = movers.get(el);
+      if (kind) want.add(KINDS[kind].ms);
+    }
+  }
   for (const [ms, clock] of clocks) {
     if (want.has(ms)) continue;
     window.clearInterval(clock.timer);
@@ -112,10 +116,21 @@ export function beat(kind: Beat): (el: HTMLElement | null) => void | (() => void
     ref = (el) => {
       if (!el) return;
       movers.set(el, kind);
-      settle();
       // in step with the others already moving
       write(el, kind);
+      const unwatch = watchSeen(el, (inView) => {
+        if (inView) {
+          seen.add(el);
+          // back in view: wherever the clock has got to since
+          write(el, kind);
+        } else {
+          seen.delete(el);
+        }
+        settle();
+      });
       return () => {
+        unwatch();
+        seen.delete(el);
         movers.delete(el);
         const prop = KINDS[kind].prop;
         if (prop) el.style.removeProperty(prop);
@@ -129,15 +144,16 @@ export function beat(kind: Beat): (el: HTMLElement | null) => void | (() => void
 }
 
 /**
- * Run `step` every `ms` while the window is awake, and `rest` (the still
- * pose) whenever it goes to sleep — for the few things that must move
- * faster than the beat (the music waveform). Returns the cleanup, for an
- * effect.
+ * Run `step` every `ms` while the window is awake — and, given `el`, only
+ * while that element is in view — and `rest` (the still pose) whenever it
+ * stops. For the few things that must move faster than the beat (the
+ * music waveform). Returns the cleanup, for an effect.
  */
-export function whileAwake(step: () => void, ms: number, rest?: () => void): () => void {
+export function whileAwake(step: () => void, ms: number, rest?: () => void, el?: Element | null): () => void {
   let timer: number | undefined;
+  let inView = !el;
   const run = () => {
-    const want = isAwake() && !reducedMotion();
+    const want = isAwake() && inView && !reducedMotion();
     if (want && timer === undefined) {
       step();
       timer = window.setInterval(step, ms);
@@ -149,8 +165,15 @@ export function whileAwake(step: () => void, ms: number, rest?: () => void): () 
   };
   run();
   const off = subscribeAwake(run);
+  const unwatch = el
+    ? watchSeen(el, (next) => {
+        inView = next;
+        run();
+      })
+    : undefined;
   return () => {
     off();
+    unwatch?.();
     if (timer !== undefined) window.clearInterval(timer);
   };
 }

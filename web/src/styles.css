@@ -7509,3 +7509,17 @@ button.stop:hover {
   background: color-mix(in srgb, var(--paper) 42%, var(--paper-dim));
   transform: none;
 }
+
+/* ── reduced motion ───────────────────────────────────────────────── */
+
+/* Nothing plays for someone who has asked their system for stillness: the
+   JS clocks (lib/beat.ts, lib/spin.ts) already hold, and this stops every
+   keyframe and transition the same way. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

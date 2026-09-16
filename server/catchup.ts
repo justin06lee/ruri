@@ -105,7 +105,7 @@ function manifest(dir: string): string | undefined {
 }
 
 /** Everything the model reads, as one document with headed sections. */
-export function catchupMaterial(project: Project): string {
+async function catchupMaterial(project: Project): Promise<string> {
   const dir = project.path;
   const parts: string[] = [`PROJECT: ${project.name}\nPATH: ${dir}`];
   const readme = ["README.md", "readme.md", "README", "README.rst", "README.txt"]
@@ -121,7 +121,7 @@ export function catchupMaterial(project: Project): string {
     if (text) parts.push(`=== ${name} ===\n${text}`);
   }
   parts.push(`=== TREE (two levels) ===\n${tree(dir)}`);
-  const heads = sweepCandidates(dir)
+  const heads = (await sweepCandidates(dir))
     .slice(0, SOURCE_FILES)
     .flatMap((rel) => {
       const d = describeFile(dir, rel, HEAD_CHARS);
@@ -134,5 +134,5 @@ export function catchupMaterial(project: Project): string {
 /** Read the repo and write the whole brief. Null when the model gave
  *  nothing usable (the brief then stays as it was). */
 export async function buildCatchup(project: Project, current: Partial<FullBrief>): Promise<FullBrief | null> {
-  return catchupBrief(project.name, catchupMaterial(project), current);
+  return catchupBrief(project.name, await catchupMaterial(project), current);
 }

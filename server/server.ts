@@ -70,7 +70,7 @@ import { sweepOrphans } from "./orphans.js";
 import { sweepProject } from "./sweep.js";
 import { withProjectRunning, type CaptureHost, type ShotTarget } from "./shots.js";
 import { SecretStore } from "./secrets.js";
-import { installSkill, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
+import { installSkill, listSkills, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload, sweepUploads } from "./uploads.js";
@@ -1132,12 +1132,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   /** Re-scan skills for a project (or just the global ones) and push. */
   function pushSkills(projectId?: string, note?: string): void {
     const dir = projectId ? store.get(projectId)?.path : undefined;
-    broadcast({
-      type: "skills",
-      ...(projectId ? { projectId } : {}),
-      skills: scanSkills(dir),
-      ...(note ? { note } : {}),
-    });
+    void scanSkills(dir).then((skills) =>
+      broadcast({
+        type: "skills",
+        ...(projectId ? { projectId } : {}),
+        skills,
+        ...(note ? { note } : {}),
+      }),
+    );
   }
 
   // The app-side prompt queue: everything waiting for the running turn to
@@ -3564,7 +3566,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         broadcast({
           type: "skills",
           ...(msg.projectId ? { projectId: msg.projectId } : {}),
-          skills: scanSkills(dir),
+          skills: listSkills(dir),
           busy: true,
         });
         const work =

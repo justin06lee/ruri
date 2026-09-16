@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { CommandInfo } from "../shared/protocol.js";
-import { scanSkills } from "./skills.js";
+import { listSkills } from "./skills.js";
 import { isMissing, warn } from "./log.js";
 
 /**
@@ -53,7 +53,7 @@ export function listCommands(projectDir?: string): CommandInfo[] {
   for (const name of HARNESS_COMMANDS) {
     out.push({ name, kind: "harness", ...(DESCRIBED[name] ? { description: DESCRIBED[name] } : {}) });
   }
-  for (const skill of scanSkills(projectDir)) {
+  for (const skill of listSkills(projectDir)) {
     if (!skill.enabled) continue;
     out.push({ name: skill.name, kind: "skill", ...(skill.description ? { description: skill.description } : {}) });
   }
@@ -88,7 +88,7 @@ export function knownCommands(projectDir?: string): Set<string> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.names;
   const names = new Set<string>([...RURI_COMMANDS, ...HARNESS_COMMANDS]);
-  for (const skill of scanSkills(projectDir)) if (skill.enabled) names.add(skill.name);
+  for (const skill of listSkills(projectDir)) if (skill.enabled) names.add(skill.name);
   for (const name of commandFiles(path.join(os.homedir(), ".claude", "commands"))) names.add(name);
   if (projectDir) {
     for (const name of commandFiles(path.join(projectDir, ".claude", "commands"))) names.add(name);

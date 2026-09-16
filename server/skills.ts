@@ -1,9 +1,9 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { SkillInfo } from "../shared/protocol.js";
-import { isMissing, warn } from "./log.js";
+import { errorCode, isMissing, warn } from "./log.js";
 
 /**
  * Skills: the folders of instructions a harness reads before it starts, and
@@ -89,10 +89,12 @@ function listDir(dir: string, scope: "global" | "project", enabled: boolean): Sk
 }
 
 /** What bmo knows about the skills it installed, keyed "scope/name". */
-function bmoMeta(cwd: string): Map<string, { source?: string; updated?: number }> {
+async function bmoMeta(cwd: string): Promise<Map<string, { source?: string; updated?: number }>> {
   const out = new Map<string, { source?: string; updated?: number }>();
   try {
-    const raw = runSync("bmo", ["list", "--json"], cwd);
+    // short: the filesystem scan already answered; bmo is only being asked
+    // where things came from
+    const raw = await run("bmo", ["list", "--json"], cwd, 5_000);
     const rows = JSON.parse(raw) as Array<{
       name?: string;
       scope?: string;
@@ -108,34 +110,23 @@ function bmoMeta(cwd: string): Map<string, { source?: string; updated?: number }
       });
     }
   } catch (err) {
-    warn("skills", err, "bmoMeta");
     // bmo not installed, or nothing tracked — the filesystem still answers
+    if (errorCode(err) !== "ENOENT") warn("skills", err, "bmoMeta");
   }
   return out;
 }
 
-/** A short command, run to completion. Throws with whatever it printed. */
-function runSync(command: string, args: string[], cwd: string): string {
-  return execFileSync(command, args, {
-    cwd,
-    encoding: "utf8",
-    // this one blocks the loop, so it is kept short — the filesystem scan
-    // already answered; bmo is only being asked where things came from
-    timeout: 5_000,
-    // bmo is a Go binary in ~/go/bin, which a GUI app's PATH often misses
-    env: { ...process.env, PATH: `${process.env["PATH"] ?? ""}:${path.join(os.homedir(), "go", "bin")}:/opt/homebrew/bin:/usr/local/bin` },
-  });
-}
-
-/** The same, without blocking the event loop — for the slow ones. */
-function run(command: string, args: string[], cwd: string): Promise<string> {
+/** A command, run to completion off the main thread. Throws with whatever
+ *  it printed. */
+function run(command: string, args: string[], cwd: string, timeout = 120_000): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       command,
       args,
       {
         cwd,
-        timeout: 120_000,
+        timeout,
+        // bmo is a Go binary in ~/go/bin, which a GUI app's PATH often misses
         env: {
           ...process.env,
           PATH: `${process.env["PATH"] ?? ""}:${path.join(os.homedir(), "go", "bin")}:/opt/homebrew/bin:/usr/local/bin`,
@@ -150,15 +141,23 @@ function run(command: string, args: string[], cwd: string): Promise<string> {
   });
 }
 
-/** Everything installed: all global skills, plus one project's own. */
-export function scanSkills(projectDir?: string): SkillInfo[] {
+/** Everything installed: all global skills, plus one project's own — as
+ *  the filesystem has them, which is all the commands menu needs. */
+export function listSkills(projectDir?: string): SkillInfo[] {
   const found: SkillInfo[] = [];
   for (const scope of ["global", "project"] as const) {
     const where = dirs(scope, projectDir);
     if (!where) continue;
     found.push(...listDir(where.on, scope, true), ...listDir(where.off, scope, false));
   }
-  const meta = bmoMeta(projectDir ?? os.homedir());
+  return found;
+}
+
+/** The same, with what bmo knows about each (where it came from, when it
+ *  last changed) — for the skills page. */
+export async function scanSkills(projectDir?: string): Promise<SkillInfo[]> {
+  const found = listSkills(projectDir);
+  const meta = await bmoMeta(projectDir ?? os.homedir());
   return found.map((skill) => ({ ...skill, ...(meta.get(`${skill.scope}/${skill.name}`) ?? {}) }));
 }
 

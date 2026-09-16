@@ -45,6 +45,16 @@ function tabsFile(): string {
   return configPath("terminals.json");
 }
 
+/**
+ * A size off the wire, made safe for the Tcl it lands in: a whole number
+ * from 1 to 1000, or the default. Anything else — a fraction, a negative,
+ * NaN, a string that got past the parser — would be spliced straight into
+ * a script.
+ */
+function dimension(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 1000 ? value : fallback;
+}
+
 /** The control sequence expect intercepts: cols and rows, never forwarded. */
 function resizeSequence(cols: number, rows: number): string {
   return `\x00R${cols}x${rows}\x00`;
@@ -162,6 +172,8 @@ export class Terminals {
    * a shell is there to talk to.
    */
   open(channelId: string, termId: string, cwd: string, cols: number, rows: number): boolean {
+    cols = dimension(cols, 80);
+    rows = dimension(rows, 24);
     const running = this.shells.get(termId);
     if (running) {
       this.resize(termId, cols, rows);
@@ -228,7 +240,7 @@ export class Terminals {
   resize(termId: string, cols: number, rows: number): void {
     const shell = this.shells.get(termId);
     if (!shell?.pty) return;
-    shell.child.stdin?.write(resizeSequence(cols, rows));
+    shell.child.stdin?.write(resizeSequence(dimension(cols, 80), dimension(rows, 24)));
   }
 
   /**

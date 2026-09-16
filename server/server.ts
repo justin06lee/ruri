@@ -20,6 +20,7 @@ import type {
   TurnProgress,
   UsageLimits,
 } from "../shared/protocol.js";
+import { clientMessageSchema, describeIssue } from "../shared/clientSchema.js";
 import { SessionArchive } from "./archive.js";
 import { writeTextAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
@@ -3846,7 +3847,16 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
 
     ws.on("message", (raw) => {
       try {
-        handleMessage(ws, JSON.parse(String(raw)) as ClientMessage);
+        // checked before anything trusts its shape (shared/clientSchema.ts);
+        // a message that does not fit is answered and dropped
+        const parsed = clientMessageSchema.safeParse(JSON.parse(String(raw)));
+        if (!parsed.success) {
+          const reason = describeIssue(parsed.error);
+          warn("server", reason, "bad client message");
+          ws.send(JSON.stringify({ type: "error", message: `bad message: ${reason}` } satisfies ServerMessage));
+          return;
+        }
+        handleMessage(ws, parsed.data);
       } catch (err) {
         ws.send(
           JSON.stringify({

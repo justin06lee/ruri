@@ -66,6 +66,31 @@ try {
   check("http: the bridge call refuses a foreign Origin", (await post("/bridge/no-such-session", { origin: "http://evil.example" })) === 403);
   check("http: GET stays open", (await fetch(`${base}/healthz`)).status === 200);
 
+  // past the door, the shape of what is said is checked too
+  // (shared/clientSchema.ts): a message that does not fit is answered with
+  // an error and dropped, and the socket stays open for the next one
+  const answers = await new Promise<string[]>((resolve) => {
+    const got: string[] = [];
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/?token=${TOKEN}`);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(String(raw)) as { type: string; message?: string; tabs?: unknown };
+      if (msg.type === "snapshot") {
+        ws.send(JSON.stringify({ type: "terminal_open", projectId: "p", termId: 42, cols: 80, rows: 24 }));
+        ws.send(JSON.stringify({ type: "no_such_message" }));
+        ws.send(JSON.stringify({ type: "terminal_list", projectId: "p" }));
+        return;
+      }
+      got.push(msg.type === "error" ? `error ${msg.message ?? ""}` : msg.type);
+      if (got.length === 3) {
+        ws.close();
+        resolve(got);
+      }
+    });
+  });
+  check("wire: a field of the wrong shape is refused", answers[0]?.startsWith("error bad message: termId") === true, answers);
+  check("wire: an unknown message type is refused", answers[1]?.startsWith("error bad message") === true, answers);
+  check("wire: the socket stays open for the next message", answers[2] === "terminal_tabs", answers);
+
   const file = path.join(configDir, "token");
   check("token file: holds the token", fs.readFileSync(file, "utf8") === TOKEN);
   check("token file: readable by this user only", (fs.statSync(file).mode & 0o777) === 0o600, (fs.statSync(file).mode & 0o777).toString(8));

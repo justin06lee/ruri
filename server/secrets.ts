@@ -23,9 +23,12 @@ import { isMissing, warn } from "./log.js";
  *    inside the PreToolUse hook, after the model has finished writing and
  *    before the tool runs. What the model wrote, and therefore what its
  *    context holds, is the handle. (Claude sessions: it needs a tool hook.)
- *  - **The environment.** Every secret is also exported to the harness
+ *  - **The environment.** Every secret is also handed to the harness
  *    process as `$RURI_SECRET_<NAME>` (and `$RURI_USER_<NAME>`), so a shell
  *    command can reference it under any harness at all, hook or no hook.
+ *    Handed to that process alone (env(), below): ruri's own environment
+ *    never holds them, so the terminals and every other child ruri starts
+ *    never see them either.
  *
  * Both leave the value out of the conversation. Neither can stop a model
  * that deliberately prints one — so anything ruri sees come back gets
@@ -138,21 +141,11 @@ export class SecretStore {
   }
 
   /**
-   * Push the vault into ruri's own environment, so every harness ruri
-   * spawns inherits it — the one path that works without a tool hook, and
-   * therefore the one that works on harnesses ruri cannot hook.
-   *
-   * Removals are cleared too: a deleted secret stops existing everywhere the
-   * next session looks.
+   * The harness process's environment: every secret, under its slug. Read
+   * fresh when a session is built, so a deleted secret stops existing the
+   * next time a harness starts — and passed to that process explicitly,
+   * never through ruri's own environment.
    */
-  applyEnv(): void {
-    for (const key of Object.keys(process.env)) {
-      if (key.startsWith("RURI_SECRET_") || key.startsWith("RURI_USER_")) delete process.env[key];
-    }
-    Object.assign(process.env, this.env());
-  }
-
-  /** The harness process's environment: every secret, under its slug. */
   env(): Record<string, string> {
     const out: Record<string, string> = {};
     for (const record of this.records) {

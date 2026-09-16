@@ -173,9 +173,11 @@ export class ProviderRegistry {
     return parseModelRef(model, [...this.installed.keys(), "claude"]);
   }
 
-  /** Build a provider instance working in the given project directory. */
-  createFor(id: string, workDir: string): Provider {
-    const entry = this.config[id] ?? {};
+  /** Build a provider instance working in the given project directory,
+   *  with `env` (the vault) laid over the harness process's environment. */
+  createFor(id: string, workDir: string, env?: Record<string, string>): Provider {
+    const configured = this.config[id] ?? {};
+    const entry: ProviderConfigEntry = env ? { ...configured, env: { ...configured.env, ...env } } : configured;
     // Only affects the run()-per-turn FALLBACK path: codex defaults to
     // read-only there (API safety), and a ruri session is a coding session.
     // The agentic openSession path ignores this — the harness's own config

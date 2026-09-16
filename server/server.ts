@@ -419,13 +419,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // the two per-PROJECT boards (everything else here is per session)
   const ideas = new IdeaStore();
   const components = new ComponentStore();
-  // the vault, pushed into ruri's own environment so every harness ruri
-  // spawns inherits $RURI_SECRET_* without being told anything
+  // the vault: handed to each harness process as $RURI_SECRET_* when it is
+  // built (below), and to nothing else ruri starts
   const secrets = new SecretStore();
   // The window's own preferences, kept on this machine rather than in the
   // window — see server/prefs.ts for why that is not where they belong.
   const prefs = new PrefStore();
-  secrets.applyEnv();
   // both project files are written from what's already on disk at startup, so
   // a session opened before anything happens still finds them there
   for (const project of store.list()) {
@@ -2195,6 +2194,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           secrets.wanted(JSON.stringify(input)) ? secrets.fillInput(input) : undefined,
         autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS],
         options: {
+          // the vault rides into the harness process here, and only here
+          env: secrets.env(),
           mcpServers: {
             ruri: componentTools(componentHost, project.id),
             bridge: bridgeTools(options.bridge, bridgeCtx),
@@ -2206,7 +2207,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     },
     {
       parse: (model) => registry.parse(model),
-      create: (id, workDir) => registry.createFor(id, workDir),
+      create: (id, workDir) => registry.createFor(id, workDir, secrets.env()),
       canFork: (id) => registry.canForkSession(id),
     },
     (projectId) => archive.takeResumeAt(projectId),
@@ -2373,13 +2374,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         .join("\n\n");
       return {
         fillSecrets: (input) => (secrets.wanted(JSON.stringify(input)) ? secrets.fillInput(input) : undefined),
-        options: { systemPrompt: { type: "preset", preset: "claude_code", append: note } },
+        options: { env: secrets.env(), systemPrompt: { type: "preset", preset: "claude_code", append: note } },
         providerSystem: note,
       };
     },
     {
       parse: (model) => registry.parse(model),
-      create: (id, workDir) => registry.createFor(id, workDir),
+      create: (id, workDir) => registry.createFor(id, workDir, secrets.env()),
       canFork: (id) => registry.canForkSession(id),
     },
   );
@@ -3477,13 +3478,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           ...(msg.note !== undefined ? { note: msg.note } : {}),
           ...(msg.secret !== undefined ? { secret: msg.secret } : {}),
         });
-        secrets.applyEnv();
         broadcast({ type: "secrets", items: secrets.meta() });
         break;
       }
       case "secret_remove": {
         secrets.remove(msg.id);
-        secrets.applyEnv();
         broadcast({ type: "secrets", items: secrets.meta() });
         break;
       }

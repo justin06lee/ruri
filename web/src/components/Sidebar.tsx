@@ -387,29 +387,6 @@ export const Sidebar = memo(function Sidebar() {
   const settingsOpen = useRuri((s) => s.settingsOpen);
   const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
 
-  // Desktop hover-over-drag: the titlebar drag region never delivers mouse
-  // events to the page, so Electron's main process polls the cursor and
-  // calls this hook — we lift whichever head sits under it. (:hover still
-  // covers browser dev, where there are no drag regions.)
-  useEffect(() => {
-    let lifted: Element | null = null;
-    (window as unknown as Record<string, unknown>)["__ruriPeekCursor"] = (
-      x: number,
-      y: number,
-      inBand: boolean,
-    ) => {
-      const el = inBand ? document.elementFromPoint(x, y) : null;
-      const head = el?.classList.contains("peek-head") ? el : null;
-      if (head === lifted) return;
-      lifted?.classList.remove("lift");
-      head?.classList.add("lift");
-      lifted = head;
-    };
-    return () => {
-      delete (window as unknown as Record<string, unknown>)["__ruriPeekCursor"];
-    };
-  }, []);
-
   // A chat reached some other way than a click in here — the switcher, the
   // Home agent — may sit in a folded folder. It is opened for it.
   const activeId = useRuri((s) => s.activeId);

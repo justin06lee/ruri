@@ -334,7 +334,8 @@ textarea::placeholder {
    header, clipped at its bottom edge so only horns and hair show. Hovering
    one lifts it slightly — just enough to see the face — and that is the
    whole feature. Pure background: nothing here is clickable, the traffic
-   lights and gear just sit on top, window dragging works through it. */
+   lights and gear just sit on top, and the bar around the heads drags the
+   window. */
 .logo-peeks {
   position: absolute;
   inset: 0;
@@ -347,15 +348,12 @@ textarea::placeholder {
   top: var(--drop, 0px);
   height: auto;
   transition: transform 180ms cubic-bezier(0.3, 0.9, 0.3, 1);
-  /* the heads stay part of the header's window-drag region (no no-drag) so
-     the bar always moves the window. Drag regions swallow real mouse events,
-     so in the desktop app :hover can never fire here — the Electron main
-     process polls the cursor instead and toggles .lift (see desktop/main.ts
-     + the __ruriPeekCursor hook in Sidebar). :hover stays for browser dev. */
+  /* the bar is a window-drag region, and a drag region swallows mouse
+     events — so the heads alone are cut out of it, and :hover reaches them */
+  -webkit-app-region: no-drag;
 }
 
-.peek-head:hover,
-.peek-head.lift {
+.peek-head:hover {
   transform: translateY(var(--lift, -14px));
 }
 

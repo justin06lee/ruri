@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.js";
 
 const PORT = 7893;
@@ -20,7 +21,7 @@ fs.writeFileSync(target, "before\n");
 const root = path.join(import.meta.dirname, "..");
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: root,
-  env: { ...process.env, RURI_PORT: String(PORT), RURI_CONFIG_DIR: configDir },
+  env: { ...process.env, RURI_PORT: String(PORT), RURI_TOKEN: TOKEN, RURI_CONFIG_DIR: configDir },
   stdio: ["ignore", "pipe", "inherit"],
 });
 server.stdout.on("data", (d: Buffer) => process.stdout.write(`[server] ${d}`));
@@ -41,7 +42,7 @@ async function connect(): Promise<WebSocket> {
   for (;;) {
     try {
       return await new Promise<WebSocket>((resolve, reject) => {
-        const sock = new WebSocket(`ws://127.0.0.1:${PORT}`);
+        const sock = new WebSocket(wsUrl(PORT));
         sock.once("open", () => resolve(sock));
         sock.once("error", reject);
       });

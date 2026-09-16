@@ -25,6 +25,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { BridgeState, ClientMessage, ServerMessage } from "../shared/protocol.js";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -79,6 +80,7 @@ const child = spawn(path.join(root, "node_modules", ".bin", "electron"), [root, 
     RURI_CONFIG_DIR: configDir,
     RURI_USER_DATA: userData,
     RURI_PORT: String(PORT),
+    RURI_TOKEN: TOKEN,
     RURI_NO_MEMORY: "1",
   },
   stdio: "ignore",
@@ -125,7 +127,7 @@ console.log(`[test] ruri up on :${PORT}, fixture site on ${SITE}`);
 
 /* ── a session to drive through ─────────────────────────────────── */
 
-const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
+const ws = new WebSocket(wsUrl(PORT));
 await new Promise<void>((resolve, reject) => {
   ws.once("open", () => resolve());
   ws.once("error", reject);

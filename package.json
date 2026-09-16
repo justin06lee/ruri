@@ -19,6 +19,7 @@
     "build:app": "electron-builder --mac",
     "build": "bun run build:web && bun run build:main && bun run build:app",
     "smoke": "tsx scripts/smoke.ts",
+    "auth-test": "tsx scripts/auth.ts",
     "bridge-test": "tsx scripts/bridge.ts",
     "rewind-test": "tsx scripts/rewind.ts",
     "checkpoint-test": "tsx scripts/checkpoint.ts",

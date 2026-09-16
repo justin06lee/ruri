@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { type AskQuestions, briefLine, DEFAULT_PERMISSION_MODE, type PermissionId, type PermissionState, type SubagentState, type TccRow, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
@@ -21,6 +21,8 @@ import type {
   UsageLimits,
 } from "../shared/protocol.js";
 import { SessionArchive } from "./archive.js";
+import { writeTextAtomic } from "./atomic.js";
+import { configPath } from "./configDir.js";
 import { AgentLogs, Crew } from "./agents.js";
 import { buildCompaction, DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
 import { DraftStore } from "./drafts.js";
@@ -77,6 +79,15 @@ import { errorMessage, isMissing, warn } from "./log.js";
 export interface StartServerOptions {
   port: number;
   host?: string;
+  /**
+   * The secret every window and script must present — as ?token= on the
+   * WebSocket URL, and as x-ruri-token (or ?token=) on any request that
+   * changes something. The server is bound to loopback, but loopback is
+   * every page open in every browser on the machine: without this, any
+   * site could open the socket and drive an agent. Written to
+   * <configDir>/token (mode 0600) for local tooling, removed on close.
+   */
+  token: string;
   /** When set, GET requests are served from this directory (the built web UI). */
   staticDir?: string;
   /**
@@ -291,6 +302,38 @@ function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
+}
+
+/** The dev page's origins: vite serves the UI on :5173 and talks to the
+ *  standalone server across origins. Honoured only when there is no built
+ *  UI to serve — the packaged app never hears from them. */
+const DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
+
+/**
+ * Whether a request may come from where it says it comes from. No Origin
+ * at all is a non-browser client (a script, curl, a harness's bridge call)
+ * and passes; a browser's Origin must be this server's own page — or, in
+ * dev, vite's. Anything else is some other site's page on the same
+ * machine, and gets nothing.
+ */
+function originAllowed(origin: string | undefined, port: number, dev: boolean): boolean {
+  if (origin === undefined) return true;
+  const own = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
+  return own.includes(origin) || (dev && DEV_ORIGINS.includes(origin));
+}
+
+/** The token a request carries — the header first, the query second. */
+function presentedToken(req: http.IncomingMessage): string {
+  const header = req.headers["x-ruri-token"];
+  if (typeof header === "string") return header;
+  return new URL(req.url ?? "/", "http://localhost").searchParams.get("token") ?? "";
+}
+
+/** Compared in constant time: a wrong token takes as long as a right one. */
+function tokenMatches(presented: string, token: string): boolean {
+  const a = Buffer.from(presented);
+  const b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** Serve one image a tool event read. Anything unregistered is a 403. */
@@ -3662,6 +3705,25 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   }
 
   const server = http.createServer((req, res) => {
+    const method = req.method ?? "GET";
+    if (method !== "GET" && method !== "HEAD") {
+      // Anything that changes something needs the page's own origin (or
+      // none) and the token. The one exception is the bridge call, whose
+      // session id is its capability — harnesses curl it from shells with
+      // no token in hand — but it still refuses a browser's Origin.
+      const pathname = (req.url ?? "/").split("?")[0] ?? "/";
+      const bridgeCall = pathname.startsWith("/bridge/") && !pathname.startsWith("/bridge/preview/");
+      if (!originAllowed(req.headers.origin, listeningPort, !options.staticDir)) {
+        res.writeHead(403);
+        res.end();
+        return;
+      }
+      if (!bridgeCall && !tokenMatches(presentedToken(req), options.token)) {
+        res.writeHead(401);
+        res.end();
+        return;
+      }
+    }
     if (req.url === "/healthz") {
       res.writeHead(200, { "content-type": "application/json" });
       // the pid is how the next launch tells a ruri that outlived its app
@@ -3702,7 +3764,22 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     res.end();
   });
 
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({
+    server,
+    // the socket is the whole app: a page from anywhere else, or one
+    // without the token, is turned away at the upgrade
+    verifyClient: ({ origin, req }, done) => {
+      if (!originAllowed(origin || undefined, listeningPort, !options.staticDir)) {
+        done(false, 403, "Forbidden");
+        return;
+      }
+      if (!tokenMatches(presentedToken(req), options.token)) {
+        done(false, 401, "Unauthorized");
+        return;
+      }
+      done(true);
+    },
+  });
 
   // ws forwards the http server's "error" to the WebSocketServer, and an
   // "error" event with nobody listening is an uncaught exception — which is
@@ -3836,6 +3913,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       const port = typeof address === "object" && address ? address.port : options.port;
       listeningPort = port;
       console.log(`ruri server listening on ws://127.0.0.1:${port}`);
+      // for local tooling that wants in: the token, readable by this user only
+      const tokenFile = configPath("token");
+      try {
+        writeTextAtomic(tokenFile, options.token, 0o600);
+      } catch (err) {
+        warn("server", err, "writing the token file");
+      }
       resolve({
         port,
         ...(fallback ? { portFallback: fallback } : {}),
@@ -3853,6 +3937,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             agentLogs.flushAll();
             crew.flushAll();
             ledger.flush();
+            try {
+              fs.rmSync(tokenFile, { force: true });
+            } catch (err) {
+              warn("server", err, "removing the token file");
+            }
             for (const client of clients) client.close();
             wss.close(() => server.close(() => done()));
           }),

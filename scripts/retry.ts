@@ -26,6 +26,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { ClientMessage, ServerMessage, TurnProgress } from "../shared/protocol.js";
 
 const PORT = Number(process.env["RURI_PORT"] ?? 7881);
@@ -47,6 +48,7 @@ const server = spawn("bunx", ["tsx", "server/index.ts"], {
   env: {
     ...process.env,
     RURI_PORT: String(PORT),
+    RURI_TOKEN: TOKEN,
     RURI_CONFIG_DIR: configDir,
     ANTHROPIC_BASE_URL: `http://127.0.0.1:${GATEWAY_PORT}`,
     CLAUDE_CODE_MAX_RETRIES: "0",
@@ -109,7 +111,7 @@ let turn: TurnProgress | null = null;
 let sawTurn = false;
 const waiters = new Set<() => void>();
 
-const ws = await connect(`ws://127.0.0.1:${PORT}`);
+const ws = await connect(wsUrl(PORT));
 ws.on("error", (err) => {
   console.error(`RETRY FAIL: websocket error: ${err.message}`);
   cleanup(1);

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -95,7 +96,7 @@ function projectIdsOnDisk(): string[] {
   }
 }
 
-function createWindow(port: number): BrowserWindow {
+function createWindow(port: number, token: string): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 850,
@@ -119,10 +120,11 @@ function createWindow(port: number): BrowserWindow {
   // ?fixture: canned data, for screenshots; ?awake: a window driven from
   // behind everything else, which must not go to sleep on its driver
   // (scripts/shot.mjs, web/src/lib/awake.ts)
-  const query = [process.env["RURI_FIXTURE"] && "fixture", process.env["RURI_AWAKE"] && "awake"]
+  // the token is what lets the page open the socket (server/server.ts)
+  const query = [`token=${encodeURIComponent(token)}`, process.env["RURI_FIXTURE"] && "fixture", process.env["RURI_AWAKE"] && "awake"]
     .filter(Boolean)
     .join("&");
-  void win.loadURL(`http://127.0.0.1:${port}/${query ? `?${query}` : ""}`);
+  void win.loadURL(`http://127.0.0.1:${port}/?${query}`);
 
   const screenshot = process.env["RURI_SCREENSHOT"];
   if (screenshot) {
@@ -234,7 +236,11 @@ async function main(): Promise<void> {
   // the windows and apps sessions drive to look at what they built — the
   // server owns the tools, this shell owns the windows (desktop/bridge.ts)
   const bridge = new Bridge();
+  // the window's key to the server: a script that drives the app sets it
+  // (scripts/lib/server.ts), a launch from the Dock gets a fresh one
+  const token = process.env["RURI_TOKEN"] || randomBytes(32).toString("hex");
   const running = await startServer({
+    token,
     // A fixed port on purpose. The window is a page served from it, so the
     // port is the origin, and the origin is what everything the window keeps
     // for itself is filed under — a fresh port every launch meant every one
@@ -262,7 +268,7 @@ async function main(): Promise<void> {
     permissions,
   });
 
-  watchPeeks(createWindow(running.port));
+  watchPeeks(createWindow(running.port, token));
   // a fresh build is a stranger to macOS: it asks for its grants again,
   // dialog by dialog, once the window is up (desktop/permissions.ts)
   setTimeout(() => void askAgainIfNewBuild().catch(() => {}), 1500);
@@ -298,7 +304,7 @@ async function main(): Promise<void> {
   // macOS: closing the window keeps the app (and its warm sessions) alive;
   // the Dock icon reopens it. Cmd+Q actually quits and tears sessions down.
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) watchPeeks(createWindow(running.port));
+    if (BrowserWindow.getAllWindows().length === 0) watchPeeks(createWindow(running.port, token));
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();

@@ -12,6 +12,7 @@
  * on an ephemeral port, which reads as a ruri that has forgotten its settings.
  */
 import { spawn } from "node:child_process";
+import { TOKEN } from "./lib/server.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as net from "node:net";
@@ -65,6 +66,7 @@ function spawnOrphan(): ReturnType<typeof spawn> {
     env: {
       ...process.env,
       RURI_PORT: String(PORT),
+      RURI_TOKEN: TOKEN,
       RURI_CONFIG_DIR: orphanConfig,
       RURI_NO_MEMORY: "1",
     },
@@ -75,7 +77,7 @@ function spawnOrphan(): ReturnType<typeof spawn> {
 try {
   // ── free ──────────────────────────────────────────────────────────────
   {
-    const running = await startServer({ port: PORT, host: HOST, reclaimPort: true });
+    const running = await startServer({ port: PORT, host: HOST, reclaimPort: true, token: TOKEN });
     check("free: takes the port it asked for", running.port === PORT, `got ${running.port}`);
     check("free: reports no fallback", running.portFallback === undefined, "a fallback was reported");
     await running.close();
@@ -87,7 +89,7 @@ try {
     const up = await waitUntil(true, 30_000);
     check("orphan: a leftover ruri is holding the port", up, "it never came up");
 
-    const running = await startServer({ port: PORT, host: HOST, reclaimPort: true });
+    const running = await startServer({ port: PORT, host: HOST, reclaimPort: true, token: TOKEN });
     check("orphan: the port is taken back", running.port === PORT, `fell back to ${running.port}`);
     check("orphan: no fallback reported", running.portFallback === undefined, "a fallback was reported");
     check("orphan: the leftover is gone", orphan.exitCode !== null || orphan.killed, "it is still running");
@@ -103,7 +105,7 @@ try {
     });
     await new Promise<void>((done) => stranger.listen(PORT, HOST, done));
 
-    const running = await startServer({ port: PORT, host: HOST, reclaimPort: true });
+    const running = await startServer({ port: PORT, host: HOST, reclaimPort: true, token: TOKEN });
     check("stranger: goes around it", running.port !== PORT, "it took the stranger's port");
     check("stranger: says why", running.portFallback?.wanted === PORT, "no fallback reported");
     check("stranger: left alone", stranger.listening, "it was stopped");

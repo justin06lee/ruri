@@ -4,19 +4,60 @@ APP_DST := /Applications/$(APP).app
 APP_KEEP := /tmp/$(APP)-superseded
 BUNDLE_ID := com.justin06lee.ruri
 
+# The code-signing identity every build is signed with — a self-signed
+# certificate in the login keychain, made once by `make identity`. macOS
+# ties privacy grants to the signature, so a stable one keeps them across
+# rebuilds; an ad-hoc signature is new every build and voids them.
+IDENTITY := ruri dev
+KEYCHAIN := $(HOME)/Library/Keychains/login.keychain-db
+HAVE_IDENTITY = security find-identity -v -p codesigning 2>/dev/null | grep -q '"$(IDENTITY)"'
+
+# The privacy services ruri asks for (desktop/permissions.ts), by tccutil's
+# names — reset only on an ad-hoc build, and only these, never All.
+TCC_SERVICES := Accessibility ScreenCapture AppleEvents SystemPolicyAllFiles \
+  SystemPolicyDesktopFolder SystemPolicyDocumentsFolder SystemPolicyDownloadsFolder \
+  SystemPolicyRemovableVolumes SystemPolicyNetworkVolumes
+
 # The running ruri's pid(s), found by the path it was started from. A name
 # match (pgrep -x) does not see it, which left every check below believing
 # ruri was never running.
 RUNNING = ps -Ao pid=,comm= | awk '$$2 ~ /\/MacOS\/$(APP)$$/ {print $$1}'
 
-.PHONY: all build install update launch stop icon tuner reset-permissions sweep-superseded tidy
+.PHONY: all build install update launch stop icon tuner identity reset-permissions sweep-superseded tidy
 
 all: build reset-permissions install tidy launch
 
+# Signed with the identity when it exists, ad-hoc when it does not (the
+# identity is made first; a refused keychain prompt falls back to ad-hoc
+# rather than stopping the build).
 build:
 	bun install
 	@test -d node_modules/electron/dist/Electron.app || (cd node_modules/electron && node install.js)
-	bun run build
+	-@$(MAKE) --no-print-directory identity
+	@if $(HAVE_IDENTITY); then \
+	  echo "signing as '$(IDENTITY)'"; CSC_NAME="$(IDENTITY)" bun run build; \
+	else \
+	  echo "no '$(IDENTITY)' identity — ad-hoc signature (grants will not survive this build)"; \
+	  CSC_IDENTITY_AUTO_DISCOVERY=false bun run build; \
+	fi
+
+# A self-signed code-signing certificate named "$(IDENTITY)" in the login
+# keychain, made once and trusted for code signing by this user (no sudo,
+# no Apple account — and so no notarization; see docs/permissions.md).
+# Idempotent: an identity that is already there is left alone. Apple's own
+# openssl (LibreSSL) writes a PKCS#12 the keychain can import; a newer
+# Homebrew OpenSSL's default ciphers are refused by `security import`.
+identity:
+	@if $(HAVE_IDENTITY); then echo "signing identity '$(IDENTITY)' is in the login keychain"; exit 0; fi; \
+	set -e; tmp=$$(mktemp -d); \
+	printf '[req]\ndistinguished_name = dn\nx509_extensions = ext\nprompt = no\n[dn]\nCN = $(IDENTITY)\n[ext]\nbasicConstraints = critical, CA:false\nkeyUsage = critical, digitalSignature\nextendedKeyUsage = critical, codeSigning\n' > $$tmp/cert.cnf; \
+	/usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config $$tmp/cert.cnf -keyout $$tmp/key.pem -out $$tmp/cert.pem 2>/dev/null; \
+	/usr/bin/openssl pkcs12 -export -inkey $$tmp/key.pem -in $$tmp/cert.pem -name "$(IDENTITY)" -passout pass:$(APP) -out $$tmp/identity.p12; \
+	security import $$tmp/identity.p12 -k $(KEYCHAIN) -P $(APP) -T /usr/bin/codesign -T /usr/bin/security >/dev/null; \
+	security add-trusted-cert -r trustRoot -p codeSign -k $(KEYCHAIN) $$tmp/cert.pem; \
+	rm -rf $$tmp; \
+	if $(HAVE_IDENTITY); then echo "created signing identity '$(IDENTITY)' in the login keychain"; \
+	else echo "identity '$(IDENTITY)' was imported but is not valid for code signing — was the trust prompt refused?"; exit 1; fi
 
 # Never delete the bundle of a running app. On macOS that pulls its
 # executable and resources out from under it and it dies on the spot — and
@@ -63,17 +104,18 @@ tidy:
 	@rm -f "$${RURI_CONFIG_DIR:-$(HOME)/.config/ruri}/server.log"
 
 # macOS ties every privacy grant (Accessibility, Screen Recording, the
-# folders and volumes) to the app's code signature, and an ad-hoc-signed
-# app is re-signed by every build — so the grants made to the last build
-# are void for this one while their switches in System Settings still read
-# "on". The stale rows are dropped here, for ruri's bundle id only, and the
-# new build asks for everything again on its first launch
-# (desktop/permissions.ts). System Settings is quit first: it caches the
-# table, and an open pane hides the reset.
+# folders and volumes) to the app's code signature. Signed with the stable
+# identity, a new build is the same app to macOS and its grants carry over,
+# so there is nothing to reset. Only an ad-hoc build — no identity, so a
+# new signature every time — has its stale rows dropped here: ruri's bundle
+# id only, and only the services ruri uses; the new build asks for each
+# again on its first launch (desktop/permissions.ts). System Settings is
+# quit first: it caches the table, and an open pane hides the reset.
 reset-permissions:
-	-osascript -e 'quit app "System Settings"' >/dev/null 2>&1
-	-tccutil reset All $(BUNDLE_ID) >/dev/null 2>&1
-	@echo "reset macOS grants for $(BUNDLE_ID) — the next launch asks again"
+	@if $(HAVE_IDENTITY); then echo "signed as '$(IDENTITY)' — macOS grants carry over, nothing to reset"; exit 0; fi; \
+	osascript -e 'quit app "System Settings"' >/dev/null 2>&1; \
+	for s in $(TCC_SERVICES); do tccutil reset $$s $(BUNDLE_ID) >/dev/null 2>&1; done; \
+	echo "ad-hoc build: reset macOS grants for $(BUNDLE_ID) — the next launch asks again"
 
 launch:
 	open $(APP_DST)

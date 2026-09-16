@@ -105,7 +105,11 @@ interface Picture {
 
 /** Copy-button delegation: one handler for every code block in the subtree —
  *  and a picture clicked is handed back, to open in the viewer. */
-function onClick(e: React.MouseEvent<HTMLDivElement>, onPicture?: (p: Picture) => void): void {
+function onClick(
+  e: React.MouseEvent<HTMLDivElement>,
+  timers: Set<number>,
+  onPicture?: (p: Picture) => void,
+): void {
   const target = e.target as HTMLElement;
   if (target instanceof HTMLImageElement && onPicture) {
     e.preventDefault();
@@ -117,17 +121,35 @@ function onClick(e: React.MouseEvent<HTMLDivElement>, onPicture?: (p: Picture) =
   const code = button.closest(".codeblock")?.querySelector("code")?.textContent ?? "";
   void navigator.clipboard.writeText(code).then(() => {
     button.classList.add("copied");
-    setTimeout(() => button.classList.remove("copied"), 1200);
+    const timer = window.setTimeout(() => {
+      timers.delete(timer);
+      button.classList.remove("copied");
+    }, 1200);
+    timers.add(timer);
   });
+}
+
+/** The "copied" flashes this block has going, cleared when it goes. */
+function useCopyTimers(): Set<number> {
+  const timers = useRef(new Set<number>());
+  useEffect(() => {
+    const live = timers.current;
+    return () => {
+      for (const timer of live) clearTimeout(timer);
+      live.clear();
+    };
+  }, []);
+  return timers.current;
 }
 
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const html = useMemo(() => render(text), [text]);
   const [picture, setPicture] = useState<Picture | null>(null);
+  const timers = useCopyTimers();
   return (
     <>
       {/* eslint-disable-next-line react/no-danger -- sanitized via DOMPurify above */}
-      <div className="md" onClick={(e) => onClick(e, setPicture)} dangerouslySetInnerHTML={{ __html: html }} />
+      <div className="md" onClick={(e) => onClick(e, timers, setPicture)} dangerouslySetInnerHTML={{ __html: html }} />
       {picture && (
         <Viewer
           target={{ kind: "image", src: picture.src, label: picture.name, name: picture.name }}
@@ -153,7 +175,8 @@ export function StreamingMarkdown({ text }: { text: string }) {
     () => DOMPurify.sanitize(marked.parse(text, { async: false }), { ADD_ATTR: ["target"] }),
     [text],
   );
+  const timers = useCopyTimers();
   // eslint-disable-next-line react/no-danger -- sanitized via DOMPurify above
-  return <div className="md" onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div className="md" onClick={(e) => onClick(e, timers)} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 

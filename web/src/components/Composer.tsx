@@ -1,7 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { HOME_ID, type Project } from "../../../shared/protocol";
 import { fileToBase64 } from "../lib/files";
-import { clearComposerDraft, composerDrafts, send, setComposerDraft, useRuri } from "../store";
+import { clearComposerDraft, composerDrafts, send, setComposerDraft, showError, useRuri } from "../store";
+import { tooBigNotice, useConfirm } from "./Confirm";
 import { AttachmentStrip, cropRegion, fileKind, Viewer, type ComposerAttachment, type Region } from "./Attachments";
 import { CommandMenu, commandPrefix } from "./CommandMenu";
 import { DragonGauges } from "./Dragon";
@@ -154,7 +155,7 @@ export function Composer({
   /** What the unfolded bar needs, as last measured while unfolded — the
    *  folded bar is judged against that, since it cannot measure itself. */
   const need = useRef(0);
-  const look = () => {
+  const look = useCallback(() => {
     const bar = barRef.current;
     if (!bar) return;
     if (!bar.querySelector(".dropdown.combo, .more-actions")) {
@@ -163,18 +164,22 @@ export function Composer({
       need.current = (controls?.offsetWidth ?? 0) + (actions?.offsetWidth ?? 0) + BAR_GAP;
     }
     setCompact(bar.clientWidth < need.current);
-  };
-  // after every render — the labels change, stop comes and goes — and
-  // whenever the bar is laid out again
-  useLayoutEffect(look);
-  useEffect(() => {
+  }, []);
+  // Whenever the bar, or what is in it, is laid out again: a label
+  // changes, stop comes and goes, the window is resized. The parts are
+  // other elements once the bar folds or the shell takes it, so they are
+  // found again then.
+  useLayoutEffect(() => {
     const bar = barRef.current;
     if (!bar) return;
     const observer = new ResizeObserver(look);
     observer.observe(bar);
+    for (const part of bar.querySelectorAll(".composer-controls, .shell-where, .composer-actions")) {
+      observer.observe(part);
+    }
+    look();
     return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [look, compact, shell]);
 
   // Every keystroke and attachment change lands in the per-channel draft —
   // and on disk, so a half-written prompt is still there after a ⌘Q.
@@ -184,13 +189,13 @@ export function Composer({
 
   /** Attach files; `at` places the [markers] at that text index (a drop's
    *  caret position or the paste caret) instead of the end. */
+  const { confirm: ask, card } = useConfirm();
   const addFiles = (files: FileList | File[], at?: number) => {
     const added: ComposerAttachment[] = [];
+    const tooBig = [...files].filter((file) => file.size > 25 * 1024 * 1024);
+    if (tooBig.length) void ask(tooBigNotice(tooBig));
     for (const file of files) {
-      if (file.size > 25 * 1024 * 1024) {
-        alert(`${file.name} is over 25MB — too big to attach.`);
-        continue;
-      }
+      if (tooBig.includes(file)) continue;
       const kind = fileKind(file);
       const n = ++counter.current[kind];
       added.push({
@@ -371,7 +376,7 @@ export function Composer({
     });
   };
 
-  const autosize = () => {
+  const autosize = useCallback(() => {
     const area = areaRef.current;
     if (!area) return;
     // Reading scrollHeight forces the browser to lay the whole page out, and
@@ -383,7 +388,7 @@ export function Composer({
       return;
     }
     fitBox(area, 220);
-  };
+  }, []);
 
   // The draft changed from outside (a review's fix-it prompt, a rewound
   // prompt, a saved draft's files arriving after a launch): the map is the
@@ -425,23 +430,26 @@ export function Composer({
           : {}),
       })),
     );
-    if (editing) {
-      // the rewrite goes back in line where the prompt was
-      send({
-        type: "queue_update",
-        projectId,
-        itemId: editing.id,
-        text: trimmed,
-        ...(uploads.length ? { attachments: uploads } : {}),
-        ...(mode === "send_split" ? { split: true } : {}),
-      });
-    } else {
-      send({
-        type: mode,
-        projectId,
-        text: trimmed,
-        ...(uploads.length ? { attachments: uploads } : {}),
-      });
+    const sent = editing
+      ? // the rewrite goes back in line where the prompt was
+        send({
+          type: "queue_update",
+          projectId,
+          itemId: editing.id,
+          text: trimmed,
+          ...(uploads.length ? { attachments: uploads } : {}),
+          ...(mode === "send_split" ? { split: true } : {}),
+        })
+      : send({
+          type: mode,
+          projectId,
+          text: trimmed,
+          ...(uploads.length ? { attachments: uploads } : {}),
+        });
+    // nothing took it: the prompt stays here, files and all, to send again
+    if (!sent) {
+      showError("Not connected — the prompt stays in the composer; send again once ruri is back.");
+      return;
     }
     for (const att of atts) URL.revokeObjectURL(att.objectUrl);
     clearComposerDraft(channelId);
@@ -455,7 +463,7 @@ export function Composer({
   // effect, so it measures the DOM *after* React writes the new value (a
   // rAF here could fire first and measure the stale text, leaving a sent
   // long prompt's height behind).
-  useLayoutEffect(autosize, [text]);
+  useLayoutEffect(() => autosize(), [autosize, text]);
 
   // The box is fitted to its text, but the text's shape depends on the box:
   // widen it and the same prompt needs fewer lines. Fitting on the prompt
@@ -475,8 +483,7 @@ export function Composer({
     void document.fonts?.ready.then(autosize);
     return () => observer.disconnect();
     // a fresh textarea comes up each time the shell gives the box back
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shell]);
+  }, [shell, autosize]);
 
   /** The box as it was when the shell took its place: the caret, the
    *  scroll. The textarea is unmounted while the shell shows, and a fresh
@@ -499,13 +506,13 @@ export function Composer({
     area.setSelectionRange(was.start, was.end);
     area.scrollTop = was.top;
     caretRef.current = was.start;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shell]);
+  }, [shell, autosize]);
 
   const viewingAtt = atts.find((a) => a.id === viewing);
 
   return (
     <div className="composer">
+      {card}
       <div className="composer-row">
         <DragonGauges channelId={channelId} model={project.model} side="left" />
         <div

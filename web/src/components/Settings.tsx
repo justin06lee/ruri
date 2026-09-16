@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import type { ModelRole, PermissionId, PermissionState } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 import { useNow } from "../lib/beat";
-import { getPref, setPref } from "../prefs";
 import {
   applyTheme,
   currentTheme,
@@ -728,8 +727,8 @@ function Grants() {
           <summary>What macOS remembers — ruri, the CLIs, the shell ({grants.rows.length} rows)</summary>
           <table>
             <tbody>
-              {grants.rows.map((row, i) => (
-                <tr key={i} className={row.allowed ? "" : "refused"}>
+              {grants.rows.map((row) => (
+                <tr key={`${row.service}|${row.client}|${row.at}`} className={row.allowed ? "" : "refused"}>
                   <td className="grants-service">{row.service}</td>
                   <td className="grants-client" title={row.client}>{row.client.replace(/^\/Users\/[^/]+/, "~")}</td>
                   <td className="grants-verdict">{row.allowed ? "allowed" : "refused"}</td>

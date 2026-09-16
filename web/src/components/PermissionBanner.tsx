@@ -1,7 +1,7 @@
 import { HOME_ID, type PermissionRequest } from "../../../shared/protocol";
 import { harnessName } from "../lib/models";
 import { Markdown } from "../markdown";
-import { send, useRuri } from "../store";
+import { send, showError, useRuri } from "../store";
 import { Icon, toolIcon } from "./chat/Icon";
 import { NameCard } from "./NameCard";
 import { QuestionCard } from "./Questions";
@@ -47,8 +47,11 @@ export function PermissionBanner({ request }: { request: PermissionRequest }) {
   const from = useRuri((s) =>
     request.agent ? s.crew[request.projectId]?.find((a) => a.key === request.agent)?.description : undefined,
   );
-  const respond = (allow: boolean, always = false) =>
-    send({ type: "permission_response", requestId: request.requestId, allow, always });
+  const respond = (allow: boolean, always = false) => {
+    if (!send({ type: "permission_response", requestId: request.requestId, allow, always })) {
+      showError("Not connected — the answer did not go through; try again once ruri is back.");
+    }
+  };
   return (
     <div className="permission-card">
       <div className="permission-head">

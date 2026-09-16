@@ -92,11 +92,12 @@ export function SelectionFlags({ scrollerRef }: { scrollerRef: RefObject<HTMLEle
       selecting.current = true;
       setFlags(null);
     };
+    let settle = 0;
     const up = () => {
       if (!selecting.current) return;
       selecting.current = false;
       // the selection settles a tick after the button comes up
-      setTimeout(refresh, 0);
+      settle = window.setTimeout(refresh, 0);
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape" && flagsOf(scroller)) window.getSelection()?.removeAllRanges();
@@ -108,6 +109,7 @@ export function SelectionFlags({ scrollerRef }: { scrollerRef: RefObject<HTMLEle
     window.addEventListener("resize", refresh);
     window.addEventListener("keydown", key);
     return () => {
+      clearTimeout(settle);
       document.removeEventListener("selectionchange", refresh);
       scroller.removeEventListener("pointerdown", down);
       window.removeEventListener("pointerup", up);

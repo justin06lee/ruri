@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { attachFile, replaceAttachmentFile } from "../store";
+import { HOME_ID } from "../../../shared/protocol";
+import { attachFile, replaceAttachmentFile, useRuri } from "../store";
 
 /**
  * The sketch pad: draw a thing to show the model, or draw on a picture to
@@ -106,6 +107,13 @@ interface PadState {
 /** One pad per channel per picture, for as long as the window lives. */
 const pads = new Map<string, PadState>();
 
+/** How many steps back undo goes — past that the oldest are let go. */
+const UNDO_MAX = 50;
+
+function remember(history: Shape[][], shapes: Shape[]): Shape[][] {
+  return [...history, shapes].slice(-UNDO_MAX);
+}
+
 /** The same, minus the picture and the undo stack, across launches. */
 function stored(key: string): Pick<PadState, "shapes" | "name" | "size"> | undefined {
   try {
@@ -144,6 +152,13 @@ function forget(key: string): void {
     // nothing to remove
   }
 }
+
+// a chat gone from the workspace takes its pads with it
+useRuri.subscribe((s, prev) => {
+  if (s.projects === prev.projects) return;
+  const alive = new Set([HOME_ID, ...s.projects.flatMap((p) => p.sessions.map((x) => x.id))]);
+  for (const key of [...pads.keys()]) if (!alive.has(key.slice(0, key.indexOf("|")))) forget(key);
+});
 
 /* ── drawing ─────────────────────────────────────────────────────── */
 
@@ -341,7 +356,7 @@ export function Sketch({
   };
 
   const commit = (shape: Shape) => {
-    setHistory((h) => [...h, shapes]);
+    setHistory((h) => remember(h, shapes));
     setShapes((s) => [...s, shape]);
   };
 
@@ -356,7 +371,7 @@ export function Sketch({
 
   const clear = () => {
     if (shapes.length === 0) return;
-    setHistory((h) => [...h, shapes]);
+    setHistory((h) => remember(h, shapes));
     setShapes([]);
   };
 
@@ -364,17 +379,20 @@ export function Sketch({
   const stroke = width * scaleUp;
 
   /** Open the text box, empty or with what was being placed. */
-  const openText = (value = "") => {
+  const openText = useCallback((value = "") => {
     setPlacing(null);
     setPlaceAt(null);
     setWriting({ value, ...lastText.current });
-  };
+  }, []);
 
   /** A tool from the bar or the keys; the text tool opens its box at once. */
-  const pickTool = (next: Tool) => {
-    setTool(next);
-    if (next === "text") openText();
-  };
+  const pickTool = useCallback(
+    (next: Tool) => {
+      setTool(next);
+      if (next === "text") openText();
+    },
+    [openText],
+  );
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
@@ -395,7 +413,7 @@ export function Sketch({
       for (let i = shapes.length - 1; i >= 0; i--) {
         const b = bounds(shapes[i]!);
         if (x >= b.x - pad && x <= b.x + b.w + pad && y >= b.y - pad && y <= b.y + b.h + pad) {
-          setHistory((h) => [...h, shapes]);
+          setHistory((h) => remember(h, shapes));
           setShapes(shapes.filter((_, j) => j !== i));
           break;
         }
@@ -497,8 +515,7 @@ export function Sketch({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [writing, placing, undo]);
+  }, [writing, placing, undo, openText, pickTool]);
 
   const attach = () => {
     const canvas = canvasRef.current;

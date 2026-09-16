@@ -319,7 +319,7 @@ export function Viewer({
             <img src={target.src} alt="" draggable={false} />
             {regions.map((r, i) => (
               <div
-                key={i}
+                key={r.n}
                 className="region-box"
                 style={{
                   left: `${r.x * 100}%`,
@@ -360,7 +360,7 @@ export function Viewer({
         {editable && regions.length > 0 && (
           <div className="region-list">
             {regions.map((r, i) => (
-              <div key={i} className="region-row">
+              <div key={r.n} className="region-row">
                 <span className="region-index standalone">{r.n}</span>
                 <span className="region-marker">[region #{r.n}] is in your prompt</span>
                 <button className="icon-button" title="Remove region" onClick={() => removeRegion(i)}>

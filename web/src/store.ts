@@ -724,6 +724,9 @@ export function agentLogKey(projectId: string, key: string): string {
 /** How many agents' logs the window keeps at once. Opening another lets the
  *  least recently opened go — it is on disk, a click away. */
 const KEEP_AGENT_LOGS = 6;
+/** How much of one agent's log the window keeps — the newest, as Home's
+ *  transcript is kept (HOME_TRANSCRIPT_MAX); the rest is on disk. */
+const AGENT_LOG_MAX = 400;
 /** Logs asked for, least recently opened first. */
 const agentLogOrder: string[] = [];
 
@@ -811,6 +814,12 @@ export function sendAgent(projectId: string, key: string, text: string): void {
 /** Stop one of the user's own agents where it is. */
 export function stopAgent(projectId: string, key: string): void {
   send({ type: "agent_stop", projectId, key });
+}
+
+/** Put a line in the chat's error bar — for what went wrong on this side,
+ *  a send that found no socket most of all. */
+export function showError(message: string): void {
+  useRuri.setState({ lastError: message });
 }
 
 export function connect(): void {
@@ -930,7 +939,8 @@ function apply(msg: ServerMessage): void {
         // anything that came live while this was on its way stays in it
         const live = s.agentLogs[id] ?? [];
         const ids = new Set(msg.events.map((event) => event.id));
-        return { agentLogs: { ...s.agentLogs, [id]: [...msg.events, ...live.filter((event) => !ids.has(event.id))] } };
+        const log = keepRecent([...msg.events, ...live.filter((event) => !ids.has(event.id))], AGENT_LOG_MAX);
+        return { agentLogs: { ...s.agentLogs, [id]: log } };
       });
       break;
     }
@@ -941,7 +951,7 @@ function apply(msg: ServerMessage): void {
       if (!log) break;
       const at = log.findIndex((event) => event.id === msg.event.id);
       const next = at === -1 ? [...log, msg.event] : log.map((event, i) => (i === at ? msg.event : event));
-      setState((s) => ({ agentLogs: { ...s.agentLogs, [id]: next } }));
+      setState((s) => ({ agentLogs: { ...s.agentLogs, [id]: keepRecent(next, AGENT_LOG_MAX) } }));
       break;
     }
     case "crew": {

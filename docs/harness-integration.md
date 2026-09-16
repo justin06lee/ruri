@@ -1,8 +1,14 @@
-# Codex harness integration
+# Harness integration
+
+How sessions on non-Claude harnesses — Codex, OpenCode, Gemini, any ACP agent — reach parity with Claude sessions, through [`@justin06lee/yagami`](https://github.com/justin06lee/yagami)'s provider layer. yagami owns the wire contracts of each harness; ruri consumes provider-neutral events and typed requests (`server/sessions.ts`, `ProviderAgentSession` over yagami's `openSession`, with `ProviderTurnSession` as the fallback for providers without an agentic session layer).
+
+## Codex app-server memo (September 5, 2026)
+
+A dated record of the Codex integration as it was verified. Model names, test counts and the build state below are as of that date; the packaged app has since been signed with a local identity (`docs/permissions.md`).
 
 Verified September 5, 2026. This work uses the installed Codex app-server through Yagami, preserving the user's CLI configuration and available model catalog. It adds no agent skills or instruction packs.
 
-## Research and implementation
+### Research and implementation
 
 The [official app-server protocol](https://learn.chatgpt.com/docs/app-server) defines native questions, MCP elicitation, live plans, reasoning deltas, request resolution and exact thread forks. Yagami owns those wire contracts; Ruri consumes provider-neutral events and typed requests.
 
@@ -15,7 +21,7 @@ The [Astra guidance](https://developers.openai.com/api/docs/guides/latest-model)
 - Reasoning summaries update live progress as they stream. Yagami fills missing completed-summary text without counting the deltas twice.
 - Concurrent cold sends are rejected. Host input and approval requests are cancelled when the server resolves them or the turn stops. A failed resume reports an error instead of silently starting an empty conversation. Ruri retires a failed connection before retrying with the saved session ID.
 
-## Verification
+### Verification
 
 Yagami: 177 tests, typecheck and package build pass. Six new regression tests cover reasoning deltas, failed resume, cold-send concurrency, interruption, authoritative plan items and server-resolved requests.
 
@@ -25,7 +31,7 @@ The packaged macOS app also boots with an isolated profile and advances native q
 
 During packaged-app automation, Electron logged a `sandboxed_renderer.bundle.js` startup error (`binding.startupData` was null). The question navigation and model effort controls remained functional. Its cause is unverified; this was not a clean-console check.
 
-## Dependency and release
+### Dependency and release
 
 Ruri takes Yagami from the registry (`^0.8.2`); the packaged app bundles it and needs nothing else at runtime. For work on both at once, point the dependency at `file:../yagami` temporarily and build the sibling first, then return to the registry once the Yagami change is published.
 

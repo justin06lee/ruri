@@ -5,7 +5,12 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 ## Unreleased
 
 - build: eslint, prettier and editorconfig; `bun test` unit tests and `bun run test:scripts` for the token-free integration scripts; CI on GitHub Actions
-- docs: LICENSE (MIT), CONTRIBUTING and this changelog
+- build: runtime packages listed under `dependencies`; the bundle is unchanged
+- build: builds are signed with a local self-signed identity (`make identity`), so macOS privacy grants survive a rebuild; the grant reset runs only for an ad-hoc build, and only for the services ruri uses
+- fix(desktop): quit waits (up to five seconds) for the bridge and the server to close; links open outside only for http, https and mailto; navigation off the app's origin is denied; the login-shell PATH sniff no longer blocks start-up
+- fix(dev): the tuner's POST endpoints on :5173 take requests only from the dev page's own origin
+- refactor(manager): the Home prompt no longer carries the Aoki Ruri persona
+- docs: the README split into `docs/` (features, architecture with the security model, testing, permissions, harness integration, roadmap); LICENSE (MIT), CONTRIBUTING and this changelog
 
 ## v0.76.0 — 2026-09-15
 

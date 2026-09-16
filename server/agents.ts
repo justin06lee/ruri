@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import type { SubagentState, TranscriptEvent } from "../shared/protocol.js";
 
 /**
@@ -24,10 +24,7 @@ const WRITE_DELAY_MS = 800;
 const STARTED = Date.now();
 
 function agentsDir(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "agents",
-  );
+  return configPath("agents");
 }
 
 /** Ids come from harnesses; nothing in one is allowed to walk the tree. */

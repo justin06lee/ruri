@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import type { UsageLimits } from "../shared/protocol.js";
 
 /**
@@ -331,10 +332,7 @@ export async function fetchAllUsageLimits(): Promise<Record<string, UsageLimits>
 const KEEP_FOR_MS = 6 * 60 * 60 * 1000;
 
 function cacheFile(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "usage.json",
-  );
+  return configPath("usage.json");
 }
 
 /** The reading the last run ended on, if it is still worth showing. */

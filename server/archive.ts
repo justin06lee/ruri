@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import { excerpt, keepRecent, unmarked, type EarlierItem, type TranscriptEvent, type TurnNote } from "../shared/protocol.js";
 import { settleAgent } from "./agents.js";
 import type { Digest } from "./compaction.js";
@@ -113,17 +113,11 @@ function outline(events: TranscriptEvent[]): EarlierItem[] {
 }
 
 function archiveDir(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "sessions",
-  );
+  return configPath("sessions");
 }
 
 function historyDir(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "history",
-  );
+  return configPath("history");
 }
 
 function historyFile(projectId: string): string {

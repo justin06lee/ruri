@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import type { TranscriptEvent } from "../shared/protocol.js";
 
 /**
@@ -41,10 +41,7 @@ export class HomeLog {
   private nextSession: number;
 
   constructor() {
-    this.file = path.join(
-      process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-      "home-log.md",
-    );
+    this.file = configPath("home-log.md");
     let last = 0;
     try {
       const raw = fs.readFileSync(this.file, "utf8");

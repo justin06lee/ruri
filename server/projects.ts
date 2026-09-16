@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { configDir } from "./configDir.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
@@ -25,10 +26,6 @@ const DEFAULTS: Required<SessionSettings> = {
   permissionMode: DEFAULT_PERMISSION_MODE,
   effort: DEFAULT_EFFORT,
 };
-
-function configDir(): string {
-  return process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri");
-}
 
 function projectsFile(): string {
   return path.join(configDir(), "projects.json");

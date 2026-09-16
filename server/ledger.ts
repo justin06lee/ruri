@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import type { ProjectStats, Totals } from "../shared/protocol.js";
 
 /**
@@ -16,10 +16,7 @@ import type { ProjectStats, Totals } from "../shared/protocol.js";
  */
 
 function ledgerFile(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "ledger.json",
-  );
+  return configPath("ledger.json");
 }
 
 const ZERO: Totals = { tokens: 0, costUsd: 0, turns: 0, ms: 0 };

@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import { StringDecoder } from "node:string_decoder";
 
 /**
@@ -41,10 +41,7 @@ export interface TerminalEvents {
 }
 
 function tabsFile(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "terminals.json",
-  );
+  return configPath("terminals.json");
 }
 
 /** The control sequence expect intercepts: cols and rows, never forwarded. */

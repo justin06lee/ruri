@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 
 /**
  * The window's own preferences — theme, the theme clock, which folders are
@@ -23,10 +23,7 @@ const MAX_KEYS = 200;
 const MAX_VALUE = 8_000;
 
 function prefsFile(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "prefs.json",
-  );
+  return configPath("prefs.json");
 }
 
 export class PrefStore {

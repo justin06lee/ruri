@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import type { Attachment, TrackerItem, TrackerStatus } from "../shared/protocol.js";
 
 /**
@@ -12,10 +12,7 @@ import type { Attachment, TrackerItem, TrackerStatus } from "../shared/protocol.
  */
 
 function trackerDir(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "tracker",
-  );
+  return configPath("tracker");
 }
 
 export class TrackerStore {

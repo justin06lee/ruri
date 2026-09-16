@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as http from "node:http";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import type { Attachment, AttachmentUpload } from "../shared/protocol.js";
 
 /**
@@ -33,10 +33,7 @@ const MIME: Record<string, string> = {
 };
 
 function uploadsDir(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "uploads",
-  );
+  return configPath("uploads");
 }
 
 /**

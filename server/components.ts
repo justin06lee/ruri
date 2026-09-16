@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { ComponentProposal, Attachment, NamedComponent } from "../shared/protocol.js";
@@ -38,10 +38,7 @@ import { storedFilePath } from "./uploads.js";
  */
 
 function componentsDir(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "components",
-  );
+  return configPath("components");
 }
 
 /** Every name an entry answers to. */

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configDir } from "./configDir.js";
 
 /**
  * What closed sessions and projects left behind.
@@ -18,7 +18,7 @@ const RECENT_MS = 10 * 60_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 
 export function sweepOrphans(): number {
-  const root = process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri");
+  const root = configDir();
   let data: { projects?: Array<{ id?: unknown; sessions?: Array<{ id?: unknown }> }> };
   try {
     data = JSON.parse(fs.readFileSync(path.join(root, "projects.json"), "utf8")) as typeof data;

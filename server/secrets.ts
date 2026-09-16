@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import type { SecretMeta } from "../shared/protocol.js";
 
 /**
@@ -42,10 +42,7 @@ interface SecretRecord {
 }
 
 function secretsFile(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "secrets.json",
-  );
+  return configPath("secrets.json");
 }
 
 /** The environment-variable half of a name: RURI_SECRET_<THIS>. */

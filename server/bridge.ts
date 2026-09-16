@@ -1,5 +1,5 @@
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { BridgeState } from "../shared/protocol.js";
@@ -31,11 +31,7 @@ import type { BridgeState } from "../shared/protocol.js";
 
 /** Where a channel's pictures land: ~/.config/ruri/bridge/<channelId>/. */
 export function bridgeDir(channelId: string): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "bridge",
-    path.basename(channelId),
-  );
+  return configPath("bridge", path.basename(channelId));
 }
 
 /* ── the tools ──────────────────────────────────────────────────── */

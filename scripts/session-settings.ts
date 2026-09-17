@@ -84,18 +84,27 @@ const newborn = later.add("newborn", process.env["RURI_CONFIG_DIR"]!);
 check("a project made after the crown starts on it", later.effectiveSettings(newborn.sessions[0]!.id)?.model === "opus[1m]");
 check("the crown is starred", later.starredModels().includes("opus[1m]"));
 
-/* ── the star's cycle: none → starred → small → default → none ─────── */
+/* ── the star only favourites; the roles are handed over by their tags ── */
 
+// The star used to cycle through the roles (starred → small → default →
+// none). Now it only pins a model into the pickers, and the small-tasks
+// and default roles move by dragging their tags (assignModelRole) — so a
+// second click is an unstar, and unstarring a role's holder releases it.
 const cyc = new ProjectStore();
 const roles = (m: string) => {
   const r = cyc.cycleModelStar(m);
   return `${r.starred.includes(m) ? "starred" : "-"} ${r.small === m ? "small" : "-"} ${r.default === m ? "default" : "-"}`;
 };
-check("one star: starred", roles("sonnet") === "starred - -");
-check("two: small tasks", roles("sonnet") === "starred small -");
-check("three: the default (small released)", roles("sonnet") === "starred - default");
-check("four: none", roles("sonnet") === "- - -");
-check("the previous default went back to plain starred", cyc.defaultModel() === DEFAULT_MODEL && cyc.starredModels().includes("opus[1m]"));
+check("one star: starred, no role", roles("sonnet") === "starred - -");
+check("a second star: plain again", roles("sonnet") === "- - -");
+check("a role stars its holder", cyc.assignModelRole("sonnet", "small").starred.includes("sonnet"));
+check("and the star does not cycle the role on", cyc.modelRoles().small === "sonnet");
+check("unstarring the small model releases the role", roles("sonnet") === "- - -" && cyc.modelRoles().small === undefined);
+check("the crown from before is still on", cyc.defaultModel() === "opus[1m]" && cyc.starredModels().includes("opus[1m]"));
+check(
+  "unstarring the default hands it back to the built-in",
+  roles("opus[1m]") === "- - -" && cyc.defaultModel() === DEFAULT_MODEL,
+);
 cyc.assignModelRole("haiku", "small");
 cyc.assignModelRole("sonnet", "small");
 check("a role handed over leaves its old holder", cyc.modelRoles().small === "sonnet");

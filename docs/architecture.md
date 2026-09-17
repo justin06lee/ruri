@@ -108,7 +108,7 @@ Environment variables:
 | `RURI_IDLE_REAP_MS` | How long an open chat's agent process may sit idle before it closes anyway (default 600000, ten minutes) |
 | `RURI_BRIEF_LISTED` | How many exchanges a compaction brief lists one by one before the oldest are folded into its digest (default 40) |
 | `RURI_HISTORY_MAX_BYTES` | How big a session's history may grow before its oldest exchanges go (default 16 MB) |
-| `RURI_SMALL_MODEL` | Small-tasks model when nothing is double-starred (default `haiku`) |
+| `RURI_SMALL_MODEL` | Small-tasks model when no model holds the small-tasks tag (default `codex:gpt-5.6-luna`) |
 | `RURI_NO_MEMORY=1` | Turn the small-model layer off entirely |
 | `RURI_FIXTURE=1` | Canned UI state instead of a live server |
 | `RURI_SCREENSHOT=/path.png` | Capture the window to a PNG shortly after load |

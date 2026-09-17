@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { writeTextAtomic } from "./atomic.js";
+import { configDir } from "./configDir.js";
+import { isMissing, warn } from "./log.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
@@ -25,10 +28,6 @@ const DEFAULTS: Required<SessionSettings> = {
   permissionMode: DEFAULT_PERMISSION_MODE,
   effort: DEFAULT_EFFORT,
 };
-
-function configDir(): string {
-  return process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri");
-}
 
 function projectsFile(): string {
   return path.join(configDir(), "projects.json");
@@ -76,7 +75,8 @@ export class ProjectStore {
       }
       if (typeof raw.smallModel === "string" && raw.smallModel) this.smallModelId = raw.smallModel;
       if (typeof raw.defaultModel === "string" && raw.defaultModel) this.defaultModelId = raw.defaultModel;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("projects", err, "new ProjectStore");
       // first run
     }
   }
@@ -347,8 +347,7 @@ export class ProjectStore {
   }
 
   private save(): void {
-    fs.mkdirSync(configDir(), { recursive: true });
-    fs.writeFileSync(
+    writeTextAtomic(
       projectsFile(),
       `${JSON.stringify(
         {

@@ -525,14 +525,32 @@ export const useRuri = create<RuriState>((set) => ({
   dismissError: () => set({ lastError: null }),
 }));
 
-// Vite dev server (:5173) talks to the standalone server on :7777; when the
-// UI is served by the ruri server itself (desktop app / production), the
-// WebSocket lives on the same origin.
-const WS_URL = import.meta.env.DEV ? `ws://${location.hostname}:7777` : `ws://${location.host}`;
+// Vite dev server (:5173) talks to the standalone server on RURI_PORT (7777
+// unless set — vite.config.ts passes it through); when the UI is served by
+// the ruri server itself (desktop app / production), the WebSocket lives on
+// the same origin.
+const DEV_PORT: string = (import.meta.env["RURI_PORT"] as string | undefined) || "7777";
+const WS_URL = import.meta.env.DEV ? `ws://${location.hostname}:${DEV_PORT}` : `ws://${location.host}`;
 
 /** Base for the server's HTTP endpoints (music etc.) — empty when same-origin. */
-export const HTTP_BASE = import.meta.env.DEV ? `http://${location.hostname}:7777` : "";
+export const HTTP_BASE = import.meta.env.DEV ? `http://${location.hostname}:${DEV_PORT}` : "";
 let ws: WebSocket | null = null;
+
+/**
+ * The server's token (server/server.ts): without it the socket is refused.
+ * The desktop app puts it on the window's URL; the vite dev page has no
+ * such URL and asks vite for it instead (vite.config.ts reads the file the
+ * server wrote). Kept once found — the URL does not change under the page.
+ */
+let token: string | null = new URLSearchParams(location.search).get("token");
+
+async function resolveToken(): Promise<string> {
+  if (token) return token;
+  const res = await fetch("/__token");
+  if (!res.ok) throw new Error(`no server token yet (${res.status})`);
+  token = (await res.text()).trim();
+  return token;
+}
 
 /* ── terminal traffic ─────────────────────────────────────────────── */
 
@@ -829,20 +847,27 @@ export function connect(): void {
     void import("./fixture").then((m) => m.installFixture());
     return;
   }
-  ws = new WebSocket(WS_URL);
-  ws.onopen = () => {
-    useRuri.setState({ connected: true });
-    flushUnsavedDrafts();
-    // a new connection knows nothing of what is on screen
-    lastView = "";
-    sendView();
-  };
-  ws.onmessage = (raw) => receive(JSON.parse(raw.data as string) as ServerMessage);
-  ws.onclose = () => {
+  const retry = () => {
     useRuri.setState({ connected: false });
     setTimeout(connect, 1500);
   };
-  ws.onerror = () => ws?.close();
+  resolveToken().then(
+    (t) => {
+      ws = new WebSocket(`${WS_URL}/?token=${encodeURIComponent(t)}`);
+      ws.onopen = () => {
+        useRuri.setState({ connected: true });
+        flushUnsavedDrafts();
+        // a new connection knows nothing of what is on screen
+        lastView = "";
+        sendView();
+      };
+      ws.onmessage = (raw) => receive(JSON.parse(raw.data as string) as ServerMessage);
+      ws.onclose = retry;
+      ws.onerror = () => ws?.close();
+    },
+    // no token means no server yet (dev: the file appears when it starts)
+    retry,
+  );
 }
 
 function apply(msg: ServerMessage): void {

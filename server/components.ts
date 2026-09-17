@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
+import { configPath } from "./configDir.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { ComponentProposal, Attachment, NamedComponent } from "../shared/protocol.js";
 import { storedFilePath } from "./uploads.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The component index: the user's own names for the parts of a project, and
@@ -38,10 +40,7 @@ import { storedFilePath } from "./uploads.js";
  */
 
 function componentsDir(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "components",
-  );
+  return configPath("components");
 }
 
 /** Every name an entry answers to. */
@@ -77,7 +76,8 @@ export class ComponentStore {
         note: typeof item.note === "string" ? item.note : "",
       }));
       if (typeof raw.sweptAt === "number") this.swept.set(projectId, raw.sweptAt);
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("components", err, "load");
       items = [];
     }
     this.data.set(projectId, items);
@@ -86,17 +86,14 @@ export class ComponentStore {
 
   private save(projectId: string): void {
     try {
-      fs.mkdirSync(componentsDir(), { recursive: true });
       const sweptAt = this.swept.get(projectId);
-      fs.writeFileSync(
+      writeJsonAtomic(
         path.join(componentsDir(), `${projectId}.json`),
-        JSON.stringify(
-          { items: this.data.get(projectId) ?? [], ...(sweptAt ? { sweptAt } : {}) },
-          null,
-          2,
-        ),
+        { items: this.data.get(projectId) ?? [], ...(sweptAt ? { sweptAt } : {}) },
+        2,
       );
-    } catch {
+    } catch (err) {
+      warn("components", err, "save");
       // best-effort persistence
     }
   }
@@ -260,7 +257,8 @@ export class ComponentStore {
     this.data.delete(projectId);
     try {
       fs.rmSync(path.join(componentsDir(), `${projectId}.json`), { force: true });
-    } catch {
+    } catch (err) {
+      warn("components", err, "removeProject");
       // best-effort
     }
   }
@@ -338,7 +336,8 @@ export function writeIndexFile(projectDir: string, items: NamedComponent[]): voi
       ...items.flatMap((item) => [...entryLines(item), ""]),
     ].join("\n");
     fs.writeFileSync(file, body);
-  } catch {
+  } catch (err) {
+    warn("components", err, "writeIndexFile");
     // a read-only project directory is not worth failing a save over
   }
 }
@@ -440,12 +439,14 @@ export function drainComponentRequests(
   let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("components", err, "drainComponentRequests");
     return;
   }
   try {
     fs.rmSync(file, { force: true });
-  } catch {
+  } catch (err) {
+    warn("components", err, "drainComponentRequests");
     // a repeat next turn is harmless — the card is the user's to dismiss
   }
   for (const line of raw.split("\n")) {
@@ -460,7 +461,8 @@ export function drainComponentRequests(
         note: typeof req.note === "string" ? req.note : "",
         ...(req.shot ? { shot: req.shot } : {}),
       });
-    } catch {
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) warn("components", err, "drainComponentRequests");
       // not JSON — skip the line
     }
   }

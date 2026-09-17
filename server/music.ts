@@ -9,25 +9,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Playlist, Track } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
+import { AUDIO_MIME } from "./mime.js";
 
-/* Chromium (Electron) ships proprietary codecs, so AAC/MP3 play everywhere;
-   Opus/Vorbis/FLAC/WAV come free. */
-const AUDIO_EXT = new Set([
-  ".mp3", ".m4a", ".mp4", ".aac", ".flac", ".wav", ".ogg", ".oga", ".opus", ".webm",
-]);
-
-export const MIME: Record<string, string> = {
-  ".mp3": "audio/mpeg",
-  ".m4a": "audio/mp4",
-  ".mp4": "audio/mp4",
-  ".aac": "audio/aac",
-  ".flac": "audio/flac",
-  ".wav": "audio/wav",
-  ".ogg": "audio/ogg",
-  ".oga": "audio/ogg",
-  ".opus": "audio/ogg",
-  ".webm": "audio/webm",
-};
+/** What counts as a track: whatever the server knows how to serve. */
+const AUDIO_EXT: ReadonlySet<string> = new Set(Object.keys(AUDIO_MIME));
 
 /** Where the library lives when the user hasn't pointed it elsewhere. */
 export function defaultMusicDir(): string {
@@ -53,7 +39,8 @@ function tracksIn(dir: string): Track[] {
   let names: string[];
   try {
     names = fs.readdirSync(dir);
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("music", err, "tracksIn");
     return [];
   }
   const tracks: Track[] = [];
@@ -63,7 +50,8 @@ function tracksIn(dir: string): Track[] {
     const full = path.join(dir, name);
     try {
       if (!fs.statSync(full).isFile()) continue;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("music", err, "tracksIn");
       continue;
     }
     tracks.push({
@@ -97,7 +85,8 @@ export function scan(root: string = defaultMusicDir()): Playlist[] {
       fs.mkdirSync(root, { recursive: true });
       fs.writeFileSync(path.join(root, "README.txt"), README);
     }
-  } catch {
+  } catch (err) {
+    warn("music", err, "scan");
     return [];
   }
 
@@ -109,7 +98,8 @@ export function scan(root: string = defaultMusicDir()): Playlist[] {
   let names: string[] = [];
   try {
     names = fs.readdirSync(root);
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("music", err, "scan");
     return playlists;
   }
   for (const name of names.sort((a, b) => a.localeCompare(b))) {
@@ -117,7 +107,8 @@ export function scan(root: string = defaultMusicDir()): Playlist[] {
     const full = path.join(root, name);
     try {
       if (!fs.statSync(full).isDirectory()) continue;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("music", err, "scan");
       continue;
     }
     const tracks = tracksIn(full);

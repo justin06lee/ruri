@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Pictures, taken without anybody opening anything.
@@ -83,7 +84,8 @@ export function devCommand(dir: string): DevCommand | undefined {
   let pkg: PackageJson;
   try {
     pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) as PackageJson;
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("shots", err, "devCommand");
     return undefined;
   }
   const script = DEV_SCRIPTS.find((name) => typeof pkg.scripts?.[name] === "string");
@@ -151,7 +153,8 @@ export async function withProjectRunning<T>(
       env: projectEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     });
-  } catch {
+  } catch (err) {
+    warn("shots", err, "withProjectRunning");
     onNote("couldn't start the project — named without pictures");
     return undefined;
   }
@@ -161,7 +164,8 @@ export async function withProjectRunning<T>(
       try {
         if (child.pid) process.kill(-child.pid, sig);
         else child.kill(sig);
-      } catch {
+      } catch (err) {
+        warn("shots", err, "signal");
         // already gone
       }
     };

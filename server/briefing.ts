@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SecretStore } from "./secrets.js";
 import { localSkillsBriefing } from "./skills.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * What every project session is told about ruri itself, before it starts.
@@ -20,7 +21,8 @@ import { localSkillsBriefing } from "./skills.js";
 function exists(file: string): boolean {
   try {
     return fs.statSync(file).isFile();
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("briefing", err, "exists");
     return false;
   }
 }

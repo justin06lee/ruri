@@ -1,9 +1,10 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import { ruriDir } from "./components.js";
 import { storedFilePath } from "./uploads.js";
 import type { Attachment } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The catch-up brief: what a project is and what's in it, in as few lines as
@@ -55,10 +56,7 @@ export type BriefWrite = Pick<ProjectBrief, "description" | "features"> &
   Partial<Pick<ProjectBrief, "stack" | "run" | "layout" | "conventions">>;
 
 function briefsFile(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "briefs.json",
-  );
+  return configPath("briefs.json");
 }
 
 const EMPTY: ProjectBrief = { description: "", features: [], shots: [] };
@@ -85,7 +83,8 @@ export class BriefStore {
           ...(typeof brief.built === "number" ? { built: brief.built } : {}),
         });
       }
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("brief", err, "new BriefStore");
       // first run, or a file worth starting over from
     }
   }
@@ -94,7 +93,8 @@ export class BriefStore {
     try {
       fs.mkdirSync(path.dirname(briefsFile()), { recursive: true });
       fs.writeFileSync(briefsFile(), JSON.stringify(Object.fromEntries(this.briefs), null, 2));
-    } catch {
+    } catch (err) {
+      warn("brief", err, "save");
       // best-effort persistence
     }
   }
@@ -161,7 +161,7 @@ export class BriefStore {
  * The brief as the model reads it — the format is the point: a header it can
  * parse at a glance, then one line per thing the project does.
  */
-export function briefText(name: string, brief: ProjectBrief): string {
+function briefText(name: string, brief: ProjectBrief): string {
   const lines = [
     `# ${name} — catch-up`,
     "",
@@ -207,7 +207,8 @@ export function writeCatchupFile(projectDir: string, name: string, brief: Projec
     }
     ruriDir(projectDir);
     fs.writeFileSync(file, briefText(name, brief));
-  } catch {
+  } catch (err) {
+    warn("brief", err, "writeCatchupFile");
     // a read-only project directory is not worth failing a turn over
   }
 }

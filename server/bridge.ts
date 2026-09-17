@@ -1,5 +1,6 @@
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
+import { errorMessage } from "./log.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { BridgeState } from "../shared/protocol.js";
@@ -31,11 +32,7 @@ import type { BridgeState } from "../shared/protocol.js";
 
 /** Where a channel's pictures land: ~/.config/ruri/bridge/<channelId>/. */
 export function bridgeDir(channelId: string): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "bridge",
-    path.basename(channelId),
-  );
+  return configPath("bridge", path.basename(channelId));
 }
 
 /* ── the tools ──────────────────────────────────────────────────── */
@@ -57,7 +54,7 @@ const logArgs = {
 
 /** Every tool's arguments, as zod shapes — the MCP server and the HTTP
  *  endpoint both check against these. */
-export const BRIDGE_SHAPES = {
+const BRIDGE_SHAPES = {
   web_open: {
     url: z.string().describe("http(s) URL, or a path to a local HTML file"),
   },
@@ -159,7 +156,7 @@ export type BridgeArgs = {
 export type BridgeCall = { [K in BridgeTool]: { tool: K; args: BridgeArgs[K] } }[BridgeTool];
 
 /** The tool names in the order a reader wants them. */
-export const BRIDGE_TOOL_NAMES = Object.keys(BRIDGE_SHAPES) as BridgeTool[];
+const BRIDGE_TOOL_NAMES = Object.keys(BRIDGE_SHAPES) as BridgeTool[];
 
 /** The names as Claude sees them, for auto-allow. */
 export const BRIDGE_TOOLS = BRIDGE_TOOL_NAMES.map((name) => `mcp__bridge__${name}`);
@@ -265,7 +262,7 @@ export async function runBridge(
     const result = await host.run(ctx, { tool: name, args: parsed.data } as BridgeCall);
     return { ok: true, result };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: errorMessage(err) };
   }
 }
 

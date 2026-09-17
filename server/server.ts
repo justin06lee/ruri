@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { type AskQuestions, briefLine, DEFAULT_PERMISSION_MODE, type PermissionId, type PermissionState, type SubagentState, type TccRow, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
@@ -20,14 +20,18 @@ import type {
   TurnProgress,
   UsageLimits,
 } from "../shared/protocol.js";
+import { clientMessageSchema, describeIssue } from "../shared/clientSchema.js";
 import { SessionArchive } from "./archive.js";
+import { writeTextAtomic } from "./atomic.js";
+import { configPath } from "./configDir.js";
 import { AgentLogs, Crew } from "./agents.js";
 import { buildCompaction, DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
 import { DraftStore } from "./drafts.js";
 import { HomeLog } from "./homelog.js";
 import { createCheckpoints } from "./checkpoints.js";
 import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
-import { defaultMusicDir, isAllowed, MIME as AUDIO_MIME, scan as scanMusic } from "./music.js";
+import { AUDIO_MIME, IMAGE_MIME, mimeOf, STATIC_MIME } from "./mime.js";
+import { defaultMusicDir, isAllowed, scan as scanMusic } from "./music.js";
 import { claimPort, type PortClaim } from "./port.js";
 import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
@@ -67,15 +71,25 @@ import { sweepOrphans } from "./orphans.js";
 import { sweepProject } from "./sweep.js";
 import { withProjectRunning, type CaptureHost, type ShotTarget } from "./shots.js";
 import { SecretStore } from "./secrets.js";
-import { installSkill, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
+import { installSkill, listSkills, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload, sweepUploads } from "./uploads.js";
 import { fetchAllUsageLimits, loadCachedLimits, readCodexCounts, saveCachedLimits } from "./usage.js";
+import { errorMessage, isMissing, warn } from "./log.js";
 
 export interface StartServerOptions {
   port: number;
   host?: string;
+  /**
+   * The secret every window and script must present — as ?token= on the
+   * WebSocket URL, and as x-ruri-token (or ?token=) on any request that
+   * changes something. The server is bound to loopback, but loopback is
+   * every page open in every browser on the machine: without this, any
+   * site could open the socket and drive an agent. Written to
+   * <configDir>/token (mode 0600) for local tooling, removed on close.
+   */
+  token: string;
   /** When set, GET requests are served from this directory (the built web UI). */
   staticDir?: string;
   /**
@@ -133,18 +147,6 @@ export interface RuriServer {
 const USAGE_RETRY_MIN_MS = 5_000;
 const USAGE_RETRY_MAX_MS = 120_000;
 
-const MIME: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-  ".json": "application/json",
-  ".map": "application/json",
-  ".woff2": "font/woff2",
-};
-
 /**
  * The desktop app is same-origin, but the vite dev server (:5173) is not —
  * and a cross-origin MediaElementSource without CORS taints the Web Audio
@@ -173,13 +175,14 @@ function serveTrack(req: http.IncomingMessage, res: http.ServerResponse, root: s
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) throw new Error("not a file");
     size = stat.size;
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("server", err, "serveTrack");
     res.writeHead(404, MUSIC_CORS);
     res.end();
     return;
   }
 
-  const type = AUDIO_MIME[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
+  const type = mimeOf(filePath, AUDIO_MIME);
   const match = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range?.trim() ?? "");
 
   if (match && (match[1] !== "" || match[2] !== "")) {
@@ -224,6 +227,23 @@ const readable = new Set<string>();
  * project's; "~" is home. The last reply to write a given path wins.
  */
 const pictured = new Map<string, string>();
+/** How many of each are kept. Both grew for the life of the process — every
+ *  image every session ever read — so past this the oldest entry goes. A
+ *  picture that old is off every screen; if a transcript asks again, its
+ *  events are re-registered on the way out (allowArchived). */
+const READABLE_MAX = 5_000;
+
+/** Sets and Maps iterate in insertion order, so the first key is the oldest. */
+function remember(store: Set<string>, key: string): void {
+  if (store.has(key)) store.delete(key);
+  store.add(key);
+  if (store.size > READABLE_MAX) store.delete(store.keys().next().value!);
+}
+function rememberPicture(raw: string, abs: string): void {
+  if (pictured.has(raw)) pictured.delete(raw);
+  pictured.set(raw, abs);
+  if (pictured.size > READABLE_MAX) pictured.delete(pictured.keys().next().value!);
+}
 /** Where a channel's relative paths start from — set once the store is up. */
 let pictureBase: (channelId: string) => string | undefined = () => undefined;
 
@@ -245,7 +265,7 @@ function allowReadImages(events: TranscriptEvent[], base?: string): void {
   for (const event of events) {
     if (event.kind === "tool" && event.image) {
       const p = new URL(event.image.url, "http://localhost").searchParams.get("p");
-      if (p) readable.add(p);
+      if (p) remember(readable, p);
       continue;
     }
     if (event.kind !== "assistant") continue;
@@ -255,22 +275,11 @@ function allowReadImages(events: TranscriptEvent[], base?: string): void {
       const expanded = raw.startsWith("~/") ? path.join(os.homedir(), raw.slice(2)) : raw;
       const abs = path.isAbsolute(expanded) ? expanded : base ? path.resolve(base, expanded) : undefined;
       if (!abs) continue;
-      readable.add(abs);
-      pictured.set(raw, abs);
+      remember(readable, abs);
+      rememberPicture(raw, abs);
     }
   }
 }
-
-const IMAGE_MIME: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".bmp": "image/bmp",
-  ".svg": "image/svg+xml",
-  ".avif": "image/avif",
-};
 
 /** A request body, whole, or an error past `limit` bytes. */
 function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
@@ -291,6 +300,38 @@ function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
   });
 }
 
+/** The dev page's origins: vite serves the UI on :5173 and talks to the
+ *  standalone server across origins. Honoured only when there is no built
+ *  UI to serve — the packaged app never hears from them. */
+const DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
+
+/**
+ * Whether a request may come from where it says it comes from. No Origin
+ * at all is a non-browser client (a script, curl, a harness's bridge call)
+ * and passes; a browser's Origin must be this server's own page — or, in
+ * dev, vite's. Anything else is some other site's page on the same
+ * machine, and gets nothing.
+ */
+function originAllowed(origin: string | undefined, port: number, dev: boolean): boolean {
+  if (origin === undefined) return true;
+  const own = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
+  return own.includes(origin) || (dev && DEV_ORIGINS.includes(origin));
+}
+
+/** The token a request carries — the header first, the query second. */
+function presentedToken(req: http.IncomingMessage): string {
+  const header = req.headers["x-ruri-token"];
+  if (typeof header === "string") return header;
+  return new URL(req.url ?? "/", "http://localhost").searchParams.get("token") ?? "";
+}
+
+/** Compared in constant time: a wrong token takes as long as a right one. */
+function tokenMatches(presented: string, token: string): boolean {
+  const a = Buffer.from(presented);
+  const b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /** Serve one image a tool event read. Anything unregistered is a 403. */
 function serveReadFile(req: http.IncomingMessage, res: http.ServerResponse): void {
   const asked = new URL(req.url ?? "/", "http://localhost").searchParams.get("p") ?? "";
@@ -304,13 +345,14 @@ function serveReadFile(req: http.IncomingMessage, res: http.ServerResponse): voi
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) throw new Error("not a file");
     res.writeHead(200, {
-      "content-type": IMAGE_MIME[path.extname(filePath).toLowerCase()] ?? "application/octet-stream",
+      "content-type": mimeOf(filePath, IMAGE_MIME),
       "content-length": stat.size,
       // the file can be overwritten in place between reads
       "cache-control": "no-cache",
     });
     fs.createReadStream(filePath).pipe(res);
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("server", err, "serveReadFile");
     res.writeHead(404);
     res.end();
   }
@@ -331,7 +373,7 @@ function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.Ser
       res.end();
       return;
     }
-    res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream" });
+    res.writeHead(200, { "content-type": mimeOf(file, STATIC_MIME) });
     res.end(data);
   });
 }
@@ -373,13 +415,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // the two per-PROJECT boards (everything else here is per session)
   const ideas = new IdeaStore();
   const components = new ComponentStore();
-  // the vault, pushed into ruri's own environment so every harness ruri
-  // spawns inherits $RURI_SECRET_* without being told anything
+  // the vault: handed to each harness process as $RURI_SECRET_* when it is
+  // built (below), and to nothing else ruri starts
   const secrets = new SecretStore();
   // The window's own preferences, kept on this machine rather than in the
   // window — see server/prefs.ts for why that is not where they belong.
   const prefs = new PrefStore();
-  secrets.applyEnv();
   // both project files are written from what's already on disk at startup, so
   // a session opened before anything happens still finds them there
   for (const project of store.list()) {
@@ -578,7 +619,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       if (!id || !stat.isFile()) throw new Error("not a file");
       res.writeHead(200, { "content-type": "image/png", "content-length": stat.size, "cache-control": "no-cache" });
       fs.createReadStream(file).pipe(res);
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("server", err, "serveBridgePreview");
       res.writeHead(404);
       res.end();
     }
@@ -603,7 +645,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     try {
       body = JSON.parse(await readBody(req, 1024 * 1024)) as typeof body;
     } catch (err) {
-      reply(400, { ok: false, error: `bad request: ${err instanceof Error ? err.message : String(err)}` });
+      reply(400, { ok: false, error: `bad request: ${errorMessage(err)}` });
       return;
     }
     if (!body || typeof body.tool !== "string") {
@@ -957,7 +999,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       const { url } = storeUpload(upload);
       const { data: _data, regions: _regions, ...meta } = upload;
       return { ...meta, url };
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("server", err, "storeShot");
       return undefined;
     }
   }
@@ -1056,7 +1099,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       pushComponents(projectId, project.path);
       sweepNote(projectId, `${named}, ${pinned || "no"} picture${pinned === 1 ? "" : "s"}`, false);
-    } catch {
+    } catch (err) {
+      warn("server", err, "runSweep");
       sweepNote(projectId, "the sweep didn't finish — try it again", false);
     } finally {
       sweeping.delete(projectId);
@@ -1066,12 +1110,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   /** Re-scan skills for a project (or just the global ones) and push. */
   function pushSkills(projectId?: string, note?: string): void {
     const dir = projectId ? store.get(projectId)?.path : undefined;
-    broadcast({
-      type: "skills",
-      ...(projectId ? { projectId } : {}),
-      skills: scanSkills(dir),
-      ...(note ? { note } : {}),
-    });
+    void scanSkills(dir).then((skills) =>
+      broadcast({
+        type: "skills",
+        ...(projectId ? { projectId } : {}),
+        skills,
+        ...(note ? { note } : {}),
+      }),
+    );
   }
 
   // The app-side prompt queue: everything waiting for the running turn to
@@ -1383,8 +1429,16 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       try {
         if (next.split) dispatchSplit(channelId, next.text, next.uploads);
         else dispatch(channelId, next.text, next.uploads, next.silent);
-      } catch {
-        // the channel vanished mid-queue; drop the prompt
+      } catch (err) {
+        // the send failed (the channel vanished, the harness would not
+        // start): the prompt goes back to the head of the line rather than
+        // into the void, and the user hears why
+        warn("server", err, `drainQueue ${channelId}`);
+        const back = sendQueues.get(channelId) ?? [];
+        back.unshift(next);
+        sendQueues.set(channelId, back);
+        broadcastQueue(channelId);
+        broadcast({ type: "error", message: `queued prompt not sent: ${errorMessage(err)}` });
       }
     });
     return true;
@@ -1463,7 +1517,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       try {
         manager.send(project, RETRY_NUDGE, undefined, undefined, true);
-      } catch {
+      } catch (err) {
+        warn("server", err, "retry nudge");
         retries.delete(channelId);
       }
     }, wait);
@@ -1783,7 +1838,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           if (!turnStands(job.channelId, job.turn.turnId)) continue;
           if (note) noteSummary(job.channelId, job.turn.turnId, job.part, note);
           else archive.setSummary(job.channelId, job.turn.turnId, job.part, "");
-        } catch {
+        } catch (err) {
+          warn("server", err, "noteWorker");
           noteMisses += 1;
         } finally {
           noteKeys.delete(job.key);
@@ -1881,7 +1937,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       writeCatchupFile(project.path, project.name, briefs.write(projectId, built, true));
       catchupNote(projectId, false, "brief written");
-    } catch {
+    } catch (err) {
+      warn("server", err, "rebuildCatchup");
       catchupNote(projectId, false, "the brief could not be written — try again");
     } finally {
       catchingUp.delete(projectId);
@@ -2135,6 +2192,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           secrets.wanted(JSON.stringify(input)) ? secrets.fillInput(input) : undefined,
         autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS],
         options: {
+          // the vault rides into the harness process here, and only here
+          env: secrets.env(),
           mcpServers: {
             ruri: componentTools(componentHost, project.id),
             bridge: bridgeTools(options.bridge, bridgeCtx),
@@ -2146,7 +2205,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     },
     {
       parse: (model) => registry.parse(model),
-      create: (id, workDir) => registry.createFor(id, workDir),
+      create: (id, workDir) => registry.createFor(id, workDir, secrets.env()),
       canFork: (id) => registry.canForkSession(id),
     },
     (projectId) => archive.takeResumeAt(projectId),
@@ -2313,13 +2372,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         .join("\n\n");
       return {
         fillSecrets: (input) => (secrets.wanted(JSON.stringify(input)) ? secrets.fillInput(input) : undefined),
-        options: { systemPrompt: { type: "preset", preset: "claude_code", append: note } },
+        options: { env: secrets.env(), systemPrompt: { type: "preset", preset: "claude_code", append: note } },
         providerSystem: note,
       };
     },
     {
       parse: (model) => registry.parse(model),
-      create: (id, workDir) => registry.createFor(id, workDir),
+      create: (id, workDir) => registry.createFor(id, workDir, secrets.env()),
       canFork: (id) => registry.canForkSession(id),
     },
   );
@@ -2330,7 +2389,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     void options.bridge?.close(sessionId);
     try {
       fs.rmSync(bridgeDir(sessionId), { recursive: true, force: true });
-    } catch {
+    } catch (err) {
+      warn("server", err, "closeBridge");
       // best-effort
     }
   }
@@ -2375,7 +2435,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           project = store.add(name ?? "", projectPath, folder);
           opened = true;
         } catch (err) {
-          return `failed: ${err instanceof Error ? err.message : String(err)}`;
+          return `failed: ${errorMessage(err)}`;
         }
         broadcast({ type: "projects", projects: store.list() });
         // a project new to ruri gets told what it is before anyone asks
@@ -2405,7 +2465,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       try {
         fs.mkdirSync(dir, { recursive: true });
       } catch (err) {
-        return `failed: ${err instanceof Error ? err.message : String(err)}`;
+        return `failed: ${errorMessage(err)}`;
       }
       return managerHost.openProject({ path: dir, name: clean }).replace(/^opened/, "created and opened");
     },
@@ -2780,7 +2840,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
               ws.send(
                 JSON.stringify({
                   type: "error",
-                  message: `rewind failed: ${err instanceof Error ? err.message : String(err)}`,
+                  message: `rewind failed: ${errorMessage(err)}`,
                 } satisfies ServerMessage),
               );
             }
@@ -2891,7 +2951,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
               ws.send(
                 JSON.stringify({
                   type: "error",
-                  message: `fork failed: ${err instanceof Error ? err.message : String(err)}`,
+                  message: `fork failed: ${errorMessage(err)}`,
                 } satisfies ServerMessage),
               );
             }
@@ -3409,20 +3469,18 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
 
       /* ── the vault ────────────────────────────────────────────── */
       case "secret_save": {
-        secrets.save1({
+        secrets.upsert({
           ...(msg.id ? { id: msg.id } : {}),
           name: msg.name,
           ...(msg.username !== undefined ? { username: msg.username } : {}),
           ...(msg.note !== undefined ? { note: msg.note } : {}),
           ...(msg.secret !== undefined ? { secret: msg.secret } : {}),
         });
-        secrets.applyEnv();
         broadcast({ type: "secrets", items: secrets.meta() });
         break;
       }
       case "secret_remove": {
         secrets.remove(msg.id);
-        secrets.applyEnv();
         broadcast({ type: "secrets", items: secrets.meta() });
         break;
       }
@@ -3482,11 +3540,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       case "skill_remove":
       case "skill_update": {
         const dir = msg.projectId ? store.get(msg.projectId)?.path : undefined;
-        // bmo clones and copies — long enough that the page says so
+        // bmo clones and copies — long enough that the page says so (the
+        // list as the filesystem has it; bmo's own notes come with the push
+        // when the work is done)
         broadcast({
           type: "skills",
           ...(msg.projectId ? { projectId: msg.projectId } : {}),
-          skills: scanSkills(dir),
+          skills: listSkills(dir),
           busy: true,
         });
         const work =
@@ -3644,6 +3704,25 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   }
 
   const server = http.createServer((req, res) => {
+    const method = req.method ?? "GET";
+    if (method !== "GET" && method !== "HEAD") {
+      // Anything that changes something needs the page's own origin (or
+      // none) and the token. The one exception is the bridge call, whose
+      // session id is its capability — harnesses curl it from shells with
+      // no token in hand — but it still refuses a browser's Origin.
+      const pathname = (req.url ?? "/").split("?")[0] ?? "/";
+      const bridgeCall = pathname.startsWith("/bridge/") && !pathname.startsWith("/bridge/preview/");
+      if (!originAllowed(req.headers.origin, listeningPort, !options.staticDir)) {
+        res.writeHead(403);
+        res.end();
+        return;
+      }
+      if (!bridgeCall && !tokenMatches(presentedToken(req), options.token)) {
+        res.writeHead(401);
+        res.end();
+        return;
+      }
+    }
     if (req.url === "/healthz") {
       res.writeHead(200, { "content-type": "application/json" });
       // the pid is how the next launch tells a ruri that outlived its app
@@ -3684,7 +3763,22 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     res.end();
   });
 
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({
+    server,
+    // the socket is the whole app: a page from anywhere else, or one
+    // without the token, is turned away at the upgrade
+    verifyClient: ({ origin, req }, done) => {
+      if (!originAllowed(origin || undefined, listeningPort, !options.staticDir)) {
+        done(false, 403, "Forbidden");
+        return;
+      }
+      if (!tokenMatches(presentedToken(req), options.token)) {
+        done(false, 401, "Unauthorized");
+        return;
+      }
+      done(true);
+    },
+  });
 
   // ws forwards the http server's "error" to the WebSocketServer, and an
   // "error" event with nobody listening is an uncaught exception — which is
@@ -3752,12 +3846,21 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
 
     ws.on("message", (raw) => {
       try {
-        handleMessage(ws, JSON.parse(String(raw)) as ClientMessage);
+        // checked before anything trusts its shape (shared/clientSchema.ts);
+        // a message that does not fit is answered and dropped
+        const parsed = clientMessageSchema.safeParse(JSON.parse(String(raw)));
+        if (!parsed.success) {
+          const reason = describeIssue(parsed.error);
+          warn("server", reason, "bad client message");
+          ws.send(JSON.stringify({ type: "error", message: `bad message: ${reason}` } satisfies ServerMessage));
+          return;
+        }
+        handleMessage(ws, parsed.data);
       } catch (err) {
         ws.send(
           JSON.stringify({
             type: "error",
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
           } satisfies ServerMessage),
         );
       }
@@ -3818,6 +3921,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       const port = typeof address === "object" && address ? address.port : options.port;
       listeningPort = port;
       console.log(`ruri server listening on ws://127.0.0.1:${port}`);
+      // for local tooling that wants in: the token, readable by this user only
+      const tokenFile = configPath("token");
+      try {
+        writeTextAtomic(tokenFile, options.token, 0o600);
+      } catch (err) {
+        warn("server", err, "writing the token file");
+      }
       resolve({
         port,
         ...(fallback ? { portFallback: fallback } : {}),
@@ -3835,6 +3945,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             agentLogs.flushAll();
             crew.flushAll();
             ledger.flush();
+            try {
+              fs.rmSync(tokenFile, { force: true });
+            } catch (err) {
+              warn("server", err, "removing the token file");
+            }
             for (const client of clients) client.close();
             wss.close(() => server.close(() => done()));
           }),

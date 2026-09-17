@@ -22,7 +22,7 @@ const wantOpen = process.argv.includes("--open");
 const dir = path.resolve(args[0] ?? ".");
 const name = path.basename(dir);
 
-const candidates = sweepCandidates(dir);
+const candidates = await sweepCandidates(dir);
 console.log(`${name} — ${candidates.length} files worth reading`);
 for (const rel of candidates.slice(0, 12)) console.log(`  ${rel}`);
 if (candidates.length > 12) console.log(`  … and ${candidates.length - 12} more`);

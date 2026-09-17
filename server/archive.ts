@@ -1,9 +1,11 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { writeJsonAtomic, writeTextAtomic, writeTextAtomicAsync } from "./atomic.js";
+import { configPath } from "./configDir.js";
 import { excerpt, keepRecent, unmarked, type EarlierItem, type TranscriptEvent, type TurnNote } from "../shared/protocol.js";
 import { settleAgent } from "./agents.js";
 import type { Digest } from "./compaction.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Per-project session archive: the single source of truth for transcripts,
@@ -113,17 +115,11 @@ function outline(events: TranscriptEvent[]): EarlierItem[] {
 }
 
 function archiveDir(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "sessions",
-  );
+  return configPath("sessions");
 }
 
 function historyDir(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "history",
-  );
+  return configPath("history");
 }
 
 function historyFile(projectId: string): string {
@@ -154,6 +150,11 @@ const WRITE_DELAY_MS = 1000;
 export class SessionArchive {
   private readonly data = new Map<string, ArchiveData>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  /** Per channel, moved on by every flush — how a slower write knows a
+   *  newer one has passed it (see flush). */
+  private readonly generations = new Map<string, number>();
+  /** Channels with a write in the air. */
+  private readonly inflight = new Set<string>();
   /** Channels that keep only their newest events (Home), and how many. */
   private readonly caps = new Map<string, number>();
   private readonly outlines = new Map<string, { size: number; mtimeMs: number; items: EarlierItem[] }>();
@@ -222,14 +223,15 @@ export class SessionArchive {
           ? { contextWindow: raw.contextWindow, contextWindowModel: raw.contextWindowModel }
           : {}),
       };
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("archive", err, "load");
       entry = { events: [], summaries: {} };
     }
     this.trim(projectId, entry);
     this.data.set(projectId, entry);
     // an archive from before the history carries every compaction's past
     // inline — moved out once, here, and the smaller file written at once
-    if (this.fold(projectId, entry)) this.flush(projectId);
+    if (this.fold(projectId, entry)) void this.flush(projectId);
     return entry;
   }
 
@@ -241,7 +243,8 @@ export class SessionArchive {
     let text: string;
     try {
       text = fs.readFileSync(historyFile(projectId), "utf8");
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("archive", err, "history");
       return [];
     }
     const events: TranscriptEvent[] = [];
@@ -249,7 +252,8 @@ export class SessionArchive {
       if (!line) continue;
       try {
         events.push(settleAgent(JSON.parse(line) as TranscriptEvent));
-      } catch {
+      } catch (err) {
+        if (!(err instanceof SyntaxError)) warn("archive", err, "history");
         // a line torn by a crash mid-append
       }
     }
@@ -263,7 +267,8 @@ export class SessionArchive {
     let stat: fs.Stats;
     try {
       stat = fs.statSync(historyFile(projectId));
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("archive", err, "earlier");
       this.outlines.delete(projectId);
       return [];
     }
@@ -277,7 +282,8 @@ export class SessionArchive {
   hasHistory(projectId: string): boolean {
     try {
       return fs.statSync(historyFile(projectId)).size > 0;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("archive", err, "hasHistory");
       return false;
     }
   }
@@ -309,7 +315,8 @@ export class SessionArchive {
         fs.appendFileSync(historyFile(projectId), fresh.map((event) => JSON.stringify(event)).join("\n") + "\n");
       }
       this.capHistory(projectId, entry);
-    } catch {
+    } catch (err) {
+      warn("archive", err, "fold");
       // best-effort, like the live file
     }
     return true;
@@ -321,7 +328,8 @@ export class SessionArchive {
     let size: number;
     try {
       size = fs.statSync(historyFile(projectId)).size;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("archive", err, "capHistory");
       return;
     }
     if (size <= this.historyMax) return;
@@ -351,18 +359,31 @@ export class SessionArchive {
       fs.rmSync(file, { force: true });
       return;
     }
-    fs.mkdirSync(historyDir(), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, events.map((event) => JSON.stringify(event)).join("\n") + "\n");
-    fs.renameSync(tmp, file);
+    writeTextAtomic(file, events.map((event) => JSON.stringify(event)).join("\n") + "\n");
   }
 
-  /** Write the live file now rather than on the debounce. */
+  /** Write the live file now, on this thread, rather than on the debounce:
+   *  a compaction or a rewind wants the file and the memory to agree the
+   *  moment it returns. */
   private flushNow(projectId: string): void {
     const timer = this.timers.get(projectId);
     if (timer) clearTimeout(timer);
     this.timers.delete(projectId);
-    this.flush(projectId);
+    this.writeLive(projectId);
+  }
+
+  /** The synchronous write. Taking the number moves any flush still in the
+   *  air on to discard its bytes, so it cannot land over this one. */
+  private writeLive(projectId: string): void {
+    const entry = this.data.get(projectId);
+    if (!entry) return;
+    this.generations.set(projectId, (this.generations.get(projectId) ?? 0) + 1);
+    this.inflight.delete(projectId);
+    try {
+      writeJsonAtomic(path.join(archiveDir(), `${projectId}.json`), entry);
+    } catch (err) {
+      warn("archive", err, "writeLive");
+    }
   }
 
   private scheduleWrite(projectId: string): void {
@@ -371,26 +392,37 @@ export class SessionArchive {
       projectId,
       setTimeout(() => {
         this.timers.delete(projectId);
-        this.flush(projectId);
+        void this.flush(projectId);
       }, WRITE_DELAY_MS),
     );
   }
 
-  private flush(projectId: string): void {
+  /**
+   * The live file, written off the main thread. Two flushes of one file
+   * never interleave: each takes a number on the way in, and a write that
+   * finds a newer number by the time its bytes are down discards them —
+   * the newer flush carries everything this one did. The rename itself is
+   * synchronous (atomic.ts), so that check and the rename are one step.
+   */
+  private async flush(projectId: string): Promise<void> {
     const entry = this.data.get(projectId);
     if (!entry) return;
+    const generation = (this.generations.get(projectId) ?? 0) + 1;
+    this.generations.set(projectId, generation);
+    this.inflight.add(projectId);
     try {
-      fs.mkdirSync(archiveDir(), { recursive: true });
-      const file = path.join(archiveDir(), `${projectId}.json`);
       // Compact: nobody reads these by eye, and the indentation was a third
-      // of every file and of every write. Written beside and renamed over,
-      // so a crash mid-write leaves the last good file rather than half of
-      // this one.
-      const tmp = `${file}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(entry));
-      fs.renameSync(tmp, file);
-    } catch {
+      // of every file and of every write.
+      await writeTextAtomicAsync(
+        path.join(archiveDir(), `${projectId}.json`),
+        JSON.stringify(entry),
+        () => this.generations.get(projectId) !== generation,
+      );
+    } catch (err) {
+      warn("archive", err, "flush");
       // persistence is best-effort; in-memory state stays correct
+    } finally {
+      if (this.generations.get(projectId) === generation) this.inflight.delete(projectId);
     }
   }
 
@@ -602,7 +634,8 @@ export class SessionArchive {
     // history up to the newest mark, its live part from there
     try {
       this.writeHistory(projectId, []);
-    } catch {
+    } catch (err) {
+      warn("archive", err, "takeForkNext");
       // nothing there to clear
     }
     if (this.fold(projectId, entry)) this.flushNow(projectId);
@@ -635,7 +668,8 @@ export class SessionArchive {
       entry.events = mark > 0 ? kept.slice(mark) : kept;
       try {
         this.writeHistory(projectId, mark > 0 ? kept.slice(0, mark) : []);
-      } catch {
+      } catch (err) {
+        warn("archive", err, "truncateFrom");
         // the live file below still holds what matters most
       }
     }
@@ -696,7 +730,8 @@ export class SessionArchive {
     try {
       fs.rmSync(path.join(archiveDir(), `${projectId}.json`), { force: true });
       fs.rmSync(historyFile(projectId), { force: true });
-    } catch {
+    } catch (err) {
+      warn("archive", err, "remove");
       // best-effort
     }
   }
@@ -739,11 +774,12 @@ export class SessionArchive {
     );
   }
 
+  /** Everything pending, written now and on this thread: the process is
+   *  going, and a write still in the air would go with it. */
   flushAll(): void {
-    for (const [projectId, timer] of this.timers) {
-      clearTimeout(timer);
-      this.timers.delete(projectId);
-      this.flush(projectId);
-    }
+    const due = new Set([...this.timers.keys(), ...this.inflight]);
+    for (const timer of this.timers.values()) clearTimeout(timer);
+    this.timers.clear();
+    for (const projectId of due) this.writeLive(projectId);
   }
 }

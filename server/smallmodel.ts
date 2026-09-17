@@ -1,5 +1,6 @@
 import { Yagami } from "@justin06lee/yagami";
 import type { TranscriptEvent } from "../shared/protocol.js";
+import { errorMessage, warn } from "./log.js";
 
 /**
  * The "small model" behind turn summaries, session titles, prompt splitting,
@@ -62,7 +63,7 @@ const REST_MS = 10 * 60_000;
 
 /** A failure that asking again soon will only repeat. */
 function exhausted(error: unknown): boolean {
-  const text = error instanceof Error ? error.message : String(error);
+  const text = errorMessage(error);
   return /usage limit|rate.?limit|quota|credits|\b429\b/i.test(text);
 }
 
@@ -298,7 +299,8 @@ export async function updateBrief(
     if (typeof parsed.description !== "string" || !Array.isArray(parsed.features)) return null;
     const features = parsed.features.filter((line): line is string => typeof line === "string");
     return { description: parsed.description.trim(), features: features.map((f) => f.trim()) };
-  } catch {
+  } catch (err) {
+    warn("smallmodel", err, "updateBrief");
     // a brief that can't be updated is better left alone
     return null;
   }
@@ -364,7 +366,8 @@ ${material.slice(0, 60_000)}`;
       layout: lines(parsed.layout, 14),
       conventions: lines(parsed.conventions, 8),
     };
-  } catch {
+  } catch (err) {
+    warn("smallmodel", err, "catchupBrief");
     return null;
   }
 }
@@ -424,7 +427,8 @@ export async function extractTrackerItems(userText: string, existing: string[]):
       // a hard backstop: if the model relapses into clause-splitting it can
       // still only spill six rows, not sixteen.
       .slice(0, 6);
-  } catch {
+  } catch (err) {
+    warn("smallmodel", err, "extractTrackerItems");
     return [];
   }
 }
@@ -466,7 +470,8 @@ export async function splitPrompt(text: string): Promise<string[]> {
       .map((item) => item.trim())
       .filter((item) => item.length > 0);
     return prompts.length > 0 ? prompts : [text];
-  } catch {
+  } catch (err) {
+    warn("smallmodel", err, "splitPrompt");
     return [text];
   }
 }
@@ -616,7 +621,8 @@ export async function nameProjectParts(
         },
       ];
     });
-  } catch {
+  } catch (err) {
+    warn("smallmodel", err, "nameProjectParts");
     // a batch that comes back unusable is one batch — the sweep carries on
     return [];
   }

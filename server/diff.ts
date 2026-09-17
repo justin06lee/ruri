@@ -10,6 +10,7 @@
 
 import * as fs from "node:fs";
 import type { DiffHunk, DiffLine, FileDiff } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /** Context lines kept either side of a change, as git does by default. */
 const CONTEXT = 3;
@@ -206,7 +207,8 @@ export function parseUnifiedDiff(
 export function readBefore(filePath: string): string | null {
   try {
     return fs.readFileSync(filePath, "utf8");
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("diff", err, "readBefore");
     return null;
   }
 }

@@ -18,6 +18,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.js";
 import { drainOpenRequests, type ManagerHost } from "../server/manager.js";
 import { findProjects } from "../server/finder.js";
@@ -130,7 +131,7 @@ const PORT = Number(process.env["RURI_PORT"] ?? 7893);
 const serverConfig = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-hidden-server-"));
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: path.join(import.meta.dirname, ".."),
-  env: { ...process.env, RURI_PORT: String(PORT), RURI_CONFIG_DIR: serverConfig },
+  env: { ...process.env, RURI_PORT: String(PORT), RURI_TOKEN: TOKEN, RURI_CONFIG_DIR: serverConfig },
   stdio: ["ignore", "ignore", "inherit"],
 });
 
@@ -166,7 +167,7 @@ async function connect(url: string): Promise<WebSocket> {
   }
 }
 
-const ws = await connect(`ws://127.0.0.1:${PORT}`);
+const ws = await connect(wsUrl(PORT));
 const send = (msg: ClientMessage) => ws.send(JSON.stringify(msg));
 let latest: ServerMessage & { type: "projects" } | undefined;
 const waiters = new Set<() => void>();

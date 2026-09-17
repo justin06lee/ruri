@@ -18,6 +18,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { BridgeState, ClientMessage, ServerMessage } from "../shared/protocol.js";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -73,7 +74,7 @@ for (let i = 0; ; i++) {
   await sleep(250);
 }
 
-const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
+const ws = new WebSocket(wsUrl(PORT));
 await new Promise<void>((resolve, reject) => {
   ws.once("open", () => resolve());
   ws.once("error", reject);

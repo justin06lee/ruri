@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.js";
 
 const PORT = Number(process.env["RURI_PORT"] ?? 7883);
@@ -29,7 +30,7 @@ fs.writeFileSync(path.join(projectDir, "build", "icon.png"), PNG);
 
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: path.join(import.meta.dirname, ".."),
-  env: { ...process.env, RURI_PORT: String(PORT), RURI_CONFIG_DIR: configDir },
+  env: { ...process.env, RURI_PORT: String(PORT), RURI_TOKEN: TOKEN, RURI_CONFIG_DIR: configDir },
   stdio: ["ignore", "ignore", "inherit"],
 });
 
@@ -75,7 +76,7 @@ let projectId: string | undefined;
 let reply = "";
 let done = false;
 const waiters = new Set<() => void>();
-const ws = await connect(`ws://127.0.0.1:${PORT}`);
+const ws = await connect(wsUrl(PORT));
 const send = (msg: ClientMessage) => ws.send(JSON.stringify(msg));
 ws.on("message", (raw) => {
   const msg = JSON.parse(String(raw)) as ServerMessage;

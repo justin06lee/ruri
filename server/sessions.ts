@@ -29,7 +29,9 @@ import {
   type PreToolUseHookSpecificOutput,
 } from "@anthropic-ai/claude-agent-sdk";
 import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
+import { IMAGE_EXTS } from "./mime.js";
 import { readCodexCounts } from "./usage.js";
+import { errorMessage, warn } from "./log.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_PERMISSION_MODE,
@@ -286,7 +288,8 @@ export async function promptChain(
     // up to it is kept, the prompt and its turn are not
     const before = messages[messages.findIndex((m) => m.uuid === match.uuid) - 1]?.uuid;
     return { user: match.uuid, ...(before ? { before } : {}) };
-  } catch {
+  } catch (err) {
+    warn("sessions", err, "promptChain");
     // no transcript on disk (a provider session, a pruned file) — the
     // caller falls back to rewinding the conversation alone
     return undefined;
@@ -294,8 +297,6 @@ export async function promptChain(
 }
 
 /** Extensions the transcript will show inline — what Read itself can take. */
-const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif"]);
-
 /**
  * A Read of an image earns a thumbnail in the transcript: reading a
  * screenshot and only seeing its path back is the one case where the tool
@@ -763,7 +764,7 @@ class ProjectSession implements ChannelSession {
       const result = await this.session.rewindFiles(uuid);
       return { canRewind: result.canRewind, ...(result.error ? { error: result.error } : {}) };
     } catch (err) {
-      return { canRewind: false, error: err instanceof Error ? err.message : String(err) };
+      return { canRewind: false, error: errorMessage(err) };
     }
   }
 
@@ -975,7 +976,7 @@ class ProjectSession implements ChannelSession {
       this.pushEvent({
         kind: "info",
         id: randomUUID(),
-        text: `session error: ${err instanceof Error ? err.message : String(err)}`,
+        text: `session error: ${errorMessage(err)}`,
         ts: Date.now(),
       });
       this.setStatus("error");
@@ -1273,7 +1274,8 @@ class ProjectSession implements ChannelSession {
         ...(model.supportsFastMode ? { supportsFastMode: true } : {}),
         ...(model.supportsAutoMode ? { supportsAutoMode: true } : {}),
       })));
-    } catch {
+    } catch (err) {
+      warn("sessions", err, "reportModels");
       // model list is a nicety; the picker just stays empty
     }
   }
@@ -1427,7 +1429,7 @@ class ProviderTurnSession implements ChannelSession {
       } else if (err instanceof ProviderNotInstalledError) {
         error = err.message;
       } else {
-        error = err instanceof Error ? err.message : String(err);
+        error = errorMessage(err);
       }
     } finally {
       this.abort = null;
@@ -1437,7 +1439,8 @@ class ProviderTurnSession implements ChannelSession {
     // before the result lands, so the sidebar is current when "done" shows
     try {
       this.extras?.onProviderTurnEnd?.();
-    } catch {
+    } catch (err) {
+      warn("sessions", err, "onProviderTurnEnd");
       // a bad drop file must not kill the turn pipeline
     }
     this.pushEvent({
@@ -2047,7 +2050,7 @@ class ProviderAgentSession implements ChannelSession {
       } else if (err instanceof ProviderNotInstalledError) {
         error = err.message;
       } else {
-        error = err instanceof Error ? err.message : String(err);
+        error = errorMessage(err);
       }
     }
     this.rejectPending();
@@ -2055,7 +2058,8 @@ class ProviderAgentSession implements ChannelSession {
     // pick up anything the turn dropped for the app (Home's open requests)
     try {
       this.extras?.onProviderTurnEnd?.();
-    } catch {
+    } catch (err) {
+      warn("sessions", err, "onProviderTurnEnd");
       // a bad drop file must not kill the turn pipeline
     }
     this.pushEvent({
@@ -2306,7 +2310,7 @@ const NOT_TRANSIENT = /usage limit|rate limit|quota|credit|insufficient|out of (
 
 /** Whether a failed turn's error reads like something worth simply redoing.
  *  `status` is the HTTP status when the harness names one (Claude does). */
-export function transientFailure(text: string | undefined, status?: number | null): boolean {
+function transientFailure(text: string | undefined, status?: number | null): boolean {
   if (typeof status === "number") return status >= 500 && status < 600;
   if (!text || NOT_TRANSIENT.test(text)) return false;
   return TRANSIENT.test(text);

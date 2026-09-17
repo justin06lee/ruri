@@ -194,9 +194,48 @@ function tunerImages(): Plugin {
   };
 }
 
+/**
+ * The dev page's way in. The ruri server refuses a socket without its token
+ * (server/server.ts); the desktop app puts it on the window's URL, but the
+ * vite page has no such URL. So vite hands over the token the server wrote
+ * to <configDir>/token — to its own page only: a request carrying another
+ * site's Origin gets nothing, and there are no CORS headers to read it with.
+ */
+function devToken(): Plugin {
+  const file = path.join(process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"), "token");
+  return {
+    name: "ruri-dev-token",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/__token", (req, res) => {
+        const origin = req.headers.origin;
+        if (origin !== undefined && origin !== `http://${req.headers.host}`) {
+          res.statusCode = 403;
+          res.end();
+          return;
+        }
+        let token: string;
+        try {
+          token = fs.readFileSync(file, "utf8").trim();
+        } catch {
+          // no server running yet — the page asks again when it retries
+          res.statusCode = 404;
+          res.end();
+          return;
+        }
+        res.setHeader("content-type", "text/plain");
+        res.setHeader("cache-control", "no-store");
+        res.end(token);
+      });
+    },
+  };
+}
+
 export default defineConfig({
   root: "web",
-  plugins: [react(), tunerSave(), tunerImages()],
+  plugins: [react(), tunerSave(), tunerImages(), devToken()],
+  // which port the standalone server is on, for the dev page (store.ts)
+  define: { "import.meta.env.RURI_PORT": JSON.stringify(process.env["RURI_PORT"] ?? "7777") },
   server: {
     port: 5173,
   },

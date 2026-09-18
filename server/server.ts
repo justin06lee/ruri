@@ -1,5 +1,5 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { type AskQuestions, briefLine, DEFAULT_PERMISSION_MODE, type PermissionId, type PermissionState, type SubagentState, type TccRow, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
+import { type AskQuestions, briefLine, DEFAULT_PERMISSION_MODE, type SubagentState, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -11,31 +11,35 @@ import type {
   ClientMessage,
   ComponentProposal,
   ContextUsage,
-  ModelChoice,
   NamedComponent,
   PermissionRequest,
   QueuedPrompt,
   ServerMessage,
   TranscriptEvent,
-  TurnProgress,
-  UsageLimits,
 } from "../shared/protocol.js";
 import { clientMessageSchema, describeIssue } from "../shared/clientSchema.js";
 import { SessionArchive } from "./archive.js";
 import { writeTextAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import { AgentLogs, Crew } from "./agents.js";
+import { BridgeState } from "./bridgeState.js";
+import { channelProject, ownerProject, terminalCwd } from "./channel.js";
+import { catchUp, Clients, pushTranscript, transcriptOf } from "./clients.js";
 import { buildCompaction, DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
+import type { PendingComponent, RuriServer, ServerContext, StartServerOptions } from "./context.js";
 import { DraftStore } from "./drafts.js";
+import { UsageGauges } from "./gauges.js";
 import { HomeLog } from "./homelog.js";
 import { createCheckpoints } from "./checkpoints.js";
-import { HOME_ID, homeProject, managerExtras, type ManagerHost } from "./manager.js";
+import { HOME_ID, managerExtras, type ManagerHost } from "./manager.js";
 import { AUDIO_MIME, IMAGE_MIME, mimeOf, STATIC_MIME } from "./mime.js";
+import { Models } from "./models.js";
 import { defaultMusicDir, isAllowed, scan as scanMusic } from "./music.js";
 import { claimPort, type PortClaim } from "./port.js";
 import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
-import { cleanClaudeModels, ProviderRegistry } from "./providers.js";
+import { ReadableImages } from "./readable.js";
+import { Retries, RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
 import { promptChain, SessionManager } from "./sessions.js";
 import { assembleTurns, digestHistory, extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief, type Turn } from "./smallmodel.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
@@ -52,7 +56,6 @@ import {
   bridgeToolBriefing,
   bridgeTools,
   runBridge,
-  type BridgeHost,
 } from "./bridge.js";
 import {
   COMPONENT_TOOLS,
@@ -69,83 +72,16 @@ import { IdeaStore } from "./ideas.js";
 import { ParagraphGate } from "./paragraphs.js";
 import { sweepOrphans } from "./orphans.js";
 import { sweepProject } from "./sweep.js";
-import { withProjectRunning, type CaptureHost, type ShotTarget } from "./shots.js";
+import { withProjectRunning, type ShotTarget } from "./shots.js";
 import { SecretStore } from "./secrets.js";
 import { installSkill, listSkills, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
+import { contextWindow, pushContexts, republishContext, resetContext, Turns } from "./turns.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload, sweepUploads } from "./uploads.js";
-import { fetchAllUsageLimits, loadCachedLimits, readCodexCounts, saveCachedLimits } from "./usage.js";
 import { errorMessage, isMissing, warn } from "./log.js";
 
-export interface StartServerOptions {
-  port: number;
-  host?: string;
-  /**
-   * The secret every window and script must present — as ?token= on the
-   * WebSocket URL, and as x-ruri-token (or ?token=) on any request that
-   * changes something. The server is bound to loopback, but loopback is
-   * every page open in every browser on the machine: without this, any
-   * site could open the socket and drive an agent. Written to
-   * <configDir>/token (mode 0600) for local tooling, removed on close.
-   */
-  token: string;
-  /** When set, GET requests are served from this directory (the built web UI). */
-  staticDir?: string;
-  /**
-   * Host-provided native folder picker (the Electron shell passes one).
-   * Resolves to the chosen directory, or null if the user cancelled.
-   */
-  pickFolder?: () => Promise<string | null>;
-  /**
-   * Host-provided macOS grants (the Electron shell passes one): what macOS
-   * has let ruri do, the asking for it, and the privacy database's rows —
-   * see desktop/permissions.ts.
-   */
-  permissions?: {
-    check(): Promise<PermissionState[]>;
-    request(id?: PermissionId): Promise<PermissionState[]>;
-    rows(): Promise<TccRow[]>;
-  };
-  /**
-   * Host-provided element screenshots (the Electron shell passes one): load
-   * a URL in a window nobody sees and photograph the elements named by
-   * selector. Absent when ruri runs headless, and then the component sweep
-   * names without taking pictures. See server/shots.ts.
-   */
-  capture?: CaptureHost;
-  /**
-   * Host-provided bridge (the Electron shell passes one): the hidden
-   * windows and launched apps a session drives to see what it built.
-   * Absent when ruri runs headless, and then the bridge tools say so.
-   * See server/bridge.ts.
-   */
-  bridge?: BridgeHost;
-  /**
-   * Take `port` back from a ruri that outlived its app rather than falling
-   * back around it (server/port.ts). The desktop shell sets this, because the
-   * port it asks for is the app's identity; the dev server and the test
-   * harnesses each have a port of their own and leave leftovers alone.
-   */
-  reclaimPort?: boolean;
-}
-
-export interface RuriServer {
-  port: number;
-  /**
-   * Set only when `port` is not the port that was asked for: something else
-   * holds that one and this server is on an ephemeral port instead, which
-   * means a window served from it will not find anything it filed under the
-   * usual origin. The shell says so out loud (desktop/main.ts).
-   */
-  portFallback?: { wanted: number; reason: string };
-  close(): Promise<void>;
-}
-
-/** A usage read that comes back empty is retried on this backoff — quick at
- *  first, since the usual causes clear in seconds, then easing off. */
-const USAGE_RETRY_MIN_MS = 5_000;
-const USAGE_RETRY_MAX_MS = 120_000;
+export type { RuriServer, StartServerOptions } from "./context.js";
 
 /**
  * The desktop app is same-origin, but the vite dev server (:5173) is not —
@@ -215,72 +151,6 @@ function serveTrack(req: http.IncomingMessage, res: http.ServerResponse, root: s
   fs.createReadStream(filePath).pipe(res);
 }
 
-/**
- * Images a Read tool event pointed at, and so the only local paths the
- * transcript may ask for. The agent can read anything, but the HTTP server
- * hands back nothing that a recorded tool event did not already name.
- */
-const readable = new Set<string>();
-/**
- * A picture a reply pointed at, by the path it wrote (which is what the page
- * asks for — see markdown.tsx) → the file that is. A relative path is the
- * project's; "~" is home. The last reply to write a given path wins.
- */
-const pictured = new Map<string, string>();
-/** How many of each are kept. Both grew for the life of the process — every
- *  image every session ever read — so past this the oldest entry goes. A
- *  picture that old is off every screen; if a transcript asks again, its
- *  events are re-registered on the way out (allowArchived). */
-const READABLE_MAX = 5_000;
-
-/** Sets and Maps iterate in insertion order, so the first key is the oldest. */
-function remember(store: Set<string>, key: string): void {
-  if (store.has(key)) store.delete(key);
-  store.add(key);
-  if (store.size > READABLE_MAX) store.delete(store.keys().next().value!);
-}
-function rememberPicture(raw: string, abs: string): void {
-  if (pictured.has(raw)) pictured.delete(raw);
-  pictured.set(raw, abs);
-  if (pictured.size > READABLE_MAX) pictured.delete(pictured.keys().next().value!);
-}
-/** Where a channel's relative paths start from — set once the store is up. */
-let pictureBase: (channelId: string) => string | undefined = () => undefined;
-
-/** Register a whole snapshot's worth of transcripts, then hand them back. */
-function allowArchived(
-  transcripts: Record<string, TranscriptEvent[]>,
-): Record<string, TranscriptEvent[]> {
-  for (const [channelId, events] of Object.entries(transcripts)) {
-    allowReadImages(events, pictureBase(channelId));
-  }
-  return transcripts;
-}
-
-const MD_IMAGE = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+["'][^"']*["'])?\s*\)/g;
-
-/** Register any image paths carried by these events (fresh or archived):
- *  what a Read showed, and what a reply drew by path in its markdown. */
-function allowReadImages(events: TranscriptEvent[], base?: string): void {
-  for (const event of events) {
-    if (event.kind === "tool" && event.image) {
-      const p = new URL(event.image.url, "http://localhost").searchParams.get("p");
-      if (p) remember(readable, p);
-      continue;
-    }
-    if (event.kind !== "assistant") continue;
-    for (const match of event.text.matchAll(MD_IMAGE)) {
-      const raw = match[1]!;
-      if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith("/readfile?")) continue;
-      const expanded = raw.startsWith("~/") ? path.join(os.homedir(), raw.slice(2)) : raw;
-      const abs = path.isAbsolute(expanded) ? expanded : base ? path.resolve(base, expanded) : undefined;
-      if (!abs) continue;
-      remember(readable, abs);
-      rememberPicture(raw, abs);
-    }
-  }
-}
-
 /** A request body, whole, or an error past `limit` bytes. */
 function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -332,32 +202,6 @@ function tokenMatches(presented: string, token: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** Serve one image a tool event read. Anything unregistered is a 403. */
-function serveReadFile(req: http.IncomingMessage, res: http.ServerResponse): void {
-  const asked = new URL(req.url ?? "/", "http://localhost").searchParams.get("p") ?? "";
-  const filePath = readable.has(asked) ? asked : pictured.get(asked);
-  if (!asked || !filePath) {
-    res.writeHead(403);
-    res.end();
-    return;
-  }
-  try {
-    const stat = fs.statSync(filePath);
-    if (!stat.isFile()) throw new Error("not a file");
-    res.writeHead(200, {
-      "content-type": mimeOf(filePath, IMAGE_MIME),
-      "content-length": stat.size,
-      // the file can be overwritten in place between reads
-      "cache-control": "no-cache",
-    });
-    fs.createReadStream(filePath).pipe(res);
-  } catch (err) {
-    if (!isMissing(err)) warn("server", err, "serveReadFile");
-    res.writeHead(404);
-    res.end();
-  }
-}
-
 function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.ServerResponse): void {
   const url = (req.url ?? "/").split("?")[0] ?? "/";
   const rel = url === "/" ? "index.html" : url.replace(/^\/+/, "");
@@ -387,11 +231,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
    *  projects list goes out too — the pinned values are now on them. */
   function announceRoles(roles: { starred: string[]; small: string | undefined; default: string | undefined }): void {
     setSmallModel(roles.small);
-    broadcast({ type: "starred_models", models: roles.starred });
-    broadcast({ type: "small_model", model: roles.small ?? "" });
-    broadcast({ type: "default_model", model: store.defaultModel() });
-    broadcast({ type: "projects", projects: store.list() });
-    broadcast({ type: "home_settings", home: store.homeSettings() });
+    ctx.clients.broadcast({ type: "starred_models", models: roles.starred });
+    ctx.clients.broadcast({ type: "small_model", model: roles.small ?? "" });
+    ctx.clients.broadcast({ type: "default_model", model: store.defaultModel() });
+    ctx.clients.broadcast({ type: "projects", projects: store.list() });
+    ctx.clients.broadcast({ type: "home_settings", home: store.homeSettings() });
   }
   const archive = new SessionArchive();
   /** What each subagent did, apart from the chat that started it. */
@@ -438,176 +282,50 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // half-written prompts, per channel — outliving both the wiped Home
   // archive above and any rewind that truncates a session's
   const drafts = new DraftStore();
-  const clients = new Set<WebSocket>();
-  const permissions = new Map<string, PermissionRequest>();
-
-  const musicRoot = () => store.customMusicDir() ?? defaultMusicDir();
-
-  function broadcast(message: ServerMessage): void {
-    const payload = JSON.stringify(message);
-    for (const client of clients) {
-      if (client.readyState === WebSocket.OPEN) client.send(payload);
-    }
-  }
-
-  /**
-   * What each window has on screen (the `view` message).
-   *
-   * A chat's conversation as it happens — a reply's paragraphs, each tool
-   * call, its agents at work, the turn's counter — goes only to the windows
-   * showing that chat. Every other window hears the chat's status and its
-   * finished turns, and catches up the moment the chat is opened. Before,
-   * every agent's every step re-rendered a window that was showing none of
-   * them.
-   */
-  interface ClientView {
-    /** The chats on screen, whether or not the window can be seen. */
-    channels: Set<string>;
-    /** The window can be seen (not hidden, not minimised). */
-    live: boolean;
-    /** Home's projects page is up: it shows every chat's last few lines. */
-    board: boolean;
-    /** Each chat that left the screen, and its revision as it went. Back
-     *  unchanged, it needs nothing; changed, it is sent whole again. */
-    seen: Map<string, number>;
-  }
-  const views = new Map<WebSocket, ClientView>();
-  const NOTHING: ReadonlySet<string> = new Set();
-  /** Per channel, moved on by every change to its transcript. */
-  const revisions = new Map<string, number>();
-
-  function touch(channelId: string): void {
-    revisions.set(channelId, (revisions.get(channelId) ?? 0) + 1);
-  }
-
-  /** The chats a window is being sent as they happen. */
-  function showing(view: ClientView): ReadonlySet<string> {
-    return view.live ? view.channels : NOTHING;
-  }
-
-  /** To the windows showing this chat — and, `board`, to any on Home's
-   *  projects page. A window that has not said what it shows (a script, the
-   *  moment between the snapshot and its first view) is sent everything. */
-  function toViewers(channelId: string, message: ServerMessage, board = false): void {
-    let payload: string | undefined;
-    for (const client of clients) {
-      if (client.readyState !== WebSocket.OPEN) continue;
-      const view = views.get(client);
-      if (view && !(showing(view).has(channelId) || (board && view.live && view.board))) continue;
-      payload ??= JSON.stringify(message);
-      client.send(payload);
-    }
-  }
-
-  /** Some window has this chat open, seen or not — what keeps its agent
-   *  process warm between turns. */
-  function isOpen(channelId: string): boolean {
-    for (const view of views.values()) if (view.channels.has(channelId)) return true;
-    return false;
-  }
-
-  /** One transcript event out: to the windows showing its chat and the
-   *  projects page — and a turn's end to every window, which is how a chat
-   *  not on screen gets its "finished" pip. */
-  function pushEvent(channelId: string, event: TranscriptEvent): void {
-    touch(channelId);
-    if (event.kind === "result") broadcast({ type: "event", projectId: channelId, event });
-    else toViewers(channelId, { type: "event", projectId: channelId, event }, true);
-  }
-
-  /** A channel's live transcript, whole, as a window takes it. */
-  function transcriptOf(channelId: string): ServerMessage {
-    const events = archive.events(channelId);
-    allowReadImages(events, pictureBase(channelId));
-    return {
-      type: "transcript",
-      projectId: channelId,
-      events,
-      summaries: archive.allSummaries([channelId])[channelId] ?? {},
-      earlier: archive.earlier(channelId),
-    };
-  }
-
-  /** A chat just come on screen in `ws`: whatever it missed while it was
-   *  not. Never shown here before, the window holds only its tail and asks
-   *  for the rest itself (transcript_get). */
-  function catchUp(ws: WebSocket, view: ClientView, channelId: string): void {
-    const seen = view.seen.get(channelId);
-    view.seen.delete(channelId);
-    const out: ServerMessage[] = [];
-    if (seen !== undefined && seen !== (revisions.get(channelId) ?? 0)) out.push(transcriptOf(channelId));
-    const held = gates.get(channelId);
-    out.push({
-      type: "reply",
-      projectId: channelId,
-      draft: held?.shown ? { messageId: held.messageId, text: held.shown } : null,
-    });
-    const turn = turnProgress.get(channelId);
-    out.push({ type: "turn", projectId: channelId, turn: turn ? { ...turn, tokens: Math.round(turn.tokens) } : null });
-    // the agents the user started here moved on without this window
-    const agents = crew.list(channelId);
-    if (agents.length > 0) out.push({ type: "crew", projectId: channelId, agents });
-    for (const message of out) ws.send(JSON.stringify(message));
-  }
-
-  /** The port this server actually listens on, known once it does. A
-   *  session's bridge endpoint is written with it, and sessions are made
-   *  long after. */
-  let listeningPort = options.port;
-
-  // what the bridge is showing for a channel, as it changes — the strip
-  // beside that channel's composer follows it
-  /**
-   * The bridge closes when a turn is over.
-   *
-   * A session opens a hidden window (or launches an app) to look at what it
-   * built, and used to leave it there — a page running at full speed, and
-   * its renderer's hundred-odd megabytes — until the session itself was
-   * closed or the model thought to call web_close. Now whatever a channel
-   * holds is closed a moment after its turn ends, unless the user has taken
-   * it over to work in. A window handed back while nothing is running goes
-   * the same way. The moment's grace is for a queued prompt, which starts
-   * the next turn straight away and wants the page it was just looking at.
-   */
-  const BRIDGE_GRACE_MS = 3000;
-  const bridgeClosers = new Map<string, NodeJS.Timeout>();
-
-  function channelBusy(channelId: string): boolean {
-    const status = manager.statuses()[channelId];
-    return status === "working" || status === "permission";
-  }
-
-  function closeBridgeSoon(channelId: string): void {
-    if (!options.bridge) return;
-    cancelBridgeClose(channelId);
-    const timer = setTimeout(() => {
-      bridgeClosers.delete(channelId);
-      const state = options.bridge?.states()[channelId];
-      if (!state || state.takenOver || channelBusy(channelId)) return;
-      void options.bridge?.close(channelId);
-    }, BRIDGE_GRACE_MS);
-    timer.unref?.();
-    bridgeClosers.set(channelId, timer);
-  }
-
-  function cancelBridgeClose(channelId: string): void {
-    const timer = bridgeClosers.get(channelId);
-    if (!timer) return;
-    clearTimeout(timer);
-    bridgeClosers.delete(channelId);
-  }
-
-  /** Whether each channel's window was last seen taken over. */
-  const takenOver = new Map<string, boolean>();
-
-  options.bridge?.onState((channelId, state) => {
-    broadcast({ type: "bridge", projectId: channelId, state });
-    const was = takenOver.get(channelId) === true;
-    if (state) takenOver.set(channelId, state.takenOver);
-    else takenOver.delete(channelId);
-    // handed back with no turn running: nobody is driving it any more
-    if (was && state && !state.takenOver && !channelBusy(channelId)) closeBridgeSoon(channelId);
-  });
+  const clients = new Clients();
+  const ctx = {
+    options,
+    listeningPort: options.port,
+    store,
+    archive,
+    agentLogs,
+    crew,
+    homeLog,
+    tracker,
+    briefs,
+    ledger,
+    ideas,
+    components,
+    secrets,
+    prefs,
+    drafts,
+    checkpoints: createCheckpoints(),
+    // The composer's terminal mode: a row of shell tabs per channel, each in
+    // that project's directory, alive for as long as the app is — switching
+    // away and back attaches to the same shells, scrollback and all.
+    terminals: new Terminals({
+      onData: (projectId, termId, data) =>
+        clients.broadcast({ type: "terminal_data", projectId, termId, data }),
+      onExit: (projectId, termId, note) =>
+        clients.broadcast({ type: "terminal_exit", projectId, termId, note }),
+    }),
+    digests: new DigestFolder(archive, digestHistory),
+    clients,
+    readable: new ReadableImages((channelId) => ownerProject(ctx, channelId)?.path),
+    turns: new Turns(clients.toViewers),
+    retries: new Retries(),
+    models: new Models(clients.broadcast),
+    usage: new UsageGauges(clients.broadcast),
+    bridge: new BridgeState(options.bridge, (channelId) => running(channelId), clients.broadcast),
+    permissions: new Map<string, PermissionRequest>(),
+    pendingComponents: new Map<string, PendingComponent>(),
+    sweeping: new Set<string>(),
+    catchingUp: new Set<string>(),
+    crewSaid: new Map<string, string>(),
+    musicRoot: () => store.customMusicDir() ?? defaultMusicDir(),
+    // the session managers, the turn tracker and the two hosts are wired
+    // below, once there is a context for them to see
+  } as ServerContext;
 
   /** GET /bridge/preview/<channelId> — the strip's picture, overwritten in
    *  place as the session works, so never cached. */
@@ -652,7 +370,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       reply(400, { ok: false, error: 'send {"tool": "<name>", "args": {...}}' });
       return;
     }
-    const owner = ownerProject(id);
+    const owner = ownerProject(ctx, id);
     const outcome = await runBridge(options.bridge, { channelId: id, projectId: owner?.id ?? id }, body.tool, body.args);
     if (!outcome.ok) {
       reply(200, { ok: false, error: outcome.error });
@@ -665,157 +383,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     });
   }
 
-  // The model picker: Claude models plus every installed non-Claude harness,
-  // probed at startup so the list is full before any session has run, and
-  // re-probed on demand (opening Settings asks) so it tracks what the
-  // harnesses actually serve. A live session's own report replaces the
-  // probed Claude list when it lands, so a refresh never clobbers it.
-  let registry = new ProviderRegistry();
-  let claudeModels: ModelChoice[] = [];
-  /** Names worked out from the startup catalog, which is the only source that
-   *  says which version a family is on. A live session reports ids and bare
-   *  display names, so it borrows from here rather than undoing them. */
-  const claudeNames = new Map<string, string>();
-  let providerModels: ModelChoice[] = [];
-  const allModels = () => [...claudeModels, ...providerModels];
-  let probing = false;
-  let probedAt = 0;
-  function probeModels(redetect = false) {
-    if (probing) return;
-    probing = true;
-    probedAt = Date.now();
-    // a fresh registry also picks up harnesses installed since launch
-    if (redetect) registry = new ProviderRegistry();
-    void registry
-      .modelChoices()
-      .then(({ claude, harnesses }) => {
-        for (const m of claude) claudeNames.set(m.value, m.displayName);
-        if (claudeModels.length === 0 && claude.length > 0) claudeModels = claude;
-        providerModels = harnesses;
-        if (allModels().length > 0) broadcast({ type: "models", models: allModels() });
-      })
-      .finally(() => {
-        probing = false;
-      });
-  }
-  probeModels();
+  ctx.models.probeModels();
 
-  // The usage gauges: each harness's own limit windows (5h / weekly), read
-  // on a slow poll and nudged after every turn, keyed by provider id so the
-  // dragons show the account the active session spends from; and per-channel
-  // context occupancy, reported by the live sessions.
-  // The last run's reading opens the gauges on numbers instead of dashes;
-  // the first fetch of this run replaces it moments later.
-  let usageLimits: Record<string, UsageLimits> = loadCachedLimits();
-  let lastUsageFetch = 0;
-  /** How long to wait before trying again after a read comes back empty. */
-  let usageRetryIn = USAGE_RETRY_MIN_MS;
-  let usageRetry: NodeJS.Timeout | undefined;
-  function pushUsage(force = false): void {
-    if (!force && Date.now() - lastUsageFetch < 60_000) return;
-    lastUsageFetch = Date.now();
-    void fetchAllUsageLimits().then((limits) => {
-      if (Object.keys(limits).length === 0) {
-        // Nothing came back: the sign-in token is mid-refresh, the network
-        // isn't up yet, the endpoint is having a moment. Any of those clear
-        // in seconds, so try again on a short backoff rather than leaving
-        // the gauges blank until the next five-minute tick.
-        if (usageRetry) return;
-        usageRetry = setTimeout(() => {
-          usageRetry = undefined;
-          usageRetryIn = Math.min(usageRetryIn * 2, USAGE_RETRY_MAX_MS);
-          pushUsage(true);
-        }, usageRetryIn);
-        return;
-      }
-      usageRetryIn = USAGE_RETRY_MIN_MS;
-      usageLimits = limits;
-      saveCachedLimits(limits);
-      broadcast({ type: "usage", limits });
-    });
-  }
-  pushUsage(true);
-  const contexts = new Map<string, ContextUsage>();
-
-  /**
-   * How the turn in flight is getting on, per channel — the numbers the
-   * working line counts up. Kept here rather than in the window because a
-   * turn outlives a reload, and a clock that restarts at zero every time
-   * the page comes back is worse than no clock.
-   */
-  const turnProgress = new Map<string, TurnProgress>();
-  /** Last broadcast per channel, so a stream of deltas is one message a
-   *  second rather than one a token. */
-  const turnSent = new Map<string, number>();
-  const TURN_TICK_MS = 900;
-  /** Output tokens are about four characters each — close enough for a
-   *  line whose job is "something is still coming back". */
-  const CHARS_PER_TOKEN = 4;
-
-  function pushTurn(channelId: string, force = false): void {
-    const turn = turnProgress.get(channelId);
-    if (!turn) {
-      turnSent.delete(channelId);
-      toViewers(channelId, { type: "turn", projectId: channelId, turn: null });
-      return;
-    }
-    const now = Date.now();
-    if (!force && now - (turnSent.get(channelId) ?? 0) < TURN_TICK_MS) return;
-    turnSent.set(channelId, now);
-    toViewers(channelId, { type: "turn", projectId: channelId, turn: { ...turn, tokens: Math.round(turn.tokens) } });
-  }
-
-  function startTurn(channelId: string): void {
-    if (turnProgress.has(channelId)) return;
-    const now = Date.now();
-    turnProgress.set(channelId, { startedAt: now, tokens: 0, at: now });
-    pushTurn(channelId, true);
-  }
-
-  function endTurn(channelId: string): void {
-    if (!turnProgress.delete(channelId)) return;
-    pushTurn(channelId);
-  }
-
-  // The composer's terminal mode: a row of shell tabs per channel, each in
-  // that project's directory, alive for as long as the app is — switching
-  // away and back attaches to the same shells, scrollback and all.
-  const terminals = new Terminals({
-    onData: (projectId, termId, data) =>
-      broadcast({ type: "terminal_data", projectId, termId, data }),
-    onExit: (projectId, termId, note) =>
-      broadcast({ type: "terminal_exit", projectId, termId, note }),
-  });
-  /** Where a channel's shell should start: its project, or the workspace. */
-  /** Where a channel's shells start: its project's directory.
-   *
-   *  A channel is a SESSION id, not a project id — this looked one up in the
-   *  project list, matched nothing, and fell back to the workspace root, so
-   *  every project's shell opened in the same place. Home is the exception
-   *  and genuinely belongs at the root: it manages the workspace itself. */
-  function terminalCwd(channelId: string): string {
-    if (channelId === HOME_ID) return store.workspaceDir();
-    return ownerProject(channelId)?.path ?? store.workspaceDir();
-  }
-
-  /**
-   * Re-announce every channel's context occupancy.
-   *
-   * The limit windows already re-push on a timer and after every turn, so a
-   * client that missed their snapshot value heals within minutes. Context
-   * had no such path — it was only ever announced mid-turn, so a client that
-   * missed the snapshot would sit on a stale zero forever while the gauges
-   * either side of it stayed correct. Now it heals the same way.
-   */
-  function pushContexts(): void {
-    for (const [channelId, context] of contexts) {
-      broadcast({ type: "context", projectId: channelId, context });
-    }
-  }
+  ctx.usage.pushUsage(true);
 
   const usageTimer = setInterval(() => {
-    pushUsage(true);
-    pushContexts();
+    ctx.usage.pushUsage(true);
+    pushContexts(ctx);
   }, 5 * 60_000);
   // The uploads nothing mentions any more go, once things have settled
   // after launch and then twice a day (server/uploads.ts). Neither timer
@@ -838,39 +412,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const notesTimer = setInterval(allNotes, 60 * 60_000);
   notesTimer.unref();
   /**
-   * The context window a channel's model gets. A harness that names its own
-   * (Codex reports the model's real size) wins — but only for the model that
-   * named it; otherwise it is Claude's two sizes, 1M with the [1m] flag.
-   */
-  function contextWindow(channelId: string): number {
-    const model = channelProject(channelId)?.model || store.defaultModel();
-    const reported = archive.contextWindowOf(channelId, model);
-    if (reported) return reported;
-    return model.includes("[1m]") ? 1_000_000 : 200_000;
-  }
-
-  /**
-   * Re-announce one channel's occupancy against the window it has now.
-   *
-   * Switching a project's model changes the denominator without spending a
-   * token, so nothing would otherwise re-measure until the next turn — the
-   * gauge would keep reading a 393k session as full because the model it was
-   * measured against is gone.
-   */
-  function republishContext(channelId: string): void {
-    const tokens = contexts.get(channelId)?.tokens ?? archive.contextTokens(channelId);
-    if (tokens === undefined) return;
-    const context: ContextUsage = { tokens, window: contextWindow(channelId) };
-    contexts.set(channelId, context);
-    broadcast({ type: "context", projectId: channelId, context });
-  }
-
-  // A "channel" id is HOME_ID or a session id; sessions run with their
-  // parent project's cwd/model/permission mode but keep their own state.
-  /** ruri's own file checkpoints, one per prompt, on every harness. */
-  const checkpoints = createCheckpoints();
-
-  /**
    * Write down the project's files before a prompt goes out, so a rewind to
    * it can put them back whatever harness ran the turn.
    *
@@ -882,56 +423,19 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
    */
   function checkpoint(channelId: string, eventId: string): void {
     if (channelId === HOME_ID) return;
-    const project = channelProject(channelId);
+    const project = channelProject(ctx, channelId);
     if (!project?.path) return;
-    void checkpoints.capture(project, channelId, eventId).catch(() => false);
+    void ctx.checkpoints.capture(project, channelId, eventId).catch(() => false);
   }
-
-  /**
-   * A channel as a Project: the owning project with the channel's own id —
-   * and the chat's own model, effort and mode over the project's defaults,
-   * so everything downstream (sessions, windows, forks) sees what this
-   * chat actually runs on without knowing there are two layers.
-   */
-  function channelProject(channelId: string) {
-    if (channelId === HOME_ID) return homeProject(store.workspaceDir(), store.homeSettings());
-    const found = store.findSession(channelId);
-    if (!found) return undefined;
-    const { session, project } = found;
-    return {
-      ...project,
-      id: channelId,
-      ...(session.model ? { model: session.model } : {}),
-      ...(session.permissionMode ? { permissionMode: session.permissionMode } : {}),
-      ...(session.effort ? { effort: session.effort } : {}),
-    };
-  }
-
-  /** The project a channel belongs to — boards are keyed by that, not by
-   *  the session that happened to be open. */
-  function ownerProject(channelId: string) {
-    return store.findSession(channelId)?.project;
-  }
-  pictureBase = (channelId) => ownerProject(channelId)?.path;
-
-  /**
-   * Components the model has just built, waiting to be named. The card rides
-   * the permission channel (it already survives reconnects) and resolves the
-   * tool call that raised it, so the model learns the name the user chose.
-   */
-  const pendingComponents = new Map<
-    string,
-    { channelId: string; proposal: ComponentProposal; resolve(name: string | null): void }
-  >();
 
   const componentHost: ComponentHost = {
     list: (channelId) => {
-      const owner = ownerProject(channelId);
+      const owner = ownerProject(ctx, channelId);
       return owner ? components.items(owner.id) : [];
     },
     propose: (channelId, proposal) =>
       new Promise<string | null>((resolve) => {
-        const owner = ownerProject(channelId);
+        const owner = ownerProject(ctx, channelId);
         if (!owner) {
           resolve(null);
           return;
@@ -952,7 +456,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // photographed it. So in bypass the entry is written the moment it
         // is proposed, star and screenshot and all, and the name stays
         // yours to change on the components page whenever you look.
-        const mode = channelProject(channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
+        const mode = channelProject(ctx, channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
         const straight = shown.name.trim();
         if (mode === "bypassPermissions" && straight) {
           const item = components.add(owner.id, {
@@ -966,7 +470,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           return;
         }
         const requestId = randomUUID();
-        pendingComponents.set(requestId, { channelId, proposal: shown, resolve });
+        ctx.pendingComponents.set(requestId, { channelId, proposal: shown, resolve });
         const request: PermissionRequest = {
           requestId,
           projectId: channelId,
@@ -975,8 +479,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           input: shown,
           ts: Date.now(),
         };
-        permissions.set(requestId, request);
-        broadcast({ type: "permission_request", request });
+        ctx.permissions.set(requestId, request);
+        ctx.clients.broadcast({ type: "permission_request", request });
       }),
   };
 
@@ -1009,17 +513,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   function pushComponents(projectId: string, projectDir?: string): void {
     const items = components.items(projectId);
     if (projectDir) writeIndexFile(projectDir, items);
-    broadcast({ type: "components", projectId, items });
+    ctx.clients.broadcast({ type: "components", projectId, items });
   }
 
   /* ── the repo sweep ───────────────────────────────────────────────── */
 
-  /** Projects mid-sweep. One at a time each: the picture pass starts the
-   *  project's dev server, and two of those fight over its port. */
-  const sweeping = new Set<string>();
-
   function sweepNote(projectId: string, note: string, busy = true): void {
-    broadcast({ type: "sweep", projectId, busy, ...(note ? { note } : {}) });
+    ctx.clients.broadcast({ type: "sweep", projectId, busy, ...(note ? { note } : {}) });
   }
 
   /** A component's screenshot, filed like any other upload. */
@@ -1051,8 +551,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
    */
   async function runSweep(projectId: string, wantShots: boolean): Promise<void> {
     const project = store.get(projectId);
-    if (!project || sweeping.has(projectId)) return;
-    sweeping.add(projectId);
+    if (!project || ctx.sweeping.has(projectId)) return;
+    ctx.sweeping.add(projectId);
     sweepNote(projectId, "reading the repo…");
     try {
       // Taken before the read, so a file edited while the sweep runs is read
@@ -1103,7 +603,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       warn("server", err, "runSweep");
       sweepNote(projectId, "the sweep didn't finish — try it again", false);
     } finally {
-      sweeping.delete(projectId);
+      ctx.sweeping.delete(projectId);
     }
   }
 
@@ -1111,7 +611,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   function pushSkills(projectId?: string, note?: string): void {
     const dir = projectId ? store.get(projectId)?.path : undefined;
     void scanSkills(dir).then((skills) =>
-      broadcast({
+      ctx.clients.broadcast({
         type: "skills",
         ...(projectId ? { projectId } : {}),
         skills,
@@ -1248,7 +748,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   }
 
   function broadcastQueue(channelId: string): void {
-    broadcast({
+    ctx.clients.broadcast({
       type: "queued",
       projectId: channelId,
       items: visibleQueue(channelId),
@@ -1302,7 +802,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       .then((title) => {
         if (!title || store.findSession(channelId)?.session.title) return;
         store.setSessionTitle(channelId, title);
-        broadcast({ type: "projects", projects: store.list() });
+        ctx.clients.broadcast({ type: "projects", projects: store.list() });
       })
       .catch(() => {});
   }
@@ -1314,12 +814,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       compactChannel(channelId);
       return;
     }
-    const project = channelProject(channelId);
+    const project = channelProject(ctx, channelId);
     if (!project) throw new Error("unknown session");
     titleSession(channelId, text);
     // a prompt that names something in the component index takes that
     // entry down with it — the model's copy only, never the transcript's
-    const owner = ownerProject(channelId);
+    const owner = ownerProject(ctx, channelId);
     const named = owner ? mentionBlock(mentionedIn(text, components.items(owner.id))) : "";
     // a new prompt is going out, so nothing is "just named" any more: what
     // this turn names wears the star beside it, and what the last one named
@@ -1377,8 +877,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     checkpoint(channelId, userEvent.id);
     // the split is thinking before the harness is; the clock starts with
     // the prompt, not with whichever sub-prompt reaches a session first
-    startTurn(channelId);
-    broadcast({ type: "status", projectId: channelId, status: "working" });
+    ctx.turns.startTurn(channelId);
+    ctx.clients.broadcast({ type: "status", projectId: channelId, status: "working" });
     titleSession(channelId, text);
     const epoch = interruptEpochs.get(channelId) ?? 0;
     void (smallModelEnabled() ? splitPrompt(text).catch(() => [text]) : Promise.resolve([text])).then(
@@ -1438,46 +938,17 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         back.unshift(next);
         sendQueues.set(channelId, back);
         broadcastQueue(channelId);
-        broadcast({ type: "error", message: `queued prompt not sent: ${errorMessage(err)}` });
+        ctx.clients.broadcast({ type: "error", message: `queued prompt not sent: ${errorMessage(err)}` });
       }
     });
     return true;
-  }
-
-  /**
-   * A turn the API dropped, put back on by itself.
-   *
-   * An overloaded model is not a decision anyone made — it is weather. The
-   * old behaviour was to end the turn, print the CLI's apology, and wait
-   * for the user to come back and type "continue", which could be hours
-   * after the outage cleared. So ruri types it: a short wait, a nudge down
-   * the same session (which still holds the whole conversation), and the
-   * work carries on from where it stopped.
-   *
-   * Three tries over about a minute and a half. That is the shape of a
-   * blip; past it, the API is not having a moment, it is having an outage,
-   * and a person should hear about that rather than a loop keep paying to
-   * find out. Anything the user does — a prompt, a stop — cancels the wait,
-   * because they are now driving.
-   */
-  const RETRY_WAITS_MS = [8_000, 25_000, 60_000];
-  const retries = new Map<string, { attempt: number; timer: NodeJS.Timeout }>();
-  const RETRY_NUDGE =
-    "[ruri] The API dropped the last turn — an overload or a network error on the way, nothing you did, and nothing the user asked to change. Pick up exactly where you left off and carry on. Don't restate the plan or apologise; just continue the work.";
-
-  /** The user took the wheel — whatever was going to be tried again isn't. */
-  function cancelRetry(channelId: string): void {
-    const pending = retries.get(channelId);
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    retries.delete(channelId);
   }
 
   function maybeRetry(channelId: string, event: TranscriptEvent): void {
     if (event.kind !== "result") return;
     // a turn that landed clears the count: the next blip starts from one
     if (event.ok || event.stopped) {
-      cancelRetry(channelId);
+      ctx.retries.cancelRetry(channelId);
       return;
     }
     // always: an overload is weather, not a decision, and there is no
@@ -1490,10 +961,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     // session flips to idle just after emitting this result — which is why
     // the wait below, not this, is where "is it busy now" is asked.)
     if (heldQueues.has(channelId)) return;
-    const attempt = (retries.get(channelId)?.attempt ?? 0) + 1;
+    const attempt = (ctx.retries.get(channelId)?.attempt ?? 0) + 1;
     const wait = RETRY_WAITS_MS[attempt - 1];
     if (wait === undefined) {
-      cancelRetry(channelId);
+      ctx.retries.cancelRetry(channelId);
       recordEvent(channelId, {
         kind: "info",
         id: randomUUID(),
@@ -1509,20 +980,20 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       ts: Date.now(),
     });
     const timer = setTimeout(() => {
-      const project = channelProject(channelId);
+      const project = channelProject(ctx, channelId);
       // gone, or busy with something the user sent while we waited
       if (!project || busy(channelId)) {
-        retries.delete(channelId);
+        ctx.retries.delete(channelId);
         return;
       }
       try {
         manager.send(project, RETRY_NUDGE, undefined, undefined, true);
       } catch (err) {
         warn("server", err, "retry nudge");
-        retries.delete(channelId);
+        ctx.retries.delete(channelId);
       }
     }, wait);
-    retries.set(channelId, { attempt, timer });
+    ctx.retries.set(channelId, { attempt, timer });
   }
 
   /**
@@ -1540,7 +1011,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
      *  been standing by since a stop waited for this one, not the reverse. */
     ahead = false,
   ): boolean {
-    const { commands, rest } = splitCommands(text, knownCommands(ownerProject(channelId)?.path));
+    const { commands, rest } = splitCommands(text, knownCommands(ownerProject(ctx, channelId)?.path));
     if (commands.length === 0) return false;
     const wasBusy = ahead ? running(channelId) : busy(channelId);
     const entries: QueueEntry[] = commands.map((command) => ({
@@ -1589,20 +1060,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         ts: Date.now(),
       };
       archive.append(channelId, event);
-      pushEvent(channelId, event);
+      ctx.clients.pushEvent(channelId, event);
       drainQueue(channelId);
       return;
     }
     manager.dispose(channelId);
     archive.clearLastSessionId(channelId);
     archive.setPendingBrief(channelId, built.brief);
-    contexts.delete(channelId);
-    archive.setContextTokens(channelId, 0);
-    broadcast({
-      type: "context",
-      projectId: channelId,
-      context: { tokens: 0, window: contextWindow(channelId) },
-    });
+    resetContext(ctx, channelId);
     const event: TranscriptEvent = {
       kind: "compaction",
       id: randomUUID(),
@@ -1614,19 +1079,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     // the mark folds everything before it into the history (archive.ts);
     // every window gets the live part as it now stands — the mark, alone
     archive.append(channelId, event);
-    pushTranscript(channelId);
+    pushTranscript(ctx, channelId);
     drainQueue(channelId);
     // what just folded away shows as its notes — any it lacks, now
     backfillNotes([channelId], { first: true });
-  }
-
-  /** A channel's live transcript to the windows showing it, replacing what
-   *  they hold: after anything that rewrites it rather than adding to it — a
-   *  compaction folding the past away, a rewind reaching back into it. The
-   *  rest are sent it when they open the chat (catchUp). */
-  function pushTranscript(channelId: string): void {
-    touch(channelId);
-    toViewers(channelId, transcriptOf(channelId));
   }
 
   /**
@@ -1650,11 +1106,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     why?: string,
   ): Promise<void> {
     const eventId = target.id;
-    const project = channelProject(channelId);
+    const project = channelProject(ctx, channelId);
     const failed =
       channelId === HOME_ID || !project?.path
         ? "there are no files to put back"
-        : await checkpoints.restore(project, channelId, eventId);
+        : await ctx.checkpoints.restore(project, channelId, eventId);
     why ??= failed
       ? `the files were left as they are — ${failed} — and it restarts from a brief of what's kept`
       : "the files went back with it, and the harness restarts from a brief of what's kept";
@@ -1662,14 +1118,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     archive.clearLastSessionId(channelId);
     const removed = archive.truncateFrom(channelId, eventId);
     if (removed.length > 0) {
-      broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
-      pushTranscript(channelId);
+      ctx.clients.broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
+      pushTranscript(ctx, channelId);
       if (tracker.removeForTurns(channelId, removed)) {
-        broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
+        ctx.clients.broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
       }
       // the prompt itself keeps its checkpoint: it is back in the composer,
       // and sending it again is a new prompt with a new one
-      if (project?.path) void checkpoints.forget(project, channelId, removed.filter((id) => id !== eventId));
+      if (project?.path) void ctx.checkpoints.forget(project, channelId, removed.filter((id) => id !== eventId));
     }
     // the brief covers what survived the truncation — the harness comes back
     // knowing that and nothing after it
@@ -1682,14 +1138,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     // nothing survived: the next prompt opens a genuinely new session, so
     // any brief left from before must not ride along
     archive.setPendingBrief(channelId, kept?.brief ?? "");
-    contexts.delete(channelId);
-    archive.setContextTokens(channelId, 0);
-    broadcast({
-      type: "context",
-      projectId: channelId,
-      context: { tokens: 0, window: contextWindow(channelId) },
-    });
-    broadcast({ type: "status", projectId: channelId, status: "idle" });
+    resetContext(ctx, channelId);
+    ctx.clients.broadcast({ type: "status", projectId: channelId, status: "idle" });
     if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify(composeBack(channelId, target)));
     ws.send(
@@ -1707,31 +1157,25 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     target: Extract<TranscriptEvent, { kind: "user" }>,
     resumeAt?: string,
   ): Promise<void> {
-    const project = channelProject(channelId);
+    const project = channelProject(ctx, channelId);
     const failed = project?.path
-      ? await checkpoints.restore(project, channelId, target.id)
+      ? await ctx.checkpoints.restore(project, channelId, target.id)
       : "there are no files to put back";
     manager.dispose(channelId);
     if (resumeAt) archive.setResumeAt(channelId, resumeAt);
     else archive.clearLastSessionId(channelId);
     const removed = archive.truncateFrom(channelId, target.id);
     if (removed.length > 0) {
-      broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
-      pushTranscript(channelId);
+      ctx.clients.broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
+      pushTranscript(ctx, channelId);
       if (tracker.removeForTurns(channelId, removed)) {
-        broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
+        ctx.clients.broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
       }
     }
-    if (project?.path) void checkpoints.forget(project, channelId, removed.filter((id) => id !== target.id));
+    if (project?.path) void ctx.checkpoints.forget(project, channelId, removed.filter((id) => id !== target.id));
     archive.setPendingBrief(channelId, "");
-    contexts.delete(channelId);
-    archive.setContextTokens(channelId, 0);
-    broadcast({
-      type: "context",
-      projectId: channelId,
-      context: { tokens: 0, window: contextWindow(channelId) },
-    });
-    broadcast({ type: "status", projectId: channelId, status: "idle" });
+    resetContext(ctx, channelId);
+    ctx.clients.broadcast({ type: "status", projectId: channelId, status: "idle" });
     if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify(composeBack(channelId, target)));
     ws.send(
@@ -1760,15 +1204,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   }
 
   /** Store one half of a turn's recall note and push the turn's notes. */
-  /** Each chat's condensed oldest exchanges, kept caught up so a compaction
-   *  brief lists only the newest (server/compaction.ts). */
-  const digests = new DigestFolder(archive, digestHistory);
-
   function noteSummary(projectId: string, turnId: string, part: "user" | "reply", note: string): void {
     archive.setSummary(projectId, turnId, part, note);
-    broadcast({ type: "turn_summary", projectId, turnId, note: archive.note(projectId, turnId) });
+    ctx.clients.broadcast({ type: "turn_summary", projectId, turnId, note: archive.note(projectId, turnId) });
     // an exchange just got its last note: the list may be past its cap
-    if (part === "reply") void digests.run(projectId);
+    if (part === "reply") void ctx.digests.run(projectId);
   }
 
   /**
@@ -1904,11 +1344,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
 
   /* ── the catch-up brief, written whole ───────────────────────────── */
 
-  /** Projects whose repo is being read for their brief right now. */
-  const catchingUp = new Set<string>();
-
   function catchupNote(projectId: string, busy: boolean, note?: string): void {
-    broadcast({
+    ctx.clients.broadcast({
       type: "catchup",
       projectId,
       busy,
@@ -1925,8 +1362,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
    */
   async function rebuildCatchup(projectId: string): Promise<void> {
     const project = store.get(projectId);
-    if (!project || catchingUp.has(projectId) || !smallModelEnabled()) return;
-    catchingUp.add(projectId);
+    if (!project || ctx.catchingUp.has(projectId) || !smallModelEnabled()) return;
+    ctx.catchingUp.add(projectId);
     catchupNote(projectId, true, "reading the repo…");
     try {
       const current = briefs.get(projectId);
@@ -1941,7 +1378,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       warn("server", err, "rebuildCatchup");
       catchupNote(projectId, false, "the brief could not be written — try again");
     } finally {
-      catchingUp.delete(projectId);
+      ctx.catchingUp.delete(projectId);
     }
   }
 
@@ -1961,7 +1398,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     }
   })();
 
-  const turns = new TurnTracker((projectId, turn) => {
+  const turnTracker = new TurnTracker((projectId, turn) => {
     if (!smallModelEnabled()) return;
     const found = store.findSession(projectId);
     if (found && !found.session.title) {
@@ -1969,7 +1406,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         .then((title) => {
           if (!title) return;
           store.setSessionTitle(projectId, title);
-          broadcast({ type: "projects", projects: store.list() });
+          ctx.clients.broadcast({ type: "projects", projects: store.list() });
         })
         .catch(() => {});
     }
@@ -1980,6 +1417,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       .catch(() => {});
     foldBrief(projectId, turn);
   });
+  ctx.turnTracker = turnTracker;
 
   /**
    * Archive, observe, log (Home), and broadcast one transcript event.
@@ -1990,11 +1428,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
    * rewinding matches a prompt against what the CLI recorded, and rewriting
    * it here would break that for the sake of a value the user chose to type.
    */
-  /** Each channel's reply in progress, held back to whole paragraphs
-   *  (server/paragraphs.ts) — and what has been let through so far, for a
-   *  window that opens the chat halfway through it. */
-  const gates = new Map<string, { messageId: string; gate: ParagraphGate; shown: string }>();
-
   /** An event with the vault's values taken back out of everything it
    *  shows — a subagent's card included: its brief, its line, its report. */
   function redacted(raw: TranscriptEvent): TranscriptEvent {
@@ -2013,9 +1446,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   function recordEvent(projectId: string, raw: TranscriptEvent): void {
     const event = redacted(raw);
     archive.append(projectId, event);
-    turns.observe(projectId, event);
+    ctx.turnTracker.observe(projectId, event);
     if (projectId === HOME_ID) homeLog.observe(event);
-    pushEvent(projectId, event);
+    ctx.clients.pushEvent(projectId, event);
     // every prompt gets its recall note AND its tracker split the moment
     // it's sent — neither waits on (or survives only with) a finished turn,
     // so interrupted turns and "continue" follow-ups can't lose requests.
@@ -2031,7 +1464,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           .then((items) => {
             if (items.length === 0) return;
             for (const text of items) tracker.add(projectId, text, "auto", event.id);
-            broadcast({ type: "tracker", projectId, items: tracker.items(projectId) });
+            ctx.clients.broadcast({ type: "tracker", projectId, items: tracker.items(projectId) });
           })
           .catch(() => {});
       }
@@ -2042,121 +1475,100 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     {
       onEvent: (projectId, event) => {
         // the finished message carries its whole text — the held tail too
-        if (event.kind === "assistant" && gates.get(projectId)?.messageId === event.id) gates.delete(projectId);
-        allowReadImages([event], pictureBase(projectId));
+        if (event.kind === "assistant" && ctx.turns.gates.get(projectId)?.messageId === event.id) ctx.turns.gates.delete(projectId);
+        ctx.readable.allowReadImages(projectId, [event]);
         recordEvent(projectId, event);
         if (event.kind === "result") {
-          pushUsage();
-          pushContexts();
+          ctx.usage.pushUsage();
+          pushContexts(ctx);
           // the turn's spend lands in its project's ledger (Home in its own)
-          const spender = projectId === HOME_ID ? HOME_ID : ownerProject(projectId)?.id;
+          const spender = projectId === HOME_ID ? HOME_ID : ownerProject(ctx, projectId)?.id;
           if (spender && (event.tokens || event.costUsd || event.durationMs)) {
             ledger.record(spender, {
               ...(event.tokens ? { tokens: event.tokens } : {}),
               ...(event.costUsd ? { costUsd: event.costUsd } : {}),
               ...(event.durationMs ? { ms: event.durationMs } : {}),
             });
-            broadcast({ type: "stats", projectId: spender, stats: ledger.stats(spender) });
+            ctx.clients.broadcast({ type: "stats", projectId: spender, stats: ledger.stats(spender) });
           }
           // a harness without ruri's tools names its components in a file
-          const owner = ownerProject(projectId);
+          const owner = ownerProject(ctx, projectId);
           if (owner) drainComponentRequests(owner.path, projectId, componentHost);
           // a prompt already waiting is a better answer to a dropped turn
           // than a nudge is, and it has just gone out
           if (!drainQueue(projectId)) maybeRetry(projectId, event);
-          else cancelRetry(projectId);
+          else ctx.retries.cancelRetry(projectId);
         }
       },
       onEventUpdate: (projectId, raw) => {
         // a subagent's card moving along: replaced where it stands, and
         // only while it still stands in the live transcript
         const event = redacted(raw);
-        if (archive.replace(projectId, event)) pushEvent(projectId, event);
+        if (archive.replace(projectId, event)) ctx.clients.pushEvent(projectId, event);
       },
       onAgentEvent: (projectId, key, raw) => {
         const event = redacted(raw);
-        allowReadImages([event], pictureBase(projectId));
+        ctx.readable.allowReadImages(projectId, [event]);
         agentLogs.append(projectId, key, event);
         // an agent's log is only ever open in the chat that started it
-        toViewers(projectId, { type: "agent_event", projectId, key, event });
+        ctx.clients.toViewers(projectId, { type: "agent_event", projectId, key, event });
       },
       onDelta: (projectId, messageId, delta) => {
-        let held = gates.get(projectId);
+        let held = ctx.turns.gates.get(projectId);
         if (!held || held.messageId !== messageId) {
           held = { messageId, gate: new ParagraphGate(), shown: "" };
-          gates.set(projectId, held);
+          ctx.turns.gates.set(projectId, held);
         }
         const ready = held.gate.push(delta);
         if (!ready) return;
         held.shown += ready;
-        toViewers(projectId, { type: "delta", projectId, messageId, delta: ready });
+        ctx.clients.toViewers(projectId, { type: "delta", projectId, messageId, delta: ready });
       },
       onStatus: (projectId, status) => {
         if (status === "working" || status === "permission") {
-          cancelBridgeClose(projectId);
-          startTurn(projectId);
+          ctx.bridge.cancelBridgeClose(projectId);
+          ctx.turns.startTurn(projectId);
           // coming back from a card the user sat on for ten minutes is not
           // a silence the model owes anyone an explanation for
-          const turn = turnProgress.get(projectId);
+          const turn = ctx.turns.progress.get(projectId);
           if (turn && status === "working") turn.at = Date.now();
         } else {
-          endTurn(projectId);
-          gates.delete(projectId);
-          closeBridgeSoon(projectId);
+          ctx.turns.endTurn(projectId);
+          ctx.turns.gates.delete(projectId);
+          ctx.bridge.closeBridgeSoon(projectId);
         }
-        broadcast({ type: "status", projectId, status });
+        ctx.clients.broadcast({ type: "status", projectId, status });
       },
-      onProgress: (projectId, progress) => {
-        const turn = turnProgress.get(projectId);
-        if (!turn) return;
-        turn.at = Date.now();
-        // an exact count replaces the running estimate; an estimate only
-        // ever adds to it, so the number never walks backwards mid-stream
-        if (progress.tokens !== undefined) turn.tokens = Math.max(turn.tokens, progress.tokens);
-        else if (progress.chars) turn.tokens += progress.chars / CHARS_PER_TOKEN;
-        pushTurn(projectId);
-      },
+      onProgress: ctx.turns.advance,
       onPermission: (raw) => {
         // PreToolUse hooks run before the approval, so the input reaching
         // here may already hold a real vault value — the card shows handles
         const request: PermissionRequest = { ...raw, input: secrets.redactInput(raw.input) };
-        permissions.set(request.requestId, request);
-        broadcast({ type: "permission_request", request });
+        ctx.permissions.set(request.requestId, request);
+        ctx.clients.broadcast({ type: "permission_request", request });
       },
       onPermissionResolved: (requestId) => {
-        permissions.delete(requestId);
-        broadcast({ type: "permission_resolved", requestId });
+        ctx.permissions.delete(requestId);
+        ctx.clients.broadcast({ type: "permission_resolved", requestId });
       },
       onQuestionLate: (requestId) => {
-        const request = permissions.get(requestId);
+        const request = ctx.permissions.get(requestId);
         if (!request || request.late) return;
         const late = { ...request, late: true };
-        permissions.set(requestId, late);
-        broadcast({ type: "permission_request", request: late });
+        ctx.permissions.set(requestId, late);
+        ctx.clients.broadcast({ type: "permission_request", request: late });
       },
-      onModels: (list) => {
-        const named = cleanClaudeModels(
-          list.map((m) => ({ id: m.value, display_name: m.displayName })),
-          claudeNames,
-        );
-        const cleaned = named.map((model) => ({
-          ...list.find((candidate) => candidate.value === model.value),
-          ...model,
-        }));
-        if (cleaned.length === 0 || JSON.stringify(cleaned) === JSON.stringify(claudeModels)) return;
-        claudeModels = cleaned;
-        broadcast({ type: "models", models: allModels() });
-      },
+      onModels: ctx.models.report,
       onSessionId: (projectId, sessionId) => archive.setLastSessionId(projectId, sessionId),
       onContext: (projectId, tokens, window) => {
         // the window is recorded first: contextWindow() reads it back, so a
         // harness that names its own is answered with that same number — and
         // recorded against the model that named it, so it dies with it
-        const model = channelProject(projectId)?.model || store.defaultModel();
+        const model = channelProject(ctx, projectId)?.model || store.defaultModel();
         archive.setContextTokens(projectId, tokens, window, model);
-        const context: ContextUsage = { tokens, window: contextWindow(projectId) };
-        contexts.set(projectId, context);
-        broadcast({ type: "context", projectId, context });
+        const context: ContextUsage = { tokens, window: contextWindow(ctx, projectId) };
+        ctx.turns.contexts.set(projectId, context);
+        ctx.clients.broadcast({ type: "context", projectId, context });
       },
       onChain: (projectId, eventId, kind, uuid) => archive.setChain(projectId, eventId, kind, uuid),
     },
@@ -2167,17 +1579,17 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       // the same words wherever the session runs: Claude takes them as an
       // append to its own preset, everything else as its whole system prompt
-      const claude = !registry.parse(project.model || store.defaultModel()).providerId;
+      const claude = !ctx.models.registry.parse(project.model || store.defaultModel()).providerId;
       // the bridge reaches Claude as tools and everything else as one HTTP
       // endpoint on this server — whose port is only known once it listens,
       // which is long before any session is made
-      const owner = ownerProject(project.id);
+      const owner = ownerProject(ctx, project.id);
       const bridgeCtx = { channelId: project.id, projectId: owner?.id ?? project.id };
       const bridge = !options.bridge
         ? ""
         : claude
           ? bridgeToolBriefing()
-          : bridgeHttpBriefing(`http://127.0.0.1:${listeningPort}/bridge/${project.id}`);
+          : bridgeHttpBriefing(`http://127.0.0.1:${ctx.listeningPort}/bridge/${project.id}`);
       const note = sessionBriefing({
         projectDir: project.path,
         projectName: project.name,
@@ -2204,18 +1616,19 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       };
     },
     {
-      parse: (model) => registry.parse(model),
-      create: (id, workDir) => registry.createFor(id, workDir, secrets.env()),
-      canFork: (id) => registry.canForkSession(id),
+      parse: (model) => ctx.models.registry.parse(model),
+      create: (id, workDir) => ctx.models.registry.createFor(id, workDir, secrets.env()),
+      canFork: (id) => ctx.models.registry.canForkSession(id),
     },
     (projectId) => archive.takeResumeAt(projectId),
     (projectId) => archive.takeForkNext(projectId),
   );
+  ctx.manager = manager;
   // an unset model is whatever Settings crowned, read live
   manager.useDefaultModel(() => store.defaultModel());
   // between turns a process stays for the chat open in a window, a prompt
   // queued behind the turn, or a retry about to go — for nothing else
-  manager.useKeepWarm((id) => isOpen(id) || (sendQueues.get(id)?.length ?? 0) > 0 || retries.has(id));
+  manager.useKeepWarm((id) => ctx.clients.isOpen(id) || (sendQueues.get(id)?.length ?? 0) > 0 || ctx.retries.has(id));
 
   /**
    * The agents the user starts themselves, from a chat's agents page (the
@@ -2235,12 +1648,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     "</ruri:agent>",
   ].join("\n");
 
-  /** The last thing each of the user's agents said this turn: its report. */
-  const crewSaid = new Map<string, string>();
-
   /** An agent of the user's as a Project: the chat's, under the agent's key. */
   function crewProject(chatId: string, key: string, model?: string) {
-    const chat = channelProject(chatId);
+    const chat = channelProject(ctx, chatId);
     return chat && { ...chat, id: key, ...(model ? { model } : {}) };
   }
 
@@ -2248,7 +1658,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   function crewCard(key: string, patch: Partial<SubagentState>): void {
     const chatId = crew.owner(key);
     if (!chatId || !crew.update(key, patch)) return;
-    toViewers(chatId, { type: "crew", projectId: chatId, agents: crew.list(chatId) });
+    ctx.clients.toViewers(chatId, { type: "crew", projectId: chatId, agents: crew.list(chatId) });
   }
 
   /** Something one of the user's agents did, into a log (its own, or an
@@ -2257,9 +1667,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     const chatId = crew.owner(key);
     if (!chatId) return false;
     const event = redacted(raw);
-    allowReadImages([event], pictureBase(chatId));
+    ctx.readable.allowReadImages(chatId, [event]);
     const added = agentLogs.append(chatId, logKey, event);
-    toViewers(chatId, { type: "agent_event", projectId: chatId, key: logKey, event });
+    ctx.clients.toViewers(chatId, { type: "agent_event", projectId: chatId, key: logKey, event });
     return added;
   }
 
@@ -2270,7 +1680,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     const member = crew.member(key);
     const project = chatId && member ? crewProject(chatId, key, member.agent.model) : undefined;
     if (!project || member?.agent.status === "running") return;
-    crewSaid.delete(key);
+    ctx.crewSaid.delete(key);
     crewCard(key, { status: "running", startedAt: Date.now(), endedAt: undefined, result: undefined, activity: undefined });
     crewManager.send(project, text);
   }
@@ -2281,8 +1691,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     const chatId = crew.owner(key);
     const card = crew.member(key)?.agent;
     if (!chatId || !card) return;
-    const said = crewSaid.get(key);
-    crewSaid.delete(key);
+    const said = ctx.crewSaid.get(key);
+    ctx.crewSaid.delete(key);
     crewCard(key, {
       status: event.stopped ? "stopped" : event.ok ? "done" : "failed",
       endedAt: Date.now(),
@@ -2290,16 +1700,16 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       ...(event.tokens ? { tokens: (card.tokens ?? 0) + event.tokens } : {}),
       ...(said ? { result: said } : event.error && !event.ok ? { result: secrets.redact(event.error) } : {}),
     });
-    const owner = ownerProject(chatId);
+    const owner = ownerProject(ctx, chatId);
     if (owner && (event.tokens || event.costUsd || event.durationMs)) {
       ledger.record(owner.id, {
         ...(event.tokens ? { tokens: event.tokens } : {}),
         ...(event.costUsd ? { costUsd: event.costUsd } : {}),
         ...(event.durationMs ? { ms: event.durationMs } : {}),
       });
-      broadcast({ type: "stats", projectId: owner.id, stats: ledger.stats(owner.id) });
+      ctx.clients.broadcast({ type: "stats", projectId: owner.id, stats: ledger.stats(owner.id) });
     }
-    pushUsage();
+    ctx.usage.pushUsage();
   }
 
   const crewManager = new SessionManager(
@@ -2310,7 +1720,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           return;
         }
         const added = crewLog(key, key, raw);
-        if (raw.kind === "assistant") crewSaid.set(key, secrets.redact(raw.text));
+        if (raw.kind === "assistant") ctx.crewSaid.set(key, secrets.redact(raw.text));
         if (raw.kind === "tool" && added) {
           const card = crew.member(key)?.agent;
           crewCard(key, {
@@ -2341,19 +1751,19 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           agent: raw.projectId,
           input: secrets.redactInput(raw.input),
         };
-        permissions.set(request.requestId, request);
-        broadcast({ type: "permission_request", request });
+        ctx.permissions.set(request.requestId, request);
+        ctx.clients.broadcast({ type: "permission_request", request });
       },
       onPermissionResolved: (requestId) => {
-        permissions.delete(requestId);
-        broadcast({ type: "permission_resolved", requestId });
+        ctx.permissions.delete(requestId);
+        ctx.clients.broadcast({ type: "permission_resolved", requestId });
       },
       onQuestionLate: (requestId) => {
-        const request = permissions.get(requestId);
+        const request = ctx.permissions.get(requestId);
         if (!request || request.late) return;
         const late = { ...request, late: true };
-        permissions.set(requestId, late);
-        broadcast({ type: "permission_request", request: late });
+        ctx.permissions.set(requestId, late);
+        ctx.clients.broadcast({ type: "permission_request", request: late });
       },
       onModels: () => {},
       onSessionId: (key, sessionId) => crew.setSessionId(key, sessionId),
@@ -2363,7 +1773,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     },
     (key) => crew.sessionId(key),
     (project) => {
-      const claude = !registry.parse(project.model || store.defaultModel()).providerId;
+      const claude = !ctx.models.registry.parse(project.model || store.defaultModel()).providerId;
       const note = [
         sessionBriefing({ projectDir: project.path, projectName: project.name, secrets, claude, naming: "" }),
         CREW_BRIEFING,
@@ -2377,29 +1787,19 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       };
     },
     {
-      parse: (model) => registry.parse(model),
-      create: (id, workDir) => registry.createFor(id, workDir, secrets.env()),
-      canFork: (id) => registry.canForkSession(id),
+      parse: (model) => ctx.models.registry.parse(model),
+      create: (id, workDir) => ctx.models.registry.createFor(id, workDir, secrets.env()),
+      canFork: (id) => ctx.models.registry.canForkSession(id),
     },
   );
+  ctx.crewManager = crewManager;
   crewManager.useDefaultModel(() => store.defaultModel());
-
-  /** The session's window and apps go with it, and so do its pictures. */
-  function closeBridge(sessionId: string): void {
-    void options.bridge?.close(sessionId);
-    try {
-      fs.rmSync(bridgeDir(sessionId), { recursive: true, force: true });
-    } catch (err) {
-      warn("server", err, "closeBridge");
-      // best-effort
-    }
-  }
 
   /** Tear down one project and everything its sessions accumulated. */
   function closeProjectById(projectId: string): void {
     const closing = store.get(projectId);
     for (const sessionId of closing?.sessions.map((s) => s.id) ?? []) {
-      if (closing?.path) void checkpoints.forgetChannel(closing, sessionId).catch(() => undefined);
+      if (closing?.path) void ctx.checkpoints.forgetChannel(closing, sessionId).catch(() => undefined);
       manager.dispose(sessionId);
       archive.remove(sessionId);
       removeTurnFiles(sessionId);
@@ -2407,21 +1807,21 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       agentLogs.remove(sessionId);
       drafts.remove(sessionId);
       tracker.removeProject(sessionId);
-      contexts.delete(sessionId);
-      turnProgress.delete(sessionId);
-      turnSent.delete(sessionId);
-      cancelRetry(sessionId);
+      ctx.turns.contexts.delete(sessionId);
+      ctx.turns.progress.delete(sessionId);
+      ctx.turns.sent.delete(sessionId);
+      ctx.retries.cancelRetry(sessionId);
       sendQueues.delete(sessionId);
       heldQueues.delete(sessionId);
-      terminals.closeChannel(sessionId);
-      closeBridge(sessionId);
+      ctx.terminals.closeChannel(sessionId);
+      ctx.bridge.closeBridge(sessionId);
     }
     briefs.remove(projectId);
     ideas.removeProject(projectId);
     components.removeProject(projectId);
     ledger.removeProject(projectId);
     store.remove(projectId);
-    broadcast({ type: "projects", projects: store.list() });
+    ctx.clients.broadcast({ type: "projects", projects: store.list() });
   }
 
   // What the Home agent's MCP tools may do to the app: open projects (and
@@ -2437,7 +1837,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         } catch (err) {
           return `failed: ${errorMessage(err)}`;
         }
-        broadcast({ type: "projects", projects: store.list() });
+        ctx.clients.broadcast({ type: "projects", projects: store.list() });
         // a project new to ruri gets told what it is before anyone asks
         if (briefless(project.id)) void rebuildCatchup(project.id);
       }
@@ -2445,7 +1845,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       // an emptied folder (all sessions closed) gets a fresh session on reopen
       if (!sessionId) {
         sessionId = store.newSession(project.id)?.id;
-        broadcast({ type: "projects", projects: store.list() });
+        ctx.clients.broadcast({ type: "projects", projects: store.list() });
       }
       if (kickoffPrompt && sessionId) {
         manager.send({ ...project, id: sessionId }, kickoffPrompt);
@@ -2474,7 +1874,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       if (!project) return `no open project matches "${query}"`;
       if (project.hidden) return `already hidden: ${project.name}`;
       store.update(project.id, { hidden: true });
-      broadcast({ type: "projects", projects: store.list() });
+      ctx.clients.broadcast({ type: "projects", projects: store.list() });
       return `hidden: ${project.name} (${project.path}) — still open, tucked under "hidden" at the bottom of the sidebar`;
     },
     unhideProject: (query) => {
@@ -2482,7 +1882,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       if (!project) return `no open project matches "${query}"`;
       if (!project.hidden) return `not hidden: ${project.name}`;
       store.update(project.id, { hidden: undefined });
-      broadcast({ type: "projects", projects: store.list() });
+      ctx.clients.broadcast({ type: "projects", projects: store.list() });
       return `unhidden: ${project.name} (${project.path})`;
     },
     closeProject: (query) => {
@@ -2500,7 +1900,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     switch (msg.type) {
       case "add_project": {
         const project = store.add(msg.name, msg.path, msg.folder);
-        broadcast({ type: "projects", projects: store.list() });
+        ctx.clients.broadcast({ type: "projects", projects: store.list() });
         if (briefless(project.id)) void rebuildCatchup(project.id);
         break;
       }
@@ -2542,7 +1942,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const uploads = msg.attachments ?? [];
         // the user is driving again: whatever ruri was about to try again
         // for them, this prompt says it better
-        cancelRetry(channelId);
+        ctx.retries.cancelRetry(channelId);
         // A queue that has been standing by since a stopped turn: this
         // prompt is the reason it stopped — a clarification, a correction —
         // so it goes out now, ahead of the queue, and the queue falls in
@@ -2571,8 +1971,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         if (msg.text.trim().length === 0) return;
         const channelId = msg.projectId;
         const uploads = msg.attachments ?? [];
-        cancelRetry(channelId);
-        if (!channelProject(channelId)) throw new Error("unknown session");
+        ctx.retries.cancelRetry(channelId);
+        if (!channelProject(ctx, channelId)) throw new Error("unknown session");
         const ahead = releaseQueue(channelId) && !running(channelId);
         if (queueWithCommands(channelId, msg.text, uploads, true, ahead)) break;
         dispatchSplit(channelId, msg.text, uploads, ahead);
@@ -2657,14 +2057,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           break;
         }
         const uploads = msg.attachments ?? [];
-        cancelRetry(channelId);
+        ctx.retries.cancelRetry(channelId);
         if (msg.text.trim().length === 0 && uploads.length === 0) {
           placeBack(channelId, entry, []);
           broadcastQueue(channelId);
           break;
         }
         // commands written into the rewrite run ahead of it, as always
-        const { commands, rest } = splitCommands(msg.text, knownCommands(ownerProject(channelId)?.path));
+        const { commands, rest } = splitCommands(msg.text, knownCommands(ownerProject(ctx, channelId)?.path));
         const entries: QueueEntry[] = commands.map((command) => ({
           id: randomUUID(),
           text: command,
@@ -2703,10 +2103,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       case "remove_event": {
         const removed = archive.removeTurn(msg.projectId, msg.eventId);
         if (removed.length > 0) {
-          broadcast({ type: "events_removed", projectId: msg.projectId, eventIds: removed });
+          ctx.clients.broadcast({ type: "events_removed", projectId: msg.projectId, eventIds: removed });
           // a removed turn takes its extracted checklist items with it
           if (tracker.removeForTurns(msg.projectId, removed)) {
-            broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+            ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
           }
         }
         break;
@@ -2731,7 +2131,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             const idx = events.findIndex((e) => e.id === eventId);
             const target = idx >= 0 ? events[idx] : undefined;
             if (!target || target.kind !== "user") throw new Error("that prompt is gone");
-            const project = channelProject(channelId);
+            const project = channelProject(ctx, channelId);
             if (!project) throw new Error("unknown session");
             const chain = archive.chain(channelId);
             // The fork point: the latest checkpointed turn before the target.
@@ -2761,9 +2161,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
               await rewindOnHarness(ws, channelId, target);
               return;
             }
-            const providerId = registry.parse(project.model).providerId;
+            const providerId = ctx.models.registry.parse(project.model).providerId;
             if (providerId !== undefined) {
-              if (registry.canForkSession(providerId)) {
+              if (ctx.models.registry.canForkSession(providerId)) {
                 // A native provider fork can keep the exact conversation
                 // prefix. If this is the first prompt ever, clearing the
                 // source id is the exact same empty prefix. A first prompt
@@ -2806,7 +2206,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             // The CLI's own checkpoint is the better one when it is there —
             // it knows the session. When it isn't, ruri took its own before
             // the prompt went out, and that is what a relaunch cannot lose.
-            const mine = result.canRewind ? undefined : await checkpoints.restore(project, channelId, eventId);
+            const mine = result.canRewind ? undefined : await ctx.checkpoints.restore(project, channelId, eventId);
             const filesKept = result.canRewind || mine === undefined
               ? undefined
               : (result.error ?? "the CLI couldn't restore the files");
@@ -2815,17 +2215,17 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             else archive.clearLastSessionId(channelId);
             const removed = archive.truncateFrom(channelId, eventId);
             if (removed.length > 0) {
-              broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
-      pushTranscript(channelId);
+              ctx.clients.broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
+      pushTranscript(ctx, channelId);
               // items are tied to the prompts they were split from — the
               // rewound prompt's items (and every discarded later prompt's)
               // go too; the edited prompt re-extracts fresh ones on send
               if (tracker.removeForTurns(channelId, removed)) {
-                broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
+                ctx.clients.broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
               }
-              void checkpoints.forget(project, channelId, removed.filter((id) => id !== eventId));
+              void ctx.checkpoints.forget(project, channelId, removed.filter((id) => id !== eventId));
             }
-            broadcast({ type: "status", projectId: channelId, status: "idle" });
+            ctx.clients.broadcast({ type: "status", projectId: channelId, status: "idle" });
             if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(composeBack(channelId, target)));
             if (filesKept && ws.readyState === WebSocket.OPEN) {
               ws.send(
@@ -2870,7 +2270,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             const kept = events.slice(0, end);
             const next = events.slice(end).find((e) => e.kind === "user");
             const compactedSince = events.slice(end).some((e) => e.kind === "compaction");
-            const project = channelProject(channelId) ?? found.project;
+            const project = channelProject(ctx, channelId) ?? found.project;
             const fresh = store.newSession(found.project.id);
             if (!fresh) throw new Error("unknown project");
             const title = found.session.title ? `${found.session.title} fork` : "fork";
@@ -2888,9 +2288,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
                 ? { contextWindow: source.contextWindow, contextWindowModel: source.contextWindowModel }
                 : {}),
             });
-            const providerId = registry.parse(project.model).providerId;
+            const providerId = ctx.models.registry.parse(project.model).providerId;
             const claude = providerId === undefined;
-            const nativeFork = claude || registry.canForkSession(providerId);
+            const nativeFork = claude || ctx.models.registry.canForkSession(providerId);
             const sessionId = archive.lastSessionId(channelId);
             let forked = false;
             if (nativeFork && sessionId && !compactedSince) {
@@ -2923,17 +2323,17 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
               const built = buildCompaction(fresh.id, kept, archive.summaries(fresh.id), digest);
               if (built) archive.setPendingBrief(fresh.id, built.brief);
             }
-            broadcast({ type: "projects", projects: store.list() });
-            broadcast({
+            ctx.clients.broadcast({ type: "projects", projects: store.list() });
+            ctx.clients.broadcast({
               type: "transcript",
               projectId: fresh.id,
-              events: allowArchived({ [fresh.id]: archive.events(fresh.id) })[fresh.id] ?? [],
+              events: ctx.readable.allowArchived({ [fresh.id]: archive.events(fresh.id) })[fresh.id] ?? [],
               summaries: archive.allSummaries([fresh.id])[fresh.id] ?? {},
               earlier: archive.earlier(fresh.id),
             });
             const tokens = archive.contextTokens(fresh.id);
             if (tokens !== undefined) {
-              broadcast({ type: "context", projectId: fresh.id, context: { tokens, window: contextWindow(fresh.id) } });
+              ctx.clients.broadcast({ type: "context", projectId: fresh.id, context: { tokens, window: contextWindow(ctx, fresh.id) } });
             }
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: "open_session", projectId: fresh.id } satisfies ServerMessage));
@@ -2964,40 +2364,38 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // the asker alone, with its pictures made readable on the way
         const id = msg.projectId;
         if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
-        ws.send(JSON.stringify(transcriptOf(id)));
+        ws.send(JSON.stringify(transcriptOf(ctx, id)));
         // the chat on screen gets its missing notes before any other
         backfillNotes([id], { first: true });
         // and its digest caught up, ahead of the compaction it may be near
-        void digests.run(id);
+        void ctx.digests.run(id);
         break;
       }
       case "view": {
         const known = new Set([...store.sessionIds(), HOME_ID]);
-        const view = views.get(ws) ?? { channels: new Set<string>(), live: true, board: false, seen: new Map() };
-        const before = new Set(showing(view));
-        const wasOpen = view.channels;
-        const hadBoard = view.live && view.board;
+        const view = ctx.clients.views.get(ws) ?? { channels: new Set<string>(), board: false, seen: new Map() };
+        const before = view.channels;
+        const hadBoard = view.board;
         view.channels = new Set(msg.channels.filter((id) => known.has(id)));
-        view.live = msg.live;
         view.board = msg.board === true;
-        views.set(ws, view);
-        const now = showing(view);
-        for (const id of before) if (!now.has(id)) view.seen.set(id, revisions.get(id) ?? 0);
-        for (const id of now) if (!before.has(id)) catchUp(ws, view, id);
+        ctx.clients.views.set(ws, view);
+        const now = view.channels;
+        for (const id of before) if (!now.has(id)) view.seen.set(id, ctx.clients.revisions.get(id) ?? 0);
+        for (const id of now) if (!before.has(id)) catchUp(ctx, ws, view, id);
         // the projects page coming up: every chat's tail as it now stands,
         // since the ones not on screen stopped hearing about their work
-        if (view.live && view.board && !hadBoard) {
+        if (view.board && !hadBoard) {
           const others = [...known].filter((id) => !now.has(id));
           ws.send(
             JSON.stringify({
               type: "tails",
-              transcripts: allowArchived(archive.tails(others, TRANSCRIPT_TAIL)),
+              transcripts: ctx.readable.allowArchived(archive.tails(others, TRANSCRIPT_TAIL)),
             } satisfies ServerMessage),
           );
         }
         // a chat opened or left: its process looks again at whether it stays
-        for (const id of new Set([...wasOpen, ...view.channels])) {
-          if (wasOpen.has(id) !== view.channels.has(id)) manager.settle(id);
+        for (const id of new Set([...before, ...now])) {
+          if (before.has(id) !== now.has(id)) manager.settle(id);
         }
         break;
       }
@@ -3005,7 +2403,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const id = msg.projectId;
         if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
         const events = agentLogs.read(id, msg.key);
-        allowReadImages(events, pictureBase(id));
+        ctx.readable.allowReadImages(id, events);
         ws.send(JSON.stringify({ type: "agent_log", projectId: id, key: msg.key, events } satisfies ServerMessage));
         break;
       }
@@ -3024,7 +2422,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           mine: true,
           startedAt: Date.now(),
         });
-        toViewers(chatId, { type: "crew", projectId: chatId, agents: crew.list(chatId) });
+        ctx.clients.toViewers(chatId, { type: "crew", projectId: chatId, agents: crew.list(chatId) });
         crewManager.send(project, text);
         break;
       }
@@ -3045,7 +2443,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const id = msg.projectId;
         if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
         const events = archive.history(id);
-        allowReadImages(events, pictureBase(id));
+        ctx.readable.allowReadImages(id, events);
         ws.send(JSON.stringify({ type: "history", projectId: id, events } satisfies ServerMessage));
         break;
       }
@@ -3077,7 +2475,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const fresh = store.newSession(project.id);
         if (!fresh) throw new Error("unknown project");
         archive.seed(fresh.id, { events: imported.events, summaries: {}, chain: {} });
-        const providerId = registry.parse(project.model).providerId;
+        const providerId = ctx.models.registry.parse(project.model).providerId;
         const sameHarness = imported.provider === "claude" ? providerId === undefined : providerId === imported.provider;
         if (sameHarness) archive.setLastSessionId(fresh.id, imported.resume);
         else {
@@ -3086,11 +2484,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         }
         const firstPrompt = imported.events.find((e) => e.kind === "user");
         if (firstPrompt && firstPrompt.kind === "user") titleSession(fresh.id, firstPrompt.text);
-        broadcast({ type: "projects", projects: store.list() });
-        broadcast({
+        ctx.clients.broadcast({ type: "projects", projects: store.list() });
+        ctx.clients.broadcast({
           type: "transcript",
           projectId: fresh.id,
-          events: allowArchived({ [fresh.id]: archive.events(fresh.id) })[fresh.id] ?? [],
+          events: ctx.readable.allowArchived({ [fresh.id]: archive.events(fresh.id) })[fresh.id] ?? [],
           summaries: {},
         });
         if (ws.readyState === WebSocket.OPEN) {
@@ -3108,12 +2506,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       case "new_session": {
         store.newSession(msg.projectId);
-        broadcast({ type: "projects", projects: store.list() });
+        ctx.clients.broadcast({ type: "projects", projects: store.list() });
         break;
       }
       case "remove_session": {
         const owner = store.findSession(msg.sessionId)?.project;
-        if (owner?.path) void checkpoints.forgetChannel(owner, msg.sessionId).catch(() => undefined);
+        if (owner?.path) void ctx.checkpoints.forgetChannel(owner, msg.sessionId).catch(() => undefined);
         manager.dispose(msg.sessionId);
         archive.remove(msg.sessionId);
         removeTurnFiles(msg.sessionId);
@@ -3121,13 +2519,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         agentLogs.remove(msg.sessionId);
         drafts.remove(msg.sessionId);
         tracker.removeProject(msg.sessionId);
-        contexts.delete(msg.sessionId);
-        turnProgress.delete(msg.sessionId);
-        turnSent.delete(msg.sessionId);
-        cancelRetry(msg.sessionId);
-        closeBridge(msg.sessionId);
+        ctx.turns.contexts.delete(msg.sessionId);
+        ctx.turns.progress.delete(msg.sessionId);
+        ctx.turns.sent.delete(msg.sessionId);
+        ctx.retries.cancelRetry(msg.sessionId);
+        ctx.bridge.closeBridge(msg.sessionId);
         store.removeSession(msg.sessionId);
-        broadcast({ type: "projects", projects: store.list() });
+        ctx.clients.broadcast({ type: "projects", projects: store.list() });
         break;
       }
       case "draft": {
@@ -3150,14 +2548,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       case "interrupt": {
         interruptEpochs.set(msg.projectId, (interruptEpochs.get(msg.projectId) ?? 0) + 1);
-        cancelRetry(msg.projectId);
+        ctx.retries.cancelRetry(msg.projectId);
         // The queue is not thrown away with the answer — it stands by. It
         // moves again on the next prompt (which goes ahead of it) or when
         // it is sent on from its own card.
         holdQueue(msg.projectId);
         manager.interrupt(msg.projectId);
         // settle the optimistic "working" a pending split may have shown
-        broadcast({
+        ctx.clients.broadcast({
           type: "status",
           projectId: msg.projectId,
           status: manager.statuses()[msg.projectId] ?? "idle",
@@ -3166,32 +2564,32 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       case "set_pref": {
         prefs.set(msg.key, msg.value);
-        broadcast({ type: "prefs", prefs: prefs.all() });
+        ctx.clients.broadcast({ type: "prefs", prefs: prefs.all() });
         break;
       }
       case "terminal_list": {
         ws.send(JSON.stringify({
           type: "terminal_tabs",
           projectId: msg.projectId,
-          tabs: terminals.list(msg.projectId),
+          tabs: ctx.terminals.list(msg.projectId),
         } satisfies ServerMessage));
         break;
       }
       case "terminal_new": {
-        broadcast({
+        ctx.clients.broadcast({
           type: "terminal_tabs",
           projectId: msg.projectId,
-          tabs: terminals.add(msg.projectId),
+          tabs: ctx.terminals.add(msg.projectId),
         });
         break;
       }
       case "terminal_open": {
-        const attaching = terminals.has(msg.termId);
+        const attaching = ctx.terminals.has(msg.termId);
         if (
-          !terminals.open(
+          !ctx.terminals.open(
             msg.projectId,
             msg.termId,
-            terminalCwd(msg.projectId),
+            terminalCwd(ctx, msg.projectId),
             msg.cols,
             msg.rows,
           )
@@ -3211,25 +2609,25 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             type: "terminal_data",
             projectId: msg.projectId,
             termId: msg.termId,
-            data: terminals.scrollback(msg.termId),
+            data: ctx.terminals.scrollback(msg.termId),
             replay: true,
           } satisfies ServerMessage));
         }
         break;
       }
       case "terminal_input": {
-        terminals.write(msg.termId, msg.data);
+        ctx.terminals.write(msg.termId, msg.data);
         break;
       }
       case "terminal_resize": {
-        terminals.resize(msg.termId, msg.cols, msg.rows);
+        ctx.terminals.resize(msg.termId, msg.cols, msg.rows);
         break;
       }
       case "terminal_close": {
-        broadcast({
+        ctx.clients.broadcast({
           type: "terminal_tabs",
           projectId: msg.projectId,
-          tabs: terminals.close(msg.projectId, msg.termId),
+          tabs: ctx.terminals.close(msg.projectId, msg.termId),
         });
         break;
       }
@@ -3243,13 +2641,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // the answers go into it; if it has moved on (the turn ended, or the
         // CLI gave up on the hook), they go out as a prompt of their own —
         // never into a hole.
-        const request = permissions.get(msg.requestId);
+        const request = ctx.permissions.get(msg.requestId);
         let outcome = manager.respondQuestion(msg.requestId, msg.answers);
         if (outcome === "none") outcome = crewManager.respondQuestion(msg.requestId, msg.answers);
         if (outcome === "answered") break;
         if (outcome === "none") {
-          permissions.delete(msg.requestId);
-          broadcast({ type: "permission_resolved", requestId: msg.requestId });
+          ctx.permissions.delete(msg.requestId);
+          ctx.clients.broadcast({ type: "permission_resolved", requestId: msg.requestId });
         }
         if (!msg.answers || !request || request.kind !== "question") break;
         const asked = (request.input as AskQuestions).questions;
@@ -3280,8 +2678,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         if (msg.projectId === HOME_ID) {
           store.setHomeSettings({ model: msg.model });
           manager.setModel(HOME_ID, msg.model);
-          broadcast({ type: "home_settings", home: store.homeSettings() });
-          republishContext(HOME_ID);
+          ctx.clients.broadcast({ type: "home_settings", home: store.homeSettings() });
+          republishContext(ctx, HOME_ID);
           break;
         }
         // A chat's pick is that chat's alone: it lands on the session, the
@@ -3291,9 +2689,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           if (store.effectiveSettings(msg.projectId)?.model === msg.model) break;
           store.setSessionSettings(msg.projectId, { model: msg.model });
           manager.setModel(msg.projectId, msg.model);
-          broadcast({ type: "projects", projects: store.list() });
+          ctx.clients.broadcast({ type: "projects", projects: store.list() });
           // the new model may have a different window — remeasure against it
-          republishContext(msg.projectId);
+          republishContext(ctx, msg.projectId);
           break;
         }
         const project = store.get(msg.projectId);
@@ -3302,22 +2700,22 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         store.update(msg.projectId, { model: msg.model });
         // live sessions are keyed by session id, not project id
         for (const s of project.sessions) manager.setModel(s.id, msg.model);
-        broadcast({ type: "projects", projects: store.list() });
-        for (const s of project.sessions) republishContext(s.id);
+        ctx.clients.broadcast({ type: "projects", projects: store.list() });
+        for (const s of project.sessions) republishContext(ctx, s.id);
         break;
       }
       case "set_permission_mode": {
         if (msg.projectId === HOME_ID) {
           store.setHomeSettings({ permissionMode: msg.mode });
           manager.setPermissionMode(HOME_ID, msg.mode);
-          broadcast({ type: "home_settings", home: store.homeSettings() });
+          ctx.clients.broadcast({ type: "home_settings", home: store.homeSettings() });
           break;
         }
         if (store.findSession(msg.projectId)) {
           if (store.effectiveSettings(msg.projectId)?.permissionMode === msg.mode) break;
           store.setSessionSettings(msg.projectId, { permissionMode: msg.mode });
           manager.setPermissionMode(msg.projectId, msg.mode);
-          broadcast({ type: "projects", projects: store.list() });
+          ctx.clients.broadcast({ type: "projects", projects: store.list() });
           break;
         }
         const project = store.get(msg.projectId);
@@ -3325,7 +2723,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         for (const s of project.sessions) delete s.permissionMode;
         store.update(msg.projectId, { permissionMode: msg.mode });
         for (const s of project.sessions) manager.setPermissionMode(s.id, msg.mode);
-        broadcast({ type: "projects", projects: store.list() });
+        ctx.clients.broadcast({ type: "projects", projects: store.list() });
         break;
       }
       case "set_effort": {
@@ -3333,14 +2731,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           if ((store.homeSettings().effort ?? "") === msg.effort) break;
           store.setHomeSettings({ effort: msg.effort });
           manager.setEffort(HOME_ID, msg.effort);
-          broadcast({ type: "home_settings", home: store.homeSettings() });
+          ctx.clients.broadcast({ type: "home_settings", home: store.homeSettings() });
           break;
         }
         if (store.findSession(msg.projectId)) {
           if (store.effectiveSettings(msg.projectId)?.effort === msg.effort) break;
           store.setSessionSettings(msg.projectId, { effort: msg.effort });
           manager.setEffort(msg.projectId, msg.effort);
-          broadcast({ type: "projects", projects: store.list() });
+          ctx.clients.broadcast({ type: "projects", projects: store.list() });
           break;
         }
         const project = store.get(msg.projectId);
@@ -3349,13 +2747,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         for (const s of project.sessions) delete s.effort;
         store.update(msg.projectId, { effort: msg.effort });
         for (const s of project.sessions) manager.setEffort(s.id, msg.effort);
-        broadcast({ type: "projects", projects: store.list() });
+        ctx.clients.broadcast({ type: "projects", projects: store.list() });
         break;
       }
       case "tracker_add": {
         if (!msg.text.trim()) return;
         tracker.add(msg.projectId, msg.text.trim(), "manual", undefined, msg.note ?? "");
-        broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+        ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
         break;
       }
       case "tracker_update": {
@@ -3364,12 +2762,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           ...(msg.note !== undefined ? { note: msg.note } : {}),
           ...(msg.text !== undefined ? { text: msg.text } : {}),
         });
-        broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+        ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
         break;
       }
       case "tracker_remove": {
         tracker.remove(msg.projectId, msg.itemId);
-        broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+        ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
         break;
       }
       /* ── the ideas board ──────────────────────────────────────── */
@@ -3377,7 +2775,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const text = msg.text.trim();
         if (!text) break;
         ideas.add(msg.projectId, text);
-        broadcast({ type: "ideas", projectId: msg.projectId, items: ideas.items(msg.projectId) });
+        ctx.clients.broadcast({ type: "ideas", projectId: msg.projectId, items: ideas.items(msg.projectId) });
         break;
       }
       case "idea_update": {
@@ -3385,23 +2783,23 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           ...(msg.text !== undefined ? { text: msg.text } : {}),
           ...(msg.done !== undefined ? { done: msg.done } : {}),
         });
-        broadcast({ type: "ideas", projectId: msg.projectId, items: ideas.items(msg.projectId) });
+        ctx.clients.broadcast({ type: "ideas", projectId: msg.projectId, items: ideas.items(msg.projectId) });
         break;
       }
       case "idea_remove": {
         ideas.remove(msg.projectId, msg.ideaId);
-        broadcast({ type: "ideas", projectId: msg.projectId, items: ideas.items(msg.projectId) });
+        ctx.clients.broadcast({ type: "ideas", projectId: msg.projectId, items: ideas.items(msg.projectId) });
         break;
       }
 
       /* ── the component index ──────────────────────────────────── */
       case "component_named": {
-        const pending = pendingComponents.get(msg.requestId);
+        const pending = ctx.pendingComponents.get(msg.requestId);
         if (!pending) break;
-        pendingComponents.delete(msg.requestId);
-        permissions.delete(msg.requestId);
-        broadcast({ type: "permission_resolved", requestId: msg.requestId });
-        const owner = ownerProject(pending.channelId);
+        ctx.pendingComponents.delete(msg.requestId);
+        ctx.permissions.delete(msg.requestId);
+        ctx.clients.broadcast({ type: "permission_resolved", requestId: msg.requestId });
+        const owner = ownerProject(ctx, pending.channelId);
         const name = (msg.name ?? pending.proposal.name).trim();
         if (msg.skip || !name || !owner) {
           // nothing is written down, including the copy of the screenshot
@@ -3476,12 +2874,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           ...(msg.note !== undefined ? { note: msg.note } : {}),
           ...(msg.secret !== undefined ? { secret: msg.secret } : {}),
         });
-        broadcast({ type: "secrets", items: secrets.meta() });
+        ctx.clients.broadcast({ type: "secrets", items: secrets.meta() });
         break;
       }
       case "secret_remove": {
         secrets.remove(msg.id);
-        broadcast({ type: "secrets", items: secrets.meta() });
+        ctx.clients.broadcast({ type: "secrets", items: secrets.meta() });
         break;
       }
 
@@ -3543,7 +2941,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // bmo clones and copies — long enough that the page says so (the
         // list as the filesystem has it; bmo's own notes come with the push
         // when the work is done)
-        broadcast({
+        ctx.clients.broadcast({
           type: "skills",
           ...(msg.projectId ? { projectId: msg.projectId } : {}),
           skills: listSkills(dir),
@@ -3567,13 +2965,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const { url } = storeUpload(msg.upload);
         const { data: _d, regions: _r, ...meta } = msg.upload;
         if (tracker.attach(msg.projectId, msg.itemId, { ...meta, url })) {
-          broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+          ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
         }
         break;
       }
       case "tracker_detach": {
         if (tracker.detach(msg.projectId, msg.itemId, msg.attachmentId)) {
-          broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
+          ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
         }
         break;
       }
@@ -3594,7 +2992,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           .join("\n");
         // outcomes apply immediately: liked verified → gone, rejected → repeats
         tracker.finishReview(channelId);
-        broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
+        ctx.clients.broadcast({ type: "tracker", projectId: channelId, items: tracker.items(channelId) });
         if (rejectedItems.length === 0) break;
         // the fix-it prompt is assembled mechanically — each crossed item's
         // title with the user's note verbatim under it. No model call:
@@ -3616,7 +3014,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const project = store.get(msg.projectId);
         if (project) {
           store.update(msg.projectId, { starred: project.starred ? undefined : true });
-          broadcast({ type: "projects", projects: store.list() });
+          ctx.clients.broadcast({ type: "projects", projects: store.list() });
         }
         break;
       }
@@ -3624,14 +3022,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const project = store.get(msg.projectId);
         if (project) {
           store.update(msg.projectId, { hidden: project.hidden ? undefined : true });
-          broadcast({ type: "projects", projects: store.list() });
+          ctx.clients.broadcast({ type: "projects", projects: store.list() });
         }
         break;
       }
       case "rename_project": {
         const name = msg.name.trim();
         if (name && store.update(msg.projectId, { name })) {
-          broadcast({ type: "projects", projects: store.list() });
+          ctx.clients.broadcast({ type: "projects", projects: store.list() });
         }
         break;
       }
@@ -3639,18 +3037,18 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const title = msg.title.trim();
         if (title && store.findSession(msg.sessionId)) {
           store.setSessionTitle(msg.sessionId, title);
-          broadcast({ type: "projects", projects: store.list() });
+          ctx.clients.broadcast({ type: "projects", projects: store.list() });
         }
         break;
       }
       case "set_workspace": {
         store.setWorkspaceDir(msg.path);
-        broadcast({ type: "workspace", path: store.workspaceDir() });
+        ctx.clients.broadcast({ type: "workspace", path: store.workspaceDir() });
         break;
       }
       case "set_music_dir": {
         store.setMusicDir(msg.path);
-        broadcast({ type: "music_dir", path: musicRoot() });
+        ctx.clients.broadcast({ type: "music_dir", path: ctx.musicRoot() });
         break;
       }
       case "toggle_model_star": {
@@ -3673,15 +3071,15 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         homeLog.endSession();
         sendQueues.delete(HOME_ID);
         heldQueues.delete(HOME_ID);
-        contexts.delete(HOME_ID);
-        cancelRetry(HOME_ID);
-        broadcast({ type: "home_reset" });
+        ctx.turns.contexts.delete(HOME_ID);
+        ctx.retries.cancelRetry(HOME_ID);
+        ctx.clients.broadcast({ type: "home_reset" });
         break;
       }
       case "refresh_models": {
         // Probing spawns a short-lived process per harness, so back-to-back
         // Settings opens within half a minute reuse the last answer.
-        if (Date.now() - probedAt > 30_000) probeModels(true);
+        if (Date.now() - ctx.models.probedAt > 30_000) ctx.models.probeModels(true);
         break;
       }
       case "bridge_takeover": {
@@ -3712,7 +3110,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       // no token in hand — but it still refuses a browser's Origin.
       const pathname = (req.url ?? "/").split("?")[0] ?? "/";
       const bridgeCall = pathname.startsWith("/bridge/") && !pathname.startsWith("/bridge/preview/");
-      if (!originAllowed(req.headers.origin, listeningPort, !options.staticDir)) {
+      if (!originAllowed(req.headers.origin, ctx.listeningPort, !options.staticDir)) {
         res.writeHead(403);
         res.end();
         return;
@@ -3732,11 +3130,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     }
     if (req.url === "/music/playlists") {
       res.writeHead(200, { ...MUSIC_CORS, "content-type": "application/json" });
-      res.end(JSON.stringify({ playlists: scanMusic(musicRoot()) }));
+      res.end(JSON.stringify({ playlists: scanMusic(ctx.musicRoot()) }));
       return;
     }
     if (req.url?.startsWith("/music/track?")) {
-      serveTrack(req, res, musicRoot());
+      serveTrack(req, res, ctx.musicRoot());
       return;
     }
     if (req.url?.startsWith("/uploads/")) {
@@ -3752,7 +3150,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       return;
     }
     if (req.url?.startsWith("/readfile?")) {
-      serveReadFile(req, res);
+      ctx.readable.serveReadFile(req, res);
       return;
     }
     if (options.staticDir && (req.method === "GET" || req.method === "HEAD")) {
@@ -3768,7 +3166,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     // the socket is the whole app: a page from anywhere else, or one
     // without the token, is turned away at the upgrade
     verifyClient: ({ origin, req }, done) => {
-      if (!originAllowed(origin || undefined, listeningPort, !options.staticDir)) {
+      if (!originAllowed(origin || undefined, ctx.listeningPort, !options.staticDir)) {
         done(false, 403, "Forbidden");
         return;
       }
@@ -3792,17 +3190,17 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   });
 
   wss.on("connection", (ws) => {
-    clients.add(ws);
+    ctx.clients.sockets.add(ws);
     const projectIds = [...store.sessionIds(), HOME_ID];
     // the boards are the one thing keyed by project rather than by session
     const boardIds = store.list().map((p) => p.id);
     const snapshot: ServerMessage = {
       type: "snapshot",
       projects: store.list(),
-      transcripts: allowArchived(archive.tails(projectIds, TRANSCRIPT_TAIL)),
+      transcripts: ctx.readable.allowArchived(archive.tails(projectIds, TRANSCRIPT_TAIL)),
       statuses: manager.statuses(),
-      permissions: [...permissions.values()],
-      models: allModels(),
+      permissions: [...ctx.permissions.values()],
+      models: ctx.models.allModels(),
       summaries: archive.allSummaries(projectIds),
       tracker: tracker.all(projectIds),
       ideas: ideas.all(boardIds),
@@ -3810,20 +3208,18 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       secrets: secrets.meta(),
       queued: Object.fromEntries(projectIds.map((id) => [id, visibleQueue(id)])),
       queuesHeld: projectIds.filter((id) => heldQueues.has(id)),
-      usage: usageLimits,
+      usage: ctx.usage.limits,
       // live figures first; anything not yet seen this run falls back to the
       // last one the archive recorded, so a relaunch shows real occupancy
       contexts: Object.fromEntries(
         projectIds.flatMap((id) => {
-          const live = contexts.get(id);
+          const live = ctx.turns.contexts.get(id);
           if (live) return [[id, live] as const];
           const tokens = archive.contextTokens(id);
-          return tokens === undefined ? [] : [[id, { tokens, window: contextWindow(id) }] as const];
+          return tokens === undefined ? [] : [[id, { tokens, window: contextWindow(ctx, id) }] as const];
         }),
       ),
-      turns: Object.fromEntries(
-        [...turnProgress].map(([id, turn]) => [id, { ...turn, tokens: Math.round(turn.tokens) }]),
-      ),
+      turns: ctx.turns.snapshot(),
       stats: ledger.all([...boardIds, HOME_ID]),
       catchups: Object.fromEntries(
         boardIds.map((id) => [id, briefs.get(id).built ? { built: briefs.get(id).built } : {}]),
@@ -3831,7 +3227,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       canPickFolder: options.pickFolder !== undefined,
       canPermissions: options.permissions !== undefined,
       workspaceDir: store.workspaceDir(),
-      musicDir: musicRoot(),
+      musicDir: ctx.musicRoot(),
       home: store.homeSettings(),
       starredModels: store.starredModels(),
       smallModel: store.smallModel() ?? "",
@@ -3866,9 +3262,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
     });
     ws.on("close", () => {
-      clients.delete(ws);
-      const view = views.get(ws);
-      views.delete(ws);
+      ctx.clients.sockets.delete(ws);
+      const view = ctx.clients.views.get(ws);
+      ctx.clients.views.delete(ws);
       // a window gone is every chat it had open, left
       for (const id of view?.channels ?? []) manager.settle(id);
     });
@@ -3919,7 +3315,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     server.listen(attempt, host, () => {
       const address = server.address();
       const port = typeof address === "object" && address ? address.port : options.port;
-      listeningPort = port;
+      ctx.listeningPort = port;
       console.log(`ruri server listening on ws://127.0.0.1:${port}`);
       // for local tooling that wants in: the token, readable by this user only
       const tokenFile = configPath("token");
@@ -3936,8 +3332,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             clearInterval(usageTimer);
             clearInterval(sweepTimer);
             clearTimeout(firstSweep);
-            if (usageRetry) clearTimeout(usageRetry);
-            terminals.closeAll();
+            ctx.usage.stop();
+            ctx.terminals.closeAll();
             void options.bridge?.closeAll();
             manager.disposeAll();
             crewManager.disposeAll();
@@ -3950,7 +3346,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             } catch (err) {
               warn("server", err, "removing the token file");
             }
-            for (const client of clients) client.close();
+            for (const client of ctx.clients.sockets) client.close();
             wss.close(() => server.close(() => done()));
           }),
       });

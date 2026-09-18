@@ -38,12 +38,20 @@ import { claimPort, type PortClaim } from "./port.js";
 import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
 import { mergeEntries, reslot, SendQueues, type QueueEntry } from "./queue.js";
+import { briefless, rebuildCatchup } from "./catchupBrief.js";
+import { createTurnTracker, recordEvent, redacted } from "./events.js";
+import { backfillNotes, NoteBackfill } from "./notes.js";
 import { ReadableImages } from "./readable.js";
 import { Retries, RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
 import { promptChain, SessionManager } from "./sessions.js";
-import { assembleTurns, digestHistory, extractTrackerItems, sessionRoleTitle, setSmallModel, smallModelEnabled, splitPrompt, summarizePrompt, summarizeReply, TurnTracker, updateBrief, type Turn } from "./smallmodel.js";
+import {
+  digestHistory,
+  sessionRoleTitle,
+  setSmallModel,
+  smallModelEnabled,
+  splitPrompt,
+} from "./smallmodel.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
-import { buildCatchup } from "./catchup.js";
 import { knownCommands, listCommands, splitCommands } from "./commands.js";
 import { findProjects } from "./finder.js";
 import { LedgerStore } from "./ledger.js";
@@ -314,6 +322,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     readable: new ReadableImages((channelId) => ownerProject(ctx, channelId)?.path),
     turns: new Turns(clients.toViewers),
     queues: new SendQueues(clients.broadcast),
+    notes: new NoteBackfill(),
     retries: new Retries(),
     models: new Models(clients.broadcast),
     usage: new UsageGauges(clients.broadcast),
@@ -407,7 +416,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // every note the small model missed — a spent quota, a quit mid-call —
   // right after launch, so a chat is noted before anyone opens it, then
   // hourly (backfillNotes)
-  const allNotes = () => backfillNotes(store.sessionIds());
+  const allNotes = () => backfillNotes(ctx, store.sessionIds());
   const firstNotes = setTimeout(allNotes, 5_000);
   firstNotes.unref();
   const notesTimer = setInterval(allNotes, 60 * 60_000);
@@ -677,7 +686,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       ...(processed.attachments.length ? { attachments: processed.attachments } : {}),
       ts: Date.now(),
     };
-    recordEvent(channelId, userEvent);
+    recordEvent(ctx, channelId, userEvent);
     checkpoint(channelId, userEvent.id);
     manager.send(project, brief + processed.text + named, processed.images, undefined, true, userEvent.id);
   }
@@ -703,7 +712,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       ...(attachments.length ? { attachments } : {}),
       ts: Date.now(),
     };
-    recordEvent(channelId, userEvent);
+    recordEvent(ctx, channelId, userEvent);
     checkpoint(channelId, userEvent.id);
     // the split is thinking before the harness is; the clock starts with
     // the prompt, not with whichever sub-prompt reaches a session first
@@ -795,7 +804,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     const wait = RETRY_WAITS_MS[attempt - 1];
     if (wait === undefined) {
       ctx.retries.cancelRetry(channelId);
-      recordEvent(channelId, {
+      recordEvent(ctx, channelId, {
         kind: "info",
         id: randomUUID(),
         text: `${RETRY_WAITS_MS.length} goes and the API is still dropping it — leaving this one to you`,
@@ -803,7 +812,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       });
       return;
     }
-    recordEvent(channelId, {
+    recordEvent(ctx, channelId, {
       kind: "info",
       id: randomUUID(),
       text: `the API dropped that one — going again in ${Math.round(wait / 1000)}s (${attempt} of ${RETRY_WAITS_MS.length})`,
@@ -912,7 +921,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     pushTranscript(ctx, channelId);
     drainQueue(channelId);
     // what just folded away shows as its notes — any it lacks, now
-    backfillNotes([channelId], { first: true });
+    backfillNotes(ctx, [channelId], { first: true });
   }
 
   /**
@@ -1033,273 +1042,17 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     };
   }
 
-  /** Store one half of a turn's recall note and push the turn's notes. */
-  function noteSummary(projectId: string, turnId: string, part: "user" | "reply", note: string): void {
-    archive.setSummary(projectId, turnId, part, note);
-    ctx.clients.broadcast({ type: "turn_summary", projectId, turnId, note: archive.note(projectId, turnId) });
-    // an exchange just got its last note: the list may be past its cap
-    if (part === "reply") void ctx.digests.run(projectId);
-  }
-
-  /**
-   * Recall notes the small model never wrote, written now, in the
-   * background. A note goes missing whenever the small model can't answer
-   * (its subscription out of quota, the machine offline, the app quit
-   * mid-call), and a missing note used to stay missing: the folded
-   * exchanges above a compaction and every later brief fell back to a raw
-   * cut of the text — and a chat opened before its notes were written
-   * showed that cut, then swapped to the notes a few seconds later. So the
-   * whole backlog is worked through right after launch, and again hourly
-   * (after the first run there's nothing left, so that costs nothing); a
-   * chat that opens or compacts jumps the queue. NOTE_WORKERS calls run at
-   * once. A half the model answered with nothing usable is kept as "" and
-   * not asked for again; three failures in a row end the run until the
-   * next thing starts one.
-   */
-  interface NoteJob {
-    channelId: string;
-    turn: Turn;
-    part: "user" | "reply";
-    key: string;
-  }
-  const NOTE_WORKERS = 3;
-  const noteJobs: NoteJob[] = [];
-  /** Jobs queued or in flight, by channel:turn:part — never twice at once. */
-  const noteKeys = new Set<string>();
-  let noteWorkers = 0;
-  let noteMisses = 0;
-
-  function backfillNotes(channelIds: Iterable<string>, options: { first?: boolean } = {}): void {
-    if (!smallModelEnabled()) return;
-    const fresh: NoteJob[] = [];
-    for (const channelId of channelIds) {
-      if (channelId === HOME_ID) continue;
-      for (const { turn, part } of missingNotes(channelId)) {
-        const key = `${channelId}:${turn.turnId}:${part}`;
-        if (noteKeys.has(key)) {
-          // already waiting: a chat on screen pulls its own to the front
-          const at = options.first ? noteJobs.findIndex((job) => job.key === key) : -1;
-          if (at !== -1) fresh.push(...noteJobs.splice(at, 1));
-          continue;
-        }
-        noteKeys.add(key);
-        fresh.push({ channelId, turn, part, key });
-      }
-    }
-    if (options.first) noteJobs.unshift(...fresh);
-    else noteJobs.push(...fresh);
-    // something new asked: the models get a fresh chance
-    noteMisses = 0;
-    while (noteWorkers < NOTE_WORKERS && noteJobs.length > 0) void noteWorker();
-  }
-
-  async function noteWorker(): Promise<void> {
-    noteWorkers += 1;
-    try {
-      while (noteJobs.length > 0 && noteMisses < 3) {
-        const job = noteJobs.shift()!;
-        try {
-          // a chat closed meanwhile, or a note the live path wrote first
-          if (!store.sessionIds().includes(job.channelId)) continue;
-          if (archive.summaries(job.channelId)[job.turn.turnId]?.[job.part] !== undefined) continue;
-          const note = job.part === "user" ? await summarizePrompt(job.turn.user) : await summarizeReply(job.turn);
-          noteMisses = 0;
-          // a rewind may have taken the turn while its note was written
-          if (!turnStands(job.channelId, job.turn.turnId)) continue;
-          if (note) noteSummary(job.channelId, job.turn.turnId, job.part, note);
-          else archive.setSummary(job.channelId, job.turn.turnId, job.part, "");
-        } catch (err) {
-          warn("server", err, "noteWorker");
-          noteMisses += 1;
-        } finally {
-          noteKeys.delete(job.key);
-        }
-      }
-      if (noteMisses >= 3) {
-        for (const job of noteJobs) noteKeys.delete(job.key);
-        noteJobs.length = 0;
-      }
-    } finally {
-      noteWorkers -= 1;
-    }
-  }
-
-  /** A chat's missing note halves, newest first — the ones nearest the
-   *  bottom of the chat are the ones looked at. */
-  function missingNotes(channelId: string): Array<{ turn: Turn; part: "user" | "reply" }> {
-    const notes = archive.summaries(channelId);
-    // anything this young is still being noted live
-    const settled = Date.now() - 2 * 60_000;
-    const jobs: Array<{ turn: Turn; part: "user" | "reply" }> = [];
-    for (const { turn, ts, finished } of assembleTurns(archive.allEvents(channelId)).reverse()) {
-      if (ts > settled) continue;
-      const note = notes[turn.turnId];
-      if (note?.user === undefined && turn.user.trim()) jobs.push({ turn, part: "user" });
-      if (note?.reply === undefined && finished && turn.assistant.trim()) jobs.push({ turn, part: "reply" });
-    }
-    return jobs;
-  }
-
-  function turnStands(channelId: string, turnId: string): boolean {
-    return (
-      archive.events(channelId).some((event) => event.id === turnId) ||
-      archive.earlier(channelId).some((item) => item.kind === "turn" && item.turnId === turnId)
-    );
-  }
-
-  // Every finished turn goes to the small model in the background for a
-  // reply recall note (instant compaction). Failures are silent — a nicety.
-  // The catch-up brief writes itself: each finished turn is folded in, and
-  // most turns change nothing — a fix or a polish pass is not a feature.
-  function foldBrief(channelId: string, turn: { user: string; assistant: string }): void {
-    if (channelId === HOME_ID) return;
-    const project = store.findSession(channelId)?.project;
-    if (!project) return;
-    const current = briefs.get(project.id);
-    updateBrief(
-      project.name,
-      { description: current.description, features: current.features },
-      `The user asked:\n${turn.user}\n\nWhat the agent did:\n${turn.assistant}`,
-    )
-      .then((next) => {
-        if (!next) return;
-        if (next.description === current.description &&
-            next.features.join("\n") === current.features.join("\n")) {
-          return;
-        }
-        writeCatchupFile(project.path, project.name, briefs.write(project.id, next));
-      })
-      .catch(() => {});
-  }
-
-  /* ── the catch-up brief, written whole ───────────────────────────── */
-
-  function catchupNote(projectId: string, busy: boolean, note?: string): void {
-    ctx.clients.broadcast({
-      type: "catchup",
-      projectId,
-      busy,
-      ...(briefs.get(projectId).built ? { built: briefs.get(projectId).built } : {}),
-      ...(note ? { note } : {}),
-    });
-  }
-
-  /**
-   * Read the repo and write the whole brief. Runs by itself when a project
-   * arrives without one — a project opened with a year of work in it is
-   * exactly the one whose first session most needs to be told what it is —
-   * and again whenever the user asks.
-   */
-  async function rebuildCatchup(projectId: string): Promise<void> {
-    const project = store.get(projectId);
-    if (!project || ctx.catchingUp.has(projectId) || !smallModelEnabled()) return;
-    ctx.catchingUp.add(projectId);
-    catchupNote(projectId, true, "reading the repo…");
-    try {
-      const current = briefs.get(projectId);
-      const built = await buildCatchup(project, current);
-      if (!built) {
-        catchupNote(projectId, false, "the brief could not be written — try again");
-        return;
-      }
-      writeCatchupFile(project.path, project.name, briefs.write(projectId, built, true));
-      catchupNote(projectId, false, "brief written");
-    } catch (err) {
-      warn("server", err, "rebuildCatchup");
-      catchupNote(projectId, false, "the brief could not be written — try again");
-    } finally {
-      ctx.catchingUp.delete(projectId);
-    }
-  }
-
-  /** Whether a project has a brief worth the name. */
-  function briefless(projectId: string): boolean {
-    const brief = briefs.get(projectId);
-    return !brief.description && brief.features.length === 0;
-  }
-
   // Projects that arrived before this existed: one at a time, in the
   // background, so a launch with ten of them does not fire ten reads of the
   // small model at once.
   void (async () => {
     for (const project of store.list()) {
-      if (!briefless(project.id)) continue;
-      await rebuildCatchup(project.id);
+      if (!briefless(ctx, project.id)) continue;
+      await rebuildCatchup(ctx, project.id);
     }
   })();
 
-  const turnTracker = new TurnTracker((projectId, turn) => {
-    if (!smallModelEnabled()) return;
-    const found = store.findSession(projectId);
-    if (found && !found.session.title) {
-      sessionRoleTitle(turn)
-        .then((title) => {
-          if (!title) return;
-          store.setSessionTitle(projectId, title);
-          ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        })
-        .catch(() => {});
-    }
-    summarizeReply(turn)
-      .then((note) => {
-        if (note) noteSummary(projectId, turn.turnId, "reply", note);
-      })
-      .catch(() => {});
-    foldBrief(projectId, turn);
-  });
-  ctx.turnTracker = turnTracker;
-
-  /**
-   * Archive, observe, log (Home), and broadcast one transcript event.
-   *
-   * Anything the model produced is redacted first: a command that echoed a
-   * vault value leaves the handle behind rather than the value, on screen
-   * and on disk both. The user's own prompts are left exactly as typed —
-   * rewinding matches a prompt against what the CLI recorded, and rewriting
-   * it here would break that for the sake of a value the user chose to type.
-   */
-  /** An event with the vault's values taken back out of everything it
-   *  shows — a subagent's card included: its brief, its line, its report. */
-  function redacted(raw: TranscriptEvent): TranscriptEvent {
-    if (raw.kind === "assistant" || raw.kind === "info") return { ...raw, text: secrets.redact(raw.text) };
-    if (raw.kind !== "tool") return raw;
-    const agent = raw.agent && {
-      ...raw.agent,
-      description: secrets.redact(raw.agent.description),
-      ...(raw.agent.prompt ? { prompt: secrets.redact(raw.agent.prompt) } : {}),
-      ...(raw.agent.activity ? { activity: secrets.redact(raw.agent.activity) } : {}),
-      ...(raw.agent.result ? { result: secrets.redact(raw.agent.result) } : {}),
-    };
-    return { ...raw, summary: secrets.redact(raw.summary), ...(agent ? { agent } : {}) };
-  }
-
-  function recordEvent(projectId: string, raw: TranscriptEvent): void {
-    const event = redacted(raw);
-    archive.append(projectId, event);
-    ctx.turnTracker.observe(projectId, event);
-    if (projectId === HOME_ID) homeLog.observe(event);
-    ctx.clients.pushEvent(projectId, event);
-    // every prompt gets its recall note AND its tracker split the moment
-    // it's sent — neither waits on (or survives only with) a finished turn,
-    // so interrupted turns and "continue" follow-ups can't lose requests.
-    // The reply's recall half lands separately when the turn finishes.
-    if (event.kind === "user" && smallModelEnabled()) {
-      summarizePrompt(event.text)
-        .then((note) => {
-          if (note) noteSummary(projectId, event.id, "user", note);
-        })
-        .catch(() => {});
-      if (projectId !== HOME_ID) {
-        extractTrackerItems(event.text, tracker.openTexts(projectId))
-          .then((items) => {
-            if (items.length === 0) return;
-            for (const text of items) tracker.add(projectId, text, "auto", event.id);
-            ctx.clients.broadcast({ type: "tracker", projectId, items: tracker.items(projectId) });
-          })
-          .catch(() => {});
-      }
-    }
-  }
+  ctx.turnTracker = createTurnTracker(ctx);
 
   const manager = new SessionManager(
     {
@@ -1307,7 +1060,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // the finished message carries its whole text — the held tail too
         if (event.kind === "assistant" && ctx.turns.gates.get(projectId)?.messageId === event.id) ctx.turns.gates.delete(projectId);
         ctx.readable.allowReadImages(projectId, [event]);
-        recordEvent(projectId, event);
+        recordEvent(ctx, projectId, event);
         if (event.kind === "result") {
           ctx.usage.pushUsage();
           pushContexts(ctx);
@@ -1333,11 +1086,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       onEventUpdate: (projectId, raw) => {
         // a subagent's card moving along: replaced where it stands, and
         // only while it still stands in the live transcript
-        const event = redacted(raw);
+        const event = redacted(ctx, raw);
         if (archive.replace(projectId, event)) ctx.clients.pushEvent(projectId, event);
       },
       onAgentEvent: (projectId, key, raw) => {
-        const event = redacted(raw);
+        const event = redacted(ctx, raw);
         ctx.readable.allowReadImages(projectId, [event]);
         agentLogs.append(projectId, key, event);
         // an agent's log is only ever open in the chat that started it
@@ -1496,7 +1249,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   function crewLog(key: string, logKey: string, raw: TranscriptEvent): boolean {
     const chatId = crew.owner(key);
     if (!chatId) return false;
-    const event = redacted(raw);
+    const event = redacted(ctx, raw);
     ctx.readable.allowReadImages(chatId, [event]);
     const added = agentLogs.append(chatId, logKey, event);
     ctx.clients.toViewers(chatId, { type: "agent_event", projectId: chatId, key: logKey, event });
@@ -1669,7 +1422,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         }
         ctx.clients.broadcast({ type: "projects", projects: store.list() });
         // a project new to ruri gets told what it is before anyone asks
-        if (briefless(project.id)) void rebuildCatchup(project.id);
+        if (briefless(ctx, project.id)) void rebuildCatchup(ctx, project.id);
       }
       let sessionId = project.sessions[0]?.id;
       // an emptied folder (all sessions closed) gets a fresh session on reopen
@@ -1731,11 +1484,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       case "add_project": {
         const project = store.add(msg.name, msg.path, msg.folder);
         ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        if (briefless(project.id)) void rebuildCatchup(project.id);
+        if (briefless(ctx, project.id)) void rebuildCatchup(ctx, project.id);
         break;
       }
       case "catchup_rebuild": {
-        void rebuildCatchup(msg.projectId);
+        void rebuildCatchup(ctx, msg.projectId);
         break;
       }
       case "pick_folder": {
@@ -2196,7 +1949,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
         ws.send(JSON.stringify(transcriptOf(ctx, id)));
         // the chat on screen gets its missing notes before any other
-        backfillNotes([id], { first: true });
+        backfillNotes(ctx, [id], { first: true });
         // and its digest caught up, ahead of the compaction it may be near
         void ctx.digests.run(id);
         break;

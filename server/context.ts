@@ -23,6 +23,7 @@ import type { IdeaStore } from "./ideas.js";
 import type { LedgerStore } from "./ledger.js";
 import type { ManagerHost } from "./manager.js";
 import type { Models } from "./models.js";
+import type { NoteBackfill } from "./notes.js";
 import type { PrefStore } from "./prefs.js";
 import type { ProjectStore } from "./projects.js";
 import type { SendQueues } from "./queue.js";
@@ -166,6 +167,8 @@ export interface ServerContext {
   readonly readable: ReadableImages;
   readonly turns: Turns;
   readonly queues: SendQueues;
+  /** Recall notes the small model missed, being written after the fact. */
+  readonly notes: NoteBackfill;
   readonly retries: Retries;
   readonly models: Models;
   readonly usage: UsageGauges;

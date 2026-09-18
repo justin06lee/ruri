@@ -231,9 +231,43 @@ function devToken(): Plugin {
   };
 }
 
+/**
+ * A Content-Security-Policy for the built app, as a meta tag. The page is
+ * served by ruri's own server on 127.0.0.1, so everything it loads is its
+ * own origin: scripts only from there (the built HTML has no inline
+ * script), styles from there plus inline (React style props, xterm), and
+ * images, media and the attachment viewer's frame from there or from blob
+ * and data URLs the page made itself. A reply's markdown can therefore not
+ * pull a script, a frame or a tracking pixel from anywhere else. Build only:
+ * the dev page needs Vite's inline preamble and its own HMR socket.
+ */
+function contentSecurityPolicy(): Plugin {
+  const policy = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "media-src 'self' blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "frame-src 'self' blob:",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ");
+  return {
+    name: "ruri-csp",
+    apply: "build",
+    transformIndexHtml: () => [
+      { tag: "meta", attrs: { "http-equiv": "Content-Security-Policy", content: policy }, injectTo: "head-prepend" },
+    ],
+  };
+}
+
 export default defineConfig({
   root: "web",
-  plugins: [react(), tunerSave(), tunerImages(), devToken()],
+  plugins: [react(), tunerSave(), tunerImages(), devToken(), contentSecurityPolicy()],
   // which port the standalone server is on, for the dev page (store.ts)
   define: { "import.meta.env.RURI_PORT": JSON.stringify(process.env["RURI_PORT"] ?? "7777") },
   server: {

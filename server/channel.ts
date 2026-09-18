@@ -41,3 +41,16 @@ export function terminalCwd(ctx: ServerContext, channelId: string): string {
   if (channelId === HOME_ID) return ctx.store.workspaceDir();
   return ownerProject(ctx, channelId)?.path ?? ctx.store.workspaceDir();
 }
+
+/** A turn is actually in flight — as opposed to prompts merely waiting. */
+export function running(ctx: ServerContext, channelId: string): boolean {
+  const status = ctx.manager.statuses()[channelId];
+  return status === "working" || status === "permission";
+}
+
+/** A turn is running (or blocked on permission), or prompts are queued.
+ *  A queue standing by after a stop is not busy: the next prompt goes out
+ *  now and the queue falls in behind it. */
+export function busy(ctx: ServerContext, channelId: string): boolean {
+  return running(ctx, channelId) || (!ctx.queues.held.has(channelId) && ctx.queues.pending(channelId) > 0);
+}

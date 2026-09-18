@@ -25,6 +25,7 @@ import type { ManagerHost } from "./manager.js";
 import type { Models } from "./models.js";
 import type { PrefStore } from "./prefs.js";
 import type { ProjectStore } from "./projects.js";
+import type { SendQueues } from "./queue.js";
 import type { ReadableImages } from "./readable.js";
 import type { Retries } from "./retry.js";
 import type { SecretStore } from "./secrets.js";
@@ -164,6 +165,7 @@ export interface ServerContext {
   readonly clients: Clients;
   readonly readable: ReadableImages;
   readonly turns: Turns;
+  readonly queues: SendQueues;
   readonly retries: Retries;
   readonly models: Models;
   readonly usage: UsageGauges;

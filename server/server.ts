@@ -13,7 +13,6 @@ import type {
   ContextUsage,
   NamedComponent,
   PermissionRequest,
-  QueuedPrompt,
   ServerMessage,
   TranscriptEvent,
 } from "../shared/protocol.js";
@@ -23,7 +22,7 @@ import { writeTextAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import { AgentLogs, Crew } from "./agents.js";
 import { BridgeState } from "./bridgeState.js";
-import { channelProject, ownerProject, terminalCwd } from "./channel.js";
+import { busy, channelProject, ownerProject, running, terminalCwd } from "./channel.js";
 import { catchUp, Clients, pushTranscript, transcriptOf } from "./clients.js";
 import { buildCompaction, DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
 import type { PendingComponent, RuriServer, ServerContext, StartServerOptions } from "./context.js";
@@ -38,6 +37,7 @@ import { defaultMusicDir, isAllowed, scan as scanMusic } from "./music.js";
 import { claimPort, type PortClaim } from "./port.js";
 import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
+import { mergeEntries, reslot, SendQueues, type QueueEntry } from "./queue.js";
 import { ReadableImages } from "./readable.js";
 import { Retries, RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
 import { promptChain, SessionManager } from "./sessions.js";
@@ -313,10 +313,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     clients,
     readable: new ReadableImages((channelId) => ownerProject(ctx, channelId)?.path),
     turns: new Turns(clients.toViewers),
+    queues: new SendQueues(clients.broadcast),
     retries: new Retries(),
     models: new Models(clients.broadcast),
     usage: new UsageGauges(clients.broadcast),
-    bridge: new BridgeState(options.bridge, (channelId) => running(channelId), clients.broadcast),
+    bridge: new BridgeState(options.bridge, (channelId) => running(ctx, channelId), clients.broadcast),
     permissions: new Map<string, PermissionRequest>(),
     pendingComponents: new Map<string, PendingComponent>(),
     sweeping: new Set<string>(),
@@ -620,177 +621,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     );
   }
 
-  // The app-side prompt queue: everything waiting for the running turn to
-  // finish. Visible entries are user prompts sent while busy (shown and
-  // editable in the UI); silent entries are split sub-prompts riding under
-  // the original prompt the user already sees.
-  interface QueueEntry {
-    id: string;
-    text: string;
-    uploads: AttachmentUpload[];
-    silent: boolean;
-    /** Stored attachment meta, for displaying visible entries. */
-    attachments?: Attachment[];
-    /** A scissors send waiting its turn: split when it reaches the front,
-     *  not before, so the commands queued ahead of it have already run. */
-    split?: boolean;
-    /** Being rewritten in the composer. It keeps its place in the queue's
-     *  list (at the end, so the UI shows it under the ones still in line)
-     *  but nothing sends it until the rewrite comes back. */
-    editing?: boolean;
-    /** The prompts that were ahead of it when the rewrite began: when it
-     *  steps back in, it goes behind whichever of these are still waiting,
-     *  and to the front if none are. */
-    editAfter?: string[];
-  }
-  const sendQueues = new Map<string, QueueEntry[]>();
-  /**
-   * Channels whose queue is standing by. Stopping a turn is a change of
-   * mind about *that answer*, not about the prompts waiting behind it — so
-   * the queue survives the stop and simply stops moving. It moves again
-   * when the next prompt goes out (it follows that turn, the way it would
-   * have followed the stopped one) or when the queue is sent on by hand.
-   */
-  const heldQueues = new Set<string>();
-  // Bumped on interrupt so an in-flight split resolution knows to stand down.
-  const interruptEpochs = new Map<string, number>();
-
-  function visibleQueue(channelId: string): QueuedPrompt[] {
-    return (sendQueues.get(channelId) ?? [])
-      .filter((entry) => !entry.silent)
-      .map((entry) => ({
-        id: entry.id,
-        text: entry.text,
-        ...(entry.attachments?.length ? { attachments: entry.attachments } : {}),
-        ...(entry.editing ? { editing: true as const } : {}),
-      }));
-  }
-
-  /** What is actually in line to go out — not the one being rewritten. */
-  function pending(channelId: string): number {
-    return (sendQueues.get(channelId) ?? []).filter((entry) => !entry.editing).length;
-  }
-
-  /** The queue with its visible entries in a new order. The silent ones (a
-   *  split's remainder) keep their slots: they are the running answer's,
-   *  not places in line. */
-  function reslot(queue: QueueEntry[], visible: QueueEntry[]): QueueEntry[] {
-    let i = 0;
-    return queue.map((entry) => (entry.silent ? entry : visible[i++]!));
-  }
-
-  /**
-   * Two queued prompts as one: `first`'s text, a blank line, `second`'s —
-   * standing where `second` stood. `second`'s attachments and the markers
-   * that name them are renumbered past `first`'s, so "[image #1]" in each
-   * half still means the picture it meant.
-   */
-  function mergeEntries(first: QueueEntry, second: QueueEntry): QueueEntry {
-    const offset = { image: 0, video: 0, file: 0, region: 0 };
-    for (const upload of first.uploads) {
-      offset[upload.kind] = Math.max(offset[upload.kind], upload.n);
-      for (const region of upload.regions ?? []) offset.region = Math.max(offset.region, region.n);
-    }
-    const shift = (kind: keyof typeof offset, n: number) => n + offset[kind];
-    const text = second.text.replace(
-      /\[(image|video|file|region)\s#(\d+)\]/g,
-      (_, kind: keyof typeof offset, n: string) => `[${kind} #${shift(kind, Number(n))}]`,
-    );
-    const uploads = second.uploads.map((upload) => ({
-      ...upload,
-      n: shift(upload.kind, upload.n),
-      ...(upload.regions
-        ? { regions: upload.regions.map((region) => ({ ...region, n: shift("region", region.n) })) }
-        : {}),
-    }));
-    const attachments = [
-      ...(first.attachments ?? []),
-      ...(second.attachments ?? []).map((att) => ({
-        ...att,
-        n: shift(att.kind, att.n),
-        ...(att.regions ? { regions: att.regions.map((region) => ({ ...region, n: shift("region", region.n) })) } : {}),
-      })),
-    ];
-    return {
-      id: second.id,
-      text: [first.text, text].filter((part) => part.trim()).join("\n\n"),
-      uploads: [...first.uploads, ...uploads],
-      silent: false,
-      ...(attachments.length ? { attachments } : {}),
-      ...(first.split || second.split ? { split: true } : {}),
-    };
-  }
-
-  /**
-   * A prompt that left the line for a rewrite steps back in — as `entries`
-   * (the rewrite may have brought commands of its own, which go ahead of it)
-   * — behind whichever prompts that were ahead of it are still waiting, and
-   * at the front when none are. The front is behind a split's silent
-   * remainder, which is the running answer's own and not a place in line.
-   */
-  function placeBack(channelId: string, entry: QueueEntry, entries: QueueEntry[]): void {
-    const queue = (sendQueues.get(channelId) ?? []).filter((e) => e !== entry);
-    const anchors = new Set(entry.editAfter ?? []);
-    let after = -1;
-    queue.forEach((e, i) => {
-      if (anchors.has(e.id)) after = i;
-    });
-    if (after >= 0) queue.splice(after + 1, 0, ...entries);
-    else {
-      const front = queue.findIndex((e) => !e.silent);
-      queue.splice(front === -1 ? queue.length : front, 0, ...entries);
-    }
-    if (queue.length > 0) sendQueues.set(channelId, queue);
-    else {
-      sendQueues.delete(channelId);
-      heldQueues.delete(channelId);
-    }
-  }
-
-  function broadcastQueue(channelId: string): void {
-    ctx.clients.broadcast({
-      type: "queued",
-      projectId: channelId,
-      items: visibleQueue(channelId),
-      ...(heldQueues.has(channelId) ? { held: true } : {}),
-    });
-  }
-
-  /** A turn is actually in flight — as opposed to prompts merely waiting. */
-  function running(channelId: string): boolean {
-    const status = manager.statuses()[channelId];
-    return status === "working" || status === "permission";
-  }
-
-  /** A turn is running (or blocked on permission), or prompts are queued.
-   *  A queue standing by after a stop is not busy: the next prompt goes out
-   *  now and the queue falls in behind it. */
-  function busy(channelId: string): boolean {
-    return running(channelId) || (!heldQueues.has(channelId) && pending(channelId) > 0);
-  }
-
-  /** Everything queued stops where it is. Nothing is thrown away. */
-  function holdQueue(channelId: string): void {
-    // A split's silent sub-prompts are the stopped answer's own remainder,
-    // not prompts the user is waiting on — stopping means stopping them.
-    const kept = (sendQueues.get(channelId) ?? []).filter((entry) => !entry.silent);
-    if (kept.length > 0) {
-      sendQueues.set(channelId, kept);
-      heldQueues.add(channelId);
-    } else {
-      sendQueues.delete(channelId);
-      heldQueues.delete(channelId);
-    }
-    broadcastQueue(channelId);
-  }
-
-  /** The queue moves again. Returns whether it had been standing by. */
-  function releaseQueue(channelId: string): boolean {
-    if (!heldQueues.delete(channelId)) return false;
-    broadcastQueue(channelId);
-    return true;
-  }
-
   // Sessions get their role title the moment their first prompt goes out —
   // in parallel with the turn, not after it. (TurnTracker's post-turn call
   // stays as the fallback if this pass fails or returns nothing.)
@@ -880,10 +710,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     ctx.turns.startTurn(channelId);
     ctx.clients.broadcast({ type: "status", projectId: channelId, status: "working" });
     titleSession(channelId, text);
-    const epoch = interruptEpochs.get(channelId) ?? 0;
+    const epoch = ctx.queues.epochs.get(channelId) ?? 0;
     void (smallModelEnabled() ? splitPrompt(text).catch(() => [text]) : Promise.resolve([text])).then(
       (prompts) => {
-        if ((interruptEpochs.get(channelId) ?? 0) !== epoch) return; // stopped meanwhile
+        if ((ctx.queues.epochs.get(channelId) ?? 0) !== epoch) return; // stopped meanwhile
         // route each attachment to the sub-prompt carrying its marker
         const parts = prompts.map((text) => ({ text, uploads: [] as AttachmentUpload[] }));
         for (const upload of uploads) {
@@ -897,13 +727,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           uploads: part.uploads,
           silent: true,
         }));
-        const idle = ahead ? !running(channelId) : !busy(channelId);
+        const idle = ahead ? !running(ctx, channelId) : !busy(ctx, channelId);
         const first = idle ? entries.shift() : undefined;
         if (entries.length > 0) {
-          const queue = sendQueues.get(channelId) ?? [];
+          const queue = ctx.queues.entries.get(channelId) ?? [];
           if (ahead) queue.unshift(...entries);
           else queue.push(...entries);
-          sendQueues.set(channelId, queue);
+          ctx.queues.entries.set(channelId, queue);
         }
         if (first) dispatch(channelId, first.text, first.uploads, true);
       },
@@ -914,15 +744,15 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
    *  one went out — a caller deciding what a finished turn means next needs
    *  to know, and the send itself is a microtask away. */
   function drainQueue(channelId: string): boolean {
-    if (heldQueues.has(channelId)) return false;
-    const queue = sendQueues.get(channelId);
+    if (ctx.queues.held.has(channelId)) return false;
+    const queue = ctx.queues.entries.get(channelId);
     // the one being rewritten is not in line — whatever is behind it goes
     const at = queue?.findIndex((entry) => !entry.editing) ?? -1;
     if (!queue || at === -1) return false;
     const next = queue[at]!;
     queue.splice(at, 1);
-    if (queue.length === 0) sendQueues.delete(channelId);
-    if (!next.silent) broadcastQueue(channelId);
+    if (queue.length === 0) ctx.queues.entries.delete(channelId);
+    if (!next.silent) ctx.queues.broadcastQueue(channelId);
     // after the session settles its result (it flips to idle right after
     // emitting it) — so the queued turn's "working" sticks
     queueMicrotask(() => {
@@ -934,10 +764,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // start): the prompt goes back to the head of the line rather than
         // into the void, and the user hears why
         warn("server", err, `drainQueue ${channelId}`);
-        const back = sendQueues.get(channelId) ?? [];
+        const back = ctx.queues.entries.get(channelId) ?? [];
         back.unshift(next);
-        sendQueues.set(channelId, back);
-        broadcastQueue(channelId);
+        ctx.queues.entries.set(channelId, back);
+        ctx.queues.broadcastQueue(channelId);
         ctx.clients.broadcast({ type: "error", message: `queued prompt not sent: ${errorMessage(err)}` });
       }
     });
@@ -960,7 +790,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     // nothing to send. Note that `running` is still true here, since the
     // session flips to idle just after emitting this result — which is why
     // the wait below, not this, is where "is it busy now" is asked.)
-    if (heldQueues.has(channelId)) return;
+    if (ctx.queues.held.has(channelId)) return;
     const attempt = (ctx.retries.get(channelId)?.attempt ?? 0) + 1;
     const wait = RETRY_WAITS_MS[attempt - 1];
     if (wait === undefined) {
@@ -982,7 +812,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     const timer = setTimeout(() => {
       const project = channelProject(ctx, channelId);
       // gone, or busy with something the user sent while we waited
-      if (!project || busy(channelId)) {
+      if (!project || busy(ctx, channelId)) {
         ctx.retries.delete(channelId);
         return;
       }
@@ -1013,7 +843,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   ): boolean {
     const { commands, rest } = splitCommands(text, knownCommands(ownerProject(ctx, channelId)?.path));
     if (commands.length === 0) return false;
-    const wasBusy = ahead ? running(channelId) : busy(channelId);
+    const wasBusy = ahead ? running(ctx, channelId) : busy(ctx, channelId);
     const entries: QueueEntry[] = commands.map((command) => ({
       id: randomUUID(),
       text: command,
@@ -1030,11 +860,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
       });
     }
-    const queue = sendQueues.get(channelId) ?? [];
+    const queue = ctx.queues.entries.get(channelId) ?? [];
     if (ahead) queue.unshift(...entries);
     else queue.push(...entries);
-    sendQueues.set(channelId, queue);
-    broadcastQueue(channelId);
+    ctx.queues.entries.set(channelId, queue);
+    ctx.queues.broadcastQueue(channelId);
     if (!wasBusy) drainQueue(channelId);
     return true;
   }
@@ -1628,7 +1458,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   manager.useDefaultModel(() => store.defaultModel());
   // between turns a process stays for the chat open in a window, a prompt
   // queued behind the turn, or a retry about to go — for nothing else
-  manager.useKeepWarm((id) => ctx.clients.isOpen(id) || (sendQueues.get(id)?.length ?? 0) > 0 || ctx.retries.has(id));
+  manager.useKeepWarm((id) => ctx.clients.isOpen(id) || (ctx.queues.entries.get(id)?.length ?? 0) > 0 || ctx.retries.has(id));
 
   /**
    * The agents the user starts themselves, from a chat's agents page (the
@@ -1811,8 +1641,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       ctx.turns.progress.delete(sessionId);
       ctx.turns.sent.delete(sessionId);
       ctx.retries.cancelRetry(sessionId);
-      sendQueues.delete(sessionId);
-      heldQueues.delete(sessionId);
+      ctx.queues.entries.delete(sessionId);
+      ctx.queues.held.delete(sessionId);
       ctx.terminals.closeChannel(sessionId);
       ctx.bridge.closeBridge(sessionId);
     }
@@ -1947,12 +1777,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // prompt is the reason it stopped — a clarification, a correction —
         // so it goes out now, ahead of the queue, and the queue falls in
         // behind it and moves again the moment this turn is done.
-        const ahead = releaseQueue(channelId) && !running(channelId);
+        const ahead = ctx.queues.releaseQueue(channelId) && !running(ctx, channelId);
         if (queueWithCommands(channelId, msg.text, uploads, false, ahead)) break;
-        if (!ahead && busy(channelId)) {
+        if (!ahead && busy(ctx, channelId)) {
           // hold it app-side — nothing reaches the harness until the
           // running turn (and everything queued before it) finishes
-          const queue = sendQueues.get(channelId) ?? [];
+          const queue = ctx.queues.entries.get(channelId) ?? [];
           queue.push({
             id: randomUUID(),
             text: msg.text,
@@ -1960,8 +1790,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             silent: false,
             ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
           });
-          sendQueues.set(channelId, queue);
-          broadcastQueue(channelId);
+          ctx.queues.entries.set(channelId, queue);
+          ctx.queues.broadcastQueue(channelId);
           return;
         }
         dispatch(channelId, msg.text, uploads);
@@ -1973,33 +1803,33 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const uploads = msg.attachments ?? [];
         ctx.retries.cancelRetry(channelId);
         if (!channelProject(ctx, channelId)) throw new Error("unknown session");
-        const ahead = releaseQueue(channelId) && !running(channelId);
+        const ahead = ctx.queues.releaseQueue(channelId) && !running(ctx, channelId);
         if (queueWithCommands(channelId, msg.text, uploads, true, ahead)) break;
         dispatchSplit(channelId, msg.text, uploads, ahead);
         break;
       }
       case "queue_remove": {
-        const queue = sendQueues.get(msg.projectId);
+        const queue = ctx.queues.entries.get(msg.projectId);
         if (!queue) break;
         const kept = queue.filter((e) => e.id !== msg.itemId || e.silent);
         if (kept.length !== queue.length) {
           if (kept.length === 0) {
-            sendQueues.delete(msg.projectId);
-            heldQueues.delete(msg.projectId);
-          } else sendQueues.set(msg.projectId, kept);
-          broadcastQueue(msg.projectId);
+            ctx.queues.entries.delete(msg.projectId);
+            ctx.queues.held.delete(msg.projectId);
+          } else ctx.queues.entries.set(msg.projectId, kept);
+          ctx.queues.broadcastQueue(msg.projectId);
         }
         break;
       }
       case "queue_send": {
         // Sent on by hand from the queue's own card: what was standing by
         // since the stop goes out now, in the order it was written.
-        if (!releaseQueue(msg.projectId)) break;
-        if (!running(msg.projectId)) drainQueue(msg.projectId);
+        if (!ctx.queues.releaseQueue(msg.projectId)) break;
+        if (!running(ctx, msg.projectId)) drainQueue(msg.projectId);
         break;
       }
       case "queue_move": {
-        const queue = sendQueues.get(msg.projectId);
+        const queue = ctx.queues.entries.get(msg.projectId);
         const moving = queue?.find((e) => e.id === msg.itemId && !e.silent && !e.editing);
         if (!queue || !moving || moving.id === msg.beforeId) break;
         const visible = queue.filter((e) => !e.silent && e !== moving);
@@ -2008,26 +1838,26 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const at = msg.beforeId ? line.findIndex((e) => e.id === msg.beforeId) : -1;
         if (at === -1) line.push(moving);
         else line.splice(at, 0, moving);
-        sendQueues.set(msg.projectId, reslot(queue, [...line, ...visible.filter((e) => e.editing)]));
-        broadcastQueue(msg.projectId);
+        ctx.queues.entries.set(msg.projectId, reslot(queue, [...line, ...visible.filter((e) => e.editing)]));
+        ctx.queues.broadcastQueue(msg.projectId);
         break;
       }
       case "queue_merge": {
-        const queue = sendQueues.get(msg.projectId);
+        const queue = ctx.queues.entries.get(msg.projectId);
         if (!queue || msg.itemId === msg.intoId) break;
         const from = queue.find((e) => e.id === msg.itemId && !e.silent && !e.editing);
         const into = queue.find((e) => e.id === msg.intoId && !e.silent && !e.editing);
         if (!from || !into) break;
         const merged = mergeEntries(from, into);
-        sendQueues.set(
+        ctx.queues.entries.set(
           msg.projectId,
           queue.filter((e) => e !== from).map((e) => (e === into ? merged : e)),
         );
-        broadcastQueue(msg.projectId);
+        ctx.queues.broadcastQueue(msg.projectId);
         break;
       }
       case "queue_edit": {
-        const queue = sendQueues.get(msg.projectId);
+        const queue = ctx.queues.entries.get(msg.projectId);
         const entry = queue?.find((e) => e.id === msg.itemId && !e.silent);
         if (!queue || !entry || entry.editing) break;
         entry.editing = true;
@@ -2036,15 +1866,15 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           .filter((e) => !e.silent && !e.editing)
           .map((e) => e.id);
         // out of the line: the rest move up, and it shows under them
-        sendQueues.set(msg.projectId, [...queue.filter((e) => e !== entry), entry]);
-        broadcastQueue(msg.projectId);
+        ctx.queues.entries.set(msg.projectId, [...queue.filter((e) => e !== entry), entry]);
+        ctx.queues.broadcastQueue(msg.projectId);
         // a turn was waiting on it and nothing else — nothing is now
-        if (!heldQueues.has(msg.projectId) && !running(msg.projectId)) drainQueue(msg.projectId);
+        if (!ctx.queues.held.has(msg.projectId) && !running(ctx, msg.projectId)) drainQueue(msg.projectId);
         break;
       }
       case "queue_update": {
         const channelId = msg.projectId;
-        const entry = sendQueues.get(channelId)?.find((e) => e.id === msg.itemId && e.editing);
+        const entry = ctx.queues.entries.get(channelId)?.find((e) => e.id === msg.itemId && e.editing);
         if (!entry) {
           // the queue lost it meanwhile (a restart, a stop that cleared it):
           // then this is simply a prompt, sent the ordinary way
@@ -2059,8 +1889,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const uploads = msg.attachments ?? [];
         ctx.retries.cancelRetry(channelId);
         if (msg.text.trim().length === 0 && uploads.length === 0) {
-          placeBack(channelId, entry, []);
-          broadcastQueue(channelId);
+          ctx.queues.placeBack(channelId, entry, []);
+          ctx.queues.broadcastQueue(channelId);
           break;
         }
         // commands written into the rewrite run ahead of it, as always
@@ -2081,23 +1911,23 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
           });
         }
-        placeBack(channelId, entry, entries);
+        ctx.queues.placeBack(channelId, entry, entries);
         // sending the rewrite is a "go": a queue standing by since a stop
         // moves again, the way it does for any prompt sent
-        releaseQueue(channelId);
-        broadcastQueue(channelId);
-        if (!running(channelId)) drainQueue(channelId);
+        ctx.queues.releaseQueue(channelId);
+        ctx.queues.broadcastQueue(channelId);
+        if (!running(ctx, channelId)) drainQueue(channelId);
         break;
       }
       case "queue_edit_cancel": {
         const channelId = msg.projectId;
-        const entry = sendQueues.get(channelId)?.find((e) => e.id === msg.itemId && e.editing);
+        const entry = ctx.queues.entries.get(channelId)?.find((e) => e.id === msg.itemId && e.editing);
         if (!entry) break;
         delete entry.editing;
-        placeBack(channelId, entry, [entry]);
+        ctx.queues.placeBack(channelId, entry, [entry]);
         delete entry.editAfter;
-        broadcastQueue(channelId);
-        if (!heldQueues.has(channelId) && !running(channelId)) drainQueue(channelId);
+        ctx.queues.broadcastQueue(channelId);
+        if (!ctx.queues.held.has(channelId) && !running(ctx, channelId)) drainQueue(channelId);
         break;
       }
       case "remove_event": {
@@ -2126,7 +1956,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const eventId = msg.eventId;
         void (async () => {
           try {
-            if (busy(channelId)) throw new Error("stop the running turn first");
+            if (busy(ctx, channelId)) throw new Error("stop the running turn first");
             const events = archive.allEvents(channelId);
             const idx = events.findIndex((e) => e.id === eventId);
             const target = idx >= 0 ? events[idx] : undefined;
@@ -2547,12 +2377,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         break;
       }
       case "interrupt": {
-        interruptEpochs.set(msg.projectId, (interruptEpochs.get(msg.projectId) ?? 0) + 1);
+        ctx.queues.epochs.set(msg.projectId, (ctx.queues.epochs.get(msg.projectId) ?? 0) + 1);
         ctx.retries.cancelRetry(msg.projectId);
         // The queue is not thrown away with the answer — it stands by. It
         // moves again on the next prompt (which goes ahead of it) or when
         // it is sent on from its own card.
-        holdQueue(msg.projectId);
+        ctx.queues.holdQueue(msg.projectId);
         manager.interrupt(msg.projectId);
         // settle the optimistic "working" a pending split may have shown
         ctx.clients.broadcast({
@@ -2664,11 +2494,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           break;
         }
         const channelId = request.projectId;
-        if (busy(channelId)) {
-          const queue = sendQueues.get(channelId) ?? [];
+        if (busy(ctx, channelId)) {
+          const queue = ctx.queues.entries.get(channelId) ?? [];
           queue.push({ id: randomUUID(), text, uploads: [], silent: false });
-          sendQueues.set(channelId, queue);
-          broadcastQueue(channelId);
+          ctx.queues.entries.set(channelId, queue);
+          ctx.queues.broadcastQueue(channelId);
         } else {
           dispatch(channelId, text, []);
         }
@@ -3069,8 +2899,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         removeTurnFiles(HOME_ID);
         agentLogs.remove(HOME_ID);
         homeLog.endSession();
-        sendQueues.delete(HOME_ID);
-        heldQueues.delete(HOME_ID);
+        ctx.queues.entries.delete(HOME_ID);
+        ctx.queues.held.delete(HOME_ID);
         ctx.turns.contexts.delete(HOME_ID);
         ctx.retries.cancelRetry(HOME_ID);
         ctx.clients.broadcast({ type: "home_reset" });
@@ -3206,8 +3036,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       ideas: ideas.all(boardIds),
       components: components.all(boardIds),
       secrets: secrets.meta(),
-      queued: Object.fromEntries(projectIds.map((id) => [id, visibleQueue(id)])),
-      queuesHeld: projectIds.filter((id) => heldQueues.has(id)),
+      queued: Object.fromEntries(projectIds.map((id) => [id, ctx.queues.visibleQueue(id)])),
+      queuesHeld: projectIds.filter((id) => ctx.queues.held.has(id)),
       usage: ctx.usage.limits,
       // live figures first; anything not yet seen this run falls back to the
       // last one the archive recorded, so a relaunch shows real occupancy

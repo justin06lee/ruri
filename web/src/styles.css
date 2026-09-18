@@ -2098,8 +2098,11 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* While a tag is carried, the rows are the only things under the pointer:
    a drag passing over a star or a name inside a row used to leave the row
-   and re-enter it, and the outline blinked with every crossing. */
-.model-list.carrying .model-row > * {
+   and re-enter it, and the outline blinked with every crossing.
+   Not the carried tag itself: Chromium hit-tests the drag origin right after
+   dragstart, and a source that no longer takes the pointer is a drag it
+   cancels on the spot — the tag would not lift at all. */
+.model-list.carrying .model-row > :not(.lifted) {
   pointer-events: none;
 }
 

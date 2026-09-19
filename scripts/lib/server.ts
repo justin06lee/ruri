@@ -50,7 +50,7 @@ export async function connect(port: number, timeoutMs = 30_000): Promise<WebSock
         sock.once("error", reject);
       });
     } catch (err) {
-      if (Date.now() - start > timeoutMs) throw new Error(`could not connect to ruri on ${port}: ${String(err)}`);
+      if (Date.now() - start > timeoutMs) throw new Error(`could not connect to ruri on ${port}: ${String(err)}`, { cause: err });
       await new Promise((r) => setTimeout(r, 500));
     }
   }

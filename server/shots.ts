@@ -120,6 +120,7 @@ export function projectEnv(): NodeJS.ProcessEnv {
   return { ...env, BROWSER: "none", NO_COLOR: "1", FORCE_COLOR: "0" };
 }
 
+// eslint-disable-next-line no-control-regex -- ESC is the point: this strips ANSI colour codes
 const ANSI = new RegExp("\\u001b\\[[0-9;]*[A-Za-z]", "g");
 const URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?\S*/;
 const LOCAL_RE = /Local:\s*(https?:\/\/\S+)/;

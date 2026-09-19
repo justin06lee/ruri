@@ -69,8 +69,8 @@ ws.on("error", (err) => {
 const send = (msg: ClientMessage) => ws.send(JSON.stringify(msg));
 
 let projectId: string | undefined;
-let assistantTexts: string[] = [];
-let toolNames: string[] = [];
+const assistantTexts: string[] = [];
+const toolNames: string[] = [];
 let permissionCount = 0;
 let sawDelta = false;
 let resultsSeen = 0;

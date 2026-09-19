@@ -252,6 +252,7 @@ export function composeInto(channelId: string, text: string, attachments?: Attac
       // would otherwise renumber it twice
       renumbered = renumbered.replaceAll(`[${att.kind} #${att.n}]`, `\u0000${att.kind}:${fresh.n}\u0000`);
     }
+    // eslint-disable-next-line no-control-regex -- NUL is the placeholder written just above, never typed
     renumbered = renumbered.replaceAll(/\u0000(image|video|file):(\d+)\u0000/g, "[$1 #$2]");
     const draft = composerDrafts.get(channelId);
     const body = draft?.text.trim()

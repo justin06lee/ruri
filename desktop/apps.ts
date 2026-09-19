@@ -243,7 +243,7 @@ export async function launchElectron(command: string, args: string[], cwd?: stri
       stdio: "ignore",
     });
   } catch (err) {
-    throw new Error(`couldn't start ${command}: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`couldn't start ${command}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
   child.on("error", () => {
     // surfaces as a missing page target below
@@ -565,6 +565,7 @@ export async function captureNative(app: AppHandle): Promise<{ png: Buffer; titl
   } catch (err) {
     throw new Error(
       `couldn't photograph ${app.app}: ${err instanceof Error ? err.message : String(err)}. If macOS just asked about Screen Recording, tell the user to allow ruri and relaunch it.`,
+      { cause: err },
     );
   } finally {
     fs.rmSync(file, { force: true });

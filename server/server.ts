@@ -75,7 +75,7 @@ import { installSkill, listSkills, readSkill, removeSkill, scanSkills, toggleSki
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload, sweepUploads } from "./uploads.js";
-import { fetchAllUsageLimits, loadCachedLimits, readCodexCounts, saveCachedLimits } from "./usage.js";
+import { fetchAllUsageLimits, loadCachedLimits, saveCachedLimits } from "./usage.js";
 import { errorMessage, isMissing, warn } from "./log.js";
 
 export interface StartServerOptions {

@@ -21,10 +21,30 @@ export interface ClientView {
   channels: Set<string>;
   /** Home's projects page is up: it shows every chat's last few lines. */
   board: boolean;
-  /** Each chat that left the screen, and its revision as it went. Back
-   *  unchanged, it needs nothing; changed, it is sent whole again. */
-  seen: Map<string, number>;
+  /** Each chat that left the screen, and where it stood as it went. Back
+   *  unchanged, it needs nothing; a few events on, it is sent those; and
+   *  rewritten or long gone, it is sent whole again. */
+  seen: Map<string, Mark>;
 }
+
+/** Where a chat stood: which shape of it (epoch), and how far along
+ *  (revision). See `since` for what each of the two is for. */
+export interface Mark {
+  epoch: number;
+  revision: number;
+}
+
+/**
+ * How many events back a chat can be resumed from.
+ *
+ * Coming back to a chat you glanced away from used to re-send the whole
+ * live transcript — everything since the last compaction, every time,
+ * however little had happened while you were gone. Past this many events
+ * it still does: a window that far behind is cheaper to re-seat than to
+ * walk forward, and a long absence is the case the whole transcript is
+ * actually the right answer for.
+ */
+const RESUME_MAX = 200;
 
 /**
  * Bytes queued on a socket that has stopped taking them.
@@ -54,6 +74,16 @@ export class Clients {
   readonly views = new Map<ClientConn, ClientView>();
   /** Per channel, moved on by every change to its transcript. */
   readonly revisions = new Map<string, number>();
+  /** Per channel, moved on only by a change that is not an addition — a
+   *  compaction folding the past away, a rewind cutting it back. Windows
+   *  holding an older shape of a chat cannot be walked forward into this
+   *  one and are sent it whole. */
+  readonly epochs = new Map<string, number>();
+  /** Per channel, the events most recently pushed and the revision each
+   *  left behind: what a window away for a moment is caught up from. The
+   *  events are the archive's own, so this costs the array and nothing
+   *  more. */
+  private readonly recent = new Map<string, Array<{ revision: number; event: TranscriptEvent }>>();
 
   broadcast = (message: ServerMessage): void => {
     const payload = JSON.stringify(message);
@@ -64,6 +94,43 @@ export class Clients {
 
   touch = (channelId: string): void => {
     this.revisions.set(channelId, (this.revisions.get(channelId) ?? 0) + 1);
+  };
+
+  /** Where this chat stands, for a window putting it aside. */
+  mark = (channelId: string): Mark => ({
+    epoch: this.epochs.get(channelId) ?? 0,
+    revision: this.revisions.get(channelId) ?? 0,
+  });
+
+  /** A chat re-made rather than added to: no window holding the old shape
+   *  can be walked forward into this one. */
+  rewrote = (channelId: string): void => {
+    this.epochs.set(channelId, (this.epochs.get(channelId) ?? 0) + 1);
+    this.recent.delete(channelId);
+    this.touch(channelId);
+  };
+
+  /**
+   * What a window last at `mark` has missed — or undefined when it cannot
+   * be walked forward and wants the transcript whole.
+   *
+   * The events come back as they were pushed, which includes an event
+   * pushed again because it changed (a tool call settling, an agent card
+   * finishing). A window applies one the same way live or replayed: by id,
+   * replacing what it holds or adding to it, which is what makes replaying
+   * them enough.
+   */
+  since = (channelId: string, mark: Mark): TranscriptEvent[] | undefined => {
+    if (mark.epoch !== (this.epochs.get(channelId) ?? 0)) return undefined;
+    const now = this.revisions.get(channelId) ?? 0;
+    if (mark.revision === now) return [];
+    if (mark.revision > now) return undefined;
+    const log = this.recent.get(channelId);
+    if (log === undefined || log.length === 0) return undefined;
+    // the oldest event the log still holds arrived at this revision; a
+    // window from before it has lost the thread
+    if (mark.revision < log[0]!.revision - 1) return undefined;
+    return log.filter((entry) => entry.revision > mark.revision).map((entry) => entry.event);
   };
 
   /** To the windows showing this chat — and, `board`, to any on Home's
@@ -92,13 +159,39 @@ export class Clients {
    *  not on screen gets its "finished" pip. */
   pushEvent = (channelId: string, event: TranscriptEvent): void => {
     this.touch(channelId);
+    this.remember(channelId, event);
     if (event.kind === "result") this.broadcast({ type: "event", projectId: channelId, event });
     else this.toViewers(channelId, { type: "event", projectId: channelId, event }, true);
   };
 
+  /** Keep this event against a window coming back for it. */
+  private remember(channelId: string, event: TranscriptEvent): void {
+    let log = this.recent.get(channelId);
+    if (log === undefined) {
+      log = [];
+      this.recent.set(channelId, log);
+    }
+    log.push({ revision: this.revisions.get(channelId) ?? 0, event });
+    if (log.length > RESUME_MAX) log.splice(0, log.length - RESUME_MAX);
+  }
+
+  /** Events taken out of a chat (a turn removed): they must not be
+   *  replayed to a window catching up, which has already been told they
+   *  are gone and would put them back. */
+  forgetEvents(channelId: string, eventIds: string[]): void {
+    const log = this.recent.get(channelId);
+    if (log === undefined) return;
+    const gone = new Set(eventIds);
+    const kept = log.filter((entry) => !gone.has(entry.event.id));
+    if (kept.length === log.length) return;
+    this.recent.set(channelId, kept);
+  }
+
   /** A chat gone: nothing left to be caught up on. */
   forgetChannel(channelId: string): void {
     this.revisions.delete(channelId);
+    this.epochs.delete(channelId);
+    this.recent.delete(channelId);
     for (const view of this.views.values()) view.seen.delete(channelId);
   }
 }
@@ -123,8 +216,13 @@ export function catchUp(ctx: ServerContext, ws: ClientConn, view: ClientView, ch
   const seen = view.seen.get(channelId);
   view.seen.delete(channelId);
   const out: ServerMessage[] = [];
-  if (seen !== undefined && seen !== (ctx.clients.revisions.get(channelId) ?? 0))
-    out.push(transcriptOf(ctx, channelId));
+  if (seen !== undefined) {
+    // what happened while it was away: the few events themselves where
+    // there were few, and the whole live transcript where there were not
+    const missed = ctx.clients.since(channelId, seen);
+    if (missed === undefined) out.push(transcriptOf(ctx, channelId));
+    else for (const event of missed) out.push({ type: "event", projectId: channelId, event });
+  }
   const held = ctx.turns.gates.get(channelId);
   out.push({
     type: "reply",
@@ -148,6 +246,6 @@ export function catchUp(ctx: ServerContext, ws: ClientConn, view: ClientView, ch
  *  compaction folding the past away, a rewind reaching back into it. The
  *  rest are sent it when they open the chat (catchUp). */
 export function pushTranscript(ctx: ServerContext, channelId: string): void {
-  ctx.clients.touch(channelId);
+  ctx.clients.rewrote(channelId);
   ctx.clients.toViewers(channelId, transcriptOf(ctx, channelId));
 }

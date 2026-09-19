@@ -24,6 +24,7 @@ function closeProjectById(ctx: ServerContext, projectId: string): void {
     if (closing?.path) void ctx.checkpoints.forgetChannel(closing, sessionId).catch(() => undefined);
     ctx.manager.dispose(sessionId);
     ctx.archive.remove(sessionId);
+    ctx.clients.forgetChannel(sessionId);
     removeTurnFiles(sessionId);
     for (const key of ctx.crew.remove(sessionId)) ctx.crewManager.dispose(key);
     ctx.agentLogs.remove(sessionId);
@@ -142,6 +143,7 @@ export const projectHandlers = {
     if (owner?.path) void ctx.checkpoints.forgetChannel(owner, msg.sessionId).catch(() => undefined);
     ctx.manager.dispose(msg.sessionId);
     ctx.archive.remove(msg.sessionId);
+    ctx.clients.forgetChannel(msg.sessionId);
     removeTurnFiles(msg.sessionId);
     for (const key of ctx.crew.remove(msg.sessionId)) ctx.crewManager.dispose(key);
     ctx.agentLogs.remove(msg.sessionId);

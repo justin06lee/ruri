@@ -6,8 +6,8 @@ import { tooBigNotice, useConfirm } from "./Confirm";
 import { AttachmentStrip, cropRegion, fileKind, Viewer, type ComposerAttachment, type Region } from "./Attachments";
 import { CommandMenu, commandPrefix } from "./CommandMenu";
 import { DragonGauges } from "./Dragon";
+import { MarkerMirror } from "./Markers";
 import {
-  MarkerMirror,
   fitBox,
   backspaceHits,
   findMarkers,
@@ -18,7 +18,7 @@ import {
   removeMarker,
   stripMarkers,
   type Marker,
-} from "./Markers";
+} from "../lib/markers";
 import { SessionControls } from "./SessionControls";
 import type { SketchBackground } from "./Sketch";
 import { Icon } from "./chat/Icon";
@@ -393,17 +393,23 @@ export function Composer({
   // The draft changed from outside (a review's fix-it prompt, a rewound
   // prompt, a saved draft's files arriving after a launch): the map is the
   // source of truth — re-read it, attachments and marker numbering included.
-  useEffect(() => {
-    if (draftBump === bumpSeen.current) return;
-    bumpSeen.current = draftBump;
-    const fresh = composerDrafts.get(channelId);
-    if (!fresh) return;
-    const held = holdMarkers(fresh.text);
-    if (held !== text) setText(held);
-    setAtts((prev) => (prev === fresh.atts ? prev : fresh.atts));
-    counter.current = fresh.counter;
-    requestAnimationFrame(() => areaRef.current?.focus());
-  }, [draftBump, channelId, text]);
+  // Heard from the store as the bump lands (the map is always written
+  // first), rather than noticed by an effect after a render.
+  useEffect(
+    () =>
+      useRuri.subscribe((s) => {
+        const bump = s.draftBumps[channelId] ?? 0;
+        if (bump === bumpSeen.current) return;
+        bumpSeen.current = bump;
+        const fresh = composerDrafts.get(channelId);
+        if (!fresh) return;
+        setText(holdMarkers(fresh.text));
+        setAtts((prev) => (prev === fresh.atts ? prev : fresh.atts));
+        counter.current = fresh.counter;
+        requestAnimationFrame(() => areaRef.current?.focus());
+      }),
+    [channelId],
+  );
 
   const submit = async (mode: "send" | "send_split" = "send") => {
     const trimmed = releaseMarkers(text).trim();

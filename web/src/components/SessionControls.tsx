@@ -70,10 +70,11 @@ export function SessionControls({
   // A project can carry xhigh from its previous model. Once a new catalog
   // says that choice is impossible, move to the model's own default rather
   // than silently asking the harness for a setting it will ignore.
+  const selectedValue = selected?.value;
   useEffect(() => {
-    if (!selected || effortOptions.length === 0 || supportedEffort || !fallbackEffort) return;
+    if (!selectedValue || effortOptions.length === 0 || supportedEffort || !fallbackEffort) return;
     send({ type: "set_effort", projectId: channelId, effort: fallbackEffort });
-  }, [selected?.value, pickedEffort, supportedEffort, fallbackEffort, effortOptions.length, channelId]);
+  }, [selectedValue, pickedEffort, supportedEffort, fallbackEffort, effortOptions.length, channelId]);
   const modelOptions = models.map((m) => ({
     // the model's own name only — which harness serves it is the
     // Settings catalog's business, not the picker's

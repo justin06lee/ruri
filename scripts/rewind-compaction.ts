@@ -170,10 +170,15 @@ if (composed2?.text !== "the first thing") {
   console.error(`FAIL: the earlier prompt did not come back (${JSON.stringify(composed2?.text)})`);
   bad++;
 }
-if (!explained?.message.includes("compacted after this prompt")) {
+// The files: this project is a bare temp directory, so ruri has no
+// checkpoint to put back, and the reply says that rather than implying
+// the files moved (checkpoints.ts). The compaction is not the reason —
+// ruri's own checkpoints are taken by ruri, and a compaction is nothing
+// that happens to them.
+if (!explained?.message.includes("the files were left as they are") || !explained.message.includes("no checkpoints for it")) {
   console.error(`FAIL: it didn't say why the files were left alone (${JSON.stringify(explained?.message)})`);
   bad++;
 }
-if (bad === 0) console.log("PASS: a compaction ahead of the prompt rewinds the way a harness does, and says so");
+if (bad === 0) console.log("PASS: a compaction ahead of the prompt rewinds the way a harness does, and says why the files stayed");
 
 done(bad === 0 ? 0 : 1);

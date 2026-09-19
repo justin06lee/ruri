@@ -663,7 +663,7 @@ export class PageDriver {
    *  with what wasn't when time runs out. */
   async waitFor(cond: WaitCondition, timeoutMs: number): Promise<string> {
     const until = Date.now() + timeoutMs;
-    let last = "";
+    let last: string;
     for (;;) {
       try {
         if (cond.selector) {

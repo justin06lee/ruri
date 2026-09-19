@@ -8,15 +8,16 @@
  * result says what happened, and ruri types it: three tries, backing off,
  * down the same session, cancelled by anything the user does.
  *
- * Both passes run against the real server and the real CLI, pointed at a
- * mock gateway on this machine that answers 529 to everything. No tokens
- * are spent and no request leaves the box. CLAUDE_CODE_MAX_RETRIES=0 turns
- * off the CLI's own retry loop, which would otherwise spend three minutes
- * per attempt discovering the same thing.
+ * There is no switch for it — an overload is weather, not a decision — so
+ * the one pass here is the whole story: a dropped turn is reported as
+ * dropped, goes again three times, says so each time, and is handed back
+ * to the user when the three are up.
  *
- *   1. switched off, a dropped turn stays dropped.
- *   2. switched on, it goes again three times, says so each time, and
- *      hands back to the user when the three are up.
+ * It runs against the real server and the real CLI, pointed at a mock
+ * gateway on this machine that answers 529 to everything. No tokens are
+ * spent and no request leaves the box. CLAUDE_CODE_MAX_RETRIES=0 turns off
+ * the CLI's own retry loop, which would otherwise spend three minutes per
+ * attempt discovering the same thing.
  *
  * Run manually: bun run retry-test
  */
@@ -171,9 +172,7 @@ if (!projectId) {
 }
 const id = projectId;
 
-// pass 1: switched off — the turn is dropped and stays dropped
-send({ type: "set_pref", key: "retryDroppedTurns", value: "off" });
-await settle(500);
+// one dropped turn: reported as dropped, and the first retry announced
 send({ type: "send", projectId: id, text: "say hi" });
 await until("the dropped turn", () => results.length >= 1, 90_000);
 
@@ -185,31 +184,26 @@ check("the working line ran while it ran", sawTurn, { sawTurn });
 
 await until("the channel to settle", () => status === "idle", 20_000);
 check("and stood down when the turn ended", turn === null, { turn });
+check(
+  "the first wait is announced the moment the turn drops",
+  notes.length === 1 && notes[0]!.includes("8s") && notes[0]!.includes("1 of 3"),
+  notes,
+);
 
-await settle(12_000);
-check("switched off, nothing goes again", results.length === 1, results);
-check("and nothing is announced", notes.length === 0, notes);
-
-// pass 2: switched on — three tries, each announced, then back to the user
-send({ type: "set_pref", key: "retryDroppedTurns", value: "on" });
-await settle(500);
-const mark = results.length;
-send({ type: "send", projectId: id, text: "say hi" });
-
-// the waits are 8s, 25s and 60s, and each attempt takes about a second
+// three tries, each announced, then back to the user — the waits are 8s,
+// 25s and 60s, and each attempt takes about a second
 await until(
   "three retries and the give-up",
-  () => results.length - mark >= 4 && notes.length >= 4,
+  () => results.length >= 4 && notes.length >= 4,
   240_000,
 );
 await settle(2_000);
 
-const tries = results.slice(mark);
-check("the dropped turn goes again three times", tries.length === 4, tries);
+check("the dropped turn goes again three times", results.length === 4, results);
 check(
   "every attempt is dropped the same way",
-  tries.every((r) => r.ok === false && r.transient === true),
-  tries,
+  results.every((r) => r.ok === false && r.transient === true),
+  results,
 );
 check(
   "each wait says how long and which try it is",
@@ -223,8 +217,12 @@ check(
   notes,
 );
 check("and the last word hands it back to the user", notes[3]?.includes("leaving this one to you") === true, notes);
-check("the retries never reach a real API", gatewayHits > 0, { gatewayHits });
+check("every try went to the mock gateway, none to a real API", gatewayHits > 0, { gatewayHits });
 check("and the working line is down again at the end", turn === null, { turn });
+
+// handed back means handed back: nothing goes again on its own
+await settle(10_000);
+check("after the third, nothing goes again", results.length === 4 && notes.length === 4, { results, notes });
 
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
 cleanup(failed === 0 ? 0 : 1);

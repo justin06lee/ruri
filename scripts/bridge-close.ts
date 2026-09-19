@@ -18,7 +18,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
-import { TOKEN, wsUrl } from "./lib/server.js";
+import { wsUrl } from "./lib/server.js";
 import type { BridgeState, ClientMessage, ServerMessage } from "../shared/protocol.js";
 
 const root = path.resolve(import.meta.dirname, "..");

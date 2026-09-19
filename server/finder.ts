@@ -107,7 +107,7 @@ export function findProjects(roots: string[], query: string, limit = 12): FoundP
       if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
       if (SKIP.has(entry.name) || (entry.name.startsWith(".") && entry.name !== ".ruri")) continue;
       const full = path.join(dir, entry.name);
-      let real = full;
+      let real: string;
       try {
         real = fs.realpathSync(full);
         if (!fs.statSync(real).isDirectory()) continue;

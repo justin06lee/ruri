@@ -677,9 +677,12 @@ function Grants() {
   useEffect(() => {
     if (can) send({ type: "permissions_check" });
   }, [can]);
-  useEffect(() => {
+  // fresh grants from macOS are the answer to whatever was being asked
+  const [grantsSeen, setGrantsSeen] = useState(grants);
+  if (grants !== grantsSeen) {
+    setGrantsSeen(grants);
     if (grants) setAsking(null);
-  }, [grants]);
+  }
   const ask = (id?: PermissionId) => {
     setAsking(id ?? "all");
     send({ type: "permissions_request", ...(id ? { id } : {}) });

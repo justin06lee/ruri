@@ -22,6 +22,7 @@ export function BridgeStrip({ channelId, stacked }: { channelId: string; stacked
   const state = useRuri((s) => s.bridges[channelId]);
   const [open, setOpen] = useState(false);
   const stripRef = useRef<HTMLDivElement>(null);
+  const shown = state !== undefined;
 
   /* Right edge on the textbox's right edge — the same measurement the
      rapid-fire plate makes, for the same reason: the textbox is centred
@@ -40,7 +41,7 @@ export function BridgeStrip({ channelId, stacked }: { channelId: string; stacked
     observer.observe(pane);
     observer.observe(box);
     return () => observer.disconnect();
-  }, [state !== undefined, stacked]);
+  }, [shown, stacked]);
 
   if (!state) return null;
   const src = state.previewUrl ? `${HTTP_BASE}${state.previewUrl}` : undefined;

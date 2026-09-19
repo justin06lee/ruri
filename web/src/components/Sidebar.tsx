@@ -405,14 +405,18 @@ export const Sidebar = memo(function Sidebar() {
   const activeId = useRuri((s) => s.activeId);
   const owner = useRuri((s) => s.projects.find((p) => p.sessions.some((x) => x.id === activeId))?.id);
   const ownerHidden = useRuri((s) => s.projects.find((p) => p.id === owner)?.hidden === true);
-  // a chat inside a hidden project is being looked at: the fold opens so
-  // the row that is active is actually on screen
-  useEffect(() => {
+  // Noticed while rendering (the way React has state follow the store), and
+  // on the first render too: a chat inside a hidden project is being looked
+  // at, so the fold opens and the row that is active is actually on screen;
+  // a newly active chat's folder is opened for it.
+  const [ownerSeen, setOwnerSeen] = useState<{ owner: string | undefined; hidden: boolean } | null>(null);
+  if (!ownerSeen || ownerSeen.owner !== owner || ownerSeen.hidden !== ownerHidden) {
+    setOwnerSeen({ owner, hidden: ownerHidden });
     if (ownerHidden) setShowHidden(true);
-  }, [owner, ownerHidden]);
-  useEffect(() => {
-    if (owner) setExpandedSet((prev) => (prev.has(owner) ? prev : new Set(prev).add(owner)));
-  }, [owner]);
+    if (owner && (!ownerSeen || ownerSeen.owner !== owner)) {
+      setExpandedSet((prev) => (prev.has(owner) ? prev : new Set(prev).add(owner)));
+    }
+  }
   // remembered whenever it changes, however it changed — not on mount,
   // where what was loaded is what is saved (and setPref would mark the
   // key as this session's, shutting the snapshot's copy out)

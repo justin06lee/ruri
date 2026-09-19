@@ -51,7 +51,7 @@ function tabsFile(): string {
  * NaN, a string that got past the parser — would be spliced straight into
  * a script.
  */
-function dimension(value: unknown, fallback: number): number {
+export function dimension(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 1000 ? value : fallback;
 }
 

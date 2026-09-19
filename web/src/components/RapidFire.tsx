@@ -72,10 +72,27 @@ function nextAfter(from: string | undefined): string | undefined {
   return undefined;
 }
 
+/** Where the pick should be, given where it is: unchanged while that
+ *  session can still take a prompt. */
+function repick(current: string | undefined): string | undefined {
+  const { ready } = line();
+  if (current && ready.includes(current)) return current;
+  // entering the line from a session that could take a prompt starts there
+  const activeId = useRuri.getState().activeId;
+  const next =
+    current === undefined && activeId && ready.includes(activeId)
+      ? activeId
+      : nextAfter(current);
+  // nobody else waiting: stay on this one and watch it finish
+  return next ?? current;
+}
+
 export function useRapidFire(): RapidFire {
   const on = useRuri((s) => s.rapid);
-  const projects = useRuri((s) => s.projects);
-  const statuses = useRuri((s) => s.statuses);
+  // subscribed only to render again when the line changes: `line()` reads
+  // them from the store itself
+  useRuri((s) => s.projects);
+  useRuri((s) => s.statuses);
   const [current, setCurrent] = useState<string | undefined>(undefined);
   /** A hand-off is under way: the card is holding, then fading. Nothing else
    *  may move the pick until it lands — least of all the turn the sent prompt
@@ -91,33 +108,31 @@ export function useRapidFire(): RapidFire {
   };
   useEffect(() => clearTimers, []);
 
-  // Leaving the line drops the pick, so coming back starts fresh.
+  // Leaving the line drops the pick, so coming back starts fresh — the
+  // state as the render notices, the timers (not state) after it.
+  const [wasOn, setWasOn] = useState(on);
+  if (wasOn !== on) {
+    setWasOn(on);
+    if (!on) {
+      setHanding(false);
+      setLeaving(false);
+      setIntro(null);
+      setCurrent(undefined);
+    }
+  }
   useEffect(() => {
-    if (on) return;
-    clearTimers();
-    setHanding(false);
-    setLeaving(false);
-    setIntro(null);
-    setCurrent(undefined);
+    if (!on) clearTimers();
   }, [on]);
 
   // The pick: whoever is ready. It only moves on its own when this one can no
   // longer take a prompt — it started a turn, or it's gone. When everybody's
   // working there's nowhere to go, so the card stays and you watch it finish.
-  useEffect(() => {
-    if (!on || handing) return;
-    const { ready } = line();
-    if (current && ready.includes(current)) return;
-    // entering the line from a session that could take a prompt starts there
-    const activeId = useRuri.getState().activeId;
-    const next =
-      current === undefined && activeId && ready.includes(activeId)
-        ? activeId
-        : nextAfter(current);
-    // nobody else waiting: stay on this one and watch it finish
-    if (next && next !== current) setCurrent(next);
-    // recomputed from projects/statuses on every change
-  }, [on, handing, current, projects, statuses]);
+  // Worked out as the render happens — projects and statuses are subscribed
+  // above, so every change to the line comes through here.
+  if (on && !handing) {
+    const next = repick(current);
+    if (next !== current) setCurrent(next);
+  }
 
   // Being shown counts as read.
   useEffect(() => {

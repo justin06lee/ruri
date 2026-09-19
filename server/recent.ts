@@ -32,7 +32,7 @@ const LIST_LIMIT = 24;
  * compaction brief, a command echo, a system reminder). Empty when there
  * was nothing of the user's in it at all.
  */
-function humanText(text: string): string {
+export function humanText(text: string): string {
   let t = text.trim();
   for (;;) {
     const block = /^<([a-z][\w:-]*)(?:\s[^>]*)?>[^]*?<\/\1>\s*/i.exec(t);
@@ -43,7 +43,7 @@ function humanText(text: string): string {
 }
 
 /** A title the way a person would want it: the first thing said, short. */
-function titleOf(text: string): string {
+export function titleOf(text: string): string {
   const flat = humanText(text).replace(/\s+/g, " ").trim();
   return flat.length > 90 ? `${flat.slice(0, 89).trimEnd()}…` : flat;
 }
@@ -275,7 +275,7 @@ function rolloutLines(file: string): RolloutLine[] {
 }
 
 /** The text of a Codex message payload's content blocks. */
-function codexText(content: unknown): string {
+export function codexText(content: unknown): string {
   if (!Array.isArray(content)) return typeof content === "string" ? content : "";
   return content
     .filter((b): b is { type: string; text?: string } => typeof b === "object" && b !== null)
@@ -285,7 +285,7 @@ function codexText(content: unknown): string {
 }
 
 /** What a Codex tool call did, in one line the chip can show. */
-function codexTool(payload: Record<string, unknown>): { name: string; summary: string } {
+export function codexTool(payload: Record<string, unknown>): { name: string; summary: string } {
   const name = typeof payload["name"] === "string" ? (payload["name"] as string) : "tool";
   const input = payload["input"] ?? payload["arguments"];
   let summary = "";

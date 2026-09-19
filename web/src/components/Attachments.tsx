@@ -317,7 +317,7 @@ export function Viewer({
             onPointerDown={onPointerDown}
           >
             <img src={target.src} alt="" draggable={false} />
-            {regions.map((r, i) => (
+            {regions.map((r) => (
               <div
                 key={r.n}
                 className="region-box"

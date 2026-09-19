@@ -106,7 +106,7 @@ function isFlat(image: NativeImage): boolean {
 
 /** Photograph one selector on the page as it stands. */
 async function shoot(win: BrowserWindow, selector: string): Promise<string | undefined> {
-  let rect: Rect | null = null;
+  let rect: Rect | null;
   try {
     rect = (await win.webContents.executeJavaScript(locateScript(selector), true)) as Rect | null;
   } catch {

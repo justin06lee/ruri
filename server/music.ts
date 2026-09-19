@@ -95,7 +95,7 @@ export function scan(root: string = defaultMusicDir()): Playlist[] {
   const loose = tracksIn(root);
   if (loose.length) playlists.push({ id: root, name: "Unsorted", tracks: loose });
 
-  let names: string[] = [];
+  let names: string[];
   try {
     names = fs.readdirSync(root);
   } catch (err) {

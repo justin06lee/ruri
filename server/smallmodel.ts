@@ -1,5 +1,6 @@
 import { Yagami } from "@justin06lee/yagami";
 import type { TranscriptEvent } from "../shared/protocol.js";
+import { errorMessage, warn } from "./log.js";
 
 /**
  * The "small model" behind turn summaries, session titles, prompt splitting,
@@ -51,7 +52,11 @@ const GUARD =
  * GPT Luna covers for Claude.
  */
 function fallbackFor(primary: string): string {
-  const harness = primary.includes(":") ? primary.slice(0, primary.indexOf(":")) : primary === "codex" ? "codex" : "claude";
+  const harness = primary.includes(":")
+    ? primary.slice(0, primary.indexOf(":"))
+    : primary === "codex"
+      ? "codex"
+      : "claude";
   return harness === "claude" ? "codex:gpt-5.6-luna" : "haiku";
 }
 
@@ -62,7 +67,7 @@ const REST_MS = 10 * 60_000;
 
 /** A failure that asking again soon will only repeat. */
 function exhausted(error: unknown): boolean {
-  const text = error instanceof Error ? error.message : String(error);
+  const text = errorMessage(error);
   return /usage limit|rate.?limit|quota|credits|\b429\b/i.test(text);
 }
 
@@ -161,7 +166,8 @@ export function offTask(note: string, source: string): boolean {
   return false;
 }
 
-const FIRMER = "\n\nYour previous answer commented on the message instead of compressing it. Output the compressed message and nothing else.";
+const FIRMER =
+  "\n\nYour previous answer commented on the message instead of compressing it. Output the compressed message and nothing else.";
 
 /**
  * A recall note, checked: the model is asked once, and a note that reads as
@@ -234,7 +240,8 @@ RULES
 - Your output is only ever the memory itself: never a remark about the task, never a question, never a refusal.`;
 
 /** An answer that talks about the job instead of doing it. */
-const DIGEST_REFUSAL = /^(i (?:can'?t|cannot|need|don'?t)|sorry|please (?:provide|share)|there (?:is|are) no)/i;
+const DIGEST_REFUSAL =
+  /^(i (?:can'?t|cannot|need|don'?t)|sorry|please (?:provide|share)|there (?:is|are) no)/i;
 
 /**
  * Fold exchanges into a long conversation's condensed memory (the digest a
@@ -298,7 +305,8 @@ export async function updateBrief(
     if (typeof parsed.description !== "string" || !Array.isArray(parsed.features)) return null;
     const features = parsed.features.filter((line): line is string => typeof line === "string");
     return { description: parsed.description.trim(), features: features.map((f) => f.trim()) };
-  } catch {
+  } catch (err) {
+    warn("smallmodel", err, "updateBrief");
     // a brief that can't be updated is better left alone
     return null;
   }
@@ -354,7 +362,10 @@ ${material.slice(0, 60_000)}`;
     if (typeof parsed.description !== "string") return null;
     const lines = (value: unknown, max: number): string[] =>
       Array.isArray(value)
-        ? value.filter((l): l is string => typeof l === "string" && l.trim().length > 0).map((l) => l.trim()).slice(0, max)
+        ? value
+            .filter((l): l is string => typeof l === "string" && l.trim().length > 0)
+            .map((l) => l.trim())
+            .slice(0, max)
         : [];
     return {
       description: parsed.description.trim(),
@@ -364,7 +375,8 @@ ${material.slice(0, 60_000)}`;
       layout: lines(parsed.layout, 14),
       conventions: lines(parsed.conventions, 8),
     };
-  } catch {
+  } catch (err) {
+    warn("smallmodel", err, "catchupBrief");
     return null;
   }
 }
@@ -417,14 +429,17 @@ export async function extractTrackerItems(userText: string, existing: string[]):
       items?: unknown;
     };
     if (!Array.isArray(parsed.items)) return [];
-    return parsed.items
-      .filter((item): item is string => typeof item === "string")
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0 && item.length < 200)
-      // a hard backstop: if the model relapses into clause-splitting it can
-      // still only spill six rows, not sixteen.
-      .slice(0, 6);
-  } catch {
+    return (
+      parsed.items
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0 && item.length < 200)
+        // a hard backstop: if the model relapses into clause-splitting it can
+        // still only spill six rows, not sixteen.
+        .slice(0, 6)
+    );
+  } catch (err) {
+    warn("smallmodel", err, "extractTrackerItems");
     return [];
   }
 }
@@ -466,7 +481,8 @@ export async function splitPrompt(text: string): Promise<string[]> {
       .map((item) => item.trim())
       .filter((item) => item.length > 0);
     return prompts.length > 0 ? prompts : [text];
-  } catch {
+  } catch (err) {
+    warn("smallmodel", err, "splitPrompt");
     return [text];
   }
 }
@@ -505,13 +521,19 @@ export class TurnTracker {
  * result arrived, or something after it did (a later prompt, a compaction),
  * so its reply is whole.
  */
-export function assembleTurns(events: TranscriptEvent[]): Array<{ turn: Turn; ts: number; finished: boolean }> {
+export function assembleTurns(
+  events: TranscriptEvent[],
+): Array<{ turn: Turn; ts: number; finished: boolean }> {
   const turns: Array<{ turn: Turn; ts: number; finished: boolean }> = [];
   let open: { turn: Turn; ts: number; finished: boolean } | null = null;
   for (const event of events) {
     if (event.kind === "user") {
       if (open) open.finished = true;
-      open = { turn: { turnId: event.id, user: event.text, assistant: "", tools: [] }, ts: event.ts, finished: false };
+      open = {
+        turn: { turnId: event.id, user: event.text, assistant: "", tools: [] },
+        ts: event.ts,
+        finished: false,
+      };
       turns.push(open);
     } else if (!open) {
       continue;
@@ -600,7 +622,9 @@ export async function nameProjectParts(
       if (!name || name.length > 60) return [];
       const list = (value: unknown): string[] =>
         Array.isArray(value)
-          ? value.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map((v) => v.trim())
+          ? value
+              .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+              .map((v) => v.trim())
           : [];
       const selector = typeof part.selector === "string" ? part.selector.trim() : "";
       const route = typeof part.route === "string" ? part.route.trim() : "";
@@ -616,7 +640,8 @@ export async function nameProjectParts(
         },
       ];
     });
-  } catch {
+  } catch (err) {
+    warn("smallmodel", err, "nameProjectParts");
     // a batch that comes back unusable is one batch — the sweep carries on
     return [];
   }

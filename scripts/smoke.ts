@@ -13,6 +13,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.js";
 
 const PORT = 7877;
@@ -23,7 +24,7 @@ fs.writeFileSync(path.join(projectDir, "hello.txt"), "hello from ruri smoke\n");
 const spawnCmd = process.env["RURI_SMOKE_SPAWN"]?.split(" ") ?? ["bunx", "tsx", "server/index.ts"];
 const server = spawn(spawnCmd[0]!, spawnCmd.slice(1), {
   cwd: path.join(import.meta.dirname, ".."),
-  env: { ...process.env, RURI_PORT: String(PORT), RURI_CONFIG_DIR: configDir },
+  env: { ...process.env, RURI_PORT: String(PORT), RURI_TOKEN: TOKEN, RURI_CONFIG_DIR: configDir },
   stdio: ["ignore", "pipe", "inherit"],
 });
 server.stdout.on("data", (d: Buffer) => process.stdout.write(`[server] ${d}`));
@@ -60,7 +61,7 @@ async function connectWithRetry(url: string, timeoutMs: number): Promise<WebSock
   }
 }
 
-const ws = await connectWithRetry(`ws://127.0.0.1:${PORT}`, 60_000);
+const ws = await connectWithRetry(wsUrl(PORT), 60_000);
 ws.on("error", (err) => {
   console.error(`SMOKE FAIL: websocket error: ${err.message}`);
   cleanup(1);
@@ -68,8 +69,8 @@ ws.on("error", (err) => {
 const send = (msg: ClientMessage) => ws.send(JSON.stringify(msg));
 
 let projectId: string | undefined;
-let assistantTexts: string[] = [];
-let toolNames: string[] = [];
+const assistantTexts: string[] = [];
+const toolNames: string[] = [];
 let permissionCount = 0;
 let sawDelta = false;
 let resultsSeen = 0;
@@ -106,7 +107,9 @@ ws.on("message", (raw) => {
         console.log(`[client] tool: ${e.name} — ${e.summary}`);
       } else if (e.kind === "result") {
         resultsSeen += 1;
-        console.log(`[client] result: ok=${e.ok} cost=$${e.costUsd?.toFixed(4)} in ${((e.durationMs ?? 0) / 1000).toFixed(1)}s`);
+        console.log(
+          `[client] result: ok=${e.ok} cost=$${e.costUsd?.toFixed(4)} in ${((e.durationMs ?? 0) / 1000).toFixed(1)}s`,
+        );
         if (!e.ok) {
           console.error(`SMOKE FAIL: turn errored: ${e.error}`);
           cleanup(1);
@@ -155,7 +158,8 @@ function finish(): void {
   );
   const turn3ok = assistantTexts.some((t) => t.includes("Example Domain"));
   console.log(`        turn3=${turn3ok} (permission round-trip: ${permissionCount >= 1})`);
-  const ok = turn1ok && turn2ok && turn3ok && usedBash && sawDelta && permissionCount >= 1 && resultsSeen === 3;
+  const ok =
+    turn1ok && turn2ok && turn3ok && usedBash && sawDelta && permissionCount >= 1 && resultsSeen === 3;
   console.log(ok ? "\nSMOKE PASS" : "\nSMOKE FAIL");
   cleanup(ok ? 0 : 1);
 }

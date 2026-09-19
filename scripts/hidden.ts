@@ -18,6 +18,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.js";
 import { drainOpenRequests, type ManagerHost } from "../server/manager.js";
 import { findProjects } from "../server/finder.js";
@@ -74,7 +75,11 @@ fs.writeFileSync(
   ].join("\n") + "\n",
 );
 const results = drainOpenRequests(workspace, host);
-check("drop file: every verb reaches its host call, in order", calls.join(" ") === "open:/tmp/a:go new:fresh hide:hifz unhide:hifz close:old close:older", calls);
+check(
+  "drop file: every verb reaches its host call, in order",
+  calls.join(" ") === "open:/tmp/a:go new:fresh hide:hifz unhide:hifz close:old close:older",
+  calls,
+);
 check("drop file: one result per applied line", results.length === 6, results);
 check("drop file: consumed after draining", !fs.existsSync(path.join(workspace, ".ruri", "open.jsonl")));
 
@@ -118,7 +123,11 @@ fs.writeFileSync(path.join(projectDir, "package.json"), "{}");
 
   const found = findProjects([workspace], "hifz").map((f) => f.path);
   check("finder: the project itself is found first", found[0] === projectDir, found);
-  check("finder: a monorepo's package is found", found.includes(path.join(mono, "packages", "hifz-core")), found);
+  check(
+    "finder: a monorepo's package is found",
+    found.includes(path.join(mono, "packages", "hifz-core")),
+    found,
+  );
   check("finder: a repo's source tree is not walked", !found.some((p) => p.includes("/src/")), found);
   check("finder: only the given root is searched", !found.some((p) => p.startsWith(elsewhere)), found);
   fs.rmSync(elsewhere, { recursive: true, force: true });
@@ -130,7 +139,7 @@ const PORT = Number(process.env["RURI_PORT"] ?? 7893);
 const serverConfig = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-hidden-server-"));
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: path.join(import.meta.dirname, ".."),
-  env: { ...process.env, RURI_PORT: String(PORT), RURI_CONFIG_DIR: serverConfig },
+  env: { ...process.env, RURI_PORT: String(PORT), RURI_TOKEN: TOKEN, RURI_CONFIG_DIR: serverConfig },
   stdio: ["ignore", "ignore", "inherit"],
 });
 
@@ -166,9 +175,9 @@ async function connect(url: string): Promise<WebSocket> {
   }
 }
 
-const ws = await connect(`ws://127.0.0.1:${PORT}`);
+const ws = await connect(wsUrl(PORT));
 const send = (msg: ClientMessage) => ws.send(JSON.stringify(msg));
-let latest: ServerMessage & { type: "projects" } | undefined;
+let latest: (ServerMessage & { type: "projects" }) | undefined;
 const waiters = new Set<() => void>();
 ws.on("message", (raw) => {
   const msg = JSON.parse(String(raw)) as ServerMessage;

@@ -44,16 +44,57 @@ export function installFixture(): void {
     canPermissions: true,
     grants: {
       items: [
-        { id: "accessibility", name: "Accessibility", why: "driving native apps in the bridge — clicks, typing, the UI tree", status: "granted" },
-        { id: "screen", name: "Screen Recording", why: "photographing apps and windows a session is looking at", status: "granted" },
-        { id: "automation", name: "Automation", why: "AppleScript to System Events, which the bridge and app_ui use", status: "denied" },
-        { id: "fullDisk", name: "Full Disk Access", why: "sessions reading and writing anywhere without a prompt per folder", status: "granted" },
-        { id: "removable", name: "Removable volumes", why: "projects on an external drive — git in a checkout there fails without this", status: "unasked", detail: "mounted: T7" },
+        {
+          id: "accessibility",
+          name: "Accessibility",
+          why: "driving native apps in the bridge — clicks, typing, the UI tree",
+          status: "granted",
+        },
+        {
+          id: "screen",
+          name: "Screen Recording",
+          why: "photographing apps and windows a session is looking at",
+          status: "granted",
+        },
+        {
+          id: "automation",
+          name: "Automation",
+          why: "AppleScript to System Events, which the bridge and app_ui use",
+          status: "denied",
+        },
+        {
+          id: "fullDisk",
+          name: "Full Disk Access",
+          why: "sessions reading and writing anywhere without a prompt per folder",
+          status: "granted",
+        },
+        {
+          id: "removable",
+          name: "Removable volumes",
+          why: "projects on an external drive — git in a checkout there fails without this",
+          status: "unasked",
+          detail: "mounted: T7",
+        },
       ],
       rows: [
-        { service: "Full Disk Access", client: "com.justin06lee.ruri", allowed: true, at: now - 86_400_000 * 20 },
-        { service: "Removable volumes", client: "/Users/you/.local/share/claude/versions/2.1.231", allowed: true, at: now - 86_400_000 * 28 },
-        { service: "Removable volumes", client: "com.justin06lee.ruri", allowed: false, at: now - 86_400_000 * 2 },
+        {
+          service: "Full Disk Access",
+          client: "com.justin06lee.ruri",
+          allowed: true,
+          at: now - 86_400_000 * 20,
+        },
+        {
+          service: "Removable volumes",
+          client: "/Users/you/.local/share/claude/versions/2.1.231",
+          allowed: true,
+          at: now - 86_400_000 * 28,
+        },
+        {
+          service: "Removable volumes",
+          client: "com.justin06lee.ruri",
+          allowed: false,
+          at: now - 86_400_000 * 2,
+        },
       ],
     },
     queued: {
@@ -81,7 +122,13 @@ export function installFixture(): void {
         model: "claude-sonnet-5",
         sessions: [{ id: "p2", title: "Session Layer" }],
       },
-      { id: "prj3", name: "dotfiles", path: "/Users/you/dotfiles", model: "codex:gpt-5.3-codex", sessions: [{ id: "p3" }] },
+      {
+        id: "prj3",
+        name: "dotfiles",
+        path: "/Users/you/dotfiles",
+        model: "codex:gpt-5.3-codex",
+        sessions: [{ id: "p3" }],
+      },
     ],
     activeId: "home",
     workspaceDir: "/Users/you/Workspace",
@@ -97,7 +144,12 @@ export function installFixture(): void {
       { value: "claude-fable-5[1m]", displayName: "Fable 5" },
       { value: "claude-opus-5", displayName: "Opus 5" },
       { value: "claude-sonnet-5", displayName: "Sonnet 5" },
-      { value: "codex:gpt-5.3-codex", displayName: "gpt-5.3-codex", provider: "codex", providerLabel: "Codex CLI" },
+      {
+        value: "codex:gpt-5.3-codex",
+        displayName: "gpt-5.3-codex",
+        provider: "codex",
+        providerLabel: "Codex CLI",
+      },
       { value: "opencode", displayName: "OpenCode", provider: "opencode", providerLabel: "OpenCode" },
     ],
     // small implies starred, matching the real cycle
@@ -124,8 +176,19 @@ export function installFixture(): void {
     },
     recent: {
       prj1: [
-        { id: "9a9593a3-af97-4d40-a0e7-0cabcc919707", provider: "claude", title: "Make the sidebar folders remember whether they were open", at: now - 3 * 3_600_000, branch: "master" },
-        { id: "codex:01a03118-c33c-70b0-9efb-3eb891f853fa", provider: "codex", title: "Fully analyze this codebase and find the slop", at: now - 2 * 86_400_000 },
+        {
+          id: "9a9593a3-af97-4d40-a0e7-0cabcc919707",
+          provider: "claude",
+          title: "Make the sidebar folders remember whether they were open",
+          at: now - 3 * 3_600_000,
+          branch: "master",
+        },
+        {
+          id: "codex:01a03118-c33c-70b0-9efb-3eb891f853fa",
+          provider: "codex",
+          title: "Fully analyze this codebase and find the slop",
+          at: now - 2 * 86_400_000,
+        },
       ],
     },
     stats: {
@@ -148,10 +211,41 @@ export function installFixture(): void {
     },
     tracker: {
       p1: [
-        { id: "t1", text: "Check reconnect backs off after killing the server", note: "", status: "open", source: "auto", turnId: "e1", ts: now - 48_000 },
-        { id: "t2", text: "Verify retry delay caps at 30s", note: "", status: "open", source: "auto", turnId: "e1", ts: now - 48_000 },
-        { id: "t3", text: "Unread dot clears when opening the project", note: "still sticks after a fresh launch — check ordering", status: "rejected", source: "auto", turnId: "e0", ts: now - 180_000 },
-        { id: "t4", text: "Try the new sidebar folder grouping", note: "", status: "liked", source: "manual", ts: now - 300_000 },
+        {
+          id: "t1",
+          text: "Check reconnect backs off after killing the server",
+          note: "",
+          status: "open",
+          source: "auto",
+          turnId: "e1",
+          ts: now - 48_000,
+        },
+        {
+          id: "t2",
+          text: "Verify retry delay caps at 30s",
+          note: "",
+          status: "open",
+          source: "auto",
+          turnId: "e1",
+          ts: now - 48_000,
+        },
+        {
+          id: "t3",
+          text: "Unread dot clears when opening the project",
+          note: "still sticks after a fresh launch — check ordering",
+          status: "rejected",
+          source: "auto",
+          turnId: "e0",
+          ts: now - 180_000,
+        },
+        {
+          id: "t4",
+          text: "Try the new sidebar folder grouping",
+          note: "",
+          status: "liked",
+          source: "manual",
+          ts: now - 300_000,
+        },
       ],
     },
     ideas: {
@@ -199,14 +293,13 @@ export function installFixture(): void {
         enabled: true,
       },
     ],
-    secrets: [
-      { id: "s1", name: "deploy-box", username: "root", hasValue: true, updated: now - 86_400_000 },
-    ],
+    secrets: [{ id: "s1", name: "deploy-box", username: "root", hasValue: true, updated: now - 86_400_000 }],
     summaries: {
       p1: {
         e0: {
           user: "sidebar unread dot flaky",
-          reply: "race between snapshot and event broadcast in server.ts; broadcasts now after archive append; tests green",
+          reply:
+            "race between snapshot and event broadcast in server.ts; broadcasts now after archive append; tests green",
         },
         e1: {
           user: "fix ws reconnect backoff",
@@ -226,12 +319,33 @@ export function installFixture(): void {
         { kind: "result", id: "h3", ok: true, durationMs: 21_000, ts: now - 394_000 },
       ],
       p1: [
-        { kind: "user", id: "e0", text: "The unread dot sometimes sticks — look into it?", ts: now - 200_000 },
+        {
+          kind: "user",
+          id: "e0",
+          text: "The unread dot sometimes sticks — look into it?",
+          ts: now - 200_000,
+        },
         { kind: "tool", id: "e0a", name: "Grep", summary: "unread in server", ts: now - 195_000 },
-        { kind: "assistant", id: "e0b", text: "Found a race — fixed by reordering broadcasts.", ts: now - 190_000 },
+        {
+          kind: "assistant",
+          id: "e0b",
+          text: "Found a race — fixed by reordering broadcasts.",
+          ts: now - 190_000,
+        },
         { kind: "result", id: "e0c", ok: true, costUsd: 0.21, durationMs: 30_000, ts: now - 189_000 },
-        { kind: "user", id: "e1", text: "The websocket reconnect logic seems broken — can you look at `store.ts` and fix it?", ts: now - 90_000 },
-        { kind: "tool", id: "e2", name: "Read", summary: "/Users/you/Workspace/ruri/web/src/store.ts", ts: now - 80_000 },
+        {
+          kind: "user",
+          id: "e1",
+          text: "The websocket reconnect logic seems broken — can you look at `store.ts` and fix it?",
+          ts: now - 90_000,
+        },
+        {
+          kind: "tool",
+          id: "e2",
+          name: "Read",
+          summary: "/Users/you/Workspace/ruri/web/src/store.ts",
+          ts: now - 80_000,
+        },
         { kind: "tool", id: "e3", name: "Grep", summary: "setTimeout(connect in web/src", ts: now - 75_000 },
         {
           kind: "tool",
@@ -270,13 +384,15 @@ export function installFixture(): void {
             key: "toolu_fixture_1",
             type: "Explore",
             description: "Audit every reconnect path in the client",
-            prompt: "Find every place the web client opens, closes or retries its websocket. Report each with file:line and whether it resets the backoff.",
+            prompt:
+              "Find every place the web client opens, closes or retries its websocket. Report each with file:line and whether it resets the backoff.",
             status: "done",
             tokens: 48_200,
             tools: 23,
             startedAt: now - 58_000,
             endedAt: now - 52_000,
-            result: "Three paths reconnect: `connect()` on load, `ws.onclose` after a drop, and the snapshot handler after a server restart. Only `onclose` backs off.",
+            result:
+              "Three paths reconnect: `connect()` on load, `ws.onclose` after a drop, and the snapshot handler after a server restart. Only `onclose` backs off.",
           },
           ts: now - 58_000,
         },
@@ -289,7 +405,8 @@ export function installFixture(): void {
             key: "toolu_fixture_2",
             type: "general-purpose",
             description: "Run the whole suite against the fix",
-            prompt: "Run every test script in package.json against the reconnect fix and report anything that fails.",
+            prompt:
+              "Run every test script in package.json against the reconnect fix and report anything that fails.",
             status: "running",
             background: true,
             activity: "Bash bun run retry-test",
@@ -308,8 +425,22 @@ export function installFixture(): void {
           text: "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.",
           ts: now - 16_000,
         },
-        { kind: "result", id: "e10", ok: false, error: "API Error: 529 Overloaded", transient: true, costUsd: 0.0412, durationMs: 9_000, ts: now - 15_000 },
-        { kind: "info", id: "e11", text: "the API dropped that one — going again in 8s (1 of 3)", ts: now - 15_000 },
+        {
+          kind: "result",
+          id: "e10",
+          ok: false,
+          error: "API Error: 529 Overloaded",
+          transient: true,
+          costUsd: 0.0412,
+          durationMs: 9_000,
+          ts: now - 15_000,
+        },
+        {
+          kind: "info",
+          id: "e11",
+          text: "the API dropped that one — going again in 8s (1 of 3)",
+          ts: now - 15_000,
+        },
         {
           kind: "plan",
           id: "provider-plan",
@@ -355,9 +486,20 @@ export function installFixture(): void {
               header: "Relay",
               multiSelect: false,
               options: [
-                { label: "Standalone binary", description: "A new binary speaking a minimal framed protocol, advertised through the netmap." },
-                { label: "DERP-compatible", description: "Ride the public relay fleet — free coverage, much larger surface." },
-                { label: "Relay mode only", description: "One less thing to deploy; the control plane and the data path share a blast radius." },
+                {
+                  label: "Standalone binary",
+                  description:
+                    "A new binary speaking a minimal framed protocol, advertised through the netmap.",
+                },
+                {
+                  label: "DERP-compatible",
+                  description: "Ride the public relay fleet — free coverage, much larger surface.",
+                },
+                {
+                  label: "Relay mode only",
+                  description:
+                    "One less thing to deploy; the control plane and the data path share a blast radius.",
+                },
               ],
             },
             {
@@ -365,8 +507,15 @@ export function installFixture(): void {
               header: "DNS",
               multiSelect: false,
               options: [
-                { label: "Split-DNS, mesh domain only", description: "Register the mesh suffix with the OS resolver; every other lookup is untouched." },
-                { label: "Hosts-file sync", description: "Trivially simple, but leaves stale entries if the daemon dies uncleanly." },
+                {
+                  label: "Split-DNS, mesh domain only",
+                  description:
+                    "Register the mesh suffix with the OS resolver; every other lookup is untouched.",
+                },
+                {
+                  label: "Hosts-file sync",
+                  description: "Trivially simple, but leaves stale entries if the daemon dies uncleanly.",
+                },
               ],
             },
             {
@@ -376,7 +525,10 @@ export function installFixture(): void {
               options: [
                 { label: "NAT-PMP", description: "Compact binary UDP to the gateway — covers Apple gear." },
                 { label: "PCP", description: "The modern successor; most current routers speak it." },
-                { label: "UPnP IGD", description: "SSDP discovery and SOAP over HTTP for a shrinking share of devices." },
+                {
+                  label: "UPnP IGD",
+                  description: "SSDP discovery and SOAP over HTTP for a shrinking share of devices.",
+                },
               ],
             },
             {
@@ -405,7 +557,13 @@ export function installFixture(): void {
           text: "Find every place the web client opens, closes or retries its websocket. Report each with file:line and whether it resets the backoff.",
           ts: now - 58_000,
         },
-        { kind: "tool", id: "a1", name: "Grep", summary: "new WebSocket|onclose in web/src", ts: now - 57_500 },
+        {
+          kind: "tool",
+          id: "a1",
+          name: "Grep",
+          summary: "new WebSocket|onclose in web/src",
+          ts: now - 57_500,
+        },
         { kind: "tool", id: "a2", name: "Read", summary: "ruri/web/src/store.ts", ts: now - 57_000 },
         {
           kind: "assistant",
@@ -429,16 +587,37 @@ export function installFixture(): void {
           ts: now - 40_000,
         },
         { kind: "tool", id: "b1", name: "Read", summary: "ruri/package.json", ts: now - 39_000 },
-        { kind: "assistant", id: "b2", text: "Twenty-odd scripts. Running the ones that touch the socket first.", ts: now - 38_000 },
+        {
+          kind: "assistant",
+          id: "b2",
+          text: "Twenty-odd scripts. Running the ones that touch the socket first.",
+          ts: now - 38_000,
+        },
         { kind: "tool", id: "b3", name: "Bash", summary: "bun run queue-test", ts: now - 30_000 },
         { kind: "tool", id: "b4", name: "Bash", summary: "bun run retry-test", ts: now - 12_000 },
       ],
       // and the one the user started from the agents page
       [agentLogKey("p1", "crew-fixture1")]: [
-        { kind: "user", id: "c0", text: "Find why the retry test is flaky on a cold cache. Run it a few times and read the backoff code.", ts: now - 30_000 },
-        { kind: "tool", id: "c1", name: "Bash", summary: "for i in 1 2 3; do bun run retry-test; done", ts: now - 28_000 },
+        {
+          kind: "user",
+          id: "c0",
+          text: "Find why the retry test is flaky on a cold cache. Run it a few times and read the backoff code.",
+          ts: now - 30_000,
+        },
+        {
+          kind: "tool",
+          id: "c1",
+          name: "Bash",
+          summary: "for i in 1 2 3; do bun run retry-test; done",
+          ts: now - 28_000,
+        },
         { kind: "tool", id: "c2", name: "Read", summary: "ruri/scripts/retry.ts", ts: now - 20_000 },
-        { kind: "assistant", id: "c3", text: "The retry test waits a flat 50 ms for the reconnect, but on a cold cache the first `connect()` takes about 80 ms. Waiting on the `connected` state instead of the clock fixes it — `scripts/retry.ts:41`.", ts: now - 9_000 },
+        {
+          kind: "assistant",
+          id: "c3",
+          text: "The retry test waits a flat 50 ms for the reconnect, but on a cold cache the first `connect()` takes about 80 ms. Waiting on the `connected` state instead of the clock fixes it — `scripts/retry.ts:41`.",
+          ts: now - 9_000,
+        },
       ],
     },
     // an agent the user started from p1's agents page, finished
@@ -446,8 +625,10 @@ export function installFixture(): void {
       p1: [
         {
           key: "crew-fixture1",
-          description: "Find why the retry test is flaky on a cold cache. Run it a few times and read the backoff code.",
-          prompt: "Find why the retry test is flaky on a cold cache. Run it a few times and read the backoff code.",
+          description:
+            "Find why the retry test is flaky on a cold cache. Run it a few times and read the backoff code.",
+          prompt:
+            "Find why the retry test is flaky on a cold cache. Run it a few times and read the backoff code.",
           model: "claude-sonnet-5",
           status: "done",
           mine: true,
@@ -455,7 +636,8 @@ export function installFixture(): void {
           tokens: 31_800,
           startedAt: now - 30_000,
           endedAt: now - 9_000,
-          result: "The retry test waits a flat 50 ms for the reconnect, but on a cold cache the first `connect()` takes about 80 ms. Waiting on the `connected` state instead of the clock fixes it — `scripts/retry.ts:41`.",
+          result:
+            "The retry test waits a flat 50 ms for the reconnect, but on a cold cache the first `connect()` takes about 80 ms. Waiting on the `connected` state instead of the clock fixes it — `scripts/retry.ts:41`.",
         },
       ],
     },

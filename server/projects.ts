@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { writeTextAtomic } from "./atomic.js";
+import { configDir } from "./configDir.js";
+import { isMissing, warn } from "./log.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_MODEL,
@@ -25,10 +28,6 @@ const DEFAULTS: Required<SessionSettings> = {
   permissionMode: DEFAULT_PERMISSION_MODE,
   effort: DEFAULT_EFFORT,
 };
-
-function configDir(): string {
-  return process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri");
-}
 
 function projectsFile(): string {
   return path.join(configDir(), "projects.json");
@@ -76,7 +75,8 @@ export class ProjectStore {
       }
       if (typeof raw.smallModel === "string" && raw.smallModel) this.smallModelId = raw.smallModel;
       if (typeof raw.defaultModel === "string" && raw.defaultModel) this.defaultModelId = raw.defaultModel;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("projects", err, "new ProjectStore");
       // first run
     }
   }
@@ -155,7 +155,11 @@ export class ProjectStore {
    * default) are handed over by dragging their tags onto another model, and
    * unstarring a role holder releases the role.
    */
-  cycleModelStar(model: string): { starred: string[]; small: string | undefined; default: string | undefined } {
+  cycleModelStar(model: string): {
+    starred: string[];
+    small: string | undefined;
+    default: string | undefined;
+  } {
     if (this.starredModelIds.includes(model)) {
       this.starredModelIds = this.starredModelIds.filter((m) => m !== model);
       if (this.smallModelId === model) this.smallModelId = undefined;
@@ -169,7 +173,10 @@ export class ProjectStore {
 
   /** Hand a role to a model outright: starred if it wasn't, and the role's
    *  previous holder simply stops holding it. */
-  assignModelRole(model: string, role: ModelRole): { starred: string[]; small: string | undefined; default: string | undefined } {
+  assignModelRole(
+    model: string,
+    role: ModelRole,
+  ): { starred: string[]; small: string | undefined; default: string | undefined } {
     if (!this.starredModelIds.includes(model)) this.starredModelIds = [...this.starredModelIds, model];
     if (role === "small") this.smallModelId = model;
     else this.setDefaultModel(model);
@@ -300,7 +307,8 @@ export class ProjectStore {
         if (sibling.id === sessionId || sibling[key] !== undefined) continue;
         (sibling as unknown as Record<string, unknown>)[key] = was;
       }
-      (session as unknown as Record<string, unknown>)[key] = value || (key === "model" ? this.defaultModel() : DEFAULTS[key]);
+      (session as unknown as Record<string, unknown>)[key] =
+        value || (key === "model" ? this.defaultModel() : DEFAULTS[key]);
       const record = project as unknown as Record<string, unknown>;
       if (value === undefined || value === "") delete record[key];
       else record[key] = value;
@@ -347,8 +355,7 @@ export class ProjectStore {
   }
 
   private save(): void {
-    fs.mkdirSync(configDir(), { recursive: true });
-    fs.writeFileSync(
+    writeTextAtomic(
       projectsFile(),
       `${JSON.stringify(
         {

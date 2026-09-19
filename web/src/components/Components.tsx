@@ -166,7 +166,14 @@ function Card({ projectId, item }: { projectId: string; item: NamedComponent }) 
           title="Forget this one"
           onClick={() => send({ type: "component_remove", projectId, componentId: item.id })}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden
+          >
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
@@ -234,7 +241,14 @@ function Card({ projectId, item }: { projectId: string; item: NamedComponent }) 
                 send({ type: "component_unshot", projectId, componentId: item.id, shotId: shot.id })
               }
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                aria-hidden
+              >
                 <path d="M6 6l12 12M18 6L6 18" />
               </svg>
             </button>
@@ -250,7 +264,14 @@ function Card({ projectId, item }: { projectId: string; item: NamedComponent }) 
               e.target.value = "";
             }}
           />
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden
+          >
             <path d="M12 5v14M5 12h14" />
           </svg>
         </label>
@@ -271,6 +292,22 @@ function since(at: number | undefined): string {
 }
 
 /**
+ * Whether a finished run's last word has been up for `FINAL_NOTE_MS` and
+ * should go. `at` is when the run last reported — every report is a new
+ * one — so the note is stale only once the timer has run out for the
+ * report on screen now; a newer report, or a run under way, is fresh.
+ */
+function useNoteStale(at: number | undefined, busy: boolean): boolean {
+  const [staleAt, setStaleAt] = useState<number>();
+  useEffect(() => {
+    if (at === undefined || busy) return;
+    const timer = setTimeout(() => setStaleAt(at), FINAL_NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [at, busy]);
+  return !busy && at !== undefined && staleAt === at;
+}
+
+/**
  * The catch-up brief's control: the other file in .ruri/ that tells a
  * model what this project is. It writes itself a turn at a time; this is
  * the read of the whole repo that writes it all at once — what happens by
@@ -279,20 +316,20 @@ function since(at: number | undefined): string {
 function CatchupLine({ projectId }: { projectId: string }) {
   const state = useRuri((s) => s.catchups[projectId]);
   const busy = state?.busy === true;
-  const [noteStale, setNoteStale] = useState(false);
-  useEffect(() => {
-    if (!state || busy) {
-      setNoteStale(false);
-      return;
-    }
-    const timer = setTimeout(() => setNoteStale(true), FINAL_NOTE_MS);
-    return () => clearTimeout(timer);
-  }, [state?.at, busy]);
+  const noteStale = useNoteStale(state?.at, busy);
   const note = state?.note && !noteStale ? state.note : undefined;
   return (
     <div className="board-foot catchup-line">
-      The catch-up brief in <code>.ruri/catchup.md</code> — what this project is, the stack, how to
-      run it, where things are — {note ? <span className="catchup-note">{note}</span> : <>last read from the repo <b>{since(state?.built)}</b></>}.
+      The catch-up brief in <code>.ruri/catchup.md</code> — what this project is, the stack, how to run it,
+      where things are —{" "}
+      {note ? (
+        <span className="catchup-note">{note}</span>
+      ) : (
+        <>
+          last read from the repo <b>{since(state?.built)}</b>
+        </>
+      )}
+      .
       <button
         className="catchup-rebuild"
         disabled={busy}
@@ -305,23 +342,18 @@ function CatchupLine({ projectId }: { projectId: string }) {
   );
 }
 
+/** One empty list, so a project with no index yet is the same value each render. */
+const NO_COMPONENTS: NamedComponent[] = [];
+
 export function Components({ projectId }: { projectId: string }) {
-  const items = useRuri((s) => s.components[projectId]) ?? [];
+  const items = useRuri((s) => s.components[projectId]) ?? NO_COMPONENTS;
   const sweep = useRuri((s) => s.sweeps[projectId]);
   const busy = sweep?.busy === true;
 
   // The sweep's last word stays up for a moment after it finishes — long
   // enough to read what it did, not long enough to still be there next time
   // the page is opened and mean nothing.
-  const [noteStale, setNoteStale] = useState(false);
-  useEffect(() => {
-    if (!sweep || busy) {
-      setNoteStale(false);
-      return;
-    }
-    const timer = setTimeout(() => setNoteStale(true), FINAL_NOTE_MS);
-    return () => clearTimeout(timer);
-  }, [sweep?.at, busy]);
+  const noteStale = useNoteStale(sweep?.at, busy);
   const note = sweep?.note && !noteStale ? sweep.note : undefined;
 
   // Leaving the page is the other way of having looked: the stars were up
@@ -329,7 +361,9 @@ export function Components({ projectId }: { projectId: string }) {
   // ref keeps the send out of the effect's dependencies, so it fires once
   // on the way out rather than on every index update.
   const starred = useRef(false);
-  starred.current = items.some((item) => item.star);
+  useEffect(() => {
+    starred.current = items.some((item) => item.star);
+  }, [items]);
   useEffect(
     () => () => {
       if (starred.current) send({ type: "component_seen", projectId });
@@ -359,12 +393,11 @@ export function Components({ projectId }: { projectId: string }) {
         <div className="comp-list">
           {items.length === 0 && (
             <div className="board-empty">
-              Nothing named yet. Entries arrive on their own — when a session builds a piece of
-              this project's interface it says so, and a card comes up in the chat with a suggested
-              name; whatever you change it to is what it's called from then on. For everything
-              that was already here before any of that, <b>Name everything</b> reads the repo,
-              names what it finds, and takes a picture of each one it can open. Whatever it gets
-              wrong, correct here.
+              Nothing named yet. Entries arrive on their own — when a session builds a piece of this project's
+              interface it says so, and a card comes up in the chat with a suggested name; whatever you change
+              it to is what it's called from then on. For everything that was already here before any of that,{" "}
+              <b>Name everything</b> reads the repo, names what it finds, and takes a picture of each one it
+              can open. Whatever it gets wrong, correct here.
             </div>
           )}
           {items.map((item) => (
@@ -374,8 +407,8 @@ export function Components({ projectId }: { projectId: string }) {
 
         {items.length > 0 && (
           <div className="board-foot">
-            Written to <code>.ruri/components.md</code> in the project, and handed to the model
-            whenever a prompt names one.
+            Written to <code>.ruri/components.md</code> in the project, and handed to the model whenever a
+            prompt names one.
           </div>
         )}
         <CatchupLine projectId={projectId} />

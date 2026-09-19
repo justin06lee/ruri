@@ -3,6 +3,7 @@ import type { TrackerItem, TrackerStatus } from "../../../shared/protocol";
 import { fileKind } from "./Attachments";
 import { fileToBase64 } from "../lib/files";
 import { send, useRuri } from "../store";
+import { tooBigNotice, useConfirm } from "./Confirm";
 
 /**
  * The feature tracker page: a checklist of things worth testing by hand,
@@ -42,7 +43,15 @@ function StatusBox({ status }: { status: TrackerStatus }) {
 
 const ATT_ICONS: Record<string, React.ReactNode> = {
   image: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <rect x="3" y="3" width="18" height="18" rx="3" />
       <circle cx="9" cy="9" r="1.6" />
       <path d="M21 15l-5-5-9 9" />
@@ -54,7 +63,15 @@ const ATT_ICONS: Record<string, React.ReactNode> = {
     </svg>
   ),
   file: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <path d="M14 3v5h5M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" />
     </svg>
   ),
@@ -88,7 +105,9 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
   // Closing the page unmounts the textarea before its blur can fire — an
   // unsaved note draft would silently vanish. Save it on the way out.
   const latest = useRef({ note: noteDraft, saved: item.note });
-  latest.current = { note: noteDraft, saved: item.note };
+  useEffect(() => {
+    latest.current = { note: noteDraft, saved: item.note };
+  }, [noteDraft, item.note]);
   useEffect(
     () => () => {
       const { note, saved } = latest.current;
@@ -99,12 +118,12 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
     [projectId, item.id],
   );
 
+  const { confirm: ask, card } = useConfirm();
   const attachFiles = async (files: File[]) => {
+    const tooBig = files.filter((file) => file.size > 25 * 1024 * 1024);
+    if (tooBig.length) void ask(tooBigNotice(tooBig));
     for (const [i, file] of files.entries()) {
-      if (file.size > 25 * 1024 * 1024) {
-        alert(`${file.name} is over 25MB — too big to attach.`);
-        continue;
-      }
+      if (tooBig.includes(file)) continue;
       send({
         type: "tracker_attach",
         projectId,
@@ -127,6 +146,7 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
 
   return (
     <div className={`tracker-item ${item.status}`}>
+      {card}
       <div
         className="tracker-item-main"
         title="Once: works · twice: needs fixing · again: clear"
@@ -136,7 +156,15 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
           <StatusBox status={item.status} />
           {item.repeat && (
             <span className="tracker-repeat" title="Repeat — marked needs-work in an earlier review">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M1 4v6h6M23 20v-6h-6" />
                 <path d="M20.5 9A9 9 0 0 0 5.6 5.6L1 10M23 14l-4.6 4.4A9 9 0 0 1 3.5 15" />
               </svg>
@@ -154,7 +182,15 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
                 setNotesOpen(!open);
               }}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M6 9l6 6 6-6" />
               </svg>
             </button>
@@ -167,7 +203,14 @@ function ItemRow({ projectId, item }: { projectId: string; item: TrackerItem }) 
               send({ type: "tracker_remove", projectId, itemId: item.id });
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden
+            >
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
@@ -271,7 +314,15 @@ export function Tracker({ projectId, onClose }: { projectId: string; onClose(): 
               onClose();
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
               <path d="M20 6L9 17l-5-5" />
             </svg>
             Finish review

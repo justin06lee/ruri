@@ -1,5 +1,6 @@
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
+import { errorMessage } from "./log.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { BridgeState } from "../shared/protocol.js";
@@ -31,17 +32,16 @@ import type { BridgeState } from "../shared/protocol.js";
 
 /** Where a channel's pictures land: ~/.config/ruri/bridge/<channelId>/. */
 export function bridgeDir(channelId: string): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "bridge",
-    path.basename(channelId),
-  );
+  return configPath("bridge", path.basename(channelId));
 }
 
 /* ── the tools ──────────────────────────────────────────────────── */
 
 const selectorArg = z.string().optional().describe("A CSS selector for the element");
-const textArg = z.string().optional().describe("Words on the thing to click — a button, link or label; case-insensitive substring");
+const textArg = z
+  .string()
+  .optional()
+  .describe("Words on the thing to click — a button, link or label; case-insensitive substring");
 const handleArg = z.string().describe("The handle app_launch answered with");
 const waitArgs = {
   selector: z.string().optional().describe("Wait until this selector is on the page and visible"),
@@ -57,7 +57,7 @@ const logArgs = {
 
 /** Every tool's arguments, as zod shapes — the MCP server and the HTTP
  *  endpoint both check against these. */
-export const BRIDGE_SHAPES = {
+const BRIDGE_SHAPES = {
   web_open: {
     url: z.string().describe("http(s) URL, or a path to a local HTML file"),
   },
@@ -85,15 +85,27 @@ export const BRIDGE_SHAPES = {
     full: z.boolean().optional().describe("The whole document, not just the viewport"),
   },
   web_eval: {
-    js: z.string().describe("JavaScript to run in the page; the value (or awaited promise) comes back as text"),
+    js: z
+      .string()
+      .describe("JavaScript to run in the page; the value (or awaited promise) comes back as text"),
   },
   web_logs: logArgs,
   web_wait_for: waitArgs,
   web_where: {},
   web_close: {},
   app_launch: {
-    app: z.string().optional().describe('A macOS app by name or path ("TextEdit", "/Applications/Foo.app") — opened in the background'),
-    command: z.string().optional().describe("A command to run instead — a dev-built Electron app; started with a debugging port and driven over it"),
+    app: z
+      .string()
+      .optional()
+      .describe(
+        'A macOS app by name or path ("TextEdit", "/Applications/Foo.app") — opened in the background',
+      ),
+    command: z
+      .string()
+      .optional()
+      .describe(
+        "A command to run instead — a dev-built Electron app; started with a debugging port and driven over it",
+      ),
     args: z.array(z.string()).optional().describe("Arguments for the command"),
     cwd: z.string().optional().describe("Directory to run the command in"),
     electron: z.boolean().optional().describe("Treat the command as Electron (the default for a command)"),
@@ -159,7 +171,7 @@ export type BridgeArgs = {
 export type BridgeCall = { [K in BridgeTool]: { tool: K; args: BridgeArgs[K] } }[BridgeTool];
 
 /** The tool names in the order a reader wants them. */
-export const BRIDGE_TOOL_NAMES = Object.keys(BRIDGE_SHAPES) as BridgeTool[];
+const BRIDGE_TOOL_NAMES = Object.keys(BRIDGE_SHAPES) as BridgeTool[];
 
 /** The names as Claude sees them, for auto-allow. */
 export const BRIDGE_TOOLS = BRIDGE_TOOL_NAMES.map((name) => `mcp__bridge__${name}`);
@@ -171,20 +183,25 @@ const DESCRIPTIONS: Record<BridgeTool, string> = {
     "Click something in the open page: by CSS selector, by the words on it, or at page coordinates. A real pointer event, scrolled into view first. Answers with a screenshot of the result.",
   web_type:
     "Type text into the open page as key events (so controlled inputs update), optionally clicking a selector first. A newline presses Enter. Answers with a screenshot.",
-  web_press: 'Press a key or chord in the open page: "Enter", "Escape", "Tab", "Meta+A", "Shift+Tab". Answers with a screenshot.',
+  web_press:
+    'Press a key or chord in the open page: "Enter", "Escape", "Tab", "Meta+A", "Shift+Tab". Answers with a screenshot.',
   web_scroll: "Scroll the open page, or one scrollable element in it, by dx/dy pixels.",
   web_screenshot:
     "Photograph the open page at full resolution: the viewport, one element's rectangle, or the whole document. Saves a PNG and returns its path and the image.",
   web_eval: "Run JavaScript in the open page and get the value back as text (promises are awaited).",
-  web_logs: "What the open page logged to the console and fetched over the network since it was opened (the last 500 of each).",
+  web_logs:
+    "What the open page logged to the console and fetched over the network since it was opened (the last 500 of each).",
   web_wait_for:
     "Wait until the open page shows a selector, says some text, reaches a URL, or goes quiet on the network. Answers with a screenshot once it does; fails with what it was still waiting for.",
   web_where: "The open page's URL, title and viewport size, and whether the user has taken the window over.",
-  web_close: "Close this session's hidden browser window now. ruri also closes it, and quits anything you launched, a few seconds after your turn ends unless the user has taken it over.",
+  web_close:
+    "Close this session's hidden browser window now. ruri also closes it, and quits anything you launched, a few seconds after your turn ends unless the user has taken it over.",
   app_launch:
     "Launch a macOS app in the background (by name or path), or run a command that starts a dev-built Electron app and attach to it over the DevTools protocol. The user's focus stays where it is. Answers with a handle and its kind: 'electron' handles take app_click/app_type/app_press/app_scroll/app_eval/app_wait_for/app_logs/app_screenshot; 'native' handles take app_ui_tree, app_ui and app_screenshot.",
-  app_click: "Click in a launched Electron app's page: by selector, by the words on it, or at coordinates. Answers with a screenshot.",
-  app_type: "Type into a launched Electron app's page, optionally clicking a selector first. Answers with a screenshot.",
+  app_click:
+    "Click in a launched Electron app's page: by selector, by the words on it, or at coordinates. Answers with a screenshot.",
+  app_type:
+    "Type into a launched Electron app's page, optionally clicking a selector first. Answers with a screenshot.",
   app_press: "Press a key or chord in a launched Electron app's page. Answers with a screenshot.",
   app_scroll: "Scroll a launched Electron app's page, or an element in it.",
   app_eval: "Run JavaScript in a launched Electron app's page.",
@@ -265,7 +282,7 @@ export async function runBridge(
     const result = await host.run(ctx, { tool: name, args: parsed.data } as BridgeCall);
     return { ok: true, result };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: errorMessage(err) };
   }
 }
 

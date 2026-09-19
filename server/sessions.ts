@@ -29,7 +29,9 @@ import {
   type PreToolUseHookSpecificOutput,
 } from "@anthropic-ai/claude-agent-sdk";
 import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
+import { IMAGE_EXTS } from "./mime.js";
 import { readCodexCounts } from "./usage.js";
+import { errorMessage, warn } from "./log.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_PERMISSION_MODE,
@@ -277,16 +279,15 @@ export async function promptChain(
   if (!needle) return undefined;
   try {
     const messages = await getSessionMessages(sessionId, { dir: project.path });
-    const matches = messages.filter(
-      (m) => m.type === "user" && promptTextOf(m.message).includes(needle),
-    );
+    const matches = messages.filter((m) => m.type === "user" && promptTextOf(m.message).includes(needle));
     const match = matches[ordinal] ?? matches[matches.length - 1];
     if (!match) return undefined;
     // the entry just before the prompt is where a resume forks: everything
     // up to it is kept, the prompt and its turn are not
     const before = messages[messages.findIndex((m) => m.uuid === match.uuid) - 1]?.uuid;
     return { user: match.uuid, ...(before ? { before } : {}) };
-  } catch {
+  } catch (err) {
+    warn("sessions", err, "promptChain");
     // no transcript on disk (a provider session, a pruned file) — the
     // caller falls back to rewinding the conversation alone
     return undefined;
@@ -294,8 +295,6 @@ export async function promptChain(
 }
 
 /** Extensions the transcript will show inline — what Read itself can take. */
-const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif"]);
-
 /**
  * A Read of an image earns a thumbnail in the transcript: reading a
  * screenshot and only seeing its path back is the one case where the tool
@@ -397,9 +396,11 @@ function resultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .map((block) => (block && typeof block === "object" && (block as { type?: unknown }).type === "text"
-      ? String((block as { text?: unknown }).text ?? "")
-      : ""))
+    .map((block) =>
+      block && typeof block === "object" && (block as { type?: unknown }).type === "text"
+        ? String((block as { text?: unknown }).text ?? "")
+        : "",
+    )
     .join("\n")
     .trim();
 }
@@ -517,7 +518,8 @@ class AgentBook {
   ): void {
     for (const [key, card] of this.cards) {
       const agent = card.event.agent;
-      if (agent?.status === "running" && which(agent, card.parent !== undefined)) this.update(key, { status });
+      if (agent?.status === "running" && which(agent, card.parent !== undefined))
+        this.update(key, { status });
     }
   }
 }
@@ -574,10 +576,14 @@ function collabStates(output: unknown): Array<[string, Partial<Omit<SubagentStat
           : state.status === "interrupted" || state.status === "shutdown"
             ? "stopped"
             : undefined;
-    const message = typeof state.message === "string" && state.message.trim() ? state.message.trim() : undefined;
+    const message =
+      typeof state.message === "string" && state.message.trim() ? state.message.trim() : undefined;
     out.push([
       thread,
-      { ...(status ? { status } : {}), ...(message ? (status ? { result: message } : { activity: message }) : {}) },
+      {
+        ...(status ? { status } : {}),
+        ...(message ? (status ? { result: message } : { activity: message }) : {}),
+      },
     ]);
   }
   return out;
@@ -763,7 +769,7 @@ class ProjectSession implements ChannelSession {
       const result = await this.session.rewindFiles(uuid);
       return { canRewind: result.canRewind, ...(result.error ? { error: result.error } : {}) };
     } catch (err) {
-      return { canRewind: false, error: err instanceof Error ? err.message : String(err) };
+      return { canRewind: false, error: errorMessage(err) };
     }
   }
 
@@ -798,9 +804,7 @@ class ProjectSession implements ChannelSession {
       allow
         ? {
             behavior: "allow",
-            ...(always && pending.suggestions?.length
-              ? { updatedPermissions: pending.suggestions }
-              : {}),
+            ...(always && pending.suggestions?.length ? { updatedPermissions: pending.suggestions } : {}),
           }
         : { behavior: "deny", message: "The user denied this tool use in ruri." },
     );
@@ -975,7 +979,7 @@ class ProjectSession implements ChannelSession {
       this.pushEvent({
         kind: "info",
         id: randomUUID(),
-        text: `session error: ${err instanceof Error ? err.message : String(err)}`,
+        text: `session error: ${errorMessage(err)}`,
         ts: Date.now(),
       });
       this.setStatus("error");
@@ -1020,7 +1024,8 @@ class ProjectSession implements ChannelSession {
    *  too — a long agent is not a stalled turn. */
   private subagentSaid(parent: string, msg: { message: unknown; subagent_type?: string }): void {
     const blocks =
-      (msg.message as { content?: Array<Record<string, unknown> & { type: string }> } | undefined)?.content ?? [];
+      (msg.message as { content?: Array<Record<string, unknown> & { type: string }> } | undefined)?.content ??
+      [];
     if (msg.subagent_type) this.agents.update(parent, { type: msg.subagent_type });
     const text = blocks
       .filter((b) => b.type === "text")
@@ -1065,7 +1070,14 @@ class ProjectSession implements ChannelSession {
       this.agents.update(key, counts);
     } else if (msg.subtype === "task_updated") {
       const next = msg.patch?.status;
-      const status = next === "completed" ? "done" : next === "failed" ? "failed" : next === "killed" ? "stopped" : undefined;
+      const status =
+        next === "completed"
+          ? "done"
+          : next === "failed"
+            ? "failed"
+            : next === "killed"
+              ? "stopped"
+              : undefined;
       this.agents.update(key, {
         ...(status ? { status } : {}),
         ...(msg.patch?.is_backgrounded ? { background: true } : {}),
@@ -1146,7 +1158,10 @@ class ProjectSession implements ChannelSession {
         }
       }
     } else if (msg.type === "assistant" && msg.parent_tool_use_id !== null) {
-      this.subagentSaid(msg.parent_tool_use_id, msg as unknown as { message: unknown; subagent_type?: string });
+      this.subagentSaid(
+        msg.parent_tool_use_id,
+        msg as unknown as { message: unknown; subagent_type?: string },
+      );
     } else if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
       const chainUuid = (msg as { uuid?: string }).uuid;
       if (chainUuid && this.turnEventId) {
@@ -1179,8 +1194,8 @@ class ProjectSession implements ChannelSession {
         }
       }
       const blocks =
-        (msg.message as unknown as { content?: Array<Record<string, unknown> & { type: string }> })
-          .content ?? [];
+        (msg.message as unknown as { content?: Array<Record<string, unknown> & { type: string }> }).content ??
+        [];
       const text = blocks
         .filter((b) => b.type === "text")
         .map((b) => (typeof b["text"] === "string" ? (b["text"] as string) : ""))
@@ -1225,12 +1240,24 @@ class ProjectSession implements ChannelSession {
       // running total for the whole session, so a model counts only when
       // its total moved since the last result
       const usageByModel = ("modelUsage" in msg ? msg.modelUsage : undefined) as
-        | Record<string, { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number }>
+        | Record<
+            string,
+            {
+              inputTokens?: number;
+              outputTokens?: number;
+              cacheReadInputTokens?: number;
+              cacheCreationInputTokens?: number;
+            }
+          >
         | undefined;
       const models: string[] = [];
       if (usageByModel) {
         for (const [id, u] of Object.entries(usageByModel)) {
-          const total = (u.inputTokens ?? 0) + (u.outputTokens ?? 0) + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0);
+          const total =
+            (u.inputTokens ?? 0) +
+            (u.outputTokens ?? 0) +
+            (u.cacheReadInputTokens ?? 0) +
+            (u.cacheCreationInputTokens ?? 0);
           if (total > (this.modelTotals.get(id) ?? 0)) models.push(id);
           this.modelTotals.set(id, total);
         }
@@ -1263,17 +1290,20 @@ class ProjectSession implements ChannelSession {
   private async reportModels(): Promise<void> {
     try {
       const models = await this.session.supportedModels();
-      this.events.onModels(models.map((model) => ({
-        value: model.value,
-        displayName: model.displayName,
-        ...(model.supportedEffortLevels?.length
-          ? { reasoningEfforts: model.supportedEffortLevels.map((value) => ({ value })) }
-          : {}),
-        ...(model.supportsAdaptiveThinking ? { supportsAdaptiveThinking: true } : {}),
-        ...(model.supportsFastMode ? { supportsFastMode: true } : {}),
-        ...(model.supportsAutoMode ? { supportsAutoMode: true } : {}),
-      })));
-    } catch {
+      this.events.onModels(
+        models.map((model) => ({
+          value: model.value,
+          displayName: model.displayName,
+          ...(model.supportedEffortLevels?.length
+            ? { reasoningEfforts: model.supportedEffortLevels.map((value) => ({ value })) }
+            : {}),
+          ...(model.supportsAdaptiveThinking ? { supportsAdaptiveThinking: true } : {}),
+          ...(model.supportsFastMode ? { supportsFastMode: true } : {}),
+          ...(model.supportsAutoMode ? { supportsAutoMode: true } : {}),
+        })),
+      );
+    } catch (err) {
+      warn("sessions", err, "reportModels");
       // model list is a nicety; the picker just stays empty
     }
   }
@@ -1368,10 +1398,7 @@ class ProviderTurnSession implements ChannelSession {
     void this.run(text, images);
   }
 
-  private async run(
-    text: string,
-    images?: Array<{ data: string; mediaType?: string }>,
-  ): Promise<void> {
+  private async run(text: string, images?: Array<{ data: string; mediaType?: string }>): Promise<void> {
     this.running = true;
     const started = Date.now();
     const draftId = randomUUID();
@@ -1416,7 +1443,13 @@ class ProviderTurnSession implements ChannelSession {
           if (event.usage?.output_tokens) {
             this.events.onProgress(this.project.id, { tokens: event.usage.output_tokens });
           }
-          reportProviderContext(this.events, this.project.id, this.providerId, this.lastSessionId, event.usage);
+          reportProviderContext(
+            this.events,
+            this.project.id,
+            this.providerId,
+            this.lastSessionId,
+            event.usage,
+          );
         }
       }
     } catch (err) {
@@ -1427,7 +1460,7 @@ class ProviderTurnSession implements ChannelSession {
       } else if (err instanceof ProviderNotInstalledError) {
         error = err.message;
       } else {
-        error = err instanceof Error ? err.message : String(err);
+        error = errorMessage(err);
       }
     } finally {
       this.abort = null;
@@ -1437,7 +1470,8 @@ class ProviderTurnSession implements ChannelSession {
     // before the result lands, so the sidebar is current when "done" shows
     try {
       this.extras?.onProviderTurnEnd?.();
-    } catch {
+    } catch (err) {
+      warn("sessions", err, "onProviderTurnEnd");
       // a bad drop file must not kill the turn pipeline
     }
     this.pushEvent({
@@ -1713,11 +1747,7 @@ function providerToolEvents(
 function nativePermissions(providerId: string, mode: PermissionMode): Record<string, unknown> {
   if (providerId === "codex") {
     const sandbox =
-      mode === "plan"
-        ? "read-only"
-        : mode === "bypassPermissions"
-          ? "danger-full-access"
-          : "workspace-write";
+      mode === "plan" ? "read-only" : mode === "bypassPermissions" ? "danger-full-access" : "workspace-write";
     return {
       sandbox,
       // Bypass means the same thing in every composer: do not leave the
@@ -1733,7 +1763,8 @@ function autoProviderDecision(
   req: SessionPermissionRequest,
 ): SessionPermissionDecision | undefined {
   if (mode === "bypassPermissions") return "allow_always";
-  const mutating = req.kind === "edit" || /^(?:apply_patch|edit|write|multiedit|notebookedit)$/i.test(req.tool);
+  const mutating =
+    req.kind === "edit" || /^(?:apply_patch|edit|write|multiedit|notebookedit)$/i.test(req.tool);
   if (mode === "acceptEdits" && mutating) return "allow";
   if (mode === "plan" && (mutating || req.kind === "delete" || req.kind === "move")) return "deny";
   return undefined;
@@ -1748,16 +1779,24 @@ function inputHeader(label: string, fallback: string): string {
 function providerInputQuestions(request: SessionInputRequest): AskQuestions {
   if (request.kind === "url") {
     return {
-      questions: [{
-        id: "__url",
-        question: request.message,
-        header: inputHeader(request.source ?? "Continue", "Continue"),
-        options: [{ label: "I've finished", value: "done", description: "Continue after completing the linked step" }],
-        multiSelect: false,
-        required: true,
-        allowOther: false,
-        ...(request.url ? { url: request.url } : {}),
-      }],
+      questions: [
+        {
+          id: "__url",
+          question: request.message,
+          header: inputHeader(request.source ?? "Continue", "Continue"),
+          options: [
+            {
+              label: "I've finished",
+              value: "done",
+              description: "Continue after completing the linked step",
+            },
+          ],
+          multiSelect: false,
+          required: true,
+          allowOther: false,
+          ...(request.url ? { url: request.url } : {}),
+        },
+      ],
     };
   }
   const fields = request.fields ?? [];
@@ -1789,7 +1828,9 @@ function providerInputQuestions(request: SessionInputRequest): AskQuestions {
         minLength: field.minLength,
         maxLength: field.maxLength,
         default: field.default,
-        allowOther: field.allowOther ?? (field.type === "string" || field.type === "number" || field.type === "integer"),
+        allowOther:
+          field.allowOther ??
+          (field.type === "string" || field.type === "number" || field.type === "integer"),
         ...(field.description ? { hint: field.description } : {}),
       };
     }),
@@ -2003,7 +2044,9 @@ class ProviderAgentSession implements ChannelSession {
             if (!this.agents.has(event.id)) {
               bankText();
               const title = event.title && event.title !== event.name ? event.title : undefined;
-              this.agents.start(agentCard(event.id, (event.input ?? {}) as Record<string, unknown>, this.project, title));
+              this.agents.start(
+                agentCard(event.id, (event.input ?? {}) as Record<string, unknown>, this.project, title),
+              );
             }
             const receivers = receiverThreads(event.input);
             for (const receiver of receivers) this.adoptThread(receiver, event.id);
@@ -2047,7 +2090,7 @@ class ProviderAgentSession implements ChannelSession {
       } else if (err instanceof ProviderNotInstalledError) {
         error = err.message;
       } else {
-        error = err instanceof Error ? err.message : String(err);
+        error = errorMessage(err);
       }
     }
     this.rejectPending();
@@ -2055,7 +2098,8 @@ class ProviderAgentSession implements ChannelSession {
     // pick up anything the turn dropped for the app (Home's open requests)
     try {
       this.extras?.onProviderTurnEnd?.();
-    } catch {
+    } catch (err) {
+      warn("sessions", err, "onProviderTurnEnd");
       // a bad drop file must not kill the turn pipeline
     }
     this.pushEvent({
@@ -2092,10 +2136,12 @@ class ProviderAgentSession implements ChannelSession {
       const requestId = randomUUID();
       const cancel = () => this.respondPermission(requestId, false);
       signal?.addEventListener("abort", cancel, { once: true });
-      this.pending.set(requestId, { resolve: (decision) => {
-        signal?.removeEventListener("abort", cancel);
-        resolve(decision);
-      } });
+      this.pending.set(requestId, {
+        resolve: (decision) => {
+          signal?.removeEventListener("abort", cancel);
+          resolve(decision);
+        },
+      });
       this.events.onPermission({
         requestId,
         projectId: this.project.id,
@@ -2124,17 +2170,22 @@ class ProviderAgentSession implements ChannelSession {
         this.pendingInputs.delete(requestId);
         pending.resolve({ action: "cancel" });
         this.events.onPermissionResolved(requestId);
-        if (this.running && this.pending.size === 0 && this.pendingInputs.size === 0) this.setStatus("working");
+        if (this.running && this.pending.size === 0 && this.pendingInputs.size === 0)
+          this.setStatus("working");
       };
       signal?.addEventListener("abort", cancel, { once: true });
-      this.pendingInputs.set(requestId, { resolve: (response) => {
-        signal?.removeEventListener("abort", cancel);
-        resolve(response);
-      }, request: req, questions });
+      this.pendingInputs.set(requestId, {
+        resolve: (response) => {
+          signal?.removeEventListener("abort", cancel);
+          resolve(response);
+        },
+        request: req,
+        questions,
+      });
       this.events.onPermission({
         requestId,
         projectId: this.project.id,
-        toolName: req.kind === "questions" ? "AskUserQuestion" : req.source ?? "Input request",
+        toolName: req.kind === "questions" ? "AskUserQuestion" : (req.source ?? "Input request"),
         kind: "question",
         input: questions,
         ts: Date.now(),
@@ -2302,11 +2353,12 @@ function firstSentence(text: string | undefined): string | undefined {
 const TRANSIENT =
   /\b5\d\d\b|overloaded|service unavailable|bad gateway|gateway time-?out|internal server error|econnreset|econnrefused|etimedout|epipe|socket hang up|fetch failed|network error|stream (?:error|closed|disconnected)/i;
 /** Limits and refusals wear transient-looking words but are not transient. */
-const NOT_TRANSIENT = /usage limit|rate limit|quota|credit|insufficient|out of (?:credits|tokens)|invalid api key|unauthorized|forbidden|authentication/i;
+const NOT_TRANSIENT =
+  /usage limit|rate limit|quota|credit|insufficient|out of (?:credits|tokens)|invalid api key|unauthorized|forbidden|authentication/i;
 
 /** Whether a failed turn's error reads like something worth simply redoing.
  *  `status` is the HTTP status when the harness names one (Claude does). */
-export function transientFailure(text: string | undefined, status?: number | null): boolean {
+function transientFailure(text: string | undefined, status?: number | null): boolean {
   if (typeof status === "number") return status >= 500 && status < 600;
   if (!text || NOT_TRANSIENT.test(text)) return false;
   return TRANSIENT.test(text);
@@ -2543,13 +2595,9 @@ export class SessionManager {
               provider,
               route.model,
               resume,
-              resume && this.providers.canFork?.(route.providerId)
-                ? this.resumeAtFor(project.id)
-                : undefined,
+              resume && this.providers.canFork?.(route.providerId) ? this.resumeAtFor(project.id) : undefined,
               this.extrasFor(project),
-              resume && this.providers.canFork?.(route.providerId)
-                ? this.forkFor(project.id)
-                : false,
+              resume && this.providers.canFork?.(route.providerId) ? this.forkFor(project.id) : false,
             )
           : new ProviderTurnSession(
               project,

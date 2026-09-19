@@ -68,14 +68,19 @@ let nextHandle = 0;
 
 function run(cmd: string, args: string[], timeoutMs = 20_000, input?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        const said = String(stderr || error.message).trim();
-        reject(new Error(said.replace(/^\d+:\d+:\s*/, "").replace(/^execution error:\s*/, "")));
-        return;
-      }
-      resolve(String(stdout).replace(/\n$/, ""));
-    });
+    const child = execFile(
+      cmd,
+      args,
+      { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          const said = String(stderr || error.message).trim();
+          reject(new Error(said.replace(/^\d+:\d+:\s*/, "").replace(/^execution error:\s*/, "")));
+          return;
+        }
+        resolve(String(stdout).replace(/\n$/, ""));
+      },
+    );
     if (input !== undefined) {
       child.stdin?.end(input);
     }
@@ -146,7 +151,12 @@ async function resolveApp(app: string): Promise<string> {
   } catch {
     // fall through
   }
-  for (const dir of ["/Applications", "/System/Applications", "/System/Applications/Utilities", path.join(os.homedir(), "Applications")]) {
+  for (const dir of [
+    "/Applications",
+    "/System/Applications",
+    "/System/Applications/Utilities",
+    path.join(os.homedir(), "Applications"),
+  ]) {
     const candidate = path.join(dir, `${name}.app`);
     if (fs.existsSync(candidate)) return candidate;
   }
@@ -188,7 +198,10 @@ async function pidOfBundle(appPath: string): Promise<number | undefined> {
 /** The app in front right now, by System Events' name for it. */
 async function frontmostName(): Promise<string | undefined> {
   try {
-    return await applescript('tell application "System Events" to get name of first process whose frontmost is true', 4_000);
+    return await applescript(
+      'tell application "System Events" to get name of first process whose frontmost is true',
+      4_000,
+    );
   } catch {
     return undefined;
   }
@@ -197,7 +210,10 @@ async function frontmostName(): Promise<string | undefined> {
 /** Put an app back in front, by name. Best-effort. */
 async function bringForward(name: string): Promise<void> {
   try {
-    await applescript(`tell application "System Events" to set frontmost of process ${asLiteral(name)} to true`, 4_000);
+    await applescript(
+      `tell application "System Events" to set frontmost of process ${asLiteral(name)} to true`,
+      4_000,
+    );
   } catch {
     // stays where it is
   }
@@ -243,7 +259,9 @@ export async function launchElectron(command: string, args: string[], cwd?: stri
       stdio: "ignore",
     });
   } catch (err) {
-    throw new Error(`couldn't start ${command}: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`couldn't start ${command}: ${err instanceof Error ? err.message : String(err)}`, {
+      cause: err,
+    });
   }
   child.on("error", () => {
     // surfaces as a missing page target below
@@ -321,7 +339,8 @@ export async function quit(app: AppHandle, immediate = false): Promise<string> {
     await sleep(300);
   }
   if (!alive(app.pid)) return "quit";
-  if (app.preexisting) return "asked to quit — it was already running before this session, so it is not being forced";
+  if (app.preexisting)
+    return "asked to quit — it was already running before this session, so it is not being forced";
   try {
     process.kill(app.pid, "SIGTERM");
   } catch {
@@ -363,7 +382,9 @@ export async function activate(app: AppHandle): Promise<void> {
  *  was launched under, an Electron one by pid — its process name is
  *  whatever the bundle says, not the command that started it. */
 function processRef(app: AppHandle): string {
-  return app.kind === "native" ? `process ${asLiteral(app.app)}` : `(first process whose unix id is ${app.pid})`;
+  return app.kind === "native"
+    ? `process ${asLiteral(app.app)}`
+    : `(first process whose unix id is ${app.pid})`;
 }
 
 function requireAccessibility(doing: string): void {
@@ -454,13 +475,17 @@ export async function uiTree(app: AppHandle, depth = 4): Promise<string> {
   let text: string;
   try {
     text = await applescript(
-      TREE_SCRIPT.replace("__APP__", processRef(app)).replace("__DEPTH__", String(Math.max(0, Math.min(12, Math.floor(depth))))),
+      TREE_SCRIPT.replace("__APP__", processRef(app)).replace(
+        "__DEPTH__",
+        String(Math.max(0, Math.min(12, Math.floor(depth)))),
+      ),
       60_000,
     );
   } catch (err) {
     throw explain(err, "reading the UI tree");
   }
-  if (text.length > TREE_MAX_CHARS) text = `${text.slice(0, TREE_MAX_CHARS)}\n… (cut at ${TREE_MAX_CHARS} characters — ask for less depth)`;
+  if (text.length > TREE_MAX_CHARS)
+    text = `${text.slice(0, TREE_MAX_CHARS)}\n… (cut at ${TREE_MAX_CHARS} characters — ask for less depth)`;
   return text;
 }
 
@@ -549,9 +574,14 @@ export async function captureNative(app: AppHandle): Promise<{ png: Buffer; titl
   try {
     const sources = await desktopCapturer.getSources({
       types: ["window"],
-      thumbnailSize: { width: Math.round(win.bounds.Width * scale), height: Math.round(win.bounds.Height * scale) },
+      thumbnailSize: {
+        width: Math.round(win.bounds.Width * scale),
+        height: Math.round(win.bounds.Height * scale),
+      },
     });
-    const source = sources.find((s) => s.id === `window:${win.id}:0`) ?? sources.find((s) => s.id.startsWith(`window:${win.id}:`));
+    const source =
+      sources.find((s) => s.id === `window:${win.id}:0`) ??
+      sources.find((s) => s.id.startsWith(`window:${win.id}:`));
     if (source && !source.thumbnail.isEmpty()) return { png: source.thumbnail.toPNG(), title };
   } catch {
     // fall through to the window server
@@ -565,6 +595,7 @@ export async function captureNative(app: AppHandle): Promise<{ png: Buffer; titl
   } catch (err) {
     throw new Error(
       `couldn't photograph ${app.app}: ${err instanceof Error ? err.message : String(err)}. If macOS just asked about Screen Recording, tell the user to allow ruri and relaunch it.`,
+      { cause: err },
     );
   } finally {
     fs.rmSync(file, { force: true });

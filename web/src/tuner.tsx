@@ -100,8 +100,8 @@ function PeekBand({
         ))}
       </div>
       <p className="hint">
-        drag a head to move it · scroll over it to resize · the band is the real 264×46 titlebar ·
-        each row's reset puts that one head back to what peek.ts holds
+        drag a head to move it · scroll over it to resize · the band is the real 264×46 titlebar · each row's
+        reset puts that one head back to what peek.ts holds
       </p>
     </div>
   );
@@ -218,7 +218,6 @@ function HeroCircle({
     </div>
   );
 }
-
 
 /* ── cutting a head out of a page ─────────────────────────────────── */
 
@@ -480,9 +479,7 @@ function Tuner() {
       <header className="tuner-head">
         <h1>art tuner</h1>
         <div className="tuner-actions">
-          <button onClick={() => setHovering(!hovering)}>
-            {hovering ? "resting" : "hover lift"}
-          </button>
+          <button onClick={() => setHovering(!hovering)}>{hovering ? "resting" : "hover lift"}</button>
           <button onClick={() => void navigator.clipboard.writeText(fileText(peeks, frames))}>
             copy values
           </button>
@@ -496,9 +493,9 @@ function Tuner() {
       <section>
         <h2>the hero faces in their circles</h2>
         <p className="hint">
-          drag a face to move it · scroll over it to resize · arrows nudge the picked one ·
-          fit shows the whole picture, fill covers the circle · double-click centres it ·
-          reset puts that one face back to what peek.ts holds
+          drag a face to move it · scroll over it to resize · arrows nudge the picked one · fit shows the
+          whole picture, fill covers the circle · double-click centres it · reset puts that one face back to
+          what peek.ts holds
         </p>
         <div className="hero-grid">
           {Array.from({ length: HERO_COUNT }, (_, i) => i + 1).map((n) => (
@@ -531,7 +528,11 @@ function Tuner() {
           {peeks.map((p) => {
             const was = savedPeeks.find((q) => q.n === p.n) ?? p;
             return (
-              <div className={`row ${selected === p.n ? "picked" : ""}`} key={p.n} onClick={() => pickHead(p.n)}>
+              <div
+                className={`row ${selected === p.n ? "picked" : ""}`}
+                key={p.n}
+                onClick={() => pickHead(p.n)}
+              >
                 <img src={`/peek/u${p.n}.png?v=${stamp}`} alt="" className="row-thumb" />
                 <span className="row-name">u{p.n}</span>
                 {(["x", "w", "drop", "lift"] as const).map((field) => (
@@ -542,9 +543,7 @@ function Tuner() {
                       value={p[field]}
                       onChange={(e) =>
                         setPeeks(
-                          peeks.map((q) =>
-                            q.n === p.n ? { ...q, [field]: Number(e.target.value) } : q,
-                          ),
+                          peeks.map((q) => (q.n === p.n ? { ...q, [field]: Number(e.target.value) } : q)),
                         )
                       }
                     />
@@ -573,20 +572,21 @@ function Tuner() {
             <h2>the raw pages — cut a head out of one</h2>
           </summary>
           <p className="hint">
-            drag a box over a head · it's cut at the page's own resolution, scaled to {HEAD_W}px wide,
-            and written straight into web/public/peek. {sources.dir}
+            drag a box over a head · it's cut at the page's own resolution, scaled to {HEAD_W}px wide, and
+            written straight into web/public/peek. {sources.dir}
           </p>
           <div className="cutters">
             {sources.names.map((name) => (
               <PageCutter key={name} name={name} onSaved={() => setStamp(Date.now())} />
             ))}
             {sources.names.length === 0 && (
-              <p className="hint">no ruri*.png pages found in {sources.dir} — set RURI_ART to point elsewhere</p>
+              <p className="hint">
+                no ruri*.png pages found in {sources.dir} — set RURI_ART to point elsewhere
+              </p>
             )}
           </div>
         </details>
       </section>
-
     </div>
   );
 }

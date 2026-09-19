@@ -1,4 +1,5 @@
 import * as net from "node:net";
+import { errorCode, warn } from "./log.js";
 
 /**
  * The port is the app's identity, not an implementation detail: the window is
@@ -67,8 +68,13 @@ async function identify(port: number, host: string): Promise<{ service?: string;
     });
     if (!res.ok) return null;
     return (await res.json()) as { service?: string; pid?: number };
-  } catch {
-    // not HTTP, not answering, or answering something that isn't JSON
+  } catch (err) {
+    // a free port refuses, a silent one times out: both are the expected
+    // answer here; anything else is worth a line
+    const code = errorCode(err);
+    if (code !== "ECONNREFUSED" && !(err instanceof Error && /Abort|Timeout/.test(err.name))) {
+      warn("port", err, "identify");
+    }
     return null;
   }
 }

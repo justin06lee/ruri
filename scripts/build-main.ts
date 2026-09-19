@@ -22,13 +22,15 @@ fs.rmSync("dist-electron", { recursive: true, force: true });
 /**
  * One copy of each shared dependency, not two.
  *
- * yagami is linked in from a sibling checkout (`file:../yagami`), and a
- * linked package resolves its own imports from its own node_modules — so
- * the Agent SDK and zod were bundled twice, once from here and once from
- * there, at slightly different versions. That was 2.7 MB of a 4.9 MB bundle
- * doing the same job, loaded and initialised twice at launch. Every import
- * of these packages, wherever it comes from, now lands on the copies this
- * repo installs (the newer of the two, and a superset of what yagami uses).
+ * yagami comes from the registry now, but when it was linked in from a
+ * sibling checkout (`file:../yagami`, still the way to work on both at
+ * once — see docs/harness-integration.md) it resolved its own imports from
+ * its own node_modules, so the Agent SDK and zod were bundled twice at
+ * slightly different versions: 2.7 MB of a 4.9 MB bundle doing the same
+ * job, loaded and initialised twice at launch. Every import of these
+ * packages, wherever it comes from, lands on the copies this repo installs
+ * (a superset of what yagami uses) — and a nested copy under
+ * node_modules/@justin06lee/yagami/node_modules is never bundled twice.
  */
 const shared = ["@anthropic-ai/claude-agent-sdk", "zod", "@agentclientprotocol/sdk", "ws"];
 const alias = Object.fromEntries(

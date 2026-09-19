@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { PEEKS } from "../peek";
 import { HOME_ID, type Project, type RecentSession, type SessionInfo } from "../../../shared/protocol";
+import { useConfirm } from "./Confirm";
 import { Player } from "./Player";
 import { getPref, setPref } from "../prefs";
 import { send, useRuri } from "../store";
@@ -119,6 +120,7 @@ function SessionRow({ session }: { session: SessionInfo }) {
   const unread = useRuri((s) => s.unread[session.id] ?? false);
   const setActive = useRuri((s) => s.setActive);
   const [renaming, setRenaming] = useState(false);
+  const { confirm: ask, card } = useConfirm();
   const rename = (title: string | null) => {
     setRenaming(false);
     if (title) send({ type: "rename_session", sessionId: session.id, title });
@@ -140,17 +142,29 @@ function SessionRow({ session }: { session: SessionInfo }) {
         <span className="project-name">{session.title ?? "new session"}</span>
       )}
       {unread && <span className="unread-pip" title="Turn finished" />}
+      {card}
       <button
         className="remove"
         title="Remove session"
         onClick={(e) => {
           e.stopPropagation();
-          if (confirm("Remove this session? Its transcript is deleted; files are untouched.")) {
-            send({ type: "remove_session", sessionId: session.id });
-          }
+          void ask({
+            title: "Remove this session?",
+            body: "Its transcript is deleted; files are untouched.",
+            ok: "Remove",
+          }).then((yes) => {
+            if (yes) send({ type: "remove_session", sessionId: session.id });
+          });
         }}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          aria-hidden
+        >
           <path d="M6 6l12 12M18 6L6 18" />
         </svg>
       </button>
@@ -220,7 +234,9 @@ Click to bring it in as a session`}
                 setOpen(false);
               }}
             >
-              <span className={`recent-tag ${item.provider}`}>{item.provider === "claude" ? "cc" : "cx"}</span>
+              <span className={`recent-tag ${item.provider}`}>
+                {item.provider === "claude" ? "cc" : "cx"}
+              </span>
               <span className="project-name">{item.title}</span>
               <span className="recent-age">{ago(item.at)}</span>
             </div>
@@ -250,6 +266,7 @@ function ProjectFolder({
   onToggle(): void;
 }) {
   const [renaming, setRenaming] = useState(false);
+  const { confirm: ask, card } = useConfirm();
   const rename = (name: string | null) => {
     setRenaming(false);
     if (name) send({ type: "rename_project", projectId: project.id, name });
@@ -276,13 +293,23 @@ function ProjectFolder({
         >
           <path d="M9 6l6 6-6 6" />
         </svg>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
           <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
         </svg>
         {renaming ? (
           <NameEditor value={project.name} className="folder-name" onDone={rename} />
         ) : (
-          <span className="folder-name" title={`${project.path} — double-click to rename`}>{project.name}</span>
+          <span className="folder-name" title={`${project.path} — double-click to rename`}>
+            {project.name}
+          </span>
         )}
         <span className="folder-actions">
           <button
@@ -293,7 +320,14 @@ function ProjectFolder({
               send({ type: "toggle_star", projectId: project.id });
             }}
           >
-            <svg viewBox="0 0 24 24" fill={project.starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill={project.starred ? "currentColor" : "none"}
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+              aria-hidden
+            >
               <path d={STAR_PATH} />
             </svg>
           </button>
@@ -305,7 +339,14 @@ function ProjectFolder({
               send({ type: "new_session", projectId: project.id });
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden
+            >
               <path d="M12 5v14M5 12h14" />
             </svg>
           </button>
@@ -318,12 +359,28 @@ function ProjectFolder({
             }}
           >
             {project.hidden ? (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" />
                 <circle cx="12" cy="12" r="3" />
               </svg>
             ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M3 3l18 18" />
                 <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
                 <path d="M9.9 5.1A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1" />
@@ -331,17 +388,29 @@ function ProjectFolder({
               </svg>
             )}
           </button>
+          {card}
           <button
             className="remove"
             title="Remove project"
             onClick={(e) => {
               e.stopPropagation();
-              if (confirm(`Remove "${project.name}" and all its sessions? (files are untouched)`)) {
-                send({ type: "remove_project", projectId: project.id });
-              }
+              void ask({
+                title: `Remove "${project.name}"?`,
+                body: "All its sessions go with it; files are untouched.",
+                ok: "Remove",
+              }).then((yes) => {
+                if (yes) send({ type: "remove_project", projectId: project.id });
+              });
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden
+            >
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
@@ -387,63 +456,44 @@ export const Sidebar = memo(function Sidebar() {
   const settingsOpen = useRuri((s) => s.settingsOpen);
   const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
 
-  // Desktop hover-over-drag: the titlebar drag region never delivers mouse
-  // events to the page, so Electron's main process polls the cursor and
-  // calls this hook — we lift whichever head sits under it. (:hover still
-  // covers browser dev, where there are no drag regions.)
-  useEffect(() => {
-    let lifted: Element | null = null;
-    (window as unknown as Record<string, unknown>)["__ruriPeekCursor"] = (
-      x: number,
-      y: number,
-      inBand: boolean,
-    ) => {
-      const el = inBand ? document.elementFromPoint(x, y) : null;
-      const head = el?.classList.contains("peek-head") ? el : null;
-      if (head === lifted) return;
-      lifted?.classList.remove("lift");
-      head?.classList.add("lift");
-      lifted = head;
-    };
-    return () => {
-      delete (window as unknown as Record<string, unknown>)["__ruriPeekCursor"];
-    };
-  }, []);
-
   // A chat reached some other way than a click in here — the switcher, the
   // Home agent — may sit in a folded folder. It is opened for it.
   const activeId = useRuri((s) => s.activeId);
   const owner = useRuri((s) => s.projects.find((p) => p.sessions.some((x) => x.id === activeId))?.id);
   const ownerHidden = useRuri((s) => s.projects.find((p) => p.id === owner)?.hidden === true);
-  // a chat inside a hidden project is being looked at: the fold opens so
-  // the row that is active is actually on screen
+  // Noticed while rendering (the way React has state follow the store), and
+  // on the first render too: a chat inside a hidden project is being looked
+  // at, so the fold opens and the row that is active is actually on screen;
+  // a newly active chat's folder is opened for it.
+  const [ownerSeen, setOwnerSeen] = useState<{ owner: string | undefined; hidden: boolean } | null>(null);
+  if (!ownerSeen || ownerSeen.owner !== owner || ownerSeen.hidden !== ownerHidden) {
+    setOwnerSeen({ owner, hidden: ownerHidden });
+    if (ownerHidden) setShowHidden(true);
+    if (owner && (!ownerSeen || ownerSeen.owner !== owner)) {
+      setExpandedSet((prev) => (prev.has(owner) ? prev : new Set(prev).add(owner)));
+    }
+  }
+  // remembered whenever it changes, however it changed — not on mount,
+  // where what was loaded is what is saved (and setPref would mark the
+  // key as this session's, shutting the snapshot's copy out)
+  const loadedExpanded = useRef(false);
   useEffect(() => {
-    if (ownerHidden && !showHidden) setShowHidden(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [owner, ownerHidden]);
-  useEffect(() => {
-    if (!owner || expandedSet.has(owner)) return;
-    const next = new Set(expandedSet);
-    next.add(owner);
-    setExpandedSet(next);
+    if (!loadedExpanded.current) {
+      loadedExpanded.current = true;
+      return;
+    }
     try {
-      setPref("ruri-expanded", JSON.stringify([...next]));
+      setPref("ruri-expanded", JSON.stringify([...expandedSet]));
     } catch {
       // preference just won't persist
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [owner]);
+  }, [expandedSet]);
 
   const toggleFolder = (name: string) => {
     const next = new Set(expandedSet);
     if (next.has(name)) next.delete(name);
     else next.add(name);
     setExpandedSet(next);
-    try {
-      setPref("ruri-expanded", JSON.stringify([...next]));
-    } catch {
-      // preference just won't persist
-    }
   };
 
   // Starred projects pin to the top of the one Projects list — no separate
@@ -464,12 +514,14 @@ export const Sidebar = memo(function Sidebar() {
               className="peek-head"
               src={`/peek/u${p.n}.png`}
               alt=""
-              style={{
-                left: p.x,
-                width: p.w,
-                "--drop": `${p.drop}px`,
-                "--lift": `${p.lift}px`,
-              } as React.CSSProperties}
+              style={
+                {
+                  left: p.x,
+                  width: p.w,
+                  "--drop": `${p.drop}px`,
+                  "--lift": `${p.lift}px`,
+                } as React.CSSProperties
+              }
             />
           ))}
         </span>
@@ -501,7 +553,15 @@ export const Sidebar = memo(function Sidebar() {
               title={showHidden ? "Tuck the hidden projects away again" : "Show the hidden projects"}
               onClick={toggleHidden}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M9 6l6 6-6 6" />
               </svg>
               {showHidden ? "hide" : "show"} {hidden.length} hidden
@@ -524,7 +584,16 @@ export const Sidebar = memo(function Sidebar() {
       {/* the account bar — a stub for real accounts later; for now it names
           the local user and houses the settings gear */}
       <div className="account-bar">
-        <svg className="account-avatar" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <svg
+          className="account-avatar"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
           <circle cx="12" cy="8" r="4" />
           <path d="M4 21c1.5-4 4.4-6 8-6s6.5 2 8 6" />
         </svg>
@@ -535,13 +604,20 @@ export const Sidebar = memo(function Sidebar() {
           title="Settings"
           onClick={() => setSettingsOpen(!settingsOpen)}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
           </svg>
         </button>
       </div>
-
     </aside>
   );
 });

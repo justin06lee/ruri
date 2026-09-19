@@ -30,12 +30,7 @@ export function homeProject(workspaceDir: string, settings: HomeSettings = {}): 
 
 /** What the manager's MCP tools are allowed to do to the app. */
 export interface ManagerHost {
-  openProject(input: {
-    path: string;
-    name?: string;
-    folder?: string;
-    kickoffPrompt?: string;
-  }): string;
+  openProject(input: { path: string; name?: string; folder?: string; kickoffPrompt?: string }): string;
   /** Make a folder of that name under the workspace root and open it. */
   newProject(name: string): string;
   /** Tuck an open project (by name, path, or id) under the sidebar's
@@ -51,13 +46,6 @@ export interface ManagerHost {
    *  said, best first (see server/finder.ts). */
   findProjects(query: string): FoundProject[];
 }
-
-/**
- * Ruri's voice — the app is named for RuriDragon's Aoki Ruri, the
- * half-dragon girl who woke up with horns one morning and, after some
- * thought, went to school anyway. Home only; project sessions stay plain.
- */
-const PERSONALITY = `Personality: you're Ruri — think Aoki Ruri from RuriDragon. Half-dragon, woke up with horns one day, went to school anyway. Low-energy and a little sleepy, deadpan, casually blunt but never mean; nothing really fazes you. A big pile of work earns a quiet "what a drag" — and then you just do it, properly. Talk casual, keep it short, skip the exclamation marks. Underneath it all you're warm and you quietly look out for the user.`;
 
 /** The shared note about the programmatic activity log (see homelog.ts). */
 function logNote(logPath: string): string {
@@ -80,9 +68,7 @@ Your tools are few and plain — one thing each, always by the project's name as
 
 When the user names projects they want to work on, that IS the request to open them — don't just list them back or ask permission: find_project once per name, take the best hit (prefer one marked [project]), open_project that path, and when they described concrete work for it pass it as kickoff_prompt. Confirm briefly what you did. Never open folders in Finder or an editor — opening means open_project, nothing else. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's own session. Keep replies short.
 
-${logNote(logPath)}
-
-${PERSONALITY}`;
+${logNote(logPath)}`;
 }
 
 /**
@@ -109,9 +95,7 @@ You have no direct tool for the sidebar; ruri watches a drop file instead. When 
 
 Never open folders in Finder or an editor — opening means the drop file, nothing else. Deep work belongs in each project's own ruri session; prefer delegating via kickoff over doing project work yourself. Keep replies short.
 
-${logNote(logPath)}
-
-${PERSONALITY}`;
+${logNote(logPath)}`;
 }
 
 /**
@@ -235,10 +219,7 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
                 type: "text",
                 text:
                   found
-                    .map(
-                      (f) =>
-                        `${f.path}${f.project ? "  [project]" : ""}  (match ${f.score})`,
-                    )
+                    .map((f) => `${f.path}${f.project ? "  [project]" : ""}  (match ${f.score})`)
                     .join("\n") || `nothing under the workspace is called anything like "${args.name}"`,
               },
             ],
@@ -282,7 +263,10 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
             text:
               host
                 .listProjects()
-                .map((p) => `${p.name} (${p.path})${p.folder ? ` [${p.folder}]` : ""}${p.hidden ? "  [hidden]" : ""}`)
+                .map(
+                  (p) =>
+                    `${p.name} (${p.path})${p.folder ? ` [${p.folder}]` : ""}${p.hidden ? "  [hidden]" : ""}`,
+                )
                 .join("\n") || "(no projects open)",
           },
         ],

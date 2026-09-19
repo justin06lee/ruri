@@ -556,7 +556,14 @@ export type TranscriptEvent =
    *  model-facing brief (summaries + full-turn file hooks) and `entries` its
    *  structured prompt/reply pairs, hidden behind the zigzag separator
    *  unless the user unfolds it. */
-  | { kind: "compaction"; id: string; text: string; entries?: CompactionEntry[]; digest?: CompactionDigest; ts: number };
+  | {
+      kind: "compaction";
+      id: string;
+      text: string;
+      entries?: CompactionEntry[];
+      digest?: CompactionDigest;
+      ts: number;
+    };
 
 /**
  * A subagent a harness started — Claude's Agent tool, Codex's spawn_agent —

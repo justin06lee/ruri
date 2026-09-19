@@ -85,8 +85,13 @@ export function CommandMenu({
   const shown = useMemo(() => matching(commands, word).slice(0, 8), [commands, word]);
 
   // a narrowed list puts the highlight back on its first row rather than
-  // leaving it past the end
-  useEffect(() => setActive(0), [word]);
+  // leaving it past the end — set while rendering, the way React has state
+  // follow a prop, so no frame is drawn with the old row lit
+  const [activeFor, setActiveFor] = useState(word);
+  if (activeFor !== word) {
+    setActiveFor(word);
+    setActive(0);
+  }
 
   useEffect(() => {
     pickRef.current = (key: string) => {

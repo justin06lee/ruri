@@ -42,7 +42,10 @@ const check = (name: string, ok: boolean) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
   if (!ok) failed += 1;
 };
-check(`home holds at most ${HOME_TRANSCRIPT_MAX}`, home.length <= HOME_TRANSCRIPT_MAX && home.length > HOME_TRANSCRIPT_MAX - 5);
+check(
+  `home holds at most ${HOME_TRANSCRIPT_MAX}`,
+  home.length <= HOME_TRANSCRIPT_MAX && home.length > HOME_TRANSCRIPT_MAX - 5,
+);
 check("home opens on a prompt", home[0]?.kind === "user");
 check("home ends on the newest event", home[home.length - 1]?.id === "r22");
 check("a dropped turn's note went with it", archive.summaries("home")["u0"] === undefined);
@@ -50,7 +53,9 @@ check("a kept turn's note stayed", archive.summaries("home")["u22"]?.user === "n
 check("other chats are not capped", archive.events("other").length === 23 * 5);
 
 archive.flushAll();
-const onDisk = JSON.parse(fs.readFileSync(path.join(root, "sessions", "home.json"), "utf8")) as { events: Event[] };
+const onDisk = JSON.parse(fs.readFileSync(path.join(root, "sessions", "home.json"), "utf8")) as {
+  events: Event[];
+};
 check("the file on disk is capped too", onDisk.events.length === home.length);
 
 const long = Array.from({ length: 80 }, (_, i) => ({ kind: i === 0 ? "user" : "tool", id: String(i) }));

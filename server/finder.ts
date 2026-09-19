@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Finding a project by the name a person uses for it.
@@ -16,16 +16,49 @@ import * as path from "node:path";
 
 /** Folders nobody means when they name a project. */
 const SKIP = new Set([
-  "node_modules", ".git", ".hg", ".svn", "dist", "build", "out", "target", "vendor",
-  "coverage", "__pycache__", ".venv", "venv", ".next", ".nuxt", ".cache", "Library",
-  "Applications", "Pictures", "Music", "Movies", "Downloads", ".Trash", "tmp",
+  "node_modules",
+  ".git",
+  ".hg",
+  ".svn",
+  "dist",
+  "build",
+  "out",
+  "target",
+  "vendor",
+  "coverage",
+  "__pycache__",
+  ".venv",
+  "venv",
+  ".next",
+  ".nuxt",
+  ".cache",
+  "Library",
+  "Applications",
+  "Pictures",
+  "Music",
+  "Movies",
+  "Downloads",
+  ".Trash",
+  "tmp",
 ]);
 
 /** What makes a folder look like a project rather than a folder of them. */
 const PROJECT_MARKS = [
-  ".git", "package.json", "Cargo.toml", "pyproject.toml", "go.mod", "Makefile",
-  "pom.xml", "build.gradle", "Package.swift", "Gemfile", "composer.json", "mix.exs",
-  "deno.json", "CMakeLists.txt", "README.md",
+  ".git",
+  "package.json",
+  "Cargo.toml",
+  "pyproject.toml",
+  "go.mod",
+  "Makefile",
+  "pom.xml",
+  "build.gradle",
+  "Package.swift",
+  "Gemfile",
+  "composer.json",
+  "mix.exs",
+  "deno.json",
+  "CMakeLists.txt",
+  "README.md",
 ];
 
 export interface FoundProject {
@@ -53,7 +86,7 @@ function subsequence(needle: string, hay: string): boolean {
 }
 
 /** How well a folder name answers to the query, 0 when it doesn't. */
-export function scoreName(name: string, query: string): number {
+function scoreName(name: string, query: string): number {
   const n = name.toLowerCase();
   const flat = n.replace(/[^a-z0-9]/g, "");
   const q = query.toLowerCase().trim();
@@ -68,19 +101,6 @@ export function scoreName(name: string, query: string): number {
   if (wanted.length > 0 && wanted.every((w) => flat.includes(w))) return 50;
   if (qflat.length >= 3 && subsequence(qflat, flat)) return 25;
   return 0;
-}
-
-/** The roots worth looking under when no workspace is set: the usual
- *  suspects under the home folder. Home's find_project passes only the
- *  workspace root from Settings — that is where projects live. */
-export function searchRoots(workspaceDir: string): string[] {
-  const home = os.homedir();
-  const roots = [workspaceDir];
-  for (const name of ["Workspace", "workspace", "Projects", "projects", "Developer", "dev", "Code", "code", "src", "repos"]) {
-    const dir = path.join(home, name);
-    if (!roots.includes(dir) && fs.existsSync(dir)) roots.push(dir);
-  }
-  return roots;
 }
 
 const MAX_DEPTH = 6;
@@ -111,7 +131,8 @@ export function findProjects(roots: string[], query: string, limit = 12): FoundP
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("finder", err, "walk");
       return;
     }
     visited += 1;
@@ -119,11 +140,12 @@ export function findProjects(roots: string[], query: string, limit = 12): FoundP
       if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
       if (SKIP.has(entry.name) || (entry.name.startsWith(".") && entry.name !== ".ruri")) continue;
       const full = path.join(dir, entry.name);
-      let real = full;
+      let real: string;
       try {
         real = fs.realpathSync(full);
         if (!fs.statSync(real).isDirectory()) continue;
-      } catch {
+      } catch (err) {
+        if (!isMissing(err)) warn("finder", err, "walk");
         continue;
       }
       if (seen.has(real)) continue;
@@ -140,6 +162,8 @@ export function findProjects(roots: string[], query: string, limit = 12): FoundP
   };
 
   for (const root of roots) walk(root, 0, 0);
-  found.sort((a, b) => b.score - a.score || Number(b.project) - Number(a.project) || a.path.length - b.path.length);
+  found.sort(
+    (a, b) => b.score - a.score || Number(b.project) - Number(a.project) || a.path.length - b.path.length,
+  );
   return found.slice(0, limit);
 }

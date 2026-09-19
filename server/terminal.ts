@@ -1,8 +1,9 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
+import { configPath } from "./configDir.js";
 import { StringDecoder } from "node:string_decoder";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Real shells behind the composer's terminal mode — as many per channel as
@@ -41,10 +42,19 @@ export interface TerminalEvents {
 }
 
 function tabsFile(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "terminals.json",
-  );
+  return configPath("terminals.json");
+}
+
+/**
+ * A size off the wire, made safe for the Tcl it lands in: a whole number
+ * from 1 to 1000, or the default. Anything else — a fraction, a negative,
+ * NaN, a string that got past the parser — would be spliced straight into
+ * a script.
+ */
+export function dimension(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 1000
+    ? value
+    : fallback;
 }
 
 /** The control sequence expect intercepts: cols and rows, never forwarded. */
@@ -99,16 +109,17 @@ export class Terminals {
         const clean = ids.filter((id): id is string => typeof id === "string").slice(0, MAX_TABS);
         if (clean.length > 0) this.tabs.set(channelId, clean);
       }
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("terminal", err, "load");
       // no tabs remembered yet, which is the same as none open
     }
   }
 
   private save(): void {
     try {
-      fs.mkdirSync(path.dirname(tabsFile()), { recursive: true });
-      fs.writeFileSync(tabsFile(), JSON.stringify(Object.fromEntries(this.tabs), null, 2));
-    } catch {
+      writeJsonAtomic(tabsFile(), Object.fromEntries(this.tabs), 2);
+    } catch (err) {
+      warn("terminal", err, "save");
       // best-effort persistence
     }
   }
@@ -163,6 +174,8 @@ export class Terminals {
    * a shell is there to talk to.
    */
   open(channelId: string, termId: string, cwd: string, cols: number, rows: number): boolean {
+    cols = dimension(cols, 80);
+    rows = dimension(rows, 24);
     const running = this.shells.get(termId);
     if (running) {
       this.resize(termId, cols, rows);
@@ -185,7 +198,8 @@ export class Terminals {
       child = pty
         ? spawn(EXPECT, ["-c", expectScript(shell, cols, rows)], { cwd, env })
         : spawn(shell, ["-i"], { cwd, env });
-    } catch {
+    } catch (err) {
+      warn("terminal", err, "open");
       return false;
     }
     const entry: Shell = {
@@ -228,7 +242,7 @@ export class Terminals {
   resize(termId: string, cols: number, rows: number): void {
     const shell = this.shells.get(termId);
     if (!shell?.pty) return;
-    shell.child.stdin?.write(resizeSequence(cols, rows));
+    shell.child.stdin?.write(resizeSequence(dimension(cols, 80), dimension(rows, 24)));
   }
 
   /**

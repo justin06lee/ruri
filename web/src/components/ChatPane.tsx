@@ -1,2005 +1,46 @@
-import {
-  createContext,
-  lazy,
-  memo,
-  Suspense,
-  useCallback,
-  useContext,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   DEFAULT_EFFORT,
-  DEFAULT_PERMISSION_MODE,
-  EFFORT_LEVELS,
-  excerpt,
   HOME_ID,
-  type EarlierItem,
-  type ModelChoice,
-  type PermissionMode,
-  type PermissionRequest,
   type Project,
-  type QueuedPrompt,
-  type SubagentState,
+  type SessionInfo,
   type TranscriptEvent,
-  type TurnNote,
-  unmarked,
 } from "../../../shared/protocol";
-import {
-  AttachmentStrip,
-  cropRegion,
-  fileKind,
-  Viewer,
-  TranscriptAttachments,
-  ToolImage,
-  type ComposerAttachment,
-  type Region,
-} from "./Attachments";
+import { heroFor, heroUrl, launchHero } from "../hero";
+import { beat } from "../lib/beat";
+import { spinStar } from "../lib/spin";
+import { StreamingMarkdown } from "../markdown";
 import { heroFrame } from "../peek";
 import { getPref, setPref } from "../prefs";
-import { Components } from "./Components";
-import { Ideas } from "./Ideas";
-import { Skills } from "./Skills";
-import { DiffView } from "./Diff";
-import type { RapidFire } from "./RapidFire";
-import { RapidBar } from "./RapidFire";
-import { BridgeStrip } from "./Bridge";
-import { DragonGauges } from "./Dragon";
-import { HomeTabs, ProjectsPage, type HomeTab } from "./HomeBoard";
-import { CommandMenu, commandPrefix } from "./CommandMenu";
 import {
-  MarkerMirror,
-  fitBox,
-  backspaceHits,
-  findMarkers,
-  holdMarkers,
-  holdMarkersAt,
-  markerText,
-  releaseMarkers,
-  removeMarker,
-  stripMarkers,
-  type Marker,
-} from "./Markers";
-import { SelectionFlags } from "./Selection";
-import { Sketch, type SketchBackground } from "./Sketch";
-import { ComboDropdown, Dropdown } from "./Dropdown";
-import { NameCard } from "./NameCard";
-import { QuestionCard } from "./Questions";
-import { Thinking, WorkingLine } from "./Thinking";
-import { Tracker } from "./Tracker";
-import { heroFor, heroUrl, launchHero } from "../hero";
-import { fileToBase64 } from "../lib/files";
-import { Markdown, StreamingMarkdown } from "../markdown";
-import {
-  agentLogKey,
-  backAgent,
-  clearComposerDraft,
   closeAgent,
-  composeInto,
-  composerDrafts,
   ensureTranscript,
   openAgent,
   requestHistory,
   send,
-  sendAgent,
-  setComposerDraft,
-  startAgent,
-  stopAgent,
   useRuri,
   watchChannel,
 } from "../store";
-import { spinStar } from "../lib/spin";
-import { beat, useNow } from "../lib/beat";
+import { AgentsPage } from "./AgentsPage";
+import { BridgeStrip } from "./Bridge";
+import { Icon, TOOL_ICONS } from "./chat/Icon";
+import { NO_EARLIER, NO_EVENTS, NO_QUEUED, NO_SUMMARIES } from "./chat/empty";
+import { Components } from "./Components";
+import { Composer } from "./Composer";
+import { CompactionMark, EventView } from "./EventView";
+import { Exchange, groupTurns, NO_EXCERPTS, turnExcerpts, type Half } from "./Exchange";
+import { HomeTabs, ProjectsPage, type HomeTab } from "./HomeBoard";
+import { Ideas } from "./Ideas";
+import { AskCard } from "./PermissionBanner";
+import { QueuedList } from "./Queue";
+import { RapidBar, type RapidFire } from "./RapidFire";
+import { SelectionFlags } from "./Selection";
+import { Sketch, type SketchBackground } from "./Sketch";
+import { Skills } from "./Skills";
+import { Thinking, WorkingLine } from "./Thinking";
+import { Tracker } from "./Tracker";
 
-/* The shell panel brings xterm with it — a quarter of the app's JavaScript,
-   for a mode most sessions never turn on. It arrives when the `>_` button is
-   pressed instead of on every launch. */
-const TerminalPanel = lazy(() =>
-  import("./Terminal").then((m) => ({ default: m.TerminalPanel })),
-);
-
-/* ── small inline icons (stroke: currentColor, 14px) ─────────────── */
-
-function Icon({ d, viewBox = "0 0 24 24" }: { d: string; viewBox?: string }) {
-  return (
-    <svg
-      className="icon"
-      viewBox={viewBox}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d={d} />
-    </svg>
-  );
-}
-
-const TOOL_ICONS: Record<string, string> = {
-  terminal: "M4 17l6-5-6-5M12 19h8",
-  file: "M14 3v5h5M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z",
-  search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35",
-  globe: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18",
-  agent: "M12 8V4M8 4h8M5 12a7 7 0 0 1 14 0v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6zM9 14h.01M15 14h.01",
-  tool: "M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.4 2.4-2.4-.6-.6-2.4 2.4-2.4z",
-};
-
-function toolIcon(name: string): string {
-  if (name === "Bash") return TOOL_ICONS["terminal"]!;
-  if (["Read", "Edit", "Write", "NotebookEdit"].includes(name)) return TOOL_ICONS["file"]!;
-  if (["Glob", "Grep"].includes(name)) return TOOL_ICONS["search"]!;
-  if (["WebFetch", "WebSearch"].includes(name)) return TOOL_ICONS["globe"]!;
-  if (["Agent", "Task"].includes(name)) return TOOL_ICONS["agent"]!;
-  return TOOL_ICONS["tool"]!;
-}
-
-/* ── transcript events ───────────────────────────────────────────── */
-
-/** Collapse absolute in-project paths to "name/relative" at render time —
- *  the server shortens new events, but archived ones predate that, and this
- *  keeps every chip short regardless of when it was written. */
-function shortenDisplay(text: string, project?: Project): string {
-  const root = project?.path.replace(/\/+$/, "");
-  if (!root || !project) return text;
-  return text.split(`${root}/`).join(`${project.name}/`).split(root).join(project.name);
-}
-
-/** A sent slash command ("/compact", "/clear", …) — one short line, nothing
- *  but the command and its arguments. */
-function isCommand(text: string): boolean {
-  const t = text.trim();
-  return t.length <= 80 && !t.includes("\n") && /^\/[a-z0-9_:-]+(\s|$)/i.test(t);
-}
-
-/**
- * A uniform zigzag rule — the compaction separator's tear line. Weighted to
- * read as the same hairline as the result lines' rule: 1px there is crisp,
- * but a diagonal of the same width gets spread across ~1.4 device pixels by
- * antialiasing, so the stroke is nudged up to land at the same density.
- */
-function ZigzagRule() {
-  const id = useId();
-  return (
-    <svg className="jag" aria-hidden>
-      <defs>
-        <pattern id={id} width="12" height="9" patternUnits="userSpaceOnUse">
-          <path
-            d="M0 7 L6 2 L12 7"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.15"
-            strokeLinejoin="round"
-          />
-        </pattern>
-      </defs>
-      <rect width="100%" height="100%" fill={`url(#${id})`} />
-    </svg>
-  );
-}
-
-/**
- * The compaction point: everything above went into a fresh session as a
- * brief only the model reads. The user just sees the zigzag line — the
- * label unfolds the prompt/reply notes the model was handed.
- */
-function CompactionMark({
-  event,
-  load,
-}: {
-  event: Extract<TranscriptEvent, { kind: "compaction" }>;
-  /** For a mark known only from the history's outline, which leaves out
-   *  its brief: fetch the history the brief is in. */
-  load?: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const bodiless = !event.entries?.length && !event.text;
-  return (
-    <div className="compaction">
-      <div className="compaction-line">
-        <ZigzagRule />
-        <button
-          className="compaction-label"
-          title={open ? "Hide what the model was handed" : "Show what the model was handed"}
-          onClick={() => {
-            if (!open && bodiless) load?.();
-            setOpen(!open);
-          }}
-        >
-          <svg
-            className="icon"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <circle cx="6" cy="6" r="3" />
-            <circle cx="6" cy="18" r="3" />
-            <path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12" />
-          </svg>
-          compacted
-        </button>
-        <ZigzagRule />
-      </div>
-      {open &&
-        (event.entries?.length || event.digest ? (
-          <div className="compaction-brief scroll-gate">
-            {/* the oldest exchanges, condensed together — a long chat's
-                list stops at its newest few (server/compaction.ts) */}
-            {event.digest && (
-              <div className="compaction-turn compaction-digest">
-                <span className="compaction-n">{event.digest.through > 0 ? `1–${event.digest.through}` : "…"}</span>
-                <div className="compaction-pair">
-                  <div className="compaction-condensed">{event.digest.text}</div>
-                </div>
-              </div>
-            )}
-            {(event.entries ?? []).map((entry, i) => (
-              <div className="compaction-turn" key={entry.n ?? i}>
-                <span className="compaction-n">{entry.n ?? i + 1}</span>
-                <div className="compaction-pair">
-                  <div className="compaction-you">{entry.user}</div>
-                  <div className="compaction-reply">{entry.reply}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : bodiless ? (
-          <div className="compaction-brief raw">loading…</div>
-        ) : (
-          // compactions from before the structured entries: the raw brief
-          <pre className="compaction-brief raw scroll-gate">{event.text}</pre>
-        ))}
-    </div>
-  );
-}
-
-/* ── subagents ────────────────────────────────────────────────────── */
-
-/** Where an agent card sits: in the chat it opens as the agents page's
- *  only agent; on the page it opens on top of the one showing. */
-const AgentHost = createContext<"chat" | "page">("chat");
-
-const AGENT_STATUS: Record<SubagentState["status"], string> = {
-  running: "working",
-  done: "done",
-  failed: "failed",
-  stopped: "stopped",
-};
-
-function tokenCount(n: number): string {
-  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-}
-
-function span(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000));
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
-}
-
-/** The numbers under an agent: tools run, tokens spent, for how long, and
- *  whether it was left working in the background. Its clock ticks only
- *  while it runs and ruri is in front. */
-function AgentMeta({ agent }: { agent: SubagentState }) {
-  const now = useNow(1000, agent.status === "running");
-  // the model by its own name, when the catalog knows it
-  const model = useRuri((s) =>
-    agent.model ? (s.models.find((m) => m.value === agent.model)?.displayName ?? agent.model) : undefined,
-  );
-  const line = [
-    agent.tools ? `${agent.tools} tool${agent.tools === 1 ? "" : "s"}` : undefined,
-    agent.tokens ? `${tokenCount(agent.tokens)} tokens` : undefined,
-    span((agent.endedAt ?? now) - agent.startedAt),
-    agent.background ? "in the background" : undefined,
-    model,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return <span className="agent-card-meta">{line}</span>;
-}
-
-function AgentHead({ agent }: { agent: SubagentState }) {
-  return (
-    <span className="agent-head">
-      <Icon d={TOOL_ICONS["agent"]!} />
-      <span className="agent-type">{agent.type ?? (agent.mine ? "yours" : "Agent")}</span>
-      <span className="agent-desc">{agent.description}</span>
-      <span
-        className={`agent-status ${agent.status}`}
-        ref={agent.status === "running" ? beat("spin") : undefined}
-      >
-        {AGENT_STATUS[agent.status]}
-      </span>
-    </span>
-  );
-}
-
-/**
- * A subagent in the chat: what it was sent to do, what it is doing right
- * now (or what it came back with), and how far it has got. It opens onto
- * its own conversation — the brief, everything it read, ran and said.
- */
-function AgentCard({ agent, channelId }: { agent: SubagentState; channelId?: string }) {
-  const host = useContext(AgentHost);
-  const line =
-    agent.status === "running" ? agent.activity : agent.result ? excerpt(unmarked(agent.result), 220) : undefined;
-  return (
-    <button
-      className={`agent-card ${agent.status}`}
-      title="Open this agent — its brief, everything it did, and what it came back with"
-      onClick={() => channelId && openAgent(channelId, agent.key, host === "page")}
-    >
-      <AgentHead agent={agent} />
-      {line && <span className="agent-card-line">{line}</span>}
-      <AgentMeta agent={agent} />
-    </button>
-  );
-}
-
-type Ruri = ReturnType<typeof useRuri.getState>;
-
-/** An agent's card as it stands: in the chat, among the ones you started,
- *  or — an agent's own agent — in the log of the one that started it. */
-function findAgent(s: Ruri, channelId: string, key: string): SubagentState | undefined {
-  const hit = (events: TranscriptEvent[] | undefined) =>
-    events?.find((e): e is Extract<TranscriptEvent, { kind: "tool" }> => e.kind === "tool" && e.agent?.key === key)
-      ?.agent;
-  const found = hit(s.transcripts[channelId]) ?? s.crew[channelId]?.find((a) => a.key === key);
-  if (found) return found;
-  for (const [id, events] of Object.entries(s.agentLogs)) {
-    if (!id.startsWith(`${channelId}\u0000`)) continue;
-    const nested = hit(events);
-    if (nested) return nested;
-  }
-  return undefined;
-}
-
-/**
- * The agents page, in place of the chat as the project's other pages are:
- * every agent the chat has — the ones the model started and the ones you
- * did — or, with one picked, that agent's own conversation: the brief it
- * was handed, what it said, every tool it ran, live while it works. It is
- * also where you start agents of your own: a brief and a model, and it
- * goes off to work in the project by itself, reporting back here. Esc
- * steps out — from an agent to the list, from the list to the chat.
- */
-function AgentsPage({
-  channelId,
-  project,
-  agents,
-}: {
-  channelId: string;
-  project: Project;
-  agents: SubagentState[];
-}) {
-  const key = useRuri((s) => (s.agentPanel?.projectId === channelId ? s.agentPanel.keys.at(-1) : undefined));
-  const depth = useRuri((s) => (s.agentPanel?.projectId === channelId ? s.agentPanel.keys.length : 0));
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
-      // typing, or a menu that Esc closes first
-      if ((e.target as HTMLElement | null)?.closest("textarea, input, [contenteditable], .dropdown")) return;
-      if (useRuri.getState().agentPanel?.keys.length) backAgent();
-      else closeAgent();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-  return key ? (
-    <AgentView key={key} channelId={channelId} project={project} agentKey={key} depth={depth} />
-  ) : (
-    <AgentList channelId={channelId} project={project} agents={agents} />
-  );
-}
-
-/** A card waiting on the user: a question, a naming, or an allow/deny. */
-function AskCard({ request }: { request: PermissionRequest }) {
-  return request.kind === "question" ? (
-    <QuestionCard request={request} />
-  ) : request.kind === "component" ? (
-    <NameCard request={request} />
-  ) : (
-    <PermissionBanner request={request} />
-  );
-}
-
-/** Every agent in the chat, the working ones first — under the box that
- *  starts one of your own. */
-function AgentList({
-  channelId,
-  project,
-  agents,
-}: {
-  channelId: string;
-  project: Project;
-  agents: SubagentState[];
-}) {
-  // what your own agents are waiting on you for
-  const asks = useRuri((s) => s.permissions).filter((p) => p.projectId === channelId && p.agent);
-  const working = agents.filter((a) => a.status === "running");
-  const finished = agents.filter((a) => a.status !== "running");
-  return (
-    <section className="board-page agents-page">
-      <div className="board-inner">
-        <div className="board-head">
-          <span className="board-title">Agents</span>
-          <span className="board-sub">
-            {agents.length === 0
-              ? "none in this chat yet"
-              : `${agents.length} in this chat${working.length > 0 ? ` · ${working.length} working` : ""}`}
-          </span>
-          <button className="icon-button" title="Back to the chat (Esc)" onClick={closeAgent}>
-            <Icon d="M18 6L6 18M6 6l12 12" />
-          </button>
-        </div>
-        <AgentBrief channelId={channelId} project={project} />
-        {asks.length > 0 && (
-          <div className="agents-asks">
-            {asks.map((request) => (
-              <AskCard key={request.requestId} request={request} />
-            ))}
-          </div>
-        )}
-        <AgentHost.Provider value="page">
-          {working.length > 0 && <div className="agents-group">working</div>}
-          {working.map((a) => (
-            <AgentCard key={a.key} agent={a} channelId={channelId} />
-          ))}
-          {finished.length > 0 && <div className="agents-group">finished</div>}
-          {finished.map((a) => (
-            <AgentCard key={a.key} agent={a} channelId={channelId} />
-          ))}
-        </AgentHost.Provider>
-        {agents.length === 0 && (
-          <div className="board-empty">
-            The agents the model starts show up here as it starts them. Brief one of your own above and it goes
-            off to work in {project.name} by itself — you can watch it here, tell it more, or stop it.
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-/** Where an agent of your own starts: its brief, and the model it runs on
- *  — the chat's, unless you pick another from the composer's list. */
-function AgentBrief({ channelId, project }: { channelId: string; project: Project }) {
-  const allModels = useRuri((s) => s.models);
-  const starredIds = useRuri((s) => s.starredModels);
-  const defaultModel = useRuri((s) => s.defaultModel);
-  const [text, setText] = useState("");
-  const [model, setModel] = useState(() => project.model || defaultModel);
-  const starred = allModels.filter((m) => starredIds.includes(m.value));
-  const options = (starred.length > 0 ? starred : allModels).map((m) => ({ value: m.value, label: m.displayName }));
-  if (!options.some((o) => o.value === model)) {
-    options.push({ value: model, label: allModels.find((m) => m.value === model)?.displayName ?? roughName(model) });
-  }
-  const start = () => {
-    const brief = text.trim();
-    if (!brief) return;
-    startAgent(channelId, brief, model);
-    setText("");
-  };
-  return (
-    <div className="agent-brief">
-      <textarea
-        rows={3}
-        value={text}
-        placeholder={`Brief an agent of your own — it works in ${project.name} by itself and reports back here`}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            start();
-          }
-        }}
-      />
-      <div className="agent-brief-bar">
-        <Dropdown
-          value={model}
-          options={options}
-          onSelect={setModel}
-          title="The model it runs on — this chat's, unless you pick another"
-        />
-        <span className="agent-brief-hint">Enter to start · Shift+Enter for a new line</span>
-        <button className="primary" disabled={!text.trim()} onClick={start}>
-          Start
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** One agent's own conversation, the whole page: the brief it was handed,
- *  everything it said and ran, live while it works — and, for one of your
- *  own, a line to tell it more or stop it. */
-function AgentView({
-  channelId,
-  project,
-  agentKey,
-  depth,
-}: {
-  channelId: string;
-  project: Project;
-  agentKey: string;
-  depth: number;
-}) {
-  const log = useRuri((s) => s.agentLogs[agentLogKey(channelId, agentKey)]);
-  const agent = useRuri((s) => findAgent(s, channelId, agentKey));
-  const asks = useRuri((s) => s.permissions).filter((p) => p.projectId === channelId && p.agent === agentKey);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  // at the newest thing the agent did, for as long as you stay down there
-  const pinned = useRef(true);
-  useLayoutEffect(() => {
-    const body = bodyRef.current;
-    if (body && pinned.current) body.scrollTop = body.scrollHeight;
-  }, [log, agent?.status, asks.length]);
-  // its report, when it said more than its last message did
-  const said = log && [...log].reverse().find((e) => e.kind === "assistant");
-  const report =
-    agent?.result && agent.status !== "running" && (said?.kind !== "assistant" || said.text.trim() !== agent.result.trim())
-      ? agent.result
-      : undefined;
-  const handed = agent?.status !== "running" ? agent?.result : undefined;
-  return (
-    <section className="agents-page agent-view">
-      <div className="agent-view-top">
-        <div className="board-head agent-view-head">
-          <button
-            className="icon-button"
-            title={depth > 1 ? "Back to the agent under this one (Esc)" : "Every agent in this chat (Esc)"}
-            onClick={backAgent}
-          >
-            <Icon d="M15 18l-6-6 6-6" />
-          </button>
-          <div className="agent-view-title">
-            {agent ? (
-              <>
-                <AgentHead agent={agent} />
-                <AgentMeta agent={agent} />
-              </>
-            ) : (
-              <span className="agent-head">
-                <Icon d={TOOL_ICONS["agent"]!} />
-                <span className="agent-type">Agent</span>
-              </span>
-            )}
-          </div>
-          {handed && (
-            <button
-              className="ghost agent-hand"
-              title="Put what it came back with in this chat's composer"
-              onClick={() => {
-                composeInto(channelId, handed);
-                closeAgent();
-              }}
-            >
-              Put in the composer
-            </button>
-          )}
-          <button className="icon-button" title="Back to the chat" onClick={closeAgent}>
-            <Icon d="M18 6L6 18M6 6l12 12" />
-          </button>
-        </div>
-      </div>
-      <div
-        className="agent-view-body"
-        ref={bodyRef}
-        onScroll={(e) => {
-          const body = e.currentTarget;
-          pinned.current = body.scrollHeight - body.scrollTop - body.clientHeight < 48;
-        }}
-      >
-        <div className="agent-view-inner">
-          <AgentHost.Provider value="page">
-            {log && log.length > 0 ? (
-              log.map((event) => <EventView key={event.id} event={event} project={project} channelId={channelId} />)
-            ) : (
-              <div className="board-empty">{log ? "nothing was kept of what this one did" : "opening…"}</div>
-            )}
-            {report && (
-              <div className="agent-report">
-                <div className="agent-report-label">what it came back with</div>
-                <Markdown text={report} />
-              </div>
-            )}
-            {asks.map((request) => (
-              <AskCard key={request.requestId} request={request} />
-            ))}
-            {agent?.status === "running" && (
-              <div className="agent-live">
-                <Thinking />
-                <span className="agent-live-line">{agent.activity ? `${agent.activity}…` : "working…"}</span>
-              </div>
-            )}
-          </AgentHost.Provider>
-        </div>
-      </div>
-      {agent?.mine && <AgentReply channelId={channelId} agent={agent} />}
-    </section>
-  );
-}
-
-/** The line under one of your own agents: more to do once it is done, or
- *  a stop while it works. */
-function AgentReply({ channelId, agent }: { channelId: string; agent: SubagentState }) {
-  const [text, setText] = useState("");
-  const running = agent.status === "running";
-  const go = () => {
-    const more = text.trim();
-    if (!more || running) return;
-    sendAgent(channelId, agent.key, more);
-    setText("");
-  };
-  return (
-    <div className="agent-reply">
-      <div className="agent-reply-box">
-        <textarea
-          rows={2}
-          value={text}
-          placeholder={running ? "It's working — tell it more once it's done" : "Tell it more — it picks up where it left off"}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              go();
-            }
-          }}
-        />
-        {running ? (
-          <button className="stop" title="Stop this agent" onClick={() => stopAgent(channelId, agent.key)}>
-            <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-          </button>
-        ) : (
-          <button className="send" title="Send (Enter)" onClick={go} disabled={!text.trim()}>
-            <Icon d="M12 19V5M5 12l7-7 7 7" />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * One transcript event. Memoised: an event never changes once it's written,
- * so a re-render of the pane — a delta arriving, older turns filling in
- * behind you, a status flipping — re-renders none of the ones already on
- * screen.
- */
-export const EventView = memo(function EventView({
-  event,
-  project,
-  channelId,
-  onRewind,
-  onFork,
-}: {
-  event: TranscriptEvent;
-  project?: Project;
-  channelId?: string;
-  /** Present when this prompt can be rewound to — renders the pencil. */
-  onRewind?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
-  /** Present when the conversation can be forked here — renders the branch. */
-  onFork?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
-}) {
-  switch (event.kind) {
-    case "user":
-      if (isCommand(event.text) && !event.attachments?.length) {
-        return (
-          <button
-            className="msg command-chip"
-            title="A command you ran — click to clear it from the transcript"
-            onClick={() => {
-              if (channelId) send({ type: "remove_event", projectId: channelId, eventId: event.id });
-            }}
-          >
-            {event.text.trim()}
-          </button>
-        );
-      }
-      return (
-        <div className="msg user">
-          {onRewind && (
-            <button
-              className="icon-button rewind-pencil"
-              title="Rewind here — the conversation returns to just before this prompt, and the prompt comes back to the composer"
-              onClick={() => onRewind(event)}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-              </svg>
-            </button>
-          )}
-          {onFork && (
-            <button
-              className="icon-button fork-branch"
-              title="Fork here — a new chat in this project that starts from this exchange and goes its own way; this one is left exactly as it is"
-              onClick={() => onFork(event)}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <circle cx="6" cy="4" r="2.5" />
-                <circle cx="6" cy="20" r="2.5" />
-                <circle cx="18" cy="8" r="2.5" />
-                <path d="M6 6.5v11M18 10.5c0 4-3 5-6 5.5-2.5.4-5 1-6 2" />
-              </svg>
-            </button>
-          )}
-          <Markdown text={event.text} />
-          {event.attachments && event.attachments.length > 0 && (
-            <TranscriptAttachments attachments={event.attachments} />
-          )}
-        </div>
-      );
-    case "assistant":
-      return (
-        <div className="msg assistant">
-          <Markdown text={event.text} />
-        </div>
-      );
-    case "tool": {
-      if (event.agent) return <AgentCard agent={event.agent} channelId={channelId} />;
-      // The question itself is the card that asked it — a chip repeating the
-      // questions above it says nothing the user has not just answered. The
-      // event stays in the archive, so a compaction still carries the ask.
-      if (event.name === "AskUserQuestion") return null;
-      const summary = shortenDisplay(event.summary, project);
-      const chip = (
-        <div className="tool-chip" title={summary}>
-          <Icon d={toolIcon(event.name)} />
-          <span className="tool-name">{event.name}</span>
-          <span className="tool-summary">{summary}</span>
-        </div>
-      );
-      if (!event.image && !event.diff) return chip;
-      // A patch already carries its file's name and path, in its own head and
-      // along its own bottom — a chip above it would say both a second time,
-      // so the diff stands on its own.
-      if (event.diff && !event.image) return <DiffView diff={event.diff} />;
-      // what the tool read rides under its own chip, so the path and the
-      // thing it names read as one event
-      return (
-        <div className="tool-block">
-          {chip}
-          {event.image && <ToolImage image={event.image} />}
-          {event.diff && <DiffView diff={event.diff} />}
-        </div>
-      );
-    }
-    case "plan":
-      return <PlanEvent event={event} />;
-    case "result": {
-      // the CLI reports a user abort as diagnostic soup — archived events
-      // predating the server-side flag still deserve the plain reading
-      const stopped = event.stopped || (event.error?.includes("[ede_diagnostic]") ?? false);
-      if (stopped) {
-        return (
-          <div className="result-line stopped">
-            <span className="result-rule" />
-            <span className="result-text">
-              you stopped this response
-              {event.costUsd !== undefined && ` · $${event.costUsd.toFixed(4)}`}
-              {event.durationMs !== undefined && ` · ${(event.durationMs / 1000).toFixed(1)}s`}
-            </span>
-            <span className="result-rule" />
-          </div>
-        );
-      }
-      return event.ok ? (
-        <div className="result-line ok">
-          <span className="result-rule" />
-          <span className="result-text">
-            <Icon d="M20 6L9 17l-5-5" />
-            done
-            {event.costUsd !== undefined && ` · $${event.costUsd.toFixed(4)}`}
-            {event.durationMs !== undefined && ` · ${(event.durationMs / 1000).toFixed(1)}s`}
-          </span>
-          <span className="result-rule" />
-        </div>
-      ) : (
-        <div className="result-line err">
-          <span className="result-rule" />
-          <span className="result-text">
-            <Icon d="M18 6L6 18M6 6l12 12" />
-            {event.error ?? "error"}
-          </span>
-          <span className="result-rule" />
-        </div>
-      );
-    }
-    case "info":
-      return <div className="info-line">{event.text}</div>;
-    case "compaction":
-      return <CompactionMark event={event} />;
-  }
-});
-
-/* ── permissions ─────────────────────────────────────────────────── */
-
-function permissionSummary(
-  request: PermissionRequest,
-  /** Whoever is asking — the harness this channel runs on. */
-  asker: string,
-): { title: string; body: React.ReactNode } {
-  const input = (request.input ?? {}) as Record<string, unknown>;
-  if (request.toolName === "ExitPlanMode" && typeof input["plan"] === "string") {
-    return {
-      title: `${asker} finished planning and wants to start building`,
-      body: (
-        <div className="permission-plan scroll-gate">
-          <Markdown text={input["plan"] as string} />
-        </div>
-      ),
-    };
-  }
-  const detail =
-    typeof input["command"] === "string"
-      ? (input["command"] as string)
-      : typeof input["file_path"] === "string"
-        ? (input["file_path"] as string)
-        : undefined;
-  return {
-    title: `${asker} wants to use ${request.toolName}`,
-    body: <pre className="permission-input scroll-gate">{detail ?? JSON.stringify(request.input, null, 2)}</pre>,
-  };
-}
-
-function PlanEvent({ event }: { event: Extract<TranscriptEvent, { kind: "plan" }> }) {
-  if (event.removed) {
-    return <div className="plan-event removed">plan cleared</div>;
-  }
-  return (
-    <div className="plan-event">
-      <div className="plan-event-head">
-        <Icon d="M4 6h2M4 12h2M4 18h2M9 6h11M9 12h11M9 18h11" />
-        Plan
-      </div>
-      {event.explanation && <div className="plan-event-explanation">{event.explanation}</div>}
-      {event.entries && event.entries.length > 0 && (
-        <div className="plan-event-entries">
-          {event.entries.map((entry, index) => (
-            <div className={`plan-event-entry ${entry.status}`} key={`${index}-${entry.content}`}>
-              <span className="plan-event-mark" aria-hidden>
-                {entry.status === "completed" ? "✓" : entry.status === "in_progress" ? "→" : "·"}
-              </span>
-              <span>{entry.content}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {event.markdown && <Markdown text={event.markdown} />}
-      {event.uri && <span className="plan-event-uri">{event.uri}</span>}
-    </div>
-  );
-}
-
-/** The name to put on a card asking for permission: the harness the channel
- *  runs on, since it is the one asking — not Claude by default. */
-function harnessName(models: ModelChoice[], model: string | undefined, fallback: string): string {
-  const choice = models.find((m) => m.value === (model || fallback));
-  return choice?.providerLabel ?? "Claude";
-}
-
-/** "claude-fable-5-1[1m]" → "Fable 5.1": a label for a model id the catalog
- *  has not described yet (the composer's trigger before the catalog lands). */
-function roughName(id: string): string {
-  const bare = id.replace(/^claude-/, "").replace(/\[1m\]$/, "").replace(/-\d{8}$/, "");
-  const match = /^([a-z]+)(?:-(\d+(?:-\d+)*))?$/.exec(bare);
-  if (!match) return id;
-  const family = `${match[1]![0]!.toUpperCase()}${match[1]!.slice(1)}`;
-  return match[2] ? `${family} ${match[2].replace(/-/g, ".")}` : family;
-}
-
-export function PermissionBanner({ request }: { request: PermissionRequest }) {
-  const models = useRuri((s) => s.models);
-  const defaultModel = useRuri((s) => s.defaultModel);
-  const model = useRuri(
-    (s) =>
-      s.projects.find((p) => p.sessions.some((x) => x.id === request.projectId))?.model ??
-      (request.projectId === HOME_ID ? s.home.model : undefined),
-  );
-  const { title, body } = permissionSummary(request, harnessName(models, model, defaultModel));
-  // one of your own agents asking, not the chat's model
-  const from = useRuri((s) =>
-    request.agent ? s.crew[request.projectId]?.find((a) => a.key === request.agent)?.description : undefined,
-  );
-  const respond = (allow: boolean, always = false) =>
-    send({ type: "permission_response", requestId: request.requestId, allow, always });
-  return (
-    <div className="permission-card">
-      <div className="permission-head">
-        <span className="permission-badge">
-          <Icon d={toolIcon(request.toolName)} />
-          {request.toolName}
-        </span>
-        {title}
-      </div>
-      {request.agent && <div className="permission-from">asked by your agent{from ? ` “${from}”` : ""}</div>}
-      {body}
-      <div className="permission-actions">
-        <button className="primary" onClick={() => respond(true)}>
-          Allow
-        </button>
-        <button onClick={() => respond(true, true)}>Always allow</button>
-        <button className="ghost" onClick={() => respond(false)}>
-          Deny
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ── header controls ─────────────────────────────────────────────── */
-
-const PERMISSION_MODES: Array<{ value: PermissionMode; label: string }> = [
-  { value: "default", label: "Ask first" },
-  { value: "acceptEdits", label: "Accept edits" },
-  { value: "plan", label: "Plan mode" },
-  { value: "bypassPermissions", label: "Bypass" },
-];
-
-// no "default" entry — an unset effort simply IS xhigh (DEFAULT_EFFORT)
-const EFFORT_OPTIONS = EFFORT_LEVELS.map((level) => ({
-  value: level,
-  label: level === "xhigh" ? "XHigh" : level[0]!.toUpperCase() + level.slice(1),
-}));
-
-/** The composer's three pickers. `channelId` is who the pick is for — this
- *  chat (its session id) or Home — never the project: a pick is per chat. */
-function SessionControls({
-  project,
-  channelId,
-  compact = false,
-}: {
-  project: Project;
-  channelId: string;
-  /** The box is too narrow for three pickers: one, with the other two as
-   *  rows inside it (ComboDropdown). */
-  compact?: boolean;
-}) {
-  const allModels = useRuri((s) => s.models);
-  const starredIds = useRuri((s) => s.starredModels);
-  const defaultModel = useRuri((s) => s.defaultModel);
-  // An unset model IS the crowned default — there is no "default" row.
-  const current = project.model || defaultModel;
-  // The picker shows starred models only (Settings holds the full catalog);
-  // with nothing starred yet it falls back to everything. The current pick
-  // stays listed even if it was unstarred since.
-  const starred = allModels.filter((m) => starredIds.includes(m.value));
-  const models = [...(starred.length > 0 ? starred : allModels)];
-  const selected = allModels.find((m) => m.value === current);
-  if (selected && !models.includes(selected)) models.push(selected);
-  // before the catalog arrives, the trigger still needs a label
-  if (!selected) models.push({ value: current, displayName: roughName(current) });
-  // The dropdown shows wherever the mode can actually be honoured: Claude,
-  // and any harness running a real agentic session (its sandbox or session
-  // mode is set from this). A run-per-turn provider has no approval flow to
-  // drive, so it still hides rather than offer a control that does nothing.
-  const canSetPermissions = !selected?.provider || selected.agentic === true;
-  const reportedEfforts = selected?.reasoningEfforts;
-  const effortOptions = reportedEfforts?.length
-    ? reportedEfforts.map((effort) => ({
-        value: effort.value,
-        label: effort.value === "xhigh" ? "XHigh" : effort.value[0]!.toUpperCase() + effort.value.slice(1),
-      }))
-    : selected
-      ? []
-      : EFFORT_OPTIONS;
-  const pickedEffort = project.effort || DEFAULT_EFFORT;
-  const supportedEffort = effortOptions.some((option) => option.value === pickedEffort);
-  const fallbackEffort = selected?.defaultEffort ?? effortOptions[0]?.value;
-  // A project can carry xhigh from its previous model. Once a new catalog
-  // says that choice is impossible, move to the model's own default rather
-  // than silently asking the harness for a setting it will ignore.
-  useEffect(() => {
-    if (!selected || effortOptions.length === 0 || supportedEffort || !fallbackEffort) return;
-    send({ type: "set_effort", projectId: channelId, effort: fallbackEffort });
-  }, [selected?.value, pickedEffort, supportedEffort, fallbackEffort, effortOptions.length, channelId]);
-  const modelOptions = models.map((m) => ({
-    // the model's own name only — which harness serves it is the
-    // Settings catalog's business, not the picker's
-    value: m.value,
-    label: m.displayName,
-  }));
-  const pickModel = (model: string) => send({ type: "set_model", projectId: channelId, model });
-  const effortValue = supportedEffort ? pickedEffort : fallbackEffort ?? pickedEffort;
-  const pickEffort = (effort: string) => send({ type: "set_effort", projectId: channelId, effort });
-  const pickMode = (mode: string) =>
-    send({ type: "set_permission_mode", projectId: channelId, mode: mode as PermissionMode });
-  if (compact) {
-    return (
-      <div className="composer-controls">
-        <ComboDropdown
-          up
-          title="Model, effort and permissions for this chat"
-          value={current}
-          options={modelOptions}
-          onSelect={pickModel}
-          subs={[
-            ...(effortOptions.length > 0
-              ? [{ key: "effort", label: "Effort level", value: effortValue, options: effortOptions, onSelect: pickEffort }]
-              : []),
-            ...(canSetPermissions
-              ? [
-                  {
-                    key: "permissions",
-                    label: "Permissions",
-                    value: project.permissionMode ?? DEFAULT_PERMISSION_MODE,
-                    options: PERMISSION_MODES,
-                    onSelect: pickMode,
-                  },
-                ]
-              : []),
-          ]}
-        />
-      </div>
-    );
-  }
-  return (
-    <div className="composer-controls">
-      <Dropdown
-        up
-        title="Model for this chat — new chats start on the last pick; star models in Settings to curate this list"
-        value={current}
-        options={modelOptions}
-        onSelect={pickModel}
-      />
-      {effortOptions.length > 0 && (
-        <Dropdown
-          up
-          title="Reasoning effort — choices reported by this model"
-          value={effortValue}
-          options={effortOptions}
-          onSelect={pickEffort}
-        />
-      )}
-      {canSetPermissions && (
-        <Dropdown
-          up
-          title="Permission mode"
-          value={project.permissionMode ?? DEFAULT_PERMISSION_MODE}
-          options={PERMISSION_MODES}
-          onSelect={pickMode}
-        />
-      )}
-    </div>
-  );
-}
-
-/* ── composer ────────────────────────────────────────────────────── */
-
-/** The bar's flex gap, plus a little air, in the fold measurement. */
-const BAR_GAP = 14;
-
-/**
- * The composer's lesser buttons behind one, for a box too narrow to show
- * them all: the shell, the sketch pad, the scissors. Send stays out, and
- * so does stop — those are the ones a hand reaches for.
- */
-function MoreActions({
-  onShell,
-  onSketch,
-  onSplit,
-}: {
-  onShell(): void;
-  onSketch?: () => void;
-  /** Absent while there is nothing to split. */
-  onSplit?: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-  const pick = (fn?: () => void) => () => {
-    setOpen(false);
-    fn?.();
-  };
-  return (
-    <div className="more-actions" ref={ref}>
-      <button className={`more ${open ? "active" : ""}`} title="More" onClick={() => setOpen(!open)}>
-        <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-          <circle cx="5" cy="12" r="2" />
-          <circle cx="12" cy="12" r="2" />
-          <circle cx="19" cy="12" r="2" />
-        </svg>
-      </button>
-      {open && (
-        <div className="dropdown-menu up more-menu" role="menu">
-          <button className="dropdown-item" role="menuitem" onClick={pick(onShell)}>
-            <Icon d="M4 17l6-6-6-6M12 19h8" />
-            Shell
-          </button>
-          {onSketch && (
-            <button className="dropdown-item" role="menuitem" onClick={pick(onSketch)}>
-              <Icon d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-              Draw
-            </button>
-          )}
-          <button className="dropdown-item" role="menuitem" disabled={!onSplit} onClick={pick(onSplit)}>
-            <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
-            Split and send
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function Composer({
-  channelId,
-  project,
-  busy,
-  onSent,
-  onSketch,
-}: {
-  /** The session (or Home) this composer sends to. */
-  channelId: string;
-  project: Project;
-  busy: boolean;
-  /** Fires right after a prompt goes out (rapid fire advances on it). */
-  onSent?: () => void;
-  /** Open the sketch pad — blank, or on one of the attached pictures. */
-  onSketch?: (background?: SketchBackground) => void;
-}) {
-  const projectId = channelId;
-  const saved = composerDrafts.get(channelId);
-  const [text, setText] = useState(holdMarkers(saved?.text ?? ""));
-  const [atts, setAtts] = useState<ComposerAttachment[]>(saved?.atts ?? []);
-  const [viewing, setViewing] = useState<string | null>(null);
-  /** The attachment whose chip the pointer is over — lit in the strip, so
-   *  a chip and its thumbnail read as one thing. */
-  const [hot, setHot] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  /** The box has two modes: writing a prompt, and a shell in the project's
-   *  directory. The shell keeps running either way — this only decides
-   *  which one the box is showing. */
-  const [shell, setShell] = useState(false);
-  const counter = useRef(saved?.counter ?? { image: 0, video: 0, file: 0, region: 0 });
-  /** Where the caret was last seen in the prompt — a marker drawn in the
-   *  viewer lands there, since the textarea lost focus to the overlay. */
-  const caretRef = useRef(0);
-  const areaRef = useRef<HTMLTextAreaElement>(null);
-  /** The slash word the caret sits in, which is what opens the command
-   *  menu — null when it is nowhere near one, or when Escape put it away
-   *  until the word changes. */
-  const [slash, setSlash] = useState<{ at: number; word: string } | null>(null);
-  const dismissed = useRef<string | null>(null);
-  /** The menu's own handler for the keys it owns while it is open. */
-  const menuKey = useRef<((key: string) => boolean) | null>(null);
-  const draftBump = useRuri((s) => s.draftBumps[channelId] ?? 0);
-  const bumpSeen = useRef(draftBump);
-  /** The queued prompt this box is rewriting, if any: sending puts it back
-   *  in line rather than queueing a new one. */
-  const editing = useRuri((s) => (s.queued[channelId] ?? NO_QUEUED).find((item) => item.editing));
-  const barRef = useRef<HTMLDivElement>(null);
-  /** Too narrow for three pickers and four buttons in a row: the pickers
-   *  fold into one and the buttons behind a ⋯, leaving send (and stop). */
-  const [compact, setCompact] = useState(false);
-  /** What the unfolded bar needs, as last measured while unfolded — the
-   *  folded bar is judged against that, since it cannot measure itself. */
-  const need = useRef(0);
-  const look = () => {
-    const bar = barRef.current;
-    if (!bar) return;
-    if (!bar.querySelector(".dropdown.combo, .more-actions")) {
-      const controls = bar.querySelector<HTMLElement>(".composer-controls, .shell-where");
-      const actions = bar.querySelector<HTMLElement>(".composer-actions");
-      need.current = (controls?.offsetWidth ?? 0) + (actions?.offsetWidth ?? 0) + BAR_GAP;
-    }
-    setCompact(bar.clientWidth < need.current);
-  };
-  // after every render — the labels change, stop comes and goes — and
-  // whenever the bar is laid out again
-  useLayoutEffect(look);
-  useEffect(() => {
-    const bar = barRef.current;
-    if (!bar) return;
-    const observer = new ResizeObserver(look);
-    observer.observe(bar);
-    return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Every keystroke and attachment change lands in the per-channel draft —
-  // and on disk, so a half-written prompt is still there after a ⌘Q.
-  useEffect(() => {
-    setComposerDraft(channelId, { text, atts, counter: counter.current });
-  }, [channelId, text, atts]);
-
-  /** Attach files; `at` places the [markers] at that text index (a drop's
-   *  caret position or the paste caret) instead of the end. */
-  const addFiles = (files: FileList | File[], at?: number) => {
-    const added: ComposerAttachment[] = [];
-    for (const file of files) {
-      if (file.size > 25 * 1024 * 1024) {
-        alert(`${file.name} is over 25MB — too big to attach.`);
-        continue;
-      }
-      const kind = fileKind(file);
-      const n = ++counter.current[kind];
-      added.push({
-        id: crypto.randomUUID(),
-        file,
-        kind,
-        mediaType: file.type || "application/octet-stream",
-        name: file.name,
-        n,
-        objectUrl: URL.createObjectURL(file),
-        regions: [],
-      });
-    }
-    if (added.length === 0) return;
-    setAtts((prev) => [...prev, ...added]);
-    insertMarkers(added.map((a) => markerText(a.kind, a.n)).join(" "), at);
-  };
-
-  /** Drop marker text into the prompt at `at` (the end when unset), leaving
-   *  the prompt's own text — trailing newlines included — untouched: only
-   *  the spaces around the marker, so typing never sticks to a "]" or "[". */
-  const insertMarkers = (markers: string, at?: number) => {
-    setText((prev) => {
-      const idx = at === undefined ? prev.length : Math.min(at, prev.length);
-      const before = prev.slice(0, idx);
-      const after = prev.slice(idx);
-      const lead = before && !/\s$/.test(before) ? " " : "";
-      const tail = /^\s/.test(after) ? "" : " ";
-      // the caret follows the marker, so the next one lands after it — and
-      // the markers may have landed against another chip, which is what the
-      // spacing rules are for
-      const held = holdMarkersAt(
-        `${before}${lead}${markers}${tail}${after}`,
-        before.length + lead.length + markers.length + tail.length,
-      );
-      caretRef.current = held.caret;
-      return held.text;
-    });
-  };
-
-  /** A box drawn in the viewer: it takes the next region number in this
-   *  prompt and its marker lands where the caret was, so what you have to
-   *  say about it is written in the prompt like anything else. */
-  const addRegion = (attId: string, rect: { x: number; y: number; w: number; h: number }) => {
-    const n = ++counter.current.region;
-    setAtts((prev) =>
-      prev.map((a) => (a.id === attId ? { ...a, regions: [...a.regions, { ...rect, n }] } : a)),
-    );
-    insertMarkers(markerText("region", n), caretRef.current);
-  };
-
-  // The drop point as a text index — computed ONCE, at drop time. (Never
-  // call this from dragover: hit-testing on every drag frame can wedge
-  // Chromium's drag session so the drop never fires at all.)
-  const caretFromPoint = (x: number, y: number): number | null => {
-    try {
-      const area = areaRef.current;
-      const doc = document as Document & {
-        caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
-      };
-      if (!area || !doc.caretPositionFromPoint) return null;
-      const pos = doc.caretPositionFromPoint(x, y);
-      if (!pos) return null;
-      // Chromium reports a caret inside a text control as (the control, offset)
-      if (pos.offsetNode === area || area.contains(pos.offsetNode)) {
-        return Math.min(pos.offset, area.value.length);
-      }
-      return null;
-    } catch {
-      // best-effort — a failed lookup just appends at the end
-      return null;
-    }
-  };
-
-  /** An attachment goes, and every marker that stood for it goes with it —
-   *  its own, and those of the regions drawn on it. Words that pointed at
-   *  a picture that is no longer there would only mislead. */
-  const removeAtt = (id: string) => {
-    const target = atts.find((a) => a.id === id);
-    if (!target) return;
-    URL.revokeObjectURL(target.objectUrl);
-    const regions = new Set(target.regions.map((r) => r.n));
-    setAtts((prev) => prev.filter((a) => a.id !== id));
-    setText((prev) =>
-      stripMarkers(
-        prev,
-        (m) => (m.kind === target.kind && m.n === target.n) || (m.kind === "region" && regions.has(m.n)),
-      ),
-    );
-    if (hot === id) setHot(null);
-  };
-
-  /** The viewer took a region off a picture: its marker leaves the prompt. */
-  const setRegions = (id: string, regions: Region[]) => {
-    const kept = new Set(regions.map((r) => r.n));
-    const gone = new Set(
-      (atts.find((a) => a.id === id)?.regions ?? []).map((r) => r.n).filter((n) => !kept.has(n)),
-    );
-    setAtts((prev) => prev.map((a) => (a.id === id ? { ...a, regions } : a)));
-    if (gone.size) setText((prev) => stripMarkers(prev, (m) => m.kind === "region" && gone.has(m.n)));
-  };
-
-  /** The attachment a marker stands for: its own, or the one a region was
-   *  drawn on. */
-  const attachmentFor = (marker: Marker): ComposerAttachment | undefined =>
-    marker.kind === "region"
-      ? atts.find((a) => a.regions.some((r) => r.n === marker.n))
-      : atts.find((a) => a.kind === marker.kind && a.n === marker.n);
-
-  /** A chip was clicked: a command leaves the prompt, an attachment's chip
-   *  opens the attachment — the same viewer its thumbnail opens. */
-  const openMarker = (marker: Marker) => {
-    if (marker.kind === "command") {
-      const next = removeMarker(text, marker);
-      setText(next.text);
-      placeCaret(next.caret);
-      return;
-    }
-    const att = attachmentFor(marker);
-    if (!att) return;
-    caretRef.current = marker.end;
-    setViewing(att.id);
-  };
-
-  /** Backspace right after a chip (or inside one), Delete right before:
-   *  the whole marker goes, never half of it. */
-  const deleteMarkerAt = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
-    const area = e.currentTarget;
-    if (area.selectionStart !== area.selectionEnd) return false;
-    const at = area.selectionStart;
-    const hit = findMarkers(text)
-      .filter(markerPresent)
-      .find((m) =>
-        e.key === "Backspace" ? backspaceHits(text, m, at) : at >= m.start && at < m.end,
-      );
-    if (!hit) return false;
-    // what the chip stood between may now be two words, or two chips
-    const cut = removeMarker(text, hit);
-    const next = holdMarkersAt(cut.text, cut.caret);
-    setText(next.text);
-    placeCaret(next.caret);
-    return true;
-  };
-
-  // The markers in the prompt draw as chips over the textarea (see
-  // Markers.tsx) — only while they stand for something in the strip: a
-  // marker whose file was removed is words again.
-  const markerPresent = useCallback(
-    (marker: Marker) =>
-      marker.kind === "command"
-        ? true
-        : marker.kind === "region"
-          ? atts.some((a) => a.regions.some((r) => r.n === marker.n))
-          : atts.some((a) => a.kind === marker.kind && a.n === marker.n),
-    [atts],
-  );
-  /** Whether the caret is inside a slash word, and which. Every place the
-   *  caret moves says so, since a menu that only opened on typing would
-   *  hang around after an arrow key took the caret elsewhere. */
-  const trackSlash = (text: string, caret: number) => {
-    const found = commandPrefix(text, caret);
-    if (!found) {
-      dismissed.current = null;
-      setSlash(null);
-      return;
-    }
-    if (dismissed.current !== null && dismissed.current !== found.word) dismissed.current = null;
-    setSlash(dismissed.current === found.word ? null : found);
-  };
-
-  const placeCaret = (index: number) => {
-    caretRef.current = index;
-    requestAnimationFrame(() => {
-      const area = areaRef.current;
-      if (!area) return;
-      area.focus();
-      area.setSelectionRange(index, index);
-    });
-  };
-
-  const autosize = () => {
-    const area = areaRef.current;
-    if (!area) return;
-    // Reading scrollHeight forces the browser to lay the whole page out, and
-    // this runs on every mount — including the one a session switch causes,
-    // where the box is usually empty and the answer is always one row. So an
-    // empty box skips the measurement entirely and the switch skips a reflow.
-    if (!area.value) {
-      area.style.height = "";
-      return;
-    }
-    fitBox(area, 220);
-  };
-
-  // The draft changed from outside (a review's fix-it prompt, a rewound
-  // prompt, a saved draft's files arriving after a launch): the map is the
-  // source of truth — re-read it, attachments and marker numbering included.
-  useEffect(() => {
-    if (draftBump === bumpSeen.current) return;
-    bumpSeen.current = draftBump;
-    const fresh = composerDrafts.get(channelId);
-    if (!fresh) return;
-    const held = holdMarkers(fresh.text);
-    if (held !== text) setText(held);
-    setAtts((prev) => (prev === fresh.atts ? prev : fresh.atts));
-    counter.current = fresh.counter;
-    requestAnimationFrame(() => areaRef.current?.focus());
-  }, [draftBump, channelId, text]);
-
-  const submit = async (mode: "send" | "send_split" = "send") => {
-    const trimmed = releaseMarkers(text).trim();
-    if (!trimmed && atts.length === 0) return;
-    const uploads = await Promise.all(
-      atts.map(async (att) => ({
-        id: att.id,
-        kind: att.kind,
-        mediaType: att.mediaType,
-        name: att.name,
-        n: att.n,
-        data: await fileToBase64(att.file),
-        ...(att.regions.length
-          ? {
-              regions: await Promise.all(
-                att.regions.map(async (region) => ({
-                  n: region.n,
-                  data: await cropRegion(att.objectUrl, region),
-                  mediaType: "image/png",
-                  rect: { x: region.x, y: region.y, w: region.w, h: region.h },
-                })),
-              ),
-            }
-          : {}),
-      })),
-    );
-    if (editing) {
-      // the rewrite goes back in line where the prompt was
-      send({
-        type: "queue_update",
-        projectId,
-        itemId: editing.id,
-        text: trimmed,
-        ...(uploads.length ? { attachments: uploads } : {}),
-        ...(mode === "send_split" ? { split: true } : {}),
-      });
-    } else {
-      send({
-        type: mode,
-        projectId,
-        text: trimmed,
-        ...(uploads.length ? { attachments: uploads } : {}),
-      });
-    }
-    for (const att of atts) URL.revokeObjectURL(att.objectUrl);
-    clearComposerDraft(channelId);
-    setAtts([]);
-    setText("");
-    onSent?.();
-  };
-
-  // Fit the height after every committed text change — mount (restored
-  // drafts), typing, marker drops, seeds, and the post-send clear. A layout
-  // effect, so it measures the DOM *after* React writes the new value (a
-  // rAF here could fire first and measure the stale text, leaving a sent
-  // long prompt's height behind).
-  useLayoutEffect(autosize, [text]);
-
-  // The box is fitted to its text, but the text's shape depends on the box:
-  // widen it and the same prompt needs fewer lines. Fitting on the prompt
-  // alone leaves the box as tall as it was before the window was resized —
-  // and a textarea taller than its own text reports *its* height as the
-  // text's, which is what the chip mirror measures itself against. That is
-  // how a resize with no keystroke after it used to take every chip off the
-  // prompt until the next one. So the box refits whenever the textarea is
-  // laid out again, and once the fonts have landed. Fitting is idempotent:
-  // the settled height is the one this writes, so the observer sees no new
-  // size and does not come round again.
-  useEffect(() => {
-    const area = areaRef.current;
-    if (!area) return;
-    const observer = new ResizeObserver(autosize);
-    observer.observe(area);
-    void document.fonts?.ready.then(autosize);
-    return () => observer.disconnect();
-    // a fresh textarea comes up each time the shell gives the box back
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shell]);
-
-  /** The box as it was when the shell took its place: the caret, the
-   *  scroll. The textarea is unmounted while the shell shows, and a fresh
-   *  one comes up one row tall with the caret at the start — so on the
-   *  way back it is measured again and put back exactly where it was. */
-  const held = useRef<{ start: number; end: number; top: number } | null>(null);
-  const toggleShell = () => {
-    const area = areaRef.current;
-    if (!shell && area) held.current = { start: area.selectionStart, end: area.selectionEnd, top: area.scrollTop };
-    setShell(!shell);
-  };
-  useLayoutEffect(() => {
-    if (shell) return;
-    autosize();
-    const was = held.current;
-    const area = areaRef.current;
-    if (!was || !area) return;
-    held.current = null;
-    area.focus();
-    area.setSelectionRange(was.start, was.end);
-    area.scrollTop = was.top;
-    caretRef.current = was.start;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shell]);
-
-  const viewingAtt = atts.find((a) => a.id === viewing);
-
-  return (
-    <div className="composer">
-      <div className="composer-row">
-        <DragonGauges channelId={channelId} model={project.model} side="left" />
-        <div
-          className={`composer-box ${dragOver ? "drag-over" : ""} ${compact ? "compact" : ""}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragOver(false);
-            addFiles(e.dataTransfer.files, caretFromPoint(e.clientX, e.clientY) ?? undefined);
-          }}
-        >
-          {shell && (
-            <Suspense fallback={<div className="terminal" />}>
-              <TerminalPanel channelId={channelId} />
-            </Suspense>
-          )}
-          {!shell && editing && (
-            <div className="composer-editing">
-              <span>rewriting a queued prompt — Enter puts it back in line</span>
-              <button
-                className="ghost"
-                title="Never mind — the prompt goes back in line as it was"
-                onClick={() => {
-                  send({ type: "queue_edit_cancel", projectId, itemId: editing.id });
-                  for (const att of atts) URL.revokeObjectURL(att.objectUrl);
-                  clearComposerDraft(channelId);
-                  setAtts([]);
-                  setText("");
-                }}
-              >
-                put it back
-              </button>
-            </div>
-          )}
-          {!shell && (
-            <AttachmentStrip
-              attachments={atts}
-              highlight={hot}
-              onRemove={removeAtt}
-              onView={(a) => {
-                // the caret as the prompt last had it — the viewer is about
-                // to take focus, and a region drawn in there lands right here
-                caretRef.current = areaRef.current?.selectionStart ?? text.length;
-                setViewing(a.id);
-              }}
-            />
-          )}
-          {!shell && (
-          <div className="composer-field">
-          <textarea
-            ref={areaRef}
-            rows={1}
-            placeholder="Message ruri…"
-            value={text}
-            onChange={(e) => {
-              const held = holdMarkersAt(e.target.value, e.target.selectionStart);
-              caretRef.current = held.caret;
-              setText(held.text);
-              trackSlash(held.text, held.caret);
-              // a space kept between a chip and the word just typed against
-              // it: the caret goes back to the end of that word
-              if (held.caret !== e.target.selectionStart) placeCaret(held.caret);
-            }}
-            // wherever the caret was when the viewer took focus is where a
-            // region's marker goes
-            onSelect={(e) => {
-              caretRef.current = e.currentTarget.selectionStart;
-              trackSlash(e.currentTarget.value, e.currentTarget.selectionStart);
-            }}
-            onKeyDown={(e) => {
-              // while the command menu stands, the arrows, Enter, Tab and
-              // Escape are its keys — Enter takes a command rather than
-              // sending a prompt that is half a command's name
-              if (slash && menuKey.current?.(e.key)) {
-                e.preventDefault();
-                return;
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void submit();
-                return;
-              }
-              if ((e.key === "Backspace" || e.key === "Delete") && deleteMarkerAt(e)) e.preventDefault();
-            }}
-            onPaste={(e) => {
-              const files = [...e.clipboardData.files];
-              if (files.length > 0) {
-                e.preventDefault();
-                addFiles(files, areaRef.current?.selectionStart ?? undefined);
-              }
-            }}
-          />
-          <MarkerMirror
-            areaRef={areaRef}
-            text={text}
-            present={markerPresent}
-            refit={autosize}
-            onMove={(next) => {
-              setText(next.text);
-              placeCaret(next.caret);
-            }}
-            onOpen={openMarker}
-            onHover={(marker) => setHot(marker ? (attachmentFor(marker)?.id ?? null) : null)}
-          />
-          </div>
-          )}
-          {/* a child of the box, not of the field: what the menu has to
-              stand clear of is the whole box, and the field's top slides
-              down whenever attachments sit above it */}
-          {slash && (
-            <CommandMenu
-              projectId={channelId === HOME_ID ? undefined : projectId}
-              word={slash.word}
-              pickRef={menuKey}
-              onClose={() => {
-                dismissed.current = slash.word;
-                setSlash(null);
-              }}
-              onPick={(command) => {
-                // the whole slash word becomes the command, with the space
-                // that finishes it — which is also what makes it a chip
-                const before = text.slice(0, slash.at);
-                const after = text.slice(slash.at + 1 + slash.word.length);
-                const lead = `/${command.name}`;
-                const tail = after.startsWith(" ") ? "" : " ";
-                const next = holdMarkersAt(`${before}${lead}${tail}${after}`, before.length + lead.length + tail.length);
-                setText(next.text);
-                placeCaret(next.caret);
-                dismissed.current = null;
-                setSlash(null);
-              }}
-            />
-          )}
-          <div className="composer-bar" ref={barRef}>
-            {shell ? (
-              <span className="shell-where">{project.name} · shell</span>
-            ) : (
-              <SessionControls project={project} channelId={channelId} compact={compact} />
-            )}
-            <div className="composer-actions">
-              {compact && !shell && (
-                <MoreActions
-                  onShell={toggleShell}
-                  onSketch={onSketch ? () => onSketch() : undefined}
-                  onSplit={text.trim() ? () => void submit("send_split") : undefined}
-                />
-              )}
-              {(!compact || shell) && (
-                <button
-                  className={`shell-toggle ${shell ? "active" : ""}`}
-                  title={shell ? "Back to writing a prompt" : "A shell in this project's directory"}
-                  onClick={toggleShell}
-                >
-                  <Icon d={shell ? "M4 6h16M4 12h10M4 18h16" : "M4 17l6-6-6-6M12 19h8"} />
-                </button>
-              )}
-              {!compact && !shell && onSketch && (
-                <button
-                  className="sketch-toggle"
-                  title="Draw — a sketch to show the model, or open a picture to draw on"
-                  onClick={() => onSketch()}
-                >
-                  <Icon d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                </button>
-              )}
-              {busy && !shell && (
-                <button
-                  className="stop"
-                  title="Interrupt the running turn"
-                  onClick={() => send({ type: "interrupt", projectId })}
-                >
-                  <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                    <rect x="6" y="6" width="12" height="12" rx="2" />
-                  </svg>
-                </button>
-              )}
-              {!compact && !shell && (
-                <button
-                  className="split-send"
-                  title="Split into separate prompts and send them one by one"
-                  onClick={() => void submit("send_split")}
-                  disabled={!text.trim()}
-                >
-                  <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
-                </button>
-              )}
-              {!shell && (
-                <button
-                  className="send"
-                  title="Send (Enter)"
-                  onClick={() => void submit()}
-                  disabled={!text.trim() && atts.length === 0}
-                >
-                  <Icon d="M12 19V5M5 12l7-7 7 7" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-        <DragonGauges channelId={channelId} model={project.model} side="right" />
-      </div>
-      <div className="composer-hint">
-        {shell
-          ? "Shells in this project — ⌘T for another, ⌘1–9 to switch · they keep running while you're away"
-          : editing
-            ? "Enter puts the rewrite back in line · the prompts behind it go on without it meanwhile"
-            : compact
-              ? "Enter to send · Shift+Enter for a new line · drop files to attach"
-              : "Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach · scissors to split a long prompt"}
-      </div>
-      {viewingAtt && (
-        <Viewer
-          target={{
-            kind: viewingAtt.kind,
-            src: viewingAtt.objectUrl,
-            label: `${viewingAtt.kind} #${viewingAtt.n} — ${viewingAtt.name}`,
-            name: viewingAtt.name,
-            mediaType: viewingAtt.mediaType,
-            attachment: viewingAtt,
-          }}
-          onClose={() => setViewing(null)}
-          onRegions={setRegions}
-          onRegionAdd={addRegion}
-          {...(onSketch && viewingAtt.kind === "image"
-            ? {
-                onDraw: () => {
-                  setViewing(null);
-                  onSketch({ id: viewingAtt.id, url: viewingAtt.objectUrl, name: viewingAtt.name });
-                },
-              }
-            : {})}
-        />
-      )}
-    </div>
-  );
-}
-
-/* ── queued prompts ──────────────────────────────────────────────── */
-
-/** Where a lifted card is about to land: on the edge of another (a place
- *  in line) or on its body (the two become one prompt). */
-type DropZone = "before" | "after" | "merge";
-
-interface Lift {
-  id: string;
-  /** How far the card has been carried from where it sits. */
-  dy: number;
-  over: { id: string; zone: DropZone } | null;
-}
-
-/**
- * A prompt held app-side while a turn runs — nothing reaches the harness
- * until its turn comes. Editable and removable right up to dispatch.
- */
-function QueuedCard({
-  projectId,
-  item,
-  held,
-  lift,
-  onLift,
-}: {
-  projectId: string;
-  item: QueuedPrompt;
-  /** The queue is standing by since a stopped turn — nothing is waiting on
-   *  a running answer, it is waiting on you. */
-  held?: boolean;
-  lift?: Lift | null;
-  /** The list's pointer handlers, on every card that can be carried. */
-  onLift?: {
-    down(e: React.PointerEvent<HTMLDivElement>, id: string): void;
-    move(e: React.PointerEvent<HTMLDivElement>): void;
-    up(e: React.PointerEvent<HTMLDivElement>): void;
-    cancel(): void;
-  };
-}) {
-  // Editing takes the prompt out of the line and puts it in the composer —
-  // the box you wrote it in, with its attachments, not a second one
-  // embedded in the card. The others move up meanwhile; sending the
-  // rewrite puts it back where it was among whichever are still waiting.
-  const edit = () => {
-    send({ type: "queue_edit", projectId, itemId: item.id });
-    composeInto(projectId, item.text, item.attachments);
-  };
-  const lifting = lift?.id === item.id;
-  const over = lift?.over?.id === item.id ? lift.over.zone : null;
-  const carried = Boolean(onLift) && !item.editing;
-
-  return (
-    <div
-      className={[
-        "queued-card",
-        held ? "standby" : "",
-        item.editing ? "editing" : "",
-        carried ? "carried" : "",
-        lifting ? "lifting" : "",
-        over === "merge" ? "merge-into" : over === "before" ? "drop-before" : over === "after" ? "drop-after" : "",
-      ].join(" ")}
-      data-queued={item.id}
-      data-editing={item.editing ? "1" : undefined}
-      style={lifting ? { transform: `translateY(${lift!.dy}px)` } : undefined}
-      onPointerDown={carried ? (e) => onLift!.down(e, item.id) : undefined}
-      onPointerMove={carried ? onLift!.move : undefined}
-      onPointerUp={carried ? onLift!.up : undefined}
-      onPointerCancel={carried ? onLift!.cancel : undefined}
-    >
-      <div className="queued-head">
-        <span className="queued-label">
-          {item.editing ? "editing — in the composer" : held ? "standing by" : "queued"}
-        </span>
-        <span className="queued-actions">
-          {!item.editing && (
-            <button
-              className="icon-button"
-              title="Edit — takes it out of the line and into the composer; the rest go on without it until it is sent back"
-              onClick={edit}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-              </svg>
-            </button>
-          )}
-          <button
-            className="icon-button"
-            title="Remove from the queue"
-            onClick={() => send({ type: "queue_remove", projectId, itemId: item.id })}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
-        </span>
-      </div>
-      <div className="queued-text">{item.text}</div>
-      {item.attachments && item.attachments.length > 0 && (
-        <TranscriptAttachments attachments={item.attachments} />
-      )}
-    </div>
-  );
-}
-
-/**
- * The line of queued prompts, and the carrying of them: press a card and
- * move, and it lifts; let it go on the edge of another and it takes that
- * place in line, let it go on the body of another and the two fold into
- * one prompt — the carried one first, then the one it landed on. The card
- * being rewritten sits under the line and takes no part.
- */
-function QueuedList({ projectId, items, held }: { projectId: string; items: QueuedPrompt[]; held: boolean }) {
-  const listRef = useRef<HTMLDivElement>(null);
-  const [lift, setLift] = useState<Lift | null>(null);
-  /** A press that may become a carry — it does once it has moved a little,
-   *  so a click on the card is still a click. */
-  const press = useRef<{ id: string; x: number; y: number; live: boolean } | null>(null);
-  const movable = items.filter((item) => !item.editing).length > 1;
-
-  const cards = () =>
-    [...(listRef.current?.querySelectorAll<HTMLElement>("[data-queued]") ?? [])].filter(
-      (el) => el.dataset["editing"] !== "1",
-    );
-
-  /** What the pointer is over, at this height: a card's edge, its body, or
-   *  — between cards — the nearest edge. */
-  const zoneAt = (id: string, y: number): Lift["over"] => {
-    const others = cards().filter((el) => el.dataset["queued"] !== id);
-    for (const el of others) {
-      const r = el.getBoundingClientRect();
-      if (y < r.top || y > r.bottom) continue;
-      const edge = Math.min(r.height * 0.3, 22);
-      const zone: DropZone = y < r.top + edge ? "before" : y > r.bottom - edge ? "after" : "merge";
-      return { id: el.dataset["queued"]!, zone };
-    }
-    const below = others.find((el) => el.getBoundingClientRect().top > y);
-    if (below) return { id: below.dataset["queued"]!, zone: "before" };
-    const above = [...others].reverse().find((el) => el.getBoundingClientRect().bottom < y);
-    if (above) return { id: above.dataset["queued"]!, zone: "after" };
-    return null;
-  };
-
-  const onLift = {
-    down(e: React.PointerEvent<HTMLDivElement>, id: string) {
-      if (e.button !== 0 || !movable) return;
-      if ((e.target as Element).closest("button, a, input, textarea, img, video")) return;
-      press.current = { id, x: e.clientX, y: e.clientY, live: false };
-      e.currentTarget.setPointerCapture(e.pointerId);
-    },
-    move(e: React.PointerEvent<HTMLDivElement>) {
-      const p = press.current;
-      if (!p) return;
-      const dy = e.clientY - p.y;
-      if (!p.live) {
-        if (Math.hypot(e.clientX - p.x, dy) < 5) return;
-        p.live = true;
-        window.getSelection()?.removeAllRanges();
-      }
-      setLift({ id: p.id, dy, over: zoneAt(p.id, e.clientY) });
-    },
-    up(e: React.PointerEvent<HTMLDivElement>) {
-      const p = press.current;
-      press.current = null;
-      if (!p?.live) return;
-      const over = zoneAt(p.id, e.clientY);
-      setLift(null);
-      if (!over) return;
-      if (over.zone === "merge") {
-        send({ type: "queue_merge", projectId, itemId: p.id, intoId: over.id });
-        return;
-      }
-      const line = items.filter((item) => !item.editing && item.id !== p.id).map((item) => item.id);
-      const at = line.indexOf(over.id);
-      const beforeId = over.zone === "before" ? over.id : line[at + 1];
-      send({ type: "queue_move", projectId, itemId: p.id, ...(beforeId ? { beforeId } : {}) });
-    },
-    cancel() {
-      press.current = null;
-      setLift(null);
-    },
-  };
-
-  return (
-    <div className={`queued-list ${lift ? "lifting" : ""}`} ref={listRef}>
-      {items.map((item) => (
-        <QueuedCard
-          key={item.id}
-          projectId={projectId}
-          item={item}
-          held={held}
-          lift={lift}
-          onLift={movable ? onLift : undefined}
-        />
-      ))}
-    </div>
-  );
-}
-
-/* ── turns & instant compaction ──────────────────────────────────── */
-
-interface Turn {
-  /** The opening user-event id, or "pre" for events before any prompt. */
-  turnId: string;
-  events: TranscriptEvent[];
-  /** A compaction mark stands alone — it never folds or hosts other events. */
-  solo?: boolean;
-}
-
-/** Group the flat event stream into prompt→result turns. */
 /** Turns rendered before the first paint — more than fills a screen; the
  *  rest arrive behind it. */
 const FIRST_TURNS = 6;
@@ -2022,250 +63,6 @@ const REVEAL_GAP = 16;
  *  out, and leaving a session is as common as entering one. */
 const IDLE_CAP = 14;
 
-function groupTurns(events: TranscriptEvent[]): Turn[] {
-  const turns: Turn[] = [];
-  for (const event of events) {
-    const last = turns[turns.length - 1];
-    if (event.kind === "compaction") {
-      turns.push({ turnId: `compaction-${event.id}`, events: [event], solo: true });
-    } else if (event.kind === "user" || !last || last.solo) {
-      turns.push({ turnId: event.kind === "user" ? event.id : `pre-${event.id}`, events: [event] });
-    } else {
-      last.events.push(event);
-    }
-  }
-  return turns;
-}
-
-/** How much of a prompt, and of a reply's last message, stands in for a
- *  note not written yet — the server cuts the history's outline the same. */
-const PROMPT_EXCERPT = 220;
-const REPLY_EXCERPT = 240;
-
-/** A live turn's stand-ins for its notes: its prompt, and its last reply. */
-function turnExcerpts(turn: Turn): { prompt: string; reply: string } {
-  const head = turn.events[0];
-  let reply = "";
-  for (let i = turn.events.length - 1; i > 0 && !reply; i--) {
-    const event = turn.events[i]!;
-    if (event.kind === "assistant" && event.text.trim()) reply = event.text;
-  }
-  return {
-    prompt: excerpt(head?.kind === "user" ? head.text : "", PROMPT_EXCERPT),
-    reply: excerpt(unmarked(reply), REPLY_EXCERPT),
-  };
-}
-
-/** A turn shown whole needs no stand-ins. */
-const NO_EXCERPTS = { prompt: "", reply: "" };
-
-/** What a click opens: one half of an exchange, or both. */
-type Half = "prompt" | "reply" | "both";
-
-/** A folded half: its note, standing where the half would. A click (or
- *  Enter) opens that half; dragging across it to copy a line doesn't. */
-function NoteHalf({
-  className,
-  title,
-  onOpen,
-  children,
-}: {
-  className: string;
-  title: string;
-  onOpen(): void;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className={className}
-      role="button"
-      tabIndex={0}
-      title={title}
-      onClick={(e) => {
-        const selection = window.getSelection();
-        if (selection && !selection.isCollapsed && e.currentTarget.contains(selection.anchorNode)) return;
-        onOpen();
-      }}
-      onKeyDown={(e) => {
-        if (e.key !== "Enter" && e.key !== " ") return;
-        e.preventDefault();
-        onOpen();
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-/**
- * An open half, and the way it folds back to its note.
- *
- * A prompt folds on a click on its bubble, at once. Under the pointer the
- * bubble takes the note's dashed edge — the look the click takes it back
- * to — so the click is never a surprise. A click on anything in it that
- * does something of its own (a link, a button, a picture), or a drag that
- * selects text, folds nothing.
- *
- * A reply folds by the rail down its left edge, never by a click on it. A
- * reply is long and full of things that do something of their own — tool
- * chips, patches, links — so "click anywhere" was both easy to do by
- * accident and hard to find a spot for. The rail runs its whole height, to
- * hand wherever in the reply you are, and hovering it dims the reply: what
- * a click would fold, before it does.
- */
-function OpenHalf({
-  half,
-  folds,
-  onFold,
-  children,
-}: {
-  half: "prompt" | "reply";
-  folds: boolean;
-  onFold: () => void;
-  children: React.ReactNode;
-}) {
-  if (half === "reply") {
-    return (
-      <div className={`exchange-half${folds ? " folds" : ""}`} data-half="reply">
-        {folds && (
-          <button
-            type="button"
-            className="half-rail"
-            title="Fold the reply back to its note"
-            aria-label="Fold the reply back to its note"
-            onClick={onFold}
-          />
-        )}
-        {children}
-      </div>
-    );
-  }
-  return (
-    <div
-      className={`exchange-half${folds ? " folds" : ""}`}
-      data-half="prompt"
-      onClick={
-        folds
-          ? (e) => {
-              const target = e.target as HTMLElement;
-              if (!target.closest(".msg")) return;
-              if (target.closest("a, button, input, textarea, select, label, summary, img, video, [role='button']")) return;
-              const selection = window.getSelection();
-              if (selection && !selection.isCollapsed && e.currentTarget.contains(selection.anchorNode)) return;
-              onFold();
-            }
-          : undefined
-      }
-    >
-      {children}
-    </div>
-  );
-}
-
-/**
- * One exchange, each half on its own. A half is either shown in full or
- * folded to its recall note, laid out like the chat either way: the
- * prompt's note in a dashed bubble on the right, the reply's under it — a
- * cut of the text itself for a note not written yet. A click on a note
- * opens that half alone, and it folds back the way it came: a prompt by a
- * click on it, a reply by its rail (see OpenHalf). "Full exchange" opens
- * both; the chevron folds the pair back. Every exchange above the newest
- * compaction starts folded, one below it open — and a reply open from the
- * start has no rail, and folds only by the chevron.
- */
-const Exchange = memo(function Exchange({
-  turnId,
-  events,
-  note,
-  prompt,
-  reply,
-  count,
-  promptOpen,
-  replyOpen,
-  replyFolds,
-  loading,
-  far,
-  project,
-  channelId,
-  onRewind,
-  onFork,
-  onOpen,
-  onFold,
-  onFoldHalf,
-}: {
-  turnId: string;
-  /** Its events — absent for an earlier exchange until the history comes. */
-  events: TranscriptEvent[] | undefined;
-  note: TurnNote | undefined;
-  /** Stand-ins for the notes while they're unwritten. */
-  prompt: string;
-  reply: string;
-  count: number;
-  promptOpen: boolean;
-  replyOpen: boolean;
-  /** A click on the open reply folds it: it was opened from its note. */
-  replyFolds: boolean;
-  /** Opened, and its events still on their way. */
-  loading?: boolean;
-  far?: boolean;
-  project?: Project;
-  channelId?: string;
-  onRewind?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
-  onFork?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
-  onOpen(turnId: string, half: Half): void;
-  onFold(turnId: string): void;
-  onFoldHalf(turnId: string, half: "prompt" | "reply"): void;
-}) {
-  const head = promptOpen ? events?.[0] : undefined;
-  const rest = replyOpen && events ? events.slice(1) : undefined;
-  const folded = !head && !rest;
-  const asked = note?.user || prompt || "an exchange";
-  const answered = note?.reply || reply;
-  const view = (event: TranscriptEvent) => (
-    <EventView
-      key={event.id}
-      event={event}
-      project={project}
-      channelId={channelId}
-      onRewind={onRewind}
-      onFork={onFork}
-    />
-  );
-  return (
-    <div className={`turn${folded ? " folded" : ""}${far ? " far" : ""}`} data-turn={turnId}>
-      {!folded && (
-        <button className="icon-button turn-fold" title="Fold this exchange to its notes" onClick={() => onFold(turnId)}>
-          <Icon d="M6 15l6-6 6 6" />
-        </button>
-      )}
-      {head ? (
-        <OpenHalf half="prompt" folds onFold={() => onFoldHalf(turnId, "prompt")}>
-          {view(head)}
-        </OpenHalf>
-      ) : (
-        <NoteHalf className="msg user note" title="Show your whole prompt" onOpen={() => onOpen(turnId, "prompt")}>
-          {asked}
-        </NoteHalf>
-      )}
-      {rest ? (
-        <OpenHalf half="reply" folds={replyFolds && rest.length > 0} onFold={() => onFoldHalf(turnId, "reply")}>
-          {rest.map(view)}
-        </OpenHalf>
-      ) : answered ? (
-        <NoteHalf className="msg assistant note" title="Show the whole reply" onOpen={() => onOpen(turnId, "reply")}>
-          {answered}
-        </NoteHalf>
-      ) : null}
-      {!(head && rest) && (
-        <button className="folded-open" title="Show the whole exchange" onClick={() => onOpen(turnId, "both")}>
-          <Icon d="M9 6l6 6-6 6" />
-          {loading ? "opening…" : `full exchange · ${count} events`}
-        </button>
-      )}
-    </div>
-  );
-});
-
 /** A hero face in its circle, framed the way the tuner left it. */
 function HeroFace({ n }: { n: number }) {
   const frame = heroFrame(n);
@@ -2285,15 +82,20 @@ function HeroFace({ n }: { n: number }) {
   );
 }
 
+/** Rapid fire's card fades in as it takes over and out as it hands on —
+ *  the pane is the same one either way, so the classes ride on it. */
+function paneClass(base: string, rapid: RapidFire | undefined): string {
+  return rapid?.on ? `${base} rapid-page${rapid.leaving ? " rapid-leaving" : ""}` : base;
+}
+
 /* ── chat pane ───────────────────────────────────────────────────── */
 
-// Stable fallback so selectors never mint a fresh reference per read —
-// an unstable snapshot makes useSyncExternalStore loop (React error #185).
-const NO_EVENTS: TranscriptEvent[] = [];
-const NO_SUMMARIES: Record<string, TurnNote> = {};
-const NO_EARLIER: EarlierItem[] = [];
-const NO_QUEUED: QueuedPrompt[] = [];
-
+/**
+ * The pane: which chat is open, and whether it is ready to show. Everything
+ * per chat lives in ChatView below, keyed by the chat — so switching chats
+ * starts its state (the page showing, the folds, how much is rendered)
+ * over by construction rather than by a reset effect each.
+ */
 export function ChatPane({
   channelId,
   rapid,
@@ -2308,8 +110,7 @@ export function ChatPane({
   const storeProject = useRuri((s) =>
     activeId ? s.projects.find((p) => p.sessions.some((x) => x.id === activeId)) : undefined,
   );
-  const workspaceDir = useRuri((s) => s.workspaceDir);
-  const home = useRuri((s) => s.home);
+  const { workspaceDir, home } = useRuri(useShallow((s) => ({ workspaceDir: s.workspaceDir, home: s.home })));
   const isHome = activeId === HOME_ID;
   const session = storeProject?.sessions.find((x) => x.id === activeId);
   // What this chat runs on: its own model, effort and mode over the
@@ -2330,12 +131,12 @@ export function ChatPane({
           },
     [isHome, workspaceDir, home, storeProject, session],
   );
-  const transcript = useRuri((s) => (activeId ? (s.transcripts[activeId] ?? NO_EVENTS) : NO_EVENTS));
   // The snapshot only carries a chat's last few events; the whole history
   // is asked for when the chat opens, and until it arrives the pane stays
   // blank rather than showing the tail and then jumping.
-  const loaded = useRuri((s) => (activeId ? s.loaded[activeId] === true : true));
-  const connected = useRuri((s) => s.connected);
+  const { loaded, connected } = useRuri(
+    useShallow((s) => ({ loaded: activeId ? s.loaded[activeId] === true : true, connected: s.connected })),
+  );
   // On screen: this chat, and no other, is sent its conversation as it
   // happens, and keeps its agent process warm between turns. Before the
   // effect below, so the server knows before the history is asked for.
@@ -2343,31 +144,6 @@ export function ChatPane({
   useEffect(() => {
     if (activeId && connected && !loaded) ensureTranscript(activeId);
   }, [activeId, connected, loaded]);
-  const draft = useRuri((s) => (activeId ? s.drafts[activeId] : undefined));
-  const status = useRuri((s) => (activeId ? (s.statuses[activeId] ?? "idle") : "idle"));
-  const summaries = useRuri((s) =>
-    activeId ? (s.summaries[activeId] ?? NO_SUMMARIES) : NO_SUMMARIES,
-  );
-  const queuedItems = useRuri((s) => (activeId ? (s.queued[activeId] ?? NO_QUEUED) : NO_QUEUED));
-  const queueHeld = useRuri((s) => (activeId ? s.queueHeld[activeId] === true : false));
-  const turn = useRuri((s) => (activeId ? s.turns[activeId] : undefined));
-  const allPermissions = useRuri((s) => s.permissions);
-  const permissions = allPermissions.filter((p) => p.projectId === activeId);
-  const lastError = useRuri((s) => s.lastError);
-  const dismissError = useRuri((s) => s.dismissError);
-  // Every agent this chat has — the model's, from its transcript, and the
-  // ones you started yourself — for the header's count and the agents
-  // page: the ones still working first, then the newest.
-  const crewAgents = useRuri((s) => (activeId ? s.crew[activeId] : undefined));
-  const agents = useMemo(
-    () =>
-      [...transcript.flatMap((e) => (e.kind === "tool" && e.agent ? [e.agent] : [])), ...(crewAgents ?? [])].sort(
-        (a, b) => Number(b.status === "running") - Number(a.status === "running") || b.startedAt - a.startedAt,
-      ),
-    [transcript, crewAgents],
-  );
-  const agentsWorking = agents.filter((a) => a.status === "running").length;
-  const agentsOpen = useRuri((s) => s.agentPanel !== null && s.agentPanel.projectId === activeId);
   // the agents page belongs to its chat: going to another one puts it away
   useEffect(() => {
     const panel = useRuri.getState().agentPanel;
@@ -2375,8 +151,9 @@ export function ChatPane({
   }, [activeId]);
 
   // Native-picker results land here (always mounted) and route by target.
-  const picked = useRuri((s) => s.picked);
-  const clearPicked = useRuri((s) => s.clearPicked);
+  const { picked, clearPicked } = useRuri(
+    useShallow((s) => ({ picked: s.picked, clearPicked: s.clearPicked })),
+  );
   useEffect(() => {
     if (!picked) return;
     send(
@@ -2387,16 +164,112 @@ export function ChatPane({
     clearPicked();
   }, [picked, clearPicked]);
 
-  // Rapid fire's card fades in as it takes over and out as it hands on —
-  // the pane is the same one either way, so the classes ride on it.
-  const pane = (base: string) =>
-    rapid?.on ? `${base} rapid-page${rapid.leaving ? " rapid-leaving" : ""}` : base;
+  if (!project || !activeId || !loaded) {
+    return <main className={paneClass("chat empty", rapid)} />;
+  }
+  return (
+    <ChatView
+      key={activeId}
+      activeId={activeId}
+      project={project}
+      isHome={isHome}
+      {...(session ? { session } : {})}
+      {...(storeProject ? { boardId: storeProject.id } : {})}
+      {...(rapid ? { rapid } : {})}
+    />
+  );
+}
 
-  const trackerItems = useRuri((s) => (activeId ? s.tracker[activeId] : undefined));
+/** One chat, from its opening to its composer. Mounted afresh per chat. */
+function ChatView({
+  activeId,
+  project,
+  session,
+  boardId,
+  isHome,
+  rapid,
+}: {
+  activeId: string;
+  project: Project;
+  session?: SessionInfo;
+  /** The project the boards (ideas, components) belong to; Home has none. */
+  boardId?: string;
+  isHome: boolean;
+  rapid?: RapidFire;
+}) {
+  const pane = (base: string) => paneClass(base, rapid);
+  // everything the store keeps per chat, in one read
+  const {
+    transcript,
+    draft,
+    status,
+    summaries,
+    queuedItems,
+    queueHeld,
+    turn,
+    crewAgents,
+    trackerItems,
+    earlier,
+    history,
+  } = useRuri(
+    useShallow((s) => ({
+      transcript: s.transcripts[activeId] ?? NO_EVENTS,
+      draft: s.drafts[activeId],
+      status: s.statuses[activeId] ?? "idle",
+      summaries: s.summaries[activeId] ?? NO_SUMMARIES,
+      queuedItems: s.queued[activeId] ?? NO_QUEUED,
+      queueHeld: s.queueHeld[activeId] === true,
+      turn: s.turns[activeId],
+      crewAgents: s.crew[activeId],
+      trackerItems: s.tracker[activeId],
+      // What a compaction left behind it: the live transcript opens on
+      // the newest mark, and the exchanges before it come with it as an
+      // outline (`earlier`) — shown above the mark, each folded to its
+      // notes and opening on a click. Opening one (or an older mark's
+      // brief) is what fetches the history's bodies.
+      earlier: s.earlier[activeId] ?? NO_EARLIER,
+      history: s.history[activeId],
+    })),
+  );
+  const allPermissions = useRuri((s) => s.permissions);
+  const permissions = allPermissions.filter((p) => p.projectId === activeId);
+  const { lastError, dismissError } = useRuri(
+    useShallow((s) => ({ lastError: s.lastError, dismissError: s.dismissError })),
+  );
+  // Every agent this chat has — the model's, from its transcript, and the
+  // ones you started yourself — for the header's count and the agents
+  // page: the ones still working first, then the newest.
+  const agents = useMemo(
+    () =>
+      [
+        ...transcript.flatMap((e) => (e.kind === "tool" && e.agent ? [e.agent] : [])),
+        ...(crewAgents ?? []),
+      ].sort(
+        (a, b) =>
+          Number(b.status === "running") - Number(a.status === "running") || b.startedAt - a.startedAt,
+      ),
+    [transcript, crewAgents],
+  );
+  const agentsWorking = agents.filter((a) => a.status === "running").length;
+  // The header's badges: numbers, not lists — a selector that mints a
+  // fresh array every read spins useSyncExternalStore forever (React
+  // error #185). Components named since the user last looked wear a star,
+  // which is how you find out a turn named something without being taken
+  // anywhere: the cards themselves are one click away.
+  const { agentsOpen, ideaCount, freshComponents } = useRuri(
+    useShallow((s) => ({
+      agentsOpen: s.agentPanel !== null && s.agentPanel.projectId === activeId,
+      ideaCount: boardId ? (s.ideas[boardId] ?? []).filter((i) => !i.done).length : 0,
+      freshComponents: boardId ? (s.components[boardId] ?? []).filter((i) => i.star).length : 0,
+    })),
+  );
+
   /**
    * The pane shows one thing at a time: the chat, or one of the project's
    * pages. No navigation and no overlay — the header's buttons swap this,
-   * and pressing the lit one swaps it back.
+   * and pressing the lit one swaps it back. Sending a prompt extracts
+   * tracker items, but it does not yank you onto the tracker page to look
+   * at them — the toggle's badge is the whole notification.
    */
   const [page, setPage] = useState<"chat" | "tracker" | "ideas" | "components" | "skills">("chat");
   /**
@@ -2412,47 +285,30 @@ export function ChatPane({
   }, []);
   const homeTabs = isHome && !rapid?.on && <HomeTabs tab={homeTab} onTab={setHomeTab} />;
   const openCount = (trackerItems ?? []).filter((i) => i.status === "open").length;
-  const boardId = storeProject?.id;
-  // a number, not the list: a selector that mints a fresh array every read
-  // spins useSyncExternalStore forever (React error #185)
-  const ideaCount = useRuri((s) =>
-    boardId ? (s.ideas[boardId] ?? []).filter((i) => !i.done).length : 0,
-  );
-  // Components named since the user last looked. The button wears a star
-  // for them, which is how you find out a turn named something without
-  // being taken anywhere: the cards themselves are one click away.
-  const freshComponents = useRuri((s) =>
-    boardId ? (s.components[boardId] ?? []).filter((i) => i.star).length : 0,
-  );
 
-  // Sending a prompt extracts tracker items, but it does not yank you onto
-  // the tracker page to look at them — the toggle's badge is the whole
-  // notification. Switching channels still lands you back on the chat.
-  useEffect(() => {
-    setPage("chat");
-  }, [activeId]);
   // another of the project's pages takes the agents page's place, as it
   // would the chat's
   useEffect(() => {
     if (page !== "chat") closeAgent();
   }, [page]);
 
-
   // Rewind: pencil on a past prompt → a plain confirmation → the
   // conversation and the project's files go back to just before it ran and
   // the prompt lands in the composer, exactly as it was written. Editing it
   // is then just typing; nothing sends until you press send. Claude sessions
   // only (file checkpoints), and only while nothing is running.
-  const models = useRuri((s) => s.models);
-  const defaultModel = useRuri((s) => s.defaultModel);
+  const { models, defaultModel } = useRuri(
+    useShallow((s) => ({ models: s.models, defaultModel: s.defaultModel })),
+  );
   const [rewindTarget, setRewindTarget] = useState<{ id: string; text: string } | null>(null);
-  useEffect(() => setRewindTarget(null), [activeId]);
 
   // The sketch pad takes the pane, like a page — blank, or on a picture
   // from the composer's strip. Leaving the channel leaves the pad.
   const [sketch, setSketch] = useState<{ background?: SketchBackground } | null>(null);
-  useEffect(() => setSketch(null), [activeId]);
-  const openSketch = useCallback((background?: SketchBackground) => setSketch(background ? { background } : {}), []);
+  const openSketch = useCallback(
+    (background?: SketchBackground) => setSketch(background ? { background } : {}),
+    [],
+  );
 
   /**
    * How much of the transcript is on screen. A long session is hundreds of
@@ -2462,7 +318,6 @@ export function ChatPane({
    * in on idle frames behind it, so scrolling up finds it already there.
    */
   const [renderedTurns, setRenderedTurns] = useState(FIRST_TURNS);
-  useEffect(() => setRenderedTurns(FIRST_TURNS), [activeId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
@@ -2489,7 +344,7 @@ export function ChatPane({
       if (typeof cancelIdleCallback === "function") cancelIdleCallback(idle);
       else clearTimeout(idle);
     };
-  }, [renderedTurns, transcript.length, activeId]);
+  }, [renderedTurns, transcript.length]);
 
   /**
    * Put the view back on the newest message.
@@ -2501,18 +356,15 @@ export function ChatPane({
    * is the flash on every session switch. The callers that matter run after
    * layout and before paint precisely so the correction lands invisibly; the
    * cheap part is the early return below, when the view is already there.
+   * Stable: it reads the scroller through its ref, so the observers below
+   * can hold it for the pane's whole life.
    */
-  const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const el = scrollRef.current;
     if (!el) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 1) return;
     el.scrollTo({ top: el.scrollHeight, behavior });
-  };
-
-  /** The observers below are made once and outlive every render, so they
-   *  reach the current scroller through here rather than closing over it. */
-  const bottomRef = useRef<(() => void) | null>(null);
-  bottomRef.current = () => scrollToBottom();
+  }, []);
 
   /**
    * When the view was last moved by a human.
@@ -2571,7 +423,7 @@ export function ChatPane({
   // Follow the conversation only while the user is at the bottom.
   useLayoutEffect(() => {
     if (pinnedRef.current) scrollToBottom();
-  }, [transcript.length, draft?.text, permissions.length, status, queuedItems.length]);
+  }, [scrollToBottom, transcript.length, draft?.text, permissions.length, status, queuedItems.length]);
 
   // Opening a session means opening it at the last thing said. The one
   // scroll at render time is not enough on its own: the tail is still
@@ -2580,10 +432,6 @@ export function ChatPane({
   // This holds it there until it stops moving, and stands down the moment
   // the user scrolls.
   useLayoutEffect(() => {
-    pinnedRef.current = true;
-    gestureRef.current = 0;
-    lastTopRef.current = 0;
-    setShowJump(false);
     scrollToBottom();
     let frames = 0;
     let steady = 0;
@@ -2605,22 +453,25 @@ export function ChatPane({
       raf = requestAnimationFrame(settle);
     });
     return () => cancelAnimationFrame(raf);
-  }, [activeId]);
+  }, [scrollToBottom]);
 
   // Content keeps growing after the render-time scroll (images decode,
   // markdown settles) — while pinned, any growth re-bottoms the view, so a
   // relaunch opens at the latest message instead of partway up.
   const innerObserver = useRef<ResizeObserver | null>(null);
-  const observeInner = useCallback((node: HTMLDivElement | null) => {
-    innerObserver.current?.disconnect();
-    innerObserver.current = null;
-    if (!node) return;
-    const observer = new ResizeObserver(() => {
-      if (pinnedRef.current) bottomRef.current?.();
-    });
-    observer.observe(node);
-    innerObserver.current = observer;
-  }, []);
+  const observeInner = useCallback(
+    (node: HTMLDivElement | null) => {
+      innerObserver.current?.disconnect();
+      innerObserver.current = null;
+      if (!node) return;
+      const observer = new ResizeObserver(() => {
+        if (pinnedRef.current) scrollToBottom();
+      });
+      observer.observe(node);
+      innerObserver.current = observer;
+    },
+    [scrollToBottom],
+  );
 
   // The composer floats over the transcript on no background of its own, so
   // the conversation runs behind it instead of stopping at a dead band. Two
@@ -2630,78 +481,68 @@ export function ChatPane({
   // — it belongs a hair above what you type in, not above the dragons.
   const chatRef = useRef<HTMLElement>(null);
   const dockObserver = useRef<ResizeObserver | null>(null);
-  const observeDock = useCallback((node: HTMLDivElement | null) => {
-    dockObserver.current?.disconnect();
-    dockObserver.current = null;
-    if (!node) return;
-    const box = node.querySelector<HTMLElement>(".composer-box");
-    // What was last written. A custom property set on the pane root
-    // invalidates style for every node under it — the whole transcript — so
-    // rewriting the same value on every observation is not free, and the
-    // observer fires for every frame of a growing composer.
-    let wrote = { dock: -1, boxTop: -1 };
-    const measure = () => {
-      const chat = chatRef.current;
-      if (!chat) return;
-      const dock = node.offsetHeight;
-      // the dock's bottom is the pane's bottom, so this is exactly how far
-      // up from the pane's floor the textbox starts
-      const boxTop = Math.round(
-        box ? node.getBoundingClientRect().bottom - box.getBoundingClientRect().top : dock,
-      );
-      if (dock === wrote.dock && boxTop === wrote.boxTop) return;
-      wrote = { dock, boxTop };
-      chat.style.setProperty("--composer-h", `${dock}px`);
-      chat.style.setProperty("--composer-box-h", `${boxTop}px`);
-    };
-    const observer = new ResizeObserver(() => {
+  const observeDock = useCallback(
+    (node: HTMLDivElement | null) => {
+      dockObserver.current?.disconnect();
+      dockObserver.current = null;
+      if (!node) return;
+      const box = node.querySelector<HTMLElement>(".composer-box");
+      // What was last written. A custom property set on the pane root
+      // invalidates style for every node under it — the whole transcript — so
+      // rewriting the same value on every observation is not free, and the
+      // observer fires for every frame of a growing composer.
+      let wrote = { dock: -1, boxTop: -1 };
+      const measure = () => {
+        const chat = chatRef.current;
+        if (!chat) return;
+        const dock = node.offsetHeight;
+        // the dock's bottom is the pane's bottom, so this is exactly how far
+        // up from the pane's floor the textbox starts
+        const boxTop = Math.round(
+          box ? node.getBoundingClientRect().bottom - box.getBoundingClientRect().top : dock,
+        );
+        if (dock === wrote.dock && boxTop === wrote.boxTop) return;
+        wrote = { dock, boxTop };
+        chat.style.setProperty("--composer-h", `${dock}px`);
+        chat.style.setProperty("--composer-box-h", `${boxTop}px`);
+      };
+      const observer = new ResizeObserver(() => {
+        measure();
+        // a taller composer eats into the view — re-bottom so the newest
+        // message stays put rather than sliding under it
+        if (pinnedRef.current) scrollToBottom();
+      });
+      observer.observe(node);
+      // the box grows on its own (a long prompt, an attachment strip) without
+      // the dock following, whenever the dragons are still the taller pair
+      if (box) observer.observe(box);
+      dockObserver.current = observer;
       measure();
-      // a taller composer eats into the view — re-bottom so the newest
-      // message stays put rather than sliding under it
-      if (pinnedRef.current) bottomRef.current?.();
-    });
-    observer.observe(node);
-    // the box grows on its own (a long prompt, an attachment strip) without
-    // the dock following, whenever the dragons are still the taller pair
-    if (box) observer.observe(box);
-    dockObserver.current = observer;
-    measure();
-  }, []);
+    },
+    [scrollToBottom],
+  );
 
   // Grouping walks the whole event stream, and the stream is long. It only
   // changes when the events do — not on every keystroke into the composer,
   // every token of a streaming reply, or every scroll that re-measures.
   const allTurns = useMemo(() => groupTurns(transcript), [transcript]);
   const shownTurns = useMemo(
-    () =>
-      renderedTurns >= allTurns.length
-        ? allTurns
-        : allTurns.slice(allTurns.length - renderedTurns),
+    () => (renderedTurns >= allTurns.length ? allTurns : allTurns.slice(allTurns.length - renderedTurns)),
     [allTurns, renderedTurns],
   );
-  // What a compaction left behind it: the live transcript opens on the
-  // newest mark, and the exchanges before it come with it as an outline
-  // (`earlier`) — shown above the mark, each folded to its notes and
-  // opening on a click. Opening one (or an older mark's brief) is what
-  // fetches the history's bodies.
-  const earlier = useRuri((s) => (activeId ? (s.earlier[activeId] ?? NO_EARLIER) : NO_EARLIER));
-  const history = useRuri((s) => (activeId ? s.history[activeId] : undefined));
   // Which halves of which exchanges are open, where that differs from how
   // each starts — open below the newest compaction, folded above it.
   const [opens, setOpens] = useState<Record<string, { prompt?: boolean; reply?: boolean }>>({});
   const [wantHistory, setWantHistory] = useState(false);
-  useEffect(() => {
-    setOpens({});
-    setWantHistory(false);
-  }, [activeId]);
   const earlierIds = useMemo(
     () => new Set(earlier.flatMap((item) => (item.kind === "turn" ? [item.turnId] : []))),
     [earlier],
   );
   const needHistory =
-    wantHistory || Object.entries(opens).some(([id, open]) => (open.prompt || open.reply) && earlierIds.has(id));
+    wantHistory ||
+    Object.entries(opens).some(([id, open]) => (open.prompt || open.reply) && earlierIds.has(id));
   useEffect(() => {
-    if (activeId && !history && needHistory) requestHistory(activeId);
+    if (!history && needHistory) requestHistory(activeId);
   }, [activeId, history, needHistory]);
   // the history's turns by id — a mark's under `compaction-<id>`
   const historyTurns = useMemo(
@@ -2746,16 +587,17 @@ export function ChatPane({
       revealRef.current = null;
       return;
     }
-    const half = turn.querySelector<HTMLElement>(`[data-half="${want.half === "reply" ? "reply" : "prompt"}"]`);
+    const half = turn.querySelector<HTMLElement>(
+      `[data-half="${want.half === "reply" ? "reply" : "prompt"}"]`,
+    );
     if (!half) return;
     revealRef.current = null;
     // a reply with nothing in it (a stopped turn) has no top of its own
     const target = want.half === "both" || half.childElementCount === 0 ? turn : half;
-    scroller.scrollTop += target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - REVEAL_GAP;
+    scroller.scrollTop +=
+      target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - REVEAL_GAP;
   });
 
-  // Above the early return: a hook that only some renders reach is a hook
-  // React counts differently on the render after the pane finds a project.
   const startRewind = useCallback(
     (event: Extract<TranscriptEvent, { kind: "user" }>) =>
       setRewindTarget({ id: event.id, text: event.text }),
@@ -2763,14 +605,10 @@ export function ChatPane({
   );
   const startFork = useCallback(
     (event: Extract<TranscriptEvent, { kind: "user" }>) => {
-      if (activeId) send({ type: "fork", projectId: activeId, eventId: event.id });
+      send({ type: "fork", projectId: activeId, eventId: event.id });
     },
     [activeId],
   );
-
-  if (!project || !activeId || !loaded) {
-    return <main className={pane("chat empty")} />;
-  }
 
   const busy = status === "working" || status === "permission";
 
@@ -2809,7 +647,7 @@ export function ChatPane({
           }
           onClick={() => {
             if (agentsOpen) closeAgent();
-            else if (activeId) {
+            else {
               setPage("chat");
               openAgent(activeId);
             }
@@ -2886,10 +724,8 @@ export function ChatPane({
     );
   }
 
-  // No conversation yet (Home or a fresh project): the hero — face, a big
-  // title, and the composer front and center.
   // The agents page takes the whole pane, the way the project's other pages do.
-  if (agentsOpen && activeId) {
+  if (agentsOpen) {
     return (
       <main className={pane("chat")}>
         {header}
@@ -2898,6 +734,8 @@ export function ChatPane({
     );
   }
 
+  // No conversation yet (Home or a fresh project): the hero — face, a big
+  // title, and the composer front and center.
   if (transcript.length === 0 && !draft && permissions.length === 0) {
     return (
       <main className={pane("chat home-hero")}>
@@ -2913,12 +751,11 @@ export function ChatPane({
             the face stays centred in the pane */}
         {homeTabs}
         <div className="hero">
-          <HeroFace n={isHome ? launchHero : heroFor(storeProject?.id ?? activeId)} />
+          <HeroFace n={isHome ? launchHero : heroFor(boardId ?? activeId)} />
           <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
           <div className="hero-composer">
             {rapid?.on && <RapidBar rapid={rapid} />}
             <Composer
-              key={activeId}
               channelId={activeId}
               project={project}
               busy={busy}
@@ -2926,7 +763,6 @@ export function ChatPane({
               {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
             />
           </div>
-
         </div>
       </main>
     );
@@ -2938,9 +774,7 @@ export function ChatPane({
     return (
       <main className={pane("chat")}>
         {header}
-        {page === "tracker" && (
-          <Tracker projectId={activeId} onClose={() => setPage("chat")} />
-        )}
+        {page === "tracker" && <Tracker projectId={activeId} onClose={() => setPage("chat")} />}
         {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
         {page === "components" && boardId && <Components projectId={boardId} />}
         {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
@@ -2963,49 +797,100 @@ export function ChatPane({
       {/* the holder ends where the composer begins, so the jump pill always
           floats just above the composer no matter how tall it grows */}
       <div className="transcript-holder">
-      <div
-        className="transcript"
-        ref={scrollRef}
-        onScroll={onScroll}
-        onWheel={noteGesture}
-        onTouchMove={noteGesture}
-        onPointerDown={noteGesture}
-        onKeyDown={noteGesture}
-      >
-        <div className="transcript-inner" ref={observeInner}>
-          {/* the earlier exchanges wait for every live turn below them to
+        <div
+          className="transcript"
+          ref={scrollRef}
+          onScroll={onScroll}
+          onWheel={noteGesture}
+          onTouchMove={noteGesture}
+          onPointerDown={noteGesture}
+          onKeyDown={noteGesture}
+        >
+          <div className="transcript-inner" ref={observeInner}>
+            {/* the earlier exchanges wait for every live turn below them to
               be laid out — until then the tail is what's on screen */}
-          {shownTurns.length === allTurns.length &&
-            earlier.map((item) => {
-              if (item.kind === "compaction") {
-                const full = historyTurns.get(`compaction-${item.id}`)?.events[0];
+            {shownTurns.length === allTurns.length &&
+              earlier.map((item) => {
+                if (item.kind === "compaction") {
+                  const full = historyTurns.get(`compaction-${item.id}`)?.events[0];
+                  return (
+                    <div className="turn" key={`earlier-${item.id}`}>
+                      <CompactionMark
+                        event={
+                          full?.kind === "compaction"
+                            ? full
+                            : { kind: "compaction", id: item.id, text: "", ts: item.ts }
+                        }
+                        load={loadHistory}
+                      />
+                    </div>
+                  );
+                }
+                const open = opens[item.turnId];
+                const promptOpen = open?.prompt ?? false;
+                const replyOpen = open?.reply ?? false;
                 return (
-                  <div className="turn" key={`earlier-${item.id}`}>
-                    <CompactionMark
-                      event={
-                        full?.kind === "compaction" ? full : { kind: "compaction", id: item.id, text: "", ts: item.ts }
-                      }
-                      load={loadHistory}
-                    />
+                  <Exchange
+                    key={`earlier-${item.turnId}`}
+                    turnId={item.turnId}
+                    events={promptOpen || replyOpen ? historyTurns.get(item.turnId)?.events : undefined}
+                    note={summaries[item.turnId]}
+                    prompt={item.prompt}
+                    reply={item.reply}
+                    count={item.count}
+                    promptOpen={promptOpen}
+                    replyOpen={replyOpen}
+                    replyFolds={replyOpen}
+                    loading={(promptOpen || replyOpen) && !history}
+                    project={project}
+                    channelId={activeId}
+                    onRewind={askRewind}
+                    onFork={askFork}
+                    onOpen={openHalf}
+                    onFold={foldExchange}
+                    onFoldHalf={foldHalf}
+                  />
+                );
+              })}
+            {shownTurns.map((turn, index) => {
+              const head = turn.events[0];
+              // far enough up that the browser may skip laying it out until
+              // it comes near the viewport — see .turn.far
+              const far = index < shownTurns.length - LIVE_TURNS;
+              // a compaction mark, or what came before the first prompt
+              if (turn.solo || head?.kind !== "user") {
+                return (
+                  <div className={far ? "turn far" : "turn"} key={turn.turnId}>
+                    {turn.events.map((event) => (
+                      <EventView
+                        key={event.id}
+                        event={event}
+                        project={project}
+                        channelId={activeId}
+                        onRewind={askRewind}
+                        onFork={askFork}
+                      />
+                    ))}
                   </div>
                 );
               }
-              const open = opens[item.turnId];
-              const promptOpen = open?.prompt ?? false;
-              const replyOpen = open?.reply ?? false;
+              const open = opens[turn.turnId];
+              const promptOpen = open?.prompt ?? true;
+              const replyOpen = open?.reply ?? true;
+              const cut = promptOpen && replyOpen ? NO_EXCERPTS : turnExcerpts(turn);
               return (
                 <Exchange
-                  key={`earlier-${item.turnId}`}
-                  turnId={item.turnId}
-                  events={promptOpen || replyOpen ? historyTurns.get(item.turnId)?.events : undefined}
-                  note={summaries[item.turnId]}
-                  prompt={item.prompt}
-                  reply={item.reply}
-                  count={item.count}
+                  key={turn.turnId}
+                  turnId={turn.turnId}
+                  events={turn.events}
+                  note={summaries[turn.turnId]}
+                  prompt={cut.prompt}
+                  reply={cut.reply}
+                  count={turn.events.length}
                   promptOpen={promptOpen}
                   replyOpen={replyOpen}
-                  replyFolds={replyOpen}
-                  loading={(promptOpen || replyOpen) && !history}
+                  replyFolds={open?.reply === true}
+                  far={far}
                   project={project}
                   channelId={activeId}
                   onRewind={askRewind}
@@ -3016,106 +901,53 @@ export function ChatPane({
                 />
               );
             })}
-          {shownTurns.map((turn, index) => {
-            const head = turn.events[0];
-            // far enough up that the browser may skip laying it out until
-            // it comes near the viewport — see .turn.far
-            const far = index < shownTurns.length - LIVE_TURNS;
-            // a compaction mark, or what came before the first prompt
-            if (turn.solo || head?.kind !== "user") {
-              return (
-                <div className={far ? "turn far" : "turn"} key={turn.turnId}>
-                  {turn.events.map((event) => (
-                    <EventView
-                      key={event.id}
-                      event={event}
-                      project={project}
-                      channelId={activeId}
-                      onRewind={askRewind}
-                      onFork={askFork}
-                    />
-                  ))}
-                </div>
-              );
-            }
-            const open = opens[turn.turnId];
-            const promptOpen = open?.prompt ?? true;
-            const replyOpen = open?.reply ?? true;
-            const cut = promptOpen && replyOpen ? NO_EXCERPTS : turnExcerpts(turn);
-            return (
-              <Exchange
-                key={turn.turnId}
-                turnId={turn.turnId}
-                events={turn.events}
-                note={summaries[turn.turnId]}
-                prompt={cut.prompt}
-                reply={cut.reply}
-                count={turn.events.length}
-                promptOpen={promptOpen}
-                replyOpen={replyOpen}
-                replyFolds={open?.reply === true}
-                far={far}
-                project={project}
-                channelId={activeId}
-                onRewind={askRewind}
-                onFork={askFork}
-                onOpen={openHalf}
-                onFold={foldExchange}
-                onFoldHalf={foldHalf}
-              />
-            );
-          })}
-          {draft && (
-            <div className="msg assistant streaming">
-              <StreamingMarkdown text={draft.text} />
-              <span className="cursor" ref={beat("blink")} />
-            </div>
-          )}
-          {status === "working" && (
-            <div className="working">
-              {!draft && <Thinking />}
-              {turn && <WorkingLine turn={turn} effort={project.effort || DEFAULT_EFFORT} />}
-            </div>
-          )}
-          {permissions.map((request) =>
-            // neither a question nor a naming is an allow/deny — each gets
-            // its own card, and only a real tool call gets allow/deny
-            request.kind === "question" ? (
-              <QuestionCard key={request.requestId} request={request} />
-            ) : request.kind === "component" ? (
-              <NameCard key={request.requestId} request={request} />
-            ) : (
-              <PermissionBanner key={request.requestId} request={request} />
-            ),
-          )}
-          {queuedItems.length > 0 && <QueuedList projectId={activeId} items={queuedItems} held={queueHeld} />}
-          {queueHeld && queuedItems.length > 0 && (
-            <div className="queue-standby">
-              <span>
-                {queuedItems.length === 1 ? "1 prompt" : `${queuedItems.length} prompts`} held by the
-                stop — they go out after your next one
-              </span>
-              <button
-                className="ghost"
-                title="Send what is waiting, now, in the order it was written"
-                onClick={() => send({ type: "queue_send", projectId: activeId })}
-              >
-                Send now
-              </button>
-            </div>
-          )}
+            {draft && (
+              <div className="msg assistant streaming">
+                <StreamingMarkdown text={draft.text} />
+                <span className="cursor" ref={beat("blink")} />
+              </div>
+            )}
+            {status === "working" && (
+              <div className="working">
+                {!draft && <Thinking />}
+                {turn && <WorkingLine turn={turn} effort={project.effort || DEFAULT_EFFORT} />}
+              </div>
+            )}
+            {/* neither a question nor a naming is an allow/deny — each gets
+              its own card, and only a real tool call gets allow/deny */}
+            {permissions.map((request) => (
+              <AskCard key={request.requestId} request={request} />
+            ))}
+            {queuedItems.length > 0 && (
+              <QueuedList projectId={activeId} items={queuedItems} held={queueHeld} />
+            )}
+            {queueHeld && queuedItems.length > 0 && (
+              <div className="queue-standby">
+                <span>
+                  {queuedItems.length === 1 ? "1 prompt" : `${queuedItems.length} prompts`} held by the stop —
+                  they go out after your next one
+                </span>
+                <button
+                  className="ghost"
+                  title="Send what is waiting, now, in the order it was written"
+                  onClick={() => send({ type: "queue_send", projectId: activeId })}
+                >
+                  Send now
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      <SelectionFlags scrollerRef={scrollRef} />
+        <SelectionFlags scrollerRef={scrollRef} />
 
-      {showJump && (
-        <button className="jump-latest" onClick={() => scrollToBottom("smooth")}>
-          <Icon d="M12 5v14M5 12l7 7 7-7" /> Latest
-        </button>
-      )}
-      {rapid?.on && <RapidBar rapid={rapid} floating />}
-      {activeId && <BridgeStrip channelId={activeId} stacked={rapid?.on} />}
+        {showJump && (
+          <button className="jump-latest" onClick={() => scrollToBottom("smooth")}>
+            <Icon d="M12 5v14M5 12l7 7 7-7" /> Latest
+          </button>
+        )}
+        {rapid?.on && <RapidBar rapid={rapid} floating />}
+        <BridgeStrip channelId={activeId} stacked={rapid?.on} />
       </div>
 
       {rewindTarget && (
@@ -3159,7 +991,7 @@ export function ChatPane({
         </div>
       )}
 
-      <div className="composer-dock" key={activeId} ref={observeDock}>
+      <div className="composer-dock" ref={observeDock}>
         <Composer
           channelId={activeId}
           project={project}

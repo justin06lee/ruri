@@ -22,6 +22,7 @@ export function BridgeStrip({ channelId, stacked }: { channelId: string; stacked
   const state = useRuri((s) => s.bridges[channelId]);
   const [open, setOpen] = useState(false);
   const stripRef = useRef<HTMLDivElement>(null);
+  const shown = state !== undefined;
 
   /* Right edge on the textbox's right edge — the same measurement the
      rapid-fire plate makes, for the same reason: the textbox is centred
@@ -40,7 +41,7 @@ export function BridgeStrip({ channelId, stacked }: { channelId: string; stacked
     observer.observe(pane);
     observer.observe(box);
     return () => observer.disconnect();
-  }, [state !== undefined, stacked]);
+  }, [shown, stacked]);
 
   if (!state) return null;
   const src = state.previewUrl ? `${HTTP_BASE}${state.previewUrl}` : undefined;
@@ -48,7 +49,14 @@ export function BridgeStrip({ channelId, stacked }: { channelId: string; stacked
 
   return (
     <div className={`bridge-strip${stacked ? " stacked" : ""}`} ref={stripRef}>
-      <div className="bridge-plate" title={state.takenOver ? "You have this — the session is still driving it" : "The session is driving this in a window you don't see"}>
+      <div
+        className="bridge-plate"
+        title={
+          state.takenOver
+            ? "You have this — the session is still driving it"
+            : "The session is driving this in a window you don't see"
+        }
+      >
         <button
           className="bridge-thumb"
           title={src ? "See it at full size" : "No picture yet"}
@@ -63,7 +71,11 @@ export function BridgeStrip({ channelId, stacked }: { channelId: string; stacked
         </div>
         <button
           className={`bridge-toggle${state.takenOver ? " on" : ""}`}
-          title={state.takenOver ? "Hide it again; the session keeps driving" : "Bring it on screen, in front, to work in it yourself"}
+          title={
+            state.takenOver
+              ? "Hide it again; the session keeps driving"
+              : "Bring it on screen, in front, to work in it yourself"
+          }
           onClick={() =>
             send({ type: state.takenOver ? "bridge_release" : "bridge_takeover", projectId: channelId })
           }
@@ -75,14 +87,27 @@ export function BridgeStrip({ channelId, stacked }: { channelId: string; stacked
           title="Close it"
           onClick={() => send({ type: "bridge_close", projectId: channelId })}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden
+          >
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
       </div>
       {open && src && (
         <Viewer
-          target={{ kind: "image", src, label: state.title || kind, name: "preview.png", mediaType: "image/png" }}
+          target={{
+            kind: "image",
+            src,
+            label: state.title || kind,
+            name: "preview.png",
+            mediaType: "image/png",
+          }}
           onClose={() => setOpen(false)}
         />
       )}

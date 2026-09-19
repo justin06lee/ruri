@@ -21,8 +21,13 @@ import { SessionManager } from "../server/sessions.js";
 
 // Both the card and provider adapter must reject invalid typed answers.
 const workers: AskQuestion = {
-  question: "Workers", header: "Workers", options: [], multiSelect: false,
-  inputType: "integer", minimum: 1, maximum: 8,
+  question: "Workers",
+  header: "Workers",
+  options: [],
+  multiSelect: false,
+  inputType: "integer",
+  minimum: 1,
+  maximum: 8,
 };
 assert.equal(questionError(workers, ["3"]), undefined);
 assert.match(questionError(workers, ["2.5"])!, /whole number/);
@@ -33,8 +38,11 @@ assert.match(questionError(workers, [])!, /required/);
 assert.equal(questionError({ ...workers, required: false }, []), undefined);
 assert.match(questionError(workers, ["2", "3"])!, /one answer/);
 const choice: AskQuestion = {
-  question: "Enabled", header: "Enabled", multiSelect: false,
-  inputType: "boolean", allowOther: false,
+  question: "Enabled",
+  header: "Enabled",
+  multiSelect: false,
+  inputType: "boolean",
+  allowOther: false,
   options: [{ label: "No", value: "false", description: "" }],
 };
 assert.equal(questionError(choice, ["false"]), undefined);
@@ -82,7 +90,15 @@ async function* turn(): AsyncGenerator<AgentEvent, void, undefined> {
     message: "Name the workspace",
     fields: [
       { id: "name", label: "Workspace name", type: "string", required: true },
-      { id: "workers", label: "Workers", type: "integer", required: true, minimum: 1, maximum: 8, default: 3 },
+      {
+        id: "workers",
+        label: "Workers",
+        type: "integer",
+        required: true,
+        minimum: 1,
+        maximum: 8,
+        default: 3,
+      },
       { id: "enabled", label: "Enabled", type: "boolean", required: true },
       { id: "token", label: "Token", type: "string", required: true, secret: true },
       { id: "optional", label: "Optional", type: "string", required: false },
@@ -110,9 +126,7 @@ async function* turn(): AsyncGenerator<AgentEvent, void, undefined> {
     title: target,
     kind: "edit",
     input: {
-      changes: [
-        { path: target, kind: { type: "update" }, diff: "@@ -1 +1 @@\n-before\n+after\n" },
-      ],
+      changes: [{ path: target, kind: { type: "update" }, diff: "@@ -1 +1 @@\n-before\n+after\n" }],
     },
   };
   yield { type: "tool_call", id: "call-1", name: "apply_patch", status: "completed" };
@@ -178,13 +192,23 @@ const manager = new SessionManager(
         return;
       }
       questionShown = true;
-      const fields = (request.input as { questions: Array<{ id?: string; minimum?: number; maximum?: number; default?: unknown }> }).questions;
+      const fields = (
+        request.input as {
+          questions: Array<{ id?: string; minimum?: number; maximum?: number; default?: unknown }>;
+        }
+      ).questions;
       const workers = fields.find((field) => field.id === "workers");
       constraintsKept = workers?.minimum === 1 && workers.maximum === 8 && workers.default === 3;
       setTimeout(() => {
         manager.respondQuestion(request.requestId, {
           answers: { "Workspace name": "Ruri" },
-          values: { name: ["Ruri"], workers: ["3"], enabled: ["false"], token: [" fixture-only-secret "], optional: [] },
+          values: {
+            name: ["Ruri"],
+            workers: ["3"],
+            enabled: ["false"],
+            token: [" fixture-only-secret "],
+            optional: [],
+          },
         });
       }, 0);
     },
@@ -216,7 +240,12 @@ const project: Project = {
   sessions: [{ id: "p1" }],
 };
 // The server owns the visible prompt; the model payload is sent silently.
-events.push({ kind: "user", id: "visible-prompt", text: "Rewrite hello.txt so it says after.", ts: Date.now() });
+events.push({
+  kind: "user",
+  id: "visible-prompt",
+  text: "Rewrite hello.txt so it says after.",
+  ts: Date.now(),
+});
 manager.send(project, "Rewrite hello.txt so it says after.", undefined, undefined, true, "visible-prompt");
 await new Promise((r) => setTimeout(r, 500));
 manager.disposeAll();
@@ -228,7 +257,9 @@ const chips = events.filter((e): e is Extract<TranscriptEvent, { kind: "tool" }>
 console.log(`order: ${order}`);
 console.log(`assistant blocks: ${JSON.stringify(texts)}`);
 for (const chip of chips) {
-  console.log(`chip ${chip.name} — ${chip.summary}${chip.diff ? ` (+${chip.diff.added} −${chip.diff.removed})` : " (no patch)"}`);
+  console.log(
+    `chip ${chip.name} — ${chip.summary}${chip.diff ? ` (+${chip.diff.added} −${chip.diff.removed})` : " (no patch)"}`,
+  );
 }
 
 const interleaved = order === "user → plan → assistant → tool → assistant → assistant → result";
@@ -242,17 +273,25 @@ const lines = chips[0]?.diff?.hunks[0]?.lines.map((l) => `${l.kind}:${l.text}`).
 const patchBody = lines === "del:before,add:after";
 const gauged = context?.tokens === 1234;
 const plans = events.filter((event) => event.kind === "plan");
-const planned = plans.length === 1 && plans[0]?.id !== "provider-owned-id" &&
+const planned =
+  plans.length === 1 &&
+  plans[0]?.id !== "provider-owned-id" &&
   plans[0]?.entries?.[0]?.status === "completed";
 const thinkingProgress = progress.some((value) => value.chars === "checking the result".length);
 const answered =
-  questionShown && constraintsKept && inputResponse?.action === "accept" &&
-  inputResponse.values?.["name"] === "Ruri" && inputResponse.values["workers"] === 3 &&
-  inputResponse.values["enabled"] === false && inputResponse.values["token"] === " fixture-only-secret " &&
-  !("optional" in inputResponse.values) && !JSON.stringify(events).includes("fixture-only-secret");
+  questionShown &&
+  constraintsKept &&
+  inputResponse?.action === "accept" &&
+  inputResponse.values?.["name"] === "Ruri" &&
+  inputResponse.values["workers"] === 3 &&
+  inputResponse.values["enabled"] === false &&
+  inputResponse.values["token"] === " fixture-only-secret " &&
+  !("optional" in inputResponse.values) &&
+  !JSON.stringify(events).includes("fixture-only-secret");
 const chained =
   chains.length === 2 &&
-  chains[0]?.eventId === "visible-prompt" && chains[1]?.eventId === "visible-prompt" &&
+  chains[0]?.eventId === "visible-prompt" &&
+  chains[1]?.eventId === "visible-prompt" &&
   chains[0]?.kind === "user" &&
   chains[0]?.id === "turn-7" &&
   chains[1]?.kind === "last" &&
@@ -265,6 +304,18 @@ console.log(`context: ${JSON.stringify(context)}`);
 console.log(
   `checks: interleaved=${interleaved} bankedText=${banked} ruriName=${named} patchCounts=${patched} patchBody=${patchBody} contextGauge=${gauged} plan=${planned} input=${answered} turnChain=${chained} nativeFork=${forked} acceptEdits=${editsAutoAllowed}`,
 );
-const ok = thinkingProgress && interleaved && banked && named && patched && patchBody && gauged && planned && answered && chained && forked && editsAutoAllowed;
+const ok =
+  thinkingProgress &&
+  interleaved &&
+  banked &&
+  named &&
+  patched &&
+  patchBody &&
+  gauged &&
+  planned &&
+  answered &&
+  chained &&
+  forked &&
+  editsAutoAllowed;
 console.log(ok ? "\nPROVIDER EVENTS PASS" : "\nPROVIDER EVENTS FAIL");
 process.exit(ok ? 0 : 1);

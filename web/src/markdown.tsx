@@ -1,101 +1,6 @@
-import DOMPurify from "dompurify";
-import hljs from "highlight.js/lib/common";
-import { Marked } from "marked";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Viewer } from "./components/Attachments";
-import { HTTP_BASE } from "./store";
-
-const marked = new Marked({
-  gfm: true,
-  breaks: true,
-  renderer: {
-    code({ text, lang }) {
-      const language = lang && hljs.getLanguage(lang) ? lang : undefined;
-      const body = language
-        ? hljs.highlight(text, { language }).value
-        : escapeHtml(text);
-      const label = language ? `<span class="code-lang">${language}</span>` : "";
-      const svgAttrs =
-        `viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ` +
-        `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"`;
-      const copyButton =
-        `<button type="button" class="code-copy" title="Copy code" aria-label="Copy code">` +
-        `<svg class="ic-copy" ${svgAttrs}><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>` +
-        `<svg class="ic-check" ${svgAttrs}><path d="M20 6L9 17l-5-5"/></svg>` +
-        `</button>`;
-      return (
-        `<div class="codeblock">` +
-        `<div class="codeblock-bar">${label}${copyButton}</div>` +
-        `<pre><code class="hljs">${body}</code></pre>` +
-        `</div>`
-      );
-    },
-    // A picture the model points at by path — the icon it just drew, a
-    // screenshot it took — is a file on this machine, which a page cannot
-    // open by itself: it goes through the server's /read, which serves the
-    // paths a reply has named (server.ts allowReadImages) and nothing else.
-    // Relative paths are the project's; the server resolves them.
-    image({ href, title, text }) {
-      const local = !/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith("/readfile?");
-      const src = local ? `${HTTP_BASE}/readfile?p=${encodeURIComponent(href)}` : href;
-      const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
-      return `<img src="${escapeHtml(src)}" alt="${escapeHtml(text)}"${titleAttr}${local ? ' class="md-local"' : ""}>`;
-    },
-    link({ href, title, tokens }) {
-      const text = this.parser.parseInline(tokens);
-      const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
-      return `<a href="${escapeHtml(href)}"${titleAttr} target="_blank" rel="noreferrer">${text}</a>`;
-    },
-  },
-});
-
-function escapeHtml(text: string): string {
-  return text
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-/**
- * Rendered markdown, kept across mounts.
- *
- * Parsing and highlighting a reply costs a few milliseconds, and a session
- * switch used to pay it again for every message on screen — the useMemo
- * below only lives as long as the component does, and switching sessions
- * unmounts all of them. Transcript text never changes once written, so the
- * text itself is the key: coming back to a session you've already read
- * re-renders from strings that are already HTML.
- */
-const CACHE_LIMIT = 1200;
-const cache = new Map<string, string>();
-
-function render(text: string): string {
-  const hit = cache.get(text);
-  if (hit !== undefined) {
-    // touch it, so the cap sheds what nobody has looked at in a while
-    cache.delete(text);
-    cache.set(text, hit);
-    return hit;
-  }
-  const html = DOMPurify.sanitize(marked.parse(text, { async: false }), {
-    ADD_ATTR: ["target"],
-  });
-  cache.set(text, html);
-  if (cache.size > CACHE_LIMIT) {
-    const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
-  }
-  return html;
-}
-
-/**
- * Render ahead of being asked, while the app has nothing better to do — the
- * work lands in the cache and the switch that needs it is already paid for.
- */
-export function prewarmMarkdown(text: string): void {
-  if (text && !cache.has(text)) render(text);
-}
+import { markdownHtml, renderMarkdown } from "./lib/markdownHtml";
 
 /** A picture in a reply, clicked: what the viewer is asked to show. */
 interface Picture {
@@ -105,29 +10,59 @@ interface Picture {
 
 /** Copy-button delegation: one handler for every code block in the subtree —
  *  and a picture clicked is handed back, to open in the viewer. */
-function onClick(e: React.MouseEvent<HTMLDivElement>, onPicture?: (p: Picture) => void): void {
+function onClick(
+  e: React.MouseEvent<HTMLDivElement>,
+  timersRef: RefObject<Set<number>>,
+  onPicture?: (p: Picture) => void,
+): void {
   const target = e.target as HTMLElement;
   if (target instanceof HTMLImageElement && onPicture) {
     e.preventDefault();
-    onPicture({ src: target.currentSrc || target.src, name: target.alt || target.src.split("/").pop() || "picture" });
+    onPicture({
+      src: target.currentSrc || target.src,
+      name: target.alt || target.src.split("/").pop() || "picture",
+    });
     return;
   }
   const button = target.closest(".code-copy");
   if (!(button instanceof HTMLButtonElement)) return;
   const code = button.closest(".codeblock")?.querySelector("code")?.textContent ?? "";
+  const timers = timersRef.current;
   void navigator.clipboard.writeText(code).then(() => {
     button.classList.add("copied");
-    setTimeout(() => button.classList.remove("copied"), 1200);
+    const timer = window.setTimeout(() => {
+      timers.delete(timer);
+      button.classList.remove("copied");
+    }, 1200);
+    timers.add(timer);
   });
 }
 
+/** The "copied" flashes this block has going, cleared when it goes. */
+function useCopyTimers(): RefObject<Set<number>> {
+  const timers = useRef(new Set<number>());
+  useEffect(() => {
+    const live = timers.current;
+    return () => {
+      for (const timer of live) clearTimeout(timer);
+      live.clear();
+    };
+  }, []);
+  return timers;
+}
+
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
-  const html = useMemo(() => render(text), [text]);
+  const html = useMemo(() => renderMarkdown(text), [text]);
   const [picture, setPicture] = useState<Picture | null>(null);
+  const timers = useCopyTimers();
   return (
     <>
-      {/* eslint-disable-next-line react/no-danger -- sanitized via DOMPurify above */}
-      <div className="md" onClick={(e) => onClick(e, setPicture)} dangerouslySetInnerHTML={{ __html: html }} />
+      {/* sanitised by DOMPurify (lib/markdownHtml.ts) */}
+      <div
+        className="md"
+        onClick={(e) => onClick(e, timers, setPicture)}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
       {picture && (
         <Viewer
           target={{ kind: "image", src: picture.src, label: picture.name, name: picture.name }}
@@ -145,15 +80,14 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
  * (server/paragraphs.ts), so this changes a few times per reply rather than
  * many times a second, and renders each version straight away. Half-finished
  * replies are never cached — they would push out the finished replies the
- * cache above exists to keep — and the final text goes through `Markdown`
+ * cache (lib/markdownHtml.ts) exists to keep — and the final text goes through `Markdown`
  * proper the moment the turn ends and the event replaces the draft.
  */
 export function StreamingMarkdown({ text }: { text: string }) {
-  const html = useMemo(
-    () => DOMPurify.sanitize(marked.parse(text, { async: false }), { ADD_ATTR: ["target"] }),
-    [text],
+  const html = useMemo(() => markdownHtml(text), [text]);
+  const timers = useCopyTimers();
+  // sanitised by DOMPurify (lib/markdownHtml.ts)
+  return (
+    <div className="md" onClick={(e) => onClick(e, timers)} dangerouslySetInnerHTML={{ __html: html }} />
   );
-  // eslint-disable-next-line react/no-danger -- sanitized via DOMPurify above
-  return <div className="md" onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
 }
-

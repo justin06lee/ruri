@@ -16,6 +16,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { ClientMessage, ContextUsage, ServerMessage, TranscriptEvent } from "../shared/protocol.js";
 
 const PORT = 7894;
@@ -38,7 +39,7 @@ for (const args of [
 
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: path.join(import.meta.dirname, ".."),
-  env: { ...process.env, RURI_PORT: String(PORT), RURI_CONFIG_DIR: configDir },
+  env: { ...process.env, RURI_PORT: String(PORT), RURI_TOKEN: TOKEN, RURI_CONFIG_DIR: configDir },
   stdio: ["ignore", "pipe", "inherit"],
 });
 server.stdout.on("data", (d: Buffer) => process.stdout.write(`[server] ${d}`));
@@ -59,7 +60,7 @@ async function connect(): Promise<WebSocket> {
   for (;;) {
     try {
       return await new Promise<WebSocket>((resolve, reject) => {
-        const sock = new WebSocket(`ws://127.0.0.1:${PORT}`);
+        const sock = new WebSocket(wsUrl(PORT));
         sock.once("open", () => resolve(sock));
         sock.once("error", reject);
       });
@@ -124,7 +125,9 @@ ws.on("message", (raw) => {
       if (e.kind === "user" && !promptId) promptId = e.id;
       if (e.kind === "tool") {
         tools.push(e);
-        console.log(`[t] chip ${e.name} — ${e.summary.slice(0, 60)}${e.diff ? ` (+${e.diff.added} −${e.diff.removed})` : ""}`);
+        console.log(
+          `[t] chip ${e.name} — ${e.summary.slice(0, 60)}${e.diff ? ` (+${e.diff.added} −${e.diff.removed})` : ""}`,
+        );
       }
       if (e.kind === "result" && phase === "run") {
         if (e.error) console.log(`[t] turn error: ${e.error}`);
@@ -172,7 +175,9 @@ function check(): void {
   const firstTool = order.indexOf("tool");
   const firstAssistant = order.indexOf("assistant");
   const ordered = firstTool === -1 || (firstAssistant !== -1 && firstAssistant < firstTool);
-  console.log(`\ncontext at turn's end: ${JSON.stringify(turnContext)}; after the rewind: ${JSON.stringify(context)}`);
+  console.log(
+    `\ncontext at turn's end: ${JSON.stringify(turnContext)}; after the rewind: ${JSON.stringify(context)}`,
+  );
   console.log(`${HARNESS} limits: ${JSON.stringify(limits)}`);
   console.log(`event order: ${order.join(" → ")}`);
   console.log(

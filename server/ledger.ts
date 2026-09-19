@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
+import { configPath } from "./configDir.js";
 import type { ProjectStats, Totals } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * What each project has cost, by the day.
@@ -16,10 +17,7 @@ import type { ProjectStats, Totals } from "../shared/protocol.js";
  */
 
 function ledgerFile(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "ledger.json",
-  );
+  return configPath("ledger.json");
 }
 
 const ZERO: Totals = { tokens: 0, costUsd: 0, turns: 0, ms: 0 };
@@ -49,14 +47,18 @@ export class LedgerStore {
 
   constructor() {
     try {
-      const raw = JSON.parse(fs.readFileSync(ledgerFile(), "utf8")) as Record<string, Record<string, Partial<Totals>>>;
+      const raw = JSON.parse(fs.readFileSync(ledgerFile(), "utf8")) as Record<
+        string,
+        Record<string, Partial<Totals>>
+      >;
       for (const [projectId, days] of Object.entries(raw)) {
         if (!days || typeof days !== "object") continue;
         const map = new Map<string, Totals>();
         for (const [day, totals] of Object.entries(days)) map.set(day, add(ZERO, totals));
         this.days.set(projectId, map);
       }
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("ledger", err, "new LedgerStore");
       // nothing spent yet
     }
   }
@@ -66,11 +68,11 @@ export class LedgerStore {
     this.timer = setTimeout(() => {
       this.timer = null;
       try {
-        fs.mkdirSync(path.dirname(ledgerFile()), { recursive: true });
         const out: Record<string, Record<string, Totals>> = {};
         for (const [projectId, days] of this.days) out[projectId] = Object.fromEntries(days);
-        fs.writeFileSync(ledgerFile(), JSON.stringify(out, null, 1));
-      } catch {
+        writeJsonAtomic(ledgerFile(), out, 1);
+      } catch (err) {
+        warn("ledger", err, "save");
         // best-effort; the in-memory sums stay right
       }
     }, WRITE_DELAY_MS);
@@ -116,8 +118,9 @@ export class LedgerStore {
     try {
       const out: Record<string, Record<string, Totals>> = {};
       for (const [projectId, days] of this.days) out[projectId] = Object.fromEntries(days);
-      fs.writeFileSync(ledgerFile(), JSON.stringify(out, null, 1));
-    } catch {
+      writeJsonAtomic(ledgerFile(), out, 1);
+    } catch (err) {
+      warn("ledger", err, "flush");
       // best-effort
     }
   }

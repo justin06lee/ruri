@@ -5,6 +5,8 @@ import * as path from "node:path";
 import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import type { Project, RecentSession, TranscriptEvent } from "../shared/protocol.js";
 import { readImage, toolSummary } from "./sessions.js";
+import { codexHome } from "./usage.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The chats that happened outside ruri.
@@ -30,7 +32,7 @@ const LIST_LIMIT = 24;
  * compaction brief, a command echo, a system reminder). Empty when there
  * was nothing of the user's in it at all.
  */
-function humanText(text: string): string {
+export function humanText(text: string): string {
   let t = text.trim();
   for (;;) {
     const block = /^<([a-z][\w:-]*)(?:\s[^>]*)?>[^]*?<\/\1>\s*/i.exec(t);
@@ -41,7 +43,7 @@ function humanText(text: string): string {
 }
 
 /** A title the way a person would want it: the first thing said, short. */
-function titleOf(text: string): string {
+export function titleOf(text: string): string {
   const flat = humanText(text).replace(/\s+/g, " ").trim();
   return flat.length > 90 ? `${flat.slice(0, 89).trimEnd()}…` : flat;
 }
@@ -50,7 +52,8 @@ function sameDir(a: string, b: string): boolean {
   const norm = (p: string) => {
     try {
       return fs.realpathSync(p).replace(/\/+$/, "");
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("recent", err, "norm");
       return path.resolve(p).replace(/\/+$/, "");
     }
   };
@@ -70,9 +73,9 @@ async function listClaude(project: Project, taken: Set<string>): Promise<RecentS
         title: titleOf(s.customTitle ?? s.firstPrompt ?? s.summary ?? "") || "untitled",
         at: s.lastModified,
         ...(s.gitBranch ? { branch: s.gitBranch } : {}),
-      }))
-      ;
-  } catch {
+      }));
+  } catch (err) {
+    warn("recent", err, "listClaude");
     return [];
   }
 }
@@ -89,7 +92,8 @@ function claudeSessionFile(project: Project, sessionId: string): string | undefi
       const file = path.join(root, dir, `${sessionId}.jsonl`);
       if (fs.existsSync(file)) return file;
     }
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("recent", err, "claudeSessionFile");
     // no projects dir
   }
   return undefined;
@@ -110,7 +114,8 @@ function readClaude(project: Project, file: string): TranscriptEvent[] {
   let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("recent", err, "readClaude");
     return events;
   }
   let inTurn = false;
@@ -125,7 +130,8 @@ function readClaude(project: Project, file: string): TranscriptEvent[] {
     let entry: ClaudeLine;
     try {
       entry = JSON.parse(line) as ClaudeLine;
-    } catch {
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) warn("recent", err, "readClaude");
       continue;
     }
     if (entry.isSidechain || entry.isMeta) continue;
@@ -179,10 +185,6 @@ function readClaude(project: Project, file: string): TranscriptEvent[] {
 
 /* ── Codex ──────────────────────────────────────────────────────── */
 
-function codexHome(): string {
-  return process.env["CODEX_HOME"] ?? path.join(os.homedir(), ".codex");
-}
-
 /** Every rollout written in the last while, newest first. */
 function recentRollouts(): string[] {
   const root = path.join(codexHome(), "sessions");
@@ -192,7 +194,8 @@ function recentRollouts(): string[] {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("recent", err, "walk");
       return;
     }
     for (const entry of entries) {
@@ -203,7 +206,8 @@ function recentRollouts(): string[] {
         try {
           const at = fs.statSync(full).mtimeMs;
           if (at >= cutoff) files.push({ file: full, at });
-        } catch {
+        } catch (err) {
+          if (!isMissing(err)) warn("recent", err, "walk");
           // unreadable — skip
         }
       }
@@ -236,7 +240,8 @@ function rolloutMeta(file: string): CodexMeta | undefined {
     } finally {
       fs.closeSync(fd);
     }
-  } catch {
+  } catch (err) {
+    warn("recent", err, "rolloutMeta");
     return undefined;
   }
 }
@@ -251,7 +256,8 @@ function rolloutLines(file: string): RolloutLine[] {
   let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("recent", err, "rolloutLines");
     return [];
   }
   const lines: RolloutLine[] = [];
@@ -259,7 +265,8 @@ function rolloutLines(file: string): RolloutLine[] {
     if (!line.startsWith("{")) continue;
     try {
       lines.push(JSON.parse(line) as RolloutLine);
-    } catch {
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) warn("recent", err, "rolloutLines");
       // a half-written last line
     }
   }
@@ -267,7 +274,7 @@ function rolloutLines(file: string): RolloutLine[] {
 }
 
 /** The text of a Codex message payload's content blocks. */
-function codexText(content: unknown): string {
+export function codexText(content: unknown): string {
   if (!Array.isArray(content)) return typeof content === "string" ? content : "";
   return content
     .filter((b): b is { type: string; text?: string } => typeof b === "object" && b !== null)
@@ -277,7 +284,7 @@ function codexText(content: unknown): string {
 }
 
 /** What a Codex tool call did, in one line the chip can show. */
-function codexTool(payload: Record<string, unknown>): { name: string; summary: string } {
+export function codexTool(payload: Record<string, unknown>): { name: string; summary: string } {
   const name = typeof payload["name"] === "string" ? (payload["name"] as string) : "tool";
   const input = payload["input"] ?? payload["arguments"];
   let summary = "";
@@ -288,7 +295,8 @@ function codexTool(payload: Record<string, unknown>): { name: string; summary: s
     if (cmd?.[1]) {
       try {
         summary = JSON.parse(`"${cmd[1]}"`) as string;
-      } catch {
+      } catch (err) {
+        if (!(err instanceof SyntaxError)) warn("recent", err, "codexTool");
         summary = cmd[1];
       }
     } else {
@@ -296,7 +304,8 @@ function codexTool(payload: Record<string, unknown>): { name: string; summary: s
         const parsed = JSON.parse(input) as Record<string, unknown>;
         const command = parsed["command"] ?? parsed["cmd"];
         summary = Array.isArray(command) ? command.join(" ") : typeof command === "string" ? command : input;
-      } catch {
+      } catch (err) {
+        if (!(err instanceof SyntaxError)) warn("recent", err, "codexTool");
         summary = input;
       }
     }
@@ -335,7 +344,8 @@ function listCodex(project: Project, taken: Set<string>): RecentSession[] {
     let at = Date.now();
     try {
       at = fs.statSync(file).mtimeMs;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("recent", err, "listCodex");
       // keep now
     }
     out.push({ id: `codex:${meta.id}`, provider: "codex", title: titleOf(title) || "untitled", at });
@@ -357,7 +367,8 @@ function scanFor(sessionId: string): string | undefined {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("recent", err, "scanFor");
       continue;
     }
     for (const entry of entries) {

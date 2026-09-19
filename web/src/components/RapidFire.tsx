@@ -42,10 +42,9 @@ function line(): { ids: string[]; ready: string[] } {
   const { statuses } = useRuri.getState();
   // hidden projects are out of the line, as they are out of the sidebar
   const projects = useRuri.getState().projects.filter((p) => !p.hidden);
-  const ids = [
-    ...projects.filter((p) => p.starred),
-    ...projects.filter((p) => !p.starred),
-  ].flatMap((project) => project.sessions.map((session) => session.id));
+  const ids = [...projects.filter((p) => p.starred), ...projects.filter((p) => !p.starred)].flatMap(
+    (project) => project.sessions.map((session) => session.id),
+  );
   return { ids, ready: ids.filter((id) => (statuses[id] ?? "idle") !== "working") };
 }
 
@@ -72,10 +71,24 @@ function nextAfter(from: string | undefined): string | undefined {
   return undefined;
 }
 
+/** Where the pick should be, given where it is: unchanged while that
+ *  session can still take a prompt. */
+function repick(current: string | undefined): string | undefined {
+  const { ready } = line();
+  if (current && ready.includes(current)) return current;
+  // entering the line from a session that could take a prompt starts there
+  const activeId = useRuri.getState().activeId;
+  const next = current === undefined && activeId && ready.includes(activeId) ? activeId : nextAfter(current);
+  // nobody else waiting: stay on this one and watch it finish
+  return next ?? current;
+}
+
 export function useRapidFire(): RapidFire {
   const on = useRuri((s) => s.rapid);
-  const projects = useRuri((s) => s.projects);
-  const statuses = useRuri((s) => s.statuses);
+  // subscribed only to render again when the line changes: `line()` reads
+  // them from the store itself
+  useRuri((s) => s.projects);
+  useRuri((s) => s.statuses);
   const [current, setCurrent] = useState<string | undefined>(undefined);
   /** A hand-off is under way: the card is holding, then fading. Nothing else
    *  may move the pick until it lands — least of all the turn the sent prompt
@@ -91,33 +104,31 @@ export function useRapidFire(): RapidFire {
   };
   useEffect(() => clearTimers, []);
 
-  // Leaving the line drops the pick, so coming back starts fresh.
+  // Leaving the line drops the pick, so coming back starts fresh — the
+  // state as the render notices, the timers (not state) after it.
+  const [wasOn, setWasOn] = useState(on);
+  if (wasOn !== on) {
+    setWasOn(on);
+    if (!on) {
+      setHanding(false);
+      setLeaving(false);
+      setIntro(null);
+      setCurrent(undefined);
+    }
+  }
   useEffect(() => {
-    if (on) return;
-    clearTimers();
-    setHanding(false);
-    setLeaving(false);
-    setIntro(null);
-    setCurrent(undefined);
+    if (!on) clearTimers();
   }, [on]);
 
   // The pick: whoever is ready. It only moves on its own when this one can no
   // longer take a prompt — it started a turn, or it's gone. When everybody's
   // working there's nowhere to go, so the card stays and you watch it finish.
-  useEffect(() => {
-    if (!on || handing) return;
-    const { ready } = line();
-    if (current && ready.includes(current)) return;
-    // entering the line from a session that could take a prompt starts there
-    const activeId = useRuri.getState().activeId;
-    const next =
-      current === undefined && activeId && ready.includes(activeId)
-        ? activeId
-        : nextAfter(current);
-    // nobody else waiting: stay on this one and watch it finish
-    if (next && next !== current) setCurrent(next);
-    // recomputed from projects/statuses on every change
-  }, [on, handing, current, projects, statuses]);
+  // Worked out as the render happens — projects and statuses are subscribed
+  // above, so every change to the line comes through here.
+  if (on && !handing) {
+    const next = repick(current);
+    if (next !== current) setCurrent(next);
+  }
 
   // Being shown counts as read.
   useEffect(() => {
@@ -206,9 +217,7 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
     const box = pane?.querySelector(".composer-box");
     if (!bar || !pane || !box) return;
     const align = () => {
-      const inset = Math.round(
-        pane.getBoundingClientRect().right - box.getBoundingClientRect().right,
-      );
+      const inset = Math.round(pane.getBoundingClientRect().right - box.getBoundingClientRect().right);
       bar.style.setProperty("--rapid-inset", `${inset}px`);
     };
     align();
@@ -224,8 +233,7 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
           surface under it the conversation reads straight through the text */}
       <div className="rapid-plate">
         <span className="rapid-count">
-          <span className="rapid-lead">rapid fire</span> · {rapid.ready} ready · {rapid.working}{" "}
-          working
+          <span className="rapid-lead">rapid fire</span> · {rapid.ready} ready · {rapid.working} working
         </span>
         {rapid.ready > 1 && (
           <button
@@ -234,13 +242,28 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
             onClick={() => rapid.advance("skip")}
           >
             skip
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>
           </button>
         )}
         <button className="icon-button" title="Leave rapid fire" onClick={() => setRapid(false)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden
+          >
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>

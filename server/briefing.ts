@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SecretStore } from "./secrets.js";
 import { localSkillsBriefing } from "./skills.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * What every project session is told about ruri itself, before it starts.
@@ -20,7 +21,8 @@ import { localSkillsBriefing } from "./skills.js";
 function exists(file: string): boolean {
   try {
     return fs.statSync(file).isFile();
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("briefing", err, "exists");
     return false;
   }
 }
@@ -72,8 +74,8 @@ export function sessionBriefing(input: {
         "<ruri:naming>",
         "When you build or substantially change a piece of this project's interface, call mcp__ruri__name_component right after you finish it: your suggested name, the files it lives in, one line on what it is, and a screenshot of it.",
         "Take the screenshot if you don't already have one — the card shows it, and without it you are asking the user to name something they cannot see. ruri keeps its own copy with the entry, so later sessions can read it back to know what the name refers to.",
-        "The user gets a card, edits the name to whatever they will actually call it, and confirms — and from then on that name is how they will refer to it. Suggest the name a person would use: \"the dragon gauges\", not \"DragonGauge\". One call per component, not per file.",
-        "mcp__ruri__list_components answers \"what is what\" when they use a name you don't recognise, or ask what exists.",
+        'The user gets a card, edits the name to whatever they will actually call it, and confirms — and from then on that name is how they will refer to it. Suggest the name a person would use: "the dragon gauges", not "DragonGauge". One call per component, not per file.',
+        'mcp__ruri__list_components answers "what is what" when they use a name you don\'t recognise, or ask what exists.',
         "</ruri:naming>",
       ].join("\n"),
     );

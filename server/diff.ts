@@ -10,6 +10,7 @@
 
 import * as fs from "node:fs";
 import type { DiffHunk, DiffLine, FileDiff } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /** Context lines kept either side of a change, as git does by default. */
 const CONTEXT = 3;
@@ -63,9 +64,7 @@ function diffLines(before: string[], after: string[]): DiffLine[] {
     for (let i = n - 1; i >= 0; i--) {
       for (let j = m - 1; j >= 0; j--) {
         lcs[i]![j] =
-          midBefore[i] === midAfter[j]
-            ? lcs[i + 1]![j + 1]! + 1
-            : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
+          midBefore[i] === midAfter[j] ? lcs[i + 1]![j + 1]! + 1 : Math.max(lcs[i + 1]![j]!, lcs[i]![j + 1]!);
       }
     }
     let i = 0;
@@ -131,11 +130,7 @@ function toHunks(script: DiffLine[]): { hunks: DiffHunk[]; truncated: boolean } 
 }
 
 /** Build the patch between two whole-file strings. Null when nothing moved. */
-export function buildDiff(
-  displayPath: string,
-  before: string | null,
-  after: string,
-): FileDiff | null {
+export function buildDiff(displayPath: string, before: string | null, after: string): FileDiff | null {
   if (before === after) return null;
   const script = diffLines(splitLines(before ?? ""), splitLines(after));
   const added = script.filter((l) => l.kind === "add").length;
@@ -206,7 +201,8 @@ export function parseUnifiedDiff(
 export function readBefore(filePath: string): string | null {
   try {
     return fs.readFileSync(filePath, "utf8");
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("diff", err, "readBefore");
     return null;
   }
 }

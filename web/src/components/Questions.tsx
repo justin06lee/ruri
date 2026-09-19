@@ -20,7 +20,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AskAnswers, AskQuestion, AskQuestions, PermissionRequest } from "../../../shared/protocol";
-import { send } from "../store";
+import { send, showError, useRuri } from "../store";
 import { questionError } from "../../../shared/questionInput";
 
 /** What one question's answer looks like while the card is open. */
@@ -40,6 +40,13 @@ interface Held {
 
 const held = new Map<string, Held>();
 
+// a request answered elsewhere, or withdrawn, takes its drafts with it
+useRuri.subscribe((s, prev) => {
+  if (s.permissions === prev.permissions) return;
+  const live = new Set(s.permissions.map((p) => p.requestId));
+  for (const id of held.keys()) if (!live.has(id)) held.delete(id);
+});
+
 /** How long a picked answer stays on screen before the card moves on. */
 const ADVANCE_MS = 260;
 
@@ -51,7 +58,14 @@ function Check({ on, multi }: { on: boolean; multi: boolean }) {
   return (
     <span className={`ask-mark ${multi ? "multi" : "single"} ${on ? "on" : ""}`} aria-hidden>
       {on && (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
           <path d={multi ? "M20 6L9 17l-5-5" : "M12 12h.01"} />
         </svg>
       )}
@@ -121,7 +135,15 @@ function QuestionBlock({
       {q.url && (
         <a className="ask-url" href={q.url} target="_blank" rel="noreferrer">
           Open the requested page
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
             <path d="M14 3h7v7M10 14L21 3" />
             <path d="M21 14v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h6" />
           </svg>
@@ -157,10 +179,12 @@ function QuestionBlock({
           </button>
         )}
       </div>
-      {draft.otherOn && (
-        q.secret || q.inputType === "number" || q.inputType === "integer" ? (
+      {draft.otherOn &&
+        (q.secret || q.inputType === "number" || q.inputType === "integer" ? (
           <input
-            ref={(node) => { otherRef.current = node; }}
+            ref={(node) => {
+              otherRef.current = node;
+            }}
             className="ask-other"
             type={q.secret ? "password" : "number"}
             inputMode={q.secret ? undefined : q.inputType === "integer" ? "numeric" : "decimal"}
@@ -182,7 +206,9 @@ function QuestionBlock({
           />
         ) : (
           <textarea
-            ref={(node) => { otherRef.current = node; }}
+            ref={(node) => {
+              otherRef.current = node;
+            }}
             className="ask-other"
             rows={2}
             placeholder="Your answer…"
@@ -195,9 +221,12 @@ function QuestionBlock({
             value={draft.other}
             onChange={(e) => onChange({ ...draft, other: e.target.value })}
           />
-        )
+        ))}
+      {draft.other && error && (
+        <div className="ask-hint" role="alert">
+          {error}
+        </div>
       )}
-      {draft.other && error && <div className="ask-hint" role="alert">{error}</div>}
       {preview && <pre className="ask-preview scroll-gate">{preview}</pre>}
     </div>
   );
@@ -228,13 +257,17 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
     () =>
       held.get(request.requestId) ?? {
         drafts: questions.map((question) => {
-          const values = question.default === undefined ? []
-            : (Array.isArray(question.default) ? question.default : [question.default]).map(String);
+          const values =
+            question.default === undefined
+              ? []
+              : (Array.isArray(question.default) ? question.default : [question.default]).map(String);
           const picked = values.flatMap((value) => {
             const option = question.options.find((option) => (option.value ?? option.label) === value);
             return option ? [option.label] : [];
           });
-          const other = values.filter((value) => !question.options.some((option) => (option.value ?? option.label) === value)).join(", ");
+          const other = values
+            .filter((value) => !question.options.some((option) => (option.value ?? option.label) === value))
+            .join(", ");
           return { picked, other, otherOn: Boolean(other) || question.options.length === 0 };
         }),
         at: 0,
@@ -247,7 +280,8 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
 
   const { drafts, at } = state;
   const answered = useMemo(
-    () => drafts.every((draft, index) => !questionError(questions[index]!, valuesOf(questions[index]!, draft))),
+    () =>
+      drafts.every((draft, index) => !questionError(questions[index]!, valuesOf(questions[index]!, draft))),
     [drafts, questions],
   );
   const many = questions.length > 1;
@@ -262,9 +296,12 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   // The move-on after a pick is a beat later, so the mark is seen landing
   // before the question slides away; a card that unmounts first drops it.
   const advance = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (advance.current) clearTimeout(advance.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (advance.current) clearTimeout(advance.current);
+    },
+    [],
+  );
   const picked = (index: number) => {
     if (index >= last) return;
     if (advance.current) clearTimeout(advance.current);
@@ -275,8 +312,11 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   };
 
   const finish = (answers?: AskAnswers) => {
-    held.delete(request.requestId);
-    send({ type: "question_response", requestId: request.requestId, ...(answers ? { answers } : {}) });
+    if (send({ type: "question_response", requestId: request.requestId, ...(answers ? { answers } : {}) })) {
+      held.delete(request.requestId);
+    } else {
+      showError("Not connected — the answer did not go through; try again once ruri is back.");
+    }
   };
 
   const submit = () => {
@@ -316,7 +356,16 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   return (
     <div className="ask-card">
       <div className="ask-title">
-        <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <svg
+          className="icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
           <path d="M9.1 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
           <path d="M12 17h.01" />
           <circle cx="12" cy="12" r="10" />
@@ -332,7 +381,15 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
               disabled={at === 0}
               onClick={() => go(at - 1)}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M15 18l-6-6 6-6" />
               </svg>
             </button>
@@ -346,7 +403,15 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
               disabled={at === last}
               onClick={() => go(at + 1)}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M9 18l6-6-6-6" />
               </svg>
             </button>

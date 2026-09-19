@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
+import { configPath } from "./configDir.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The window's own preferences — theme, the theme clock, which folders are
@@ -23,10 +24,7 @@ const MAX_KEYS = 200;
 const MAX_VALUE = 8_000;
 
 function prefsFile(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "prefs.json",
-  );
+  return configPath("prefs.json");
 }
 
 export class PrefStore {
@@ -40,7 +38,8 @@ export class PrefStore {
       for (const [key, value] of Object.entries(raw)) {
         if (typeof value === "string") loaded[key] = value;
       }
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("prefs", err, "load");
       loaded = {};
     }
     this.data = loaded;
@@ -64,9 +63,9 @@ export class PrefStore {
 
   private save(): void {
     try {
-      fs.mkdirSync(path.dirname(prefsFile()), { recursive: true });
-      fs.writeFileSync(prefsFile(), JSON.stringify(this.data ?? {}, null, 2));
-    } catch {
+      writeJsonAtomic(prefsFile(), this.data ?? {}, 2);
+    } catch (err) {
+      warn("prefs", err, "save");
       // best-effort persistence
     }
   }

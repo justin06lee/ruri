@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface DropdownOption {
   value: string;
@@ -142,8 +142,13 @@ export function ComboDropdown({
   title?: string;
   up?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
   const [sub, setSub] = useState<string | null>(null);
+  /** Closing the menu closes its flyout too, so it opens fresh next time. */
+  const setOpen = useCallback((next: boolean) => {
+    setOpenState(next);
+    if (!next) setSub(null);
+  }, []);
   /** The flyout opens to the right unless the window ends there. */
   const [flip, setFlip] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -165,11 +170,7 @@ export function ComboDropdown({
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open, sub]);
-
-  useEffect(() => {
-    if (!open) setSub(null);
-  }, [open]);
+  }, [open, sub, setOpen]);
 
   const showSub = (key: string) => {
     const menu = menuRef.current?.getBoundingClientRect();

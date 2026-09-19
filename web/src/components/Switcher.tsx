@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HOME_ID } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
+import { score } from "../lib/fuzzy";
 
 /**
  * The switcher: tap the right Option key (or ⌘K) and a search stands over
@@ -27,36 +28,6 @@ interface Entry {
   go(): void;
 }
 
-/**
- * How well `text` answers `query`, or null for not at all. A name that
- * starts with the query beats one with a word that does, which beats one
- * containing it, which beats the letters merely appearing in order — and
- * shorter names win ties, since they are the closer match.
- */
-function score(query: string, text: string): number | null {
-  const q = query.toLowerCase();
-  const t = text.toLowerCase();
-  if (!q) return 0;
-  if (t.startsWith(q)) return 1000 - t.length;
-  const words = t.split(/[\s/_.-]+/);
-  if (words.some((word) => word.startsWith(q))) return 800 - t.length;
-  const at = t.indexOf(q);
-  if (at >= 0) return 600 - at - t.length;
-  // in order, with gaps: each gap costs, so "fui" finds "Frontend UI"
-  // ahead of some longer thing the letters happen to be scattered through
-  let i = 0;
-  let gaps = 0;
-  let last = -1;
-  for (let j = 0; j < t.length && i < q.length; j += 1) {
-    if (t[j] !== q[i]) continue;
-    if (last >= 0 && j !== last + 1) gaps += 1;
-    last = j;
-    i += 1;
-  }
-  if (i < q.length) return null;
-  return 300 - gaps * 20 - t.length;
-}
-
 const KIND_LABEL: Record<Kind, string> = { place: "go", project: "project", session: "chat" };
 
 /** A project's own page name, for the list and the completion. */
@@ -81,8 +52,20 @@ export function Switcher() {
   const entries = useMemo<Entry[]>(() => {
     const list: Entry[] = [
       { id: "home", kind: "place", name: "Home", where: "the orchestrator", go: () => setActive(HOME_ID) },
-      { id: "rapid", kind: "place", name: "Rapid fire", where: "prompt whichever session is ready", go: () => setRapid(true) },
-      { id: "settings", kind: "place", name: "Settings", where: "themes, models, the vault", go: () => setSettingsOpen(true) },
+      {
+        id: "rapid",
+        kind: "place",
+        name: "Rapid fire",
+        where: "prompt whichever session is ready",
+        go: () => setRapid(true),
+      },
+      {
+        id: "settings",
+        kind: "place",
+        name: "Settings",
+        where: "themes, models, the vault",
+        go: () => setSettingsOpen(true),
+      },
     ];
     for (const project of projects) {
       if (project.hidden) continue; // hidden is hidden here too
@@ -141,14 +124,14 @@ export function Switcher() {
       ? picked.name.slice(query.length)
       : "";
 
-  const close = () => {
+  const close = useCallback(() => {
     setOpen(false);
     setQuery("");
     setCursor(0);
     const back = before.current;
     before.current = null;
     requestAnimationFrame(() => back?.focus());
-  };
+  }, []);
   const go = (entry: Entry | undefined) => {
     if (!entry) return;
     close();
@@ -203,8 +186,7 @@ export function Switcher() {
       window.removeEventListener("keyup", onUp, true);
       window.removeEventListener("blur", onBlur);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [close]);
 
   useEffect(() => {
     if (open) requestAnimationFrame(() => inputRef.current?.focus());
@@ -212,9 +194,7 @@ export function Switcher() {
 
   // the picked row stays in view as the arrows move down the list
   useEffect(() => {
-    listRef.current
-      ?.querySelector<HTMLElement>(".switcher-row.picked")
-      ?.scrollIntoView({ block: "nearest" });
+    listRef.current?.querySelector<HTMLElement>(".switcher-row.picked")?.scrollIntoView({ block: "nearest" });
   }, [cursor, results]);
 
   if (!open) return null;
@@ -223,7 +203,15 @@ export function Switcher() {
     <div className="switcher-veil" onMouseDown={close}>
       <div className="switcher" role="dialog" aria-label="Go to" onMouseDown={(e) => e.stopPropagation()}>
         <div className="switcher-field">
-          <svg className="switcher-glass" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+          <svg
+            className="switcher-glass"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            aria-hidden
+          >
             <circle cx="11" cy="11" r="7" />
             <path d="M20 20l-3.5-3.5" />
           </svg>
@@ -287,10 +275,18 @@ export function Switcher() {
           ))}
         </div>
         <div className="switcher-foot">
-          <span><kbd>↑↓</kbd> move</span>
-          <span><kbd>⇥</kbd> complete</span>
-          <span><kbd>⏎</kbd> go</span>
-          <span className="switcher-foot-key"><kbd>⌥</kbd> right option opens this</span>
+          <span>
+            <kbd>↑↓</kbd> move
+          </span>
+          <span>
+            <kbd>⇥</kbd> complete
+          </span>
+          <span>
+            <kbd>⏎</kbd> go
+          </span>
+          <span className="switcher-foot-key">
+            <kbd>⌥</kbd> right option opens this
+          </span>
         </div>
       </div>
     </div>

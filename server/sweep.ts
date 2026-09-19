@@ -1,8 +1,12 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { promisify } from "node:util";
 import type { NamedComponent } from "../shared/protocol.js";
 import { nameProjectParts, type SweptComponent } from "./smallmodel.js";
+import { errorCode, isMissing, warn } from "./log.js";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * The repo sweep: name everything in a project that nobody has named yet.
@@ -58,19 +62,27 @@ const HEAD_CHARS = 1500;
 const BATCH_FILES = 7;
 const BATCH_CONCURRENCY = 5;
 
-/** Every file in the project git will admit to, tracked or merely present. */
-function repoFiles(dir: string): string[] {
+/** Every file in the project git will admit to, tracked or merely present.
+ *  Off the main thread: a big repo takes git a while, and nothing else
+ *  should wait on it. */
+async function repoFiles(dir: string): Promise<string[]> {
   try {
-    const out = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
-      cwd: dir,
-      encoding: "utf8",
-      maxBuffer: 32 * 1024 * 1024,
-      timeout: 15_000,
-    });
-    const listed = out.split("\n").filter(Boolean);
+    const { stdout } = await execFileAsync(
+      "git",
+      ["ls-files", "--cached", "--others", "--exclude-standard"],
+      {
+        cwd: dir,
+        encoding: "utf8",
+        maxBuffer: 32 * 1024 * 1024,
+        timeout: 15_000,
+      },
+    );
+    const listed = stdout.split("\n").filter(Boolean);
     if (listed.length) return listed;
-  } catch {
-    // not a git repo, or git isn't there — walk it by hand
+  } catch (err) {
+    // not a git repo (git exits 128), or git isn't there — walk it by hand
+    const exit = (err as { code?: unknown }).code;
+    if (exit !== 128 && errorCode(err) !== "ENOENT") warn("sweep", err, "repoFiles");
   }
   const found: string[] = [];
   const walk = (rel: string, depth: number): void => {
@@ -78,7 +90,8 @@ function repoFiles(dir: string): string[] {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("sweep", err, "walk");
       return;
     }
     for (const entry of entries) {
@@ -139,13 +152,18 @@ function describe(dir: string, rel: string): { path: string; head: string } | un
 
 /** The same, for whoever else reads a repo the way the sweep does (the
  *  catch-up brief), with their own idea of how much of a file to take. */
-export function describeFile(dir: string, rel: string, chars: number): { path: string; head: string } | undefined {
+export function describeFile(
+  dir: string,
+  rel: string,
+  chars: number,
+): { path: string; head: string } | undefined {
   let source: string;
   try {
     const full = path.join(dir, rel);
     if (fs.statSync(full).size > 400_000) return undefined;
     source = fs.readFileSync(full, "utf8");
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("sweep", err, "describeFile");
     return undefined;
   }
   if (!source.trim()) return undefined;
@@ -167,14 +185,15 @@ function touchedSince(dir: string, rel: string, since: number): boolean {
   if (!since) return true;
   try {
     return fs.statSync(path.join(dir, rel)).mtimeMs > since;
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("sweep", err, "touchedSince");
     return true;
   }
 }
 
 /** The files worth spending a model call on, best first. */
-export function sweepCandidates(dir: string): string[] {
-  const all = repoFiles(dir).filter((rel) => !SKIP_DIRS.test(rel) && !SKIP_FILE.test(rel));
+export async function sweepCandidates(dir: string): Promise<string[]> {
+  const all = (await repoFiles(dir)).filter((rel) => !SKIP_DIRS.test(rel) && !SKIP_FILE.test(rel));
   const views = all.filter((rel) => VIEW_EXT.has(path.extname(rel).toLowerCase()));
   // A project with no views is not disqualified — its parts get named the
   // same way. It just has to look wider to find them.
@@ -220,7 +239,7 @@ export async function sweepProject(
   since = 0,
 ): Promise<SweepResult> {
   const already = claimed(existing);
-  const candidates = sweepCandidates(project.path)
+  const candidates = (await sweepCandidates(project.path))
     // a file that is already somebody's component doesn't need naming twice,
     // and one that hasn't changed since the last sweep was already read
     .filter((rel) => !already.has(rel) && touchedSince(project.path, rel, since));

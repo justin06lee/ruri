@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
+import { configPath } from "./configDir.js";
 import type { ComposerDraftState, DraftAttachment } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Unsent composer prompts, one per channel, held between launches — the text
@@ -15,10 +16,7 @@ import type { ComposerDraftState, DraftAttachment } from "../shared/protocol.js"
  */
 
 function draftsFile(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "drafts.json",
-  );
+  return configPath("drafts.json");
 }
 
 const WRITE_DELAY_MS = 400;
@@ -37,9 +35,10 @@ export class DraftStore {
             ? { text: saved }
             : saved && typeof saved === "object"
               ? {
-                  text: typeof (saved as ComposerDraftState).text === "string"
-                    ? (saved as ComposerDraftState).text
-                    : "",
+                  text:
+                    typeof (saved as ComposerDraftState).text === "string"
+                      ? (saved as ComposerDraftState).text
+                      : "",
                   ...(Array.isArray((saved as ComposerDraftState).attachments)
                     ? { attachments: (saved as ComposerDraftState).attachments }
                     : {}),
@@ -49,7 +48,8 @@ export class DraftStore {
           this.drafts.set(channelId, draft);
         }
       }
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("drafts", err, "new DraftStore");
       // first run, or a file worth starting over from
     }
   }
@@ -84,9 +84,9 @@ export class DraftStore {
     this.timer = setTimeout(() => {
       this.timer = undefined;
       try {
-        fs.mkdirSync(path.dirname(draftsFile()), { recursive: true });
-        fs.writeFileSync(draftsFile(), JSON.stringify(this.all(), null, 2));
-      } catch {
+        writeJsonAtomic(draftsFile(), this.all(), 2);
+      } catch (err) {
+        warn("drafts", err, "scheduleWrite");
         // persistence is best-effort; in-memory state stays correct
       }
     }, WRITE_DELAY_MS);

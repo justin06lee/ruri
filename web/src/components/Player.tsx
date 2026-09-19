@@ -3,7 +3,7 @@ import type { Playlist, Track } from "../../../shared/protocol";
 import { AudioEngine, type PlayerState, type RepeatMode } from "../lib/audio";
 import { getPref as ls, setPref as lsSet } from "../prefs";
 import { HTTP_BASE, useRuri } from "../store";
-import { isAwake, subscribeAwake, whileAwake } from "../lib/beat";
+import { whileAwake } from "../lib/beat";
 import { Dropdown } from "./Dropdown";
 
 /** How often the waveform and the notes move: enough to read as live,
@@ -19,7 +19,6 @@ const EMPTY: PlayerState = {
   queueLength: 0,
 };
 
-
 function mmss(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -27,9 +26,10 @@ function mmss(seconds: number): string {
 
 /** Five tiny bars fed by the engine's analyser, riding the gap between
  *  the track title and the chevron while music plays — read fifteen times
- *  a second while ruri is in front, laid flat while it is not. */
+ *  a second while they can be seen, laid flat while they cannot. */
 function Waveform({ engineRef }: { engineRef: React.RefObject<AudioEngine | null> }) {
   const barsRef = useRef<Array<HTMLSpanElement | null>>([]);
+  const waveRef = useRef<HTMLSpanElement>(null);
   useEffect(
     () =>
       whileAwake(
@@ -44,11 +44,12 @@ function Waveform({ engineRef }: { engineRef: React.RefObject<AudioEngine | null
         () => {
           for (const bar of barsRef.current) if (bar) bar.style.transform = "scaleY(0.15)";
         },
+        waveRef.current,
       ),
     [engineRef],
   );
   return (
-    <span className="wave" aria-hidden>
+    <span className="wave" aria-hidden ref={waveRef}>
       {Array.from({ length: 5 }, (_, i) => (
         <span
           key={i}
@@ -95,12 +96,13 @@ function along<T extends number[]>(points: T[], at: number): number[] {
 
 /**
  * Faint little notes wobbling upward while music plays. Moved from here,
- * fifteen times a second while ruri is in front, rather than by an endless
+ * fifteen times a second while they can be seen, rather than by an endless
  * CSS animation that redrew the window at the display's rate for as long
  * as the music lasted; behind another app they are simply gone.
  */
 function FloatingNotes() {
   const notesRef = useRef<Array<SVGSVGElement | null>>([]);
+  const wrapRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     const started = performance.now();
     return whileAwake(
@@ -121,10 +123,11 @@ function FloatingNotes() {
       () => {
         for (const note of notesRef.current) if (note) note.style.opacity = "0";
       },
+      wrapRef.current,
     );
   }, []);
   return (
-    <span className="note-float" aria-hidden>
+    <span className="note-float" aria-hidden ref={wrapRef}>
       {[0, 1, 2].map((i) => (
         <svg
           key={i}
@@ -176,27 +179,11 @@ export function Player() {
     return Number.isFinite(v) && v > 0 ? v : 0.6;
   });
   const engineRef = useRef<AudioEngine | null>(null);
-  /** The engine's latest state while ruri was asleep, not yet shown. */
-  const unseen = useRef<PlayerState | null>(null);
-  useEffect(
-    () =>
-      subscribeAwake(() => {
-        if (!isAwake() || !unseen.current) return;
-        setState(unseen.current);
-        unseen.current = null;
-      }),
-    [],
-  );
 
   const engine = (): AudioEngine => {
     if (!engineRef.current) {
       const e = new AudioEngine((t: Track) => HTTP_BASE + t.url);
-      // the position moves four times a second while music plays: asleep
-      // (lib/awake.ts) only the latest is kept, and shown on waking
-      e.onState = (next) => {
-        if (isAwake()) setState(next);
-        else unseen.current = next;
-      };
+      e.onState = setState;
       e.setVolume(volume);
       e.setShuffle(shuffle);
       e.setRepeat(repeat);
@@ -274,14 +261,20 @@ export function Player() {
     <div className="player">
       {state.playing && <FloatingNotes />}
       <button className="player-toggle" onClick={toggleOpen}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
           <path d="M9 18V5l12-2v13" />
           <circle cx="6" cy="18" r="3" />
           <circle cx="18" cy="16" r="3" />
         </svg>
-        <span className="player-toggle-label">
-          {state.track ? state.track.title : "Music"}
-        </span>
+        <span className="player-toggle-label">{state.track ? state.track.title : "Music"}</span>
         {state.playing && <Waveform engineRef={engineRef} />}
         <svg
           className={`dropdown-chevron ${open ? "" : "up"}`}

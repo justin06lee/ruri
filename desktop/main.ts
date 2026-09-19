@@ -1,28 +1,36 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, Menu, screen, session, shell } from "electron";
+import { promisify } from "node:util";
+import { app, BrowserWindow, dialog, Menu, session, shell } from "electron";
 import { startServer } from "../server/server.js";
 import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
 import { askAgainIfNewBuild, permissions } from "./permissions.js";
+import { warn } from "../server/log.js";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * GUI-launched macOS apps get a minimal PATH (/usr/bin:/bin:...), which would
  * break both finding the `claude` CLI and every Bash/git/npm invocation inside
  * sessions. Recover the user's real PATH from their login shell, with common
- * install dirs appended as a safety net.
+ * install dirs appended as a safety net. Async, so it overlaps Electron's
+ * own start-up instead of holding it for however long the rc files take.
  */
-function fixPath(): void {
+async function fixPath(): Promise<void> {
   if (process.platform !== "darwin") return;
   try {
     const shellBin = process.env["SHELL"] ?? "/bin/zsh";
-    const out = execFileSync(shellBin, ["-ilc", 'printf "__RURI__%s__RURI__" "$PATH"'], {
+    // -ilc, not -lc: PATH is commonly set in .zshrc/.bashrc, which only an
+    // interactive shell reads; a login shell alone would miss it
+    const { stdout } = await execFileAsync(shellBin, ["-ilc", 'printf "__RURI__%s__RURI__" "$PATH"'], {
       encoding: "utf8",
       timeout: 5000,
     });
-    const match = /__RURI__(.*)__RURI__/s.exec(out);
+    const match = /__RURI__(.*)__RURI__/s.exec(stdout);
     if (match?.[1]) process.env["PATH"] = match[1];
   } catch {
     // fall through to the append below
@@ -45,6 +53,9 @@ const DESKTOP_PORT = 7776;
 
 /** How much Chromium may keep on disk per storage partition. */
 const CACHE_CAP_BYTES = 16 * 1024 * 1024;
+
+/** How long a quit waits for the bridge and the server to close. */
+const QUIT_TIMEOUT_MS = 5_000;
 
 /**
  * The bridge gives every project its own storage partition (cookies and
@@ -94,7 +105,7 @@ function projectIdsOnDisk(): string[] {
   }
 }
 
-function createWindow(port: number): BrowserWindow {
+function createWindow(port: number, token: string): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 850,
@@ -111,17 +122,43 @@ function createWindow(port: number): BrowserWindow {
       plugins: true,
     },
   });
+  // Links open outside, and only web links: anything a page could hand
+  // shell.openExternal is handed the user's default app for its scheme,
+  // so schemes are allowlisted rather than passed through.
+  const origin = `http://127.0.0.1:${port}`;
+  const openOutside = (url: string): void => {
+    let scheme: string;
+    try {
+      scheme = new URL(url).protocol;
+    } catch {
+      return;
+    }
+    if (scheme === "http:" || scheme === "https:" || scheme === "mailto:") void shell.openExternal(url);
+  };
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    openOutside(url);
     return { action: "deny" };
+  });
+  // the window is the app's own page and nothing else: a navigation off
+  // the origin (a link without target, a redirect) is stopped here and
+  // sent outside the same way
+  win.webContents.on("will-navigate", (event, url) => {
+    if (url === origin || url.startsWith(`${origin}/`)) return;
+    event.preventDefault();
+    openOutside(url);
   });
   // ?fixture: canned data, for screenshots; ?awake: a window driven from
   // behind everything else, which must not go to sleep on its driver
   // (scripts/shot.mjs, web/src/lib/awake.ts)
-  const query = [process.env["RURI_FIXTURE"] && "fixture", process.env["RURI_AWAKE"] && "awake"]
+  // the token is what lets the page open the socket (server/server.ts)
+  const query = [
+    `token=${encodeURIComponent(token)}`,
+    process.env["RURI_FIXTURE"] && "fixture",
+    process.env["RURI_AWAKE"] && "awake",
+  ]
     .filter(Boolean)
     .join("&");
-  void win.loadURL(`http://127.0.0.1:${port}/${query ? `?${query}` : ""}`);
+  void win.loadURL(`http://127.0.0.1:${port}/?${query}`);
 
   const screenshot = process.env["RURI_SCREENSHOT"];
   if (screenshot) {
@@ -130,69 +167,11 @@ function createWindow(port: number): BrowserWindow {
       win.moveTop();
       win.focus();
       setTimeout(() => {
-        void win.webContents
-          .capturePage()
-          .then((img) => fs.promises.writeFile(screenshot, img.toPNG()));
+        void win.webContents.capturePage().then((img) => fs.promises.writeFile(screenshot, img.toPNG()));
       }, 3000);
     });
   }
   return win;
-}
-
-/** Height of the titlebar band the peek skyline lives in (see styles.css). */
-const PEEK_BAND = 46;
-
-/**
- * Hover for the titlebar skyline. The whole bar is a window-drag region, so
- * the page never sees mouse events there — instead main polls the cursor
- * and hands window-relative coordinates to the page's __ruriPeekCursor
- * hook, which lifts the head under it. Quiet when the cursor is elsewhere.
- */
-function watchPeeks(win: BrowserWindow): void {
-  let active = false;
-  let timer: NodeJS.Timeout | undefined;
-  const tick = () => {
-    if (win.isDestroyed()) {
-      stop();
-      return;
-    }
-    const point = screen.getCursorScreenPoint();
-    const bounds = win.getContentBounds();
-    const x = point.x - bounds.x;
-    const y = point.y - bounds.y;
-    const inBand = x >= 0 && x <= bounds.width && y >= 0 && y <= PEEK_BAND;
-    if (!inBand && !active) return;
-    active = inBand;
-    win.webContents
-      .executeJavaScript(`window.__ruriPeekCursor?.(${x},${y},${inBand})`)
-      .catch(() => {
-        // page mid-navigation — next tick catches up
-      });
-  };
-  // Only while the window is the one in front: a ruri behind another app
-  // has no titlebar to hover, and used to keep asking where the cursor was
-  // fifteen times a second all the same, all day, for a head it could not
-  // lift. Focus starts the clock and blur stops it.
-  const start = () => {
-    if (timer || win.isDestroyed()) return;
-    timer = setInterval(tick, 66);
-  };
-  const stop = () => {
-    if (!timer) return;
-    clearInterval(timer);
-    timer = undefined;
-    if (!active) return;
-    active = false;
-    if (!win.isDestroyed()) {
-      win.webContents.executeJavaScript("window.__ruriPeekCursor?.(0,0,false)").catch(() => {});
-    }
-  };
-  win.on("focus", start);
-  win.on("blur", stop);
-  win.on("hide", stop);
-  win.on("minimize", stop);
-  win.on("closed", stop);
-  if (win.isFocused()) start();
 }
 
 function buildMenu(): void {
@@ -222,8 +201,9 @@ async function main(): Promise<void> {
   // more. The cap is per storage partition, so the bridge's windows (real
   // sites, where a cache does earn its keep) get the same modest one each.
   app.commandLine.appendSwitch("disk-cache-size", String(CACHE_CAP_BYTES));
-  fixPath();
-  await app.whenReady();
+  // the login shell and Electron's own start-up take their time side by
+  // side; the server (which spawns CLIs off PATH) starts after both
+  await Promise.all([fixPath(), app.whenReady()]);
   buildMenu();
   // whatever the old, uncapped cache put by is let go of now
   void session.defaultSession.clearCache().catch(() => {});
@@ -233,7 +213,11 @@ async function main(): Promise<void> {
   // the windows and apps sessions drive to look at what they built — the
   // server owns the tools, this shell owns the windows (desktop/bridge.ts)
   const bridge = new Bridge();
+  // the window's key to the server: a script that drives the app sets it
+  // (scripts/lib/server.ts), a launch from the Dock gets a fresh one
+  const token = process.env["RURI_TOKEN"] || randomBytes(32).toString("hex");
   const running = await startServer({
+    token,
     // A fixed port on purpose. The window is a page served from it, so the
     // port is the origin, and the origin is what everything the window keeps
     // for itself is filed under — a fresh port every launch meant every one
@@ -261,7 +245,7 @@ async function main(): Promise<void> {
     permissions,
   });
 
-  watchPeeks(createWindow(running.port));
+  createWindow(running.port, token);
   // a fresh build is a stranger to macOS: it asks for its grants again,
   // dialog by dialog, once the window is up (desktop/permissions.ts)
   setTimeout(() => void askAgainIfNewBuild().catch(() => {}), 1500);
@@ -297,19 +281,35 @@ async function main(): Promise<void> {
   // macOS: closing the window keeps the app (and its warm sessions) alive;
   // the Dock icon reopens it. Cmd+Q actually quits and tears sessions down.
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) watchPeeks(createWindow(running.port));
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(running.port, token);
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });
-  app.on("before-quit", () => {
-    // nothing a session launched outlives ruri
-    void bridge.closeAll();
-    void running.close();
+  // Quit waits for the teardown: nothing a session launched outlives ruri,
+  // and the archive writes transcripts and drafts on a debounce that
+  // close() flushes — a quit that did not wait lost whatever had not
+  // landed. The first before-quit is cancelled and the teardown started;
+  // when it finishes (or QUIT_TIMEOUT_MS is up, for a bridge app that
+  // will not go), quit() is called again and the flag lets it through.
+  let quitting = false;
+  app.on("before-quit", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    quitting = true;
+    const teardown = Promise.allSettled([bridge.closeAll(), running.close()]);
+    const deadline = new Promise<void>((resolve) => setTimeout(resolve, QUIT_TIMEOUT_MS).unref?.());
+    void Promise.race([teardown, deadline]).then(() => app.quit());
   });
   process.on("SIGINT", () => {
     void running.close().finally(() => app.quit());
   });
 }
+
+// A GUI app has no terminal to die into: what nobody caught is logged and
+// the app stays up, since the window and its sessions are worth more than
+// a clean exit code.
+process.on("unhandledRejection", (err) => warn("desktop", err, "unhandled rejection"));
+process.on("uncaughtException", (err) => warn("desktop", err, "uncaught exception"));
 
 void main();

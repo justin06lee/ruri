@@ -68,7 +68,14 @@ function Row({ skill, projectId }: { skill: SkillInfo; projectId?: string }) {
           })
         }
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          aria-hidden
+        >
           <path d="M6 6l12 12M18 6L6 18" />
         </svg>
       </button>
@@ -102,7 +109,14 @@ function SkillReader() {
         <div className="skill-sheet-head">
           <span className="skill-sheet-name">{open.name}</span>
           <button className="icon-button" title="Close" onClick={close}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden
+            >
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
@@ -201,8 +215,8 @@ export function Skills({ projectId }: { projectId?: string }) {
           <div className="skill-group-head">Just this project</div>
           {local.length === 0 && (
             <div className="board-empty">
-              None yet. A skill installed here lives in the repo at{" "}
-              <code>.claude/skills/</code> and travels with it.
+              None yet. A skill installed here lives in the repo at <code>.claude/skills/</code> and travels
+              with it.
             </div>
           )}
           {local.map((skill) => (

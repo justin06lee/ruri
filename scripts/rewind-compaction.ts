@@ -15,6 +15,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { ClientMessage, ServerMessage, TranscriptEvent } from "../shared/protocol.js";
 
 const PORT = 7894;
@@ -60,7 +61,13 @@ fs.writeFileSync(
 const root = path.join(import.meta.dirname, "..");
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: root,
-  env: { ...process.env, RURI_PORT: String(PORT), RURI_CONFIG_DIR: configDir, RURI_NO_MEMORY: "1" },
+  env: {
+    ...process.env,
+    RURI_PORT: String(PORT),
+    RURI_TOKEN: TOKEN,
+    RURI_CONFIG_DIR: configDir,
+    RURI_NO_MEMORY: "1",
+  },
   stdio: ["ignore", "pipe", "inherit"],
 });
 server.stdout.on("data", (d: Buffer) => process.stdout.write(`[server] ${d}`));
@@ -80,7 +87,7 @@ async function connect(): Promise<WebSocket> {
   const start = Date.now();
   for (;;) {
     try {
-      const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
+      const ws = new WebSocket(wsUrl(PORT));
       await new Promise<void>((resolve, reject) => {
         ws.once("open", resolve);
         ws.once("error", reject);
@@ -104,15 +111,12 @@ await settle();
 send({ type: "rewind", projectId: CHANNEL, eventId: "u-target" });
 await settle();
 
-const failed = seen.find(
-  (m) => m.type === "error" && m.message.startsWith("rewind failed"),
-) as Extract<ServerMessage, { type: "error" }> | undefined;
+const failed = seen.find((m) => m.type === "error" && m.message.startsWith("rewind failed")) as
+  Extract<ServerMessage, { type: "error" }> | undefined;
 const removed = seen.find((m) => m.type === "events_removed") as
-  | Extract<ServerMessage, { type: "events_removed" }>
-  | undefined;
+  Extract<ServerMessage, { type: "events_removed" }> | undefined;
 const composed = seen.find((m) => m.type === "compose") as
-  | Extract<ServerMessage, { type: "compose" }>
-  | undefined;
+  Extract<ServerMessage, { type: "compose" }> | undefined;
 
 let bad = 0;
 if (failed) {
@@ -144,18 +148,14 @@ seen.length = 0;
 send({ type: "rewind", projectId: CHANNEL, eventId: "u-old" });
 await settle();
 
-const refused = seen.find(
-  (m) => m.type === "error" && m.message.startsWith("rewind failed"),
-) as Extract<ServerMessage, { type: "error" }> | undefined;
-const explained = seen.find(
-  (m) => m.type === "error" && m.message.startsWith("rewound the conversation"),
-) as Extract<ServerMessage, { type: "error" }> | undefined;
+const refused = seen.find((m) => m.type === "error" && m.message.startsWith("rewind failed")) as
+  Extract<ServerMessage, { type: "error" }> | undefined;
+const explained = seen.find((m) => m.type === "error" && m.message.startsWith("rewound the conversation")) as
+  Extract<ServerMessage, { type: "error" }> | undefined;
 const removed2 = seen.find((m) => m.type === "events_removed") as
-  | Extract<ServerMessage, { type: "events_removed" }>
-  | undefined;
+  Extract<ServerMessage, { type: "events_removed" }> | undefined;
 const composed2 = seen.find((m) => m.type === "compose") as
-  | Extract<ServerMessage, { type: "compose" }>
-  | undefined;
+  Extract<ServerMessage, { type: "compose" }> | undefined;
 
 if (refused) {
   console.error(`FAIL: rewind with a compaction ahead of it refused — ${refused.message}`);
@@ -169,10 +169,21 @@ if (composed2?.text !== "the first thing") {
   console.error(`FAIL: the earlier prompt did not come back (${JSON.stringify(composed2?.text)})`);
   bad++;
 }
-if (!explained?.message.includes("compacted after this prompt")) {
+// The files: this project is a bare temp directory, so ruri has no
+// checkpoint to put back, and the reply says that rather than implying
+// the files moved (checkpoints.ts). The compaction is not the reason —
+// ruri's own checkpoints are taken by ruri, and a compaction is nothing
+// that happens to them.
+if (
+  !explained?.message.includes("the files were left as they are") ||
+  !explained.message.includes("no checkpoints for it")
+) {
   console.error(`FAIL: it didn't say why the files were left alone (${JSON.stringify(explained?.message)})`);
   bad++;
 }
-if (bad === 0) console.log("PASS: a compaction ahead of the prompt rewinds the way a harness does, and says so");
+if (bad === 0)
+  console.log(
+    "PASS: a compaction ahead of the prompt rewinds the way a harness does, and says why the files stayed",
+  );
 
 done(bad === 0 ? 0 : 1);

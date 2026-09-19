@@ -10,7 +10,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node", "bun"]
   },
   "include": ["server", "shared", "scripts", "desktop"]
 }

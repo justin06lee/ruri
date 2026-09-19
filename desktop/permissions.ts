@@ -9,17 +9,20 @@ import type { PermissionId, PermissionState, TccRow } from "../shared/protocol.j
  * What macOS has let ruri do, and the asking for it.
  *
  * Every grant — Accessibility, Screen Recording, the folders, the volumes —
- * is tied to the app's code signature. An ad-hoc-signed app is re-signed by
- * every build, so a grant made to last week's ruri is silently void for
- * this week's while the switch in System Settings still reads "on". That
- * is the shape of every "it worked yesterday" permission bug, and it is
- * invisible unless something shows the grants as macOS actually holds them.
+ * is tied to the app's code signature. Builds are signed with a stable
+ * self-signed identity (`make identity`, in the Makefile), so a grant made
+ * to last week's ruri still holds for this week's. Without that identity
+ * a build is ad-hoc-signed — re-signed by every build — and the grant is
+ * silently void while the switch in System Settings still reads "on".
+ * That is the shape of every "it worked yesterday" permission bug, and it
+ * is invisible unless something shows the grants as macOS actually holds
+ * them.
  *
  * So: each permission ruri uses, with its state as read (not guessed), a
  * way to ask for it by hand, and — since ruri has Full Disk Access — the
  * privacy database's own rows for ruri and the CLIs its sessions run, so a
- * denial can be seen for what it is. `make update` resets the lot
- * (tccutil, in the Makefile) and the next launch asks again.
+ * denial can be seen for what it is. For an ad-hoc build, `make update`
+ * resets the lot (tccutil, in the Makefile) and the next launch asks again.
  */
 
 const HOME = os.homedir();
@@ -69,23 +72,46 @@ export const SERVICE_NAMES: Record<string, string> = {
 };
 
 const ABOUT: Array<{ id: PermissionId; name: string; why: string }> = [
-  { id: "accessibility", name: "Accessibility", why: "driving native apps in the bridge — clicks, typing, the UI tree" },
+  {
+    id: "accessibility",
+    name: "Accessibility",
+    why: "driving native apps in the bridge — clicks, typing, the UI tree",
+  },
   { id: "screen", name: "Screen Recording", why: "photographing apps and windows a session is looking at" },
-  { id: "automation", name: "Automation", why: "AppleScript to System Events, which the bridge and app_ui use" },
-  { id: "fullDisk", name: "Full Disk Access", why: "sessions reading and writing anywhere without a prompt per folder" },
+  {
+    id: "automation",
+    name: "Automation",
+    why: "AppleScript to System Events, which the bridge and app_ui use",
+  },
+  {
+    id: "fullDisk",
+    name: "Full Disk Access",
+    why: "sessions reading and writing anywhere without a prompt per folder",
+  },
   { id: "desktop", name: "Desktop folder", why: "projects and files that live on the Desktop" },
   { id: "documents", name: "Documents folder", why: "projects and files under Documents" },
   { id: "downloads", name: "Downloads folder", why: "files a session picks up from Downloads" },
-  { id: "removable", name: "Removable volumes", why: "projects on an external drive — git in a checkout there fails without this" },
+  {
+    id: "removable",
+    name: "Removable volumes",
+    why: "projects on an external drive — git in a checkout there fails without this",
+  },
   { id: "network", name: "Network volumes", why: "projects on a network share" },
 ];
 
-function run(cmd: string, args: string[], timeoutMs = 8_000): Promise<{ code: number; out: string; err: string }> {
+function run(
+  cmd: string,
+  args: string[],
+  timeoutMs = 8_000,
+): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
     execFile(cmd, args, { timeout: timeoutMs, encoding: "utf8" }, (error, out, err) => {
-      const code = error && typeof (error as NodeJS.ErrnoException & { code?: unknown }).code === "number"
-        ? ((error as { code: number }).code)
-        : error ? 1 : 0;
+      const code =
+        error && typeof (error as NodeJS.ErrnoException & { code?: unknown }).code === "number"
+          ? (error as { code: number }).code
+          : error
+            ? 1
+            : 0;
       resolve({ code, out: String(out ?? ""), err: String(err ?? "") });
     });
   });
@@ -168,18 +194,20 @@ function probeDir(dir: string): PermissionState["status"] {
 /** Every mounted volume that is not the boot volume. */
 function externalVolumes(): string[] {
   try {
-    return fs
-      .readdirSync("/Volumes")
-      // mounted disk images are not drives anyone keeps a project on
-      .filter((name) => !name.startsWith("dmg."))
-      .map((name) => path.join("/Volumes", name))
-      .filter((p) => {
-        try {
-          return fs.realpathSync(p) !== "/";
-        } catch {
-          return false;
-        }
-      });
+    return (
+      fs
+        .readdirSync("/Volumes")
+        // mounted disk images are not drives anyone keeps a project on
+        .filter((name) => !name.startsWith("dmg."))
+        .map((name) => path.join("/Volumes", name))
+        .filter((p) => {
+          try {
+            return fs.realpathSync(p) !== "/";
+          } catch {
+            return false;
+          }
+        })
+    );
   } catch {
     return [];
   }
@@ -188,7 +216,11 @@ function externalVolumes(): string[] {
 async function automation(ask: boolean): Promise<PermissionState["status"]> {
   // System Events answers only a process macOS lets script it; the first
   // ask puts up the dialog, a refused one comes back as -1743
-  const { code, err } = await run("/usr/bin/osascript", ["-e", 'tell application "System Events" to get name of first process'], ask ? 60_000 : 4_000);
+  const { code, err } = await run(
+    "/usr/bin/osascript",
+    ["-e", 'tell application "System Events" to get name of first process'],
+    ask ? 60_000 : 4_000,
+  );
   void ask;
   if (code === 0) return "granted";
   if (err.includes("-1743") || /not (permitted|allowed)/i.test(err)) return "denied";
@@ -206,7 +238,14 @@ async function stateOf(id: PermissionId, ask: boolean): Promise<PermissionState>
     }
     case "screen": {
       const media = systemPreferences.getMediaAccessStatus("screen");
-      status = media === "granted" ? "granted" : media === "not-determined" ? "unasked" : media === "unknown" ? "unknown" : "denied";
+      status =
+        media === "granted"
+          ? "granted"
+          : media === "not-determined"
+            ? "unasked"
+            : media === "unknown"
+              ? "unknown"
+              : "denied";
       if (ask && status !== "granted") {
         // the first look through the capturer is what puts the dialog up
         try {
@@ -236,7 +275,10 @@ async function stateOf(id: PermissionId, ask: boolean): Promise<PermissionState>
     case "desktop":
     case "documents":
     case "downloads": {
-      const dir = path.join(HOME, id === "desktop" ? "Desktop" : id === "documents" ? "Documents" : "Downloads");
+      const dir = path.join(
+        HOME,
+        id === "desktop" ? "Desktop" : id === "documents" ? "Documents" : "Downloads",
+      );
       if (ask) status = probeDir(dir);
       else {
         const row = await recorded(id);
@@ -253,7 +295,11 @@ async function stateOf(id: PermissionId, ask: boolean): Promise<PermissionState>
           detail = "no external volume is mounted to ask about";
         } else {
           const results = volumes.map((v) => [v, probeDir(v)] as const);
-          status = results.every(([, s]) => s === "granted") ? "granted" : results.some(([, s]) => s === "denied") ? "denied" : "unknown";
+          status = results.every(([, s]) => s === "granted")
+            ? "granted"
+            : results.some(([, s]) => s === "denied")
+              ? "denied"
+              : "unknown";
           detail = results.map(([v, s]) => `${path.basename(v)}: ${s}`).join(" · ");
         }
       } else {
@@ -298,13 +344,31 @@ export const permissions: PermissionHost = {
 };
 
 /**
- * A new build is a stranger to macOS (see the top of this file), so the
- * first launch of one asks for everything again — which is the second half
- * of what `make update` does when it resets the grants. Dev runs and test
- * harnesses are not builds and are left alone.
+ * Whether this bundle carries an ad-hoc signature — no identity, so a
+ * signature that is new with every build. `codesign -dv` on the bundle
+ * says `Signature=adhoc` for one, and names the authority for a signed
+ * build (`Authority=ruri dev`, the identity `make identity` creates).
+ * Unreadable is taken as signed: better to ask nothing than nine times.
+ */
+async function adHocSigned(): Promise<boolean> {
+  // …/ruri.app/Contents/MacOS/ruri → …/ruri.app
+  const bundle = path.resolve(app.getPath("exe"), "..", "..", "..");
+  if (!bundle.endsWith(".app")) return false;
+  const { code, err } = await run("/usr/bin/codesign", ["-dv", bundle]);
+  return code === 0 && /^Signature=adhoc$/m.test(err);
+}
+
+/**
+ * An ad-hoc-signed build is a stranger to macOS (see the top of this
+ * file), so the first launch of one asks for everything again — which is
+ * the second half of what `make update` does when it resets the grants.
+ * A build signed with the stable identity is the same app to macOS as the
+ * last one and its grants carry over, so nothing is asked. Dev runs and
+ * test harnesses are not builds and are left alone.
  */
 export async function askAgainIfNewBuild(): Promise<void> {
   if (!app.isPackaged) return;
+  if (!(await adHocSigned())) return;
   const marker = path.join(app.getPath("userData"), "asked-permissions-for");
   let last = "";
   try {

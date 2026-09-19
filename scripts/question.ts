@@ -19,6 +19,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { ClientMessage, PermissionRequest, ServerMessage } from "../shared/protocol.js";
 
 const PORT = Number(process.env["RURI_PORT"] ?? 7881);
@@ -27,7 +28,7 @@ const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-question-project-
 
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: path.join(import.meta.dirname, ".."),
-  env: { ...process.env, RURI_PORT: String(PORT), RURI_CONFIG_DIR: configDir },
+  env: { ...process.env, RURI_PORT: String(PORT), RURI_TOKEN: TOKEN, RURI_CONFIG_DIR: configDir },
   stdio: ["ignore", "ignore", "inherit"],
 });
 
@@ -78,7 +79,7 @@ let status = "idle";
 const cards: PermissionRequest[] = [];
 const waiters = new Set<() => void>();
 
-const ws = await connect(`ws://127.0.0.1:${PORT}`);
+const ws = await connect(wsUrl(PORT));
 const send = (msg: ClientMessage) => ws.send(JSON.stringify(msg));
 ws.on("message", (raw) => {
   const msg = JSON.parse(String(raw)) as ServerMessage;
@@ -128,7 +129,11 @@ send({
 
 await until("the question card", () => cards.some((c) => c.kind === "question"), 180_000);
 const card = cards.find((c) => c.kind === "question");
-check("the model's question comes up as a question card", Boolean(card), cards.map((c) => c.toolName));
+check(
+  "the model's question comes up as a question card",
+  Boolean(card),
+  cards.map((c) => c.toolName),
+);
 if (!card) {
   console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
   cleanup(1);

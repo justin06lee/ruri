@@ -44,7 +44,11 @@ async function* turn(): AsyncGenerator<AgentEvent, void, undefined> {
     id: "spawn-1",
     name: "spawn_agent",
     status: "completed",
-    input: { prompt: "Check the tests\nand report what fails.", model: "gpt-test", receiverThreadIds: ["sub-1"] },
+    input: {
+      prompt: "Check the tests\nand report what fails.",
+      model: "gpt-test",
+      receiverThreadIds: ["sub-1"],
+    },
     output: { "sub-1": { status: "running" } },
   };
   yield { type: "text", text: "All tests pass.", thread: "sub-1" } as AgentEvent;
@@ -57,7 +61,13 @@ async function* turn(): AsyncGenerator<AgentEvent, void, undefined> {
     title: "Watch the build",
     input: { prompt: "Watch the build", receiverThreadIds: ["sub-2"] },
   };
-  yield { type: "tool_call", id: "wait-1", name: "wait", status: "started", input: { receiverThreadIds: ["sub-1"] } };
+  yield {
+    type: "tool_call",
+    id: "wait-1",
+    name: "wait",
+    status: "started",
+    input: { receiverThreadIds: ["sub-1"] },
+  };
   yield {
     type: "tool_call",
     id: "wait-1",
@@ -155,13 +165,22 @@ function check(name: string, ok: boolean, detail?: unknown): void {
 
 const cards = chat.filter((e) => e.kind === "tool" && e.agent);
 const said = chat.filter((e) => e.kind === "assistant").map((e) => (e.kind === "assistant" ? e.text : ""));
-check("the chat gets one card per agent, and nothing else of theirs", cards.length === 2 && fresh === 2, chat);
+check(
+  "the chat gets one card per agent, and nothing else of theirs",
+  cards.length === 2 && fresh === 2,
+  chat,
+);
 check(
   "the agent's words stay out of the reply",
-  !said.some((text) => text.includes("All tests pass")) && said.join(" ").includes("The agent says they all pass."),
+  !said.some((text) => text.includes("All tests pass")) &&
+    said.join(" ").includes("The agent says they all pass."),
   said,
 );
-check("Codex's wait stays an ordinary chip", chat.some((e) => e.kind === "tool" && !e.agent && e.name !== "Agent"), chat);
+check(
+  "Codex's wait stays an ordinary chip",
+  chat.some((e) => e.kind === "tool" && !e.agent && e.name !== "Agent"),
+  chat,
+);
 const first = card("spawn-1");
 check(
   "the card is titled by its brief's first line and names its model",
@@ -174,13 +193,24 @@ const log = logs.get("spawn-1") ?? [];
 check(
   "its log opens on the brief, then what it did — the early tool included — in order",
   log.map((e) => e.kind).join(",") === "user,tool,assistant" &&
-    log[0]?.kind === "user" && log[0].text === "Check the tests\nand report what fails." &&
-    log[1]?.kind === "tool" && log[1].summary.includes("bun test") &&
-    log[2]?.kind === "assistant" && log[2].text === "All tests pass.",
+    log[0]?.kind === "user" &&
+    log[0].text === "Check the tests\nand report what fails." &&
+    log[1]?.kind === "tool" &&
+    log[1].summary.includes("bun test") &&
+    log[2]?.kind === "assistant" &&
+    log[2].text === "All tests pass.",
   log,
 );
-check("the card's line is the last thing it did — here, what it said after its tool", first?.activity === "All tests pass.", first);
-check("an agent still working stays working while its session lives", beforeDispose === "running", beforeDispose);
+check(
+  "the card's line is the last thing it did — here, what it said after its tool",
+  first?.activity === "All tests pass.",
+  first,
+);
+check(
+  "an agent still working stays working while its session lives",
+  beforeDispose === "running",
+  beforeDispose,
+);
 check("and is stopped when the session goes", card("spawn-2")?.status === "stopped", card("spawn-2"));
 
 console.log(failed === 0 ? "\nSUBAGENTS PASS" : `\nSUBAGENTS FAIL (${failed})`);

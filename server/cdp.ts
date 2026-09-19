@@ -1,5 +1,6 @@
 import * as net from "node:net";
 import WebSocket from "ws";
+import { errorMessage, warn } from "./log.js";
 
 /**
  * Driving a page over the DevTools protocol.
@@ -49,7 +50,8 @@ export class CdpSocket implements CdpLink {
       };
       try {
         message = JSON.parse(raw.toString()) as typeof message;
-      } catch {
+      } catch (err) {
+        warn("cdp", err, "a message that is not JSON");
         return;
       }
       if (message.method) {
@@ -107,7 +109,8 @@ export class CdpSocket implements CdpLink {
     this.closed = true;
     try {
       this.ws.close();
-    } catch {
+    } catch (err) {
+      warn("cdp", err, "close");
       // already gone
     }
   }
@@ -135,6 +138,7 @@ export interface PageTarget {
 /** The first page target a debugging port offers, once it is listening. */
 export async function findPageTarget(port: number, timeoutMs: number): Promise<PageTarget> {
   const until = Date.now() + timeoutMs;
+  let lastErr: unknown;
   while (Date.now() < until) {
     try {
       const list = (await fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json())) as Array<{
@@ -145,14 +149,22 @@ export async function findPageTarget(port: number, timeoutMs: number): Promise<P
       }>;
       const page = list.find((t) => t.type === "page" && t.webSocketDebuggerUrl);
       if (page?.webSocketDebuggerUrl) {
-        return { webSocketDebuggerUrl: page.webSocketDebuggerUrl, title: page.title ?? "", url: page.url ?? "" };
+        return {
+          webSocketDebuggerUrl: page.webSocketDebuggerUrl,
+          title: page.title ?? "",
+          url: page.url ?? "",
+        };
       }
-    } catch {
-      // not listening yet
+    } catch (err) {
+      // not listening yet — said once, with the last reason, if it never does
+      lastErr = err;
     }
     await sleep(250);
   }
-  throw new Error(`no page target on port ${port} after ${Math.round(timeoutMs / 1000)}s — did the app start with --remote-debugging-port?`);
+  throw new Error(
+    `no page target on port ${port} after ${Math.round(timeoutMs / 1000)}s — did the app start with --remote-debugging-port?` +
+      (lastErr ? ` (${errorMessage(lastErr)})` : ""),
+  );
 }
 
 export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -332,11 +344,14 @@ const MAC_COMMANDS: Record<string, string> = {
 };
 
 /** A chord as typed ("Meta+Shift+A", "Enter") into the parts CDP wants. */
-export function parseChord(
+function parseChord(
   chord: string,
   extraModifiers: string[] = [],
 ): { def: KeyDef; modifiers: number; commands: string[] } {
-  const parts = chord.split("+").map((p) => p.trim()).filter(Boolean);
+  const parts = chord
+    .split("+")
+    .map((p) => p.trim())
+    .filter(Boolean);
   const keyPart = parts.pop() ?? "";
   const names = [...parts, ...extraModifiers].map((m) => m.toLowerCase());
   let modifiers = 0;
@@ -357,7 +372,12 @@ export function parseChord(
       const upper = char.toUpperCase();
       if (/[a-z]/i.test(char)) {
         const shifted = (modifiers & 8) !== 0 || char === upper;
-        def = { key: shifted ? upper : char.toLowerCase(), code: `Key${upper}`, vk: upper.charCodeAt(0), text: shifted ? upper : char.toLowerCase() };
+        def = {
+          key: shifted ? upper : char.toLowerCase(),
+          code: `Key${upper}`,
+          vk: upper.charCodeAt(0),
+          text: shifted ? upper : char.toLowerCase(),
+        };
       } else if (/[0-9]/.test(char)) {
         def = { key: char, code: `Digit${char}`, vk: char.charCodeAt(0), text: char };
       } else {
@@ -414,7 +434,9 @@ export class PageDriver {
           stackTrace?: { callFrames?: Array<{ url?: string; lineNumber?: number }> };
         };
         const text = (p.args ?? [])
-          .map((arg) => (arg.value !== undefined ? stringify(arg.value) : (arg.description ?? arg.type ?? "")))
+          .map((arg) =>
+            arg.value !== undefined ? stringify(arg.value) : (arg.description ?? arg.type ?? ""),
+          )
           .join(" ");
         const frame = p.stackTrace?.callFrames?.[0];
         this.console.push({
@@ -457,14 +479,17 @@ export class PageDriver {
         const entry = p.requestId ? this.inflight.get(p.requestId) : undefined;
         if (entry && p.response?.status !== undefined) entry.status = p.response.status;
       }),
-      this.link.on("Network.loadingFinished", (params) => this.settle((params as { requestId?: string }).requestId)),
+      this.link.on("Network.loadingFinished", (params) =>
+        this.settle((params as { requestId?: string }).requestId),
+      ),
       this.link.on("Network.loadingFailed", (params) => {
         const p = params as { requestId?: string; errorText?: string; canceled?: boolean };
         const entry = p.requestId ? this.inflight.get(p.requestId) : undefined;
         // a request that already got its response and was then canceled — a
         // fetch whose body nobody read — is a completed request, not a
         // failed one; only a request that never got a status really failed
-        if (entry && entry.status === undefined) entry.failed = p.canceled ? "canceled" : (p.errorText ?? "failed");
+        if (entry && entry.status === undefined)
+          entry.failed = p.canceled ? "canceled" : (p.errorText ?? "failed");
         this.settle(p.requestId);
       }),
     );
@@ -507,14 +532,18 @@ export class PageDriver {
       userGesture: true,
     });
     if (result.exceptionDetails) {
-      throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? "the script threw");
+      throw new Error(
+        result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? "the script threw",
+      );
     }
     return result.result?.value as T;
   }
 
   /** Where the page is: URL, title, and the viewport in CSS pixels. */
   where(): Promise<{ url: string; title: string; width: number; height: number }> {
-    return this.eval("({ url: location.href, title: document.title, width: innerWidth, height: innerHeight })");
+    return this.eval(
+      "({ url: location.href, title: document.title, width: innerWidth, height: innerHeight })",
+    );
   }
 
   /** The rectangle of one selector, scrolled into view. Throws when it
@@ -556,9 +585,23 @@ export class PageDriver {
   /** A real pointer: move, press, release, at page coordinates. */
   async clickAt(x: number, y: number): Promise<void> {
     await this.link.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none" });
-    await this.link.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
+    await this.link.send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x,
+      y,
+      button: "left",
+      buttons: 1,
+      clickCount: 1,
+    });
     await sleep(40);
-    await this.link.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+    await this.link.send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x,
+      y,
+      button: "left",
+      buttons: 0,
+      clickCount: 1,
+    });
   }
 
   /** Focus a selector (when given) and type the text as key events, so a
@@ -575,7 +618,12 @@ export class PageDriver {
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i] ?? "";
       for (const char of line) {
-        await this.link.send("Input.dispatchKeyEvent", { type: "keyDown", text: char, unmodifiedText: char, key: char });
+        await this.link.send("Input.dispatchKeyEvent", {
+          type: "keyDown",
+          text: char,
+          unmodifiedText: char,
+          key: char,
+        });
         await this.link.send("Input.dispatchKeyEvent", { type: "keyUp", key: char });
       }
       if (i < lines.length - 1) await this.press("Enter");
@@ -631,13 +679,27 @@ export class PageDriver {
       const pad = opts.pad ?? 0;
       const x = Math.max(0, Math.floor(r.x - pad));
       const y = Math.max(0, Math.floor(r.y - pad));
-      params["clip"] = { x, y, width: Math.ceil(r.width + pad * 2), height: Math.ceil(r.height + pad * 2), scale: 1 };
+      params["clip"] = {
+        x,
+        y,
+        width: Math.ceil(r.width + pad * 2),
+        height: Math.ceil(r.height + pad * 2),
+        scale: 1,
+      };
       params["captureBeyondViewport"] = true;
     } else if (opts.full) {
-      const metrics = await this.link.send<{ cssContentSize?: { width: number; height: number } }>("Page.getLayoutMetrics");
+      const metrics = await this.link.send<{ cssContentSize?: { width: number; height: number } }>(
+        "Page.getLayoutMetrics",
+      );
       const size = metrics.cssContentSize;
       if (size) {
-        params["clip"] = { x: 0, y: 0, width: Math.ceil(size.width), height: Math.ceil(size.height), scale: 1 };
+        params["clip"] = {
+          x: 0,
+          y: 0,
+          width: Math.ceil(size.width),
+          height: Math.ceil(size.height),
+          scale: 1,
+        };
         params["captureBeyondViewport"] = true;
       }
     }
@@ -647,7 +709,8 @@ export class PageDriver {
       this.link.send<{ data: string }>("Page.captureScreenshot", params),
       sleep(SCREENSHOT_TIMEOUT_MS).then(() => undefined),
     ]);
-    if (!outcome) throw new Error("the page produced no frame to photograph — its window may be hidden or minimised");
+    if (!outcome)
+      throw new Error("the page produced no frame to photograph — its window may be hidden or minimised");
     return Buffer.from(outcome.data, "base64");
   }
 
@@ -655,7 +718,7 @@ export class PageDriver {
    *  with what wasn't when time runs out. */
   async waitFor(cond: WaitCondition, timeoutMs: number): Promise<string> {
     const until = Date.now() + timeoutMs;
-    let last = "";
+    let last: string;
     for (;;) {
       try {
         if (cond.selector) {
@@ -683,7 +746,7 @@ export class PageDriver {
         }
       } catch (err) {
         // a page mid-navigation has no document to ask — look again
-        last = err instanceof Error ? err.message : String(err);
+        last = errorMessage(err);
         if (last.startsWith("give a ")) throw err;
       }
       if (Date.now() >= until) throw new Error(`timed out after ${Math.round(timeoutMs / 1000)}s: ${last}`);
@@ -726,22 +789,26 @@ export function stringify(value: unknown): string {
   else {
     try {
       const seen = new WeakSet<object>();
-      text = JSON.stringify(
-        value,
-        (_key, v: unknown) => {
-          if (typeof v === "object" && v !== null) {
-            if (seen.has(v)) return "[circular]";
-            seen.add(v);
-          }
-          if (typeof v === "bigint") return `${v}n`;
-          if (typeof v === "function") return `[function ${v.name}]`;
-          return v;
-        },
-        2,
-      ) ?? String(value);
-    } catch {
+      text =
+        JSON.stringify(
+          value,
+          (_key, v: unknown) => {
+            if (typeof v === "object" && v !== null) {
+              if (seen.has(v)) return "[circular]";
+              seen.add(v);
+            }
+            if (typeof v === "bigint") return `${v}n`;
+            if (typeof v === "function") return `[function ${v.name}]`;
+            return v;
+          },
+          2,
+        ) ?? String(value);
+    } catch (err) {
+      warn("cdp", err, "stringify");
       text = String(value);
     }
   }
-  return text.length > EVAL_CAP ? `${text.slice(0, EVAL_CAP)}\n… (${text.length - EVAL_CAP} more characters)` : text;
+  return text.length > EVAL_CAP
+    ? `${text.slice(0, EVAL_CAP)}\n… (${text.length - EVAL_CAP} more characters)`
+    : text;
 }

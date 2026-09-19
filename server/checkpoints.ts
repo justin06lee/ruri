@@ -33,11 +33,14 @@
 
 import { execFile } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 
-/** Where the per-channel index files live. */
-const INDEX_DIR = path.join(os.homedir(), ".config", "ruri", "checkpoints");
+/** Where the per-channel index files live — under the config dir, so a
+ *  test run never writes into the real one. */
+function indexDir(): string {
+  return configPath("checkpoints");
+}
 
 /** A capture that takes longer than this has met a repository ruri has no
  *  business holding up a prompt for. */
@@ -79,7 +82,7 @@ function refFor(channelId: string, eventId: string): string {
 }
 
 function indexFor(channelId: string): string {
-  return path.join(INDEX_DIR, `${channelId}.index`);
+  return path.join(indexDir(), `${channelId}.index`);
 }
 
 export interface Checkpoints {
@@ -120,7 +123,7 @@ export function createCheckpoints(): Checkpoints {
 
   /** The working tree as it stands, as a commit object. */
   async function commitTree(top: string, channelId: string, message: string): Promise<string | undefined> {
-    fs.mkdirSync(INDEX_DIR, { recursive: true });
+    fs.mkdirSync(indexDir(), { recursive: true });
     const index = indexFor(channelId);
     const added = await git(["add", "-A", "--", "."], top, index);
     if (!added.ok) return undefined;
@@ -152,7 +155,9 @@ export function createCheckpoints(): Checkpoints {
     // `update-ref --stdin`, not two hundred spawns
     if (names.length === 0) return;
     await new Promise<void>((resolve) => {
-      const child = execFile("git", ["update-ref", "--stdin"], { cwd: top, timeout: TIMEOUT_MS }, () => resolve());
+      const child = execFile("git", ["update-ref", "--stdin"], { cwd: top, timeout: TIMEOUT_MS }, () =>
+        resolve(),
+      );
       child.stdin?.end(names.map((name) => `delete ${name}\n`).join(""));
     });
   }
@@ -223,7 +228,11 @@ export function createCheckpoints(): Checkpoints {
     async forgetChannel(project, channelId) {
       await queue(channelId, async () => {
         const top = await root(project.path);
-        if (top) await drop(top, (await refs(top, channelId)).map((ref) => ref.name));
+        if (top)
+          await drop(
+            top,
+            (await refs(top, channelId)).map((ref) => ref.name),
+          );
         fs.rmSync(indexFor(channelId), { force: true });
       });
     },

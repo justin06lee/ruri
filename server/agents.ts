@@ -1,7 +1,9 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
+import { configPath } from "./configDir.js";
 import type { SubagentState, TranscriptEvent } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Subagent logs: everything an agent a harness started did — its brief,
@@ -24,10 +26,7 @@ const WRITE_DELAY_MS = 800;
 const STARTED = Date.now();
 
 function agentsDir(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "agents",
-  );
+  return configPath("agents");
 }
 
 /** Ids come from harnesses; nothing in one is allowed to walk the tree. */
@@ -63,7 +62,8 @@ export class AgentLogs {
       if (!Array.isArray(raw)) return [];
       const events = raw as TranscriptEvent[];
       return fs.statSync(file).mtimeMs < STARTED ? events.map(settleAgent) : events;
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("agents", err, "read");
       return [];
     }
   }
@@ -99,11 +99,9 @@ export class AgentLogs {
     if (!log) return;
     const file = this.file(channelId, key);
     try {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      const tmp = `${file}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(log));
-      fs.renameSync(tmp, file);
-    } catch {
+      writeJsonAtomic(file, log);
+    } catch (err) {
+      warn("agents", err, "write");
       // a log is a window onto the work, not the work: losing a write
       // costs a view of it, never the conversation
     }
@@ -166,14 +164,17 @@ export class Crew {
     try {
       const raw = JSON.parse(fs.readFileSync(this.file(chatId), "utf8")) as unknown;
       if (Array.isArray(raw)) {
-        members = (raw as CrewMember[]).map(
-          (member): CrewMember =>
-            member.agent.status === "running"
-              ? { ...member, agent: { ...member.agent, status: "stopped", endedAt: member.agent.endedAt ?? Date.now() } }
-              : member,
+        members = (raw as CrewMember[]).map((member): CrewMember =>
+          member.agent.status === "running"
+            ? {
+                ...member,
+                agent: { ...member.agent, status: "stopped", endedAt: member.agent.endedAt ?? Date.now() },
+              }
+            : member,
         );
       }
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("agents", err, "load");
       // no crew yet
     }
     this.chats.set(chatId, members);
@@ -258,11 +259,9 @@ export class Crew {
     if (!members) return;
     const file = this.file(chatId);
     try {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      const tmp = `${file}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(members));
-      fs.renameSync(tmp, file);
-    } catch {
+      writeJsonAtomic(file, members);
+    } catch (err) {
+      warn("agents", err, "write");
       // the cards are a view onto the work: a lost write costs a stale card
     }
   }

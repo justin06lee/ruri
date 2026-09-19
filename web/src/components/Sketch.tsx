@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { attachFile, replaceAttachmentFile } from "../store";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { HOME_ID } from "../../../shared/protocol";
+import { attachFile, replaceAttachmentFile, useRuri } from "../store";
 
 /**
  * The sketch pad: draw a thing to show the model, or draw on a picture to
@@ -106,6 +107,13 @@ interface PadState {
 /** One pad per channel per picture, for as long as the window lives. */
 const pads = new Map<string, PadState>();
 
+/** How many steps back undo goes — past that the oldest are let go. */
+const UNDO_MAX = 50;
+
+function remember(history: Shape[][], shapes: Shape[]): Shape[][] {
+  return [...history, shapes].slice(-UNDO_MAX);
+}
+
 /** The same, minus the picture and the undo stack, across launches. */
 function stored(key: string): Pick<PadState, "shapes" | "name" | "size"> | undefined {
   try {
@@ -130,7 +138,11 @@ function store(key: string, state: PadState): void {
   pads.set(key, state);
   try {
     if (state.shapes.length === 0 && !state.name) localStorage.removeItem(`ruri:sketch:${key}`);
-    else localStorage.setItem(`ruri:sketch:${key}`, JSON.stringify({ shapes: state.shapes, name: state.name, size: state.size }));
+    else
+      localStorage.setItem(
+        `ruri:sketch:${key}`,
+        JSON.stringify({ shapes: state.shapes, name: state.name, size: state.size }),
+      );
   } catch {
     // a full store loses nothing the window still holds
   }
@@ -144,6 +156,13 @@ function forget(key: string): void {
     // nothing to remove
   }
 }
+
+// a chat gone from the workspace takes its pads with it
+useRuri.subscribe((s, prev) => {
+  if (s.projects === prev.projects) return;
+  const alive = new Set([HOME_ID, ...s.projects.flatMap((p) => p.sessions.map((x) => x.id))]);
+  for (const key of [...pads.keys()]) if (!alive.has(key.slice(0, key.indexOf("|")))) forget(key);
+});
 
 /* ── drawing ─────────────────────────────────────────────────────── */
 
@@ -164,11 +183,21 @@ function bounds(shape: Shape): { x: number; y: number; w: number; h: number } {
     }
     case "rect":
     case "ellipse":
-      return { x: Math.min(shape.x, shape.x + shape.w), y: Math.min(shape.y, shape.y + shape.h), w: Math.abs(shape.w), h: Math.abs(shape.h) };
+      return {
+        x: Math.min(shape.x, shape.x + shape.w),
+        y: Math.min(shape.y, shape.y + shape.h),
+        w: Math.abs(shape.w),
+        h: Math.abs(shape.h),
+      };
     case "text": {
       const lines = shape.text.split("\n");
       const longest = Math.max(...lines.map((line) => line.length));
-      return { x: shape.x, y: shape.y - shape.size, w: longest * shape.size * 0.6, h: lines.length * shape.size * LINE };
+      return {
+        x: shape.x,
+        y: shape.y - shape.size,
+        w: longest * shape.size * 0.6,
+        h: lines.length * shape.size * LINE,
+      };
     }
   }
 }
@@ -228,7 +257,15 @@ function draw(ctx: CanvasRenderingContext2D, shape: Shape): void {
       break;
     case "ellipse":
       ctx.beginPath();
-      ctx.ellipse(shape.x + shape.w / 2, shape.y + shape.h / 2, Math.abs(shape.w / 2), Math.abs(shape.h / 2), 0, 0, Math.PI * 2);
+      ctx.ellipse(
+        shape.x + shape.w / 2,
+        shape.y + shape.h / 2,
+        Math.abs(shape.w / 2),
+        Math.abs(shape.h / 2),
+        0,
+        0,
+        Math.PI * 2,
+      );
       ctx.stroke();
       break;
   }
@@ -237,7 +274,15 @@ function draw(ctx: CanvasRenderingContext2D, shape: Shape): void {
 
 function Icon({ d }: { d: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <path d={d} />
     </svg>
   );
@@ -274,7 +319,9 @@ export function Sketch({
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [size, setSize] = useState(kept?.size ?? BLANK);
   const [name, setName] = useState(background?.name ?? kept?.name ?? "");
-  const [pictureUrl, setPictureUrl] = useState<string | undefined>((kept as PadState | undefined)?.pictureUrl);
+  const [pictureUrl, setPictureUrl] = useState<string | undefined>(
+    (kept as PadState | undefined)?.pictureUrl,
+  );
   /** The text box, open. Its last font and size are remembered for the next. */
   const [writing, setWriting] = useState<TextDraft | null>(null);
   const [fontRow, setFontRow] = useState(false);
@@ -306,10 +353,21 @@ export function Sketch({
 
   // everything is redrawn from the shapes, so undo is exact
   const scaleUp = Math.max(1, Math.max(size.w, size.h) / 1400);
-  const hanging: Shape | null =
-    placing && placeAt
-      ? { kind: "text", x: placeAt[0], y: placeAt[1] + placing.size * 0.35, text: placing.text, color, size: placing.size, font: placing.font }
-      : null;
+  const hanging = useMemo<Shape | null>(
+    () =>
+      placing && placeAt
+        ? {
+            kind: "text",
+            x: placeAt[0],
+            y: placeAt[1] + placing.size * 0.35,
+            text: placing.text,
+            color,
+            size: placing.size,
+            font: placing.font,
+          }
+        : null,
+    [placing, placeAt, color],
+  );
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
@@ -341,7 +399,7 @@ export function Sketch({
   };
 
   const commit = (shape: Shape) => {
-    setHistory((h) => [...h, shapes]);
+    setHistory((h) => remember(h, shapes));
     setShapes((s) => [...s, shape]);
   };
 
@@ -356,7 +414,7 @@ export function Sketch({
 
   const clear = () => {
     if (shapes.length === 0) return;
-    setHistory((h) => [...h, shapes]);
+    setHistory((h) => remember(h, shapes));
     setShapes([]);
   };
 
@@ -364,24 +422,35 @@ export function Sketch({
   const stroke = width * scaleUp;
 
   /** Open the text box, empty or with what was being placed. */
-  const openText = (value = "") => {
+  const openText = useCallback((value = "") => {
     setPlacing(null);
     setPlaceAt(null);
     setWriting({ value, ...lastText.current });
-  };
+  }, []);
 
   /** A tool from the bar or the keys; the text tool opens its box at once. */
-  const pickTool = (next: Tool) => {
-    setTool(next);
-    if (next === "text") openText();
-  };
+  const pickTool = useCallback(
+    (next: Tool) => {
+      setTool(next);
+      if (next === "text") openText();
+    },
+    [openText],
+  );
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
     const [x, y] = at(e);
     if (placing) {
       // the click that stamps the words
-      commit({ kind: "text", x, y: y + placing.size * 0.35, text: placing.text, color, size: placing.size, font: placing.font });
+      commit({
+        kind: "text",
+        x,
+        y: y + placing.size * 0.35,
+        text: placing.text,
+        color,
+        size: placing.size,
+        font: placing.font,
+      });
       setPlacing(null);
       setPlaceAt(null);
       return;
@@ -395,7 +464,7 @@ export function Sketch({
       for (let i = shapes.length - 1; i >= 0; i--) {
         const b = bounds(shapes[i]!);
         if (x >= b.x - pad && x <= b.x + b.w + pad && y >= b.y - pad && y <= b.y + b.h + pad) {
-          setHistory((h) => [...h, shapes]);
+          setHistory((h) => remember(h, shapes));
           setShapes(shapes.filter((_, j) => j !== i));
           break;
         }
@@ -486,7 +555,15 @@ export function Sketch({
         if (placing) openText(placing.text);
         return;
       }
-      const byKey: Record<string, Tool> = { p: "pen", a: "arrow", l: "line", r: "rect", e: "ellipse", t: "text", x: "erase" };
+      const byKey: Record<string, Tool> = {
+        p: "pen",
+        a: "arrow",
+        l: "line",
+        r: "rect",
+        e: "ellipse",
+        t: "text",
+        x: "erase",
+      };
       const pick = byKey[e.key.toLowerCase()];
       if (pick) {
         // T opens the text box, and the box takes focus before the key's
@@ -497,8 +574,7 @@ export function Sketch({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [writing, placing, undo]);
+  }, [writing, placing, undo, openText, pickTool]);
 
   const attach = () => {
     const canvas = canvasRef.current;
@@ -565,10 +641,22 @@ export function Sketch({
           </button>
         ))}
         <span className="sketch-sep" />
-        <button type="button" className="icon-button" title="Undo (⌘Z)" disabled={history.length === 0} onClick={undo}>
+        <button
+          type="button"
+          className="icon-button"
+          title="Undo (⌘Z)"
+          disabled={history.length === 0}
+          onClick={undo}
+        >
           <Icon d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-4" />
         </button>
-        <button type="button" className="icon-button" title="Clear the pad" disabled={shapes.length === 0} onClick={clear}>
+        <button
+          type="button"
+          className="icon-button"
+          title="Clear the pad"
+          disabled={shapes.length === 0}
+          onClick={clear}
+        >
           <Icon d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
         </button>
         <label className="icon-button sketch-open" title="Open a picture to draw on">
@@ -576,10 +664,20 @@ export function Sketch({
           <input type="file" accept="image/*" onChange={(e) => openPicture(e.target.files)} />
         </label>
         <span className="sketch-name">{name || "a sketch"}</span>
-        <button type="button" className="primary sketch-attach" title="Put it in the prompt as an image" onClick={attach}>
+        <button
+          type="button"
+          className="primary sketch-attach"
+          title="Put it in the prompt as an image"
+          onClick={attach}
+        >
           {background?.id ? "Put it back" : "Attach"}
         </button>
-        <button type="button" className="icon-button" title="Close the pad — the drawing is kept" onClick={onClose}>
+        <button
+          type="button"
+          className="icon-button"
+          title="Close the pad — the drawing is kept"
+          onClick={onClose}
+        >
           <Icon d="M6 6l12 12M18 6L6 18" />
         </button>
       </div>
@@ -604,16 +702,23 @@ export function Sketch({
         )}
       </div>
       {writing && (
-        <div className="confirm-overlay sketch-text-overlay" onMouseDown={(e) => {
-          if (e.target === e.currentTarget) setWriting(null);
-        }}>
+        <div
+          className="confirm-overlay sketch-text-overlay"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setWriting(null);
+          }}
+        >
           <div className="confirm-card sketch-text-card">
             <textarea
               className="sketch-text-box"
               autoFocus
               rows={5}
               placeholder="What to write on the pad…"
-              style={{ fontFamily: writingFont.family, fontSize: Math.round(Math.max(14, Math.min(34, writingSize.px * 0.75))), color }}
+              style={{
+                fontFamily: writingFont.family,
+                fontSize: Math.round(Math.max(14, Math.min(34, writingSize.px * 0.75))),
+                color,
+              }}
               value={writing.value}
               onChange={(e) => setWriting({ ...writing, value: e.target.value })}
               onKeyDown={(e) => {

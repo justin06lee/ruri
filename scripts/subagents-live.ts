@@ -15,16 +15,18 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import WebSocket from "ws";
+import { TOKEN, wsUrl } from "./lib/server.js";
 import type { ClientMessage, ServerMessage, SubagentState, TranscriptEvent } from "../shared/protocol.js";
 
 const PORT = Number(process.env["RURI_PORT"] ?? 7883);
 const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-agents-config-"));
 const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-agents-project-"));
-for (const name of ["one.txt", "two.txt", "three.txt"]) fs.writeFileSync(path.join(projectDir, name), `${name}\n`);
+for (const name of ["one.txt", "two.txt", "three.txt"])
+  fs.writeFileSync(path.join(projectDir, name), `${name}\n`);
 
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: path.join(import.meta.dirname, ".."),
-  env: { ...process.env, RURI_PORT: String(PORT), RURI_CONFIG_DIR: configDir },
+  env: { ...process.env, RURI_PORT: String(PORT), RURI_TOKEN: TOKEN, RURI_CONFIG_DIR: configDir },
   stdio: ["ignore", "ignore", "inherit"],
 });
 
@@ -101,7 +103,7 @@ const live = new Map<string, TranscriptEvent[]>();
 let fetched: TranscriptEvent[] | undefined;
 const waiters = new Set<() => void>();
 
-const ws = await connect(`ws://127.0.0.1:${PORT}`);
+const ws = await connect(wsUrl(PORT));
 const send = (msg: ClientMessage) => ws.send(JSON.stringify(msg));
 ws.on("message", (raw) => {
   const msg = JSON.parse(String(raw)) as ServerMessage;
@@ -112,7 +114,8 @@ ws.on("message", (raw) => {
     status = msg.status;
     if (status === "working") worked = true;
   }
-  if (msg.type === "event" && msg.event.kind === "tool" && msg.event.agent) cards.set(msg.event.id, msg.event.agent);
+  if (msg.type === "event" && msg.event.kind === "tool" && msg.event.agent)
+    cards.set(msg.event.id, msg.event.agent);
   if (msg.type === "agent_event") live.set(msg.key, [...(live.get(msg.key) ?? []), msg.event]);
   if (msg.type === "agent_log") fetched = msg.events;
   for (const waiter of [...waiters]) waiter();
@@ -168,7 +171,8 @@ if (first?.background && first.status === "running") {
   // turn over, the process closes after the grace
   const closed = await new Promise<boolean>((resolve) => {
     const end = Date.now() + 15_000;
-    const look = () => (claudes() === 0 ? resolve(true) : Date.now() > end ? resolve(false) : setTimeout(look, 500));
+    const look = () =>
+      claudes() === 0 ? resolve(true) : Date.now() > end ? resolve(false) : setTimeout(look, 500);
     look();
   });
   check("and once it has reported, the process closes", closed);
@@ -178,20 +182,38 @@ const card = [...cards.values()][0];
 console.log(`card: ${JSON.stringify(card)}`);
 check("the model's agent came up as a card in the chat", Boolean(card), [...cards.values()]);
 if (!card) cleanup(1);
-check("its type and description are the call's", card.type === "general-purpose" && card.description === "Count the files", card);
+check(
+  "its type and description are the call's",
+  card.type === "general-purpose" && card.description === "Count the files",
+  card,
+);
 check("it ended done", card.status === "done", card.status);
 check("with a report", Boolean(card.result?.trim()), card.result);
 const streamed = live.get(card.key) ?? [];
-console.log(`log kinds, live: ${streamed.map((e) => (e.kind === "tool" ? `tool:${e.name}` : e.kind)).join(", ")}`);
-check("its log opened on the brief", streamed[0]?.kind === "user" && streamed[0].text.includes("ls"), streamed[0]);
-check("and holds what it ran", streamed.some((e) => e.kind === "tool" && e.name === "Bash"), streamed);
+console.log(
+  `log kinds, live: ${streamed.map((e) => (e.kind === "tool" ? `tool:${e.name}` : e.kind)).join(", ")}`,
+);
+check(
+  "its log opened on the brief",
+  streamed[0]?.kind === "user" && streamed[0].text.includes("ls"),
+  streamed[0],
+);
+check(
+  "and holds what it ran",
+  streamed.some((e) => e.kind === "tool" && e.name === "Bash"),
+  streamed,
+);
 
 send({ type: "agent_log", projectId, key: card.key });
 await until("the agent's log", () => fetched !== undefined, 10_000);
-check("the log opens again from the server, whole", (fetched?.length ?? 0) >= streamed.length && streamed.length >= 2, {
-  fetched: fetched?.length,
-  streamed: streamed.length,
-});
+check(
+  "the log opens again from the server, whole",
+  (fetched?.length ?? 0) >= streamed.length && streamed.length >= 2,
+  {
+    fetched: fetched?.length,
+    streamed: streamed.length,
+  },
+);
 
 console.log(failed === 0 ? "\nSUBAGENTS LIVE PASS" : `\nSUBAGENTS LIVE FAIL (${failed})`);
 cleanup(failed === 0 ? 0 : 1);

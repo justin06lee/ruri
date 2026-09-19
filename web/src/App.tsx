@@ -4,7 +4,7 @@ import { Settings } from "./components/Settings";
 import { useRapidFire } from "./components/RapidFire";
 import { Sidebar } from "./components/Sidebar";
 import { Switcher } from "./components/Switcher";
-import { prewarmMarkdown } from "./markdown";
+import { prewarmMarkdown } from "./lib/markdownHtml";
 import { connect, useRuri } from "./store";
 
 let connectedOnce = false;
@@ -45,9 +45,7 @@ function usePrewarm(): void {
       .flatMap(([, events]) =>
         events
           .slice(-PREWARM_TAIL)
-          .flatMap((event) =>
-            event.kind === "assistant" || event.kind === "user" ? [event.text] : [],
-          ),
+          .flatMap((event) => (event.kind === "assistant" || event.kind === "user" ? [event.text] : [])),
       );
     if (pending.length === 0) return;
     let index = 0;

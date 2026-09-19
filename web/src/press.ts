@@ -29,9 +29,7 @@ const PRESSABLE = 'button, [role="button"], .ask-option, .diff-head, .tool-image
 
 function within(el: Element, x: number, y: number): boolean {
   const r = el.getBoundingClientRect();
-  return (
-    x >= r.left - SLACK && x <= r.right + SLACK && y >= r.top - SLACK && y <= r.bottom + SLACK
-  );
+  return x >= r.left - SLACK && x <= r.right + SLACK && y >= r.top - SLACK && y <= r.bottom + SLACK;
 }
 
 export function installPressGuard(): void {

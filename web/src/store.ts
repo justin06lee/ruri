@@ -38,8 +38,8 @@ import {
   type UsageLimits,
 } from "../../shared/protocol";
 import type { ComposerAttachment } from "./components/Attachments";
+import { overlay, reuse } from "./lib/transcript";
 import { hydratePrefs } from "./prefs";
-import { isAwake, subscribeAwake } from "./lib/awake";
 import { fileToBase64 } from "./lib/files";
 
 export interface Draft {
@@ -160,10 +160,7 @@ export function clearComposerDraft(channelId: string): void {
  * exactly as they did before the quit. Anything whose file is gone is
  * dropped; its [marker] stays in the text as words.
  */
-async function restoreAttachments(
-  channelId: string,
-  saved: DraftAttachment[],
-): Promise<void> {
+async function restoreAttachments(channelId: string, saved: DraftAttachment[]): Promise<void> {
   const atts: ComposerAttachment[] = [];
   for (const att of saved) {
     const live = await liveAttachment(att, att.n);
@@ -252,11 +249,10 @@ export function composeInto(channelId: string, text: string, attachments?: Attac
       // would otherwise renumber it twice
       renumbered = renumbered.replaceAll(`[${att.kind} #${att.n}]`, `\u0000${att.kind}:${fresh.n}\u0000`);
     }
+    // eslint-disable-next-line no-control-regex -- NUL is the placeholder written just above, never typed
     renumbered = renumbered.replaceAll(/\u0000(image|video|file):(\d+)\u0000/g, "[$1 #$2]");
     const draft = composerDrafts.get(channelId);
-    const body = draft?.text.trim()
-      ? `${draft.text.replace(/\s+$/, "")}\n${renumbered}`
-      : renumbered;
+    const body = draft?.text.trim() ? `${draft.text.replace(/\s+$/, "")}\n${renumbered}` : renumbered;
     setComposerDraft(channelId, {
       text: body,
       atts: [...(draft?.atts ?? []), ...live],
@@ -526,14 +522,32 @@ export const useRuri = create<RuriState>((set) => ({
   dismissError: () => set({ lastError: null }),
 }));
 
-// Vite dev server (:5173) talks to the standalone server on :7777; when the
-// UI is served by the ruri server itself (desktop app / production), the
-// WebSocket lives on the same origin.
-const WS_URL = import.meta.env.DEV ? `ws://${location.hostname}:7777` : `ws://${location.host}`;
+// Vite dev server (:5173) talks to the standalone server on RURI_PORT (7777
+// unless set — vite.config.ts passes it through); when the UI is served by
+// the ruri server itself (desktop app / production), the WebSocket lives on
+// the same origin.
+const DEV_PORT: string = (import.meta.env["RURI_PORT"] as string | undefined) || "7777";
+const WS_URL = import.meta.env.DEV ? `ws://${location.hostname}:${DEV_PORT}` : `ws://${location.host}`;
 
 /** Base for the server's HTTP endpoints (music etc.) — empty when same-origin. */
-export const HTTP_BASE = import.meta.env.DEV ? `http://${location.hostname}:7777` : "";
+export const HTTP_BASE = import.meta.env.DEV ? `http://${location.hostname}:${DEV_PORT}` : "";
 let ws: WebSocket | null = null;
+
+/**
+ * The server's token (server/server.ts): without it the socket is refused.
+ * The desktop app puts it on the window's URL; the vite dev page has no
+ * such URL and asks vite for it instead (vite.config.ts reads the file the
+ * server wrote). Kept once found — the URL does not change under the page.
+ */
+let token: string | null = new URLSearchParams(location.search).get("token");
+
+async function resolveToken(): Promise<string> {
+  if (token) return token;
+  const res = await fetch("/__token");
+  if (!res.ok) throw new Error(`no server token yet (${res.status})`);
+  token = (await res.text()).trim();
+  return token;
+}
 
 /* ── terminal traffic ─────────────────────────────────────────────── */
 
@@ -543,17 +557,13 @@ let ws: WebSocket | null = null;
  * re-rendering the app for every character.
  */
 export type TerminalMessage =
-  | { kind: "data"; data: string; replay?: boolean }
-  | { kind: "exit"; note: string };
+  { kind: "data"; data: string; replay?: boolean } | { kind: "exit"; note: string };
 
 const terminalListeners = new Map<string, Set<(message: TerminalMessage) => void>>();
 
 /** Listen to one tab's shell. Tab ids are unique across every channel, so
  *  this is the whole routing table. */
-export function onTerminal(
-  termId: string,
-  listener: (message: TerminalMessage) => void,
-): () => void {
+export function onTerminal(termId: string, listener: (message: TerminalMessage) => void): () => void {
   const listeners = terminalListeners.get(termId) ?? new Set();
   listeners.add(listener);
   terminalListeners.set(termId, listeners);
@@ -625,9 +635,9 @@ function sendView(): void {
   const message: ClientMessage = {
     type: "view",
     channels: [...onScreen.keys()],
-    // a window nobody can see (lib/awake.ts) is showing nothing: what it
-    // misses, it catches up on as it wakes
-    live: isAwake(),
+    // always live: a window that cannot be seen still keeps its state
+    // current (lib/awake.ts freezes only what moves)
+    live: true,
     ...(boardsUp > 0 ? { board: true } : {}),
   };
   const json = JSON.stringify(message);
@@ -672,126 +682,10 @@ export function watchBoard(): () => void {
   };
 }
 
-/* ── while nobody can see the window ─────────────────────────────── */
-
-/**
- * What the server says while the window is asleep (lib/awake.ts), held
- * unapplied until it wakes: applying it would redraw a window nobody can
- * see. The conversation itself is not sent while asleep — the view says
- * `live: false` — so what arrives is the little every window is told (a
- * chat's status, a turn's end, the gauges) and a shell's output. A message
- * that only ever replaces the one before it takes that one's place rather
- * than queueing behind it, and a shell's output is joined into one piece.
- */
-const held: Array<ServerMessage | null> = [];
-/** Where in `held` the message each replaceable one would replace sits. */
-const heldAt = new Map<string, number>();
-/** Past this the window catches up anyway, rather than hold without end
- *  (asleep all night under a very chatty shell). */
-const HOLD_MAX = 5000;
-
-/** Whose a message is, when a newer one of it makes it moot. */
-function replaces(msg: ServerMessage): string | undefined {
-  switch (msg.type) {
-    case "status":
-    case "context":
-    case "turn":
-    case "reply":
-    case "queued":
-    case "stats":
-    case "crew":
-      return `${msg.type}:${msg.projectId}`;
-    case "usage":
-    case "projects":
-    case "models":
-      return msg.type;
-    default:
-      return undefined;
-  }
-}
-
-function hold(msg: ServerMessage): void {
-  // a snapshot starts the window over: nothing held before it matters
-  if (msg.type === "snapshot") {
-    held.length = 0;
-    heldAt.clear();
-  }
-  const last = held.at(-1);
-  if (
-    msg.type === "terminal_data" &&
-    last?.type === "terminal_data" &&
-    last.projectId === msg.projectId &&
-    last.termId === msg.termId &&
-    !last.replay &&
-    !msg.replay
-  ) {
-    held[held.length - 1] = { ...last, data: last.data + msg.data };
-    return;
-  }
-  const key = replaces(msg);
-  if (key !== undefined) {
-    const at = heldAt.get(key);
-    if (at !== undefined) held[at] = null;
-    heldAt.set(key, held.length);
-  }
-  held.push(msg);
-  if (held.length > HOLD_MAX) applyHeld();
-}
-
-/** Everything held, applied in the order it came — one render for all of it. */
-function applyHeld(): void {
-  const batch = held.splice(0);
-  heldAt.clear();
-  for (const msg of batch) if (msg) apply(msg);
-}
-
+/** Every message applies as it arrives, asleep or awake: only what moves
+ *  is frozen while nobody can see the window (lib/awake.ts). */
 function receive(msg: ServerMessage): void {
-  if (isAwake()) apply(msg);
-  else hold(msg);
-}
-
-subscribeAwake(() => {
-  const awake = isAwake();
-  if (awake) applyHeld();
-  // live again, or not: one view says so — and waking, the server sends
-  // each chat on screen whatever it missed
-  syncView();
-  const panel = useRuri.getState().agentPanel;
-  const key = panel?.keys.at(-1);
-  // an agent's log open here heard nothing while asleep: asked for again,
-  // once the view has gone out ahead of it
-  if (awake && panel && key && onScreen.has(panel.projectId)) {
-    queueMicrotask(() => requestAgentLog(panel.projectId, key));
-  }
-});
-
-/**
- * A transcript sent again, keeping every event that did not change as the
- * very object already on screen — so a chat that catches up after a while
- * away re-renders only what moved, and not at all when nothing did.
- */
-function reuse(held: TranscriptEvent[] | undefined, next: TranscriptEvent[]): TranscriptEvent[] {
-  if (!held || held.length === 0) return next;
-  const byId = new Map(held.map((event) => [event.id, event]));
-  let same = held.length === next.length;
-  const out = next.map((event, i) => {
-    const prev = byId.get(event.id);
-    const kept = prev && JSON.stringify(prev) === JSON.stringify(event) ? prev : event;
-    if (kept !== held[i]) same = false;
-    return kept;
-  });
-  return same ? held : out;
-}
-
-/** A newer tail laid over the end of a whole chat held from before: what
- *  it has, replaced; what is new, added. Anything in between arrives when
- *  the chat is opened. */
-function overlay(held: TranscriptEvent[], tail: TranscriptEvent[]): TranscriptEvent[] {
-  const fresh = new Map(tail.map((event) => [event.id, event]));
-  const out = held.map((event) => fresh.get(event.id) ?? event);
-  const have = new Set(held.map((event) => event.id));
-  for (const event of tail) if (!have.has(event.id)) out.push(event);
-  return out;
+  apply(msg);
 }
 
 /** Histories asked for and not yet arrived. */
@@ -812,6 +706,9 @@ export function agentLogKey(projectId: string, key: string): string {
 /** How many agents' logs the window keeps at once. Opening another lets the
  *  least recently opened go — it is on disk, a click away. */
 const KEEP_AGENT_LOGS = 6;
+/** How much of one agent's log the window keeps — the newest, as Home's
+ *  transcript is kept (HOME_TRANSCRIPT_MAX); the rest is on disk. */
+const AGENT_LOG_MAX = 400;
 /** Logs asked for, least recently opened first. */
 const agentLogOrder: string[] = [];
 
@@ -901,6 +798,12 @@ export function stopAgent(projectId: string, key: string): void {
   send({ type: "agent_stop", projectId, key });
 }
 
+/** Put a line in the chat's error bar — for what went wrong on this side,
+ *  a send that found no socket most of all. */
+export function showError(message: string): void {
+  useRuri.setState({ lastError: message });
+}
+
 export function connect(): void {
   // Dev-only fixture mode (?fixture): canned data instead of a live server,
   // so the UI can be screenshotted deterministically without spending tokens.
@@ -908,20 +811,27 @@ export function connect(): void {
     void import("./fixture").then((m) => m.installFixture());
     return;
   }
-  ws = new WebSocket(WS_URL);
-  ws.onopen = () => {
-    useRuri.setState({ connected: true });
-    flushUnsavedDrafts();
-    // a new connection knows nothing of what is on screen
-    lastView = "";
-    sendView();
-  };
-  ws.onmessage = (raw) => receive(JSON.parse(raw.data as string) as ServerMessage);
-  ws.onclose = () => {
+  const retry = () => {
     useRuri.setState({ connected: false });
     setTimeout(connect, 1500);
   };
-  ws.onerror = () => ws?.close();
+  resolveToken().then(
+    (t) => {
+      ws = new WebSocket(`${WS_URL}/?token=${encodeURIComponent(t)}`);
+      ws.onopen = () => {
+        useRuri.setState({ connected: true });
+        flushUnsavedDrafts();
+        // a new connection knows nothing of what is on screen
+        lastView = "";
+        sendView();
+      };
+      ws.onmessage = (raw) => receive(JSON.parse(raw.data as string) as ServerMessage);
+      ws.onclose = retry;
+      ws.onerror = () => ws?.close();
+    },
+    // no token means no server yet (dev: the file appears when it starts)
+    retry,
+  );
 }
 
 function apply(msg: ServerMessage): void {
@@ -974,7 +884,10 @@ function apply(msg: ServerMessage): void {
         turns: msg.turns,
         stats: msg.stats,
         catchups: Object.fromEntries(
-          Object.entries(msg.catchups).map(([id, c]) => [id, { busy: false, at: 0, ...(c.built ? { built: c.built } : {}) }]),
+          Object.entries(msg.catchups).map(([id, c]) => [
+            id,
+            { busy: false, at: 0, ...(c.built ? { built: c.built } : {}) },
+          ]),
         ),
         canPickFolder: msg.canPickFolder,
         canPermissions: msg.canPermissions,
@@ -1001,8 +914,7 @@ function apply(msg: ServerMessage): void {
         crew: msg.crew,
         activeId:
           s.activeId &&
-          (s.activeId === HOME_ID ||
-            msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
+          (s.activeId === HOME_ID || msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
             ? s.activeId
             : HOME_ID,
       }));
@@ -1018,7 +930,8 @@ function apply(msg: ServerMessage): void {
         // anything that came live while this was on its way stays in it
         const live = s.agentLogs[id] ?? [];
         const ids = new Set(msg.events.map((event) => event.id));
-        return { agentLogs: { ...s.agentLogs, [id]: [...msg.events, ...live.filter((event) => !ids.has(event.id))] } };
+        const log = keepRecent([...msg.events, ...live.filter((event) => !ids.has(event.id))], AGENT_LOG_MAX);
+        return { agentLogs: { ...s.agentLogs, [id]: log } };
       });
       break;
     }
@@ -1029,7 +942,7 @@ function apply(msg: ServerMessage): void {
       if (!log) break;
       const at = log.findIndex((event) => event.id === msg.event.id);
       const next = at === -1 ? [...log, msg.event] : log.map((event, i) => (i === at ? msg.event : event));
-      setState((s) => ({ agentLogs: { ...s.agentLogs, [id]: next } }));
+      setState((s) => ({ agentLogs: { ...s.agentLogs, [id]: keepRecent(next, AGENT_LOG_MAX) } }));
       break;
     }
     case "crew": {
@@ -1044,8 +957,7 @@ function apply(msg: ServerMessage): void {
         projects: msg.projects,
         activeId:
           s.activeId &&
-          (s.activeId === HOME_ID ||
-            msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
+          (s.activeId === HOME_ID || msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
             ? s.activeId
             : HOME_ID,
       }));
@@ -1066,7 +978,10 @@ function apply(msg: ServerMessage): void {
     case "transcript": {
       requested.delete(msg.projectId);
       setState((s) => {
-        const transcripts = { ...s.transcripts, [msg.projectId]: reuse(s.transcripts[msg.projectId], msg.events) };
+        const transcripts = {
+          ...s.transcripts,
+          [msg.projectId]: reuse(s.transcripts[msg.projectId], msg.events),
+        };
         const loaded: Record<string, true> = { ...s.loaded, [msg.projectId]: true };
         const earlier = { ...s.earlier, [msg.projectId]: msg.earlier ?? [] };
         // most recently opened last; the ones past the budget go back to

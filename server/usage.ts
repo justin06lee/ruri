@@ -2,7 +2,9 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import type { UsageLimits } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The usage gauges' account side: each harness's own limit windows, keyed by
@@ -20,7 +22,8 @@ function parseToken(raw: string): string | null {
   try {
     const data = JSON.parse(raw) as { claudeAiOauth?: { accessToken?: string } };
     return data.claudeAiOauth?.accessToken ?? null;
-  } catch {
+  } catch (err) {
+    warn("usage", err, "parseToken");
     return null;
   }
 }
@@ -30,10 +33,8 @@ function parseToken(raw: string): string | null {
 async function accessToken(): Promise<string | null> {
   if (process.platform === "darwin") {
     const raw = await new Promise<string>((resolve) => {
-      execFile(
-        "security",
-        ["find-generic-password", "-s", "Claude Code-credentials", "-w"],
-        (err, stdout) => resolve(err ? "" : stdout),
+      execFile("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], (err, stdout) =>
+        resolve(err ? "" : stdout),
       );
     });
     const token = parseToken(raw);
@@ -41,7 +42,8 @@ async function accessToken(): Promise<string | null> {
   }
   try {
     return parseToken(fs.readFileSync(path.join(os.homedir(), ".claude", ".credentials.json"), "utf8"));
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("usage", err, "accessToken");
     return null;
   }
 }
@@ -54,7 +56,7 @@ function epoch(iso: string | null | undefined): number | undefined {
 }
 
 /** Fetch the account's limit windows; null when unavailable. */
-export async function fetchUsageLimits(): Promise<UsageLimits | null> {
+async function fetchUsageLimits(): Promise<UsageLimits | null> {
   const token = await accessToken();
   if (!token) return null;
   try {
@@ -106,7 +108,8 @@ export async function fetchUsageLimits(): Promise<UsageLimits | null> {
       limits.resets = resets;
     }
     return limits;
-  } catch {
+  } catch (err) {
+    warn("usage", err, "fetchUsageLimits");
     return null;
   }
 }
@@ -118,7 +121,8 @@ function seconds(at: number | undefined): number | undefined {
   return typeof at === "number" && at > 0 ? at * 1000 : undefined;
 }
 
-function codexHome(): string {
+/** Where Codex keeps its rollouts — shared with recent.ts. */
+export function codexHome(): string {
   return process.env["CODEX_HOME"] ?? path.join(os.homedir(), ".codex");
 }
 
@@ -162,7 +166,8 @@ function tokenCounts(file: string): TokenCount[] {
   let text: string;
   try {
     text = tail(file, 64 * 1024);
-  } catch {
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) warn("usage", err, "tokenCounts");
     return [];
   }
   const entries: TokenCount[] = [];
@@ -174,7 +179,8 @@ function tokenCounts(file: string): TokenCount[] {
       const entry = JSON.parse(line) as { payload?: TokenCount } & TokenCount;
       const payload = entry.payload ?? entry;
       if (payload.rate_limits || payload.info) entries.push(payload);
-    } catch {
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) warn("usage", err, "tokenCounts");
       // a half-written last line is normal — keep walking back
     }
   }
@@ -265,7 +271,8 @@ function childrenDesc(dir: string, filter: (name: string) => boolean): string[] 
       .filter((name) => !name.startsWith(".") && filter(name))
       .sort()
       .reverse();
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("usage", err, "childrenDesc");
     return [];
   }
 }
@@ -291,7 +298,8 @@ function rolloutFor(session: string): string | undefined {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("usage", err, "rolloutFor");
       continue;
     }
     for (const entry of entries) {
@@ -331,10 +339,7 @@ export async function fetchAllUsageLimits(): Promise<Record<string, UsageLimits>
 const KEEP_FOR_MS = 6 * 60 * 60 * 1000;
 
 function cacheFile(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "usage.json",
-  );
+  return configPath("usage.json");
 }
 
 /** The reading the last run ended on, if it is still worth showing. */
@@ -348,7 +353,8 @@ export function loadCachedLimits(): Record<string, UsageLimits> {
       fresh[provider] = limits;
     }
     return fresh;
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("usage", err, "loadCachedLimits");
     // first run, or a file worth starting over from
     return {};
   }
@@ -358,7 +364,8 @@ export function saveCachedLimits(limits: Record<string, UsageLimits>): void {
   try {
     fs.mkdirSync(path.dirname(cacheFile()), { recursive: true });
     fs.writeFileSync(cacheFile(), JSON.stringify(limits));
-  } catch {
+  } catch (err) {
+    warn("usage", err, "saveCachedLimits");
     // the gauges just start blank next launch
   }
 }

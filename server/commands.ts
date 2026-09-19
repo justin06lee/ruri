@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { CommandInfo } from "../shared/protocol.js";
-import { scanSkills } from "./skills.js";
+import { listSkills } from "./skills.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Slash commands written inside a prompt.
@@ -23,7 +24,7 @@ import { scanSkills } from "./skills.js";
  */
 
 /** ruri's own, run by the server rather than sent anywhere. */
-export const RURI_COMMANDS = new Set(["compact"]);
+const RURI_COMMANDS = new Set(["compact"]);
 
 /** What the harness itself answers to when it arrives as a prompt. */
 const HARNESS_COMMANDS = ["clear", "context", "cost", "review", "init", "memory", "todos"];
@@ -52,9 +53,13 @@ export function listCommands(projectDir?: string): CommandInfo[] {
   for (const name of HARNESS_COMMANDS) {
     out.push({ name, kind: "harness", ...(DESCRIBED[name] ? { description: DESCRIBED[name] } : {}) });
   }
-  for (const skill of scanSkills(projectDir)) {
+  for (const skill of listSkills(projectDir)) {
     if (!skill.enabled) continue;
-    out.push({ name: skill.name, kind: "skill", ...(skill.description ? { description: skill.description } : {}) });
+    out.push({
+      name: skill.name,
+      kind: "skill",
+      ...(skill.description ? { description: skill.description } : {}),
+    });
   }
   const custom = new Set([
     ...commandFiles(path.join(os.homedir(), ".claude", "commands")),
@@ -71,7 +76,8 @@ function commandFiles(dir: string): string[] {
       .readdirSync(dir)
       .filter((name) => name.endsWith(".md"))
       .map((name) => name.slice(0, -3));
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("commands", err, "commandFiles");
     return [];
   }
 }
@@ -86,7 +92,7 @@ export function knownCommands(projectDir?: string): Set<string> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.names;
   const names = new Set<string>([...RURI_COMMANDS, ...HARNESS_COMMANDS]);
-  for (const skill of scanSkills(projectDir)) if (skill.enabled) names.add(skill.name);
+  for (const skill of listSkills(projectDir)) if (skill.enabled) names.add(skill.name);
   for (const name of commandFiles(path.join(os.homedir(), ".claude", "commands"))) names.add(name);
   if (projectDir) {
     for (const name of commandFiles(path.join(projectDir, ".claude", "commands"))) names.add(name);
@@ -102,10 +108,7 @@ const COMMAND_LINE = /^\/([a-z0-9][\w:.-]*)(\s+\S.*)?$/i;
  * Lift the commands out of a prompt. `commands` is what to run first, in
  * the order written; `rest` is the prompt with them gone (possibly empty).
  */
-export function splitCommands(
-  text: string,
-  known: Set<string>,
-): { commands: string[]; rest: string } {
+export function splitCommands(text: string, known: Set<string>): { commands: string[]; rest: string } {
   const commands: string[] = [];
   const kept: string[] = [];
   for (const line of text.split("\n")) {
@@ -139,6 +142,9 @@ export function splitCommands(
     }
     kept.push(remaining === line ? line : remaining.replace(/\s+$/, ""));
   }
-  const rest = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const rest = kept
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   return { commands, rest };
 }

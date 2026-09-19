@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { Project } from "../shared/protocol.js";
 import { catchupBrief, type FullBrief } from "./smallmodel.js";
 import { describeFile, sweepCandidates } from "./sweep.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * The catch-up brief, written whole.
@@ -32,15 +33,32 @@ const SOURCE_FILES = 26;
 
 /** Folders that are nobody's layout. */
 const SKIP_DIRS = new Set([
-  "node_modules", ".git", "dist", "dist-web", "dist-app", "dist-electron", "build", "out", "target",
-  "vendor", "coverage", ".next", ".nuxt", ".svelte-kit", "__pycache__", ".venv", "venv", ".cache",
+  "node_modules",
+  ".git",
+  "dist",
+  "dist-web",
+  "dist-app",
+  "dist-electron",
+  "build",
+  "out",
+  "target",
+  "vendor",
+  "coverage",
+  ".next",
+  ".nuxt",
+  ".svelte-kit",
+  "__pycache__",
+  ".venv",
+  "venv",
+  ".cache",
 ]);
 
 function readHead(file: string, chars: number): string | undefined {
   try {
     const raw = fs.readFileSync(file, "utf8");
     return raw.length > chars ? `${raw.slice(0, chars)}\n…` : raw;
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("catchup", err, "readHead");
     return undefined;
   }
 }
@@ -52,7 +70,8 @@ function tree(dir: string): string {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("catchup", err, "list");
       return;
     }
     const dirs = entries.filter((e) => e.isDirectory() && !SKIP_DIRS.has(e.name) && !e.name.startsWith("."));
@@ -62,7 +81,8 @@ function tree(dir: string): string {
       let count = 0;
       try {
         count = fs.readdirSync(path.join(dir, child)).length;
-      } catch {
+      } catch (err) {
+        if (!isMissing(err)) warn("catchup", err, "list");
         // unreadable
       }
       lines.push(`${"  ".repeat(depth)}${d.name}/ (${count})`);
@@ -84,15 +104,36 @@ function manifest(dir: string): string | undefined {
     try {
       const parsed = JSON.parse(pkg) as Record<string, unknown>;
       const keep: Record<string, unknown> = {};
-      for (const key of ["name", "description", "scripts", "dependencies", "devDependencies", "engines", "main", "bin"]) {
+      for (const key of [
+        "name",
+        "description",
+        "scripts",
+        "dependencies",
+        "devDependencies",
+        "engines",
+        "main",
+        "bin",
+      ]) {
         if (parsed[key] !== undefined) keep[key] = parsed[key];
       }
       return `package.json:\n${JSON.stringify(keep, null, 1).slice(0, MANIFEST_CHARS)}`;
-    } catch {
+    } catch (err) {
+      warn("catchup", err, "manifest");
       return `package.json:\n${pkg.slice(0, MANIFEST_CHARS)}`;
     }
   }
-  for (const name of ["pyproject.toml", "Cargo.toml", "go.mod", "Package.swift", "build.gradle", "pom.xml", "Gemfile", "composer.json", "mix.exs", "deno.json"]) {
+  for (const name of [
+    "pyproject.toml",
+    "Cargo.toml",
+    "go.mod",
+    "Package.swift",
+    "build.gradle",
+    "pom.xml",
+    "Gemfile",
+    "composer.json",
+    "mix.exs",
+    "deno.json",
+  ]) {
     const text = readHead(path.join(dir, name), MANIFEST_CHARS);
     if (text) return `${name}:\n${text}`;
   }
@@ -100,7 +141,7 @@ function manifest(dir: string): string | undefined {
 }
 
 /** Everything the model reads, as one document with headed sections. */
-export function catchupMaterial(project: Project): string {
+async function catchupMaterial(project: Project): Promise<string> {
   const dir = project.path;
   const parts: string[] = [`PROJECT: ${project.name}\nPATH: ${dir}`];
   const readme = ["README.md", "readme.md", "README", "README.rst", "README.txt"]
@@ -116,12 +157,10 @@ export function catchupMaterial(project: Project): string {
     if (text) parts.push(`=== ${name} ===\n${text}`);
   }
   parts.push(`=== TREE (two levels) ===\n${tree(dir)}`);
-  const heads = sweepCandidates(dir)
-    .slice(0, SOURCE_FILES)
-    .flatMap((rel) => {
-      const d = describeFile(dir, rel, HEAD_CHARS);
-      return d ? [`--- ${d.path} ---\n${d.head}`] : [];
-    });
+  const heads = (await sweepCandidates(dir)).slice(0, SOURCE_FILES).flatMap((rel) => {
+    const d = describeFile(dir, rel, HEAD_CHARS);
+    return d ? [`--- ${d.path} ---\n${d.head}`] : [];
+  });
   if (heads.length) parts.push(`=== SOURCE FILES (openings) ===\n${heads.join("\n\n")}`);
   return parts.join("\n\n");
 }
@@ -129,5 +168,5 @@ export function catchupMaterial(project: Project): string {
 /** Read the repo and write the whole brief. Null when the model gave
  *  nothing usable (the brief then stays as it was). */
 export async function buildCatchup(project: Project, current: Partial<FullBrief>): Promise<FullBrief | null> {
-  return catchupBrief(project.name, catchupMaterial(project), current);
+  return catchupBrief(project.name, await catchupMaterial(project), current);
 }

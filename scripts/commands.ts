@@ -22,18 +22,43 @@ check("plain prompt", "fix the header\nand the footer", [], "fix the header\nand
 check("command on its own line", "/compact\nnow fix the header", ["/compact"], "now fix the header");
 check("command at the end", "fix the header\n\n/compact", ["/compact"], "fix the header");
 check("command with arguments", "/simplify web/src\nthen commit", ["/simplify web/src"], "then commit");
-check("two commands, in order", "/compact\n/code-review high\nlook at this", ["/compact", "/code-review high"], "look at this");
-check("inline compact as a word", "fix the header and /compact before you start on the footer", ["/compact"], "fix the header and before you start on the footer");
-check("inline compact at line end", "long prompt here /compact\nmore", ["/compact"], "long prompt here\nmore");
-check("single-quoted is words", "the '/compact' command is ruri's own", [], "the '/compact' command is ruri's own");
-check("double-quoted is words", "type \"/compact\" to compact", [], "type \"/compact\" to compact");
+check(
+  "two commands, in order",
+  "/compact\n/code-review high\nlook at this",
+  ["/compact", "/code-review high"],
+  "look at this",
+);
+check(
+  "inline compact as a word",
+  "fix the header and /compact before you start on the footer",
+  ["/compact"],
+  "fix the header and before you start on the footer",
+);
+check(
+  "inline compact at line end",
+  "long prompt here /compact\nmore",
+  ["/compact"],
+  "long prompt here\nmore",
+);
+check(
+  "single-quoted is words",
+  "the '/compact' command is ruri's own",
+  [],
+  "the '/compact' command is ruri's own",
+);
+check("double-quoted is words", 'type "/compact" to compact', [], 'type "/compact" to compact');
 check("backticked is words", "run `/compact` first", [], "run `/compact` first");
-check("quoted whole line is words", "\"/compact\"", [], "\"/compact\"");
+check("quoted whole line is words", '"/compact"', [], '"/compact"');
 check("unknown command stays", "/tmp\nis a path", [], "/tmp\nis a path");
 check("path stays", "/Users/me/file.txt has it", [], "/Users/me/file.txt has it");
 check("skill with args needs its own line", "run /simplify now", [], "run /simplify now");
 check("only a command", "/compact", ["/compact"], "");
-check("indentation kept on untouched lines", "code:\n    indented\n/compact", ["/compact"], "code:\n    indented");
+check(
+  "indentation kept on untouched lines",
+  "code:\n    indented\n/compact",
+  ["/compact"],
+  "code:\n    indented",
+);
 // ruri's own name comes back in ruri's own spelling, because the server
 // matches it exactly to decide the command is its own — lifted as typed,
 // "/Compact" went to the harness, which has a /compact of its own

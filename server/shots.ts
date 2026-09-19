@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Pictures, taken without anybody opening anything.
@@ -47,10 +48,7 @@ export interface ShotTarget {
  * Answers a map of component id to base64 PNG, with nothing at all for the
  * targets it couldn't find.
  */
-export type CaptureHost = (
-  url: string,
-  targets: ShotTarget[],
-) => Promise<Record<string, string>>;
+export type CaptureHost = (url: string, targets: ShotTarget[]) => Promise<Record<string, string>>;
 
 /** Frameworks whose presence means "this project is a page somewhere". */
 const WEB_DEPS =
@@ -83,7 +81,8 @@ export function devCommand(dir: string): DevCommand | undefined {
   let pkg: PackageJson;
   try {
     pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) as PackageJson;
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) warn("shots", err, "devCommand");
     return undefined;
   }
   const script = DEV_SCRIPTS.find((name) => typeof pkg.scripts?.[name] === "string");
@@ -91,8 +90,8 @@ export function devCommand(dir: string): DevCommand | undefined {
   const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
   const web =
     deps.some((dep) => WEB_DEPS.test(dep)) ||
-    ["index.html", "web/index.html", "src/index.html", "public/index.html", "app/index.html"].some(
-      (rel) => fs.existsSync(path.join(dir, rel)),
+    ["index.html", "web/index.html", "src/index.html", "public/index.html", "app/index.html"].some((rel) =>
+      fs.existsSync(path.join(dir, rel)),
     );
   if (!web) return undefined;
   const bun = fs.existsSync(path.join(dir, "bun.lock")) || fs.existsSync(path.join(dir, "bun.lockb"));
@@ -118,6 +117,7 @@ export function projectEnv(): NodeJS.ProcessEnv {
   return { ...env, BROWSER: "none", NO_COLOR: "1", FORCE_COLOR: "0" };
 }
 
+// eslint-disable-next-line no-control-regex -- ESC is the point: this strips ANSI colour codes
 const ANSI = new RegExp("\\u001b\\[[0-9;]*[A-Za-z]", "g");
 const URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?\S*/;
 const LOCAL_RE = /Local:\s*(https?:\/\/\S+)/;
@@ -151,7 +151,8 @@ export async function withProjectRunning<T>(
       env: projectEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     });
-  } catch {
+  } catch (err) {
+    warn("shots", err, "withProjectRunning");
     onNote("couldn't start the project — named without pictures");
     return undefined;
   }
@@ -161,7 +162,8 @@ export async function withProjectRunning<T>(
       try {
         if (child.pid) process.kill(-child.pid, sig);
         else child.kill(sig);
-      } catch {
+      } catch (err) {
+        warn("shots", err, "signal");
         // already gone
       }
     };

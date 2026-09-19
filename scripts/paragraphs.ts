@@ -57,12 +57,20 @@ for (const chunk of [1, 3, 7, 50, 10_000]) {
   );
   check(
     `chunks of ${chunk}: no piece ends inside a paragraph`,
-    pieces.slice(0, -1).every((p) => p.trim() !== "" && (p.endsWith("\n\n") || p.endsWith("```\n") || p.endsWith("~~~~\n"))),
+    pieces
+      .slice(0, -1)
+      .every((p) => p.trim() !== "" && (p.endsWith("\n\n") || p.endsWith("```\n") || p.endsWith("~~~~\n"))),
     pieces,
   );
 }
-check("token by token, the first paragraph comes out alone", run(reply, 1)[0] === "First paragraph, which wraps\nonto a second line.\n\n");
-check("a tilde fence is not closed by backticks", run(reply, 1).some((p) => p.startsWith("~~~~\n``` not a close\n~~~~\n")));
+check(
+  "token by token, the first paragraph comes out alone",
+  run(reply, 1)[0] === "First paragraph, which wraps\nonto a second line.\n\n",
+);
+check(
+  "a tilde fence is not closed by backticks",
+  run(reply, 1).some((p) => p.startsWith("~~~~\n``` not a close\n~~~~\n")),
+);
 check("a stream with no blank line is held to the end", run("one line\nanother line", 1).length === 1);
 
 if (failed) {

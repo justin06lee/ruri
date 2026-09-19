@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { configPath } from "./configDir.js";
 import type { Attachment, TrackerItem, TrackerStatus } from "../shared/protocol.js";
+import { isMissing, warn } from "./log.js";
 
 /**
  * Feature/prompt tracker: a per-project checklist of things the user should
@@ -12,10 +13,7 @@ import type { Attachment, TrackerItem, TrackerStatus } from "../shared/protocol.
  */
 
 function trackerDir(): string {
-  return path.join(
-    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
-    "tracker",
-  );
+  return configPath("tracker");
 }
 
 export class TrackerStore {
@@ -25,11 +23,12 @@ export class TrackerStore {
     let items = this.data.get(projectId);
     if (items) return items;
     try {
-      const raw = JSON.parse(
-        fs.readFileSync(path.join(trackerDir(), `${projectId}.json`), "utf8"),
-      ) as { items?: TrackerItem[] };
+      const raw = JSON.parse(fs.readFileSync(path.join(trackerDir(), `${projectId}.json`), "utf8")) as {
+        items?: TrackerItem[];
+      };
       items = Array.isArray(raw.items) ? raw.items : [];
-    } catch {
+    } catch (err) {
+      if (!isMissing(err)) warn("tracker", err, "load");
       items = [];
     }
     this.data.set(projectId, items);
@@ -43,7 +42,8 @@ export class TrackerStore {
         path.join(trackerDir(), `${projectId}.json`),
         JSON.stringify({ items: this.data.get(projectId) ?? [] }, null, 2),
       );
-    } catch {
+    } catch (err) {
+      warn("tracker", err, "save");
       // best-effort persistence
     }
   }
@@ -128,9 +128,7 @@ export class TrackerStore {
   removeForTurns(projectId: string, turnIds: Iterable<string>): boolean {
     const gone = new Set(turnIds);
     const items = this.load(projectId);
-    const kept = items.filter(
-      (item) => !(item.source === "auto" && item.turnId && gone.has(item.turnId)),
-    );
+    const kept = items.filter((item) => !(item.source === "auto" && item.turnId && gone.has(item.turnId)));
     if (kept.length === items.length) return false;
     this.data.set(projectId, kept);
     this.save(projectId);
@@ -149,7 +147,8 @@ export class TrackerStore {
     this.data.delete(projectId);
     try {
       fs.rmSync(path.join(trackerDir(), `${projectId}.json`), { force: true });
-    } catch {
+    } catch (err) {
+      warn("tracker", err, "removeProject");
       // best-effort
     }
   }

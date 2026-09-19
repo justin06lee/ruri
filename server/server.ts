@@ -62,7 +62,7 @@ import { sweepOrphans } from "./orphans.js";
 import { SecretStore } from "./secrets.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
-import { contextWindow, pushContexts, republishContext, Turns } from "./turns.js";
+import { contextWindow, pushContexts, Turns } from "./turns.js";
 import { sweepUploads } from "./uploads.js";
 import { errorMessage, warn } from "./log.js";
 import { originAllowed, presentedToken, tokenMatches } from "./auth.js";
@@ -77,6 +77,8 @@ import { terminalHandlers } from "./handlers/terminal.js";
 import { skillHandlers } from "./handlers/skills.js";
 import { createManagerHost, projectHandlers } from "./handlers/projects.js";
 import { transcriptHandlers } from "./handlers/transcript.js";
+import { hostHandlers } from "./handlers/host.js";
+import { settingHandlers } from "./handlers/settings.js";
 import type { Handler, MessageType } from "./handlers/types.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
@@ -85,17 +87,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const store = new ProjectStore();
   setSmallModel(store.smallModel());
 
-  /** The roles changed: the small layer and every window hear the new set.
-   *  A new default pins nothing live (the store already did), so the
-   *  projects list goes out too — the pinned values are now on them. */
-  function announceRoles(roles: { starred: string[]; small: string | undefined; default: string | undefined }): void {
-    setSmallModel(roles.small);
-    ctx.clients.broadcast({ type: "starred_models", models: roles.starred });
-    ctx.clients.broadcast({ type: "small_model", model: roles.small ?? "" });
-    ctx.clients.broadcast({ type: "default_model", model: store.defaultModel() });
-    ctx.clients.broadcast({ type: "projects", projects: store.list() });
-    ctx.clients.broadcast({ type: "home_settings", home: store.homeSettings() });
-  }
   const archive = new SessionArchive();
   /** What each subagent did, apart from the chat that started it. */
   const agentLogs = new AgentLogs();
@@ -396,7 +387,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const managerHost = createManagerHost(ctx);
   ctx.managerHost = managerHost;
 
-  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers, ...promptHandlers, ...boardHandlers, ...terminalHandlers, ...skillHandlers, ...projectHandlers, ...transcriptHandlers };
+  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers, ...promptHandlers, ...boardHandlers, ...terminalHandlers, ...skillHandlers, ...projectHandlers, ...transcriptHandlers, ...hostHandlers, ...settingHandlers };
 
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
     const handler = (handlers as Partial<Record<string, Handler<MessageType>>>)[msg.type];
@@ -405,169 +396,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       return;
     }
     switch (msg.type) {
-      case "pick_folder": {
-        const target = msg.target ?? "workspace";
-        void (options.pickFolder?.() ?? Promise.resolve(null)).then((path) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "folder_picked", path, target } satisfies ServerMessage));
-          }
-        });
-        break;
-      }
-      case "permissions_check":
-      case "permissions_request": {
-        const host = options.permissions;
-        if (!host) break;
-        const asked = msg.type === "permissions_request" ? host.request(msg.id) : host.check();
-        void asked
-          .then(async (items) => ({ items, rows: await host.rows() }))
-          .then(({ items, rows }) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "permissions", items, rows } satisfies ServerMessage));
-            }
-          })
-          .catch(() => {});
-        break;
-      }
-      case "set_pref": {
-        prefs.set(msg.key, msg.value);
-        ctx.clients.broadcast({ type: "prefs", prefs: prefs.all() });
-        break;
-      }
-      case "set_model": {
-        if (msg.projectId === HOME_ID) {
-          store.setHomeSettings({ model: msg.model });
-          manager.setModel(HOME_ID, msg.model);
-          ctx.clients.broadcast({ type: "home_settings", home: store.homeSettings() });
-          republishContext(ctx, HOME_ID);
-          break;
-        }
-        // A chat's pick is that chat's alone: it lands on the session, the
-        // live session takes it once its turn is over, and no other chat
-        // in the project moves. The project id form is wholesale.
-        if (store.findSession(msg.projectId)) {
-          if (store.effectiveSettings(msg.projectId)?.model === msg.model) break;
-          store.setSessionSettings(msg.projectId, { model: msg.model });
-          manager.setModel(msg.projectId, msg.model);
-          ctx.clients.broadcast({ type: "projects", projects: store.list() });
-          // the new model may have a different window — remeasure against it
-          republishContext(ctx, msg.projectId);
-          break;
-        }
-        const project = store.get(msg.projectId);
-        if (!project) break;
-        for (const s of project.sessions) delete s.model;
-        store.update(msg.projectId, { model: msg.model });
-        // live sessions are keyed by session id, not project id
-        for (const s of project.sessions) manager.setModel(s.id, msg.model);
-        ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        for (const s of project.sessions) republishContext(ctx, s.id);
-        break;
-      }
-      case "set_permission_mode": {
-        if (msg.projectId === HOME_ID) {
-          store.setHomeSettings({ permissionMode: msg.mode });
-          manager.setPermissionMode(HOME_ID, msg.mode);
-          ctx.clients.broadcast({ type: "home_settings", home: store.homeSettings() });
-          break;
-        }
-        if (store.findSession(msg.projectId)) {
-          if (store.effectiveSettings(msg.projectId)?.permissionMode === msg.mode) break;
-          store.setSessionSettings(msg.projectId, { permissionMode: msg.mode });
-          manager.setPermissionMode(msg.projectId, msg.mode);
-          ctx.clients.broadcast({ type: "projects", projects: store.list() });
-          break;
-        }
-        const project = store.get(msg.projectId);
-        if (!project) break;
-        for (const s of project.sessions) delete s.permissionMode;
-        store.update(msg.projectId, { permissionMode: msg.mode });
-        for (const s of project.sessions) manager.setPermissionMode(s.id, msg.mode);
-        ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        break;
-      }
-      case "set_effort": {
-        if (msg.projectId === HOME_ID) {
-          if ((store.homeSettings().effort ?? "") === msg.effort) break;
-          store.setHomeSettings({ effort: msg.effort });
-          manager.setEffort(HOME_ID, msg.effort);
-          ctx.clients.broadcast({ type: "home_settings", home: store.homeSettings() });
-          break;
-        }
-        if (store.findSession(msg.projectId)) {
-          if (store.effectiveSettings(msg.projectId)?.effort === msg.effort) break;
-          store.setSessionSettings(msg.projectId, { effort: msg.effort });
-          manager.setEffort(msg.projectId, msg.effort);
-          ctx.clients.broadcast({ type: "projects", projects: store.list() });
-          break;
-        }
-        const project = store.get(msg.projectId);
-        if (!project) break;
-        if ((project.effort ?? "") === msg.effort && project.sessions.every((s) => !s.effort)) break;
-        for (const s of project.sessions) delete s.effort;
-        store.update(msg.projectId, { effort: msg.effort });
-        for (const s of project.sessions) manager.setEffort(s.id, msg.effort);
-        ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        break;
-      }
       /* ── the ideas board ──────────────────────────────────────── */
 
       /* ── the vault ────────────────────────────────────────────── */
-      case "secret_save": {
-        secrets.upsert({
-          ...(msg.id ? { id: msg.id } : {}),
-          name: msg.name,
-          ...(msg.username !== undefined ? { username: msg.username } : {}),
-          ...(msg.note !== undefined ? { note: msg.note } : {}),
-          ...(msg.secret !== undefined ? { secret: msg.secret } : {}),
-        });
-        ctx.clients.broadcast({ type: "secrets", items: secrets.meta() });
-        break;
-      }
-      case "secret_remove": {
-        secrets.remove(msg.id);
-        ctx.clients.broadcast({ type: "secrets", items: secrets.meta() });
-        break;
-      }
 
       /* ── skills ───────────────────────────────────────────────── */
 
-      case "set_workspace": {
-        store.setWorkspaceDir(msg.path);
-        ctx.clients.broadcast({ type: "workspace", path: store.workspaceDir() });
-        break;
-      }
-      case "set_music_dir": {
-        store.setMusicDir(msg.path);
-        ctx.clients.broadcast({ type: "music_dir", path: ctx.musicRoot() });
-        break;
-      }
-      case "toggle_model_star": {
-        announceRoles(store.cycleModelStar(msg.model));
-        break;
-      }
-      case "set_model_role": {
-        announceRoles(store.assignModelRole(msg.model, msg.role));
-        break;
-      }
-      case "refresh_models": {
-        // Probing spawns a short-lived process per harness, so back-to-back
-        // Settings opens within half a minute reuse the last answer.
-        if (Date.now() - ctx.models.probedAt > 30_000) ctx.models.probeModels(true);
-        break;
-      }
-      case "bridge_takeover": {
-        void options.bridge?.takeover(msg.projectId);
-        break;
-      }
-      case "bridge_release": {
-        void options.bridge?.release(msg.projectId);
-        break;
-      }
-      case "bridge_close": {
-        void options.bridge?.close(msg.projectId);
-        break;
-      }
       default: {
         const unknown: { type: string } = msg;
         throw new Error(`unknown message type: ${JSON.stringify(unknown)}`);

@@ -38,6 +38,7 @@ import {
   type UsageLimits,
 } from "../../shared/protocol";
 import type { ComposerAttachment } from "./components/Attachments";
+import { overlay, reuse } from "./lib/transcript";
 import { hydratePrefs } from "./prefs";
 import { fileToBase64 } from "./lib/files";
 
@@ -693,35 +694,6 @@ export function watchBoard(): () => void {
  *  is frozen while nobody can see the window (lib/awake.ts). */
 function receive(msg: ServerMessage): void {
   apply(msg);
-}
-
-/**
- * A transcript sent again, keeping every event that did not change as the
- * very object already on screen — so a chat that catches up after a while
- * away re-renders only what moved, and not at all when nothing did.
- */
-function reuse(held: TranscriptEvent[] | undefined, next: TranscriptEvent[]): TranscriptEvent[] {
-  if (!held || held.length === 0) return next;
-  const byId = new Map(held.map((event) => [event.id, event]));
-  let same = held.length === next.length;
-  const out = next.map((event, i) => {
-    const prev = byId.get(event.id);
-    const kept = prev && JSON.stringify(prev) === JSON.stringify(event) ? prev : event;
-    if (kept !== held[i]) same = false;
-    return kept;
-  });
-  return same ? held : out;
-}
-
-/** A newer tail laid over the end of a whole chat held from before: what
- *  it has, replaced; what is new, added. Anything in between arrives when
- *  the chat is opened. */
-function overlay(held: TranscriptEvent[], tail: TranscriptEvent[]): TranscriptEvent[] {
-  const fresh = new Map(tail.map((event) => [event.id, event]));
-  const out = held.map((event) => fresh.get(event.id) ?? event);
-  const have = new Set(held.map((event) => event.id));
-  for (const event of tail) if (!have.has(event.id)) out.push(event);
-  return out;
 }
 
 /** Histories asked for and not yet arrived. */

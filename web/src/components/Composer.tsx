@@ -6,8 +6,8 @@ import { tooBigNotice, useConfirm } from "./Confirm";
 import { AttachmentStrip, cropRegion, fileKind, Viewer, type ComposerAttachment, type Region } from "./Attachments";
 import { CommandMenu, commandPrefix } from "./CommandMenu";
 import { DragonGauges } from "./Dragon";
+import { MarkerMirror } from "./Markers";
 import {
-  MarkerMirror,
   fitBox,
   backspaceHits,
   findMarkers,
@@ -18,7 +18,7 @@ import {
   removeMarker,
   stripMarkers,
   type Marker,
-} from "./Markers";
+} from "../lib/markers";
 import { SessionControls } from "./SessionControls";
 import type { SketchBackground } from "./Sketch";
 import { Icon } from "./chat/Icon";

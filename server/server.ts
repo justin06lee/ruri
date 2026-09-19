@@ -41,7 +41,6 @@ import {
   setSmallModel,
 } from "./smallmodel.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
-import { listCommands } from "./commands.js";
 import { findProjects } from "./finder.js";
 import { LedgerStore } from "./ledger.js";
 import { importRecent, listRecent } from "./recent.js";
@@ -64,7 +63,6 @@ import { IdeaStore } from "./ideas.js";
 import { ParagraphGate } from "./paragraphs.js";
 import { sweepOrphans } from "./orphans.js";
 import { SecretStore } from "./secrets.js";
-import { installSkill, listSkills, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { contextWindow, pushContexts, republishContext, Turns } from "./turns.js";
@@ -79,6 +77,7 @@ import { promptHandlers } from "./handlers/prompts.js";
 import { createCrewManager, crewHandlers } from "./handlers/crew.js";
 import { boardHandlers } from "./handlers/boards.js";
 import { terminalHandlers } from "./handlers/terminal.js";
+import { skillHandlers } from "./handlers/skills.js";
 import type { Handler, MessageType } from "./handlers/types.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
@@ -220,19 +219,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   notesTimer.unref();
   const componentHost = createComponentHost(ctx);
   ctx.componentHost = componentHost;
-
-  /** Re-scan skills for a project (or just the global ones) and push. */
-  function pushSkills(projectId?: string, note?: string): void {
-    const dir = projectId ? store.get(projectId)?.path : undefined;
-    void scanSkills(dir).then((skills) =>
-      ctx.clients.broadcast({
-        type: "skills",
-        ...(projectId ? { projectId } : {}),
-        skills,
-        ...(note ? { note } : {}),
-      }),
-    );
-  }
 
   // Projects that arrived before this existed: one at a time, in the
   // background, so a launch with ten of them does not fire ten reads of the
@@ -509,7 +495,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     findProjects: (query) => findProjects([store.workspaceDir()], query),
   };
 
-  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers, ...promptHandlers, ...boardHandlers, ...terminalHandlers };
+  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers, ...promptHandlers, ...boardHandlers, ...terminalHandlers, ...skillHandlers };
 
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
     const handler = (handlers as Partial<Record<string, Handler<MessageType>>>)[msg.type];
@@ -798,82 +784,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
 
       /* ── skills ───────────────────────────────────────────────── */
-      case "skills_refresh": {
-        pushSkills(msg.projectId);
-        break;
-      }
-      case "commands_refresh": {
-        const dir = msg.projectId ? store.get(msg.projectId)?.path : undefined;
-        // the asking socket only: this is a menu being opened, not news
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(
-            JSON.stringify({
-              type: "commands",
-              ...(msg.projectId ? { projectId: msg.projectId } : {}),
-              commands: listCommands(dir),
-            } satisfies ServerMessage),
-          );
-        }
-        break;
-      }
-      case "skill_toggle": {
-        try {
-          const note = toggleSkill(
-            msg.scope,
-            msg.projectId ? store.get(msg.projectId)?.path : undefined,
-            msg.name,
-            msg.on,
-          );
-          pushSkills(msg.projectId, note);
-        } catch (err) {
-          pushSkills(msg.projectId, String(err instanceof Error ? err.message : err));
-        }
-        break;
-      }
-      case "skill_read": {
-        try {
-          const body = readSkill(
-            msg.scope,
-            msg.projectId ? store.get(msg.projectId)?.path : undefined,
-            msg.name,
-          );
-          ws.send(JSON.stringify({ type: "skill_body", name: msg.name, scope: msg.scope, body } satisfies ServerMessage));
-        } catch (err) {
-          ws.send(JSON.stringify({
-            type: "skill_body",
-            name: msg.name,
-            scope: msg.scope,
-            body: `_${String(err instanceof Error ? err.message : err)}_`,
-          } satisfies ServerMessage));
-        }
-        break;
-      }
-      case "skill_install":
-      case "skill_remove":
-      case "skill_update": {
-        const dir = msg.projectId ? store.get(msg.projectId)?.path : undefined;
-        // bmo clones and copies — long enough that the page says so (the
-        // list as the filesystem has it; bmo's own notes come with the push
-        // when the work is done)
-        ctx.clients.broadcast({
-          type: "skills",
-          ...(msg.projectId ? { projectId: msg.projectId } : {}),
-          skills: listSkills(dir),
-          busy: true,
-        });
-        const work =
-          msg.type === "skill_install"
-            ? installSkill(msg.scope, dir, msg.source)
-            : msg.type === "skill_remove"
-              ? removeSkill(msg.scope, dir, msg.name)
-              : updateSkills(dir);
-        work
-          .then((note) => pushSkills(msg.projectId, note.split("\n").slice(-3).join(" · ") || "done"))
-          .catch((err: unknown) =>
-            pushSkills(msg.projectId, String(err instanceof Error ? err.message : err).split("\n")[0]),
-          );
-        break;
-      }
 
       case "toggle_star": {
         const project = store.get(msg.projectId);

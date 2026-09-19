@@ -62,6 +62,12 @@ const REVEAL_GAP = 16;
  *  history is a pane that costs that much to take down again on the way
  *  out, and leaving a session is as common as entering one. */
 const IDLE_CAP = 14;
+/** Folded exchanges from before the newest compaction rendered at first.
+ *  Each is one line, but a conversation can have hundreds of them, and
+ *  React walks every one of them on every render of the pane. */
+const EARLIER_FIRST = 24;
+/** How many more each approach to the top adds. */
+const EARLIER_STEP = 40;
 
 /** A hero face in its circle, framed the way the tuner left it. */
 function HeroFace({ n }: { n: number }) {
@@ -318,6 +324,7 @@ function ChatView({
    * in on idle frames behind it, so scrolling up finds it already there.
    */
   const [renderedTurns, setRenderedTurns] = useState(FIRST_TURNS);
+  const [renderedEarlier, setRenderedEarlier] = useState(EARLIER_FIRST);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
@@ -416,6 +423,8 @@ function ChatView({
       else if (!grewAtTop.current) {
         grewAtTop.current = true;
         setRenderedTurns((shown) => shown + TURN_STEP);
+        // and the folded exchanges above them, by the same approach
+        setRenderedEarlier((shown) => shown + EARLIER_STEP);
       }
     });
   };
@@ -534,6 +543,14 @@ function ChatView({
   // each starts — open below the newest compaction, folded above it.
   const [opens, setOpens] = useState<Record<string, { prompt?: boolean; reply?: boolean }>>({});
   const [wantHistory, setWantHistory] = useState(false);
+  /** The newest of the folded exchanges — the ones nearest the live
+   *  conversation, which are what scrolling up reaches first. The rest
+   *  arrive as the top is approached, as the live turns do. */
+  const shownEarlier = useMemo(
+    () => (renderedEarlier >= earlier.length ? earlier : earlier.slice(earlier.length - renderedEarlier)),
+    [earlier, renderedEarlier],
+  );
+
   const earlierIds = useMemo(
     () => new Set(earlier.flatMap((item) => (item.kind === "turn" ? [item.turnId] : []))),
     [earlier],
@@ -831,7 +848,7 @@ function ChatView({
             {/* the earlier exchanges wait for every live turn below them to
               be laid out — until then the tail is what's on screen */}
             {shownTurns.length === allTurns.length &&
-              earlier.map((item) => {
+              shownEarlier.map((item) => {
                 if (item.kind === "compaction") {
                   const full = historyTurns.get(`compaction-${item.id}`)?.events[0];
                   return (

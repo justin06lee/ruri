@@ -32,14 +32,18 @@ export const transcriptHandlers = {
   },
   view: (ctx, ws, msg) => {
     const known = new Set([...ctx.store.sessionIds(), HOME_ID]);
-    const view = ctx.clients.views.get(ws) ?? { channels: new Set<string>(), board: false, seen: new Map() };
+    const view = ctx.clients.views.get(ws) ?? {
+      channels: new Set<string>(),
+      board: false,
+      seen: new Map(),
+    };
     const before = view.channels;
     const hadBoard = view.board;
     view.channels = new Set(msg.channels.filter((id) => known.has(id)));
     view.board = msg.board === true;
     ctx.clients.views.set(ws, view);
     const now = view.channels;
-    for (const id of before) if (!now.has(id)) view.seen.set(id, ctx.clients.revisions.get(id) ?? 0);
+    for (const id of before) if (!now.has(id)) view.seen.set(id, ctx.clients.mark(id));
     for (const id of now) if (!before.has(id)) catchUp(ctx, ws, view, id);
     // the projects page coming up: every chat's tail as it now stands,
     // since the ones not on screen stopped hearing about their work
@@ -60,6 +64,7 @@ export const transcriptHandlers = {
   remove_event: (ctx, _ws, msg) => {
     const removed = ctx.archive.removeTurn(msg.projectId, msg.eventId);
     if (removed.length > 0) {
+      ctx.clients.forgetEvents(msg.projectId, removed);
       ctx.clients.broadcast({ type: "events_removed", projectId: msg.projectId, eventIds: removed });
       // a removed turn takes its extracted checklist items with it
       if (ctx.tracker.removeForTurns(msg.projectId, removed)) {
@@ -85,6 +90,8 @@ export const transcriptHandlers = {
     ctx.queues.held.delete(HOME_ID);
     ctx.turns.contexts.delete(HOME_ID);
     ctx.retries.cancelRetry(HOME_ID);
+    // nothing of the old Home is left to catch a window up with
+    ctx.clients.forgetChannel(HOME_ID);
     ctx.clients.broadcast({ type: "home_reset" });
   },
 } satisfies Partial<Handlers>;

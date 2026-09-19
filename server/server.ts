@@ -41,6 +41,7 @@ import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
 import { SendQueues } from "./queue.js";
 import { ReadableImages } from "./readable.js";
+import { TerminalRelay } from "./relay.js";
 import { Retries } from "./retry.js";
 import { createHttpServer } from "./routes.js";
 import { SecretStore } from "./secrets.js";
@@ -103,6 +104,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // archive above and any rewind that truncates a session's
   const drafts = new DraftStore();
   const clients = new Clients();
+  // A shell's output, paced by what each window can take — and the shell
+  // itself paused when none of them can (server/relay.ts).
+  const relay = new TerminalRelay(clients.sockets, (termId, held) => ctx.terminals.hold(termId, held));
+  clients.onGone = (ws) => relay.forget(ws);
   const ctx = {
     options,
     listeningPort: options.port,
@@ -124,10 +129,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     // that project's directory, alive for as long as the app is — switching
     // away and back attaches to the same shells, scrollback and all.
     terminals: new Terminals({
-      onData: (projectId, termId, data) =>
-        clients.broadcast({ type: "terminal_data", projectId, termId, data }),
-      onExit: (projectId, termId, note) =>
-        clients.broadcast({ type: "terminal_exit", projectId, termId, note }),
+      onData: (projectId, termId, data) => relay.data(projectId, termId, data),
+      onExit: (projectId, termId, note) => {
+        // what the shell said last is the part worth having, so it goes
+        // out before the news that there is no more of it
+        relay.flush(termId);
+        clients.broadcast({ type: "terminal_exit", projectId, termId, note });
+      },
     }),
     digests: new DigestFolder(archive, digestHistory),
     clients,
@@ -275,6 +283,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             } catch (err) {
               warn("server", err, "removing the token file");
             }
+            relay.stop();
             for (const client of ctx.clients.sockets) client.close();
             wss.close(() => server.close(() => done()));
           }),

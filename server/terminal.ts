@@ -4,6 +4,7 @@ import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import { StringDecoder } from "node:string_decoder";
 import { isMissing, warn } from "./log.js";
+import { Scrollback } from "./scrollback.js";
 
 /**
  * Real shells behind the composer's terminal mode — as many per channel as
@@ -83,7 +84,7 @@ interface Shell {
   child: ChildProcess;
   decoder: StringDecoder;
   /** What it has printed, trimmed to the scrollback budget. */
-  buffer: string;
+  buffer: Scrollback;
   /** False when this one runs on pipes — no pty available. */
   pty: boolean;
 }
@@ -164,7 +165,7 @@ export class Terminals {
 
   /** Everything this tab's shell has printed so far. */
   scrollback(termId: string): string {
-    return this.shells.get(termId)?.buffer ?? "";
+    return this.shells.get(termId)?.buffer.read() ?? "";
   }
 
   /* ── the shells ──────────────────────────────────────────────────── */
@@ -206,7 +207,7 @@ export class Terminals {
       channelId,
       child,
       decoder: new StringDecoder("utf8"),
-      buffer: "",
+      buffer: new Scrollback(SCROLLBACK),
       pty,
     };
     this.shells.set(termId, entry);
@@ -214,7 +215,7 @@ export class Terminals {
     const push = (chunk: Buffer) => {
       const text = entry.decoder.write(chunk);
       if (!text) return;
-      entry.buffer = (entry.buffer + text).slice(-SCROLLBACK);
+      entry.buffer.push(text);
       this.events.onData(channelId, termId, text);
     };
     child.stdout?.on("data", push);
@@ -237,6 +238,27 @@ export class Terminals {
 
   write(termId: string, data: string): void {
     this.shells.get(termId)?.child.stdin?.write(data);
+  }
+
+  /**
+   * Stop or restart reading this tab's shell.
+   *
+   * Held, the pty is not read; the program writing to it fills the pty's
+   * own buffer and then blocks on its next write, which is what a terminal
+   * emulator nobody is reading does. The relay holds a tab only while every
+   * window is behind on it, and lets go the moment one catches up
+   * (server/relay.ts).
+   */
+  hold(termId: string, held: boolean): void {
+    const shell = this.shells.get(termId);
+    if (!shell) return;
+    if (held) {
+      shell.child.stdout?.pause();
+      shell.child.stderr?.pause();
+    } else {
+      shell.child.stdout?.resume();
+      shell.child.stderr?.resume();
+    }
   }
 
   resize(termId: string, cols: number, rows: number): void {

@@ -1,7 +1,6 @@
 import { HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
-import * as path from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import type {
   ClientMessage,
@@ -17,13 +16,13 @@ import { AgentLogs, Crew } from "./agents.js";
 import { BridgeState } from "./bridgeState.js";
 import { channelProject, ownerProject, running } from "./channel.js";
 import { catchUp, Clients, transcriptOf } from "./clients.js";
-import { buildCompaction, DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
+import { DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
 import type { PendingComponent, RuriServer, ServerContext, StartServerOptions } from "./context.js";
 import { DraftStore } from "./drafts.js";
 import { UsageGauges } from "./gauges.js";
 import { HomeLog } from "./homelog.js";
 import { createCheckpoints } from "./checkpoints.js";
-import { HOME_ID, managerExtras, type ManagerHost } from "./manager.js";
+import { HOME_ID, managerExtras } from "./manager.js";
 import { Models } from "./models.js";
 import { defaultMusicDir } from "./music.js";
 import { claimPort, type PortClaim } from "./port.js";
@@ -41,9 +40,7 @@ import {
   setSmallModel,
 } from "./smallmodel.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
-import { findProjects } from "./finder.js";
 import { LedgerStore } from "./ledger.js";
-import { importRecent, listRecent } from "./recent.js";
 import { sessionBriefing } from "./briefing.js";
 import {
   BRIDGE_TOOLS,
@@ -70,7 +67,7 @@ import { sweepUploads } from "./uploads.js";
 import { errorMessage, warn } from "./log.js";
 import { originAllowed, presentedToken, tokenMatches } from "./auth.js";
 import { createHttpServer } from "./routes.js";
-import { drainQueue, maybeRetry, titleSession } from "./dispatch.js";
+import { drainQueue, maybeRetry } from "./dispatch.js";
 import { componentHandlers, createComponentHost } from "./handlers/components.js";
 import { rewindHandlers } from "./handlers/rewind.js";
 import { promptHandlers } from "./handlers/prompts.js";
@@ -78,6 +75,7 @@ import { createCrewManager, crewHandlers } from "./handlers/crew.js";
 import { boardHandlers } from "./handlers/boards.js";
 import { terminalHandlers } from "./handlers/terminal.js";
 import { skillHandlers } from "./handlers/skills.js";
+import { createManagerHost, projectHandlers } from "./handlers/projects.js";
 import type { Handler, MessageType } from "./handlers/types.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
@@ -394,108 +392,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   ctx.crewManager = createCrewManager(ctx);
   ctx.crewManager.useDefaultModel(() => store.defaultModel());
 
-  /** Tear down one project and everything its sessions accumulated. */
-  function closeProjectById(projectId: string): void {
-    const closing = store.get(projectId);
-    for (const sessionId of closing?.sessions.map((s) => s.id) ?? []) {
-      if (closing?.path) void ctx.checkpoints.forgetChannel(closing, sessionId).catch(() => undefined);
-      manager.dispose(sessionId);
-      archive.remove(sessionId);
-      removeTurnFiles(sessionId);
-      for (const key of crew.remove(sessionId)) ctx.crewManager.dispose(key);
-      agentLogs.remove(sessionId);
-      drafts.remove(sessionId);
-      tracker.removeProject(sessionId);
-      ctx.turns.contexts.delete(sessionId);
-      ctx.turns.progress.delete(sessionId);
-      ctx.turns.sent.delete(sessionId);
-      ctx.retries.cancelRetry(sessionId);
-      ctx.queues.entries.delete(sessionId);
-      ctx.queues.held.delete(sessionId);
-      ctx.terminals.closeChannel(sessionId);
-      ctx.bridge.closeBridge(sessionId);
-    }
-    briefs.remove(projectId);
-    ideas.removeProject(projectId);
-    components.removeProject(projectId);
-    ledger.removeProject(projectId);
-    store.remove(projectId);
-    ctx.clients.broadcast({ type: "projects", projects: store.list() });
-  }
+  const managerHost = createManagerHost(ctx);
+  ctx.managerHost = managerHost;
 
-  // What the Home agent's MCP tools may do to the app: open projects (and
-  // optionally kick their sessions off), close them again, and see what's open.
-  const managerHost: ManagerHost = {
-    openProject: ({ path: projectPath, name, folder, kickoffPrompt }) => {
-      let project = store.findByPath(projectPath);
-      let opened = false;
-      if (!project) {
-        try {
-          project = store.add(name ?? "", projectPath, folder);
-          opened = true;
-        } catch (err) {
-          return `failed: ${errorMessage(err)}`;
-        }
-        ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        // a project new to ruri gets told what it is before anyone asks
-        if (briefless(ctx, project.id)) void rebuildCatchup(ctx, project.id);
-      }
-      let sessionId = project.sessions[0]?.id;
-      // an emptied folder (all sessions closed) gets a fresh session on reopen
-      if (!sessionId) {
-        sessionId = store.newSession(project.id)?.id;
-        ctx.clients.broadcast({ type: "projects", projects: store.list() });
-      }
-      if (kickoffPrompt && sessionId) {
-        manager.send({ ...project, id: sessionId }, kickoffPrompt);
-        // a session Home starts is named like one the user starts: from its
-        // first prompt, now, not once the turn happens to finish
-        titleSession(ctx, sessionId, kickoffPrompt);
-      }
-      return `${opened ? "opened" : "already open"}: ${project.name} (${project.path})${
-        kickoffPrompt ? " — session started with the kickoff prompt" : ""
-      }`;
-    },
-    newProject: (name) => {
-      const clean = name.trim().replace(/\/+$/, "");
-      if (!clean || clean.includes("/") || clean.startsWith(".")) return `not a folder name: "${name}"`;
-      const dir = path.join(store.workspaceDir(), clean);
-      if (store.findByPath(dir)) return `already open: ${clean} (${dir})`;
-      try {
-        fs.mkdirSync(dir, { recursive: true });
-      } catch (err) {
-        return `failed: ${errorMessage(err)}`;
-      }
-      return managerHost.openProject({ path: dir, name: clean }).replace(/^opened/, "created and opened");
-    },
-    hideProject: (query) => {
-      const project = store.findByQuery(query);
-      if (!project) return `no open project matches "${query}"`;
-      if (project.hidden) return `already hidden: ${project.name}`;
-      store.update(project.id, { hidden: true });
-      ctx.clients.broadcast({ type: "projects", projects: store.list() });
-      return `hidden: ${project.name} (${project.path}) — still open, tucked under "hidden" at the bottom of the sidebar`;
-    },
-    unhideProject: (query) => {
-      const project = store.findByQuery(query);
-      if (!project) return `no open project matches "${query}"`;
-      if (!project.hidden) return `not hidden: ${project.name}`;
-      store.update(project.id, { hidden: undefined });
-      ctx.clients.broadcast({ type: "projects", projects: store.list() });
-      return `unhidden: ${project.name} (${project.path})`;
-    },
-    closeProject: (query) => {
-      const project = store.findByQuery(query);
-      if (!project) return `no open project matches "${query}"`;
-      closeProjectById(project.id);
-      return `closed: ${project.name} (${project.path}) — files untouched`;
-    },
-    listProjects: () => store.list(),
-    // only the workspace root from Settings — that is where projects live
-    findProjects: (query) => findProjects([store.workspaceDir()], query),
-  };
-
-  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers, ...promptHandlers, ...boardHandlers, ...terminalHandlers, ...skillHandlers };
+  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers, ...promptHandlers, ...boardHandlers, ...terminalHandlers, ...skillHandlers, ...projectHandlers };
 
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
     const handler = (handlers as Partial<Record<string, Handler<MessageType>>>)[msg.type];
@@ -504,16 +404,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       return;
     }
     switch (msg.type) {
-      case "add_project": {
-        const project = store.add(msg.name, msg.path, msg.folder);
-        ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        if (briefless(ctx, project.id)) void rebuildCatchup(ctx, project.id);
-        break;
-      }
-      case "catchup_rebuild": {
-        void rebuildCatchup(ctx, msg.projectId);
-        break;
-      }
       case "pick_folder": {
         const target = msg.target ?? "workspace";
         void (options.pickFolder?.() ?? Promise.resolve(null)).then((path) => {
@@ -536,10 +426,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             }
           })
           .catch(() => {});
-        break;
-      }
-      case "remove_project": {
-        closeProjectById(msg.projectId);
         break;
       }
       case "remove_event": {
@@ -599,87 +485,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const events = archive.history(id);
         ctx.readable.allowReadImages(id, events);
         ws.send(JSON.stringify({ type: "history", projectId: id, events } satisfies ServerMessage));
-        break;
-      }
-      case "recent_list": {
-        // what the harnesses hold for this project that ruri did not make:
-        // every id ruri's own chats have ever run on is left out
-        const project = store.get(msg.projectId);
-        if (!project) break;
-        const taken = archive.ownedSessionIds([...store.sessionIds(), HOME_ID]);
-        void listRecent(project, taken)
-          .then((items) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "recent", projectId: project.id, items } satisfies ServerMessage));
-            }
-          })
-          .catch(() => {});
-        break;
-      }
-      case "recent_import": {
-        // A chat that happened in a terminal becomes a chat here: a new
-        // session holding its conversation. The next prompt resumes the
-        // real thing when the project runs on the harness it ran on;
-        // otherwise it continues from a brief of it, the way a rewind
-        // across harnesses does.
-        const project = store.get(msg.projectId);
-        if (!project) throw new Error("unknown project");
-        const imported = importRecent(project, msg.id);
-        if (!imported) throw new Error("that session's file is gone");
-        const fresh = store.newSession(project.id);
-        if (!fresh) throw new Error("unknown project");
-        archive.seed(fresh.id, { events: imported.events, summaries: {}, chain: {} });
-        const providerId = ctx.models.registry.parse(project.model).providerId;
-        const sameHarness = imported.provider === "claude" ? providerId === undefined : providerId === imported.provider;
-        if (sameHarness) archive.setLastSessionId(fresh.id, imported.resume);
-        else {
-          const built = buildCompaction(fresh.id, imported.events, {});
-          if (built) archive.setPendingBrief(fresh.id, built.brief);
-        }
-        const firstPrompt = imported.events.find((e) => e.kind === "user");
-        if (firstPrompt && firstPrompt.kind === "user") titleSession(ctx, fresh.id, firstPrompt.text);
-        ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        ctx.clients.broadcast({
-          type: "transcript",
-          projectId: fresh.id,
-          events: ctx.readable.allowArchived({ [fresh.id]: archive.events(fresh.id) })[fresh.id] ?? [],
-          summaries: {},
-        });
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "open_session", projectId: fresh.id } satisfies ServerMessage));
-          if (!sameHarness) {
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: `brought the ${imported.provider === "claude" ? "Claude" : "Codex"} chat in — this project runs on a different harness, so the next prompt continues from a brief of it rather than resuming it`,
-              } satisfies ServerMessage),
-            );
-          }
-        }
-        break;
-      }
-      case "new_session": {
-        store.newSession(msg.projectId);
-        ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        break;
-      }
-      case "remove_session": {
-        const owner = store.findSession(msg.sessionId)?.project;
-        if (owner?.path) void ctx.checkpoints.forgetChannel(owner, msg.sessionId).catch(() => undefined);
-        manager.dispose(msg.sessionId);
-        archive.remove(msg.sessionId);
-        removeTurnFiles(msg.sessionId);
-        for (const key of crew.remove(msg.sessionId)) ctx.crewManager.dispose(key);
-        agentLogs.remove(msg.sessionId);
-        drafts.remove(msg.sessionId);
-        tracker.removeProject(msg.sessionId);
-        ctx.turns.contexts.delete(msg.sessionId);
-        ctx.turns.progress.delete(msg.sessionId);
-        ctx.turns.sent.delete(msg.sessionId);
-        ctx.retries.cancelRetry(msg.sessionId);
-        ctx.bridge.closeBridge(msg.sessionId);
-        store.removeSession(msg.sessionId);
-        ctx.clients.broadcast({ type: "projects", projects: store.list() });
         break;
       }
       case "set_pref": {
@@ -785,37 +590,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
 
       /* ── skills ───────────────────────────────────────────────── */
 
-      case "toggle_star": {
-        const project = store.get(msg.projectId);
-        if (project) {
-          store.update(msg.projectId, { starred: project.starred ? undefined : true });
-          ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        }
-        break;
-      }
-      case "toggle_hidden": {
-        const project = store.get(msg.projectId);
-        if (project) {
-          store.update(msg.projectId, { hidden: project.hidden ? undefined : true });
-          ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        }
-        break;
-      }
-      case "rename_project": {
-        const name = msg.name.trim();
-        if (name && store.update(msg.projectId, { name })) {
-          ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        }
-        break;
-      }
-      case "rename_session": {
-        const title = msg.title.trim();
-        if (title && store.findSession(msg.sessionId)) {
-          store.setSessionTitle(msg.sessionId, title);
-          ctx.clients.broadcast({ type: "projects", projects: store.list() });
-        }
-        break;
-      }
       case "set_workspace": {
         store.setWorkspaceDir(msg.path);
         ctx.clients.broadcast({ type: "workspace", path: store.workspaceDir() });

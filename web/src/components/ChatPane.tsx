@@ -564,13 +564,14 @@ function ChatView({
     (turnId: string) => setOpens((prev) => ({ ...prev, [turnId]: { prompt: false, reply: false } })),
     [],
   );
+  /** A reply just folded, for the view to go back to if it was read past. */
+  const foldedRef = useRef<string | null>(null);
   // one half back to its note; the other stays as it is (unset still means
   // how it starts, so a live reply stays open under a folded prompt)
-  const foldHalf = useCallback(
-    (turnId: string, half: "prompt" | "reply") =>
-      setOpens((prev) => ({ ...prev, [turnId]: { ...prev[turnId], [half]: false } })),
-    [],
-  );
+  const foldHalf = useCallback((turnId: string, half: "prompt" | "reply") => {
+    if (half === "reply") foldedRef.current = turnId;
+    setOpens((prev) => ({ ...prev, [turnId]: { ...prev[turnId], [half]: false } }));
+  }, []);
   const loadHistory = useCallback(() => setWantHistory(true), []);
 
   // Something just opened: the view goes to its top, to read it from the
@@ -596,6 +597,26 @@ function ChatView({
     const target = want.half === "both" || half.childElementCount === 0 ? turn : half;
     scroller.scrollTop +=
       target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - REVEAL_GAP;
+  });
+
+  // A reply folded from its pill halfway down: the reply goes, the view
+  // stays where it was, and what's left there is whatever came after — the
+  // fold happened somewhere out of sight. The view goes back up to the
+  // note it folded to (the whole exchange, when its prompt is a note too).
+  // Folded from where its note is still in view, nothing moves.
+  useLayoutEffect(() => {
+    const turnId = foldedRef.current;
+    const scroller = scrollRef.current;
+    if (!turnId || !scroller) return;
+    foldedRef.current = null;
+    const turn = scroller.querySelector<HTMLElement>(`[data-turn="${CSS.escape(turnId)}"]`);
+    const note = turn?.querySelector<HTMLElement>(".msg.assistant.note");
+    if (!turn || !note) return;
+    const target = turn.querySelector('[data-half="prompt"]') ? note : turn;
+    const past = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - REVEAL_GAP;
+    if (past >= 0) return;
+    pinnedRef.current = false;
+    scroller.scrollTop += past;
   });
 
   const startRewind = useCallback(

@@ -57,6 +57,9 @@
   --fs-xs: 10.5px;
   --fs-sm: 11.5px;
   --fs-md: 12.5px;
+  /* How a thing that opens on a click comes up to ink under the pointer:
+     a fade the eye can follow, never a snap to the lit colour. */
+  --lighten: 240ms ease;
   /* Stacking, lowest to highest — nothing sets a z-index outside this. */
   --z-raised: 1; /* a control lifted over its siblings (a turn's fold) */
   --z-pill: 2; /* the jump pill over the transcript */
@@ -2427,7 +2430,8 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink);
 }
 
-/* the "sure you want to go back?" card */
+/* the "sure you want to go back?" card — no rule round it: the card is told
+   from the page it stands over by its own brighter paper, like every panel */
 
 .confirm-overlay {
   position: absolute;
@@ -2442,7 +2446,6 @@ input[type="range"]::-webkit-slider-thumb {
 .confirm-card {
   width: min(440px, calc(100% - 48px));
   background: var(--paper-bright);
-  border: 2px solid var(--rim);
   border-radius: var(--radius-l);
   padding: 16px 18px 14px;
   display: flex;
@@ -2812,18 +2815,24 @@ input[type="range"]::-webkit-slider-thumb {
   opacity: 1;
 }
 
-/* queued prompts: user-bubble look, dashed — waiting for their turn */
+/* queued prompts: user-bubble look, ringed in quiet dots — waiting for their
+   turn. Under the pointer the dots come up to ink, gradually, not at once. */
 
 .queued-card {
   position: relative; /* the carrying below moves it by transform */
   align-self: flex-end;
   width: 76%;
   background: var(--raised);
-  border: 1.5px dashed var(--edge);
+  border: 1.5px dotted var(--rim);
   border-radius: var(--radius-l);
   border-bottom-right-radius: 3px;
   padding: 7px 12px 9px;
   animation: rise 180ms ease-out;
+  transition: border-color var(--lighten);
+}
+
+.queued-card:hover {
+  border-color: var(--ink);
 }
 
 .queued-head {
@@ -2865,7 +2874,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* the queue after a stop: it is not waiting on an answer any more, it is
-   waiting on you, so it stands in solid ink rather than a dashed hold */
+   waiting on you, so it stands in solid ink rather than a dotted hold */
 .queued-card.standby {
   border-style: solid;
   border-color: var(--ink-faint);
@@ -2948,9 +2957,9 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* an exchange folded to its recall notes, laid out like the chat it stands
    for: the prompt's note in the bubble, the reply's under it. The bubble is
-   dashed — quoted material, like the raw brief — because neither line is
-   what was actually said. Each half opens on its own: a click on a note
-   shows that half in full, "full exchange" opens both. */
+   ringed in quiet dots — quoted material, like the raw brief — because
+   neither line is what was actually said. Each half opens on its own: a
+   click on a note shows that half in full, "full exchange" opens both. */
 
 .turn.folded {
   gap: 8px;
@@ -2971,78 +2980,77 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* An open prompt that folds on a click says so under the pointer: the
-   bubble takes the note's dashed edge, the look the click takes it back to. */
+   bubble takes the note's dotted edge, the look the click takes it back to.
+   Dotted at rest too, in the page's own colour, so the dots only fade in. */
 .exchange-half.folds[data-half="prompt"] .msg.user {
   cursor: pointer;
+  border-style: dotted;
+  transition: border-color var(--lighten);
 }
 
 .exchange-half.folds[data-half="prompt"] .msg.user:hover {
-  border-style: dashed;
   border-color: var(--ink);
 }
 
-/* An open reply folds by its rail: a line down its left edge, the reply's
-   whole height — to hand wherever in a long one you are. Under the pointer
-   it darkens, and the reply beside it dims: what a click folds. */
-.exchange-half.folds[data-half="reply"] {
-  position: relative;
-  padding-left: 22px;
-}
-
-.exchange-half .half-rail {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 14px;
-  padding: 0;
-  background: none;
-  border: none;
-  border-radius: 0;
-  cursor: pointer;
-}
-
-.exchange-half .half-rail::before {
-  content: "";
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 6px;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--line-soft);
+/* An open reply folds by its pill: "fold reply" heads it, and is held at
+   the top of the view the whole way down a long one — to hand wherever in
+   it you are. On paper of its own, so the lines it rides over don't show
+   through. Under the pointer it lights, and the reply under it dims: what
+   a click folds. */
+.exchange-half .half-fold {
+  position: sticky;
+  top: 10px;
+  z-index: var(--z-raised);
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 11px 3px 8px;
+  font-size: var(--fs-sm);
+  font-weight: 400;
+  color: var(--ink-faint);
+  background: var(--paper);
+  border: 1.5px dotted var(--rim);
+  border-radius: 999px;
   transition:
-    background 120ms ease,
-    transform 120ms ease;
+    color var(--lighten),
+    border-color var(--lighten),
+    transform 100ms ease-out;
 }
 
-.exchange-half .half-rail:hover,
-.exchange-half .half-rail:active {
-  background: none;
-  transform: none;
+.exchange-half .half-fold:hover,
+.exchange-half .half-fold:focus-visible {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: var(--paper);
 }
 
-.exchange-half .half-rail:hover::before,
-.exchange-half .half-rail:focus-visible::before {
-  background: var(--ink);
-  transform: scaleX(1.5);
+.exchange-half .half-fold .icon {
+  width: 11px;
+  height: 11px;
 }
 
-.exchange-half.folds[data-half="reply"] > :not(.half-rail) {
-  transition: opacity 120ms ease;
+.exchange-half.folds[data-half="reply"] > :not(.half-fold) {
+  transition: opacity var(--lighten);
 }
 
-.exchange-half:has(> .half-rail:hover) > :not(.half-rail) {
+.exchange-half:has(> .half-fold:hover) > :not(.half-fold) {
   opacity: 0.45;
 }
 
+/* A note lights on its own under the pointer, never with its partner: a
+   click opens only the half it lands on, so only that half says so. */
 .msg.note {
   cursor: pointer;
   animation: none;
+  transition:
+    color var(--lighten),
+    border-color var(--lighten);
 }
 
 .msg.user.note {
-  border-style: dashed;
+  border-style: dotted;
+  border-color: var(--rim);
   color: var(--ink-soft);
 }
 
@@ -3057,18 +3065,6 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .msg.assistant.note:hover {
-  color: var(--ink);
-}
-
-/* a folded exchange lights up whole under the pointer, as it did when one
-   click opened all of it: the prompt's note, the reply's, "full exchange" */
-.turn.folded:hover .msg.user.note {
-  border-color: var(--ink);
-  color: var(--ink);
-}
-
-.turn.folded:hover .msg.assistant.note,
-.turn.folded:hover .folded-open {
   color: var(--ink);
 }
 
@@ -3091,6 +3087,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: none;
   border: none;
   border-radius: 0;
+  transition: color var(--lighten);
 }
 
 .folded-open:hover {

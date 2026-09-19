@@ -97,17 +97,17 @@ function NoteHalf({
  * An open half, and the way it folds back to its note.
  *
  * A prompt folds on a click on its bubble, at once. Under the pointer the
- * bubble takes the note's dashed edge — the look the click takes it back
+ * bubble takes the note's dotted edge — the look the click takes it back
  * to — so the click is never a surprise. A click on anything in it that
  * does something of its own (a link, a button, a picture), or a drag that
  * selects text, folds nothing.
  *
- * A reply folds by the rail down its left edge, never by a click on it. A
- * reply is long and full of things that do something of their own — tool
- * chips, patches, links — so "click anywhere" was both easy to do by
- * accident and hard to find a spot for. The rail runs its whole height, to
- * hand wherever in the reply you are, and hovering it dims the reply: what
- * a click would fold, before it does.
+ * A reply folds by its "fold reply" pill, never by a click on it. A reply
+ * is long and full of things that do something of their own — tool chips,
+ * patches, links — so "click anywhere" was both easy to do by accident and
+ * hard to find a spot for. The pill heads the reply and is held at the top
+ * of the view the whole way down, to hand wherever in the reply you are,
+ * and hovering it dims the reply: what a click would fold, before it does.
  */
 function OpenHalf({
   half,
@@ -126,11 +126,13 @@ function OpenHalf({
         {folds && (
           <button
             type="button"
-            className="half-rail"
+            className="half-fold"
             title="Fold the reply back to its note"
-            aria-label="Fold the reply back to its note"
             onClick={onFold}
-          />
+          >
+            <Icon d="M6 15l6-6 6 6" />
+            fold reply
+          </button>
         )}
         {children}
       </div>
@@ -167,13 +169,14 @@ function OpenHalf({
 /**
  * One exchange, each half on its own. A half is either shown in full or
  * folded to its recall note, laid out like the chat either way: the
- * prompt's note in a dashed bubble on the right, the reply's under it — a
- * cut of the text itself for a note not written yet. A click on a note
- * opens that half alone, and it folds back the way it came: a prompt by a
- * click on it, a reply by its rail (see OpenHalf). "Full exchange" opens
- * both; the chevron folds the pair back. Every exchange above the newest
- * compaction starts folded, one below it open — and a reply open from the
- * start has no rail, and folds only by the chevron.
+ * prompt's note in a dotted bubble on the right, the reply's under it — a
+ * cut of the text itself for a note not written yet. Each note lights on
+ * its own under the pointer, so what lights is what a click opens. A click
+ * on a note opens that half alone, and it folds back the way it came: a
+ * prompt by a click on it, a reply by its pill (see OpenHalf). "Full
+ * exchange" opens both; the chevron folds the pair back. Every exchange
+ * above the newest compaction starts folded, one below it open — and a
+ * reply open from the start has no pill, and folds only by the chevron.
  */
 export const Exchange = memo(function Exchange({
   turnId,

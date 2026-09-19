@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { writeJsonAtomic, writeTextAtomic, writeTextAtomicAsync } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import {
@@ -141,6 +142,11 @@ function historyFile(projectId: string): string {
 }
 
 /** How big a channel's history may grow before its oldest exchanges go. */
+/** How much of the history file is held in hand at a time while it is
+ *  read. Large enough that the syscalls are few, small enough that the
+ *  file's own size never becomes the process's. */
+const HISTORY_CHUNK = 256 * 1024;
+
 const HISTORY_MAX_BYTES = Number(process.env["RURI_HISTORY_MAX_BYTES"]) || 16 * 1024 * 1024;
 /** What a trim cuts it back to, as a share of the cap — so a history at the
  *  cap is trimmed once in a while rather than on every compaction. */
@@ -172,6 +178,17 @@ export class SessionArchive {
   /** Channels that keep only their newest events (Home), and how many. */
   private readonly caps = new Map<string, number>();
   private readonly outlines = new Map<string, { size: number; mtimeMs: number; items: EarlierItem[] }>();
+  /**
+   * Where each of a channel's live events sits, by id.
+   *
+   * Adding an event used to scan the whole live transcript for its id
+   * first — which is O(the conversation) per event, so a busy turn's
+   * hundredth event cost a hundred times its first, and a subagent's card
+   * moving along paid the same on every step. The map is built when a
+   * channel is first touched and dropped whenever anything moves the
+   * events about (a trim, a fold, a rewind), to be built again on demand.
+   */
+  private readonly places = new Map<string, Map<string, number>>();
   private readonly historyMax: number;
 
   constructor(options: { historyMaxBytes?: number } = {}) {
@@ -193,11 +210,28 @@ export class SessionArchive {
     const kept = keepRecent(entry.events, max);
     const dropped = entry.events.slice(0, entry.events.length - kept.length);
     entry.events = kept;
+    this.restack(projectId);
     for (const event of dropped) {
       delete entry.summaries[event.id];
       if (entry.chain) delete entry.chain[event.id];
     }
     return true;
+  }
+
+  /** Forget where this channel's events sit: something moved them. */
+  private restack(projectId: string): void {
+    this.places.delete(projectId);
+  }
+
+  /** Where each event sits, built if it is not already known. */
+  private placesOf(projectId: string, events: TranscriptEvent[]): Map<string, number> {
+    let at = this.places.get(projectId);
+    if (at === undefined) {
+      at = new Map();
+      for (let i = 0; i < events.length; i++) at.set(events[i]!.id, i);
+      this.places.set(projectId, at);
+    }
+    return at;
   }
 
   private load(projectId: string): ArchiveData {
@@ -256,24 +290,71 @@ export class SessionArchive {
   /** Everything before the live part, oldest first. Read from disk each
    *  time: it is never wanted on the hot path. */
   history(projectId: string): TranscriptEvent[] {
-    let text: string;
+    return this.readHistory(projectId).events;
+  }
+
+  /**
+   * The history file, a line at a time.
+   *
+   * It used to be read whole and then split: a sixteen-megabyte string and
+   * an array of every line in it, both alive at once and both thrown away
+   * immediately, on top of the events they were read to make. Here the file
+   * goes past in chunks and each line is turned into its event and let go,
+   * so the only thing that grows is the answer.
+   *
+   * Each line's size on disk comes back with it, which is what the cap
+   * measures against — measuring used to mean serialising every event in
+   * the history a second time, just to count its characters.
+   */
+  private readHistory(projectId: string): { events: TranscriptEvent[]; bytes: number[] } {
+    const events: TranscriptEvent[] = [];
+    const bytes: number[] = [];
+    let handle: number;
     try {
-      text = fs.readFileSync(historyFile(projectId), "utf8");
+      handle = fs.openSync(historyFile(projectId), "r");
     } catch (err) {
       if (!isMissing(err)) warn("archive", err, "history");
-      return [];
+      return { events, bytes };
     }
-    const events: TranscriptEvent[] = [];
-    for (const line of text.split("\n")) {
-      if (!line) continue;
+    const take = (line: string): void => {
+      if (!line) return;
       try {
         events.push(settleAgent(JSON.parse(line) as TranscriptEvent));
+        bytes.push(Buffer.byteLength(line) + 1);
       } catch (err) {
         if (!(err instanceof SyntaxError)) warn("archive", err, "history");
         // a line torn by a crash mid-append
       }
+    };
+    const chunk = Buffer.allocUnsafe(HISTORY_CHUNK);
+    const decoder = new StringDecoder("utf8");
+    let held = "";
+    try {
+      for (;;) {
+        const read = fs.readSync(handle, chunk, 0, chunk.length, null);
+        if (read === 0) break;
+        held += decoder.write(chunk.subarray(0, read));
+        let from = 0;
+        for (;;) {
+          const stop = held.indexOf("\n", from);
+          if (stop === -1) break;
+          take(held.slice(from, stop));
+          from = stop + 1;
+        }
+        if (from > 0) held = held.slice(from);
+      }
+      held += decoder.end();
+      take(held);
+    } catch (err) {
+      warn("archive", err, "history");
+    } finally {
+      try {
+        fs.closeSync(handle);
+      } catch {
+        // already gone
+      }
     }
-    return events;
+    return { events, bytes };
   }
 
   /** The history's outline (see `outline`), kept while its file is unchanged
@@ -321,6 +402,7 @@ export class SessionArchive {
     const mark = lastMark(entry.events);
     if (mark <= 0) return false;
     const moved = entry.events.splice(0, mark);
+    this.restack(projectId);
     try {
       fs.mkdirSync(historyDir(), { recursive: true });
       const have = this.hasHistory(projectId)
@@ -352,14 +434,14 @@ export class SessionArchive {
       return;
     }
     if (size <= this.historyMax) return;
-    const events = this.history(projectId);
+    const { events, bytes } = this.readHistory(projectId);
     const budget = this.historyMax * HISTORY_TRIM_TO;
     let used = 0;
     let start = events.length;
     for (let i = events.length - 1; i >= 0; i--) {
-      const bytes = JSON.stringify(events[i]).length + 1;
-      if (used + bytes > budget) break;
-      used += bytes;
+      const size = bytes[i] ?? 0;
+      if (used + size > budget) break;
+      used += size;
       start = i;
     }
     let cut = start;
@@ -450,11 +532,14 @@ export class SessionArchive {
   }
 
   append(projectId: string, event: TranscriptEvent): void {
-    const events = this.load(projectId).events;
-    const existing = events.findIndex((candidate) => candidate.id === event.id);
-    if (existing === -1) events.push(event);
-    else events[existing] = event;
     const entry = this.load(projectId);
+    const events = entry.events;
+    const at = this.placesOf(projectId, events);
+    const existing = at.get(event.id);
+    if (existing === undefined) {
+      at.set(event.id, events.length);
+      events.push(event);
+    } else events[existing] = event;
     this.trim(projectId, entry);
     // a compaction mark: everything before it moves to the history, and
     // the live file shrinks to the mark — written at once, so the two agree
@@ -470,8 +555,8 @@ export class SessionArchive {
    *  left there: an update is never a reason to bring it back. */
   replace(projectId: string, event: TranscriptEvent): boolean {
     const events = this.load(projectId).events;
-    const at = events.findIndex((candidate) => candidate.id === event.id);
-    if (at === -1) return false;
+    const at = this.placesOf(projectId, events).get(event.id);
+    if (at === undefined) return false;
     events[at] = event;
     this.scheduleWrite(projectId);
     return true;
@@ -481,7 +566,7 @@ export class SessionArchive {
    *  up to the next user/compaction event) with it. Returns removed ids. */
   removeTurn(projectId: string, eventId: string): string[] {
     const entry = this.load(projectId);
-    const start = entry.events.findIndex((e) => e.id === eventId);
+    const start = this.placesOf(projectId, entry.events).get(eventId) ?? -1;
     if (start === -1) return [];
     let end = start + 1;
     if (entry.events[start]!.kind === "user") {
@@ -495,6 +580,7 @@ export class SessionArchive {
     }
     const removed = entry.events.slice(start, end).map((e) => e.id);
     entry.events.splice(start, end - start);
+    this.restack(projectId);
     delete entry.summaries[eventId];
     // the digest ended on this exchange: with it gone there is no telling
     // where the digest stops, so it is folded again from the start
@@ -653,6 +739,7 @@ export class SessionArchive {
         : {}),
     };
     this.data.set(projectId, entry);
+    this.restack(projectId);
     // a fork of a compacted conversation gets the same split: its own
     // history up to the newest mark, its live part from there
     try {
@@ -678,6 +765,7 @@ export class SessionArchive {
     let removed: string[];
     if (start !== -1) {
       removed = entry.events.splice(start).map((e) => e.id);
+      this.restack(projectId);
     } else {
       // A prompt from before the newest compaction: everything kept is
       // history now, so both parts are rebuilt from it — the history up to
@@ -689,6 +777,7 @@ export class SessionArchive {
       const kept = earlier.slice(0, at);
       const mark = lastMark(kept);
       entry.events = mark > 0 ? kept.slice(mark) : kept;
+      this.restack(projectId);
       try {
         this.writeHistory(projectId, mark > 0 ? kept.slice(0, mark) : []);
       } catch (err) {
@@ -747,6 +836,7 @@ export class SessionArchive {
   remove(projectId: string): void {
     this.data.delete(projectId);
     this.outlines.delete(projectId);
+    this.places.delete(projectId);
     const timer = this.timers.get(projectId);
     if (timer) clearTimeout(timer);
     this.timers.delete(projectId);

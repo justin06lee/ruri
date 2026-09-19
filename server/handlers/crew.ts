@@ -95,7 +95,7 @@ function settleCrew(ctx: ServerContext, key: string, event: Extract<TranscriptEv
 }
 
 export function createCrewManager(ctx: ServerContext): SessionManager {
-  return new SessionManager(
+  const manager = new SessionManager(
     {
       onEvent: (key, raw) => {
         if (raw.kind === "result") {
@@ -175,6 +175,8 @@ export function createCrewManager(ctx: ServerContext): SessionManager {
       canFork: (id) => ctx.models.registry.canForkSession(id),
     },
   );
+  manager.useDefaultModel(() => ctx.store.defaultModel());
+  return manager;
 }
 
 export const crewHandlers = {

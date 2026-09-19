@@ -1,57 +1,55 @@
-import { HOME_TRANSCRIPT_MAX } from "../shared/protocol.js";
+/**
+ * The server, put together: the stores and the live state on one context
+ * (server/context.ts), the two session managers and the hosts the models
+ * reach the app through, the timers, and the HTTP routes (server/routes.ts)
+ * and socket (server/socket.ts) on one port. What each message does lives
+ * in server/handlers, one file per domain.
+ */
 import * as fs from "node:fs";
-import type {
-  PermissionRequest,
-} from "../shared/protocol.js";
+import { HOME_TRANSCRIPT_MAX, type PermissionRequest } from "../shared/protocol.js";
+import { AgentLogs, Crew } from "./agents.js";
 import { SessionArchive } from "./archive.js";
 import { writeTextAtomic } from "./atomic.js";
-import { configPath } from "./configDir.js";
-import { AgentLogs, Crew } from "./agents.js";
 import { BridgeState } from "./bridgeState.js";
+import { BriefStore, writeCatchupFile } from "./brief.js";
+import { briefless, rebuildCatchup } from "./catchupBrief.js";
 import { ownerProject, running } from "./channel.js";
+import { createChatManager } from "./chats.js";
+import { createCheckpoints } from "./checkpoints.js";
 import { Clients } from "./clients.js";
 import { DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
+import { ComponentStore, writeIndexFile } from "./components.js";
+import { configPath } from "./configDir.js";
 import type { PendingComponent, RuriServer, ServerContext, StartServerOptions } from "./context.js";
 import { DraftStore } from "./drafts.js";
+import { createTurnTracker } from "./events.js";
 import { UsageGauges } from "./gauges.js";
+import { createComponentHost } from "./handlers/components.js";
+import { createCrewManager } from "./handlers/crew.js";
+import { createManagerHost } from "./handlers/projects.js";
 import { HomeLog } from "./homelog.js";
-import { createCheckpoints } from "./checkpoints.js";
+import { IdeaStore } from "./ideas.js";
+import { LedgerStore } from "./ledger.js";
+import { warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
 import { Models } from "./models.js";
 import { defaultMusicDir } from "./music.js";
+import { backfillNotes, NoteBackfill } from "./notes.js";
+import { sweepOrphans } from "./orphans.js";
 import { claimPort, type PortClaim } from "./port.js";
 import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
 import { SendQueues } from "./queue.js";
-import { briefless, rebuildCatchup } from "./catchupBrief.js";
-import { createTurnTracker } from "./events.js";
-import { backfillNotes, NoteBackfill } from "./notes.js";
 import { ReadableImages } from "./readable.js";
 import { Retries } from "./retry.js";
-import {
-  digestHistory,
-  setSmallModel,
-} from "./smallmodel.js";
-import { BriefStore, writeCatchupFile } from "./brief.js";
-import { LedgerStore } from "./ledger.js";
-import {
-  ComponentStore,
-  writeIndexFile,
-} from "./components.js";
-import { IdeaStore } from "./ideas.js";
-import { sweepOrphans } from "./orphans.js";
+import { createHttpServer } from "./routes.js";
 import { SecretStore } from "./secrets.js";
+import { digestHistory, setSmallModel } from "./smallmodel.js";
+import { createSocketServer } from "./socket.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { pushContexts, Turns } from "./turns.js";
 import { sweepUploads } from "./uploads.js";
-import { warn } from "./log.js";
-import { createHttpServer } from "./routes.js";
-import { createSocketServer } from "./socket.js";
-import { createChatManager } from "./chats.js";
-import { createComponentHost } from "./handlers/components.js";
-import { createCrewManager } from "./handlers/crew.js";
-import { createManagerHost } from "./handlers/projects.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
 
@@ -82,7 +80,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const ideas = new IdeaStore();
   const components = new ComponentStore();
   // the vault: handed to each harness process as $RURI_SECRET_* when it is
-  // built (below), and to nothing else ruri starts
+  // built (server/chats.ts), and to nothing else ruri starts
   const secrets = new SecretStore();
   // The window's own preferences, kept on this machine rather than in the
   // window — see server/prefs.ts for why that is not where they belong.
@@ -179,8 +177,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   firstNotes.unref();
   const notesTimer = setInterval(allNotes, 60 * 60_000);
   notesTimer.unref();
-  const componentHost = createComponentHost(ctx);
-  ctx.componentHost = componentHost;
+  ctx.componentHost = createComponentHost(ctx);
 
   // Projects that arrived before this existed: one at a time, in the
   // background, so a launch with ten of them does not fire ten reads of the
@@ -195,12 +192,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   ctx.turnTracker = createTurnTracker(ctx);
 
   ctx.manager = createChatManager(ctx);
-
   ctx.crewManager = createCrewManager(ctx);
-  ctx.crewManager.useDefaultModel(() => store.defaultModel());
-
-  const managerHost = createManagerHost(ctx);
-  ctx.managerHost = managerHost;
+  ctx.managerHost = createManagerHost(ctx);
 
   const server = createHttpServer(ctx);
   const wss = createSocketServer(ctx, server);

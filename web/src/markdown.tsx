@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Attachment } from "../../shared/protocol";
 import { Viewer } from "./components/Attachments";
-import { markdownHtml, renderMarkdown } from "./lib/markdownHtml";
+import { createStreamingMarkdown, renderMarkdown } from "./lib/markdownHtml";
 import { HTTP_BASE } from "./store";
 
 /** Clicked — a picture in a reply, or a prompt's chip: what the viewer is
@@ -115,9 +115,19 @@ export const Markdown = memo(function Markdown({
  * replies are never cached — they would push out the finished replies the
  * cache (lib/markdownHtml.ts) exists to keep — and the final text goes through `Markdown`
  * proper the moment the turn ends and the event replaces the draft.
+ *
+ * Each of those paragraphs used to re-render the whole reply so far. This
+ * one renders only what has arrived since the last finished code block, and
+ * keeps the HTML for everything before it (createStreamingMarkdown) — the
+ * same HTML, for a fraction of the parsing, highlighting and sanitising.
+ * The renderer belongs to this reply, so it goes when the reply does.
  */
 export function StreamingMarkdown({ text }: { text: string }) {
-  const html = useMemo(() => markdownHtml(text), [text]);
+  // a lazy initialiser, so the reply gets one renderer for its whole life
+  const [render] = useState(createStreamingMarkdown);
+  // rendering the same text twice gives the same HTML and moves nothing on,
+  // so the memo is a saving rather than the thing that makes this correct
+  const html = useMemo(() => render(text), [render, text]);
   const timers = useCopyTimers();
   // sanitised by DOMPurify (lib/markdownHtml.ts)
   return (

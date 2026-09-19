@@ -94,7 +94,8 @@ export class TerminalRelay {
       const waiting = held.get(termId);
       if (waiting === undefined) continue;
       held.delete(termId);
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame(waiting.projectId, termId, waiting.text)));
+      if (ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify(frame(waiting.projectId, termId, waiting.text)));
       if (held.size === 0) this.backlogs.delete(ws);
     }
     this.retune();

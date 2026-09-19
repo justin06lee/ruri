@@ -158,3 +158,145 @@ export function markdownHtml(text: string, chips = false): string {
   const html = (chips ? markedWithChips : marked).parse(text, { async: false });
   return DOMPurify.sanitize(html, { ADD_ATTR: ["target"] });
 }
+
+/* ── a reply as it is being written ──────────────────────────────────── */
+
+/**
+ * A line that is blank as far as markdown is concerned.
+ */
+const BLANK = /^[ \t]*$/;
+
+/** A fence opening a top-level code block: at the margin, three or more. */
+const OPENS = /^(`{3,}|~{3,})/;
+
+/**
+ * Markdown that reaches backwards past a blank line — a link reference
+ * definition, which anything earlier may point at, and a raw HTML block,
+ * which can swallow what follows it. Neither can be rendered a piece at a
+ * time, so a reply containing one is rendered whole from then on.
+ */
+const REACHES_BACK = /^ {0,3}(\[[^\]\n]*\]:|<)/;
+
+/** Where a scan of a reply has got to, and what it found. */
+interface Scan {
+  /** How much of the text has been read. */
+  at: number;
+  /** Just past the blank line that closed the last top-level fence — the
+   *  furthest point nothing later can change. */
+  boundary: number;
+  /** The fence of the block being read, while inside one. */
+  fence: string | undefined;
+  /** The line before was blank (or there was none). */
+  afterBlank: boolean;
+  /** A fence has just closed; a blank line now makes a boundary. */
+  justClosed: boolean;
+  /** Something that reaches backwards was seen: no more caching. */
+  plain: boolean;
+}
+
+function freshScan(): Scan {
+  return { at: 0, boundary: 0, fence: undefined, afterBlank: true, justClosed: false, plain: false };
+}
+
+/** Whether `line` closes `fence` — the same character, at least as many. */
+function closes(line: string, fence: string): boolean {
+  const match = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+  return match !== null && match[1]![0] === fence[0] && match[1]!.length >= fence.length;
+}
+
+/**
+ * Read the complete lines of `text` that the scan has not seen yet.
+ *
+ * Only whole lines are read: the last one is still being written, so it is
+ * left to be read again next time. What the scan is looking for is the end
+ * of a fenced code block at the margin followed by a blank line — past that
+ * point markdown has no construct left that can reach backwards, so
+ * everything before it is finished and can be rendered once and kept.
+ */
+function advance(scan: Scan, text: string): void {
+  const end = text.lastIndexOf("\n") + 1;
+  let from = scan.at;
+  while (from < end) {
+    const stop = text.indexOf("\n", from);
+    const line = text.slice(from, stop);
+    const next = stop + 1;
+    const blank = BLANK.test(line);
+    if (scan.fence !== undefined) {
+      if (closes(line, scan.fence)) {
+        scan.fence = undefined;
+        scan.justClosed = true;
+      }
+    } else if (scan.justClosed && blank) {
+      scan.boundary = next;
+      scan.justClosed = false;
+    } else {
+      scan.justClosed = false;
+      const opening = scan.afterBlank ? OPENS.exec(line) : null;
+      if (opening) scan.fence = opening[1]!;
+      else if (REACHES_BACK.test(line)) {
+        scan.plain = true;
+        scan.at = end;
+        return;
+      }
+    }
+    scan.afterBlank = blank;
+    from = next;
+  }
+  scan.at = end;
+}
+
+/**
+ * A renderer for one reply as it is written, which does not render what it
+ * has already rendered.
+ *
+ * The server lets a reply through a finished paragraph at a time
+ * (server/paragraphs.ts), and every one of those used to re-parse the whole
+ * reply, re-highlight every code block in it and sanitise the lot — so a
+ * reply of n paragraphs cost n², and the code blocks near its start were
+ * highlighted once for every paragraph that came after them.
+ *
+ * Here the finished part is rendered once. A closed fence at the margin
+ * followed by a blank line is a point nothing later can reach back past, so
+ * the HTML up to there is kept and only what has arrived since is rendered
+ * and appended. Each piece is a whole number of top-level blocks, sanitised
+ * on its own, so the result is the same HTML the whole-text render gives.
+ *
+ * Text that stops extending what was rendered (a rewind, an edit) starts
+ * the renderer over, and a reply holding something that reaches backwards
+ * is rendered whole from that moment on.
+ */
+export function createStreamingMarkdown(): (text: string) => string {
+  /** The text already rendered into `html`. */
+  let source = "";
+  let html = "";
+  let scan = freshScan();
+
+  return (text: string): string => {
+    if (!text.startsWith(source)) {
+      source = "";
+      html = "";
+      scan = freshScan();
+    }
+    if (scan.plain) return markdownHtml(text);
+    // A carriage return can still turn out to be half of a CRLF, and a byte
+    // order mark at a boundary would be stripped from a piece though it sits
+    // inside the whole. Neither is worth a special case.
+    const tail = text.slice(source.length);
+    if (tail.includes("\r") || tail.includes("﻿")) {
+      scan.plain = true;
+      return markdownHtml(text);
+    }
+    advance(scan, text);
+    if (scan.plain) {
+      // whatever reaches backwards may reach into what was kept
+      source = "";
+      html = "";
+      return markdownHtml(text);
+    }
+    if (scan.boundary > source.length) {
+      html += markdownHtml(text.slice(source.length, scan.boundary));
+      source = text.slice(0, scan.boundary);
+    }
+    return html + markdownHtml(text.slice(source.length));
+  };
+}

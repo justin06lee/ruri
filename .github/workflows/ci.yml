@@ -28,11 +28,7 @@ jobs:
 
       - run: bun run lint
 
-      # Advisory until the tree has been formatted once (that run happens
-      # after every open branch merges). Drop `continue-on-error` then, and
-      # this step becomes required.
       - run: bun run format:check
-        continue-on-error: true
 
       - run: bun test
 

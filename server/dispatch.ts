@@ -327,7 +327,7 @@ function compactChannel(ctx: ServerContext, channelId: string): void {
     ...(built.digest ? { digest: built.digest } : {}),
     ts: Date.now(),
   };
-  // the mark folds everything before it into the history (ctx.archive.ts);
+  // the mark folds everything before it into the history (archive.ts);
   // every window gets the live part as it now stands — the mark, alone
   ctx.archive.append(channelId, event);
   pushTranscript(ctx, channelId);

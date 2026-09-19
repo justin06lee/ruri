@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { type AskQuestions, briefLine, type SubagentState, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
+import { type AskQuestions, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -9,7 +9,6 @@ import type {
   ContextUsage,
   PermissionRequest,
   ServerMessage,
-  TranscriptEvent,
 } from "../shared/protocol.js";
 import { clientMessageSchema, describeIssue } from "../shared/clientSchema.js";
 import { SessionArchive } from "./archive.js";
@@ -77,6 +76,7 @@ import { createHttpServer } from "./routes.js";
 import { dispatch, dispatchSplit, drainQueue, maybeRetry, queueWithCommands, titleSession } from "./dispatch.js";
 import { componentHandlers, createComponentHost } from "./handlers/components.js";
 import { rewindHandlers } from "./handlers/rewind.js";
+import { createCrewManager, crewHandlers, followCrew } from "./handlers/crew.js";
 import type { Handler, MessageType } from "./handlers/types.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
@@ -403,170 +403,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // queued behind the turn, or a retry about to go — for nothing else
   manager.useKeepWarm((id) => ctx.clients.isOpen(id) || (ctx.queues.entries.get(id)?.length ?? 0) > 0 || ctx.retries.has(id));
 
-  /**
-   * The agents the user starts themselves, from a chat's agents page (the
-   * crew, server/agents.ts). Each is a session of its own on a manager of
-   * its own, so nothing that watches the chats — their status, the sidebar,
-   * the queue, retries, the recall notes — ever sees one: its channel is its
-   * card's key, and everything it does goes to its log and its card, both
-   * filed under the chat that started it. It runs in the chat's project at
-   * the chat's effort and permissions (on the chat's model unless another
-   * was picked), and closes a moment after each turn, like a chat nobody
-   * has open.
-   */
-  const CREW_BRIEFING = [
-    "<ruri:agent>",
-    "The user started you from a ruri chat's agents page, as an agent of their own, and the brief is your task.",
-    "Work in this project on your own — ask only if you are truly stuck — and finish with a short report of what you did and what you found: that report is what the user reads first, and what they may hand back to the chat.",
-    "</ruri:agent>",
-  ].join("\n");
-
-  /** An agent of the user's as a Project: the chat's, under the agent's key. */
-  function crewProject(chatId: string, key: string, model?: string) {
-    const chat = channelProject(ctx, chatId);
-    return chat && { ...chat, id: key, ...(model ? { model } : {}) };
-  }
-
-  /** Move one of the user's agents' cards along, and show the chat its crew. */
-  function crewCard(key: string, patch: Partial<SubagentState>): void {
-    const chatId = crew.owner(key);
-    if (!chatId || !crew.update(key, patch)) return;
-    ctx.clients.toViewers(chatId, { type: "crew", projectId: chatId, agents: crew.list(chatId) });
-  }
-
-  /** Something one of the user's agents did, into a log (its own, or an
-   *  agent of its own's): true when it is new there. */
-  function crewLog(key: string, logKey: string, raw: TranscriptEvent): boolean {
-    const chatId = crew.owner(key);
-    if (!chatId) return false;
-    const event = redacted(ctx, raw);
-    ctx.readable.allowReadImages(chatId, [event]);
-    const added = agentLogs.append(chatId, logKey, event);
-    ctx.clients.toViewers(chatId, { type: "agent_event", projectId: chatId, key: logKey, event });
-    return added;
-  }
-
-  /** Another turn for one of the user's agents, once it is done: more to
-   *  do, or the answers to its questions. */
-  function followCrew(key: string, text: string): void {
-    const chatId = crew.owner(key);
-    const member = crew.member(key);
-    const project = chatId && member ? crewProject(chatId, key, member.agent.model) : undefined;
-    if (!project || member?.agent.status === "running") return;
-    ctx.crewSaid.delete(key);
-    crewCard(key, { status: "running", startedAt: Date.now(), endedAt: undefined, result: undefined, activity: undefined });
-    crewManager.send(project, text);
-  }
-
-  /** One of the user's agents finished a turn: its card says how, and
-   *  what it came back with; what it spent is its project's. */
-  function settleCrew(key: string, event: Extract<TranscriptEvent, { kind: "result" }>): void {
-    const chatId = crew.owner(key);
-    const card = crew.member(key)?.agent;
-    if (!chatId || !card) return;
-    const said = ctx.crewSaid.get(key);
-    ctx.crewSaid.delete(key);
-    crewCard(key, {
-      status: event.stopped ? "stopped" : event.ok ? "done" : "failed",
-      endedAt: Date.now(),
-      activity: undefined,
-      ...(event.tokens ? { tokens: (card.tokens ?? 0) + event.tokens } : {}),
-      ...(said ? { result: said } : event.error && !event.ok ? { result: secrets.redact(event.error) } : {}),
-    });
-    const owner = ownerProject(ctx, chatId);
-    if (owner && (event.tokens || event.costUsd || event.durationMs)) {
-      ledger.record(owner.id, {
-        ...(event.tokens ? { tokens: event.tokens } : {}),
-        ...(event.costUsd ? { costUsd: event.costUsd } : {}),
-        ...(event.durationMs ? { ms: event.durationMs } : {}),
-      });
-      ctx.clients.broadcast({ type: "stats", projectId: owner.id, stats: ledger.stats(owner.id) });
-    }
-    ctx.usage.pushUsage();
-  }
-
-  const crewManager = new SessionManager(
-    {
-      onEvent: (key, raw) => {
-        if (raw.kind === "result") {
-          settleCrew(key, raw);
-          return;
-        }
-        const added = crewLog(key, key, raw);
-        if (raw.kind === "assistant") ctx.crewSaid.set(key, secrets.redact(raw.text));
-        if (raw.kind === "tool" && added) {
-          const card = crew.member(key)?.agent;
-          crewCard(key, {
-            tools: (card?.tools ?? 0) + 1,
-            activity: secrets.redact(`${raw.name} ${raw.summary}`.trim()),
-          });
-        }
-      },
-      // its own agents' cards moving along, and what they did: its log
-      onEventUpdate: (key, raw) => void crewLog(key, key, raw),
-      onAgentEvent: (key, nested, raw) => void crewLog(key, nested, raw),
-      // its log takes whole messages, the way a harness's agents' logs do
-      onDelta: () => {},
-      onStatus: (key, status) => {
-        if (crew.member(key)?.agent.status !== "running") return;
-        if (status === "permission") crewCard(key, { activity: "waiting on you: allow or deny it" });
-        // a process gone without a word about its turn
-        else if (status === "error") crewCard(key, { status: "failed", endedAt: Date.now() });
-      },
-      onPermission: (raw) => {
-        // the chat's card — marked as this agent's — so it shows wherever
-        // the chat does, and on the agent's own page
-        const chatId = crew.owner(raw.projectId);
-        if (!chatId) return;
-        const request: PermissionRequest = {
-          ...raw,
-          projectId: chatId,
-          agent: raw.projectId,
-          input: secrets.redactInput(raw.input),
-        };
-        ctx.permissions.set(request.requestId, request);
-        ctx.clients.broadcast({ type: "permission_request", request });
-      },
-      onPermissionResolved: (requestId) => {
-        ctx.permissions.delete(requestId);
-        ctx.clients.broadcast({ type: "permission_resolved", requestId });
-      },
-      onQuestionLate: (requestId) => {
-        const request = ctx.permissions.get(requestId);
-        if (!request || request.late) return;
-        const late = { ...request, late: true };
-        ctx.permissions.set(requestId, late);
-        ctx.clients.broadcast({ type: "permission_request", request: late });
-      },
-      onModels: () => {},
-      onSessionId: (key, sessionId) => crew.setSessionId(key, sessionId),
-      onContext: () => {},
-      onProgress: () => {},
-      onChain: () => {},
-    },
-    (key) => crew.sessionId(key),
-    (project) => {
-      const claude = !ctx.models.registry.parse(project.model || store.defaultModel()).providerId;
-      const note = [
-        sessionBriefing({ projectDir: project.path, projectName: project.name, secrets, claude, naming: "" }),
-        CREW_BRIEFING,
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-      return {
-        fillSecrets: (input) => (secrets.wanted(JSON.stringify(input)) ? secrets.fillInput(input) : undefined),
-        options: { env: secrets.env(), systemPrompt: { type: "preset", preset: "claude_code", append: note } },
-        providerSystem: note,
-      };
-    },
-    {
-      parse: (model) => ctx.models.registry.parse(model),
-      create: (id, workDir) => ctx.models.registry.createFor(id, workDir, secrets.env()),
-      canFork: (id) => ctx.models.registry.canForkSession(id),
-    },
-  );
-  ctx.crewManager = crewManager;
-  crewManager.useDefaultModel(() => store.defaultModel());
+  ctx.crewManager = createCrewManager(ctx);
+  ctx.crewManager.useDefaultModel(() => store.defaultModel());
 
   /** Tear down one project and everything its sessions accumulated. */
   function closeProjectById(projectId: string): void {
@@ -576,7 +414,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       manager.dispose(sessionId);
       archive.remove(sessionId);
       removeTurnFiles(sessionId);
-      for (const key of crew.remove(sessionId)) crewManager.dispose(key);
+      for (const key of crew.remove(sessionId)) ctx.crewManager.dispose(key);
       agentLogs.remove(sessionId);
       drafts.remove(sessionId);
       tracker.removeProject(sessionId);
@@ -669,7 +507,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     findProjects: (query) => findProjects([store.workspaceDir()], query),
   };
 
-  const handlers = { ...componentHandlers, ...rewindHandlers };
+  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers };
 
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
     const handler = (handlers as Partial<Record<string, Handler<MessageType>>>)[msg.type];
@@ -931,46 +769,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         }
         break;
       }
-      case "agent_log": {
-        const id = msg.projectId;
-        if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
-        const events = agentLogs.read(id, msg.key);
-        ctx.readable.allowReadImages(id, events);
-        ws.send(JSON.stringify({ type: "agent_log", projectId: id, key: msg.key, events } satisfies ServerMessage));
-        break;
-      }
-      case "agent_start": {
-        const chatId = msg.projectId;
-        const text = msg.text.trim();
-        if (chatId === HOME_ID || !text || !/^crew-[a-z0-9]{6,32}$/.test(msg.key) || crew.owner(msg.key)) break;
-        const project = crewProject(chatId, msg.key, msg.model);
-        if (!project) break;
-        crew.add(chatId, {
-          key: msg.key,
-          description: briefLine(text),
-          prompt: text,
-          model: project.model || store.defaultModel(),
-          status: "running",
-          mine: true,
-          startedAt: Date.now(),
-        });
-        ctx.clients.toViewers(chatId, { type: "crew", projectId: chatId, agents: crew.list(chatId) });
-        crewManager.send(project, text);
-        break;
-      }
-      case "agent_send": {
-        if (crew.owner(msg.key) !== msg.projectId || !msg.text.trim()) break;
-        followCrew(msg.key, msg.text.trim());
-        break;
-      }
-      case "agent_stop": {
-        if (crew.owner(msg.key) !== msg.projectId) break;
-        const status = crewManager.statuses()[msg.key];
-        if (status && status !== "idle") crewManager.interrupt(msg.key);
-        // nothing running to stop: only the card still thought so
-        else crewCard(msg.key, { status: "stopped", endedAt: Date.now(), activity: undefined });
-        break;
-      }
       case "history_get": {
         const id = msg.projectId;
         if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
@@ -1047,7 +845,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         manager.dispose(msg.sessionId);
         archive.remove(msg.sessionId);
         removeTurnFiles(msg.sessionId);
-        for (const key of crew.remove(msg.sessionId)) crewManager.dispose(key);
+        for (const key of crew.remove(msg.sessionId)) ctx.crewManager.dispose(key);
         agentLogs.remove(msg.sessionId);
         drafts.remove(msg.sessionId);
         tracker.removeProject(msg.sessionId);
@@ -1165,7 +963,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       case "permission_response": {
         manager.respondPermission(msg.requestId, msg.allow, msg.always ?? false);
-        crewManager.respondPermission(msg.requestId, msg.allow, msg.always ?? false);
+        ctx.crewManager.respondPermission(msg.requestId, msg.allow, msg.always ?? false);
         break;
       }
       case "question_response": {
@@ -1175,7 +973,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         // never into a hole.
         const request = ctx.permissions.get(msg.requestId);
         let outcome = manager.respondQuestion(msg.requestId, msg.answers);
-        if (outcome === "none") outcome = crewManager.respondQuestion(msg.requestId, msg.answers);
+        if (outcome === "none") outcome = ctx.crewManager.respondQuestion(msg.requestId, msg.answers);
         if (outcome === "answered") break;
         if (outcome === "none") {
           ctx.permissions.delete(msg.requestId);
@@ -1192,7 +990,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         const text = `My answers to your questions:\n${lines.join("\n")}`;
         // an agent of the user's own asked: the answers are its, not the chat's
         if (request.agent) {
-          followCrew(request.agent, text);
+          followCrew(ctx, request.agent, text);
           break;
         }
         const channelId = request.projectId;
@@ -1737,7 +1535,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             ctx.terminals.closeAll();
             void options.bridge?.closeAll();
             manager.disposeAll();
-            crewManager.disposeAll();
+            ctx.crewManager.disposeAll();
             archive.flushAll();
             agentLogs.flushAll();
             crew.flushAll();

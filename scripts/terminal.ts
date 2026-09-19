@@ -72,7 +72,7 @@ function plainLines(text: string): string[] {
   return (
     text
       // eslint-disable-next-line no-control-regex
-      .replace(/\u001b\[[0-9;?]*[ -\/]*[@-~]|\u001b[@-Z\\-_]/g, "")
+      .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b[@-Z\\-_]/g, "")
       .split(/\r?\n/)
       .map((line) => line.trim())
   );

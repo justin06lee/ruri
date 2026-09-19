@@ -63,8 +63,32 @@ function flagsOf(within: HTMLElement): { start: Flag; end: Flag } | null {
   };
 }
 
+/** The flags, and the band of the transcript where a flag can be seen —
+ *  measured when the flags are, not while rendering them. */
+interface Placed {
+  start: Flag;
+  end: Flag;
+  /** The transcript's top edge; a flag above it is under the header. */
+  top: number;
+  /** Where its words stop being seen. */
+  floor: number;
+}
+
+function placedIn(scroller: HTMLElement): Placed | null {
+  const flags = flagsOf(scroller);
+  if (!flags) return null;
+  const box = scroller.getBoundingClientRect();
+  // The composer floats over the transcript's tail, so the transcript's
+  // own bottom edge is not where its words stop being seen — the textbox
+  // is, and the pane says how far up from its floor that starts.
+  const chat = scroller.closest<HTMLElement>(".chat");
+  const boxH = chat ? parseFloat(getComputedStyle(chat).getPropertyValue("--composer-box-h")) || 0 : 0;
+  const floor = (chat?.getBoundingClientRect().bottom ?? box.bottom) - boxH;
+  return { ...flags, top: box.top, floor };
+}
+
 export function SelectionFlags({ scrollerRef }: { scrollerRef: RefObject<HTMLElement | null> }) {
-  const [flags, setFlags] = useState<{ start: Flag; end: Flag } | null>(null);
+  const [flags, setFlags] = useState<Placed | null>(null);
   const [dragging, setDragging] = useState<"start" | "end" | null>(null);
   /** The selection's fixed end while the other is dragged, and where the
    *  pointer took hold relative to the flag's own point. */
@@ -85,7 +109,7 @@ export function SelectionFlags({ scrollerRef }: { scrollerRef: RefObject<HTMLEle
     if (!scroller) return;
     const refresh = () => {
       if (selecting.current) return;
-      setFlags(flagsOf(scroller));
+      setFlags(placedIn(scroller));
     };
     const down = (e: PointerEvent) => {
       if ((e.target as Element | null)?.closest?.(".sel-flag")) return;
@@ -199,22 +223,14 @@ export function SelectionFlags({ scrollerRef }: { scrollerRef: RefObject<HTMLEle
     }
     setDragging(null);
     const scroller = scrollerRef.current;
-    if (scroller) setFlags(flagsOf(scroller));
+    if (scroller) setFlags(placedIn(scroller));
   };
 
   if (!flags) return null;
-  const scroller = scrollerRef.current;
-  const box = scroller?.getBoundingClientRect();
-  // The composer floats over the transcript's tail, so the transcript's
-  // own bottom edge is not where its words stop being seen — the textbox
-  // is, and the pane says how far up from its floor that starts.
-  const chat = scroller?.closest<HTMLElement>(".chat");
-  const boxH = chat ? parseFloat(getComputedStyle(chat).getPropertyValue("--composer-box-h")) || 0 : 0;
-  const floor = box ? (chat?.getBoundingClientRect().bottom ?? box.bottom) - boxH : Infinity;
   /** A flag whose line has scrolled out of the transcript — under the
    *  header, or down to the textbox — stays out of sight rather than
    *  standing on either. */
-  const shown = (f: Flag) => !box || (f.y + f.h > box.top && f.y + f.h <= floor);
+  const shown = (f: Flag) => f.y + f.h > flags.top && f.y + f.h <= flags.floor;
 
   return createPortal(
     <>

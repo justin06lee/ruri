@@ -240,6 +240,27 @@ export class Terminals {
     this.shells.get(termId)?.child.stdin?.write(data);
   }
 
+  /**
+   * Stop or restart reading this tab's shell.
+   *
+   * Held, the pty is not read; the program writing to it fills the pty's
+   * own buffer and then blocks on its next write, which is what a terminal
+   * emulator nobody is reading does. The relay holds a tab only while every
+   * window is behind on it, and lets go the moment one catches up
+   * (server/relay.ts).
+   */
+  hold(termId: string, held: boolean): void {
+    const shell = this.shells.get(termId);
+    if (!shell) return;
+    if (held) {
+      shell.child.stdout?.pause();
+      shell.child.stderr?.pause();
+    } else {
+      shell.child.stdout?.resume();
+      shell.child.stderr?.resume();
+    }
+  }
+
   resize(termId: string, cols: number, rows: number): void {
     const shell = this.shells.get(termId);
     if (!shell?.pty) return;

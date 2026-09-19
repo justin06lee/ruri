@@ -26,8 +26,31 @@ export interface ClientView {
   seen: Map<string, number>;
 }
 
+/**
+ * Bytes queued on a socket that has stopped taking them.
+ *
+ * Past this a window is not slow, it is gone — a laptop asleep mid-turn, a
+ * renderer that has crashed without the socket noticing — and going on
+ * writing to it only grows this process's memory. It is closed instead, and
+ * the window reconnects and is sent a whole fresh snapshot
+ * (web/src/store.ts retries every 1.5s). Terminal output, which is what
+ * actually fills a socket, is paced long before this (server/relay.ts).
+ */
+const ABANDON = 8 * 1024 * 1024;
+
+/** True when this socket can be written to at all. */
+function writable(client: ClientConn): boolean {
+  if (client.readyState !== WebSocket.OPEN) return false;
+  if (client.bufferedAmount < ABANDON) return true;
+  client.terminate();
+  return false;
+}
+
 export class Clients {
   readonly sockets = new Set<ClientConn>();
+  /** Told when a window goes, so what was queued for it can be let go
+   *  (server/relay.ts). Set once, at startup. */
+  onGone: ((ws: ClientConn) => void) | undefined;
   readonly views = new Map<ClientConn, ClientView>();
   /** Per channel, moved on by every change to its transcript. */
   readonly revisions = new Map<string, number>();
@@ -35,7 +58,7 @@ export class Clients {
   broadcast = (message: ServerMessage): void => {
     const payload = JSON.stringify(message);
     for (const client of this.sockets) {
-      if (client.readyState === WebSocket.OPEN) client.send(payload);
+      if (writable(client)) client.send(payload);
     }
   };
 
@@ -49,7 +72,7 @@ export class Clients {
   toViewers = (channelId: string, message: ServerMessage, board = false): void => {
     let payload: string | undefined;
     for (const client of this.sockets) {
-      if (client.readyState !== WebSocket.OPEN) continue;
+      if (!writable(client)) continue;
       const view = this.views.get(client);
       if (view && !(view.channels.has(channelId) || (board && view.board))) continue;
       payload ??= JSON.stringify(message);

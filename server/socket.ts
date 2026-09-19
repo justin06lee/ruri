@@ -122,6 +122,7 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
     });
     ws.on("close", () => {
       ctx.clients.sockets.delete(ws);
+      ctx.clients.onGone?.(ws);
       const view = ctx.clients.views.get(ws);
       ctx.clients.views.delete(ws);
       // a window gone is every chat it had open, left

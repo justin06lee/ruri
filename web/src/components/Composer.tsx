@@ -3,7 +3,14 @@ import { HOME_ID, type Project } from "../../../shared/protocol";
 import { fileToBase64 } from "../lib/files";
 import { clearComposerDraft, composerDrafts, send, setComposerDraft, showError, useRuri } from "../store";
 import { tooBigNotice, useConfirm } from "./Confirm";
-import { AttachmentStrip, cropRegion, fileKind, Viewer, type ComposerAttachment, type Region } from "./Attachments";
+import {
+  AttachmentStrip,
+  cropRegion,
+  fileKind,
+  Viewer,
+  type ComposerAttachment,
+  type Region,
+} from "./Attachments";
 import { CommandMenu, commandPrefix } from "./CommandMenu";
 import { DragonGauges } from "./Dragon";
 import { MarkerMirror } from "./Markers";
@@ -27,10 +34,7 @@ import { NO_QUEUED } from "./chat/empty";
 /* The shell panel brings xterm with it — a quarter of the app's JavaScript,
    for a mode most sessions never turn on. It arrives when the `>_` button is
    pressed instead of on every launch. */
-const TerminalPanel = lazy(() =>
-  import("./Terminal").then((m) => ({ default: m.TerminalPanel })),
-);
-
+const TerminalPanel = lazy(() => import("./Terminal").then((m) => ({ default: m.TerminalPanel })));
 
 /** The bar's flex gap, plus a little air, in the fold measurement. */
 const BAR_GAP = 14;
@@ -328,9 +332,7 @@ export function Composer({
     const at = area.selectionStart;
     const hit = findMarkers(text)
       .filter(markerPresent)
-      .find((m) =>
-        e.key === "Backspace" ? backspaceHits(text, m, at) : at >= m.start && at < m.end,
-      );
+      .find((m) => (e.key === "Backspace" ? backspaceHits(text, m, at) : at >= m.start && at < m.end));
     if (!hit) return false;
     // what the chip stood between may now be two words, or two chips
     const cut = removeMarker(text, hit);
@@ -498,7 +500,8 @@ export function Composer({
   const held = useRef<{ start: number; end: number; top: number } | null>(null);
   const toggleShell = () => {
     const area = areaRef.current;
-    if (!shell && area) held.current = { start: area.selectionStart, end: area.selectionEnd, top: area.scrollTop };
+    if (!shell && area)
+      held.current = { start: area.selectionStart, end: area.selectionEnd, top: area.scrollTop };
     setShell(!shell);
   };
   useLayoutEffect(() => {
@@ -571,63 +574,63 @@ export function Composer({
             />
           )}
           {!shell && (
-          <div className="composer-field">
-          <textarea
-            ref={areaRef}
-            rows={1}
-            placeholder="Message ruri…"
-            value={text}
-            onChange={(e) => {
-              const held = holdMarkersAt(e.target.value, e.target.selectionStart);
-              caretRef.current = held.caret;
-              setText(held.text);
-              trackSlash(held.text, held.caret);
-              // a space kept between a chip and the word just typed against
-              // it: the caret goes back to the end of that word
-              if (held.caret !== e.target.selectionStart) placeCaret(held.caret);
-            }}
-            // wherever the caret was when the viewer took focus is where a
-            // region's marker goes
-            onSelect={(e) => {
-              caretRef.current = e.currentTarget.selectionStart;
-              trackSlash(e.currentTarget.value, e.currentTarget.selectionStart);
-            }}
-            onKeyDown={(e) => {
-              // while the command menu stands, the arrows, Enter, Tab and
-              // Escape are its keys — Enter takes a command rather than
-              // sending a prompt that is half a command's name
-              if (slash && menuKey.current?.(e.key)) {
-                e.preventDefault();
-                return;
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void submit();
-                return;
-              }
-              if ((e.key === "Backspace" || e.key === "Delete") && deleteMarkerAt(e)) e.preventDefault();
-            }}
-            onPaste={(e) => {
-              const files = [...e.clipboardData.files];
-              if (files.length > 0) {
-                e.preventDefault();
-                addFiles(files, areaRef.current?.selectionStart ?? undefined);
-              }
-            }}
-          />
-          <MarkerMirror
-            areaRef={areaRef}
-            text={text}
-            present={markerPresent}
-            refit={autosize}
-            onMove={(next) => {
-              setText(next.text);
-              placeCaret(next.caret);
-            }}
-            onOpen={openMarker}
-            onHover={(marker) => setHot(marker ? (attachmentFor(marker)?.id ?? null) : null)}
-          />
-          </div>
+            <div className="composer-field">
+              <textarea
+                ref={areaRef}
+                rows={1}
+                placeholder="Message ruri…"
+                value={text}
+                onChange={(e) => {
+                  const held = holdMarkersAt(e.target.value, e.target.selectionStart);
+                  caretRef.current = held.caret;
+                  setText(held.text);
+                  trackSlash(held.text, held.caret);
+                  // a space kept between a chip and the word just typed against
+                  // it: the caret goes back to the end of that word
+                  if (held.caret !== e.target.selectionStart) placeCaret(held.caret);
+                }}
+                // wherever the caret was when the viewer took focus is where a
+                // region's marker goes
+                onSelect={(e) => {
+                  caretRef.current = e.currentTarget.selectionStart;
+                  trackSlash(e.currentTarget.value, e.currentTarget.selectionStart);
+                }}
+                onKeyDown={(e) => {
+                  // while the command menu stands, the arrows, Enter, Tab and
+                  // Escape are its keys — Enter takes a command rather than
+                  // sending a prompt that is half a command's name
+                  if (slash && menuKey.current?.(e.key)) {
+                    e.preventDefault();
+                    return;
+                  }
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void submit();
+                    return;
+                  }
+                  if ((e.key === "Backspace" || e.key === "Delete") && deleteMarkerAt(e)) e.preventDefault();
+                }}
+                onPaste={(e) => {
+                  const files = [...e.clipboardData.files];
+                  if (files.length > 0) {
+                    e.preventDefault();
+                    addFiles(files, areaRef.current?.selectionStart ?? undefined);
+                  }
+                }}
+              />
+              <MarkerMirror
+                areaRef={areaRef}
+                text={text}
+                present={markerPresent}
+                refit={autosize}
+                onMove={(next) => {
+                  setText(next.text);
+                  placeCaret(next.caret);
+                }}
+                onOpen={openMarker}
+                onHover={(marker) => setHot(marker ? (attachmentFor(marker)?.id ?? null) : null)}
+              />
+            </div>
           )}
           {/* a child of the box, not of the field: what the menu has to
               stand clear of is the whole box, and the field's top slides
@@ -648,7 +651,10 @@ export function Composer({
                 const after = text.slice(slash.at + 1 + slash.word.length);
                 const lead = `/${command.name}`;
                 const tail = after.startsWith(" ") ? "" : " ";
-                const next = holdMarkersAt(`${before}${lead}${tail}${after}`, before.length + lead.length + tail.length);
+                const next = holdMarkersAt(
+                  `${before}${lead}${tail}${after}`,
+                  before.length + lead.length + tail.length,
+                );
                 setText(next.text);
                 placeCaret(next.caret);
                 dismissed.current = null;

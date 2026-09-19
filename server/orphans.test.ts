@@ -43,7 +43,11 @@ function workspace(): void {
 
 test("what a session no longer in the workspace left is removed; the rest stays", () => {
   workspace();
-  const keep = [put(`sessions/${LIVE}.json`), put(`history/${LIVE}.jsonl`), put(`turns/${LIVE}`, { dir: true })];
+  const keep = [
+    put(`sessions/${LIVE}.json`),
+    put(`history/${LIVE}.jsonl`),
+    put(`turns/${LIVE}`, { dir: true }),
+  ];
   const drop = [
     put(`sessions/${GONE}.json`),
     put(`history/${GONE}.jsonl`),

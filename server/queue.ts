@@ -166,7 +166,9 @@ export function mergeEntries(first: QueueEntry, second: QueueEntry): QueueEntry 
     ...(second.attachments ?? []).map((att) => ({
       ...att,
       n: shift(att.kind, att.n),
-      ...(att.regions ? { regions: att.regions.map((region) => ({ ...region, n: shift("region", region.n) })) } : {}),
+      ...(att.regions
+        ? { regions: att.regions.map((region) => ({ ...region, n: shift("region", region.n) })) }
+        : {}),
     })),
   ];
   return {

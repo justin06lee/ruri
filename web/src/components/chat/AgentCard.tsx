@@ -16,7 +16,11 @@ const AGENT_STATUS: Record<SubagentState["status"], string> = {
 };
 
 function tokenCount(n: number): string {
-  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  return n >= 1_000_000
+    ? `${(n / 1_000_000).toFixed(1)}M`
+    : n >= 1000
+      ? `${(n / 1000).toFixed(1)}k`
+      : String(n);
 }
 
 function span(ms: number): string {
@@ -69,7 +73,11 @@ export function AgentHead({ agent }: { agent: SubagentState }) {
 export function AgentCard({ agent, channelId }: { agent: SubagentState; channelId?: string }) {
   const host = useContext(AgentHost);
   const line =
-    agent.status === "running" ? agent.activity : agent.result ? excerpt(unmarked(agent.result), 220) : undefined;
+    agent.status === "running"
+      ? agent.activity
+      : agent.result
+        ? excerpt(unmarked(agent.result), 220)
+        : undefined;
   return (
     <button
       className={`agent-card ${agent.status}`}

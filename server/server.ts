@@ -166,7 +166,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     const gone = sweepUploads();
     if (gone) console.log(`ruri: removed ${gone} upload${gone === 1 ? "" : "s"} nothing refers to`);
     const orphans = sweepOrphans();
-    if (orphans) console.log(`ruri: removed ${orphans} file${orphans === 1 ? "" : "s"} left by closed sessions`);
+    if (orphans)
+      console.log(`ruri: removed ${orphans} file${orphans === 1 ? "" : "s"} left by closed sessions`);
   }, 30_000);
   firstSweep.unref();
   // every note the small model missed — a spent quota, a quit mid-call —

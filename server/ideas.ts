@@ -31,9 +31,9 @@ export class IdeaStore {
     let items = this.data.get(projectId);
     if (items) return items;
     try {
-      const raw = JSON.parse(
-        fs.readFileSync(path.join(ideasDir(), `${projectId}.json`), "utf8"),
-      ) as { items?: Idea[] };
+      const raw = JSON.parse(fs.readFileSync(path.join(ideasDir(), `${projectId}.json`), "utf8")) as {
+        items?: Idea[];
+      };
       items = Array.isArray(raw.items) ? raw.items : [];
     } catch (err) {
       if (!isMissing(err)) warn("ideas", err, "load");

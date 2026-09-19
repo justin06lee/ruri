@@ -2,7 +2,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeJsonAtomic, writeTextAtomic, writeTextAtomicAsync } from "./atomic.js";
 import { configPath } from "./configDir.js";
-import { excerpt, keepRecent, unmarked, type EarlierItem, type TranscriptEvent, type TurnNote } from "../shared/protocol.js";
+import {
+  excerpt,
+  keepRecent,
+  unmarked,
+  type EarlierItem,
+  type TranscriptEvent,
+  type TurnNote,
+} from "../shared/protocol.js";
 import { settleAgent } from "./agents.js";
 import type { Digest } from "./compaction.js";
 import { isMissing, warn } from "./log.js";
@@ -103,7 +110,14 @@ function outline(events: TranscriptEvent[]): EarlierItem[] {
     if (event.kind === "compaction") {
       items.push({ kind: "compaction", id: event.id, ts: event.ts });
     } else if (event.kind === "user") {
-      open = { kind: "turn", turnId: event.id, prompt: excerpt(event.text, PROMPT_EXCERPT), reply: "", count: 1, ts: event.ts };
+      open = {
+        kind: "turn",
+        turnId: event.id,
+        prompt: excerpt(event.text, PROMPT_EXCERPT),
+        reply: "",
+        count: 1,
+        ts: event.ts,
+      };
       items.push(open);
     } else if (open) {
       open.count += 1;
@@ -208,7 +222,9 @@ export class SessionArchive {
         events: Array.isArray(raw.events) ? raw.events.map(settleAgent) : [],
         summaries,
         ...(typeof raw.lastSessionId === "string" ? { lastSessionId: raw.lastSessionId } : {}),
-        ...(Array.isArray(raw.sessionIds) ? { sessionIds: raw.sessionIds.filter((id) => typeof id === "string") } : {}),
+        ...(Array.isArray(raw.sessionIds)
+          ? { sessionIds: raw.sessionIds.filter((id) => typeof id === "string") }
+          : {}),
         ...(typeof raw.pendingBrief === "string" ? { pendingBrief: raw.pendingBrief } : {}),
         ...(raw.digest && typeof raw.digest.text === "string" && typeof raw.digest.through === "string"
           ? { digest: { text: raw.digest.text, through: raw.digest.through } }
@@ -312,7 +328,10 @@ export class SessionArchive {
         : new Set<string>();
       const fresh = moved.filter((event) => !have.has(event.id));
       if (fresh.length > 0) {
-        fs.appendFileSync(historyFile(projectId), fresh.map((event) => JSON.stringify(event)).join("\n") + "\n");
+        fs.appendFileSync(
+          historyFile(projectId),
+          fresh.map((event) => JSON.stringify(event)).join("\n") + "\n",
+        );
       }
       this.capHistory(projectId, entry);
     } catch (err) {
@@ -619,10 +638,14 @@ export class SessionArchive {
     const entry: ArchiveData = {
       events: from.events.map((e) => ({ ...e })),
       summaries: Object.fromEntries(
-        Object.entries(from.summaries).filter(([id]) => kept.has(id)).map(([id, n]) => [id, { ...n }]),
+        Object.entries(from.summaries)
+          .filter(([id]) => kept.has(id))
+          .map(([id, n]) => [id, { ...n }]),
       ),
       chain: Object.fromEntries(
-        Object.entries(from.chain).filter(([id]) => kept.has(id)).map(([id, c]) => [id, { ...c }]),
+        Object.entries(from.chain)
+          .filter(([id]) => kept.has(id))
+          .map(([id, c]) => [id, { ...c }]),
       ),
       ...(from.contextTokens !== undefined ? { contextTokens: from.contextTokens } : {}),
       ...(from.contextWindow !== undefined && from.contextWindowModel !== undefined

@@ -8,11 +8,13 @@ import type { Handlers } from "./types.js";
 
 export const terminalHandlers = {
   terminal_list: (ctx, ws, msg) => {
-    ws.send(JSON.stringify({
-      type: "terminal_tabs",
-      projectId: msg.projectId,
-      tabs: ctx.terminals.list(msg.projectId),
-    } satisfies ServerMessage));
+    ws.send(
+      JSON.stringify({
+        type: "terminal_tabs",
+        projectId: msg.projectId,
+        tabs: ctx.terminals.list(msg.projectId),
+      } satisfies ServerMessage),
+    );
   },
   terminal_new: (ctx, _ws, msg) => {
     ctx.clients.broadcast({
@@ -23,33 +25,29 @@ export const terminalHandlers = {
   },
   terminal_open: (ctx, ws, msg) => {
     const attaching = ctx.terminals.has(msg.termId);
-    if (
-      !ctx.terminals.open(
-        msg.projectId,
-        msg.termId,
-        terminalCwd(ctx, msg.projectId),
-        msg.cols,
-        msg.rows,
-      )
-    ) {
-      ws.send(JSON.stringify({
-        type: "terminal_exit",
-        projectId: msg.projectId,
-        termId: msg.termId,
-        note: "no shell could be started here",
-      } satisfies ServerMessage));
+    if (!ctx.terminals.open(msg.projectId, msg.termId, terminalCwd(ctx, msg.projectId), msg.cols, msg.rows)) {
+      ws.send(
+        JSON.stringify({
+          type: "terminal_exit",
+          projectId: msg.projectId,
+          termId: msg.termId,
+          note: "no shell could be started here",
+        } satisfies ServerMessage),
+      );
       return;
     }
     // a shell that was already running answers with what it has printed,
     // so the panel opens where you left it
     if (attaching) {
-      ws.send(JSON.stringify({
-        type: "terminal_data",
-        projectId: msg.projectId,
-        termId: msg.termId,
-        data: ctx.terminals.scrollback(msg.termId),
-        replay: true,
-      } satisfies ServerMessage));
+      ws.send(
+        JSON.stringify({
+          type: "terminal_data",
+          projectId: msg.projectId,
+          termId: msg.termId,
+          data: ctx.terminals.scrollback(msg.termId),
+          replay: true,
+        } satisfies ServerMessage),
+      );
     }
   },
   terminal_input: (ctx, _ws, msg) => {

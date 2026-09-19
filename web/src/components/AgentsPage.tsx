@@ -25,8 +25,9 @@ type Ruri = ReturnType<typeof useRuri.getState>;
  *  or — an agent's own agent — in the log of the one that started it. */
 function findAgent(s: Ruri, channelId: string, key: string): SubagentState | undefined {
   const hit = (events: TranscriptEvent[] | undefined) =>
-    events?.find((e): e is Extract<TranscriptEvent, { kind: "tool" }> => e.kind === "tool" && e.agent?.key === key)
-      ?.agent;
+    events?.find(
+      (e): e is Extract<TranscriptEvent, { kind: "tool" }> => e.kind === "tool" && e.agent?.key === key,
+    )?.agent;
   const found = hit(s.transcripts[channelId]) ?? s.crew[channelId]?.find((a) => a.key === key);
   if (found) return found;
   for (const [id, events] of Object.entries(s.agentLogs)) {
@@ -74,7 +75,6 @@ export function AgentsPage({
     <AgentList channelId={channelId} project={project} agents={agents} />
   );
 }
-
 
 /** Every agent in the chat, the working ones first — under the box that
  *  starts one of your own. */
@@ -125,8 +125,8 @@ function AgentList({
         </AgentHost.Provider>
         {agents.length === 0 && (
           <div className="board-empty">
-            The agents the model starts show up here as it starts them. Brief one of your own above and it goes
-            off to work in {project.name} by itself — you can watch it here, tell it more, or stop it.
+            The agents the model starts show up here as it starts them. Brief one of your own above and it
+            goes off to work in {project.name} by itself — you can watch it here, tell it more, or stop it.
           </div>
         )}
       </div>
@@ -143,9 +143,15 @@ function AgentBrief({ channelId, project }: { channelId: string; project: Projec
   const [text, setText] = useState("");
   const [model, setModel] = useState(() => project.model || defaultModel);
   const starred = allModels.filter((m) => starredIds.includes(m.value));
-  const options = (starred.length > 0 ? starred : allModels).map((m) => ({ value: m.value, label: m.displayName }));
+  const options = (starred.length > 0 ? starred : allModels).map((m) => ({
+    value: m.value,
+    label: m.displayName,
+  }));
   if (!options.some((o) => o.value === model)) {
-    options.push({ value: model, label: allModels.find((m) => m.value === model)?.displayName ?? roughName(model) });
+    options.push({
+      value: model,
+      label: allModels.find((m) => m.value === model)?.displayName ?? roughName(model),
+    });
   }
   const start = () => {
     const brief = text.trim();
@@ -210,7 +216,9 @@ function AgentView({
   // its report, when it said more than its last message did
   const said = log && [...log].reverse().find((e) => e.kind === "assistant");
   const report =
-    agent?.result && agent.status !== "running" && (said?.kind !== "assistant" || said.text.trim() !== agent.result.trim())
+    agent?.result &&
+    agent.status !== "running" &&
+    (said?.kind !== "assistant" || said.text.trim() !== agent.result.trim())
       ? agent.result
       : undefined;
   const handed = agent?.status !== "running" ? agent?.result : undefined;
@@ -266,7 +274,9 @@ function AgentView({
         <div className="agent-view-inner">
           <AgentHost.Provider value="page">
             {log && log.length > 0 ? (
-              log.map((event) => <EventView key={event.id} event={event} project={project} channelId={channelId} />)
+              log.map((event) => (
+                <EventView key={event.id} event={event} project={project} channelId={channelId} />
+              ))
             ) : (
               <div className="board-empty">{log ? "nothing was kept of what this one did" : "opening…"}</div>
             )}
@@ -310,7 +320,11 @@ function AgentReply({ channelId, agent }: { channelId: string; agent: SubagentSt
         <textarea
           rows={2}
           value={text}
-          placeholder={running ? "It's working — tell it more once it's done" : "Tell it more — it picks up where it left off"}
+          placeholder={
+            running
+              ? "It's working — tell it more once it's done"
+              : "Tell it more — it picks up where it left off"
+          }
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {

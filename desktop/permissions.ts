@@ -72,23 +72,46 @@ export const SERVICE_NAMES: Record<string, string> = {
 };
 
 const ABOUT: Array<{ id: PermissionId; name: string; why: string }> = [
-  { id: "accessibility", name: "Accessibility", why: "driving native apps in the bridge — clicks, typing, the UI tree" },
+  {
+    id: "accessibility",
+    name: "Accessibility",
+    why: "driving native apps in the bridge — clicks, typing, the UI tree",
+  },
   { id: "screen", name: "Screen Recording", why: "photographing apps and windows a session is looking at" },
-  { id: "automation", name: "Automation", why: "AppleScript to System Events, which the bridge and app_ui use" },
-  { id: "fullDisk", name: "Full Disk Access", why: "sessions reading and writing anywhere without a prompt per folder" },
+  {
+    id: "automation",
+    name: "Automation",
+    why: "AppleScript to System Events, which the bridge and app_ui use",
+  },
+  {
+    id: "fullDisk",
+    name: "Full Disk Access",
+    why: "sessions reading and writing anywhere without a prompt per folder",
+  },
   { id: "desktop", name: "Desktop folder", why: "projects and files that live on the Desktop" },
   { id: "documents", name: "Documents folder", why: "projects and files under Documents" },
   { id: "downloads", name: "Downloads folder", why: "files a session picks up from Downloads" },
-  { id: "removable", name: "Removable volumes", why: "projects on an external drive — git in a checkout there fails without this" },
+  {
+    id: "removable",
+    name: "Removable volumes",
+    why: "projects on an external drive — git in a checkout there fails without this",
+  },
   { id: "network", name: "Network volumes", why: "projects on a network share" },
 ];
 
-function run(cmd: string, args: string[], timeoutMs = 8_000): Promise<{ code: number; out: string; err: string }> {
+function run(
+  cmd: string,
+  args: string[],
+  timeoutMs = 8_000,
+): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
     execFile(cmd, args, { timeout: timeoutMs, encoding: "utf8" }, (error, out, err) => {
-      const code = error && typeof (error as NodeJS.ErrnoException & { code?: unknown }).code === "number"
-        ? ((error as { code: number }).code)
-        : error ? 1 : 0;
+      const code =
+        error && typeof (error as NodeJS.ErrnoException & { code?: unknown }).code === "number"
+          ? (error as { code: number }).code
+          : error
+            ? 1
+            : 0;
       resolve({ code, out: String(out ?? ""), err: String(err ?? "") });
     });
   });
@@ -171,18 +194,20 @@ function probeDir(dir: string): PermissionState["status"] {
 /** Every mounted volume that is not the boot volume. */
 function externalVolumes(): string[] {
   try {
-    return fs
-      .readdirSync("/Volumes")
-      // mounted disk images are not drives anyone keeps a project on
-      .filter((name) => !name.startsWith("dmg."))
-      .map((name) => path.join("/Volumes", name))
-      .filter((p) => {
-        try {
-          return fs.realpathSync(p) !== "/";
-        } catch {
-          return false;
-        }
-      });
+    return (
+      fs
+        .readdirSync("/Volumes")
+        // mounted disk images are not drives anyone keeps a project on
+        .filter((name) => !name.startsWith("dmg."))
+        .map((name) => path.join("/Volumes", name))
+        .filter((p) => {
+          try {
+            return fs.realpathSync(p) !== "/";
+          } catch {
+            return false;
+          }
+        })
+    );
   } catch {
     return [];
   }
@@ -191,7 +216,11 @@ function externalVolumes(): string[] {
 async function automation(ask: boolean): Promise<PermissionState["status"]> {
   // System Events answers only a process macOS lets script it; the first
   // ask puts up the dialog, a refused one comes back as -1743
-  const { code, err } = await run("/usr/bin/osascript", ["-e", 'tell application "System Events" to get name of first process'], ask ? 60_000 : 4_000);
+  const { code, err } = await run(
+    "/usr/bin/osascript",
+    ["-e", 'tell application "System Events" to get name of first process'],
+    ask ? 60_000 : 4_000,
+  );
   void ask;
   if (code === 0) return "granted";
   if (err.includes("-1743") || /not (permitted|allowed)/i.test(err)) return "denied";
@@ -209,7 +238,14 @@ async function stateOf(id: PermissionId, ask: boolean): Promise<PermissionState>
     }
     case "screen": {
       const media = systemPreferences.getMediaAccessStatus("screen");
-      status = media === "granted" ? "granted" : media === "not-determined" ? "unasked" : media === "unknown" ? "unknown" : "denied";
+      status =
+        media === "granted"
+          ? "granted"
+          : media === "not-determined"
+            ? "unasked"
+            : media === "unknown"
+              ? "unknown"
+              : "denied";
       if (ask && status !== "granted") {
         // the first look through the capturer is what puts the dialog up
         try {
@@ -239,7 +275,10 @@ async function stateOf(id: PermissionId, ask: boolean): Promise<PermissionState>
     case "desktop":
     case "documents":
     case "downloads": {
-      const dir = path.join(HOME, id === "desktop" ? "Desktop" : id === "documents" ? "Documents" : "Downloads");
+      const dir = path.join(
+        HOME,
+        id === "desktop" ? "Desktop" : id === "documents" ? "Documents" : "Downloads",
+      );
       if (ask) status = probeDir(dir);
       else {
         const row = await recorded(id);
@@ -256,7 +295,11 @@ async function stateOf(id: PermissionId, ask: boolean): Promise<PermissionState>
           detail = "no external volume is mounted to ask about";
         } else {
           const results = volumes.map((v) => [v, probeDir(v)] as const);
-          status = results.every(([, s]) => s === "granted") ? "granted" : results.some(([, s]) => s === "denied") ? "denied" : "unknown";
+          status = results.every(([, s]) => s === "granted")
+            ? "granted"
+            : results.some(([, s]) => s === "denied")
+              ? "denied"
+              : "unknown";
           detail = results.map(([v, s]) => `${path.basename(v)}: ${s}`).join(" · ");
         }
       } else {

@@ -94,7 +94,9 @@ describe("checkpoints against a real repository", () => {
   });
 
   test("a prompt with no checkpoint says so", async () => {
-    expect(await createCheckpoints().restore(project(), "chan", "never")).toBe("no checkpoint was taken for that prompt");
+    expect(await createCheckpoints().restore(project(), "chan", "never")).toBe(
+      "no checkpoint was taken for that prompt",
+    );
   });
 
   test("a repository with no first commit yet checkpoints just as well", async () => {
@@ -128,6 +130,12 @@ describe("a project that is not a git repository", () => {
   });
 
   test("nor does a path that is not there", async () => {
-    expect(await createCheckpoints().capture({ id: "p", path: path.join(os.tmpdir(), "ruri-no-such-dir") }, "c", "e")).toBe(false);
+    expect(
+      await createCheckpoints().capture(
+        { id: "p", path: path.join(os.tmpdir(), "ruri-no-such-dir") },
+        "c",
+        "e",
+      ),
+    ).toBe(false);
   });
 });

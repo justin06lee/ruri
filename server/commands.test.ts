@@ -15,7 +15,10 @@ describe("splitCommands", () => {
   });
 
   test("a command on a line of its own is lifted out, the rest is the prompt", () => {
-    expect(splitCommands("/compact\nnow fix the bug", known)).toEqual({ commands: ["/compact"], rest: "now fix the bug" });
+    expect(splitCommands("/compact\nnow fix the bug", known)).toEqual({
+      commands: ["/compact"],
+      rest: "now fix the bug",
+    });
     expect(splitCommands("/clear", known)).toEqual({ commands: ["/clear"], rest: "" });
   });
 
@@ -54,13 +57,20 @@ describe("splitCommands", () => {
   });
 
   test("a quoted command is a mention of it, not a use", () => {
-    for (const text of ["'/compact' is what to type", '"/compact" is what to type', "`/compact` is what to type"]) {
+    for (const text of [
+      "'/compact' is what to type",
+      '"/compact" is what to type',
+      "`/compact` is what to type",
+    ]) {
       expect(splitCommands(text, known)).toEqual({ commands: [], rest: text });
     }
   });
 
   test("a slash word that is not a command stays: a path, a typo", () => {
-    expect(splitCommands("/tmp\nis where it is", known)).toEqual({ commands: [], rest: "/tmp\nis where it is" });
+    expect(splitCommands("/tmp\nis where it is", known)).toEqual({
+      commands: [],
+      rest: "/tmp\nis where it is",
+    });
     expect(splitCommands("/compact/other", known)).toEqual({ commands: [], rest: "/compact/other" });
     expect(splitCommands("/nonsense", known)).toEqual({ commands: [], rest: "/nonsense" });
   });
@@ -75,7 +85,10 @@ describe("splitCommands", () => {
   });
 
   test("the same command twice is run twice", () => {
-    expect(splitCommands("/compact and /compact", known)).toEqual({ commands: ["/compact", "/compact"], rest: "and" });
+    expect(splitCommands("/compact and /compact", known)).toEqual({
+      commands: ["/compact", "/compact"],
+      rest: "and",
+    });
   });
 
   test("the lines it leaves behind are tidied: no trailing space, no triple newline", () => {
@@ -136,6 +149,9 @@ describe("the catalog of commands", () => {
       description: expect.stringContaining("compacts"),
     });
     expect(listed.find((c) => c.name === "clear")?.kind).toBe("harness");
-    expect(listed.find((c) => c.name === "ruri-test-local")).toEqual({ name: "ruri-test-local", kind: "custom" });
+    expect(listed.find((c) => c.name === "ruri-test-local")).toEqual({
+      name: "ruri-test-local",
+      kind: "custom",
+    });
   });
 });

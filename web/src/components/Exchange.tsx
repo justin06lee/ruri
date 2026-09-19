@@ -1,5 +1,11 @@
 import { memo, type ReactNode } from "react";
-import { excerpt, unmarked, type Project, type TranscriptEvent, type TurnNote } from "../../../shared/protocol";
+import {
+  excerpt,
+  unmarked,
+  type Project,
+  type TranscriptEvent,
+  type TurnNote,
+} from "../../../shared/protocol";
 import { EventView } from "./EventView";
 import { Icon } from "./chat/Icon";
 
@@ -10,7 +16,6 @@ export interface Turn {
   /** A compaction mark stands alone — it never folds or hosts other events. */
   solo?: boolean;
 }
-
 
 /** Group the flat event stream into prompt→result turns. */
 export function groupTurns(events: TranscriptEvent[]): Turn[] {
@@ -140,9 +145,15 @@ function OpenHalf({
           ? (e) => {
               const target = e.target as HTMLElement;
               if (!target.closest(".msg")) return;
-              if (target.closest("a, button, input, textarea, select, label, summary, img, video, [role='button']")) return;
+              if (
+                target.closest(
+                  "a, button, input, textarea, select, label, summary, img, video, [role='button']",
+                )
+              )
+                return;
               const selection = window.getSelection();
-              if (selection && !selection.isCollapsed && e.currentTarget.contains(selection.anchorNode)) return;
+              if (selection && !selection.isCollapsed && e.currentTarget.contains(selection.anchorNode))
+                return;
               onFold();
             }
           : undefined
@@ -225,7 +236,11 @@ export const Exchange = memo(function Exchange({
   return (
     <div className={`turn${folded ? " folded" : ""}${far ? " far" : ""}`} data-turn={turnId}>
       {!folded && (
-        <button className="icon-button turn-fold" title="Fold this exchange to its notes" onClick={() => onFold(turnId)}>
+        <button
+          className="icon-button turn-fold"
+          title="Fold this exchange to its notes"
+          onClick={() => onFold(turnId)}
+        >
           <Icon d="M6 15l6-6 6 6" />
         </button>
       )}
@@ -234,21 +249,37 @@ export const Exchange = memo(function Exchange({
           {view(head)}
         </OpenHalf>
       ) : (
-        <NoteHalf className="msg user note" title="Show your whole prompt" onOpen={() => onOpen(turnId, "prompt")}>
+        <NoteHalf
+          className="msg user note"
+          title="Show your whole prompt"
+          onOpen={() => onOpen(turnId, "prompt")}
+        >
           {asked}
         </NoteHalf>
       )}
       {rest ? (
-        <OpenHalf half="reply" folds={replyFolds && rest.length > 0} onFold={() => onFoldHalf(turnId, "reply")}>
+        <OpenHalf
+          half="reply"
+          folds={replyFolds && rest.length > 0}
+          onFold={() => onFoldHalf(turnId, "reply")}
+        >
           {rest.map(view)}
         </OpenHalf>
       ) : answered ? (
-        <NoteHalf className="msg assistant note" title="Show the whole reply" onOpen={() => onOpen(turnId, "reply")}>
+        <NoteHalf
+          className="msg assistant note"
+          title="Show the whole reply"
+          onOpen={() => onOpen(turnId, "reply")}
+        >
           {answered}
         </NoteHalf>
       ) : null}
       {!(head && rest) && (
-        <button className="folded-open" title="Show the whole exchange" onClick={() => onOpen(turnId, "both")}>
+        <button
+          className="folded-open"
+          title="Show the whole exchange"
+          onClick={() => onOpen(turnId, "both")}
+        >
           <Icon d="M9 6l6 6-6 6" />
           {loading ? "opening…" : `full exchange · ${count} events`}
         </button>
@@ -256,4 +287,3 @@ export const Exchange = memo(function Exchange({
     </div>
   );
 });
-

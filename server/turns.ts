@@ -44,7 +44,11 @@ export class Turns {
     const now = Date.now();
     if (!force && now - (this.sent.get(channelId) ?? 0) < TURN_TICK_MS) return;
     this.sent.set(channelId, now);
-    this.toViewers(channelId, { type: "turn", projectId: channelId, turn: { ...turn, tokens: Math.round(turn.tokens) } });
+    this.toViewers(channelId, {
+      type: "turn",
+      projectId: channelId,
+      turn: { ...turn, tokens: Math.round(turn.tokens) },
+    });
   };
 
   startTurn = (channelId: string): void => {

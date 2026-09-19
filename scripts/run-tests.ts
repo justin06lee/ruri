@@ -104,14 +104,22 @@ function run(script: Script): Promise<Outcome> {
 const outcomes: Outcome[] = [];
 for (const script of SCRIPTS) {
   if (script.needs && !onPath(script.needs)) {
-    outcomes.push({ name: script.name, what: script.what, status: "skip", ms: 0, note: `no ${script.needs} on PATH` });
+    outcomes.push({
+      name: script.name,
+      what: script.what,
+      status: "skip",
+      ms: 0,
+      note: `no ${script.needs} on PATH`,
+    });
     console.log(`skip  ${script.name} (no ${script.needs} on PATH)`);
     continue;
   }
   process.stdout.write(`run   ${script.name} …`);
   const outcome = await run(script);
   outcomes.push(outcome);
-  process.stdout.write(`\r${outcome.status === "pass" ? "ok  " : "FAIL"}  ${script.name} (${(outcome.ms / 1000).toFixed(1)}s)\n`);
+  process.stdout.write(
+    `\r${outcome.status === "pass" ? "ok  " : "FAIL"}  ${script.name} (${(outcome.ms / 1000).toFixed(1)}s)\n`,
+  );
 }
 
 const width = Math.max(...outcomes.map((o) => o.name.length));

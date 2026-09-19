@@ -24,10 +24,12 @@ export interface RawClaudeModel extends Omit<EngineModel, "provider"> {
 function modelCapabilities(model: EngineModel): Omit<ModelChoice, "value" | "displayName"> {
   return {
     ...(model.reasoning_efforts?.length
-      ? { reasoningEfforts: model.reasoning_efforts.map((effort) => ({
-          value: effort.id,
-          ...(effort.description ? { description: effort.description } : {}),
-        })) }
+      ? {
+          reasoningEfforts: model.reasoning_efforts.map((effort) => ({
+            value: effort.id,
+            ...(effort.description ? { description: effort.description } : {}),
+          })),
+        }
       : {}),
     ...(model.default_reasoning_effort ? { defaultEffort: model.default_reasoning_effort } : {}),
     ...(model.input_modalities?.length ? { inputModalities: [...model.input_modalities] } : {}),
@@ -37,11 +39,13 @@ function modelCapabilities(model: EngineModel): Omit<ModelChoice, "value" | "dis
     ...(model.supports_personality ? { supportsPersonality: true } : {}),
     ...(model.multi_agent ? { multiAgent: model.multi_agent } : {}),
     ...(model.service_tiers?.length
-      ? { serviceTiers: model.service_tiers.map((tier) => ({
-          value: tier.id,
-          label: tier.display_name,
-          ...(tier.description ? { description: tier.description } : {}),
-        })) }
+      ? {
+          serviceTiers: model.service_tiers.map((tier) => ({
+            value: tier.id,
+            label: tier.display_name,
+            ...(tier.description ? { description: tier.description } : {}),
+          })),
+        }
       : {}),
     ...(model.default_service_tier ? { defaultServiceTier: model.default_service_tier } : {}),
     ...(model.is_default ? { providerDefault: true } : {}),
@@ -68,7 +72,10 @@ function nameFromId(id: string | undefined): string | undefined {
 /** "Fable 5.1 · Most capable for…" → "Fable 5.1"; "Opus 5 with 1M context ·
  *  …" → "Opus 5". Only trusted when it actually carries a number. */
 function nameFromDescription(description: string | undefined): string | undefined {
-  const head = description?.split("·")[0]?.replace(/\s+with\s+.*$/i, "").trim();
+  const head = description
+    ?.split("·")[0]
+    ?.replace(/\s+with\s+.*$/i, "")
+    .trim();
   return head && /\d/.test(head) ? head : undefined;
 }
 
@@ -177,7 +184,9 @@ export class ProviderRegistry {
    *  with `env` (the vault) laid over the harness process's environment. */
   createFor(id: string, workDir: string, env?: Record<string, string>): Provider {
     const configured = this.config[id] ?? {};
-    const entry: ProviderConfigEntry = env ? { ...configured, env: { ...configured.env, ...env } } : configured;
+    const entry: ProviderConfigEntry = env
+      ? { ...configured, env: { ...configured.env, ...env } }
+      : configured;
     // Only affects the run()-per-turn FALLBACK path: codex defaults to
     // read-only there (API safety), and a ruri session is a coding session.
     // The agentic openSession path ignores this — the harness's own config

@@ -42,7 +42,10 @@ fs.writeFileSync(
   path.join(root, "turns", "abc", "001.md"),
   `the file was saved at ${path.join(uploads, "bbbb-kept-by-turn-file.mov")} — inspect it`,
 );
-fs.writeFileSync(path.join(root, "drafts.json"), JSON.stringify({ s1: { attachments: [{ url: "/uploads/cccc-kept-by-draft.pdf" }] } }));
+fs.writeFileSync(
+  path.join(root, "drafts.json"),
+  JSON.stringify({ s1: { attachments: [{ url: "/uploads/cccc-kept-by-draft.pdf" }] } }),
+);
 fs.mkdirSync(path.join(root, "history"), { recursive: true });
 fs.writeFileSync(
   path.join(root, "history", "s1.jsonl"),

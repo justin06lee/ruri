@@ -28,13 +28,21 @@ function seeded(): SecretStore {
 describe("what the UI and the harness see", () => {
   test("meta carries everything but the value", () => {
     const [meta] = seeded().meta();
-    expect(meta).toMatchObject({ name: "deploy box", username: "root", note: "the prod box", hasValue: true });
+    expect(meta).toMatchObject({
+      name: "deploy box",
+      username: "root",
+      note: "the prod box",
+      hasValue: true,
+    });
     expect(meta).not.toHaveProperty("value");
     expect(meta?.id).toBeString();
   });
 
   test("the environment: RURI_SECRET_<SLUG> and RURI_USER_<SLUG>", () => {
-    expect(seeded().env()).toEqual({ RURI_SECRET_DEPLOY_BOX: "hunter2hunter2", RURI_USER_DEPLOY_BOX: "root" });
+    expect(seeded().env()).toEqual({
+      RURI_SECRET_DEPLOY_BOX: "hunter2hunter2",
+      RURI_USER_DEPLOY_BOX: "root",
+    });
   });
 
   test("a slug keeps letters and digits of any script and trims the rest", () => {
@@ -74,14 +82,20 @@ describe("fill", () => {
   });
 
   test("fillInput reaches into arrays and objects", () => {
-    const filled = seeded().fillInput({ command: "echo {{deploy box}}", args: ["{{deploy box.user}}", 3], nested: { ok: true } });
+    const filled = seeded().fillInput({
+      command: "echo {{deploy box}}",
+      args: ["{{deploy box.user}}", 3],
+      nested: { ok: true },
+    });
     expect(filled).toEqual({ command: "echo hunter2hunter2", args: ["root", 3], nested: { ok: true } });
   });
 });
 
 describe("redact", () => {
   test("puts the handle back wherever the value shows", () => {
-    expect(seeded().redact("password: hunter2hunter2 (hunter2hunter2)")).toBe("password: {{deploy box}} ({{deploy box}})");
+    expect(seeded().redact("password: hunter2hunter2 (hunter2hunter2)")).toBe(
+      "password: {{deploy box}} ({{deploy box}})",
+    );
   });
 
   test("a value under six characters is never redacted: it would match half the log", () => {

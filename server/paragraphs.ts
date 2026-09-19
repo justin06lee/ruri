@@ -30,7 +30,13 @@ export class ParagraphGate {
       const marker = /^(`{3,}|~{3,})/.exec(line)?.[1];
       if (marker && !this.fence) {
         this.fence = marker;
-      } else if (marker && this.fence && marker[0] === this.fence[0] && marker.length >= this.fence.length && line === marker) {
+      } else if (
+        marker &&
+        this.fence &&
+        marker[0] === this.fence[0] &&
+        marker.length >= this.fence.length &&
+        line === marker
+      ) {
         this.fence = null;
         release = this.scanned;
       } else if (!this.fence && line === "") {

@@ -7,7 +7,15 @@ import { WebSocket } from "ws";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol.js";
 import { listCommands } from "../commands.js";
 import type { ClientConn, ServerContext } from "../context.js";
-import { installSkill, listSkills, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "../skills.js";
+import {
+  installSkill,
+  listSkills,
+  readSkill,
+  removeSkill,
+  scanSkills,
+  toggleSkill,
+  updateSkills,
+} from "../skills.js";
 import type { Handlers } from "./types.js";
 
 /** Re-scan skills for a project (or just the global ones) and push. */
@@ -89,14 +97,23 @@ export const skillHandlers = {
         msg.projectId ? ctx.store.get(msg.projectId)?.path : undefined,
         msg.name,
       );
-      ws.send(JSON.stringify({ type: "skill_body", name: msg.name, scope: msg.scope, body } satisfies ServerMessage));
+      ws.send(
+        JSON.stringify({
+          type: "skill_body",
+          name: msg.name,
+          scope: msg.scope,
+          body,
+        } satisfies ServerMessage),
+      );
     } catch (err) {
-      ws.send(JSON.stringify({
-        type: "skill_body",
-        name: msg.name,
-        scope: msg.scope,
-        body: `_${String(err instanceof Error ? err.message : err)}_`,
-      } satisfies ServerMessage));
+      ws.send(
+        JSON.stringify({
+          type: "skill_body",
+          name: msg.name,
+          scope: msg.scope,
+          body: `_${String(err instanceof Error ? err.message : err)}_`,
+        } satisfies ServerMessage),
+      );
     }
   },
   skill_install: skillWork,

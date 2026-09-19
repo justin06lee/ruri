@@ -10,7 +10,10 @@ export function harnessName(models: ModelChoice[], model: string | undefined, fa
 /** "claude-fable-5-1[1m]" → "Fable 5.1": a label for a model id the catalog
  *  has not described yet (the composer's trigger before the catalog lands). */
 export function roughName(id: string): string {
-  const bare = id.replace(/^claude-/, "").replace(/\[1m\]$/, "").replace(/-\d{8}$/, "");
+  const bare = id
+    .replace(/^claude-/, "")
+    .replace(/\[1m\]$/, "")
+    .replace(/-\d{8}$/, "");
   const match = /^([a-z]+)(?:-(\d+(?:-\d+)*))?$/.exec(bare);
   if (!match) return id;
   const family = `${match[1]![0]!.toUpperCase()}${match[1]!.slice(1)}`;

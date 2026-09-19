@@ -13,7 +13,8 @@ import { defineConfig, type Plugin } from "vite";
  */
 const DEV_ORIGINS = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
 function fromDevPage(req: import("node:http").IncomingMessage): boolean {
-  const origin = req.headers.origin ?? (req.headers.referer ? new URL(req.headers.referer).origin : undefined);
+  const origin =
+    req.headers.origin ?? (req.headers.referer ? new URL(req.headers.referer).origin : undefined);
   return origin !== undefined && DEV_ORIGINS.has(origin);
 }
 
@@ -27,9 +28,7 @@ function tunerSave(): Plugin {
   const num = (value: unknown, fallback = 0) => (typeof value === "number" ? Math.round(value) : fallback);
   /** Framing is finer than whole pixels — keep a decimal, but only one. */
   const fine = (value: unknown, places: number, fallback: number) =>
-    typeof value === "number" && Number.isFinite(value)
-      ? Number(value.toFixed(places))
-      : fallback;
+    typeof value === "number" && Number.isFinite(value) ? Number(value.toFixed(places)) : fallback;
   return {
     name: "ruri-tuner-save",
     apply: "serve",
@@ -75,7 +74,10 @@ function tunerSave(): Plugin {
 
             const source = fs.readFileSync(file, "utf8");
             const next = source
-              .replace(/export const PEEKS: Peek\[\] = \[[\s\S]*?\n\];/, `export const PEEKS: Peek[] = [\n${peekLines}\n];`)
+              .replace(
+                /export const PEEKS: Peek\[\] = \[[\s\S]*?\n\];/,
+                `export const PEEKS: Peek[] = [\n${peekLines}\n];`,
+              )
               .replace(
                 /export const HERO_FRAMES: Record<number, HeroFrame> = \{[\s\S]*?\n?\};/,
                 frameLines
@@ -202,7 +204,10 @@ function tunerImages(): Plugin {
  * site's Origin gets nothing, and there are no CORS headers to read it with.
  */
 function devToken(): Plugin {
-  const file = path.join(process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"), "token");
+  const file = path.join(
+    process.env["RURI_CONFIG_DIR"] ?? path.join(os.homedir(), ".config", "ruri"),
+    "token",
+  );
   return {
     name: "ruri-dev-token",
     apply: "serve",
@@ -260,7 +265,11 @@ function contentSecurityPolicy(): Plugin {
     name: "ruri-csp",
     apply: "build",
     transformIndexHtml: () => [
-      { tag: "meta", attrs: { "http-equiv": "Content-Security-Policy", content: policy }, injectTo: "head-prepend" },
+      {
+        tag: "meta",
+        attrs: { "http-equiv": "Content-Security-Policy", content: policy },
+        injectTo: "head-prepend",
+      },
     ],
   };
 }

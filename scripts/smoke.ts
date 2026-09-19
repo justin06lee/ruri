@@ -107,7 +107,9 @@ ws.on("message", (raw) => {
         console.log(`[client] tool: ${e.name} — ${e.summary}`);
       } else if (e.kind === "result") {
         resultsSeen += 1;
-        console.log(`[client] result: ok=${e.ok} cost=$${e.costUsd?.toFixed(4)} in ${((e.durationMs ?? 0) / 1000).toFixed(1)}s`);
+        console.log(
+          `[client] result: ok=${e.ok} cost=$${e.costUsd?.toFixed(4)} in ${((e.durationMs ?? 0) / 1000).toFixed(1)}s`,
+        );
         if (!e.ok) {
           console.error(`SMOKE FAIL: turn errored: ${e.error}`);
           cleanup(1);
@@ -156,7 +158,8 @@ function finish(): void {
   );
   const turn3ok = assistantTexts.some((t) => t.includes("Example Domain"));
   console.log(`        turn3=${turn3ok} (permission round-trip: ${permissionCount >= 1})`);
-  const ok = turn1ok && turn2ok && turn3ok && usedBash && sawDelta && permissionCount >= 1 && resultsSeen === 3;
+  const ok =
+    turn1ok && turn2ok && turn3ok && usedBash && sawDelta && permissionCount >= 1 && resultsSeen === 3;
   console.log(ok ? "\nSMOKE PASS" : "\nSMOKE FAIL");
   cleanup(ok ? 0 : 1);
 }

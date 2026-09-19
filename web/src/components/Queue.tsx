@@ -59,7 +59,13 @@ function QueuedCard({
         item.editing ? "editing" : "",
         carried ? "carried" : "",
         lifting ? "lifting" : "",
-        over === "merge" ? "merge-into" : over === "before" ? "drop-before" : over === "after" ? "drop-after" : "",
+        over === "merge"
+          ? "merge-into"
+          : over === "before"
+            ? "drop-before"
+            : over === "after"
+              ? "drop-after"
+              : "",
       ].join(" ")}
       data-queued={item.id}
       data-editing={item.editing ? "1" : undefined}
@@ -80,7 +86,15 @@ function QueuedCard({
               title="Edit — takes it out of the line and into the composer; the rest go on without it until it is sent back"
               onClick={edit}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
               </svg>
             </button>
@@ -90,7 +104,14 @@ function QueuedCard({
             title="Remove from the queue"
             onClick={() => send({ type: "queue_remove", projectId, itemId: item.id })}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden
+            >
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
@@ -111,7 +132,15 @@ function QueuedCard({
  * one prompt — the carried one first, then the one it landed on. The card
  * being rewritten sits under the line and takes no part.
  */
-export function QueuedList({ projectId, items, held }: { projectId: string; items: QueuedPrompt[]; held: boolean }) {
+export function QueuedList({
+  projectId,
+  items,
+  held,
+}: {
+  projectId: string;
+  items: QueuedPrompt[];
+  held: boolean;
+}) {
   const listRef = useRef<HTMLDivElement>(null);
   const [lift, setLift] = useState<Lift | null>(null);
   /** A press that may become a carry — it does once it has moved a little,

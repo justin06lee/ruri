@@ -27,7 +27,13 @@ const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-switch-project-")
 const root = path.join(import.meta.dirname, "..");
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: root,
-  env: { ...process.env, RURI_PORT: String(PORT), RURI_TOKEN: TOKEN, RURI_CONFIG_DIR: configDir, RURI_NO_MEMORY: "1" },
+  env: {
+    ...process.env,
+    RURI_PORT: String(PORT),
+    RURI_TOKEN: TOKEN,
+    RURI_CONFIG_DIR: configDir,
+    RURI_NO_MEMORY: "1",
+  },
   stdio: ["ignore", "pipe", "inherit"],
 });
 server.stdout.on("data", (d: Buffer) => process.stdout.write(`[server] ${d}`));
@@ -109,7 +115,9 @@ ws.on("message", (raw) => {
     case "event": {
       if (msg.projectId !== chat || msg.event.kind !== "result") break;
       results.push(msg.event);
-      console.log(`[t] turn ${results.length}: models=${JSON.stringify(msg.event.models)} cacheRead=${msg.event.cacheRead ?? 0}`);
+      console.log(
+        `[t] turn ${results.length}: models=${JSON.stringify(msg.event.models)} cacheRead=${msg.event.cacheRead ?? 0}`,
+      );
       if (results.length === 1) {
         console.log(`[t] turn 2 — should answer on sonnet`);
         send({ type: "send", projectId: chat, text: PROMPT(2) });
@@ -119,10 +127,14 @@ ws.on("message", (raw) => {
         send({ type: "send", projectId: chat, text: PROMPT(3) });
       } else {
         const [one, two, three] = results;
-        const on = (r: typeof one, name: string) => (r?.models ?? []).some((m) => m.includes(name)) && (r?.models ?? []).every((m) => m.includes(name));
+        const on = (r: typeof one, name: string) =>
+          (r?.models ?? []).some((m) => m.includes(name)) && (r?.models ?? []).every((m) => m.includes(name));
         const checks = [
           ["turn 1 answered on haiku, the model it started on", on(one, "haiku")],
-          ["the switch never touched the running turn (no sonnet in it)", !(one?.models ?? []).some((m) => m.includes("sonnet"))],
+          [
+            "the switch never touched the running turn (no sonnet in it)",
+            !(one?.models ?? []).some((m) => m.includes("sonnet")),
+          ],
           ["turn 2 answered on sonnet", on(two, "sonnet")],
           ["turn 3 answered on haiku again", on(three, "haiku")],
           ["turn 3 read the conversation back from the prompt cache", (three?.cacheRead ?? 0) > 0],

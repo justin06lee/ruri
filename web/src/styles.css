@@ -40,11 +40,7 @@
   --line-soft: rgba(25, 21, 16, 0.18);
   --line-faint: rgba(25, 21, 16, 0.09);
   --tone: radial-gradient(circle, rgba(25, 21, 16, 0.16) 1px, transparent 1.4px);
-  --stripes: repeating-linear-gradient(
-    45deg,
-    transparent 0 5px,
-    rgba(25, 21, 16, 0.1) 5px 10px
-  );
+  --stripes: repeating-linear-gradient(45deg, transparent 0 5px, rgba(25, 21, 16, 0.1) 5px 10px);
   /* Monochrome everywhere else, but a diff without add/remove color is a
      puzzle — these tints are the quietest that still separate at a glance
      on cream and on near-black. */
@@ -93,11 +89,7 @@
   --line-soft: rgba(236, 236, 236, 0.13);
   --line-faint: rgba(236, 236, 236, 0.07);
   --tone: radial-gradient(circle, rgba(236, 236, 236, 0.1) 1px, transparent 1.4px);
-  --stripes: repeating-linear-gradient(
-    45deg,
-    transparent 0 5px,
-    rgba(236, 236, 236, 0.08) 5px 10px
-  );
+  --stripes: repeating-linear-gradient(45deg, transparent 0 5px, rgba(236, 236, 236, 0.08) 5px 10px);
   --diff-add-bg: rgba(110, 180, 130, 0.15);
   --diff-add-ink: #83c795;
   --diff-del-bg: rgba(220, 110, 95, 0.14);
@@ -122,11 +114,7 @@
   --line-soft: rgba(240, 189, 130, 0.14);
   --line-faint: rgba(240, 189, 130, 0.07);
   --tone: radial-gradient(circle, rgba(240, 189, 130, 0.11) 1px, transparent 1.4px);
-  --stripes: repeating-linear-gradient(
-    45deg,
-    transparent 0 5px,
-    rgba(240, 189, 130, 0.08) 5px 10px
-  );
+  --stripes: repeating-linear-gradient(45deg, transparent 0 5px, rgba(240, 189, 130, 0.08) 5px 10px);
   --diff-add-bg: rgba(200, 160, 60, 0.15);
   --diff-add-ink: #d8ac52;
   --diff-del-bg: rgba(190, 80, 45, 0.16);
@@ -741,7 +729,6 @@ textarea::placeholder {
   background: var(--ink);
   transform: rotate(45deg);
 }
-
 
 .project-row .star {
   display: none;
@@ -2351,11 +2338,7 @@ input[type="range"]::-webkit-slider-thumb {
     #000 calc(100% - var(--composer-h)),
     transparent calc(100% - 18px)
   );
-  mask-image: linear-gradient(
-    to bottom,
-    #000 calc(100% - var(--composer-h)),
-    transparent calc(100% - 18px)
-  );
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--composer-h)), transparent calc(100% - 18px));
 }
 
 /* the tail of the conversation clears the composer, so the newest message
@@ -3211,7 +3194,6 @@ input[type="range"]::-webkit-slider-thumb {
   animation: rapid-name 1150ms ease-out 60ms forwards;
   opacity: 0;
 }
-
 
 /* The line's controls ride above the composer, on the composer's own width
    — the header is the project's, and a mode's controls have no business
@@ -5546,7 +5528,9 @@ input[type="range"]::-webkit-slider-thumb {
 
 .sketch-swatch.active {
   border-color: var(--ink);
-  box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--ink);
+  box-shadow:
+    0 0 0 2px var(--paper),
+    0 0 0 3.5px var(--ink);
 }
 
 .sketch-swatch:active {
@@ -6147,7 +6131,9 @@ input[type="range"]::-webkit-slider-thumb {
    read as one thing */
 .att-thumb.hot {
   border-color: var(--ink);
-  box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--ink);
+  box-shadow:
+    0 0 0 2px var(--paper),
+    0 0 0 3.5px var(--ink);
 }
 
 /* where the lifted chip would land — a hairline in the run of words */

@@ -16,16 +16,49 @@ import { isMissing, warn } from "./log.js";
 
 /** Folders nobody means when they name a project. */
 const SKIP = new Set([
-  "node_modules", ".git", ".hg", ".svn", "dist", "build", "out", "target", "vendor",
-  "coverage", "__pycache__", ".venv", "venv", ".next", ".nuxt", ".cache", "Library",
-  "Applications", "Pictures", "Music", "Movies", "Downloads", ".Trash", "tmp",
+  "node_modules",
+  ".git",
+  ".hg",
+  ".svn",
+  "dist",
+  "build",
+  "out",
+  "target",
+  "vendor",
+  "coverage",
+  "__pycache__",
+  ".venv",
+  "venv",
+  ".next",
+  ".nuxt",
+  ".cache",
+  "Library",
+  "Applications",
+  "Pictures",
+  "Music",
+  "Movies",
+  "Downloads",
+  ".Trash",
+  "tmp",
 ]);
 
 /** What makes a folder look like a project rather than a folder of them. */
 const PROJECT_MARKS = [
-  ".git", "package.json", "Cargo.toml", "pyproject.toml", "go.mod", "Makefile",
-  "pom.xml", "build.gradle", "Package.swift", "Gemfile", "composer.json", "mix.exs",
-  "deno.json", "CMakeLists.txt", "README.md",
+  ".git",
+  "package.json",
+  "Cargo.toml",
+  "pyproject.toml",
+  "go.mod",
+  "Makefile",
+  "pom.xml",
+  "build.gradle",
+  "Package.swift",
+  "Gemfile",
+  "composer.json",
+  "mix.exs",
+  "deno.json",
+  "CMakeLists.txt",
+  "README.md",
 ];
 
 export interface FoundProject {
@@ -129,6 +162,8 @@ export function findProjects(roots: string[], query: string, limit = 12): FoundP
   };
 
   for (const root of roots) walk(root, 0, 0);
-  found.sort((a, b) => b.score - a.score || Number(b.project) - Number(a.project) || a.path.length - b.path.length);
+  found.sort(
+    (a, b) => b.score - a.score || Number(b.project) - Number(a.project) || a.path.length - b.path.length,
+  );
   return found.slice(0, limit);
 }

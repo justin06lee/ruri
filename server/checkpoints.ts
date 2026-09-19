@@ -155,7 +155,9 @@ export function createCheckpoints(): Checkpoints {
     // `update-ref --stdin`, not two hundred spawns
     if (names.length === 0) return;
     await new Promise<void>((resolve) => {
-      const child = execFile("git", ["update-ref", "--stdin"], { cwd: top, timeout: TIMEOUT_MS }, () => resolve());
+      const child = execFile("git", ["update-ref", "--stdin"], { cwd: top, timeout: TIMEOUT_MS }, () =>
+        resolve(),
+      );
       child.stdin?.end(names.map((name) => `delete ${name}\n`).join(""));
     });
   }
@@ -226,7 +228,11 @@ export function createCheckpoints(): Checkpoints {
     async forgetChannel(project, channelId) {
       await queue(channelId, async () => {
         const top = await root(project.path);
-        if (top) await drop(top, (await refs(top, channelId)).map((ref) => ref.name));
+        if (top)
+          await drop(
+            top,
+            (await refs(top, channelId)).map((ref) => ref.name),
+          );
         fs.rmSync(indexFor(channelId), { force: true });
       });
     },

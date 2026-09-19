@@ -154,7 +154,6 @@ export class BriefStore {
     if (!this.briefs.delete(projectId)) return;
     this.save();
   }
-
 }
 
 /**

@@ -45,9 +45,7 @@ function usePrewarm(): void {
       .flatMap(([, events]) =>
         events
           .slice(-PREWARM_TAIL)
-          .flatMap((event) =>
-            event.kind === "assistant" || event.kind === "user" ? [event.text] : [],
-          ),
+          .flatMap((event) => (event.kind === "assistant" || event.kind === "user" ? [event.text] : [])),
       );
     if (pending.length === 0) return;
     let index = 0;

@@ -73,18 +73,22 @@ const SITE = `http://127.0.0.1:${typeof siteAddress === "object" && siteAddress 
 
 /* ── the app ────────────────────────────────────────────────────── */
 
-const child = spawn(path.join(root, "node_modules", ".bin", "electron"), [root, `--remote-debugging-port=${CDP_PORT}`], {
-  cwd: root,
-  env: {
-    ...process.env,
-    RURI_CONFIG_DIR: configDir,
-    RURI_USER_DATA: userData,
-    RURI_PORT: String(PORT),
-    RURI_TOKEN: TOKEN,
-    RURI_NO_MEMORY: "1",
+const child = spawn(
+  path.join(root, "node_modules", ".bin", "electron"),
+  [root, `--remote-debugging-port=${CDP_PORT}`],
+  {
+    cwd: root,
+    env: {
+      ...process.env,
+      RURI_CONFIG_DIR: configDir,
+      RURI_USER_DATA: userData,
+      RURI_PORT: String(PORT),
+      RURI_TOKEN: TOKEN,
+      RURI_NO_MEMORY: "1",
+    },
+    stdio: "ignore",
   },
-  stdio: "ignore",
-});
+);
 
 let failed = 0;
 let passed = 0;
@@ -142,7 +146,9 @@ ws.on("message", (raw) => {
   }
   if (msg.type === "bridge") bridgeEvents.push({ projectId: msg.projectId, state: msg.state });
 });
-ws.send(JSON.stringify({ type: "add_project", name: "bridge-fixture", path: projectDir } satisfies ClientMessage));
+ws.send(
+  JSON.stringify({ type: "add_project", name: "bridge-fixture", path: projectDir } satisfies ClientMessage),
+);
 for (let i = 0; i < 40 && !channelId; i += 1) await sleep(100);
 if (!channelId) {
   console.error("BRIDGE FAIL: add_project never produced a session");
@@ -193,11 +199,19 @@ console.log("[tier 1] the hidden window");
   check("a call before web_open says so", !bad.ok && /web_open/.test(bad.error ?? ""), bad.error);
 
   const open = await call("web_open", { url: SITE });
-  check("web_open loads the page", open.ok && /Bridge fixture/.test(open.text ?? ""), open.error ?? open.text);
+  check(
+    "web_open loads the page",
+    open.ok && /Bridge fixture/.test(open.text ?? ""),
+    open.error ?? open.text,
+  );
   check("web_open returns a picture", isPng(open.image), open.image);
 
   const refused = await call("web_open", { url: "http://127.0.0.1:1/" });
-  check("web_open reports a failed load readably", !refused.ok && /ERR_CONNECTION_REFUSED|couldn't load/.test(refused.error ?? ""), refused.error);
+  check(
+    "web_open reports a failed load readably",
+    !refused.ok && /ERR_CONNECTION_REFUSED|couldn't load/.test(refused.error ?? ""),
+    refused.error,
+  );
 
   const back = await call("web_open", { url: SITE });
   check("web_open again", back.ok, back.error);
@@ -206,7 +220,11 @@ console.log("[tier 1] the hidden window");
   check("web_click by text", click.ok && /Clicked button/.test(click.text ?? ""), click.error ?? click.text);
 
   const waited = await call("web_wait_for", { text: "Flipped", timeoutMs: 5000 });
-  check("web_wait_for sees the flipped headline", waited.ok && /Flipped/.test(waited.text ?? ""), waited.error ?? waited.text);
+  check(
+    "web_wait_for sees the flipped headline",
+    waited.ok && /Flipped/.test(waited.text ?? ""),
+    waited.error ?? waited.text,
+  );
 
   const typed = await call("web_type", { selector: "#name", text: "Ruri\n" });
   check("web_type into the input and Enter submits", typed.ok, typed.error);
@@ -220,10 +238,18 @@ console.log("[tier 1] the hidden window");
   check("web_press takes a chord", chord.ok, chord.error);
   await call("web_type", { text: "Aoki" });
   const replaced = await call("web_eval", { js: "document.getElementById('name').value" });
-  check("Meta+A selected the field, so typing replaced it", replaced.ok && replaced.text === "Aoki", replaced.text ?? replaced.error);
+  check(
+    "Meta+A selected the field, so typing replaced it",
+    replaced.ok && replaced.text === "Aoki",
+    replaced.text ?? replaced.error,
+  );
 
   const shot = await call("web_screenshot", { selector: "#headline" });
-  check("web_screenshot of one element", shot.ok && isPng(shot.image) && /Saved \d+x\d+ PNG/.test(shot.text ?? ""), shot.error ?? shot.text);
+  check(
+    "web_screenshot of one element",
+    shot.ok && isPng(shot.image) && /Saved \d+x\d+ PNG/.test(shot.text ?? ""),
+    shot.error ?? shot.text,
+  );
   const full = await call("web_screenshot", { full: true });
   check("web_screenshot of the whole document", full.ok && isPng(full.image), full.error);
 
@@ -232,15 +258,27 @@ console.log("[tier 1] the hidden window");
   await call("web_eval", { js: "fetch('/missing').then(r => r.status)" });
   await sleep(300);
   const logs = await call("web_logs", { kind: "all" });
-  check("web_logs has the console line", logs.ok && /flipped the headline/.test(logs.text ?? ""), logs.text?.slice(0, 300));
-  check("web_logs has the network lines", /GET .*\/ping → 200/.test(logs.text ?? "") && /\/missing → 404/.test(logs.text ?? ""), (logs.text ?? "").split("network")[1]?.slice(0, 400));
+  check(
+    "web_logs has the console line",
+    logs.ok && /flipped the headline/.test(logs.text ?? ""),
+    logs.text?.slice(0, 300),
+  );
+  check(
+    "web_logs has the network lines",
+    /GET .*\/ping → 200/.test(logs.text ?? "") && /\/missing → 404/.test(logs.text ?? ""),
+    (logs.text ?? "").split("network")[1]?.slice(0, 400),
+  );
 
   const link = await call("web_click", { text: "second page" });
   check("web_click follows a link", link.ok, link.error);
   const there = await call("web_wait_for", { url: "/second", timeoutMs: 5000 });
   check("web_wait_for url", there.ok, there.error);
   const where = await call("web_where");
-  check("web_where says where", where.ok && /\/second/.test(where.text ?? "") && /hidden from the user/.test(where.text ?? ""), where.text ?? where.error);
+  check(
+    "web_where says where",
+    where.ok && /\/second/.test(where.text ?? "") && /hidden from the user/.test(where.text ?? ""),
+    where.text ?? where.error,
+  );
 
   const scrolled = await call("web_scroll", { dy: 200 });
   check("web_scroll answers", scrolled.ok, scrolled.error);
@@ -263,7 +301,11 @@ await sleep(400);
   check("the strip was told the window closed", last?.state === null, JSON.stringify(last?.state));
   if (withPreview?.state?.previewUrl) {
     const res = await fetch(`http://127.0.0.1:${PORT}${withPreview.state.previewUrl}`);
-    check("the preview is served", res.ok && res.headers.get("content-type") === "image/png", String(res.status));
+    check(
+      "the preview is served",
+      res.ok && res.headers.get("content-type") === "image/png",
+      String(res.status),
+    );
   }
 }
 
@@ -276,9 +318,17 @@ console.log("[tier 2] a native app");
     check("app_launch TextEdit", false, launched.error);
   } else {
     const handle = /"handle":"([^"]+)"/.exec(launched.text ?? "")?.[1];
-    check("app_launch answers with a native handle", /"kind":"native"/.test(launched.text ?? "") && handle !== undefined, launched.text);
+    check(
+      "app_launch answers with a native handle",
+      /"kind":"native"/.test(launched.text ?? "") && handle !== undefined,
+      launched.text,
+    );
     const listed = await call("app_list");
-    check("app_list shows it", listed.ok && new RegExp(`${handle}: native TextEdit`).test(listed.text ?? ""), listed.text);
+    check(
+      "app_list shows it",
+      listed.ok && new RegExp(`${handle}: native TextEdit`).test(listed.text ?? ""),
+      listed.text,
+    );
 
     await sleep(800);
     const tree = await call("app_ui_tree", { handle, depth: 5 });
@@ -286,11 +336,25 @@ console.log("[tier 2] a native app");
       notes.push(`tier 2 UI scripting skipped: ${tree.error}`);
       console.log(`  skip app_ui_tree / app_ui — ${tree.error}`);
     } else {
-      check("app_ui_tree walks the window", tree.ok && /AXWindow/.test(tree.text ?? "") && /AXTextArea/.test(tree.text ?? ""), tree.error ?? tree.text?.slice(0, 300));
-      const typed = await call("app_ui", { handle, script: 'set value of text area 1 of scroll area 1 of window 1 to "Typed through the bridge."' });
+      check(
+        "app_ui_tree walks the window",
+        tree.ok && /AXWindow/.test(tree.text ?? "") && /AXTextArea/.test(tree.text ?? ""),
+        tree.error ?? tree.text?.slice(0, 300),
+      );
+      const typed = await call("app_ui", {
+        handle,
+        script: 'set value of text area 1 of scroll area 1 of window 1 to "Typed through the bridge."',
+      });
       check("app_ui sets the document text", typed.ok, typed.error);
-      const read = await call("app_ui", { handle, script: "get value of text area 1 of scroll area 1 of window 1" });
-      check("app_ui reads it back", read.ok && /Typed through the bridge/.test(read.text ?? ""), read.error ?? read.text);
+      const read = await call("app_ui", {
+        handle,
+        script: "get value of text area 1 of scroll area 1 of window 1",
+      });
+      check(
+        "app_ui reads it back",
+        read.ok && /Typed through the bridge/.test(read.text ?? ""),
+        read.error ?? read.text,
+      );
     }
 
     const shot = await call("app_screenshot", { handle });
@@ -298,7 +362,11 @@ console.log("[tier 2] a native app");
       notes.push(`tier 2 screenshot skipped: ${shot.error}`);
       console.log(`  skip app_screenshot — ${shot.error}`);
     } else {
-      check("app_screenshot photographs the window", shot.ok && isPng(shot.image) && /TextEdit/.test(shot.text ?? ""), shot.error ?? shot.text);
+      check(
+        "app_screenshot photographs the window",
+        shot.ok && isPng(shot.image) && /TextEdit/.test(shot.text ?? ""),
+        shot.error ?? shot.text,
+      );
     }
 
     const quit = await call("app_quit", { handle });
@@ -331,14 +399,22 @@ app.on("window-all-closed", () => app.quit());
     check("app_launch an Electron app", false, launched.error);
   } else {
     const handle = /"handle":"([^"]+)"/.exec(launched.text ?? "")?.[1];
-    check("app_launch answers with an electron handle", /"kind":"electron"/.test(launched.text ?? "") && handle !== undefined, launched.text);
+    check(
+      "app_launch answers with an electron handle",
+      /"kind":"electron"/.test(launched.text ?? "") && handle !== undefined,
+      launched.text,
+    );
     check("app_launch returns a picture of it", isPng(launched.image), launched.image);
     const ready = await call("app_wait_for", { handle, text: "Untouched", timeoutMs: 10000 });
     check("app_wait_for sees the page", ready.ok, ready.error);
     const click = await call("app_click", { handle, selector: "#flip" });
     check("app_click by selector", click.ok, click.error);
     const flipped = await call("app_eval", { handle, js: "document.getElementById('headline').textContent" });
-    check("app_eval reads the flipped headline", flipped.ok && flipped.text === "Flipped", flipped.text ?? flipped.error);
+    check(
+      "app_eval reads the flipped headline",
+      flipped.ok && flipped.text === "Flipped",
+      flipped.text ?? flipped.error,
+    );
     const typed = await call("app_type", { handle, selector: "#name", text: "Electron" });
     check("app_type", typed.ok, typed.error);
     const value = await call("app_eval", { handle, js: "document.getElementById('name').value" });

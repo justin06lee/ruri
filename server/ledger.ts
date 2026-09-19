@@ -47,7 +47,10 @@ export class LedgerStore {
 
   constructor() {
     try {
-      const raw = JSON.parse(fs.readFileSync(ledgerFile(), "utf8")) as Record<string, Record<string, Partial<Totals>>>;
+      const raw = JSON.parse(fs.readFileSync(ledgerFile(), "utf8")) as Record<
+        string,
+        Record<string, Partial<Totals>>
+      >;
       for (const [projectId, days] of Object.entries(raw)) {
         if (!days || typeof days !== "object") continue;
         const map = new Map<string, Totals>();

@@ -210,7 +210,8 @@ export const projectHandlers = {
     if (!fresh) throw new Error("unknown project");
     ctx.archive.seed(fresh.id, { events: imported.events, summaries: {}, chain: {} });
     const providerId = ctx.models.registry.parse(project.model).providerId;
-    const sameHarness = imported.provider === "claude" ? providerId === undefined : providerId === imported.provider;
+    const sameHarness =
+      imported.provider === "claude" ? providerId === undefined : providerId === imported.provider;
     if (sameHarness) ctx.archive.setLastSessionId(fresh.id, imported.resume);
     else {
       const built = buildCompaction(fresh.id, imported.events, {});

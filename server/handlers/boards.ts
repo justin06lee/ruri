@@ -11,7 +11,11 @@ export const boardHandlers = {
   tracker_add: (ctx, _ws, msg) => {
     if (!msg.text.trim()) return;
     ctx.tracker.add(msg.projectId, msg.text.trim(), "manual", undefined, msg.note ?? "");
-    ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: ctx.tracker.items(msg.projectId) });
+    ctx.clients.broadcast({
+      type: "tracker",
+      projectId: msg.projectId,
+      items: ctx.tracker.items(msg.projectId),
+    });
   },
   tracker_update: (ctx, _ws, msg) => {
     ctx.tracker.update(msg.projectId, msg.itemId, {
@@ -19,22 +23,38 @@ export const boardHandlers = {
       ...(msg.note !== undefined ? { note: msg.note } : {}),
       ...(msg.text !== undefined ? { text: msg.text } : {}),
     });
-    ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: ctx.tracker.items(msg.projectId) });
+    ctx.clients.broadcast({
+      type: "tracker",
+      projectId: msg.projectId,
+      items: ctx.tracker.items(msg.projectId),
+    });
   },
   tracker_remove: (ctx, _ws, msg) => {
     ctx.tracker.remove(msg.projectId, msg.itemId);
-    ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: ctx.tracker.items(msg.projectId) });
+    ctx.clients.broadcast({
+      type: "tracker",
+      projectId: msg.projectId,
+      items: ctx.tracker.items(msg.projectId),
+    });
   },
   tracker_attach: (ctx, _ws, msg) => {
     const { url } = storeUpload(msg.upload);
     const { data: _d, regions: _r, ...meta } = msg.upload;
     if (ctx.tracker.attach(msg.projectId, msg.itemId, { ...meta, url })) {
-      ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: ctx.tracker.items(msg.projectId) });
+      ctx.clients.broadcast({
+        type: "tracker",
+        projectId: msg.projectId,
+        items: ctx.tracker.items(msg.projectId),
+      });
     }
   },
   tracker_detach: (ctx, _ws, msg) => {
     if (ctx.tracker.detach(msg.projectId, msg.itemId, msg.attachmentId)) {
-      ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: ctx.tracker.items(msg.projectId) });
+      ctx.clients.broadcast({
+        type: "tracker",
+        projectId: msg.projectId,
+        items: ctx.tracker.items(msg.projectId),
+      });
     }
   },
   tracker_review: (ctx, ws, msg) => {
@@ -61,7 +81,14 @@ export const boardHandlers = {
     // instant, and exactly what the user wrote.
     const lines = rejectedItems.map((i) => {
       const note = i.note.trim();
-      return `- ${i.text}${note ? `\n${note.split("\n").map((l) => `  ${l}`).join("\n")}` : ""}`;
+      return `- ${i.text}${
+        note
+          ? `\n${note
+              .split("\n")
+              .map((l) => `  ${l}`)
+              .join("\n")}`
+          : ""
+      }`;
     });
     const text = `Fix these issues found while reviewing:\n${lines.join("\n")}`;
     if (ws.readyState === WebSocket.OPEN) {

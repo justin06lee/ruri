@@ -4,7 +4,9 @@ import { codexText, codexTool, humanText, titleOf } from "./recent.js";
 describe("humanText", () => {
   test("takes the harness's leading tag blocks off", () => {
     expect(humanText("<system-reminder>be nice</system-reminder>\n\nfix the bug")).toBe("fix the bug");
-    expect(humanText('<command-name a="1">/x</command-name><command-args></command-args>  do it')).toBe("do it");
+    expect(humanText('<command-name a="1">/x</command-name><command-args></command-args>  do it')).toBe(
+      "do it",
+    );
   });
 
   test("only leading blocks: a tag in the middle is what the user wrote", () => {
@@ -56,7 +58,10 @@ describe("codexText", () => {
 
 describe("codexTool", () => {
   test("the exec tools are Bash, and the command is read out of the script", () => {
-    expect(codexTool({ name: "exec_command", arguments: '{"cmd":"ls -la\\n  src"}' })).toEqual({ name: "Bash", summary: "ls -la src" });
+    expect(codexTool({ name: "exec_command", arguments: '{"cmd":"ls -la\\n  src"}' })).toEqual({
+      name: "Bash",
+      summary: "ls -la src",
+    });
     expect(codexTool({ name: "shell", arguments: JSON.stringify({ command: ["git", "status"] }) })).toEqual({
       name: "Bash",
       summary: "git status",
@@ -64,12 +69,18 @@ describe("codexTool", () => {
   });
 
   test("other tools keep their name; unparseable input is shown as it is", () => {
-    expect(codexTool({ name: "apply_patch", input: "*** Begin Patch" })).toEqual({ name: "apply_patch", summary: "*** Begin Patch" });
+    expect(codexTool({ name: "apply_patch", input: "*** Begin Patch" })).toEqual({
+      name: "apply_patch",
+      summary: "*** Begin Patch",
+    });
     expect(codexTool({ input: 3 })).toEqual({ name: "tool", summary: "" });
   });
 
   test("a long summary is cut at 200 characters", () => {
-    const { summary } = codexTool({ name: "exec", input: JSON.stringify({ cmd: "echo " + "a".repeat(400) }) });
+    const { summary } = codexTool({
+      name: "exec",
+      input: JSON.stringify({ cmd: "echo " + "a".repeat(400) }),
+    });
     expect(summary.length).toBe(200);
     expect(summary.endsWith("…")).toBe(true);
   });

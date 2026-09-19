@@ -33,10 +33,8 @@ function parseToken(raw: string): string | null {
 async function accessToken(): Promise<string | null> {
   if (process.platform === "darwin") {
     const raw = await new Promise<string>((resolve) => {
-      execFile(
-        "security",
-        ["find-generic-password", "-s", "Claude Code-credentials", "-w"],
-        (err, stdout) => resolve(err ? "" : stdout),
+      execFile("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], (err, stdout) =>
+        resolve(err ? "" : stdout),
       );
     });
     const token = parseToken(raw);

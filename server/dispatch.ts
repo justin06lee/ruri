@@ -56,7 +56,13 @@ export function titleSession(ctx: ServerContext, channelId: string, text: string
     .catch(() => {});
 }
 
-export function dispatch(ctx: ServerContext, channelId: string, text: string, uploads: AttachmentUpload[], silent = false): void {
+export function dispatch(
+  ctx: ServerContext,
+  channelId: string,
+  text: string,
+  uploads: AttachmentUpload[],
+  silent = false,
+): void {
   // /compact is ruri's own, not the harness's: summaries + full-turn file
   // hooks into a fresh session, with the zigzag mark in the transcript
   if (!silent && text.trim() === "/compact" && uploads.length === 0) {
@@ -79,8 +85,14 @@ export function dispatch(ctx: ServerContext, channelId: string, text: string, up
   if (silent) {
     // a split sub-prompt: files are already stored, no new user event
     const payload = modelPayload(text, uploads);
-    ctx.manager.send(project, brief + payload.text + named, payload.images, undefined, true,
-      ctx.archive.events(channelId).findLast((event) => event.kind === "user")?.id);
+    ctx.manager.send(
+      project,
+      brief + payload.text + named,
+      payload.images,
+      undefined,
+      true,
+      ctx.archive.events(channelId).findLast((event) => event.kind === "user")?.id,
+    );
     return;
   }
   // What the model reads and what the user wrote are two strings: the

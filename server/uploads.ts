@@ -27,7 +27,11 @@ function uploadsDir(): string {
 function uploadPath(upload: AttachmentUpload): string {
   // arbitrary files keep their own extension (browsers often report no or
   // bogus MIME types for source files), sanitized down to alphanumerics
-  const nameExt = path.extname(upload.name).slice(1).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const nameExt = path
+    .extname(upload.name)
+    .slice(1)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
   const ext = UPLOAD_EXT[upload.mediaType] ?? (nameExt || "bin");
   const stem = path
     .basename(upload.name, path.extname(upload.name))

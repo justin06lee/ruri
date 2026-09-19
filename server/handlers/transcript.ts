@@ -63,7 +63,11 @@ export const transcriptHandlers = {
       ctx.clients.broadcast({ type: "events_removed", projectId: msg.projectId, eventIds: removed });
       // a removed turn takes its extracted checklist items with it
       if (ctx.tracker.removeForTurns(msg.projectId, removed)) {
-        ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: ctx.tracker.items(msg.projectId) });
+        ctx.clients.broadcast({
+          type: "tracker",
+          projectId: msg.projectId,
+          items: ctx.tracker.items(msg.projectId),
+        });
       }
     }
   },

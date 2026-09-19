@@ -36,11 +36,21 @@ await new Promise<void>((resolve) => site.listen(0, "127.0.0.1", resolve));
 const address = site.address();
 const SITE = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
 
-const app = spawn(path.join(root, "node_modules", ".bin", "electron"), [root, `--remote-debugging-port=${CDP_PORT}`], {
-  cwd: root,
-  env: { ...process.env, RURI_CONFIG_DIR: configDir, RURI_USER_DATA: userData, RURI_PORT: String(PORT), RURI_NO_MEMORY: "1" },
-  stdio: "ignore",
-});
+const app = spawn(
+  path.join(root, "node_modules", ".bin", "electron"),
+  [root, `--remote-debugging-port=${CDP_PORT}`],
+  {
+    cwd: root,
+    env: {
+      ...process.env,
+      RURI_CONFIG_DIR: configDir,
+      RURI_USER_DATA: userData,
+      RURI_PORT: String(PORT),
+      RURI_NO_MEMORY: "1",
+    },
+    stdio: "ignore",
+  },
+);
 
 let failed = 0;
 function check(name: string, ok: boolean): void {

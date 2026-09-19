@@ -52,7 +52,9 @@ function tabsFile(): string {
  * a script.
  */
 export function dimension(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 1000 ? value : fallback;
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 1000
+    ? value
+    : fallback;
 }
 
 /** The control sequence expect intercepts: cols and rows, never forwarded. */

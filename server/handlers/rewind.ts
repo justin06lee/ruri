@@ -58,7 +58,12 @@ async function rewindOnHarness(
     }
     // the prompt itself keeps its checkpoint: it is back in the composer,
     // and sending it again is a new prompt with a new one
-    if (project?.path) void ctx.checkpoints.forget(project, channelId, removed.filter((id) => id !== eventId));
+    if (project?.path)
+      void ctx.checkpoints.forget(
+        project,
+        channelId,
+        removed.filter((id) => id !== eventId),
+      );
   }
   // the brief covers what survived the truncation — the harness comes back
   // knowing that and nothing after it
@@ -106,7 +111,12 @@ async function rewindOnNativeProvider(
       ctx.clients.broadcast({ type: "tracker", projectId: channelId, items: ctx.tracker.items(channelId) });
     }
   }
-  if (project?.path) void ctx.checkpoints.forget(project, channelId, removed.filter((id) => id !== target.id));
+  if (project?.path)
+    void ctx.checkpoints.forget(
+      project,
+      channelId,
+      removed.filter((id) => id !== target.id),
+    );
   ctx.archive.setPendingBrief(channelId, "");
   resetContext(ctx, channelId);
   ctx.clients.broadcast({ type: "status", projectId: channelId, status: "idle" });
@@ -216,9 +226,7 @@ export const rewindHandlers = {
         const ordinal = events.filter(
           (e, i) => i < idx && e.kind === "user" && e.text.trim() === target.text.trim(),
         ).length;
-        const found = sessionId
-          ? await promptChain(project, sessionId, target.text, ordinal)
-          : undefined;
+        const found = sessionId ? await promptChain(project, sessionId, target.text, ordinal) : undefined;
         const userUuid = found?.user ?? chain[eventId]?.user;
         if (userUuid) ctx.archive.setChain(channelId, eventId, "user", userUuid);
         resumeAt ??= found?.before;
@@ -233,10 +241,13 @@ export const rewindHandlers = {
         // The CLI's own checkpoint is the better one when it is there —
         // it knows the session. When it isn't, ruri took its own before
         // the prompt went out, and that is what a relaunch cannot lose.
-        const mine = result.canRewind ? undefined : await ctx.checkpoints.restore(project, channelId, eventId);
-        const filesKept = result.canRewind || mine === undefined
+        const mine = result.canRewind
           ? undefined
-          : (result.error ?? "the CLI couldn't restore the files");
+          : await ctx.checkpoints.restore(project, channelId, eventId);
+        const filesKept =
+          result.canRewind || mine === undefined
+            ? undefined
+            : (result.error ?? "the CLI couldn't restore the files");
         ctx.manager.dispose(channelId);
         if (resumeAt) ctx.archive.setResumeAt(channelId, resumeAt);
         else ctx.archive.clearLastSessionId(channelId);
@@ -248,9 +259,17 @@ export const rewindHandlers = {
           // rewound prompt's items (and every discarded later prompt's)
           // go too; the edited prompt re-extracts fresh ones on send
           if (ctx.tracker.removeForTurns(channelId, removed)) {
-            ctx.clients.broadcast({ type: "tracker", projectId: channelId, items: ctx.tracker.items(channelId) });
+            ctx.clients.broadcast({
+              type: "tracker",
+              projectId: channelId,
+              items: ctx.tracker.items(channelId),
+            });
           }
-          void ctx.checkpoints.forget(project, channelId, removed.filter((id) => id !== eventId));
+          void ctx.checkpoints.forget(
+            project,
+            channelId,
+            removed.filter((id) => id !== eventId),
+          );
         }
         ctx.clients.broadcast({ type: "status", projectId: channelId, status: "idle" });
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(composeBack(channelId, target)));
@@ -292,7 +311,8 @@ export const rewindHandlers = {
         const target = idx >= 0 ? events[idx] : undefined;
         if (!target || target.kind !== "user") throw new Error("that prompt is gone");
         let end = idx + 1;
-        while (end < events.length && events[end]!.kind !== "user" && events[end]!.kind !== "compaction") end++;
+        while (end < events.length && events[end]!.kind !== "user" && events[end]!.kind !== "compaction")
+          end++;
         const kept = events.slice(0, end);
         const next = events.slice(end).find((e) => e.kind === "user");
         const compactedSince = events.slice(end).some((e) => e.kind === "compaction");
@@ -359,7 +379,11 @@ export const rewindHandlers = {
         });
         const tokens = ctx.archive.contextTokens(fresh.id);
         if (tokens !== undefined) {
-          ctx.clients.broadcast({ type: "context", projectId: fresh.id, context: { tokens, window: contextWindow(ctx, fresh.id) } });
+          ctx.clients.broadcast({
+            type: "context",
+            projectId: fresh.id,
+            context: { tokens, window: contextWindow(ctx, fresh.id) },
+          });
         }
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "open_session", projectId: fresh.id } satisfies ServerMessage));
@@ -367,7 +391,8 @@ export const rewindHandlers = {
             ws.send(
               JSON.stringify({
                 type: "error",
-                message: "forked the conversation — the session that held it is gone, so the fork starts from a brief of what it holds",
+                message:
+                  "forked the conversation — the session that held it is gone, so the fork starts from a brief of what it holds",
               } satisfies ServerMessage),
             );
           }

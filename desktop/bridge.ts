@@ -92,9 +92,12 @@ function scaled(png: Buffer, maxWidth: number): Buffer {
 /** What a session wrote as a URL, as something a window can load. */
 function toHref(raw: string): string {
   const text = raw.trim();
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text) || text.startsWith("about:") || text.startsWith("data:")) return text;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text) || text.startsWith("about:") || text.startsWith("data:"))
+    return text;
   if (text.startsWith("/") || text.startsWith("~/") || text.startsWith("./")) {
-    const file = text.startsWith("~/") ? path.join(process.env["HOME"] ?? "", text.slice(2)) : path.resolve(text);
+    const file = text.startsWith("~/")
+      ? path.join(process.env["HOME"] ?? "", text.slice(2))
+      : path.resolve(text);
     return pathToFileURL(file).toString();
   }
   return `http://${text}`;
@@ -235,7 +238,8 @@ export class Bridge implements BridgeHost {
     const dbg = win.webContents.debugger;
     dbg.attach("1.3");
     const link: CdpLink = {
-      send: <T,>(method: string, params?: Record<string, unknown>) => dbg.sendCommand(method, params) as Promise<T>,
+      send: <T>(method: string, params?: Record<string, unknown>) =>
+        dbg.sendCommand(method, params) as Promise<T>,
       on: (method, listener) => {
         const handler = (_event: Electron.Event, name: string, params: unknown): void => {
           if (name === method) listener((params ?? {}) as Record<string, unknown>);
@@ -324,7 +328,10 @@ export class Bridge implements BridgeHost {
     return (await contents.capturePage(undefined, capture)).toPNG();
   }
 
-  private async describeWeb(channel: Channel, web: Web): Promise<{ url: string; title: string; width: number; height: number }> {
+  private async describeWeb(
+    channel: Channel,
+    web: Web,
+  ): Promise<{ url: string; title: string; width: number; height: number }> {
     const where = await web.driver.where();
     channel.meta = { kind: "web", title: where.title || where.url, address: where.url };
     return where;
@@ -348,9 +355,12 @@ export class Bridge implements BridgeHost {
 
   private driverOf(app: apps.AppHandle): PageDriver {
     if (app.kind !== "electron" || !app.driver) {
-      throw new Error(`${app.handle} (${app.app}) is a native app — drive it with app_ui_tree, app_ui and app_screenshot`);
+      throw new Error(
+        `${app.handle} (${app.app}) is a native app — drive it with app_ui_tree, app_ui and app_screenshot`,
+      );
     }
-    if (app.socket && !app.socket.alive) throw new Error(`${app.app} has closed its debugging connection — it may have quit`);
+    if (app.socket && !app.socket.alive)
+      throw new Error(`${app.app} has closed its debugging connection — it may have quit`);
     return app.driver;
   }
 
@@ -390,7 +400,11 @@ export class Bridge implements BridgeHost {
         const web = this.openWeb(channel);
         await web.driver.type(call.args.text, call.args.selector);
         const shown = call.args.text.length > 60 ? `${call.args.text.slice(0, 60)}…` : call.args.text;
-        return this.afterWeb(channel, web, `Typed ${JSON.stringify(shown)}${call.args.selector ? ` into ${call.args.selector}` : ""}.`);
+        return this.afterWeb(
+          channel,
+          web,
+          `Typed ${JSON.stringify(shown)}${call.args.selector ? ` into ${call.args.selector}` : ""}.`,
+        );
       }
       case "web_press": {
         const web = this.openWeb(channel);
@@ -402,7 +416,9 @@ export class Bridge implements BridgeHost {
         await web.driver.scroll(call.args);
         const where = await this.describeWeb(channel, web);
         const y = await web.driver.eval<number>("scrollY");
-        return { text: `Scrolled${call.args.selector ? ` ${call.args.selector}` : ""}; the page is at scrollY ${Math.round(y)} on ${where.url}.` };
+        return {
+          text: `Scrolled${call.args.selector ? ` ${call.args.selector}` : ""}; the page is at scrollY ${Math.round(y)} on ${where.url}.`,
+        };
       }
       case "web_screenshot": {
         const web = this.openWeb(channel);
@@ -448,7 +464,12 @@ export class Bridge implements BridgeHost {
         else throw new Error("give an app to open, or a command to run");
         channel.apps.set(launched.handle, launched);
         channel.meta = { kind: launched.kind, title: launched.app, address: launched.address };
-        const line = JSON.stringify({ handle: launched.handle, kind: launched.kind, pid: launched.pid, app: launched.app });
+        const line = JSON.stringify({
+          handle: launched.handle,
+          kind: launched.kind,
+          pid: launched.pid,
+          app: launched.app,
+        });
         if (launched.kind === "electron") {
           return this.afterApp(channel, launched, `Launched ${launched.app}: ${line}`);
         }
@@ -505,22 +526,36 @@ export class Bridge implements BridgeHost {
         const file = this.save(channel, png);
         const { width, height } = nativeImage.createFromBuffer(png).getSize();
         this.strip(channel, png);
-        return { text: `Saved ${width}x${height} PNG of ${app.app} ("${title}") to ${file}.`, image: { png, path: file } };
+        return {
+          text: `Saved ${width}x${height} PNG of ${app.app} ("${title}") to ${file}.`,
+          image: { png, path: file },
+        };
       }
       case "app_ui_tree": {
         const app = this.appOf(channel, call.args.handle);
         const tree = await apps.uiTree(app, call.args.depth ?? 4);
-        channel.meta = { kind: app.kind, title: (await apps.windowTitle(app)) ?? app.app, address: app.address };
+        channel.meta = {
+          kind: app.kind,
+          title: (await apps.windowTitle(app)) ?? app.app,
+          address: app.address,
+        };
         this.emit(channel);
         return { text: tree };
       }
       case "app_ui": {
         const app = this.appOf(channel, call.args.handle);
         const out = await apps.uiScript(app, call.args.script);
-        channel.meta = { kind: app.kind, title: (await apps.windowTitle(app)) ?? app.app, address: app.address };
+        channel.meta = {
+          kind: app.kind,
+          title: (await apps.windowTitle(app)) ?? app.app,
+          address: app.address,
+        };
         // the user's picture follows the script when the picture is free
         if (app.kind === "native") {
-          void apps.captureNative(app).then((shot) => this.strip(channel, shot.png)).catch(() => this.emit(channel));
+          void apps
+            .captureNative(app)
+            .then((shot) => this.strip(channel, shot.png))
+            .catch(() => this.emit(channel));
         } else {
           this.emit(channel);
         }
@@ -528,7 +563,8 @@ export class Bridge implements BridgeHost {
       }
       case "app_list": {
         const lines = [...channel.apps.values()].map(
-          (app) => `${app.handle}: ${app.kind} ${app.app} (pid ${app.pid}${app.pid && !isAlive(app.pid) ? ", gone" : ""}) — ${app.address}`,
+          (app) =>
+            `${app.handle}: ${app.kind} ${app.app} (pid ${app.pid}${app.pid && !isAlive(app.pid) ? ", gone" : ""}) — ${app.address}`,
         );
         return { text: lines.join("\n") || "(nothing launched)" };
       }
@@ -574,7 +610,9 @@ export class Bridge implements BridgeHost {
           : undefined;
       if (channel.web) {
         // the page's own words come back with its next action
-        void this.describeWeb(channel, channel.web).then(() => this.emit(channel)).catch(() => this.emit(channel));
+        void this.describeWeb(channel, channel.web)
+          .then(() => this.emit(channel))
+          .catch(() => this.emit(channel));
         return;
       }
       if (!channel.meta) channel.previewAt = undefined;
@@ -632,7 +670,9 @@ export class Bridge implements BridgeHost {
         this.channels.delete(channel.channelId);
         if (channel.stripTimer) clearTimeout(channel.stripTimer);
         if (channel.web && !channel.web.win.isDestroyed()) channel.web.win.destroy();
-        await Promise.all([...channel.apps.values()].map((app) => apps.quit(app, true).catch(() => undefined)));
+        await Promise.all(
+          [...channel.apps.values()].map((app) => apps.quit(app, true).catch(() => undefined)),
+        );
       }),
     );
   }

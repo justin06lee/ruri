@@ -147,7 +147,11 @@ if (!projectId) {
 // bypass is the default mode, and the one that should not ask
 propose("the amber rail");
 await turn("one");
-check("bypass names it without a card", named.some((c) => c.name === "the amber rail"), named.map((c) => c.name));
+check(
+  "bypass names it without a card",
+  named.some((c) => c.name === "the amber rail"),
+  named.map((c) => c.name),
+);
 check("and puts nothing up to confirm", cards === 0, { cards });
 
 // every other mode still asks

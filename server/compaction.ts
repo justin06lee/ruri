@@ -104,7 +104,8 @@ function writeTurnFiles(channelId: string, turns: ArchivedTurn[]): string[] {
   // history's cap) — numbered as they were, and naming nothing now
   try {
     for (const name of fs.readdirSync(dir)) {
-      if (/^\d+\.md$/.test(name) && Number.parseInt(name, 10) > turns.length) fs.rmSync(path.join(dir, name), { force: true });
+      if (/^\d+\.md$/.test(name) && Number.parseInt(name, 10) > turns.length)
+        fs.rmSync(path.join(dir, name), { force: true });
     }
   } catch (err) {
     if (!isMissing(err)) warn("compaction", err, "writeTurnFiles");
@@ -130,7 +131,10 @@ function squash(text: string): string {
 
 /** An exchange's two notes: the small model's, or a cut of the text itself
  *  where it wrote none. */
-function notesOf(turn: ArchivedTurn, summaries: Record<string, TurnSummary>): { user: string; reply: string } {
+function notesOf(
+  turn: ArchivedTurn,
+  summaries: Record<string, TurnSummary>,
+): { user: string; reply: string } {
   const note = summaries[turn.turnId];
   return {
     user: note?.user?.trim() || squash(turn.user),

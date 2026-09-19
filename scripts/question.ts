@@ -129,7 +129,11 @@ send({
 
 await until("the question card", () => cards.some((c) => c.kind === "question"), 180_000);
 const card = cards.find((c) => c.kind === "question");
-check("the model's question comes up as a question card", Boolean(card), cards.map((c) => c.toolName));
+check(
+  "the model's question comes up as a question card",
+  Boolean(card),
+  cards.map((c) => c.toolName),
+);
 if (!card) {
   console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
   cleanup(1);

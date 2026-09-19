@@ -192,11 +192,7 @@ check(
 
 // three tries, each announced, then back to the user — the waits are 8s,
 // 25s and 60s, and each attempt takes about a second
-await until(
-  "three retries and the give-up",
-  () => results.length >= 4 && notes.length >= 4,
-  240_000,
-);
+await until("three retries and the give-up", () => results.length >= 4 && notes.length >= 4, 240_000);
 await settle(2_000);
 
 check("the dropped turn goes again three times", results.length === 4, results);
@@ -216,7 +212,11 @@ check(
     notes[2]!.includes("3 of 3"),
   notes,
 );
-check("and the last word hands it back to the user", notes[3]?.includes("leaving this one to you") === true, notes);
+check(
+  "and the last word hands it back to the user",
+  notes[3]?.includes("leaving this one to you") === true,
+  notes,
+);
 check("every try went to the mock gateway, none to a real API", gatewayHits > 0, { gatewayHits });
 check("and the working line is down again at the end", turn === null, { turn });
 

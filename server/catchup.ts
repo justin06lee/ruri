@@ -33,8 +33,24 @@ const SOURCE_FILES = 26;
 
 /** Folders that are nobody's layout. */
 const SKIP_DIRS = new Set([
-  "node_modules", ".git", "dist", "dist-web", "dist-app", "dist-electron", "build", "out", "target",
-  "vendor", "coverage", ".next", ".nuxt", ".svelte-kit", "__pycache__", ".venv", "venv", ".cache",
+  "node_modules",
+  ".git",
+  "dist",
+  "dist-web",
+  "dist-app",
+  "dist-electron",
+  "build",
+  "out",
+  "target",
+  "vendor",
+  "coverage",
+  ".next",
+  ".nuxt",
+  ".svelte-kit",
+  "__pycache__",
+  ".venv",
+  "venv",
+  ".cache",
 ]);
 
 function readHead(file: string, chars: number): string | undefined {
@@ -88,7 +104,16 @@ function manifest(dir: string): string | undefined {
     try {
       const parsed = JSON.parse(pkg) as Record<string, unknown>;
       const keep: Record<string, unknown> = {};
-      for (const key of ["name", "description", "scripts", "dependencies", "devDependencies", "engines", "main", "bin"]) {
+      for (const key of [
+        "name",
+        "description",
+        "scripts",
+        "dependencies",
+        "devDependencies",
+        "engines",
+        "main",
+        "bin",
+      ]) {
         if (parsed[key] !== undefined) keep[key] = parsed[key];
       }
       return `package.json:\n${JSON.stringify(keep, null, 1).slice(0, MANIFEST_CHARS)}`;
@@ -97,7 +122,18 @@ function manifest(dir: string): string | undefined {
       return `package.json:\n${pkg.slice(0, MANIFEST_CHARS)}`;
     }
   }
-  for (const name of ["pyproject.toml", "Cargo.toml", "go.mod", "Package.swift", "build.gradle", "pom.xml", "Gemfile", "composer.json", "mix.exs", "deno.json"]) {
+  for (const name of [
+    "pyproject.toml",
+    "Cargo.toml",
+    "go.mod",
+    "Package.swift",
+    "build.gradle",
+    "pom.xml",
+    "Gemfile",
+    "composer.json",
+    "mix.exs",
+    "deno.json",
+  ]) {
     const text = readHead(path.join(dir, name), MANIFEST_CHARS);
     if (text) return `${name}:\n${text}`;
   }
@@ -121,12 +157,10 @@ async function catchupMaterial(project: Project): Promise<string> {
     if (text) parts.push(`=== ${name} ===\n${text}`);
   }
   parts.push(`=== TREE (two levels) ===\n${tree(dir)}`);
-  const heads = (await sweepCandidates(dir))
-    .slice(0, SOURCE_FILES)
-    .flatMap((rel) => {
-      const d = describeFile(dir, rel, HEAD_CHARS);
-      return d ? [`--- ${d.path} ---\n${d.head}`] : [];
-    });
+  const heads = (await sweepCandidates(dir)).slice(0, SOURCE_FILES).flatMap((rel) => {
+    const d = describeFile(dir, rel, HEAD_CHARS);
+    return d ? [`--- ${d.path} ---\n${d.head}`] : [];
+  });
   if (heads.length) parts.push(`=== SOURCE FILES (openings) ===\n${heads.join("\n\n")}`);
   return parts.join("\n\n");
 }

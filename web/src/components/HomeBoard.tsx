@@ -1,5 +1,12 @@
 import { memo, useEffect, useMemo } from "react";
-import { HOME_ID, type Project, type ProjectStats, type SessionInfo, type Totals, type TranscriptEvent } from "../../../shared/protocol";
+import {
+  HOME_ID,
+  type Project,
+  type ProjectStats,
+  type SessionInfo,
+  type Totals,
+  type TranscriptEvent,
+} from "../../../shared/protocol";
 import { useRuri, watchBoard } from "../store";
 
 /**
@@ -22,7 +29,6 @@ import { useRuri, watchBoard } from "../store";
  * board squeezed to half a card's height, the agent pushed to the floor.
  * Now the strip at the top picks one, and remembers the choice.
  */
-
 
 /** The projects the board shows: hidden ones stay hidden here too. The
  *  selector is memoised on the list itself, so nothing re-renders on a
@@ -65,7 +71,12 @@ const NONE: Totals = { tokens: 0, costUsd: 0, turns: 0, ms: 0 };
 
 function sum(parts: Totals[]): Totals {
   return parts.reduce(
-    (a, b) => ({ tokens: a.tokens + b.tokens, costUsd: a.costUsd + b.costUsd, turns: a.turns + b.turns, ms: a.ms + b.ms }),
+    (a, b) => ({
+      tokens: a.tokens + b.tokens,
+      costUsd: a.costUsd + b.costUsd,
+      turns: a.turns + b.turns,
+      ms: a.ms + b.ms,
+    }),
     NONE,
   );
 }
@@ -105,7 +116,10 @@ function lineOf(event: TranscriptEvent): Line | null {
       return { kind: "note", text: "compacted" };
     case "plan": {
       const active = event.entries?.find((entry) => entry.status === "in_progress")?.content;
-      return { kind: "note", text: clip(active ? `plan · ${active}` : event.removed ? "plan cleared" : "plan updated") };
+      return {
+        kind: "note",
+        text: clip(active ? `plan · ${active}` : event.removed ? "plan cleared" : "plan updated"),
+      };
     }
     case "info":
       return { kind: "note", text: clip(event.text) };
@@ -174,7 +188,9 @@ function CardFigures({ totals, label }: { totals: Totals; label: string }) {
       <span className="pcard-fig-row">
         <b>{money(totals.costUsd)}</b>
         <span>{shortCount(totals.tokens)} tok</span>
-        <span>{totals.turns} {totals.turns === 1 ? "turn" : "turns"}</span>
+        <span>
+          {totals.turns} {totals.turns === 1 ? "turn" : "turns"}
+        </span>
       </span>
     </span>
   );
@@ -187,9 +203,17 @@ function StatTile({ totals, label }: { totals: Totals; label: string }) {
       <span className="stat-label">{label}</span>
       <span className="stat-cost">{money(totals.costUsd)}</span>
       <span className="stat-sub">
-        <span><b>{shortCount(totals.tokens)}</b> tok</span>
-        <span><b>{totals.turns}</b> {totals.turns === 1 ? "turn" : "turns"}</span>
-        {totals.ms > 0 && <span><b>{span(totals.ms)}</b></span>}
+        <span>
+          <b>{shortCount(totals.tokens)}</b> tok
+        </span>
+        <span>
+          <b>{totals.turns}</b> {totals.turns === 1 ? "turn" : "turns"}
+        </span>
+        {totals.ms > 0 && (
+          <span>
+            <b>{span(totals.ms)}</b>
+          </span>
+        )}
       </span>
     </div>
   );
@@ -197,9 +221,22 @@ function StatTile({ totals, label }: { totals: Totals; label: string }) {
 
 type Status = "permission" | "working" | "error" | "idle";
 
-const WORD: Record<Status, string> = { permission: "needs you", working: "working", error: "error", idle: "idle" };
+const WORD: Record<Status, string> = {
+  permission: "needs you",
+  working: "working",
+  error: "error",
+  idle: "idle",
+};
 
-function ProjectCard({ project, stats, status }: { project: Project; stats: ProjectStats | undefined; status: Status }) {
+function ProjectCard({
+  project,
+  stats,
+  status,
+}: {
+  project: Project;
+  stats: ProjectStats | undefined;
+  status: Status;
+}) {
   const setActive = useRuri((s) => s.setActive);
   const first = project.sessions[0];
   return (
@@ -212,9 +249,7 @@ function ProjectCard({ project, stats, status }: { project: Project; stats: Proj
       >
         <span className={`dot ${status}`} aria-hidden />
         <span className="pcard-name">{project.name}</span>
-        <span className="pcard-status">
-          {WORD[status]}
-        </span>
+        <span className="pcard-status">{WORD[status]}</span>
       </div>
       <div className="pcard-body">
         {project.sessions.length === 0 ? (
@@ -361,8 +396,14 @@ export function ProjectsPage() {
             <span className="projects-live">
               {waiting > 0 && <span className="st-permission">{waiting} waiting on you</span>}
               {working > 0 && <span className="st-working">{working} working</span>}
-              {errored > 0 && <span className="st-error">{errored} {errored === 1 ? "error" : "errors"}</span>}
-              {live.length === 0 && <span className="st-idle">{projects.length === 0 ? "nothing open" : "all quiet"}</span>}
+              {errored > 0 && (
+                <span className="st-error">
+                  {errored} {errored === 1 ? "error" : "errors"}
+                </span>
+              )}
+              {live.length === 0 && (
+                <span className="st-idle">{projects.length === 0 ? "nothing open" : "all quiet"}</span>
+              )}
             </span>
           </div>
           <StatTile totals={today} label="today" />

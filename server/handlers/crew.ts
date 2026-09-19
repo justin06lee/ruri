@@ -3,7 +3,13 @@
  * server/agents.ts keeps their cards and logs): their session manager,
  * their cards moving along, and the agents page's messages.
  */
-import { briefLine, type PermissionRequest, type ServerMessage, type SubagentState, type TranscriptEvent } from "../../shared/protocol.js";
+import {
+  briefLine,
+  type PermissionRequest,
+  type ServerMessage,
+  type SubagentState,
+  type TranscriptEvent,
+} from "../../shared/protocol.js";
 import { sessionBriefing } from "../briefing.js";
 import { channelProject, ownerProject } from "../channel.js";
 import type { ServerContext } from "../context.js";
@@ -63,13 +69,23 @@ export function followCrew(ctx: ServerContext, key: string, text: string): void 
   const project = chatId && member ? crewProject(ctx, chatId, key, member.agent.model) : undefined;
   if (!project || member?.agent.status === "running") return;
   ctx.crewSaid.delete(key);
-  crewCard(ctx, key, { status: "running", startedAt: Date.now(), endedAt: undefined, result: undefined, activity: undefined });
+  crewCard(ctx, key, {
+    status: "running",
+    startedAt: Date.now(),
+    endedAt: undefined,
+    result: undefined,
+    activity: undefined,
+  });
   ctx.crewManager.send(project, text);
 }
 
 /** One of the user's agents finished a turn: its card says how, and
  *  what it came back with; what it spent is its project's. */
-function settleCrew(ctx: ServerContext, key: string, event: Extract<TranscriptEvent, { kind: "result" }>): void {
+function settleCrew(
+  ctx: ServerContext,
+  key: string,
+  event: Extract<TranscriptEvent, { kind: "result" }>,
+): void {
   const chatId = ctx.crew.owner(key);
   const card = ctx.crew.member(key)?.agent;
   if (!chatId || !card) return;
@@ -80,7 +96,11 @@ function settleCrew(ctx: ServerContext, key: string, event: Extract<TranscriptEv
     endedAt: Date.now(),
     activity: undefined,
     ...(event.tokens ? { tokens: (card.tokens ?? 0) + event.tokens } : {}),
-    ...(said ? { result: said } : event.error && !event.ok ? { result: ctx.secrets.redact(event.error) } : {}),
+    ...(said
+      ? { result: said }
+      : event.error && !event.ok
+        ? { result: ctx.secrets.redact(event.error) }
+        : {}),
   });
   const owner = ownerProject(ctx, chatId);
   if (owner && (event.tokens || event.costUsd || event.durationMs)) {
@@ -158,14 +178,24 @@ export function createCrewManager(ctx: ServerContext): SessionManager {
     (project) => {
       const claude = !ctx.models.registry.parse(project.model || ctx.store.defaultModel()).providerId;
       const note = [
-        sessionBriefing({ projectDir: project.path, projectName: project.name, secrets: ctx.secrets, claude, naming: "" }),
+        sessionBriefing({
+          projectDir: project.path,
+          projectName: project.name,
+          secrets: ctx.secrets,
+          claude,
+          naming: "",
+        }),
         CREW_BRIEFING,
       ]
         .filter(Boolean)
         .join("\n\n");
       return {
-        fillSecrets: (input) => (ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined),
-        options: { env: ctx.secrets.env(), systemPrompt: { type: "preset", preset: "claude_code", append: note } },
+        fillSecrets: (input) =>
+          ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
+        options: {
+          env: ctx.secrets.env(),
+          systemPrompt: { type: "preset", preset: "claude_code", append: note },
+        },
         providerSystem: note,
       };
     },
@@ -185,12 +215,15 @@ export const crewHandlers = {
     if (id !== HOME_ID && !ctx.store.sessionIds().includes(id)) return;
     const events = ctx.agentLogs.read(id, msg.key);
     ctx.readable.allowReadImages(id, events);
-    ws.send(JSON.stringify({ type: "agent_log", projectId: id, key: msg.key, events } satisfies ServerMessage));
+    ws.send(
+      JSON.stringify({ type: "agent_log", projectId: id, key: msg.key, events } satisfies ServerMessage),
+    );
   },
   agent_start: (ctx, _ws, msg) => {
     const chatId = msg.projectId;
     const text = msg.text.trim();
-    if (chatId === HOME_ID || !text || !/^crew-[a-z0-9]{6,32}$/.test(msg.key) || ctx.crew.owner(msg.key)) return;
+    if (chatId === HOME_ID || !text || !/^crew-[a-z0-9]{6,32}$/.test(msg.key) || ctx.crew.owner(msg.key))
+      return;
     const project = crewProject(ctx, chatId, msg.key, msg.model);
     if (!project) return;
     ctx.crew.add(chatId, {

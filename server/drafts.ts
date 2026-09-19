@@ -35,9 +35,10 @@ export class DraftStore {
             ? { text: saved }
             : saved && typeof saved === "object"
               ? {
-                  text: typeof (saved as ComposerDraftState).text === "string"
-                    ? (saved as ComposerDraftState).text
-                    : "",
+                  text:
+                    typeof (saved as ComposerDraftState).text === "string"
+                      ? (saved as ComposerDraftState).text
+                      : "",
                   ...(Array.isArray((saved as ComposerDraftState).attachments)
                     ? { attachments: (saved as ComposerDraftState).attachments }
                     : {}),

@@ -55,7 +55,11 @@ export function listCommands(projectDir?: string): CommandInfo[] {
   }
   for (const skill of listSkills(projectDir)) {
     if (!skill.enabled) continue;
-    out.push({ name: skill.name, kind: "skill", ...(skill.description ? { description: skill.description } : {}) });
+    out.push({
+      name: skill.name,
+      kind: "skill",
+      ...(skill.description ? { description: skill.description } : {}),
+    });
   }
   const custom = new Set([
     ...commandFiles(path.join(os.homedir(), ".claude", "commands")),
@@ -104,10 +108,7 @@ const COMMAND_LINE = /^\/([a-z0-9][\w:.-]*)(\s+\S.*)?$/i;
  * Lift the commands out of a prompt. `commands` is what to run first, in
  * the order written; `rest` is the prompt with them gone (possibly empty).
  */
-export function splitCommands(
-  text: string,
-  known: Set<string>,
-): { commands: string[]; rest: string } {
+export function splitCommands(text: string, known: Set<string>): { commands: string[]; rest: string } {
   const commands: string[] = [];
   const kept: string[] = [];
   for (const line of text.split("\n")) {
@@ -141,6 +142,9 @@ export function splitCommands(
     }
     kept.push(remaining === line ? line : remaining.replace(/\s+$/, ""));
   }
-  const rest = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const rest = kept
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   return { commands, rest };
 }

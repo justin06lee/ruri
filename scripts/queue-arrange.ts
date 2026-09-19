@@ -120,7 +120,8 @@ const say = (word: string) => `Reply with exactly this one word and nothing else
 const idle = () => status !== "working" && status !== "permission";
 const texts = () => queued.map((item) => item.text);
 const word = (text: string) => text.split(": ").pop();
-const byWord = (w: string) => queued.find((item) => item.text.endsWith(`: ${w}`) || item.text.startsWith(say(w)));
+const byWord = (w: string) =>
+  queued.find((item) => item.text.endsWith(`: ${w}`) || item.text.startsWith(say(w)));
 
 /* ── the run ──────────────────────────────────────────────────────── */
 
@@ -157,13 +158,21 @@ check("moved to the end: four, three, two", texts().map(word).join(",") === "fou
 send({ type: "queue_merge", projectId: id, itemId: byWord("three")!.id, intoId: byWord("two")!.id });
 await until("the merge", () => queued.length === 2, 5_000);
 const merged = queued[1]?.text ?? "";
-check("merged into one, carried text first", queued.length === 2 && merged === `${say("three")}\n\n${say("two")}`, texts());
+check(
+  "merged into one, carried text first",
+  queued.length === 2 && merged === `${say("three")}\n\n${say("two")}`,
+  texts(),
+);
 
 send({ type: "queue_send", projectId: id });
 await until("both turns", () => results >= 3 && queued.length === 0 && idle(), 180_000);
 await settle(1500);
 const first = dispatched.slice(1);
-check("went out in the arranged order", first.length === 2 && word(first[0]!) === "four" && first[1] === merged, first);
+check(
+  "went out in the arranged order",
+  first.length === 2 && word(first[0]!) === "four" && first[1] === merged,
+  first,
+);
 
 // pass 2: edit the first of three — the two behind it go, then it comes back
 const mark = dispatched.length;
@@ -175,14 +184,22 @@ send({ type: "send", projectId: id, text: say("eight") });
 await until("three queued", () => queued.length === 3, 20_000);
 send({ type: "queue_edit", projectId: id, itemId: byWord("six")!.id });
 await until("the edit", () => queued[2]?.editing === true, 5_000);
-check("editing takes it under the line", queued.length === 3 && word(queued[2]!.text) === "six" && queued[2]!.editing === true, queued);
+check(
+  "editing takes it under the line",
+  queued.length === 3 && word(queued[2]!.text) === "six" && queued[2]!.editing === true,
+  queued,
+);
 // the running turn ends: seven goes, not six
 await until("seven to go out", () => dispatched.length > mark + 1, 120_000);
 check("the one behind it goes first", word(dispatched[mark + 1]!) === "seven", dispatched.slice(mark));
 // the rewrite comes back while seven runs: it lands at the front, ahead of eight
 send({ type: "queue_update", projectId: id, itemId: byWord("six")!.id, text: say("sixty") });
 await until("the update", () => queued.some((item) => word(item.text) === "sixty"), 5_000);
-check("the rewrite is back in line, at the front", texts().map(word).join(",") === "sixty,eight" && !queued.some((item) => item.editing), texts());
+check(
+  "the rewrite is back in line, at the front",
+  texts().map(word).join(",") === "sixty,eight" && !queued.some((item) => item.editing),
+  texts(),
+);
 await until("everything", () => results >= 7 && queued.length === 0 && idle(), 240_000);
 await settle(1500);
 const order = dispatched.slice(mark).map(word);

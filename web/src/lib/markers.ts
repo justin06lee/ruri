@@ -41,7 +41,13 @@ export function findMarkers(text: string): Marker[] {
   const out: Marker[] = [];
   for (const match of text.matchAll(MARKER)) {
     if (match[3] !== undefined) {
-      out.push({ kind: "command", n: 0, start: match.index, end: match.index + match[0].length, text: match[0] });
+      out.push({
+        kind: "command",
+        n: 0,
+        start: match.index,
+        end: match.index + match[0].length,
+        text: match[0],
+      });
       continue;
     }
     out.push({
@@ -107,7 +113,12 @@ export function spaceMarkers(text: string, caret = 0): { text: string; caret: nu
     const after = text[right];
     // a command is the words the person typed — nothing is ever pushed
     // into the middle of one being written
-    if (marker.kind !== "command" && before !== undefined && !/\s/.test(before) && !OPENERS.includes(before)) {
+    if (
+      marker.kind !== "command" &&
+      before !== undefined &&
+      !/\s/.test(before) &&
+      !OPENERS.includes(before)
+    ) {
       want(marker.start, 1 - (marker.start - left));
     }
     if (after !== undefined && !/\s/.test(after)) {
@@ -215,11 +226,7 @@ export function stripMarkers(text: string, drop: (marker: Marker) => boolean): s
  * space on whichever side needs one — the same spacing a fresh marker gets.
  * Returns the new text and where the caret belongs: right after the chip.
  */
-export function moveMarker(
-  text: string,
-  marker: Marker,
-  to: number,
-): { text: string; caret: number } {
+export function moveMarker(text: string, marker: Marker, to: number): { text: string; caret: number } {
   const word = text.slice(marker.start, marker.end);
   let cutEnd = marker.end;
   while (text[cutEnd] === " ") cutEnd += 1;

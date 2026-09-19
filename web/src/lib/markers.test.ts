@@ -25,7 +25,11 @@ describe("findMarkers", () => {
       ["image", 1, "[image #1]"],
       ["image", 2, img(2)],
     ]);
-    expect(findMarkers("[video #3] [file #4] [region #5]").map((m) => m.kind)).toEqual(["video", "file", "region"]);
+    expect(findMarkers("[video #3] [file #4] [region #5]").map((m) => m.kind)).toEqual([
+      "video",
+      "file",
+      "region",
+    ]);
   });
 
   test("a command is a chip once a space follows it", () => {

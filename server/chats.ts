@@ -8,7 +8,12 @@ import type { ContextUsage, PermissionRequest } from "../shared/protocol.js";
 import { BRIDGE_TOOLS, bridgeHttpBriefing, bridgeTools, bridgeToolBriefing } from "./bridge.js";
 import { sessionBriefing } from "./briefing.js";
 import { channelProject, ownerProject } from "./channel.js";
-import { COMPONENT_TOOLS, componentDropBriefing, componentTools, drainComponentRequests } from "./components.js";
+import {
+  COMPONENT_TOOLS,
+  componentDropBriefing,
+  componentTools,
+  drainComponentRequests,
+} from "./components.js";
 import type { ServerContext } from "./context.js";
 import { drainQueue, maybeRetry } from "./dispatch.js";
 import { recordEvent, redacted } from "./events.js";
@@ -22,7 +27,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
     {
       onEvent: (projectId, event) => {
         // the finished message carries its whole text — the held tail too
-        if (event.kind === "assistant" && ctx.turns.gates.get(projectId)?.messageId === event.id) ctx.turns.gates.delete(projectId);
+        if (event.kind === "assistant" && ctx.turns.gates.get(projectId)?.messageId === event.id)
+          ctx.turns.gates.delete(projectId);
         ctx.readable.allowReadImages(projectId, [event]);
         recordEvent(ctx, projectId, event);
         if (event.kind === "result") {
@@ -174,6 +180,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
   manager.useDefaultModel(() => ctx.store.defaultModel());
   // between turns a process stays for the chat open in a window, a prompt
   // queued behind the turn, or a retry about to go — for nothing else
-  manager.useKeepWarm((id) => ctx.clients.isOpen(id) || (ctx.queues.entries.get(id)?.length ?? 0) > 0 || ctx.retries.has(id));
+  manager.useKeepWarm(
+    (id) => ctx.clients.isOpen(id) || (ctx.queues.entries.get(id)?.length ?? 0) > 0 || ctx.retries.has(id),
+  );
   return manager;
 }

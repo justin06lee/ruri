@@ -40,15 +40,67 @@ function extOf(name: string): string {
 }
 
 const TEXT_EXT = new Set([
-  "txt", "md", "markdown", "csv", "tsv", "log", "json", "jsonl", "xml", "yml", "yaml", "toml",
-  "ini", "cfg", "conf", "env", "ts", "tsx", "js", "jsx", "mjs", "cjs", "css", "scss", "html",
-  "svg", "py", "rs", "go", "c", "h", "cpp", "hpp", "java", "kt", "swift", "rb", "php", "sh",
-  "zsh", "bash", "sql", "lock", "diff", "patch", "gitignore", "makefile",
+  "txt",
+  "md",
+  "markdown",
+  "csv",
+  "tsv",
+  "log",
+  "json",
+  "jsonl",
+  "xml",
+  "yml",
+  "yaml",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+  "env",
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "css",
+  "scss",
+  "html",
+  "svg",
+  "py",
+  "rs",
+  "go",
+  "c",
+  "h",
+  "cpp",
+  "hpp",
+  "java",
+  "kt",
+  "swift",
+  "rb",
+  "php",
+  "sh",
+  "zsh",
+  "bash",
+  "sql",
+  "lock",
+  "diff",
+  "patch",
+  "gitignore",
+  "makefile",
 ]);
 
 function isTextLike(name: string, mediaType?: string): boolean {
   if (mediaType?.startsWith("text/")) return true;
-  if (["application/json", "application/xml", "application/javascript", "application/x-sh", "application/x-yaml"].includes(mediaType ?? "")) return true;
+  if (
+    [
+      "application/json",
+      "application/xml",
+      "application/javascript",
+      "application/x-sh",
+      "application/x-yaml",
+    ].includes(mediaType ?? "")
+  )
+    return true;
   return TEXT_EXT.has(name.split(".").pop()?.toLowerCase() ?? name.toLowerCase());
 }
 
@@ -293,18 +345,39 @@ export function Viewer({
         <div className="viewer-head">
           <span className="viewer-label">{target.label}</span>
           {editable && (
-            <span className="viewer-hint">drag on the image to mark a region — its marker lands in your prompt</span>
+            <span className="viewer-hint">
+              drag on the image to mark a region — its marker lands in your prompt
+            </span>
           )}
           {onDraw && target.kind === "image" && (
-            <button className="viewer-draw" title="Draw on this picture — arrows, boxes, labels — and put it back" onClick={onDraw}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <button
+              className="viewer-draw"
+              title="Draw on this picture — arrows, boxes, labels — and put it back"
+              onClick={onDraw}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
               </svg>
               Draw on it
             </button>
           )}
           <button className="icon-button" title="Close" onClick={onClose}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden
+            >
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
@@ -364,7 +437,14 @@ export function Viewer({
                 <span className="region-index standalone">{r.n}</span>
                 <span className="region-marker">[region #{r.n}] is in your prompt</span>
                 <button className="icon-button" title="Remove region" onClick={() => removeRegion(i)}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    aria-hidden
+                  >
                     <path d="M6 6l12 12M18 6L6 18" />
                   </svg>
                 </button>
@@ -386,7 +466,15 @@ const SHORT_KIND = { image: "img", video: "vid", file: "file" } as const;
 function FileTile({ name }: { name: string }) {
   return (
     <div className="att-file">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
         <path d="M14 3v5h5M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" />
       </svg>
       <span className="att-ext">{extOf(name)}</span>
@@ -434,7 +522,14 @@ export function AttachmentStrip({
               onRemove(att.id);
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              aria-hidden
+            >
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
@@ -460,11 +555,7 @@ export function ToolImage({ image }: { image: { url: string; name: string } }) {
   if (gone) return null;
   return (
     <>
-      <button
-        className="tool-image"
-        title={`${image.name} — click to expand`}
-        onClick={() => setOpen(true)}
-      >
+      <button className="tool-image" title={`${image.name} — click to expand`} onClick={() => setOpen(true)}>
         <img src={src} alt={image.name} onError={() => setGone(true)} />
       </button>
       {open && (

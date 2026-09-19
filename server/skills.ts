@@ -219,11 +219,7 @@ export function updateSkills(projectDir?: string): Promise<string> {
  * already on screen above the body) and the rest is markdown, to be rendered
  * rather than shown as a file.
  */
-export function readSkill(
-  scope: "global" | "project",
-  projectDir: string | undefined,
-  name: string,
-): string {
+export function readSkill(scope: "global" | "project", projectDir: string | undefined, name: string): string {
   if (name.includes("/") || name.includes("..")) throw new Error("not a skill name");
   const where = dirs(scope, projectDir);
   if (!where) throw new Error("no project");

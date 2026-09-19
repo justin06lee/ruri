@@ -133,7 +133,10 @@ bystander.on("message", (raw) => {
   const msg = JSON.parse(String(raw)) as ServerMessage;
   if (!sessionId) return;
   if (msg.type === "event" && msg.projectId === sessionId) overheard.push(`event:${msg.event.kind}`);
-  else if ((msg.type === "delta" || msg.type === "turn" || msg.type === "agent_event") && msg.projectId === sessionId) {
+  else if (
+    (msg.type === "delta" || msg.type === "turn" || msg.type === "agent_event") &&
+    msg.projectId === sessionId
+  ) {
     overheard.push(msg.type);
   }
 });
@@ -149,7 +152,11 @@ ws.on("message", (raw) => {
     send({ type: "set_model", projectId: project.id, model: "haiku" });
     view([sessionId]);
     console.log(`[t] planting the word in ${sessionId}, with the chat open`);
-    send({ type: "send", projectId: sessionId, text: `Remember this word for later: ${WORD}. Reply with just "ok".` });
+    send({
+      type: "send",
+      projectId: sessionId,
+      text: `Remember this word for later: ${WORD}. Reply with just "ok".`,
+    });
   } else if (msg.type === "event" && msg.projectId === sessionId) {
     events.push(msg.event);
     if (msg.event.kind === "assistant" && phase === "ask") reply += msg.event.text;
@@ -168,7 +175,8 @@ async function afterPlant(): Promise<void> {
     "and nothing of the work in between",
     overheard.every((kind) => kind === "event:result"),
   );
-  if (!overheard.every((kind) => kind === "event:result")) console.log(`[t] overheard: ${overheard.join(", ")}`);
+  if (!overheard.every((kind) => kind === "event:result"))
+    console.log(`[t] overheard: ${overheard.join(", ")}`);
   console.log("[t] leaving the chat");
   view([]);
   check("leaving it closes the idle process at once", await until(() => claudes() === 0, GRACE_MS + 8000));
@@ -179,7 +187,11 @@ async function afterPlant(): Promise<void> {
   phase = "ask";
   console.log("[t] opening the chat again and asking for the word back");
   view([sessionId!]);
-  send({ type: "send", projectId: sessionId!, text: "What was the word I asked you to remember? Reply with just the word." });
+  send({
+    type: "send",
+    projectId: sessionId!,
+    text: "What was the word I asked you to remember? Reply with just the word.",
+  });
 }
 
 async function afterAsk(): Promise<void> {

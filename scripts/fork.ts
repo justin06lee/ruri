@@ -22,7 +22,13 @@ const WORD = "pineapple";
 const root = path.join(import.meta.dirname, "..");
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: root,
-  env: { ...process.env, RURI_PORT: String(PORT), RURI_TOKEN: TOKEN, RURI_CONFIG_DIR: configDir, RURI_NO_MEMORY: "1" },
+  env: {
+    ...process.env,
+    RURI_PORT: String(PORT),
+    RURI_TOKEN: TOKEN,
+    RURI_CONFIG_DIR: configDir,
+    RURI_NO_MEMORY: "1",
+  },
   stdio: ["ignore", "pipe", "inherit"],
 });
 server.stdout.on("data", (d: Buffer) => process.stdout.write(`[server] ${d}`));
@@ -104,7 +110,8 @@ ws.on("message", (raw) => {
       const list = transcripts.get(msg.projectId) ?? [];
       list.push(msg.event);
       transcripts.set(msg.projectId, list);
-      if (msg.event.kind === "user" && msg.projectId === originalId && !promptEventId) promptEventId = msg.event.id;
+      if (msg.event.kind === "user" && msg.projectId === originalId && !promptEventId)
+        promptEventId = msg.event.id;
       if (msg.event.kind === "assistant" && msg.projectId === forkId) forkReply += msg.event.text;
       if (msg.event.kind !== "result") break;
       if (phase === "plant" && msg.projectId === originalId) {
@@ -116,9 +123,15 @@ ws.on("message", (raw) => {
         const fork = transcripts.get(forkId!) ?? [];
         const checks = [
           [`fork remembers the word`, forkReply.toLowerCase().includes(WORD)],
-          [`fork's transcript holds the planted exchange first`, fork[0]?.kind === "user" && fork[0].text.includes(WORD)],
+          [
+            `fork's transcript holds the planted exchange first`,
+            fork[0]?.kind === "user" && fork[0].text.includes(WORD),
+          ],
           [`fork's transcript grew by its own exchange`, fork.filter((e) => e.kind === "user").length === 2],
-          [`original untouched (one exchange, no fork traffic)`, original.filter((e) => e.kind === "user").length === 1],
+          [
+            `original untouched (one exchange, no fork traffic)`,
+            original.filter((e) => e.kind === "user").length === 1,
+          ],
         ] as const;
         let failed = 0;
         for (const [name, ok] of checks) {

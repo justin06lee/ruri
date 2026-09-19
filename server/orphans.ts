@@ -31,13 +31,18 @@ export function sweepOrphans(): number {
   const sessions = new Set<string>();
   for (const project of data.projects ?? []) {
     if (typeof project.id === "string") projects.add(project.id);
-    for (const session of project.sessions ?? []) if (typeof session.id === "string") sessions.add(session.id);
+    for (const session of project.sessions ?? [])
+      if (typeof session.id === "string") sessions.add(session.id);
   }
   if (projects.size === 0) return 0;
 
   const cutoff = Date.now() - RECENT_MS;
   let removed = 0;
-  const sweep = (dir: string, idOf: (name: string) => string | undefined, known: (id: string) => boolean): void => {
+  const sweep = (
+    dir: string,
+    idOf: (name: string) => string | undefined,
+    known: (id: string) => boolean,
+  ): void => {
     let names: string[];
     try {
       names = fs.readdirSync(path.join(root, dir));
@@ -65,6 +70,10 @@ export function sweepOrphans(): number {
   sweep("history", lead, isSession);
   sweep("turns", lead, isSession);
   sweep("bridge", lead, isSession);
-  sweep("checkpoints", (name) => (name.endsWith(".index") ? lead(name) : undefined), (id) => sessions.has(id) || projects.has(id));
+  sweep(
+    "checkpoints",
+    (name) => (name.endsWith(".index") ? lead(name) : undefined),
+    (id) => sessions.has(id) || projects.has(id),
+  );
   return removed;
 }

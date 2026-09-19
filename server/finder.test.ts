@@ -31,12 +31,18 @@ afterAll(() => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-const names = (query: string, limit?: number) => findProjects([root], query, limit).map((f) => path.relative(root, f.path));
+const names = (query: string, limit?: number) =>
+  findProjects([root], query, limit).map((f) => path.relative(root, f.path));
 
 describe("findProjects", () => {
   test("the exact name first, a project ahead of a plain folder of the same name", () => {
     const found = findProjects([root], "hifz");
-    expect(found[0]).toMatchObject({ name: "hifz", score: 100, project: true, path: path.join(root, "github.com/me/hifz") });
+    expect(found[0]).toMatchObject({
+      name: "hifz",
+      score: 100,
+      project: true,
+      path: path.join(root, "github.com/me/hifz"),
+    });
     expect(found[1]).toMatchObject({ name: "hifz", score: 100, project: false });
   });
 

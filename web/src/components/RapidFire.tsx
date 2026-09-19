@@ -42,10 +42,9 @@ function line(): { ids: string[]; ready: string[] } {
   const { statuses } = useRuri.getState();
   // hidden projects are out of the line, as they are out of the sidebar
   const projects = useRuri.getState().projects.filter((p) => !p.hidden);
-  const ids = [
-    ...projects.filter((p) => p.starred),
-    ...projects.filter((p) => !p.starred),
-  ].flatMap((project) => project.sessions.map((session) => session.id));
+  const ids = [...projects.filter((p) => p.starred), ...projects.filter((p) => !p.starred)].flatMap(
+    (project) => project.sessions.map((session) => session.id),
+  );
   return { ids, ready: ids.filter((id) => (statuses[id] ?? "idle") !== "working") };
 }
 
@@ -79,10 +78,7 @@ function repick(current: string | undefined): string | undefined {
   if (current && ready.includes(current)) return current;
   // entering the line from a session that could take a prompt starts there
   const activeId = useRuri.getState().activeId;
-  const next =
-    current === undefined && activeId && ready.includes(activeId)
-      ? activeId
-      : nextAfter(current);
+  const next = current === undefined && activeId && ready.includes(activeId) ? activeId : nextAfter(current);
   // nobody else waiting: stay on this one and watch it finish
   return next ?? current;
 }
@@ -221,9 +217,7 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
     const box = pane?.querySelector(".composer-box");
     if (!bar || !pane || !box) return;
     const align = () => {
-      const inset = Math.round(
-        pane.getBoundingClientRect().right - box.getBoundingClientRect().right,
-      );
+      const inset = Math.round(pane.getBoundingClientRect().right - box.getBoundingClientRect().right);
       bar.style.setProperty("--rapid-inset", `${inset}px`);
     };
     align();
@@ -239,8 +233,7 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
           surface under it the conversation reads straight through the text */}
       <div className="rapid-plate">
         <span className="rapid-count">
-          <span className="rapid-lead">rapid fire</span> · {rapid.ready} ready · {rapid.working}{" "}
-          working
+          <span className="rapid-lead">rapid fire</span> · {rapid.ready} ready · {rapid.working} working
         </span>
         {rapid.ready > 1 && (
           <button
@@ -249,13 +242,28 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
             onClick={() => rapid.advance("skip")}
           >
             skip
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>
           </button>
         )}
         <button className="icon-button" title="Leave rapid fire" onClick={() => setRapid(false)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden
+          >
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>

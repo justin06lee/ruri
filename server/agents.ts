@@ -164,11 +164,13 @@ export class Crew {
     try {
       const raw = JSON.parse(fs.readFileSync(this.file(chatId), "utf8")) as unknown;
       if (Array.isArray(raw)) {
-        members = (raw as CrewMember[]).map(
-          (member): CrewMember =>
-            member.agent.status === "running"
-              ? { ...member, agent: { ...member.agent, status: "stopped", endedAt: member.agent.endedAt ?? Date.now() } }
-              : member,
+        members = (raw as CrewMember[]).map((member): CrewMember =>
+          member.agent.status === "running"
+            ? {
+                ...member,
+                agent: { ...member.agent, status: "stopped", endedAt: member.agent.endedAt ?? Date.now() },
+              }
+            : member,
         );
       }
     } catch (err) {

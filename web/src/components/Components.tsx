@@ -166,7 +166,14 @@ function Card({ projectId, item }: { projectId: string; item: NamedComponent }) 
           title="Forget this one"
           onClick={() => send({ type: "component_remove", projectId, componentId: item.id })}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden
+          >
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
@@ -234,7 +241,14 @@ function Card({ projectId, item }: { projectId: string; item: NamedComponent }) 
                 send({ type: "component_unshot", projectId, componentId: item.id, shotId: shot.id })
               }
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                aria-hidden
+              >
                 <path d="M6 6l12 12M18 6L6 18" />
               </svg>
             </button>
@@ -250,7 +264,14 @@ function Card({ projectId, item }: { projectId: string; item: NamedComponent }) 
               e.target.value = "";
             }}
           />
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden
+          >
             <path d="M12 5v14M5 12h14" />
           </svg>
         </label>
@@ -299,8 +320,16 @@ function CatchupLine({ projectId }: { projectId: string }) {
   const note = state?.note && !noteStale ? state.note : undefined;
   return (
     <div className="board-foot catchup-line">
-      The catch-up brief in <code>.ruri/catchup.md</code> — what this project is, the stack, how to
-      run it, where things are — {note ? <span className="catchup-note">{note}</span> : <>last read from the repo <b>{since(state?.built)}</b></>}.
+      The catch-up brief in <code>.ruri/catchup.md</code> — what this project is, the stack, how to run it,
+      where things are —{" "}
+      {note ? (
+        <span className="catchup-note">{note}</span>
+      ) : (
+        <>
+          last read from the repo <b>{since(state?.built)}</b>
+        </>
+      )}
+      .
       <button
         className="catchup-rebuild"
         disabled={busy}
@@ -364,12 +393,11 @@ export function Components({ projectId }: { projectId: string }) {
         <div className="comp-list">
           {items.length === 0 && (
             <div className="board-empty">
-              Nothing named yet. Entries arrive on their own — when a session builds a piece of
-              this project's interface it says so, and a card comes up in the chat with a suggested
-              name; whatever you change it to is what it's called from then on. For everything
-              that was already here before any of that, <b>Name everything</b> reads the repo,
-              names what it finds, and takes a picture of each one it can open. Whatever it gets
-              wrong, correct here.
+              Nothing named yet. Entries arrive on their own — when a session builds a piece of this project's
+              interface it says so, and a card comes up in the chat with a suggested name; whatever you change
+              it to is what it's called from then on. For everything that was already here before any of that,{" "}
+              <b>Name everything</b> reads the repo, names what it finds, and takes a picture of each one it
+              can open. Whatever it gets wrong, correct here.
             </div>
           )}
           {items.map((item) => (
@@ -379,8 +407,8 @@ export function Components({ projectId }: { projectId: string }) {
 
         {items.length > 0 && (
           <div className="board-foot">
-            Written to <code>.ruri/components.md</code> in the project, and handed to the model
-            whenever a prompt names one.
+            Written to <code>.ruri/components.md</code> in the project, and handed to the model whenever a
+            prompt names one.
           </div>
         )}
         <CatchupLine projectId={projectId} />

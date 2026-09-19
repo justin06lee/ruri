@@ -125,7 +125,9 @@ ws.on("message", (raw) => {
       if (e.kind === "user" && !promptId) promptId = e.id;
       if (e.kind === "tool") {
         tools.push(e);
-        console.log(`[t] chip ${e.name} — ${e.summary.slice(0, 60)}${e.diff ? ` (+${e.diff.added} −${e.diff.removed})` : ""}`);
+        console.log(
+          `[t] chip ${e.name} — ${e.summary.slice(0, 60)}${e.diff ? ` (+${e.diff.added} −${e.diff.removed})` : ""}`,
+        );
       }
       if (e.kind === "result" && phase === "run") {
         if (e.error) console.log(`[t] turn error: ${e.error}`);
@@ -173,7 +175,9 @@ function check(): void {
   const firstTool = order.indexOf("tool");
   const firstAssistant = order.indexOf("assistant");
   const ordered = firstTool === -1 || (firstAssistant !== -1 && firstAssistant < firstTool);
-  console.log(`\ncontext at turn's end: ${JSON.stringify(turnContext)}; after the rewind: ${JSON.stringify(context)}`);
+  console.log(
+    `\ncontext at turn's end: ${JSON.stringify(turnContext)}; after the rewind: ${JSON.stringify(context)}`,
+  );
   console.log(`${HARNESS} limits: ${JSON.stringify(limits)}`);
   console.log(`event order: ${order.join(" → ")}`);
   console.log(

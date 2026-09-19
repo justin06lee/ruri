@@ -138,7 +138,11 @@ function store(key: string, state: PadState): void {
   pads.set(key, state);
   try {
     if (state.shapes.length === 0 && !state.name) localStorage.removeItem(`ruri:sketch:${key}`);
-    else localStorage.setItem(`ruri:sketch:${key}`, JSON.stringify({ shapes: state.shapes, name: state.name, size: state.size }));
+    else
+      localStorage.setItem(
+        `ruri:sketch:${key}`,
+        JSON.stringify({ shapes: state.shapes, name: state.name, size: state.size }),
+      );
   } catch {
     // a full store loses nothing the window still holds
   }
@@ -179,11 +183,21 @@ function bounds(shape: Shape): { x: number; y: number; w: number; h: number } {
     }
     case "rect":
     case "ellipse":
-      return { x: Math.min(shape.x, shape.x + shape.w), y: Math.min(shape.y, shape.y + shape.h), w: Math.abs(shape.w), h: Math.abs(shape.h) };
+      return {
+        x: Math.min(shape.x, shape.x + shape.w),
+        y: Math.min(shape.y, shape.y + shape.h),
+        w: Math.abs(shape.w),
+        h: Math.abs(shape.h),
+      };
     case "text": {
       const lines = shape.text.split("\n");
       const longest = Math.max(...lines.map((line) => line.length));
-      return { x: shape.x, y: shape.y - shape.size, w: longest * shape.size * 0.6, h: lines.length * shape.size * LINE };
+      return {
+        x: shape.x,
+        y: shape.y - shape.size,
+        w: longest * shape.size * 0.6,
+        h: lines.length * shape.size * LINE,
+      };
     }
   }
 }
@@ -243,7 +257,15 @@ function draw(ctx: CanvasRenderingContext2D, shape: Shape): void {
       break;
     case "ellipse":
       ctx.beginPath();
-      ctx.ellipse(shape.x + shape.w / 2, shape.y + shape.h / 2, Math.abs(shape.w / 2), Math.abs(shape.h / 2), 0, 0, Math.PI * 2);
+      ctx.ellipse(
+        shape.x + shape.w / 2,
+        shape.y + shape.h / 2,
+        Math.abs(shape.w / 2),
+        Math.abs(shape.h / 2),
+        0,
+        0,
+        Math.PI * 2,
+      );
       ctx.stroke();
       break;
   }
@@ -252,7 +274,15 @@ function draw(ctx: CanvasRenderingContext2D, shape: Shape): void {
 
 function Icon({ d }: { d: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <path d={d} />
     </svg>
   );
@@ -289,7 +319,9 @@ export function Sketch({
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [size, setSize] = useState(kept?.size ?? BLANK);
   const [name, setName] = useState(background?.name ?? kept?.name ?? "");
-  const [pictureUrl, setPictureUrl] = useState<string | undefined>((kept as PadState | undefined)?.pictureUrl);
+  const [pictureUrl, setPictureUrl] = useState<string | undefined>(
+    (kept as PadState | undefined)?.pictureUrl,
+  );
   /** The text box, open. Its last font and size are remembered for the next. */
   const [writing, setWriting] = useState<TextDraft | null>(null);
   const [fontRow, setFontRow] = useState(false);
@@ -324,7 +356,15 @@ export function Sketch({
   const hanging = useMemo<Shape | null>(
     () =>
       placing && placeAt
-        ? { kind: "text", x: placeAt[0], y: placeAt[1] + placing.size * 0.35, text: placing.text, color, size: placing.size, font: placing.font }
+        ? {
+            kind: "text",
+            x: placeAt[0],
+            y: placeAt[1] + placing.size * 0.35,
+            text: placing.text,
+            color,
+            size: placing.size,
+            font: placing.font,
+          }
         : null,
     [placing, placeAt, color],
   );
@@ -402,7 +442,15 @@ export function Sketch({
     const [x, y] = at(e);
     if (placing) {
       // the click that stamps the words
-      commit({ kind: "text", x, y: y + placing.size * 0.35, text: placing.text, color, size: placing.size, font: placing.font });
+      commit({
+        kind: "text",
+        x,
+        y: y + placing.size * 0.35,
+        text: placing.text,
+        color,
+        size: placing.size,
+        font: placing.font,
+      });
       setPlacing(null);
       setPlaceAt(null);
       return;
@@ -507,7 +555,15 @@ export function Sketch({
         if (placing) openText(placing.text);
         return;
       }
-      const byKey: Record<string, Tool> = { p: "pen", a: "arrow", l: "line", r: "rect", e: "ellipse", t: "text", x: "erase" };
+      const byKey: Record<string, Tool> = {
+        p: "pen",
+        a: "arrow",
+        l: "line",
+        r: "rect",
+        e: "ellipse",
+        t: "text",
+        x: "erase",
+      };
       const pick = byKey[e.key.toLowerCase()];
       if (pick) {
         // T opens the text box, and the box takes focus before the key's
@@ -585,10 +641,22 @@ export function Sketch({
           </button>
         ))}
         <span className="sketch-sep" />
-        <button type="button" className="icon-button" title="Undo (⌘Z)" disabled={history.length === 0} onClick={undo}>
+        <button
+          type="button"
+          className="icon-button"
+          title="Undo (⌘Z)"
+          disabled={history.length === 0}
+          onClick={undo}
+        >
           <Icon d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-4" />
         </button>
-        <button type="button" className="icon-button" title="Clear the pad" disabled={shapes.length === 0} onClick={clear}>
+        <button
+          type="button"
+          className="icon-button"
+          title="Clear the pad"
+          disabled={shapes.length === 0}
+          onClick={clear}
+        >
           <Icon d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
         </button>
         <label className="icon-button sketch-open" title="Open a picture to draw on">
@@ -596,10 +664,20 @@ export function Sketch({
           <input type="file" accept="image/*" onChange={(e) => openPicture(e.target.files)} />
         </label>
         <span className="sketch-name">{name || "a sketch"}</span>
-        <button type="button" className="primary sketch-attach" title="Put it in the prompt as an image" onClick={attach}>
+        <button
+          type="button"
+          className="primary sketch-attach"
+          title="Put it in the prompt as an image"
+          onClick={attach}
+        >
           {background?.id ? "Put it back" : "Attach"}
         </button>
-        <button type="button" className="icon-button" title="Close the pad — the drawing is kept" onClick={onClose}>
+        <button
+          type="button"
+          className="icon-button"
+          title="Close the pad — the drawing is kept"
+          onClick={onClose}
+        >
           <Icon d="M6 6l12 12M18 6L6 18" />
         </button>
       </div>
@@ -624,16 +702,23 @@ export function Sketch({
         )}
       </div>
       {writing && (
-        <div className="confirm-overlay sketch-text-overlay" onMouseDown={(e) => {
-          if (e.target === e.currentTarget) setWriting(null);
-        }}>
+        <div
+          className="confirm-overlay sketch-text-overlay"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setWriting(null);
+          }}
+        >
           <div className="confirm-card sketch-text-card">
             <textarea
               className="sketch-text-box"
               autoFocus
               rows={5}
               placeholder="What to write on the pad…"
-              style={{ fontFamily: writingFont.family, fontSize: Math.round(Math.max(14, Math.min(34, writingSize.px * 0.75))), color }}
+              style={{
+                fontFamily: writingFont.family,
+                fontSize: Math.round(Math.max(14, Math.min(34, writingSize.px * 0.75))),
+                color,
+              }}
               value={writing.value}
               onChange={(e) => setWriting({ ...writing, value: e.target.value })}
               onKeyDown={(e) => {

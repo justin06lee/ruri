@@ -145,7 +145,12 @@ function convert(node: ChildNode, ctx: Ctx): string {
     case "BLOCKQUOTE": {
       const body = inner(node, ctx).trim();
       if (!body) return "";
-      return block(body.split("\n").map((line) => (line ? `> ${line}` : ">")).join("\n"));
+      return block(
+        body
+          .split("\n")
+          .map((line) => (line ? `> ${line}` : ">"))
+          .join("\n"),
+      );
     }
     case "LI": {
       const body = inner(node, ctx).trim();

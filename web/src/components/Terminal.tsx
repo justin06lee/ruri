@@ -62,15 +62,7 @@ const lastTab = new Map<string, string>();
  * back is instantaneous and a long-running command keeps drawing while you
  * are looking at another one.
  */
-function TerminalView({
-  channelId,
-  termId,
-  shown,
-}: {
-  channelId: string;
-  termId: string;
-  shown: boolean;
-}) {
+function TerminalView({ channelId, termId, shown }: { channelId: string; termId: string; shown: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Xterm | null>(null);
 
@@ -212,11 +204,7 @@ export function TerminalPanel({ channelId }: { channelId: string }) {
       <div className="term-tabs">
         {open.map((id, index) => (
           <span key={id} className={`term-tab ${id === active ? "on" : ""}`}>
-            <button
-              className="term-tab-name"
-              title={`Shell ${index + 1}`}
-              onClick={() => setActive(id)}
-            >
+            <button className="term-tab-name" title={`Shell ${index + 1}`} onClick={() => setActive(id)}>
               {index + 1}
             </button>
             <button
@@ -224,7 +212,14 @@ export function TerminalPanel({ channelId }: { channelId: string }) {
               title="Close this shell"
               onClick={() => send({ type: "terminal_close", projectId: channelId, termId: id })}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                aria-hidden
+              >
                 <path d="M7 7l10 10M17 7L7 17" />
               </svg>
             </button>
@@ -235,7 +230,14 @@ export function TerminalPanel({ channelId }: { channelId: string }) {
           title="A new shell in this project"
           onClick={() => send({ type: "terminal_new", projectId: channelId })}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            aria-hidden
+          >
             <path d="M12 5v14M5 12h14" />
           </svg>
         </button>

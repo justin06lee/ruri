@@ -6,7 +6,13 @@
  * helper takes it as its first argument.
  */
 import type { WebSocket } from "ws";
-import type { ComponentProposal, PermissionId, PermissionRequest, PermissionState, TccRow } from "../shared/protocol.js";
+import type {
+  ComponentProposal,
+  PermissionId,
+  PermissionRequest,
+  PermissionState,
+  TccRow,
+} from "../shared/protocol.js";
 import type { AgentLogs, Crew } from "./agents.js";
 import type { SessionArchive } from "./archive.js";
 import type { BridgeHost } from "./bridge.js";

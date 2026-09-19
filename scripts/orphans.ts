@@ -17,7 +17,10 @@ const live = "11111111-1111-4111-8111-111111111111";
 const gone = "22222222-2222-4222-8222-222222222222";
 const fresh = "33333333-3333-4333-8333-333333333333";
 const project = "44444444-4444-4444-8444-444444444444";
-fs.writeFileSync(path.join(root, "projects.json"), JSON.stringify({ projects: [{ id: project, sessions: [{ id: live }] }] }));
+fs.writeFileSync(
+  path.join(root, "projects.json"),
+  JSON.stringify({ projects: [{ id: project, sessions: [{ id: live }] }] }),
+);
 const old = new Date(Date.now() - 24 * 60 * 60 * 1000);
 function put(rel: string, dir = false, recent = false): string {
   const full = path.join(root, rel);
@@ -26,8 +29,21 @@ function put(rel: string, dir = false, recent = false): string {
   if (!recent) fs.utimesSync(full, old, old);
   return full;
 }
-const keep = [put(`sessions/${live}.json`), put(`history/${live}.jsonl`), put(`turns/${live}`, true), put("sessions/home.json"), put(`checkpoints/${project}.index`), put(`sessions/${fresh}.json`, false, true)];
-const drop = [put(`sessions/${gone}.json`), put(`history/${gone}.jsonl`), put(`turns/${gone}`, true), put(`bridge/${gone}`, true), put(`checkpoints/${gone}.index`)];
+const keep = [
+  put(`sessions/${live}.json`),
+  put(`history/${live}.jsonl`),
+  put(`turns/${live}`, true),
+  put("sessions/home.json"),
+  put(`checkpoints/${project}.index`),
+  put(`sessions/${fresh}.json`, false, true),
+];
+const drop = [
+  put(`sessions/${gone}.json`),
+  put(`history/${gone}.jsonl`),
+  put(`turns/${gone}`, true),
+  put(`bridge/${gone}`, true),
+  put(`checkpoints/${gone}.index`),
+];
 
 const removed = sweepOrphans();
 let failed = 0;
@@ -36,9 +52,15 @@ const check = (name: string, ok: boolean) => {
   if (!ok) failed += 1;
 };
 check("a closed session's files all go", drop.every((f) => !fs.existsSync(f)) && removed === drop.length);
-check("a live session, its project, Home, and a fresh file stay", keep.every((f) => fs.existsSync(f)));
+check(
+  "a live session, its project, Home, and a fresh file stay",
+  keep.every((f) => fs.existsSync(f)),
+);
 fs.writeFileSync(path.join(root, "projects.json"), "{ not json");
-check("an unreadable projects.json removes nothing", sweepOrphans() === 0 && keep.every((f) => fs.existsSync(f)));
+check(
+  "an unreadable projects.json removes nothing",
+  sweepOrphans() === 0 && keep.every((f) => fs.existsSync(f)),
+);
 
 fs.rmSync(root, { recursive: true, force: true });
 if (failed) {

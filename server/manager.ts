@@ -30,12 +30,7 @@ export function homeProject(workspaceDir: string, settings: HomeSettings = {}): 
 
 /** What the manager's MCP tools are allowed to do to the app. */
 export interface ManagerHost {
-  openProject(input: {
-    path: string;
-    name?: string;
-    folder?: string;
-    kickoffPrompt?: string;
-  }): string;
+  openProject(input: { path: string; name?: string; folder?: string; kickoffPrompt?: string }): string;
   /** Make a folder of that name under the workspace root and open it. */
   newProject(name: string): string;
   /** Tuck an open project (by name, path, or id) under the sidebar's
@@ -51,7 +46,6 @@ export interface ManagerHost {
    *  said, best first (see server/finder.ts). */
   findProjects(query: string): FoundProject[];
 }
-
 
 /** The shared note about the programmatic activity log (see homelog.ts). */
 function logNote(logPath: string): string {
@@ -225,10 +219,7 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
                 type: "text",
                 text:
                   found
-                    .map(
-                      (f) =>
-                        `${f.path}${f.project ? "  [project]" : ""}  (match ${f.score})`,
-                    )
+                    .map((f) => `${f.path}${f.project ? "  [project]" : ""}  (match ${f.score})`)
                     .join("\n") || `nothing under the workspace is called anything like "${args.name}"`,
               },
             ],
@@ -272,7 +263,10 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
             text:
               host
                 .listProjects()
-                .map((p) => `${p.name} (${p.path})${p.folder ? ` [${p.folder}]` : ""}${p.hidden ? "  [hidden]" : ""}`)
+                .map(
+                  (p) =>
+                    `${p.name} (${p.path})${p.folder ? ` [${p.folder}]` : ""}${p.hidden ? "  [hidden]" : ""}`,
+                )
                 .join("\n") || "(no projects open)",
           },
         ],

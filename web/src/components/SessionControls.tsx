@@ -82,7 +82,7 @@ export function SessionControls({
     label: m.displayName,
   }));
   const pickModel = (model: string) => send({ type: "set_model", projectId: channelId, model });
-  const effortValue = supportedEffort ? pickedEffort : fallbackEffort ?? pickedEffort;
+  const effortValue = supportedEffort ? pickedEffort : (fallbackEffort ?? pickedEffort);
   const pickEffort = (effort: string) => send({ type: "set_effort", projectId: channelId, effort });
   const pickMode = (mode: string) =>
     send({ type: "set_permission_mode", projectId: channelId, mode: mode as PermissionMode });
@@ -97,7 +97,15 @@ export function SessionControls({
           onSelect={pickModel}
           subs={[
             ...(effortOptions.length > 0
-              ? [{ key: "effort", label: "Effort level", value: effortValue, options: effortOptions, onSelect: pickEffort }]
+              ? [
+                  {
+                    key: "effort",
+                    label: "Effort level",
+                    value: effortValue,
+                    options: effortOptions,
+                    onSelect: pickEffort,
+                  },
+                ]
               : []),
             ...(canSetPermissions
               ? [

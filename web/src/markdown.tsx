@@ -18,7 +18,10 @@ function onClick(
   const target = e.target as HTMLElement;
   if (target instanceof HTMLImageElement && onPicture) {
     e.preventDefault();
-    onPicture({ src: target.currentSrc || target.src, name: target.alt || target.src.split("/").pop() || "picture" });
+    onPicture({
+      src: target.currentSrc || target.src,
+      name: target.alt || target.src.split("/").pop() || "picture",
+    });
     return;
   }
   const button = target.closest(".code-copy");
@@ -55,7 +58,11 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return (
     <>
       {/* sanitised by DOMPurify (lib/markdownHtml.ts) */}
-      <div className="md" onClick={(e) => onClick(e, timers, setPicture)} dangerouslySetInnerHTML={{ __html: html }} />
+      <div
+        className="md"
+        onClick={(e) => onClick(e, timers, setPicture)}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
       {picture && (
         <Viewer
           target={{ kind: "image", src: picture.src, label: picture.name, name: picture.name }}
@@ -80,6 +87,7 @@ export function StreamingMarkdown({ text }: { text: string }) {
   const html = useMemo(() => markdownHtml(text), [text]);
   const timers = useCopyTimers();
   // sanitised by DOMPurify (lib/markdownHtml.ts)
-  return <div className="md" onClick={(e) => onClick(e, timers)} dangerouslySetInnerHTML={{ __html: html }} />;
+  return (
+    <div className="md" onClick={(e) => onClick(e, timers)} dangerouslySetInnerHTML={{ __html: html }} />
+  );
 }
-

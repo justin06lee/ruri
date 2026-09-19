@@ -1,13 +1,27 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { DEFAULT_EFFORT, HOME_ID, type Project, type SessionInfo, type TranscriptEvent } from "../../../shared/protocol";
+import {
+  DEFAULT_EFFORT,
+  HOME_ID,
+  type Project,
+  type SessionInfo,
+  type TranscriptEvent,
+} from "../../../shared/protocol";
 import { heroFor, heroUrl, launchHero } from "../hero";
 import { beat } from "../lib/beat";
 import { spinStar } from "../lib/spin";
 import { StreamingMarkdown } from "../markdown";
 import { heroFrame } from "../peek";
 import { getPref, setPref } from "../prefs";
-import { closeAgent, ensureTranscript, openAgent, requestHistory, send, useRuri, watchChannel } from "../store";
+import {
+  closeAgent,
+  ensureTranscript,
+  openAgent,
+  requestHistory,
+  send,
+  useRuri,
+  watchChannel,
+} from "../store";
 import { AgentsPage } from "./AgentsPage";
 import { BridgeStrip } from "./Bridge";
 import { Icon, TOOL_ICONS } from "./chat/Icon";
@@ -137,7 +151,9 @@ export function ChatPane({
   }, [activeId]);
 
   // Native-picker results land here (always mounted) and route by target.
-  const { picked, clearPicked } = useRuri(useShallow((s) => ({ picked: s.picked, clearPicked: s.clearPicked })));
+  const { picked, clearPicked } = useRuri(
+    useShallow((s) => ({ picked: s.picked, clearPicked: s.clearPicked })),
+  );
   useEffect(() => {
     if (!picked) return;
     send(
@@ -183,27 +199,38 @@ function ChatView({
 }) {
   const pane = (base: string) => paneClass(base, rapid);
   // everything the store keeps per chat, in one read
-  const { transcript, draft, status, summaries, queuedItems, queueHeld, turn, crewAgents, trackerItems, earlier, history } =
-    useRuri(
-      useShallow((s) => ({
-        transcript: s.transcripts[activeId] ?? NO_EVENTS,
-        draft: s.drafts[activeId],
-        status: s.statuses[activeId] ?? "idle",
-        summaries: s.summaries[activeId] ?? NO_SUMMARIES,
-        queuedItems: s.queued[activeId] ?? NO_QUEUED,
-        queueHeld: s.queueHeld[activeId] === true,
-        turn: s.turns[activeId],
-        crewAgents: s.crew[activeId],
-        trackerItems: s.tracker[activeId],
-        // What a compaction left behind it: the live transcript opens on
-        // the newest mark, and the exchanges before it come with it as an
-        // outline (`earlier`) — shown above the mark, each folded to its
-        // notes and opening on a click. Opening one (or an older mark's
-        // brief) is what fetches the history's bodies.
-        earlier: s.earlier[activeId] ?? NO_EARLIER,
-        history: s.history[activeId],
-      })),
-    );
+  const {
+    transcript,
+    draft,
+    status,
+    summaries,
+    queuedItems,
+    queueHeld,
+    turn,
+    crewAgents,
+    trackerItems,
+    earlier,
+    history,
+  } = useRuri(
+    useShallow((s) => ({
+      transcript: s.transcripts[activeId] ?? NO_EVENTS,
+      draft: s.drafts[activeId],
+      status: s.statuses[activeId] ?? "idle",
+      summaries: s.summaries[activeId] ?? NO_SUMMARIES,
+      queuedItems: s.queued[activeId] ?? NO_QUEUED,
+      queueHeld: s.queueHeld[activeId] === true,
+      turn: s.turns[activeId],
+      crewAgents: s.crew[activeId],
+      trackerItems: s.tracker[activeId],
+      // What a compaction left behind it: the live transcript opens on
+      // the newest mark, and the exchanges before it come with it as an
+      // outline (`earlier`) — shown above the mark, each folded to its
+      // notes and opening on a click. Opening one (or an older mark's
+      // brief) is what fetches the history's bodies.
+      earlier: s.earlier[activeId] ?? NO_EARLIER,
+      history: s.history[activeId],
+    })),
+  );
   const allPermissions = useRuri((s) => s.permissions);
   const permissions = allPermissions.filter((p) => p.projectId === activeId);
   const { lastError, dismissError } = useRuri(
@@ -214,8 +241,12 @@ function ChatView({
   // page: the ones still working first, then the newest.
   const agents = useMemo(
     () =>
-      [...transcript.flatMap((e) => (e.kind === "tool" && e.agent ? [e.agent] : [])), ...(crewAgents ?? [])].sort(
-        (a, b) => Number(b.status === "running") - Number(a.status === "running") || b.startedAt - a.startedAt,
+      [
+        ...transcript.flatMap((e) => (e.kind === "tool" && e.agent ? [e.agent] : [])),
+        ...(crewAgents ?? []),
+      ].sort(
+        (a, b) =>
+          Number(b.status === "running") - Number(a.status === "running") || b.startedAt - a.startedAt,
       ),
     [transcript, crewAgents],
   );
@@ -266,13 +297,18 @@ function ChatView({
   // the prompt lands in the composer, exactly as it was written. Editing it
   // is then just typing; nothing sends until you press send. Claude sessions
   // only (file checkpoints), and only while nothing is running.
-  const { models, defaultModel } = useRuri(useShallow((s) => ({ models: s.models, defaultModel: s.defaultModel })));
+  const { models, defaultModel } = useRuri(
+    useShallow((s) => ({ models: s.models, defaultModel: s.defaultModel })),
+  );
   const [rewindTarget, setRewindTarget] = useState<{ id: string; text: string } | null>(null);
 
   // The sketch pad takes the pane, like a page — blank, or on a picture
   // from the composer's strip. Leaving the channel leaves the pad.
   const [sketch, setSketch] = useState<{ background?: SketchBackground } | null>(null);
-  const openSketch = useCallback((background?: SketchBackground) => setSketch(background ? { background } : {}), []);
+  const openSketch = useCallback(
+    (background?: SketchBackground) => setSketch(background ? { background } : {}),
+    [],
+  );
 
   /**
    * How much of the transcript is on screen. A long session is hundreds of
@@ -491,10 +527,7 @@ function ChatView({
   // every token of a streaming reply, or every scroll that re-measures.
   const allTurns = useMemo(() => groupTurns(transcript), [transcript]);
   const shownTurns = useMemo(
-    () =>
-      renderedTurns >= allTurns.length
-        ? allTurns
-        : allTurns.slice(allTurns.length - renderedTurns),
+    () => (renderedTurns >= allTurns.length ? allTurns : allTurns.slice(allTurns.length - renderedTurns)),
     [allTurns, renderedTurns],
   );
   // Which halves of which exchanges are open, where that differs from how
@@ -506,7 +539,8 @@ function ChatView({
     [earlier],
   );
   const needHistory =
-    wantHistory || Object.entries(opens).some(([id, open]) => (open.prompt || open.reply) && earlierIds.has(id));
+    wantHistory ||
+    Object.entries(opens).some(([id, open]) => (open.prompt || open.reply) && earlierIds.has(id));
   useEffect(() => {
     if (!history && needHistory) requestHistory(activeId);
   }, [activeId, history, needHistory]);
@@ -553,12 +587,15 @@ function ChatView({
       revealRef.current = null;
       return;
     }
-    const half = turn.querySelector<HTMLElement>(`[data-half="${want.half === "reply" ? "reply" : "prompt"}"]`);
+    const half = turn.querySelector<HTMLElement>(
+      `[data-half="${want.half === "reply" ? "reply" : "prompt"}"]`,
+    );
     if (!half) return;
     revealRef.current = null;
     // a reply with nothing in it (a stopped turn) has no top of its own
     const target = want.half === "both" || half.childElementCount === 0 ? turn : half;
-    scroller.scrollTop += target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - REVEAL_GAP;
+    scroller.scrollTop +=
+      target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - REVEAL_GAP;
   });
 
   const startRewind = useCallback(
@@ -737,9 +774,7 @@ function ChatView({
     return (
       <main className={pane("chat")}>
         {header}
-        {page === "tracker" && (
-          <Tracker projectId={activeId} onClose={() => setPage("chat")} />
-        )}
+        {page === "tracker" && <Tracker projectId={activeId} onClose={() => setPage("chat")} />}
         {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
         {page === "components" && boardId && <Components projectId={boardId} />}
         {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
@@ -762,49 +797,100 @@ function ChatView({
       {/* the holder ends where the composer begins, so the jump pill always
           floats just above the composer no matter how tall it grows */}
       <div className="transcript-holder">
-      <div
-        className="transcript"
-        ref={scrollRef}
-        onScroll={onScroll}
-        onWheel={noteGesture}
-        onTouchMove={noteGesture}
-        onPointerDown={noteGesture}
-        onKeyDown={noteGesture}
-      >
-        <div className="transcript-inner" ref={observeInner}>
-          {/* the earlier exchanges wait for every live turn below them to
+        <div
+          className="transcript"
+          ref={scrollRef}
+          onScroll={onScroll}
+          onWheel={noteGesture}
+          onTouchMove={noteGesture}
+          onPointerDown={noteGesture}
+          onKeyDown={noteGesture}
+        >
+          <div className="transcript-inner" ref={observeInner}>
+            {/* the earlier exchanges wait for every live turn below them to
               be laid out — until then the tail is what's on screen */}
-          {shownTurns.length === allTurns.length &&
-            earlier.map((item) => {
-              if (item.kind === "compaction") {
-                const full = historyTurns.get(`compaction-${item.id}`)?.events[0];
+            {shownTurns.length === allTurns.length &&
+              earlier.map((item) => {
+                if (item.kind === "compaction") {
+                  const full = historyTurns.get(`compaction-${item.id}`)?.events[0];
+                  return (
+                    <div className="turn" key={`earlier-${item.id}`}>
+                      <CompactionMark
+                        event={
+                          full?.kind === "compaction"
+                            ? full
+                            : { kind: "compaction", id: item.id, text: "", ts: item.ts }
+                        }
+                        load={loadHistory}
+                      />
+                    </div>
+                  );
+                }
+                const open = opens[item.turnId];
+                const promptOpen = open?.prompt ?? false;
+                const replyOpen = open?.reply ?? false;
                 return (
-                  <div className="turn" key={`earlier-${item.id}`}>
-                    <CompactionMark
-                      event={
-                        full?.kind === "compaction" ? full : { kind: "compaction", id: item.id, text: "", ts: item.ts }
-                      }
-                      load={loadHistory}
-                    />
+                  <Exchange
+                    key={`earlier-${item.turnId}`}
+                    turnId={item.turnId}
+                    events={promptOpen || replyOpen ? historyTurns.get(item.turnId)?.events : undefined}
+                    note={summaries[item.turnId]}
+                    prompt={item.prompt}
+                    reply={item.reply}
+                    count={item.count}
+                    promptOpen={promptOpen}
+                    replyOpen={replyOpen}
+                    replyFolds={replyOpen}
+                    loading={(promptOpen || replyOpen) && !history}
+                    project={project}
+                    channelId={activeId}
+                    onRewind={askRewind}
+                    onFork={askFork}
+                    onOpen={openHalf}
+                    onFold={foldExchange}
+                    onFoldHalf={foldHalf}
+                  />
+                );
+              })}
+            {shownTurns.map((turn, index) => {
+              const head = turn.events[0];
+              // far enough up that the browser may skip laying it out until
+              // it comes near the viewport — see .turn.far
+              const far = index < shownTurns.length - LIVE_TURNS;
+              // a compaction mark, or what came before the first prompt
+              if (turn.solo || head?.kind !== "user") {
+                return (
+                  <div className={far ? "turn far" : "turn"} key={turn.turnId}>
+                    {turn.events.map((event) => (
+                      <EventView
+                        key={event.id}
+                        event={event}
+                        project={project}
+                        channelId={activeId}
+                        onRewind={askRewind}
+                        onFork={askFork}
+                      />
+                    ))}
                   </div>
                 );
               }
-              const open = opens[item.turnId];
-              const promptOpen = open?.prompt ?? false;
-              const replyOpen = open?.reply ?? false;
+              const open = opens[turn.turnId];
+              const promptOpen = open?.prompt ?? true;
+              const replyOpen = open?.reply ?? true;
+              const cut = promptOpen && replyOpen ? NO_EXCERPTS : turnExcerpts(turn);
               return (
                 <Exchange
-                  key={`earlier-${item.turnId}`}
-                  turnId={item.turnId}
-                  events={promptOpen || replyOpen ? historyTurns.get(item.turnId)?.events : undefined}
-                  note={summaries[item.turnId]}
-                  prompt={item.prompt}
-                  reply={item.reply}
-                  count={item.count}
+                  key={turn.turnId}
+                  turnId={turn.turnId}
+                  events={turn.events}
+                  note={summaries[turn.turnId]}
+                  prompt={cut.prompt}
+                  reply={cut.reply}
+                  count={turn.events.length}
                   promptOpen={promptOpen}
                   replyOpen={replyOpen}
-                  replyFolds={replyOpen}
-                  loading={(promptOpen || replyOpen) && !history}
+                  replyFolds={open?.reply === true}
+                  far={far}
                   project={project}
                   channelId={activeId}
                   onRewind={askRewind}
@@ -815,100 +901,53 @@ function ChatView({
                 />
               );
             })}
-          {shownTurns.map((turn, index) => {
-            const head = turn.events[0];
-            // far enough up that the browser may skip laying it out until
-            // it comes near the viewport — see .turn.far
-            const far = index < shownTurns.length - LIVE_TURNS;
-            // a compaction mark, or what came before the first prompt
-            if (turn.solo || head?.kind !== "user") {
-              return (
-                <div className={far ? "turn far" : "turn"} key={turn.turnId}>
-                  {turn.events.map((event) => (
-                    <EventView
-                      key={event.id}
-                      event={event}
-                      project={project}
-                      channelId={activeId}
-                      onRewind={askRewind}
-                      onFork={askFork}
-                    />
-                  ))}
-                </div>
-              );
-            }
-            const open = opens[turn.turnId];
-            const promptOpen = open?.prompt ?? true;
-            const replyOpen = open?.reply ?? true;
-            const cut = promptOpen && replyOpen ? NO_EXCERPTS : turnExcerpts(turn);
-            return (
-              <Exchange
-                key={turn.turnId}
-                turnId={turn.turnId}
-                events={turn.events}
-                note={summaries[turn.turnId]}
-                prompt={cut.prompt}
-                reply={cut.reply}
-                count={turn.events.length}
-                promptOpen={promptOpen}
-                replyOpen={replyOpen}
-                replyFolds={open?.reply === true}
-                far={far}
-                project={project}
-                channelId={activeId}
-                onRewind={askRewind}
-                onFork={askFork}
-                onOpen={openHalf}
-                onFold={foldExchange}
-                onFoldHalf={foldHalf}
-              />
-            );
-          })}
-          {draft && (
-            <div className="msg assistant streaming">
-              <StreamingMarkdown text={draft.text} />
-              <span className="cursor" ref={beat("blink")} />
-            </div>
-          )}
-          {status === "working" && (
-            <div className="working">
-              {!draft && <Thinking />}
-              {turn && <WorkingLine turn={turn} effort={project.effort || DEFAULT_EFFORT} />}
-            </div>
-          )}
-          {/* neither a question nor a naming is an allow/deny — each gets
+            {draft && (
+              <div className="msg assistant streaming">
+                <StreamingMarkdown text={draft.text} />
+                <span className="cursor" ref={beat("blink")} />
+              </div>
+            )}
+            {status === "working" && (
+              <div className="working">
+                {!draft && <Thinking />}
+                {turn && <WorkingLine turn={turn} effort={project.effort || DEFAULT_EFFORT} />}
+              </div>
+            )}
+            {/* neither a question nor a naming is an allow/deny — each gets
               its own card, and only a real tool call gets allow/deny */}
-          {permissions.map((request) => (
-            <AskCard key={request.requestId} request={request} />
-          ))}
-          {queuedItems.length > 0 && <QueuedList projectId={activeId} items={queuedItems} held={queueHeld} />}
-          {queueHeld && queuedItems.length > 0 && (
-            <div className="queue-standby">
-              <span>
-                {queuedItems.length === 1 ? "1 prompt" : `${queuedItems.length} prompts`} held by the
-                stop — they go out after your next one
-              </span>
-              <button
-                className="ghost"
-                title="Send what is waiting, now, in the order it was written"
-                onClick={() => send({ type: "queue_send", projectId: activeId })}
-              >
-                Send now
-              </button>
-            </div>
-          )}
+            {permissions.map((request) => (
+              <AskCard key={request.requestId} request={request} />
+            ))}
+            {queuedItems.length > 0 && (
+              <QueuedList projectId={activeId} items={queuedItems} held={queueHeld} />
+            )}
+            {queueHeld && queuedItems.length > 0 && (
+              <div className="queue-standby">
+                <span>
+                  {queuedItems.length === 1 ? "1 prompt" : `${queuedItems.length} prompts`} held by the stop —
+                  they go out after your next one
+                </span>
+                <button
+                  className="ghost"
+                  title="Send what is waiting, now, in the order it was written"
+                  onClick={() => send({ type: "queue_send", projectId: activeId })}
+                >
+                  Send now
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      <SelectionFlags scrollerRef={scrollRef} />
+        <SelectionFlags scrollerRef={scrollRef} />
 
-      {showJump && (
-        <button className="jump-latest" onClick={() => scrollToBottom("smooth")}>
-          <Icon d="M12 5v14M5 12l7 7 7-7" /> Latest
-        </button>
-      )}
-      {rapid?.on && <RapidBar rapid={rapid} floating />}
-      <BridgeStrip channelId={activeId} stacked={rapid?.on} />
+        {showJump && (
+          <button className="jump-latest" onClick={() => scrollToBottom("smooth")}>
+            <Icon d="M12 5v14M5 12l7 7 7-7" /> Latest
+          </button>
+        )}
+        {rapid?.on && <RapidBar rapid={rapid} floating />}
+        <BridgeStrip channelId={activeId} stacked={rapid?.on} />
       </div>
 
       {rewindTarget && (

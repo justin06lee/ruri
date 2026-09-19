@@ -160,10 +160,7 @@ export function clearComposerDraft(channelId: string): void {
  * exactly as they did before the quit. Anything whose file is gone is
  * dropped; its [marker] stays in the text as words.
  */
-async function restoreAttachments(
-  channelId: string,
-  saved: DraftAttachment[],
-): Promise<void> {
+async function restoreAttachments(channelId: string, saved: DraftAttachment[]): Promise<void> {
   const atts: ComposerAttachment[] = [];
   for (const att of saved) {
     const live = await liveAttachment(att, att.n);
@@ -255,9 +252,7 @@ export function composeInto(channelId: string, text: string, attachments?: Attac
     // eslint-disable-next-line no-control-regex -- NUL is the placeholder written just above, never typed
     renumbered = renumbered.replaceAll(/\u0000(image|video|file):(\d+)\u0000/g, "[$1 #$2]");
     const draft = composerDrafts.get(channelId);
-    const body = draft?.text.trim()
-      ? `${draft.text.replace(/\s+$/, "")}\n${renumbered}`
-      : renumbered;
+    const body = draft?.text.trim() ? `${draft.text.replace(/\s+$/, "")}\n${renumbered}` : renumbered;
     setComposerDraft(channelId, {
       text: body,
       atts: [...(draft?.atts ?? []), ...live],
@@ -562,17 +557,13 @@ async function resolveToken(): Promise<string> {
  * re-rendering the app for every character.
  */
 export type TerminalMessage =
-  | { kind: "data"; data: string; replay?: boolean }
-  | { kind: "exit"; note: string };
+  { kind: "data"; data: string; replay?: boolean } | { kind: "exit"; note: string };
 
 const terminalListeners = new Map<string, Set<(message: TerminalMessage) => void>>();
 
 /** Listen to one tab's shell. Tab ids are unique across every channel, so
  *  this is the whole routing table. */
-export function onTerminal(
-  termId: string,
-  listener: (message: TerminalMessage) => void,
-): () => void {
+export function onTerminal(termId: string, listener: (message: TerminalMessage) => void): () => void {
   const listeners = terminalListeners.get(termId) ?? new Set();
   listeners.add(listener);
   terminalListeners.set(termId, listeners);
@@ -893,7 +884,10 @@ function apply(msg: ServerMessage): void {
         turns: msg.turns,
         stats: msg.stats,
         catchups: Object.fromEntries(
-          Object.entries(msg.catchups).map(([id, c]) => [id, { busy: false, at: 0, ...(c.built ? { built: c.built } : {}) }]),
+          Object.entries(msg.catchups).map(([id, c]) => [
+            id,
+            { busy: false, at: 0, ...(c.built ? { built: c.built } : {}) },
+          ]),
         ),
         canPickFolder: msg.canPickFolder,
         canPermissions: msg.canPermissions,
@@ -920,8 +914,7 @@ function apply(msg: ServerMessage): void {
         crew: msg.crew,
         activeId:
           s.activeId &&
-          (s.activeId === HOME_ID ||
-            msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
+          (s.activeId === HOME_ID || msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
             ? s.activeId
             : HOME_ID,
       }));
@@ -964,8 +957,7 @@ function apply(msg: ServerMessage): void {
         projects: msg.projects,
         activeId:
           s.activeId &&
-          (s.activeId === HOME_ID ||
-            msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
+          (s.activeId === HOME_ID || msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
             ? s.activeId
             : HOME_ID,
       }));
@@ -986,7 +978,10 @@ function apply(msg: ServerMessage): void {
     case "transcript": {
       requested.delete(msg.projectId);
       setState((s) => {
-        const transcripts = { ...s.transcripts, [msg.projectId]: reuse(s.transcripts[msg.projectId], msg.events) };
+        const transcripts = {
+          ...s.transcripts,
+          [msg.projectId]: reuse(s.transcripts[msg.projectId], msg.events),
+        };
         const loaded: Record<string, true> = { ...s.loaded, [msg.projectId]: true };
         const earlier = { ...s.earlier, [msg.projectId]: msg.earlier ?? [] };
         // most recently opened last; the ones past the budget go back to

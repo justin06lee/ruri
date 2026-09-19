@@ -67,12 +67,16 @@ const BATCH_CONCURRENCY = 5;
  *  should wait on it. */
 async function repoFiles(dir: string): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
-      cwd: dir,
-      encoding: "utf8",
-      maxBuffer: 32 * 1024 * 1024,
-      timeout: 15_000,
-    });
+    const { stdout } = await execFileAsync(
+      "git",
+      ["ls-files", "--cached", "--others", "--exclude-standard"],
+      {
+        cwd: dir,
+        encoding: "utf8",
+        maxBuffer: 32 * 1024 * 1024,
+        timeout: 15_000,
+      },
+    );
     const listed = stdout.split("\n").filter(Boolean);
     if (listed.length) return listed;
   } catch (err) {
@@ -148,7 +152,11 @@ function describe(dir: string, rel: string): { path: string; head: string } | un
 
 /** The same, for whoever else reads a repo the way the sweep does (the
  *  catch-up brief), with their own idea of how much of a file to take. */
-export function describeFile(dir: string, rel: string, chars: number): { path: string; head: string } | undefined {
+export function describeFile(
+  dir: string,
+  rel: string,
+  chars: number,
+): { path: string; head: string } | undefined {
   let source: string;
   try {
     const full = path.join(dir, rel);

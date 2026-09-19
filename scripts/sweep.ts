@@ -30,9 +30,7 @@ if (candidates.length > 12) console.log(`  … and ${candidates.length - 12} mor
 console.log(`\ndev command: ${JSON.stringify(devCommand(dir)) ?? "none — no pictures for this one"}`);
 
 const started = Date.now();
-const { found, read } = await sweepProject({ name, path: dir }, [], (note) =>
-  console.log(`  · ${note}`),
-);
+const { found, read } = await sweepProject({ name, path: dir }, [], (note) => console.log(`  · ${note}`));
 console.log(`\nread ${read} files in ${((Date.now() - started) / 1000).toFixed(1)}s`);
 console.log(`found ${found.length}:\n`);
 for (const part of found) {

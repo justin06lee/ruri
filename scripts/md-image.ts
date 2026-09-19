@@ -123,7 +123,10 @@ check("the reply names the picture by path", reply.includes("](build/icon.png)")
 
 const asked = await fetch(`http://127.0.0.1:${PORT}/readfile?p=${encodeURIComponent("build/icon.png")}`);
 check("the page can ask for it by the path as written", asked.status === 200, asked.status);
-check("and gets the picture", asked.headers.get("content-type") === "image/png" && (await asked.arrayBuffer()).byteLength === PNG.length);
+check(
+  "and gets the picture",
+  asked.headers.get("content-type") === "image/png" && (await asked.arrayBuffer()).byteLength === PNG.length,
+);
 const other = await fetch(`http://127.0.0.1:${PORT}/readfile?p=${encodeURIComponent("build/other.png")}`);
 check("a path no reply named is still refused", other.status === 403, other.status);
 

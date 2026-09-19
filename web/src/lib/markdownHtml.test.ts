@@ -28,7 +28,11 @@ function attributes(html: string): string[] {
 // to run script in ruri's window, which holds the server token.
 describe("sanitising model output", () => {
   test("a javascript: link loses its href, and keeps its text", () => {
-    for (const md of ["[click me](javascript:alert(1))", "[click me](JavaScript:alert(document.cookie))", '<a href="javascript:alert(1)">click me</a>']) {
+    for (const md of [
+      "[click me](javascript:alert(1))",
+      "[click me](JavaScript:alert(document.cookie))",
+      '<a href="javascript:alert(1)">click me</a>',
+    ]) {
       const html = markdownHtml(md);
       expect(html).toContain("click me");
       expect(html.toLowerCase()).not.toContain("javascript:");
@@ -36,7 +40,11 @@ describe("sanitising model output", () => {
   });
 
   test("an <img onerror> keeps nothing that runs", () => {
-    for (const md of ['<img src="x" onerror="alert(1)">', "<img src=x onerror=alert(1)>", "![pic](x.png)<img src=y onerror=alert(2)>"]) {
+    for (const md of [
+      '<img src="x" onerror="alert(1)">',
+      "<img src=x onerror=alert(1)>",
+      "![pic](x.png)<img src=y onerror=alert(2)>",
+    ]) {
       const html = markdownHtml(md);
       expect(html).not.toContain("onerror");
       expect(attributes(html).some((a) => a.includes("@on"))).toBe(false);
@@ -44,7 +52,9 @@ describe("sanitising model output", () => {
   });
 
   test("script, iframe and inline handlers are removed", () => {
-    const html = markdownHtml('<script>alert(1)</script><iframe src="https://evil"></iframe><p onclick="x()">hi</p><svg onload="alert(1)"></svg>');
+    const html = markdownHtml(
+      '<script>alert(1)</script><iframe src="https://evil"></iframe><p onclick="x()">hi</p><svg onload="alert(1)"></svg>',
+    );
     const dom = parsed(html);
     expect(dom.querySelector("script, iframe")).toBeNull();
     expect(attributes(html).some((a) => a.includes("@on"))).toBe(false);
@@ -52,7 +62,10 @@ describe("sanitising model output", () => {
   });
 
   test("a data: or vbscript: URL in a link is not kept", () => {
-    for (const md of ["[x](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)", "[x](vbscript:msgbox(1))"]) {
+    for (const md of [
+      "[x](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)",
+      "[x](vbscript:msgbox(1))",
+    ]) {
       expect(parsed(markdownHtml(md)).querySelector("a")?.getAttribute("href") ?? null).toBeNull();
     }
   });

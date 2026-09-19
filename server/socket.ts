@@ -105,7 +105,9 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
         if (!parsed.success) {
           const reason = describeIssue(parsed.error);
           warn("server", reason, "bad client message");
-          ws.send(JSON.stringify({ type: "error", message: `bad message: ${reason}` } satisfies ServerMessage));
+          ws.send(
+            JSON.stringify({ type: "error", message: `bad message: ${reason}` } satisfies ServerMessage),
+          );
           return;
         }
         handleMessage(ctx, ws, parsed.data);

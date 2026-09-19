@@ -26,7 +26,9 @@ function all(el: Node): Range {
 
 describe("markdownFromRange", () => {
   test("inline marks come back as markdown", () => {
-    const el = mount("<p><strong>bold</strong>, <em>it</em>, <del>gone</del>, <code>x()</code> and <a href=\"https://a.b\">a link</a></p>");
+    const el = mount(
+      '<p><strong>bold</strong>, <em>it</em>, <del>gone</del>, <code>x()</code> and <a href="https://a.b">a link</a></p>',
+    );
     expect(markdownFromRange(all(el))).toBe("**bold**, *it*, ~~gone~~, `x()` and [a link](https://a.b)");
   });
 
@@ -72,7 +74,9 @@ describe("markdownFromRange", () => {
   });
 
   test("a table gets its header rule, and a pipe in a cell is escaped", () => {
-    const el = mount("<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>1|2</td><td>3</td></tr></tbody></table>");
+    const el = mount(
+      "<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>1|2</td><td>3</td></tr></tbody></table>",
+    );
     expect(markdownFromRange(all(el))).toBe("| a | b |\n| --- | --- |\n| 1\\|2 | 3 |");
   });
 

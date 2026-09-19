@@ -82,7 +82,10 @@ describe("on disk", () => {
     ledger.record("p", { tokens: 7, costUsd: 0.25 }, at(10));
     ledger.record("p", { tokens: 1 }, at(3));
     ledger.flush();
-    const raw = JSON.parse(fs.readFileSync(path.join(dir, "ledger.json"), "utf8")) as Record<string, Record<string, unknown>>;
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, "ledger.json"), "utf8")) as Record<
+      string,
+      Record<string, unknown>
+    >;
     expect(Object.keys(raw["p"]!)).toEqual(["2026-03-10", "2026-03-03"]);
     const again = new LedgerStore();
     expect(again.stats("p", at(10))).toEqual(ledger.stats("p", at(10)));
@@ -99,7 +102,10 @@ describe("on disk", () => {
   });
 
   test("partial totals on disk are filled out with zeros", () => {
-    fs.writeFileSync(path.join(dir, "ledger.json"), JSON.stringify({ p: { "2026-03-10": { tokens: 3 } }, q: null }));
+    fs.writeFileSync(
+      path.join(dir, "ledger.json"),
+      JSON.stringify({ p: { "2026-03-10": { tokens: 3 } }, q: null }),
+    );
     expect(new LedgerStore().stats("p", at(10)).total).toEqual({ ...ZERO, tokens: 3 });
   });
 });

@@ -100,7 +100,8 @@ export function catchUp(ctx: ServerContext, ws: ClientConn, view: ClientView, ch
   const seen = view.seen.get(channelId);
   view.seen.delete(channelId);
   const out: ServerMessage[] = [];
-  if (seen !== undefined && seen !== (ctx.clients.revisions.get(channelId) ?? 0)) out.push(transcriptOf(ctx, channelId));
+  if (seen !== undefined && seen !== (ctx.clients.revisions.get(channelId) ?? 0))
+    out.push(transcriptOf(ctx, channelId));
   const held = ctx.turns.gates.get(channelId);
   out.push({
     type: "reply",
@@ -108,7 +109,11 @@ export function catchUp(ctx: ServerContext, ws: ClientConn, view: ClientView, ch
     draft: held?.shown ? { messageId: held.messageId, text: held.shown } : null,
   });
   const turn = ctx.turns.progress.get(channelId);
-  out.push({ type: "turn", projectId: channelId, turn: turn ? { ...turn, tokens: Math.round(turn.tokens) } : null });
+  out.push({
+    type: "turn",
+    projectId: channelId,
+    turn: turn ? { ...turn, tokens: Math.round(turn.tokens) } : null,
+  });
   // the agents the user started here moved on without this window
   const agents = ctx.crew.list(channelId);
   if (agents.length > 0) out.push({ type: "crew", projectId: channelId, agents });

@@ -104,7 +104,9 @@ export function CompactionMark({
                 list stops at its newest few (server/compaction.ts) */}
             {event.digest && (
               <div className="compaction-turn compaction-digest">
-                <span className="compaction-n">{event.digest.through > 0 ? `1–${event.digest.through}` : "…"}</span>
+                <span className="compaction-n">
+                  {event.digest.through > 0 ? `1–${event.digest.through}` : "…"}
+                </span>
                 <div className="compaction-pair">
                   <div className="compaction-condensed">{event.digest.text}</div>
                 </div>
@@ -203,7 +205,15 @@ export const EventView = memo(function EventView({
               title="Rewind here — the conversation returns to just before this prompt, and the prompt comes back to the composer"
               onClick={() => onRewind(event)}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
               </svg>
             </button>
@@ -214,7 +224,15 @@ export const EventView = memo(function EventView({
               title="Fork here — a new chat in this project that starts from this exchange and goes its own way; this one is left exactly as it is"
               onClick={() => onFork(event)}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <circle cx="6" cy="4" r="2.5" />
                 <circle cx="6" cy="20" r="2.5" />
                 <circle cx="18" cy="8" r="2.5" />

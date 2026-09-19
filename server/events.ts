@@ -8,13 +8,25 @@ import { writeCatchupFile } from "./brief.js";
 import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
 import { noteSummary } from "./notes.js";
-import { extractTrackerItems, sessionRoleTitle, smallModelEnabled, summarizePrompt, summarizeReply, TurnTracker, updateBrief } from "./smallmodel.js";
+import {
+  extractTrackerItems,
+  sessionRoleTitle,
+  smallModelEnabled,
+  summarizePrompt,
+  summarizeReply,
+  TurnTracker,
+  updateBrief,
+} from "./smallmodel.js";
 
 // Every finished turn goes to the small model in the background for a
 // reply recall note (instant compaction). Failures are silent — a nicety.
 // The catch-up brief writes itself: each finished turn is folded in, and
 // most turns change nothing — a fix or a polish pass is not a feature.
-export function foldBrief(ctx: ServerContext, channelId: string, turn: { user: string; assistant: string }): void {
+export function foldBrief(
+  ctx: ServerContext,
+  channelId: string,
+  turn: { user: string; assistant: string },
+): void {
   if (channelId === HOME_ID) return;
   const project = ctx.store.findSession(channelId)?.project;
   if (!project) return;
@@ -26,8 +38,10 @@ export function foldBrief(ctx: ServerContext, channelId: string, turn: { user: s
   )
     .then((next) => {
       if (!next) return;
-      if (next.description === current.description &&
-          next.features.join("\n") === current.features.join("\n")) {
+      if (
+        next.description === current.description &&
+        next.features.join("\n") === current.features.join("\n")
+      ) {
         return;
       }
       writeCatchupFile(project.path, project.name, ctx.briefs.write(project.id, next));

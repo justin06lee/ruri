@@ -52,8 +52,20 @@ export function Switcher() {
   const entries = useMemo<Entry[]>(() => {
     const list: Entry[] = [
       { id: "home", kind: "place", name: "Home", where: "the orchestrator", go: () => setActive(HOME_ID) },
-      { id: "rapid", kind: "place", name: "Rapid fire", where: "prompt whichever session is ready", go: () => setRapid(true) },
-      { id: "settings", kind: "place", name: "Settings", where: "themes, models, the vault", go: () => setSettingsOpen(true) },
+      {
+        id: "rapid",
+        kind: "place",
+        name: "Rapid fire",
+        where: "prompt whichever session is ready",
+        go: () => setRapid(true),
+      },
+      {
+        id: "settings",
+        kind: "place",
+        name: "Settings",
+        where: "themes, models, the vault",
+        go: () => setSettingsOpen(true),
+      },
     ];
     for (const project of projects) {
       if (project.hidden) continue; // hidden is hidden here too
@@ -182,9 +194,7 @@ export function Switcher() {
 
   // the picked row stays in view as the arrows move down the list
   useEffect(() => {
-    listRef.current
-      ?.querySelector<HTMLElement>(".switcher-row.picked")
-      ?.scrollIntoView({ block: "nearest" });
+    listRef.current?.querySelector<HTMLElement>(".switcher-row.picked")?.scrollIntoView({ block: "nearest" });
   }, [cursor, results]);
 
   if (!open) return null;
@@ -193,7 +203,15 @@ export function Switcher() {
     <div className="switcher-veil" onMouseDown={close}>
       <div className="switcher" role="dialog" aria-label="Go to" onMouseDown={(e) => e.stopPropagation()}>
         <div className="switcher-field">
-          <svg className="switcher-glass" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+          <svg
+            className="switcher-glass"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            aria-hidden
+          >
             <circle cx="11" cy="11" r="7" />
             <path d="M20 20l-3.5-3.5" />
           </svg>
@@ -257,10 +275,18 @@ export function Switcher() {
           ))}
         </div>
         <div className="switcher-foot">
-          <span><kbd>↑↓</kbd> move</span>
-          <span><kbd>⇥</kbd> complete</span>
-          <span><kbd>⏎</kbd> go</span>
-          <span className="switcher-foot-key"><kbd>⌥</kbd> right option opens this</span>
+          <span>
+            <kbd>↑↓</kbd> move
+          </span>
+          <span>
+            <kbd>⇥</kbd> complete
+          </span>
+          <span>
+            <kbd>⏎</kbd> go
+          </span>
+          <span className="switcher-foot-key">
+            <kbd>⌥</kbd> right option opens this
+          </span>
         </div>
       </div>
     </div>

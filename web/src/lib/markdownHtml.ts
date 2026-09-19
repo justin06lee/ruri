@@ -16,9 +16,7 @@ const marked = new Marked({
   renderer: {
     code({ text, lang }) {
       const language = lang && hljs.getLanguage(lang) ? lang : undefined;
-      const body = language
-        ? hljs.highlight(text, { language }).value
-        : escapeHtml(text);
+      const body = language ? hljs.highlight(text, { language }).value : escapeHtml(text);
       const label = language ? `<span class="code-lang">${language}</span>` : "";
       const svgAttrs =
         `viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ` +
@@ -99,7 +97,6 @@ export function renderMarkdown(text: string): string {
 export function prewarmMarkdown(text: string): void {
   if (text && !cache.has(text)) renderMarkdown(text);
 }
-
 
 /**
  * Markdown as sanitised HTML, uncached — for a reply still being written,

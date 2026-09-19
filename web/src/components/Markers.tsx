@@ -34,7 +34,6 @@ import { findMarkers, moveMarker, fittedHeight, CHIP_BLEED, type Marker } from "
  * extra space is the composer's, not the prompt's: it goes out as one.
  */
 
-
 type Segment = { start: number; text: string; marker?: Marker };
 
 /** A prompt ending in a newline has an empty last line, which the mirror
@@ -49,11 +48,9 @@ function lineEnd(at: number): React.ReactNode {
   );
 }
 
-
 /** How many times (400ms apart) the mirror looks again on its own while it
  *  and the textarea disagree, before it waits for something to change. */
 const MIRROR_RETRIES = 8;
-
 
 /** The prompt cut into plain runs and markers, in order. */
 function segments(text: string, markers: Marker[]): Segment[] {
@@ -351,7 +348,10 @@ export function MarkerMirror({
   // stand where the textarea's words do; split where a dragged chip would
   // land, to show the caret
   const plain = (seg: Segment) => {
-    const drop = dropAt !== null && dropAt >= seg.start && dropAt <= seg.start + seg.text.length ? dropAt - seg.start : null;
+    const drop =
+      dropAt !== null && dropAt >= seg.start && dropAt <= seg.start + seg.text.length
+        ? dropAt - seg.start
+        : null;
     return drop !== null ? (
       <span key={seg.start} data-start={seg.start}>
         {seg.text.slice(0, drop)}
@@ -368,39 +368,39 @@ export function MarkerMirror({
   return (
     <div className={`composer-mirror ${drag?.moved ? "dragging" : ""}`} ref={mirrorRef} aria-hidden>
       <div className="composer-mirror-text" ref={textRef}>
-      {parts.map((seg) =>
-        seg.marker ? (
-          <span
-            key={seg.start}
-            className={`marker-chip ${seg.marker.kind} ${drag?.marker.start === seg.start ? "lifted" : ""}`}
-            data-start={seg.start}
-            title={
-              seg.marker.kind === "command"
-                ? "A command — runs before the prompt. Click to take it out, drag to move it"
-                : "Click to see it, drag to move it in the prompt"
-            }
-            onPointerDown={(e) => startDrag(e, seg.marker!)}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={() => setDrag(null)}
-            onPointerEnter={() => onHover(seg.marker!)}
-            onPointerLeave={() => onHover(null)}
-          >
-            {seg.marker.kind === "command" ? (
-              seg.text
-            ) : (
-              <>
-                <span className="marker-bracket">[</span>
-                {seg.text.slice(1, -1)}
-                <span className="marker-bracket">]</span>
-              </>
-            )}
-          </span>
-        ) : (
-          plain(seg)
-        ),
-      )}
-      {text.endsWith("\n") ? lineEnd(text.length) : null}
+        {parts.map((seg) =>
+          seg.marker ? (
+            <span
+              key={seg.start}
+              className={`marker-chip ${seg.marker.kind} ${drag?.marker.start === seg.start ? "lifted" : ""}`}
+              data-start={seg.start}
+              title={
+                seg.marker.kind === "command"
+                  ? "A command — runs before the prompt. Click to take it out, drag to move it"
+                  : "Click to see it, drag to move it in the prompt"
+              }
+              onPointerDown={(e) => startDrag(e, seg.marker!)}
+              onPointerMove={onPointerMove}
+              onPointerUp={endDrag}
+              onPointerCancel={() => setDrag(null)}
+              onPointerEnter={() => onHover(seg.marker!)}
+              onPointerLeave={() => onHover(null)}
+            >
+              {seg.marker.kind === "command" ? (
+                seg.text
+              ) : (
+                <>
+                  <span className="marker-bracket">[</span>
+                  {seg.text.slice(1, -1)}
+                  <span className="marker-bracket">]</span>
+                </>
+              )}
+            </span>
+          ) : (
+            plain(seg)
+          ),
+        )}
+        {text.endsWith("\n") ? lineEnd(text.length) : null}
       </div>
     </div>
   );

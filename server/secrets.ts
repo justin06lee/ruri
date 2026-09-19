@@ -104,13 +104,7 @@ export class SecretStore {
 
   /** Add or edit one. An absent `secret` leaves the stored value alone, so
    *  fixing a typo in a note never costs you the password. */
-  upsert(patch: {
-    id?: string;
-    name: string;
-    username?: string;
-    note?: string;
-    secret?: string;
-  }): void {
+  upsert(patch: { id?: string; name: string; username?: string; note?: string; secret?: string }): void {
     const name = patch.name.trim();
     if (!name) return;
     const existing = patch.id
@@ -258,10 +252,10 @@ export class SecretStore {
         ? [
             "Two ways to use one:",
             "- In a file or a command you write, put the handle literally: {{name}}. ruri replaces it with the real value after you finish writing and before the tool runs.",
-            "- In a shell command, use the environment variable: it is already set in your shell, e.g. `sudo -S true <<< \"$RURI_SECRET_NAME\"`.",
+            '- In a shell command, use the environment variable: it is already set in your shell, e.g. `sudo -S true <<< "$RURI_SECRET_NAME"`.',
           ]
         : [
-            "Use the environment variable in a shell command; it is already set in your shell, e.g. `sudo -S true <<< \"$RURI_SECRET_NAME\"`.",
+            'Use the environment variable in a shell command; it is already set in your shell, e.g. `sudo -S true <<< "$RURI_SECRET_NAME"`.',
             "This harness cannot substitute {{handles}} before its tools run, so use the environment variable instead.",
           ]),
       "",

@@ -65,9 +65,10 @@ export class ComponentStore {
     let items = this.data.get(projectId);
     if (items) return items;
     try {
-      const raw = JSON.parse(
-        fs.readFileSync(path.join(componentsDir(), `${projectId}.json`), "utf8"),
-      ) as { items?: NamedComponent[]; sweptAt?: number };
+      const raw = JSON.parse(fs.readFileSync(path.join(componentsDir(), `${projectId}.json`), "utf8")) as {
+        items?: NamedComponent[];
+        sweptAt?: number;
+      };
       items = (Array.isArray(raw.items) ? raw.items : []).map((item) => ({
         ...item,
         aliases: Array.isArray(item.aliases) ? item.aliases : [],
@@ -370,10 +371,10 @@ export function componentTools(host: ComponentHost, channelId: string) {
         {
           name: z
             .string()
-            .describe("Suggested name, in the words a user would use — 'the dragon gauges', not 'DragonGauge'"),
-          files: z
-            .array(z.string())
-            .describe("Where it lives: repo-relative paths, optionally with :line"),
+            .describe(
+              "Suggested name, in the words a user would use — 'the dragon gauges', not 'DragonGauge'",
+            ),
+          files: z.array(z.string()).describe("Where it lives: repo-relative paths, optionally with :line"),
           note: z.string().describe("One line on what it is and anything to know before touching it"),
           screenshot: z
             .string()
@@ -430,11 +431,7 @@ export function componentTools(host: ComponentHost, channelId: string) {
  * when the turn ends — the same convention Home already uses for opening
  * projects, so there is one pattern to learn rather than two.
  */
-export function drainComponentRequests(
-  projectDir: string,
-  channelId: string,
-  host: ComponentHost,
-): void {
+export function drainComponentRequests(projectDir: string, channelId: string, host: ComponentHost): void {
   const file = path.join(projectDir, ".ruri", "components.jsonl");
   let raw: string;
   try {

@@ -73,8 +73,7 @@ async function listClaude(project: Project, taken: Set<string>): Promise<RecentS
         title: titleOf(s.customTitle ?? s.firstPrompt ?? s.summary ?? "") || "untitled",
         at: s.lastModified,
         ...(s.gitBranch ? { branch: s.gitBranch } : {}),
-      }))
-      ;
+      }));
   } catch (err) {
     warn("recent", err, "listClaude");
     return [];

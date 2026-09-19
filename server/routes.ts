@@ -40,7 +40,10 @@ function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.Ser
   const url = (req.url ?? "/").split("?")[0] ?? "/";
   const rel = url === "/" ? "index.html" : url.replace(/^\/+/, "");
   const file = path.resolve(staticDir, rel);
-  if (!file.startsWith(path.resolve(staticDir) + path.sep) && file !== path.resolve(staticDir, "index.html")) {
+  if (
+    !file.startsWith(path.resolve(staticDir) + path.sep) &&
+    file !== path.resolve(staticDir, "index.html")
+  ) {
     res.writeHead(403);
     res.end();
     return;
@@ -64,7 +67,11 @@ function serveBridgePreview(req: http.IncomingMessage, res: http.ServerResponse)
   try {
     const stat = fs.statSync(file);
     if (!id || !stat.isFile()) throw new Error("not a file");
-    res.writeHead(200, { "content-type": "image/png", "content-length": stat.size, "cache-control": "no-cache" });
+    res.writeHead(200, {
+      "content-type": "image/png",
+      "content-length": stat.size,
+      "cache-control": "no-cache",
+    });
     fs.createReadStream(file).pipe(res);
   } catch (err) {
     if (!isMissing(err)) warn("server", err, "serveBridgePreview");
@@ -78,7 +85,11 @@ function serveBridgePreview(req: http.IncomingMessage, res: http.ServerResponse)
  * tools: the same calls as JSON, answered as JSON, with pictures as
  * paths. The channel id is the capability; a session is told only its own.
  */
-async function serveBridgeCall(ctx: ServerContext, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+async function serveBridgeCall(
+  ctx: ServerContext,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
   const reply = (status: number, body: Record<string, unknown>): void => {
     res.writeHead(status, { "content-type": "application/json" });
     res.end(JSON.stringify(body));
@@ -100,7 +111,12 @@ async function serveBridgeCall(ctx: ServerContext, req: http.IncomingMessage, re
     return;
   }
   const owner = ownerProject(ctx, id);
-  const outcome = await runBridge(ctx.options.bridge, { channelId: id, projectId: owner?.id ?? id }, body.tool, body.args);
+  const outcome = await runBridge(
+    ctx.options.bridge,
+    { channelId: id, projectId: owner?.id ?? id },
+    body.tool,
+    body.args,
+  );
   if (!outcome.ok) {
     reply(200, { ok: false, error: outcome.error });
     return;

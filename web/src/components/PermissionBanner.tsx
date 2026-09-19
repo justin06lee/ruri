@@ -30,7 +30,9 @@ function permissionSummary(
         : undefined;
   return {
     title: `${asker} wants to use ${request.toolName}`,
-    body: <pre className="permission-input scroll-gate">{detail ?? JSON.stringify(request.input, null, 2)}</pre>,
+    body: (
+      <pre className="permission-input scroll-gate">{detail ?? JSON.stringify(request.input, null, 2)}</pre>
+    ),
   };
 }
 

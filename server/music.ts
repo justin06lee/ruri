@@ -182,6 +182,11 @@ export function serveTrack(req: http.IncomingMessage, res: http.ServerResponse, 
     return;
   }
 
-  res.writeHead(200, { ...MUSIC_CORS, "content-type": type, "content-length": size, "accept-ranges": "bytes" });
+  res.writeHead(200, {
+    ...MUSIC_CORS,
+    "content-type": type,
+    "content-length": size,
+    "accept-ranges": "bytes",
+  });
   fs.createReadStream(filePath).pipe(res);
 }

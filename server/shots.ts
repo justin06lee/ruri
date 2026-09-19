@@ -48,10 +48,7 @@ export interface ShotTarget {
  * Answers a map of component id to base64 PNG, with nothing at all for the
  * targets it couldn't find.
  */
-export type CaptureHost = (
-  url: string,
-  targets: ShotTarget[],
-) => Promise<Record<string, string>>;
+export type CaptureHost = (url: string, targets: ShotTarget[]) => Promise<Record<string, string>>;
 
 /** Frameworks whose presence means "this project is a page somewhere". */
 const WEB_DEPS =
@@ -93,8 +90,8 @@ export function devCommand(dir: string): DevCommand | undefined {
   const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
   const web =
     deps.some((dep) => WEB_DEPS.test(dep)) ||
-    ["index.html", "web/index.html", "src/index.html", "public/index.html", "app/index.html"].some(
-      (rel) => fs.existsSync(path.join(dir, rel)),
+    ["index.html", "web/index.html", "src/index.html", "public/index.html", "app/index.html"].some((rel) =>
+      fs.existsSync(path.join(dir, rel)),
     );
   if (!web) return undefined;
   const bun = fs.existsSync(path.join(dir, "bun.lock")) || fs.existsSync(path.join(dir, "bun.lockb"));

@@ -151,7 +151,11 @@ function createWindow(port: number, token: string): BrowserWindow {
   // behind everything else, which must not go to sleep on its driver
   // (scripts/shot.mjs, web/src/lib/awake.ts)
   // the token is what lets the page open the socket (server/server.ts)
-  const query = [`token=${encodeURIComponent(token)}`, process.env["RURI_FIXTURE"] && "fixture", process.env["RURI_AWAKE"] && "awake"]
+  const query = [
+    `token=${encodeURIComponent(token)}`,
+    process.env["RURI_FIXTURE"] && "fixture",
+    process.env["RURI_AWAKE"] && "awake",
+  ]
     .filter(Boolean)
     .join("&");
   void win.loadURL(`http://127.0.0.1:${port}/?${query}`);
@@ -163,9 +167,7 @@ function createWindow(port: number, token: string): BrowserWindow {
       win.moveTop();
       win.focus();
       setTimeout(() => {
-        void win.webContents
-          .capturePage()
-          .then((img) => fs.promises.writeFile(screenshot, img.toPNG()));
+        void win.webContents.capturePage().then((img) => fs.promises.writeFile(screenshot, img.toPNG()));
       }, 3000);
     });
   }

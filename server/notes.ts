@@ -1,12 +1,29 @@
 import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
-import { assembleTurns, smallModelEnabled, summarizePrompt, summarizeReply, type Turn } from "./smallmodel.js";
+import {
+  assembleTurns,
+  smallModelEnabled,
+  summarizePrompt,
+  summarizeReply,
+  type Turn,
+} from "./smallmodel.js";
 import { warn } from "./log.js";
 
 /** Store one half of a turn's recall note and push the turn's notes. */
-export function noteSummary(ctx: ServerContext, projectId: string, turnId: string, part: "user" | "reply", note: string): void {
+export function noteSummary(
+  ctx: ServerContext,
+  projectId: string,
+  turnId: string,
+  part: "user" | "reply",
+  note: string,
+): void {
   ctx.archive.setSummary(projectId, turnId, part, note);
-  ctx.clients.broadcast({ type: "turn_summary", projectId, turnId, note: ctx.archive.note(projectId, turnId) });
+  ctx.clients.broadcast({
+    type: "turn_summary",
+    projectId,
+    turnId,
+    note: ctx.archive.note(projectId, turnId),
+  });
   // an exchange just got its last note: the list may be past its cap
   if (part === "reply") void ctx.digests.run(projectId);
 }
@@ -43,7 +60,11 @@ export class NoteBackfill {
   misses = 0;
 }
 
-export function backfillNotes(ctx: ServerContext, channelIds: Iterable<string>, opts: { first?: boolean } = {}): void {
+export function backfillNotes(
+  ctx: ServerContext,
+  channelIds: Iterable<string>,
+  opts: { first?: boolean } = {},
+): void {
   if (!smallModelEnabled()) return;
   const fresh: NoteJob[] = [];
   for (const channelId of channelIds) {
@@ -76,7 +97,8 @@ export async function noteWorker(ctx: ServerContext): Promise<void> {
         // a chat closed meanwhile, or a note the live path wrote first
         if (!ctx.store.sessionIds().includes(job.channelId)) continue;
         if (ctx.archive.summaries(job.channelId)[job.turn.turnId]?.[job.part] !== undefined) continue;
-        const note = job.part === "user" ? await summarizePrompt(job.turn.user) : await summarizeReply(job.turn);
+        const note =
+          job.part === "user" ? await summarizePrompt(job.turn.user) : await summarizeReply(job.turn);
         ctx.notes.misses = 0;
         // a rewind may have taken the turn while its note was written
         if (!turnStands(ctx, job.channelId, job.turn.turnId)) continue;
@@ -100,7 +122,10 @@ export async function noteWorker(ctx: ServerContext): Promise<void> {
 
 /** A chat's missing note halves, newest first — the ones nearest the
  *  bottom of the chat are the ones looked at. */
-export function missingNotes(ctx: ServerContext, channelId: string): Array<{ turn: Turn; part: "user" | "reply" }> {
+export function missingNotes(
+  ctx: ServerContext,
+  channelId: string,
+): Array<{ turn: Turn; part: "user" | "reply" }> {
   const notes = ctx.archive.summaries(channelId);
   // anything this young is still being noted live
   const settled = Date.now() - 2 * 60_000;

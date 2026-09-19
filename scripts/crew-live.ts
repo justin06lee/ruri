@@ -20,7 +20,8 @@ import type { ClientMessage, ServerMessage, SubagentState, TranscriptEvent } fro
 const PORT = Number(process.env["RURI_PORT"] ?? 7884);
 const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-crew-config-"));
 const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-crew-project-"));
-for (const name of ["one.txt", "two.txt", "three.txt"]) fs.writeFileSync(path.join(projectDir, name), `${name}\n`);
+for (const name of ["one.txt", "two.txt", "three.txt"])
+  fs.writeFileSync(path.join(projectDir, name), `${name}\n`);
 
 const server = spawn("bunx", ["tsx", "server/index.ts"], {
   cwd: path.join(import.meta.dirname, ".."),
@@ -84,8 +85,10 @@ const ws = await connect(wsUrl(PORT));
 const send = (msg: ClientMessage) => ws.send(JSON.stringify(msg));
 ws.on("message", (raw) => {
   const msg = JSON.parse(String(raw)) as ServerMessage;
-  if (msg.type === "projects" && !chatId && msg.projects.length > 0) chatId = msg.projects.at(-1)!.sessions[0]!.id;
-  if (msg.type === "crew" && msg.projectId === chatId) for (const agent of msg.agents) crew.set(agent.key, agent);
+  if (msg.type === "projects" && !chatId && msg.projects.length > 0)
+    chatId = msg.projects.at(-1)!.sessions[0]!.id;
+  if (msg.type === "crew" && msg.projectId === chatId)
+    for (const agent of msg.agents) crew.set(agent.key, agent);
   if (msg.type === "agent_event") logs.set(msg.key, [...(logs.get(msg.key) ?? []), msg.event]);
   if (msg.type === "agent_log") fetched = msg.events;
   if (msg.type === "event" && msg.projectId === chatId) chatEvents.push(msg.event);
@@ -139,7 +142,11 @@ check("its card counted the tools it ran", (card?.tools ?? 0) >= 1, card?.tools)
 const log = logs.get(key) ?? [];
 console.log(`log kinds: ${log.map((e) => (e.kind === "tool" ? `tool:${e.name}` : e.kind)).join(", ")}`);
 check("its log opened on the brief", log[0]?.kind === "user" && log[0].text.includes("ls"), log[0]);
-check("and holds what it ran", log.some((e) => e.kind === "tool" && e.name === "Bash"), log);
+check(
+  "and holds what it ran",
+  log.some((e) => e.kind === "tool" && e.name === "Bash"),
+  log,
+);
 
 send({ type: "agent_log", projectId: chatId, key });
 await until("the log from the server", () => fetched !== undefined, 10_000);
@@ -149,7 +156,12 @@ check("the log opens again from the server, whole", (fetched?.length ?? 0) >= lo
 });
 
 // a follow-up picks the same conversation up
-send({ type: "agent_send", projectId: chatId, key, text: "Now reply with only the number you reported, doubled, as digits." });
+send({
+  type: "agent_send",
+  projectId: chatId,
+  key,
+  text: "Now reply with only the number you reported, doubled, as digits.",
+});
 await until("the follow-up to start", () => crew.get(key)?.status === "running", 10_000);
 await until("the follow-up to finish", () => crew.get(key)?.status !== "running", 120_000);
 check(
@@ -160,8 +172,18 @@ check(
 
 // a stop ends a long one "stopped"
 const long = "crew-livetest02";
-send({ type: "agent_start", projectId: chatId, key: long, model: "haiku", text: "Run `sleep 60` with the Bash tool, then say done." });
-await until("the long one to start a tool", () => (logs.get(long) ?? []).some((e) => e.kind === "tool"), 60_000);
+send({
+  type: "agent_start",
+  projectId: chatId,
+  key: long,
+  model: "haiku",
+  text: "Run `sleep 60` with the Bash tool, then say done.",
+});
+await until(
+  "the long one to start a tool",
+  () => (logs.get(long) ?? []).some((e) => e.kind === "tool"),
+  60_000,
+);
 send({ type: "agent_stop", projectId: chatId, key: long });
 await until("the stop", () => crew.get(long)?.status !== "running", 30_000);
 check("a stopped agent reads stopped", crew.get(long)?.status === "stopped", crew.get(long));

@@ -157,7 +157,14 @@ function SessionRow({ session }: { session: SessionInfo }) {
           });
         }}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          aria-hidden
+        >
           <path d="M6 6l12 12M18 6L6 18" />
         </svg>
       </button>
@@ -227,7 +234,9 @@ Click to bring it in as a session`}
                 setOpen(false);
               }}
             >
-              <span className={`recent-tag ${item.provider}`}>{item.provider === "claude" ? "cc" : "cx"}</span>
+              <span className={`recent-tag ${item.provider}`}>
+                {item.provider === "claude" ? "cc" : "cx"}
+              </span>
               <span className="project-name">{item.title}</span>
               <span className="recent-age">{ago(item.at)}</span>
             </div>
@@ -284,13 +293,23 @@ function ProjectFolder({
         >
           <path d="M9 6l6 6-6 6" />
         </svg>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
           <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
         </svg>
         {renaming ? (
           <NameEditor value={project.name} className="folder-name" onDone={rename} />
         ) : (
-          <span className="folder-name" title={`${project.path} — double-click to rename`}>{project.name}</span>
+          <span className="folder-name" title={`${project.path} — double-click to rename`}>
+            {project.name}
+          </span>
         )}
         <span className="folder-actions">
           <button
@@ -301,7 +320,14 @@ function ProjectFolder({
               send({ type: "toggle_star", projectId: project.id });
             }}
           >
-            <svg viewBox="0 0 24 24" fill={project.starred ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill={project.starred ? "currentColor" : "none"}
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+              aria-hidden
+            >
               <path d={STAR_PATH} />
             </svg>
           </button>
@@ -313,7 +339,14 @@ function ProjectFolder({
               send({ type: "new_session", projectId: project.id });
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden
+            >
               <path d="M12 5v14M5 12h14" />
             </svg>
           </button>
@@ -326,12 +359,28 @@ function ProjectFolder({
             }}
           >
             {project.hidden ? (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" />
                 <circle cx="12" cy="12" r="3" />
               </svg>
             ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M3 3l18 18" />
                 <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
                 <path d="M9.9 5.1A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1" />
@@ -354,7 +403,14 @@ function ProjectFolder({
               });
             }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden
+            >
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
@@ -458,12 +514,14 @@ export const Sidebar = memo(function Sidebar() {
               className="peek-head"
               src={`/peek/u${p.n}.png`}
               alt=""
-              style={{
-                left: p.x,
-                width: p.w,
-                "--drop": `${p.drop}px`,
-                "--lift": `${p.lift}px`,
-              } as React.CSSProperties}
+              style={
+                {
+                  left: p.x,
+                  width: p.w,
+                  "--drop": `${p.drop}px`,
+                  "--lift": `${p.lift}px`,
+                } as React.CSSProperties
+              }
             />
           ))}
         </span>
@@ -495,7 +553,15 @@ export const Sidebar = memo(function Sidebar() {
               title={showHidden ? "Tuck the hidden projects away again" : "Show the hidden projects"}
               onClick={toggleHidden}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M9 6l6 6-6 6" />
               </svg>
               {showHidden ? "hide" : "show"} {hidden.length} hidden
@@ -518,7 +584,16 @@ export const Sidebar = memo(function Sidebar() {
       {/* the account bar — a stub for real accounts later; for now it names
           the local user and houses the settings gear */}
       <div className="account-bar">
-        <svg className="account-avatar" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <svg
+          className="account-avatar"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
           <circle cx="12" cy="8" r="4" />
           <path d="M4 21c1.5-4 4.4-6 8-6s6.5 2 8 6" />
         </svg>
@@ -529,13 +604,20 @@ export const Sidebar = memo(function Sidebar() {
           title="Settings"
           onClick={() => setSettingsOpen(!settingsOpen)}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
           </svg>
         </button>
       </div>
-
     </aside>
   );
 });

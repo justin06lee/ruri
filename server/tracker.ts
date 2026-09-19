@@ -23,9 +23,9 @@ export class TrackerStore {
     let items = this.data.get(projectId);
     if (items) return items;
     try {
-      const raw = JSON.parse(
-        fs.readFileSync(path.join(trackerDir(), `${projectId}.json`), "utf8"),
-      ) as { items?: TrackerItem[] };
+      const raw = JSON.parse(fs.readFileSync(path.join(trackerDir(), `${projectId}.json`), "utf8")) as {
+        items?: TrackerItem[];
+      };
       items = Array.isArray(raw.items) ? raw.items : [];
     } catch (err) {
       if (!isMissing(err)) warn("tracker", err, "load");
@@ -128,9 +128,7 @@ export class TrackerStore {
   removeForTurns(projectId: string, turnIds: Iterable<string>): boolean {
     const gone = new Set(turnIds);
     const items = this.load(projectId);
-    const kept = items.filter(
-      (item) => !(item.source === "auto" && item.turnId && gone.has(item.turnId)),
-    );
+    const kept = items.filter((item) => !(item.source === "auto" && item.turnId && gone.has(item.turnId)));
     if (kept.length === items.length) return false;
     this.data.set(projectId, kept);
     this.save(projectId);

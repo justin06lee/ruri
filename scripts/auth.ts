@@ -53,17 +53,32 @@ const post = async (p: string, headers: Record<string, string> = {}) =>
 try {
   check("socket: no token is refused", (await socket("")) === "http 401");
   check("socket: a wrong token is refused", (await socket("?token=nope")) === "http 401");
-  check("socket: a foreign Origin is refused", (await socket(`?token=${TOKEN}`, { origin: "http://evil.example" })) === "http 403");
+  check(
+    "socket: a foreign Origin is refused",
+    (await socket(`?token=${TOKEN}`, { origin: "http://evil.example" })) === "http 403",
+  );
   check("socket: own origin gets in", (await socket(`?token=${TOKEN}`, { origin: base })) === "open");
-  check("socket: vite's origin gets in (dev)", (await socket(`?token=${TOKEN}`, { origin: "http://localhost:5173" })) === "open");
+  check(
+    "socket: vite's origin gets in (dev)",
+    (await socket(`?token=${TOKEN}`, { origin: "http://localhost:5173" })) === "open",
+  );
   check("socket: no Origin (a script) gets in", (await socket(`?token=${TOKEN}`)) === "open");
 
   check("http: a POST without the token is 401", (await post("/anything")) === 401);
-  check("http: a POST with the header passes the guard", (await post("/anything", { "x-ruri-token": TOKEN })) === 404);
+  check(
+    "http: a POST with the header passes the guard",
+    (await post("/anything", { "x-ruri-token": TOKEN })) === 404,
+  );
   check("http: a POST with ?token= passes the guard", (await post(`/anything?token=${TOKEN}`)) === 404);
-  check("http: a POST from a foreign Origin is 403", (await post("/anything", { "x-ruri-token": TOKEN, origin: "http://evil.example" })) === 403);
+  check(
+    "http: a POST from a foreign Origin is 403",
+    (await post("/anything", { "x-ruri-token": TOKEN, origin: "http://evil.example" })) === 403,
+  );
   check("http: the bridge call needs no token", (await post("/bridge/no-such-session")) === 404);
-  check("http: the bridge call refuses a foreign Origin", (await post("/bridge/no-such-session", { origin: "http://evil.example" })) === 403);
+  check(
+    "http: the bridge call refuses a foreign Origin",
+    (await post("/bridge/no-such-session", { origin: "http://evil.example" })) === 403,
+  );
   check("http: GET stays open", (await fetch(`${base}/healthz`)).status === 200);
 
   // past the door, the shape of what is said is checked too
@@ -87,13 +102,25 @@ try {
       }
     });
   });
-  check("wire: a field of the wrong shape is refused", answers[0]?.startsWith("error bad message: termId") === true, answers);
-  check("wire: an unknown message type is refused", answers[1]?.startsWith("error bad message") === true, answers);
+  check(
+    "wire: a field of the wrong shape is refused",
+    answers[0]?.startsWith("error bad message: termId") === true,
+    answers,
+  );
+  check(
+    "wire: an unknown message type is refused",
+    answers[1]?.startsWith("error bad message") === true,
+    answers,
+  );
   check("wire: the socket stays open for the next message", answers[2] === "terminal_tabs", answers);
 
   const file = path.join(configDir, "token");
   check("token file: holds the token", fs.readFileSync(file, "utf8") === TOKEN);
-  check("token file: readable by this user only", (fs.statSync(file).mode & 0o777) === 0o600, (fs.statSync(file).mode & 0o777).toString(8));
+  check(
+    "token file: readable by this user only",
+    (fs.statSync(file).mode & 0o777) === 0o600,
+    (fs.statSync(file).mode & 0o777).toString(8),
+  );
   await running.close();
   check("token file: gone after close", !fs.existsSync(file));
 } finally {

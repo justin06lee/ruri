@@ -39,7 +39,11 @@ check("a new chat runs on the defaults", store.effectiveSettings(a.id)?.model ==
 /* ── a pick in one chat stays in that chat ─────────────────────────── */
 store.setSessionSettings(a.id, { model: "codex:gpt-5.6-sol" });
 check("the chat that picked runs on its pick", store.effectiveSettings(a.id)?.model === "codex:gpt-5.6-sol");
-check("its sibling does not move", store.effectiveSettings(b.id)?.model === DEFAULT_MODEL, store.effectiveSettings(b.id));
+check(
+  "its sibling does not move",
+  store.effectiveSettings(b.id)?.model === DEFAULT_MODEL,
+  store.effectiveSettings(b.id),
+);
 check("the sibling is pinned, not inheriting", store.findSession(b.id)?.session.model === DEFAULT_MODEL);
 
 /* ── a new chat starts on the last pick ────────────────────────────── */
@@ -48,40 +52,67 @@ check("a new chat starts on the last pick", store.effectiveSettings(c.id)?.model
 
 /* ── the same for effort and mode ──────────────────────────────────── */
 store.setSessionSettings(c.id, { effort: "low", permissionMode: "plan" });
-check("effort is per chat", store.effectiveSettings(c.id)?.effort === "low" && store.effectiveSettings(a.id)?.effort === DEFAULT_EFFORT);
+check(
+  "effort is per chat",
+  store.effectiveSettings(c.id)?.effort === "low" && store.effectiveSettings(a.id)?.effort === DEFAULT_EFFORT,
+);
 check(
   "mode is per chat",
-  store.effectiveSettings(c.id)?.permissionMode === "plan" && store.effectiveSettings(a.id)?.permissionMode === DEFAULT_PERMISSION_MODE,
+  store.effectiveSettings(c.id)?.permissionMode === "plan" &&
+    store.effectiveSettings(a.id)?.permissionMode === DEFAULT_PERMISSION_MODE,
 );
 
 /* ── a pick that moves the default a second time ───────────────────── */
 store.setSessionSettings(b.id, { model: "haiku" });
 check("the second picker runs on its pick", store.effectiveSettings(b.id)?.model === "haiku");
 check("the first picker keeps its own", store.effectiveSettings(a.id)?.model === "codex:gpt-5.6-sol");
-check("the chat that inherited the old default keeps it", store.effectiveSettings(c.id)?.model === "codex:gpt-5.6-sol");
-check("and the next new chat starts on the newest pick", store.effectiveSettings(store.newSession(project.id)!.id)?.model === "haiku");
+check(
+  "the chat that inherited the old default keeps it",
+  store.effectiveSettings(c.id)?.model === "codex:gpt-5.6-sol",
+);
+check(
+  "and the next new chat starts on the newest pick",
+  store.effectiveSettings(store.newSession(project.id)!.id)?.model === "haiku",
+);
 
 /* ── a fork keeps what it forked from ──────────────────────────────── */
 const fork = store.newSession(project.id)!;
 store.copySessionSettings(c.id, fork.id);
-check("a fork keeps the source chat's settings", store.effectiveSettings(fork.id)?.effort === "low" && store.effectiveSettings(fork.id)?.model === "codex:gpt-5.6-sol");
+check(
+  "a fork keeps the source chat's settings",
+  store.effectiveSettings(fork.id)?.effort === "low" &&
+    store.effectiveSettings(fork.id)?.model === "codex:gpt-5.6-sol",
+);
 
 /* ── it all survives a reload ──────────────────────────────────────── */
 const again = new ProjectStore();
-check("per-chat settings persist", again.effectiveSettings(a.id)?.model === "codex:gpt-5.6-sol" && again.effectiveSettings(c.id)?.effort === "low");
+check(
+  "per-chat settings persist",
+  again.effectiveSettings(a.id)?.model === "codex:gpt-5.6-sol" &&
+    again.effectiveSettings(c.id)?.effort === "low",
+);
 
 /* ── crowning a default moves nothing that exists ──────────────────── */
 
 const later = new ProjectStore();
 const other = later.add("other", process.env["RURI_CONFIG_DIR"]!);
-check("a new project starts on the built-in default", later.effectiveSettings(other.sessions[0]!.id)?.model === DEFAULT_MODEL);
+check(
+  "a new project starts on the built-in default",
+  later.effectiveSettings(other.sessions[0]!.id)?.model === DEFAULT_MODEL,
+);
 const before = later.effectiveSettings(other.sessions[0]!.id)?.model;
 later.assignModelRole("opus[1m]", "default");
 check("the crown is the default from here on", later.defaultModel() === "opus[1m]");
-check("a project riding the old default is pinned to it", later.effectiveSettings(other.sessions[0]!.id)?.model === before);
+check(
+  "a project riding the old default is pinned to it",
+  later.effectiveSettings(other.sessions[0]!.id)?.model === before,
+);
 check("a chat with its own pick keeps it", later.effectiveSettings(a.id)?.model === "codex:gpt-5.6-sol");
 const newborn = later.add("newborn", process.env["RURI_CONFIG_DIR"]!);
-check("a project made after the crown starts on it", later.effectiveSettings(newborn.sessions[0]!.id)?.model === "opus[1m]");
+check(
+  "a project made after the crown starts on it",
+  later.effectiveSettings(newborn.sessions[0]!.id)?.model === "opus[1m]",
+);
 check("the crown is starred", later.starredModels().includes("opus[1m]"));
 
 /* ── the star only favourites; the roles are handed over by their tags ── */
@@ -99,8 +130,14 @@ check("one star: starred, no role", roles("sonnet") === "starred - -");
 check("a second star: plain again", roles("sonnet") === "- - -");
 check("a role stars its holder", cyc.assignModelRole("sonnet", "small").starred.includes("sonnet"));
 check("and the star does not cycle the role on", cyc.modelRoles().small === "sonnet");
-check("unstarring the small model releases the role", roles("sonnet") === "- - -" && cyc.modelRoles().small === undefined);
-check("the crown from before is still on", cyc.defaultModel() === "opus[1m]" && cyc.starredModels().includes("opus[1m]"));
+check(
+  "unstarring the small model releases the role",
+  roles("sonnet") === "- - -" && cyc.modelRoles().small === undefined,
+);
+check(
+  "the crown from before is still on",
+  cyc.defaultModel() === "opus[1m]" && cyc.starredModels().includes("opus[1m]"),
+);
 check(
   "unstarring the default hands it back to the built-in",
   roles("opus[1m]") === "- - -" && cyc.defaultModel() === DEFAULT_MODEL,
@@ -113,7 +150,10 @@ check("and the old holder stays starred", cyc.starredModels().includes("haiku"))
 /* ── the wholesale form still clears the chats' own picks ──────────── */
 for (const s of again.get(project.id)!.sessions) delete s.model;
 again.update(project.id, { model: "opus" });
-check("a project-wide pick reaches every chat", again.get(project.id)!.sessions.every((s) => again.effectiveSettings(s.id)?.model === "opus"));
+check(
+  "a project-wide pick reaches every chat",
+  again.get(project.id)!.sessions.every((s) => again.effectiveSettings(s.id)?.model === "opus"),
+);
 
 /* ── a pick during a turn waits for the turn ───────────────────────── */
 
@@ -159,7 +199,10 @@ const manager = new SessionManager({
   onChain() {},
   onModels() {},
 } as never);
-const inner = manager as unknown as { sessions: Map<string, unknown>; events: { onStatus(id: string, status: string): void } };
+const inner = manager as unknown as {
+  sessions: Map<string, unknown>;
+  events: { onStatus(id: string, status: string): void };
+};
 inner.sessions.set("chat", fake);
 
 manager.setEffort("chat", "low");
@@ -170,7 +213,11 @@ check("nothing reaches a session mid-turn", reached.length === 0, reached);
 fake.status = "idle";
 inner.events.onStatus("chat", "idle");
 check("the real status hook still fires", statuses.includes("idle"));
-check("and the picks land, in order, once the turn is over", reached.join(" ") === "effort:low mode:plan model:haiku", reached);
+check(
+  "and the picks land, in order, once the turn is over",
+  reached.join(" ") === "effort:low mode:plan model:haiku",
+  reached,
+);
 
 reached.length = 0;
 manager.setEffort("chat", "high");

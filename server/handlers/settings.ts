@@ -12,7 +12,10 @@ import type { Handlers } from "./types.js";
 /** The roles changed: the small layer and every window hear the new set.
  *  A new default pins nothing live (the store already did), so the
  *  projects list goes out too — the pinned values are now on them. */
-function announceRoles(ctx: ServerContext, roles: { starred: string[]; small: string | undefined; default: string | undefined }): void {
+function announceRoles(
+  ctx: ServerContext,
+  roles: { starred: string[]; small: string | undefined; default: string | undefined },
+): void {
   setSmallModel(roles.small);
   ctx.clients.broadcast({ type: "starred_models", models: roles.starred });
   ctx.clients.broadcast({ type: "small_model", model: roles.small ?? "" });

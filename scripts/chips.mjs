@@ -130,7 +130,9 @@ export default async function (page) {
   // and the font. So a prompt with chips beside punctuation, chips side by
   // side, a newline, and a trailing space is walked across a range of
   // widths, and the chips must stand at every one of them.
-  const markers = await page.eval(`document.querySelector('.composer-box textarea').value.match(/\\[image[ \\u00a0]#\\d+\\]/g)`);
+  const markers = await page.eval(
+    `document.querySelector('.composer-box textarea').value.match(/\\[image[ \\u00a0]#\\d+\\]/g)`,
+  );
   const chip = markers[0];
   await page.eval(`(async () => {
     const area = document.querySelector('.composer-box textarea');
@@ -146,7 +148,12 @@ export default async function (page) {
   })()`);
   const fallen = [];
   for (let width = 860; width <= 1240; width += 4) {
-    await page.cdp("Emulation.setDeviceMetricsOverride", { width, height: 850, deviceScaleFactor: 0, mobile: false });
+    await page.cdp("Emulation.setDeviceMetricsOverride", {
+      width,
+      height: 850,
+      deviceScaleFactor: 0,
+      mobile: false,
+    });
     await page.wait(350);
     const state = await page.eval(MEASURE);
     if (state.off || state.visible !== "visible" || state.chips !== 7) fallen.push({ width, ...state });

@@ -15,7 +15,7 @@ import { writeTextAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import { AgentLogs, Crew } from "./agents.js";
 import { BridgeState } from "./bridgeState.js";
-import { channelProject, ownerProject, running, terminalCwd } from "./channel.js";
+import { channelProject, ownerProject, running } from "./channel.js";
 import { catchUp, Clients, transcriptOf } from "./clients.js";
 import { buildCompaction, DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
 import type { PendingComponent, RuriServer, ServerContext, StartServerOptions } from "./context.js";
@@ -78,6 +78,7 @@ import { rewindHandlers } from "./handlers/rewind.js";
 import { promptHandlers } from "./handlers/prompts.js";
 import { createCrewManager, crewHandlers } from "./handlers/crew.js";
 import { boardHandlers } from "./handlers/boards.js";
+import { terminalHandlers } from "./handlers/terminal.js";
 import type { Handler, MessageType } from "./handlers/types.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
@@ -508,7 +509,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     findProjects: (query) => findProjects([store.workspaceDir()], query),
   };
 
-  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers, ...promptHandlers, ...boardHandlers };
+  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers, ...promptHandlers, ...boardHandlers, ...terminalHandlers };
 
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
     const handler = (handlers as Partial<Record<string, Handler<MessageType>>>)[msg.type];
@@ -698,70 +699,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       case "set_pref": {
         prefs.set(msg.key, msg.value);
         ctx.clients.broadcast({ type: "prefs", prefs: prefs.all() });
-        break;
-      }
-      case "terminal_list": {
-        ws.send(JSON.stringify({
-          type: "terminal_tabs",
-          projectId: msg.projectId,
-          tabs: ctx.terminals.list(msg.projectId),
-        } satisfies ServerMessage));
-        break;
-      }
-      case "terminal_new": {
-        ctx.clients.broadcast({
-          type: "terminal_tabs",
-          projectId: msg.projectId,
-          tabs: ctx.terminals.add(msg.projectId),
-        });
-        break;
-      }
-      case "terminal_open": {
-        const attaching = ctx.terminals.has(msg.termId);
-        if (
-          !ctx.terminals.open(
-            msg.projectId,
-            msg.termId,
-            terminalCwd(ctx, msg.projectId),
-            msg.cols,
-            msg.rows,
-          )
-        ) {
-          ws.send(JSON.stringify({
-            type: "terminal_exit",
-            projectId: msg.projectId,
-            termId: msg.termId,
-            note: "no shell could be started here",
-          } satisfies ServerMessage));
-          break;
-        }
-        // a shell that was already running answers with what it has printed,
-        // so the panel opens where you left it
-        if (attaching) {
-          ws.send(JSON.stringify({
-            type: "terminal_data",
-            projectId: msg.projectId,
-            termId: msg.termId,
-            data: ctx.terminals.scrollback(msg.termId),
-            replay: true,
-          } satisfies ServerMessage));
-        }
-        break;
-      }
-      case "terminal_input": {
-        ctx.terminals.write(msg.termId, msg.data);
-        break;
-      }
-      case "terminal_resize": {
-        ctx.terminals.resize(msg.termId, msg.cols, msg.rows);
-        break;
-      }
-      case "terminal_close": {
-        ctx.clients.broadcast({
-          type: "terminal_tabs",
-          projectId: msg.projectId,
-          tabs: ctx.terminals.close(msg.projectId, msg.termId),
-        });
         break;
       }
       case "set_model": {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HOME_ID } from "../../../shared/protocol";
 import { attachFile, replaceAttachmentFile, useRuri } from "../store";
 
@@ -321,10 +321,13 @@ export function Sketch({
 
   // everything is redrawn from the shapes, so undo is exact
   const scaleUp = Math.max(1, Math.max(size.w, size.h) / 1400);
-  const hanging: Shape | null =
-    placing && placeAt
-      ? { kind: "text", x: placeAt[0], y: placeAt[1] + placing.size * 0.35, text: placing.text, color, size: placing.size, font: placing.font }
-      : null;
+  const hanging = useMemo<Shape | null>(
+    () =>
+      placing && placeAt
+        ? { kind: "text", x: placeAt[0], y: placeAt[1] + placing.size * 0.35, text: placing.text, color, size: placing.size, font: placing.font }
+        : null,
+    [placing, placeAt, color],
+  );
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");

@@ -114,3 +114,52 @@ describe("what legitimate markdown keeps", () => {
     expect(parsed(markdownHtml("one\ntwo")).querySelector("br")).not.toBeNull();
   });
 });
+
+// A sent prompt draws its [image #1] markers as the chips the composer
+// drew them as. Only when asked: a reply that says "[image #1]" is words.
+describe("a prompt's attachment markers", () => {
+  const chip = (md: string) => parsed(markdownHtml(md, true)).querySelector(".marker-chip");
+
+  test("a marker becomes a chip carrying its kind and number", () => {
+    const span = chip("[image #1] fix this");
+    expect(span?.getAttribute("data-kind")).toBe("image");
+    expect(span?.getAttribute("data-n")).toBe("1");
+  });
+
+  test("the chip keeps the marker's own characters, brackets and all", () => {
+    expect(chip("look at [video #12]")?.textContent).toBe("[video #12]");
+  });
+
+  test("every kind of marker, and no false ones", () => {
+    for (const kind of ["image", "video", "file", "region"]) {
+      expect(chip(`[${kind} #3]`)?.getAttribute("data-kind")).toBe(kind);
+    }
+    for (const md of ["[note #1]", "[image #x]", "[image#1]", "[image #1"]) {
+      expect(chip(md)).toBeNull();
+    }
+  });
+
+  test("a marker inside code stays the words it is", () => {
+    expect(chip("`[image #1]`")).toBeNull();
+    expect(chip("```\n[image #1]\n```")).toBeNull();
+  });
+
+  test("markdown around a chip still renders, and is still sanitised", () => {
+    const dom = parsed(markdownHtml("**bold** [image #1]\n\n<img src=x onerror=alert(1)>", true));
+    expect(dom.querySelector("strong")?.textContent).toBe("bold");
+    expect(dom.querySelector(".marker-chip")).not.toBeNull();
+    expect(attributes(dom.innerHTML).some((a) => a.includes("onerror"))).toBe(false);
+  });
+
+  test("without chips asked for, a marker is left as words", () => {
+    expect(parsed(markdownHtml("[image #1]")).querySelector(".marker-chip")).toBeNull();
+    expect(parsed(markdownHtml("[image #1]")).textContent).toContain("[image #1]");
+  });
+
+  test("the cache tells the two renderings of one prompt apart", () => {
+    const md = "[image #1] here";
+    expect(parsed(renderMarkdown(md, true)).querySelector(".marker-chip")).not.toBeNull();
+    expect(parsed(renderMarkdown(md)).querySelector(".marker-chip")).toBeNull();
+    expect(parsed(renderMarkdown(md, true)).querySelector(".marker-chip")).not.toBeNull();
+  });
+});

@@ -240,7 +240,7 @@ export const EventView = memo(function EventView({
               </svg>
             </button>
           )}
-          <Markdown text={event.text} />
+          <Markdown text={event.text} attachments={event.attachments} />
           {event.attachments && event.attachments.length > 0 && (
             <TranscriptAttachments attachments={event.attachments} />
           )}

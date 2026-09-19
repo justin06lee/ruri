@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { QueuedPrompt } from "../../../shared/protocol";
 import { composeInto, send } from "../store";
 import { TranscriptAttachments } from "./Attachments";
+import { MarkerText } from "./Markers";
 
 /** Where a lifted card is about to land: on the edge of another (a place
  *  in line) or on its body (the two become one prompt). */
@@ -117,7 +118,9 @@ function QueuedCard({
           </button>
         </span>
       </div>
-      <div className="queued-text">{item.text}</div>
+      <div className="queued-text">
+        <MarkerText text={item.text} />
+      </div>
       {item.attachments && item.attachments.length > 0 && (
         <TranscriptAttachments attachments={item.attachments} />
       )}

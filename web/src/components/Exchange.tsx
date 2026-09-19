@@ -174,9 +174,14 @@ function OpenHalf({
  * its own under the pointer, so what lights is what a click opens. A click
  * on a note opens that half alone, and it folds back the way it came: a
  * prompt by a click on it, a reply by its pill (see OpenHalf). "Full
- * exchange" opens both; the chevron folds the pair back. Every exchange
- * above the newest compaction starts folded, one below it open — and a
- * reply open from the start has no pill, and folds only by the chevron.
+ * exchange" opens both; the chevron folds the pair back.
+ *
+ * Only an exchange above the newest compaction folds at all (`foldable`).
+ * Below it the conversation is what is actually being said, and there are
+ * no notes for it to fold to — so it has no chevron, no dotted edge under
+ * the pointer, and a click on a prompt is just a click. A compaction is
+ * what turns an exchange into a pair of notes, and only then does folding
+ * mean anything.
  */
 export const Exchange = memo(function Exchange({
   turnId,
@@ -188,6 +193,7 @@ export const Exchange = memo(function Exchange({
   promptOpen,
   replyOpen,
   replyFolds,
+  foldable,
   loading,
   far,
   project,
@@ -210,6 +216,8 @@ export const Exchange = memo(function Exchange({
   replyOpen: boolean;
   /** A click on the open reply folds it: it was opened from its note. */
   replyFolds: boolean;
+  /** Above the newest compaction: it has notes, so it folds to them. */
+  foldable: boolean;
   /** Opened, and its events still on their way. */
   loading?: boolean;
   far?: boolean;
@@ -238,7 +246,7 @@ export const Exchange = memo(function Exchange({
   );
   return (
     <div className={`turn${folded ? " folded" : ""}${far ? " far" : ""}`} data-turn={turnId}>
-      {!folded && (
+      {!folded && foldable && (
         <button
           className="icon-button turn-fold"
           title="Fold this exchange to its notes"
@@ -248,7 +256,7 @@ export const Exchange = memo(function Exchange({
         </button>
       )}
       {head ? (
-        <OpenHalf half="prompt" folds onFold={() => onFoldHalf(turnId, "prompt")}>
+        <OpenHalf half="prompt" folds={foldable} onFold={() => onFoldHalf(turnId, "prompt")}>
           {view(head)}
         </OpenHalf>
       ) : (
@@ -263,7 +271,7 @@ export const Exchange = memo(function Exchange({
       {rest ? (
         <OpenHalf
           half="reply"
-          folds={replyFolds && rest.length > 0}
+          folds={foldable && replyFolds && rest.length > 0}
           onFold={() => onFoldHalf(turnId, "reply")}
         >
           {rest.map(view)}

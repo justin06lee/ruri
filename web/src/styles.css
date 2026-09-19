@@ -6090,6 +6090,21 @@ input[type="range"]::-webkit-slider-thumb {
   color: transparent;
 }
 
+/* the same chip in a prompt already sent (lib/markdownHtml.ts draws it):
+   nothing to drag here, and a click opens what it stands for */
+.marker-chip.sent {
+  cursor: pointer;
+}
+
+/* a still one, in the queue: a label for the attachment on the card under
+   it, so it neither invites a click nor answers one */
+.marker-chip.still,
+.marker-chip.still:hover {
+  cursor: default;
+  color: var(--paper);
+  background: var(--ink);
+}
+
 /* hovered, the chip turns inside out: paper with an ink rim, the same
    inversion every other pressed thing in the app does */
 .marker-chip:hover {

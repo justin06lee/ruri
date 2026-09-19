@@ -145,6 +145,40 @@ const SHAPING = [
   "padding-left",
 ] as const;
 
+/**
+ * The markers as chips in text that is not the composer's box: a prompt
+ * waiting its turn in the queue. The same pill — a prompt should read the
+ * way it did while you were writing it, all the way through — but a still
+ * one: what a chip stands for is on the card under it already, so there is
+ * nothing here to drag, and nothing for a click to open. A prompt already
+ * sent goes through markdown instead (lib/markdownHtml.ts draws those).
+ */
+export function MarkerText({ text }: { text: string }) {
+  const parts = useMemo(
+    () =>
+      segments(
+        text,
+        findMarkers(text).filter((marker) => marker.kind !== "command"),
+      ),
+    [text],
+  );
+  return (
+    <>
+      {parts.map((part) =>
+        part.marker ? (
+          <span key={part.start} className="marker-chip sent still">
+            <span className="marker-bracket">[</span>
+            {part.text.slice(1, -1)}
+            <span className="marker-bracket">]</span>
+          </span>
+        ) : (
+          part.text
+        ),
+      )}
+    </>
+  );
+}
+
 export function MarkerMirror({
   areaRef,
   text,

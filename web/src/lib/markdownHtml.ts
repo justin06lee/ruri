@@ -7,10 +7,12 @@
  */
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
-import { Marked } from "marked";
+import { Marked, type MarkedExtension, type TokenizerAndRendererExtension, type Tokens } from "marked";
 import { HTTP_BASE } from "../store";
 
-const marked = new Marked({
+/** Fresh every time: two Marked instances must not share one options
+ *  object, since each binds the renderer in it to itself. */
+const options = (): MarkedExtension => ({
   gfm: true,
   breaks: true,
   renderer: {
@@ -52,6 +54,49 @@ const marked = new Marked({
   },
 });
 
+/**
+ * A prompt's [image #1] markers, drawn as the chips the composer draws
+ * them as, so a prompt reads the same once it is sent as it did while you
+ * were writing it (components/Markers.tsx draws the composer's).
+ *
+ * An inline extension rather than a pass over the text or the HTML: marked
+ * hands it only the places a marker can be a marker, so one inside a code
+ * fence or a link's address stays the words it is, and everything around
+ * it is escaped as it always was. The kind and number ride along on the
+ * chip, for the click that opens what it stands for (../markdown.tsx).
+ */
+const MARKER = /^\[(image|video|file|region)[ \u00a0]#(\d+)\]/;
+
+interface MarkerToken extends Tokens.Generic {
+  kind: string;
+  n: number;
+}
+
+const markerChip: TokenizerAndRendererExtension = {
+  name: "marker",
+  level: "inline",
+  start: (src) => src.indexOf("["),
+  tokenizer(src) {
+    const match = MARKER.exec(src);
+    if (!match) return undefined;
+    return { type: "marker", raw: match[0], kind: match[1]!, n: Number(match[2]) } as MarkerToken;
+  },
+  renderer(token) {
+    const { kind, n } = token as MarkerToken;
+    // brackets kept, and made invisible, exactly as the composer's mirror
+    // keeps them: they are the pill's padding, and a prompt copied out of
+    // the transcript comes back with its markers whole.
+    return (
+      `<span class="marker-chip sent" data-kind="${kind}" data-n="${n}">` +
+      `<span class="marker-bracket">[</span>${kind}\u00a0#${n}` +
+      `<span class="marker-bracket">]</span></span>`
+    );
+  },
+};
+
+const marked = new Marked(options());
+const markedWithChips = new Marked(options(), { extensions: [markerChip] });
+
 function escapeHtml(text: string): string {
   return text
     .replaceAll("&", "&amp;")
@@ -73,16 +118,18 @@ function escapeHtml(text: string): string {
 const CACHE_LIMIT = 1200;
 const cache = new Map<string, string>();
 
-export function renderMarkdown(text: string): string {
-  const hit = cache.get(text);
+export function renderMarkdown(text: string, chips = false): string {
+  // the same prompt reads differently with its markers drawn as chips
+  const key = chips ? `\u0000chips${text}` : text;
+  const hit = cache.get(key);
   if (hit !== undefined) {
     // touch it, so the cap sheds what nobody has looked at in a while
-    cache.delete(text);
-    cache.set(text, hit);
+    cache.delete(key);
+    cache.set(key, hit);
     return hit;
   }
-  const html = markdownHtml(text);
-  cache.set(text, html);
+  const html = markdownHtml(text, chips);
+  cache.set(key, html);
   if (cache.size > CACHE_LIMIT) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
@@ -103,10 +150,11 @@ export function prewarmMarkdown(text: string): void {
  * whose half-finished versions must not push finished ones out of the
  * cache. Everything that renders markdown goes through here.
  */
-export function markdownHtml(text: string): string {
+export function markdownHtml(text: string, chips = false): string {
   // DOMPurify without a working DOM hands its input back untouched. That
   // never happens in the window, but "sanitised" must not quietly mean
   // "raw model output" anywhere this runs: fail closed, as escaped text.
   if (!DOMPurify.isSupported) return `<p>${escapeHtml(text)}</p>`;
-  return DOMPurify.sanitize(marked.parse(text, { async: false }), { ADD_ATTR: ["target"] });
+  const html = (chips ? markedWithChips : marked).parse(text, { async: false });
+  return DOMPurify.sanitize(html, { ADD_ATTR: ["target"] });
 }

@@ -862,6 +862,7 @@ function ChatView({
                     promptOpen={promptOpen}
                     replyOpen={replyOpen}
                     replyFolds={replyOpen}
+                    foldable
                     loading={(promptOpen || replyOpen) && !history}
                     project={project}
                     channelId={activeId}
@@ -911,6 +912,8 @@ function ChatView({
                   promptOpen={promptOpen}
                   replyOpen={replyOpen}
                   replyFolds={open?.reply === true}
+                  // below the newest mark nothing has notes to fold to
+                  foldable={false}
                   far={far}
                   project={project}
                   channelId={activeId}

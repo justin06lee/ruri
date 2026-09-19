@@ -1,7 +1,6 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { type AskQuestions, briefLine, DEFAULT_PERMISSION_MODE, type SubagentState, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
 import * as fs from "node:fs";
-import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
@@ -31,9 +30,9 @@ import { UsageGauges } from "./gauges.js";
 import { HomeLog } from "./homelog.js";
 import { createCheckpoints } from "./checkpoints.js";
 import { HOME_ID, managerExtras, type ManagerHost } from "./manager.js";
-import { AUDIO_MIME, IMAGE_MIME, mimeOf, STATIC_MIME } from "./mime.js";
+import { IMAGE_MIME } from "./mime.js";
 import { Models } from "./models.js";
-import { defaultMusicDir, isAllowed, scan as scanMusic } from "./music.js";
+import { defaultMusicDir } from "./music.js";
 import { claimPort, type PortClaim } from "./port.js";
 import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
@@ -59,11 +58,9 @@ import { importRecent, listRecent } from "./recent.js";
 import { sessionBriefing } from "./briefing.js";
 import {
   BRIDGE_TOOLS,
-  bridgeDir,
   bridgeHttpBriefing,
   bridgeToolBriefing,
   bridgeTools,
-  runBridge,
 } from "./bridge.js";
 import {
   COMPONENT_TOOLS,
@@ -86,149 +83,12 @@ import { installSkill, listSkills, readSkill, removeSkill, scanSkills, toggleSki
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { contextWindow, pushContexts, republishContext, resetContext, Turns } from "./turns.js";
-import { modelPayload, processAttachments, serveUpload, storeAttachments, storedFilePath, storeUpload, sweepUploads } from "./uploads.js";
+import { modelPayload, processAttachments, storeAttachments, storedFilePath, storeUpload, sweepUploads } from "./uploads.js";
 import { errorMessage, isMissing, warn } from "./log.js";
+import { originAllowed, presentedToken, tokenMatches } from "./auth.js";
+import { createHttpServer } from "./routes.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
-
-/**
- * The desktop app is same-origin, but the vite dev server (:5173) is not —
- * and a cross-origin MediaElementSource without CORS taints the Web Audio
- * graph into silence (crossfading needs gain nodes). Permissive headers on
- * the music routes keep dev mode working.
- */
-const MUSIC_CORS: Record<string, string> = {
-  "access-control-allow-origin": "*",
-  "access-control-expose-headers": "Content-Length, Content-Range, Accept-Ranges",
-};
-
-/**
- * Streams one audio file, honouring Range requests so seeking in a long track
- * is instant. Only paths inside the music dir are served (see music.ts).
- */
-function serveTrack(req: http.IncomingMessage, res: http.ServerResponse, root: string): void {
-  const url = new URL(req.url ?? "/", "http://localhost");
-  const filePath = url.searchParams.get("p") ?? "";
-  if (!filePath || !isAllowed(filePath, root)) {
-    res.writeHead(403, MUSIC_CORS);
-    res.end();
-    return;
-  }
-  let size: number;
-  try {
-    const stat = fs.statSync(filePath);
-    if (!stat.isFile()) throw new Error("not a file");
-    size = stat.size;
-  } catch (err) {
-    if (!isMissing(err)) warn("server", err, "serveTrack");
-    res.writeHead(404, MUSIC_CORS);
-    res.end();
-    return;
-  }
-
-  const type = mimeOf(filePath, AUDIO_MIME);
-  const match = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range?.trim() ?? "");
-
-  if (match && (match[1] !== "" || match[2] !== "")) {
-    let start: number;
-    let end: number;
-    if (match[1] !== "") {
-      start = Number(match[1]);
-      end = match[2] !== "" ? Math.min(Number(match[2]), size - 1) : size - 1;
-    } else {
-      start = Math.max(0, size - Number(match[2])); // suffix form: bytes=-500
-      end = size - 1;
-    }
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) {
-      res.writeHead(416, { ...MUSIC_CORS, "content-range": `bytes */${size}` });
-      res.end();
-      return;
-    }
-    res.writeHead(206, {
-      ...MUSIC_CORS,
-      "content-type": type,
-      "content-length": end - start + 1,
-      "content-range": `bytes ${start}-${end}/${size}`,
-      "accept-ranges": "bytes",
-    });
-    fs.createReadStream(filePath, { start, end }).pipe(res);
-    return;
-  }
-
-  res.writeHead(200, { ...MUSIC_CORS, "content-type": type, "content-length": size, "accept-ranges": "bytes" });
-  fs.createReadStream(filePath).pipe(res);
-}
-
-/** A request body, whole, or an error past `limit` bytes. */
-function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on("data", (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > limit) {
-        reject(new Error("body too large"));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
-}
-
-/** The dev page's origins: vite serves the UI on :5173 and talks to the
- *  standalone server across origins. Honoured only when there is no built
- *  UI to serve — the packaged app never hears from them. */
-const DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"];
-
-/**
- * Whether a request may come from where it says it comes from. No Origin
- * at all is a non-browser client (a script, curl, a harness's bridge call)
- * and passes; a browser's Origin must be this server's own page — or, in
- * dev, vite's. Anything else is some other site's page on the same
- * machine, and gets nothing.
- */
-function originAllowed(origin: string | undefined, port: number, dev: boolean): boolean {
-  if (origin === undefined) return true;
-  const own = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
-  return own.includes(origin) || (dev && DEV_ORIGINS.includes(origin));
-}
-
-/** The token a request carries — the header first, the query second. */
-function presentedToken(req: http.IncomingMessage): string {
-  const header = req.headers["x-ruri-token"];
-  if (typeof header === "string") return header;
-  return new URL(req.url ?? "/", "http://localhost").searchParams.get("token") ?? "";
-}
-
-/** Compared in constant time: a wrong token takes as long as a right one. */
-function tokenMatches(presented: string, token: string): boolean {
-  const a = Buffer.from(presented);
-  const b = Buffer.from(token);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.ServerResponse): void {
-  const url = (req.url ?? "/").split("?")[0] ?? "/";
-  const rel = url === "/" ? "index.html" : url.replace(/^\/+/, "");
-  const file = path.resolve(staticDir, rel);
-  if (!file.startsWith(path.resolve(staticDir) + path.sep) && file !== path.resolve(staticDir, "index.html")) {
-    res.writeHead(403);
-    res.end();
-    return;
-  }
-  fs.readFile(file, (err, data) => {
-    if (err) {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
-    res.writeHead(200, { "content-type": mimeOf(file, STATIC_MIME) });
-    res.end(data);
-  });
-}
 
 export async function startServer(options: StartServerOptions): Promise<RuriServer> {
   const store = new ProjectStore();
@@ -336,62 +196,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     // the session managers, the turn tracker and the two hosts are wired
     // below, once there is a context for them to see
   } as ServerContext;
-
-  /** GET /bridge/preview/<channelId> — the strip's picture, overwritten in
-   *  place as the session works, so never cached. */
-  function serveBridgePreview(req: http.IncomingMessage, res: http.ServerResponse): void {
-    const id = (req.url ?? "").slice("/bridge/preview/".length).split("?")[0] ?? "";
-    const file = path.join(bridgeDir(id), "preview.png");
-    try {
-      const stat = fs.statSync(file);
-      if (!id || !stat.isFile()) throw new Error("not a file");
-      res.writeHead(200, { "content-type": "image/png", "content-length": stat.size, "cache-control": "no-cache" });
-      fs.createReadStream(file).pipe(res);
-    } catch (err) {
-      if (!isMissing(err)) warn("server", err, "serveBridgePreview");
-      res.writeHead(404);
-      res.end();
-    }
-  }
-
-  /**
-   * POST /bridge/<channelId> — the bridge for a harness that cannot hold
-   * tools: the same calls as JSON, answered as JSON, with pictures as
-   * paths. The channel id is the capability; a session is told only its own.
-   */
-  async function serveBridgeCall(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    const reply = (status: number, body: Record<string, unknown>): void => {
-      res.writeHead(status, { "content-type": "application/json" });
-      res.end(JSON.stringify(body));
-    };
-    const id = (req.url ?? "").slice("/bridge/".length).split("?")[0] ?? "";
-    if (!id || (id !== HOME_ID && !store.sessionIds().includes(id))) {
-      reply(404, { ok: false, error: "no such session" });
-      return;
-    }
-    let body: { tool?: unknown; args?: unknown };
-    try {
-      body = JSON.parse(await readBody(req, 1024 * 1024)) as typeof body;
-    } catch (err) {
-      reply(400, { ok: false, error: `bad request: ${errorMessage(err)}` });
-      return;
-    }
-    if (!body || typeof body.tool !== "string") {
-      reply(400, { ok: false, error: 'send {"tool": "<name>", "args": {...}}' });
-      return;
-    }
-    const owner = ownerProject(ctx, id);
-    const outcome = await runBridge(options.bridge, { channelId: id, projectId: owner?.id ?? id }, body.tool, body.args);
-    if (!outcome.ok) {
-      reply(200, { ok: false, error: outcome.error });
-      return;
-    }
-    reply(200, {
-      ok: true,
-      text: outcome.result.text,
-      ...(outcome.result.image ? { image: outcome.result.image.path } : {}),
-    });
-  }
 
   ctx.models.probeModels();
 
@@ -2684,65 +2488,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     }
   }
 
-  const server = http.createServer((req, res) => {
-    const method = req.method ?? "GET";
-    if (method !== "GET" && method !== "HEAD") {
-      // Anything that changes something needs the page's own origin (or
-      // none) and the token. The one exception is the bridge call, whose
-      // session id is its capability — harnesses curl it from shells with
-      // no token in hand — but it still refuses a browser's Origin.
-      const pathname = (req.url ?? "/").split("?")[0] ?? "/";
-      const bridgeCall = pathname.startsWith("/bridge/") && !pathname.startsWith("/bridge/preview/");
-      if (!originAllowed(req.headers.origin, ctx.listeningPort, !options.staticDir)) {
-        res.writeHead(403);
-        res.end();
-        return;
-      }
-      if (!bridgeCall && !tokenMatches(presentedToken(req), options.token)) {
-        res.writeHead(401);
-        res.end();
-        return;
-      }
-    }
-    if (req.url === "/healthz") {
-      res.writeHead(200, { "content-type": "application/json" });
-      // the pid is how the next launch tells a ruri that outlived its app
-      // from some other program on the port — see server/port.ts
-      res.end(JSON.stringify({ ok: true, service: "ruri", pid: process.pid }));
-      return;
-    }
-    if (req.url === "/music/playlists") {
-      res.writeHead(200, { ...MUSIC_CORS, "content-type": "application/json" });
-      res.end(JSON.stringify({ playlists: scanMusic(ctx.musicRoot()) }));
-      return;
-    }
-    if (req.url?.startsWith("/music/track?")) {
-      serveTrack(req, res, ctx.musicRoot());
-      return;
-    }
-    if (req.url?.startsWith("/uploads/")) {
-      serveUpload(req, res);
-      return;
-    }
-    if (req.url?.startsWith("/bridge/preview/")) {
-      serveBridgePreview(req, res);
-      return;
-    }
-    if (req.method === "POST" && req.url?.startsWith("/bridge/")) {
-      void serveBridgeCall(req, res);
-      return;
-    }
-    if (req.url?.startsWith("/readfile?")) {
-      ctx.readable.serveReadFile(req, res);
-      return;
-    }
-    if (options.staticDir && (req.method === "GET" || req.method === "HEAD")) {
-      serveStatic(options.staticDir, req, res);
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
+  const server = createHttpServer(ctx);
 
   const wss = new WebSocketServer({
     server,

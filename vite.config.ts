@@ -276,7 +276,18 @@ function contentSecurityPolicy(): Plugin {
 
 export default defineConfig({
   root: "web",
-  plugins: [react(), tunerSave(), tunerImages(), devToken(), contentSecurityPolicy()],
+  plugins: [
+    // The React Compiler: it works out for itself which values a component
+    // recomputes needlessly and memoises them, everywhere, rather than
+    // where somebody remembered to write useMemo. ChatPane has eighteen of
+    // those by hand; the composer, the sidebar and the boards have almost
+    // none, and they re-render on every event of every session.
+    react({ babel: { plugins: [["babel-plugin-react-compiler", { target: "19" }]] } }),
+    tunerSave(),
+    tunerImages(),
+    devToken(),
+    contentSecurityPolicy(),
+  ],
   // which port the standalone server is on, for the dev page (store.ts)
   define: { "import.meta.env.RURI_PORT": JSON.stringify(process.env["RURI_PORT"] ?? "7777") },
   server: {

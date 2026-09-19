@@ -98,7 +98,12 @@ describe("checkpoints against a real repository", () => {
   });
 
   test("a repository with no first commit yet checkpoints just as well", async () => {
-    fs.rmSync(path.join(repo, ".git"), { recursive: true, force: true });
+    // a fresh directory rather than this one with its .git taken away: a
+    // git process the setup's commit left running can write the old refs
+    // back into a .git re-made at the same path, and HEAD then names a
+    // commit that is not there
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-ckpt-empty-"));
+    write("a.txt", "one");
     git("init", "-q", "-b", "master");
     git("config", "user.email", "t@example.com");
     git("config", "user.name", "t");

@@ -1,14 +1,9 @@
-import { HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
+import { HOME_TRANSCRIPT_MAX } from "../shared/protocol.js";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import { WebSocketServer, WebSocket } from "ws";
 import type {
-  ClientMessage,
   ContextUsage,
   PermissionRequest,
-  ServerMessage,
 } from "../shared/protocol.js";
-import { clientMessageSchema, describeIssue } from "../shared/clientSchema.js";
 import { SessionArchive } from "./archive.js";
 import { writeTextAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
@@ -64,22 +59,13 @@ import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { contextWindow, pushContexts, Turns } from "./turns.js";
 import { sweepUploads } from "./uploads.js";
-import { errorMessage, warn } from "./log.js";
-import { originAllowed, presentedToken, tokenMatches } from "./auth.js";
+import { warn } from "./log.js";
 import { createHttpServer } from "./routes.js";
+import { createSocketServer } from "./socket.js";
 import { drainQueue, maybeRetry } from "./dispatch.js";
-import { componentHandlers, createComponentHost } from "./handlers/components.js";
-import { rewindHandlers } from "./handlers/rewind.js";
-import { promptHandlers } from "./handlers/prompts.js";
-import { createCrewManager, crewHandlers } from "./handlers/crew.js";
-import { boardHandlers } from "./handlers/boards.js";
-import { terminalHandlers } from "./handlers/terminal.js";
-import { skillHandlers } from "./handlers/skills.js";
-import { createManagerHost, projectHandlers } from "./handlers/projects.js";
-import { transcriptHandlers } from "./handlers/transcript.js";
-import { hostHandlers } from "./handlers/host.js";
-import { settingHandlers } from "./handlers/settings.js";
-import type { Handler, MessageType } from "./handlers/types.js";
+import { createComponentHost } from "./handlers/components.js";
+import { createCrewManager } from "./handlers/crew.js";
+import { createManagerHost } from "./handlers/projects.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
 
@@ -387,138 +373,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const managerHost = createManagerHost(ctx);
   ctx.managerHost = managerHost;
 
-  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers, ...promptHandlers, ...boardHandlers, ...terminalHandlers, ...skillHandlers, ...projectHandlers, ...transcriptHandlers, ...hostHandlers, ...settingHandlers };
-
-  function handleMessage(ws: WebSocket, msg: ClientMessage): void {
-    const handler = (handlers as Partial<Record<string, Handler<MessageType>>>)[msg.type];
-    if (handler) {
-      handler(ctx, ws, msg as never);
-      return;
-    }
-    switch (msg.type) {
-      /* ── the ideas board ──────────────────────────────────────── */
-
-      /* ── the vault ────────────────────────────────────────────── */
-
-      /* ── skills ───────────────────────────────────────────────── */
-
-      default: {
-        const unknown: { type: string } = msg;
-        throw new Error(`unknown message type: ${JSON.stringify(unknown)}`);
-      }
-    }
-  }
-
   const server = createHttpServer(ctx);
-
-  const wss = new WebSocketServer({
-    server,
-    // the socket is the whole app: a page from anywhere else, or one
-    // without the token, is turned away at the upgrade
-    verifyClient: ({ origin, req }, done) => {
-      if (!originAllowed(origin || undefined, ctx.listeningPort, !options.staticDir)) {
-        done(false, 403, "Forbidden");
-        return;
-      }
-      if (!tokenMatches(presentedToken(req), options.token)) {
-        done(false, 401, "Unauthorized");
-        return;
-      }
-      done(true);
-    },
-  });
-
-  // ws forwards the http server's "error" to the WebSocketServer, and an
-  // "error" event with nobody listening is an uncaught exception — which is
-  // why a port already in use used to take the whole app down instead of
-  // falling back the way the listen handler below intends. The handler down
-  // there is the one that decides what to do; this is only here so the copy
-  // ws re-emits cannot kill the process on its way past.
-  wss.on("error", (error: NodeJS.ErrnoException) => {
-    if (error.code === "EADDRINUSE") return;
-    console.error("ruri websocket server error:", error);
-  });
-
-  wss.on("connection", (ws) => {
-    ctx.clients.sockets.add(ws);
-    const projectIds = [...store.sessionIds(), HOME_ID];
-    // the boards are the one thing keyed by project rather than by session
-    const boardIds = store.list().map((p) => p.id);
-    const snapshot: ServerMessage = {
-      type: "snapshot",
-      projects: store.list(),
-      transcripts: ctx.readable.allowArchived(archive.tails(projectIds, TRANSCRIPT_TAIL)),
-      statuses: manager.statuses(),
-      permissions: [...ctx.permissions.values()],
-      models: ctx.models.allModels(),
-      summaries: archive.allSummaries(projectIds),
-      tracker: tracker.all(projectIds),
-      ideas: ideas.all(boardIds),
-      components: components.all(boardIds),
-      secrets: secrets.meta(),
-      queued: Object.fromEntries(projectIds.map((id) => [id, ctx.queues.visibleQueue(id)])),
-      queuesHeld: projectIds.filter((id) => ctx.queues.held.has(id)),
-      usage: ctx.usage.limits,
-      // live figures first; anything not yet seen this run falls back to the
-      // last one the archive recorded, so a relaunch shows real occupancy
-      contexts: Object.fromEntries(
-        projectIds.flatMap((id) => {
-          const live = ctx.turns.contexts.get(id);
-          if (live) return [[id, live] as const];
-          const tokens = archive.contextTokens(id);
-          return tokens === undefined ? [] : [[id, { tokens, window: contextWindow(ctx, id) }] as const];
-        }),
-      ),
-      turns: ctx.turns.snapshot(),
-      stats: ledger.all([...boardIds, HOME_ID]),
-      catchups: Object.fromEntries(
-        boardIds.map((id) => [id, briefs.get(id).built ? { built: briefs.get(id).built } : {}]),
-      ),
-      canPickFolder: options.pickFolder !== undefined,
-      canPermissions: options.permissions !== undefined,
-      workspaceDir: store.workspaceDir(),
-      musicDir: ctx.musicRoot(),
-      home: store.homeSettings(),
-      starredModels: store.starredModels(),
-      smallModel: store.smallModel() ?? "",
-      defaultModel: store.defaultModel(),
-      user: os.userInfo().username,
-      prefs: prefs.all(),
-      composerDrafts: drafts.all(),
-      bridges: options.bridge?.states() ?? {},
-      crew: crew.all(projectIds),
-    };
-    ws.send(JSON.stringify(snapshot));
-
-    ws.on("message", (raw) => {
-      try {
-        // checked before anything trusts its shape (shared/clientSchema.ts);
-        // a message that does not fit is answered and dropped
-        const parsed = clientMessageSchema.safeParse(JSON.parse(String(raw)));
-        if (!parsed.success) {
-          const reason = describeIssue(parsed.error);
-          warn("server", reason, "bad client message");
-          ws.send(JSON.stringify({ type: "error", message: `bad message: ${reason}` } satisfies ServerMessage));
-          return;
-        }
-        handleMessage(ws, parsed.data);
-      } catch (err) {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: errorMessage(err),
-          } satisfies ServerMessage),
-        );
-      }
-    });
-    ws.on("close", () => {
-      ctx.clients.sockets.delete(ws);
-      const view = ctx.clients.views.get(ws);
-      ctx.clients.views.delete(ws);
-      // a window gone is every chat it had open, left
-      for (const id of view?.channels ?? []) manager.settle(id);
-    });
-  });
+  const wss = createSocketServer(ctx, server);
 
   const host = options.host ?? "127.0.0.1";
 

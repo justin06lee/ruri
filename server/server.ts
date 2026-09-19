@@ -1,16 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { type AskQuestions, briefLine, DEFAULT_PERMISSION_MODE, type SubagentState, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
+import { type AskQuestions, briefLine, type SubagentState, HOME_TRANSCRIPT_MAX, TRANSCRIPT_TAIL } from "../shared/protocol.js";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import type {
-  Attachment,
   AttachmentUpload,
   ClientMessage,
-  ComponentProposal,
   ContextUsage,
-  NamedComponent,
   PermissionRequest,
   ServerMessage,
   TranscriptEvent,
@@ -30,7 +27,6 @@ import { UsageGauges } from "./gauges.js";
 import { HomeLog } from "./homelog.js";
 import { createCheckpoints } from "./checkpoints.js";
 import { HOME_ID, managerExtras, type ManagerHost } from "./manager.js";
-import { IMAGE_MIME } from "./mime.js";
 import { Models } from "./models.js";
 import { defaultMusicDir } from "./music.js";
 import { claimPort, type PortClaim } from "./port.js";
@@ -71,22 +67,21 @@ import {
   mentionBlock,
   mentionedIn,
   writeIndexFile,
-  type ComponentHost,
 } from "./components.js";
 import { IdeaStore } from "./ideas.js";
 import { ParagraphGate } from "./paragraphs.js";
 import { sweepOrphans } from "./orphans.js";
-import { sweepProject } from "./sweep.js";
-import { withProjectRunning, type ShotTarget } from "./shots.js";
 import { SecretStore } from "./secrets.js";
 import { installSkill, listSkills, readSkill, removeSkill, scanSkills, toggleSkill, updateSkills } from "./skills.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { contextWindow, pushContexts, republishContext, resetContext, Turns } from "./turns.js";
 import { modelPayload, processAttachments, storeAttachments, storedFilePath, storeUpload, sweepUploads } from "./uploads.js";
-import { errorMessage, isMissing, warn } from "./log.js";
+import { errorMessage, warn } from "./log.js";
 import { originAllowed, presentedToken, tokenMatches } from "./auth.js";
 import { createHttpServer } from "./routes.js";
+import { componentHandlers, createComponentHost, pushComponents } from "./handlers/components.js";
+import type { Handler, MessageType } from "./handlers/types.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
 
@@ -242,184 +237,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     void ctx.checkpoints.capture(project, channelId, eventId).catch(() => false);
   }
 
-  const componentHost: ComponentHost = {
-    list: (channelId) => {
-      const owner = ownerProject(ctx, channelId);
-      return owner ? components.items(owner.id) : [];
-    },
-    propose: (channelId, proposal) =>
-      new Promise<string | null>((resolve) => {
-        const owner = ownerProject(ctx, channelId);
-        if (!owner) {
-          resolve(null);
-          return;
-        }
-        // The screenshot is copied now, not when the card is answered. The
-        // card is the whole point of it — being asked to name something you
-        // cannot see is being asked to guess — and the model's own copy is
-        // routinely a scratch file that will not survive the wait.
-        const shot = proposal.shot ? storeShot(proposal.shot, owner.path) : undefined;
-        const shown: ComponentProposal = {
-          name: proposal.name,
-          files: proposal.files,
-          note: proposal.note,
-          ...(shot ? { image: shot } : {}),
-        };
-        // Bypass is the mode where ruri stops asking, and the card is only
-        // ever a confirmation: the model has already named the thing and
-        // photographed it. So in bypass the entry is written the moment it
-        // is proposed, star and screenshot and all, and the name stays
-        // yours to change on the components page whenever you look.
-        const mode = channelProject(ctx, channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
-        const straight = shown.name.trim();
-        if (mode === "bypassPermissions" && straight) {
-          const item = components.add(owner.id, {
-            name: straight,
-            files: shown.files,
-            note: shown.note,
-          });
-          if (shown.image) components.addShot(owner.id, item.id, shown.image);
-          pushComponents(owner.id, owner.path);
-          resolve(straight);
-          return;
-        }
-        const requestId = randomUUID();
-        ctx.pendingComponents.set(requestId, { channelId, proposal: shown, resolve });
-        const request: PermissionRequest = {
-          requestId,
-          projectId: channelId,
-          toolName: "name_component",
-          kind: "component",
-          input: shown,
-          ts: Date.now(),
-        };
-        ctx.permissions.set(requestId, request);
-        ctx.clients.broadcast({ type: "permission_request", request });
-      }),
-  };
-
-  /** An image the model pointed at, stored the way every attachment is. A
-   *  relative path is read against the project it was named from, since that
-   *  is the directory the model was working in. */
-  function storeShot(file: string, projectDir?: string): Attachment | undefined {
-    try {
-      const full = path.isAbsolute(file) ? file : path.resolve(projectDir ?? ".", file);
-      const data = fs.readFileSync(full).toString("base64");
-      const ext = path.extname(full).slice(1).toLowerCase();
-      const upload: AttachmentUpload = {
-        id: randomUUID(),
-        kind: "image",
-        mediaType: IMAGE_MIME[ext] ?? "image/png",
-        name: path.basename(full),
-        n: 1,
-        data,
-      };
-      const { url } = storeUpload(upload);
-      const { data: _data, regions: _regions, ...meta } = upload;
-      return { ...meta, url };
-    } catch (err) {
-      if (!isMissing(err)) warn("server", err, "storeShot");
-      return undefined;
-    }
-  }
-
-  /** Push a project's component index to disk and to every client. */
-  function pushComponents(projectId: string, projectDir?: string): void {
-    const items = components.items(projectId);
-    if (projectDir) writeIndexFile(projectDir, items);
-    ctx.clients.broadcast({ type: "components", projectId, items });
-  }
-
-  /* ── the repo sweep ───────────────────────────────────────────────── */
-
-  function sweepNote(projectId: string, note: string, busy = true): void {
-    ctx.clients.broadcast({ type: "sweep", projectId, busy, ...(note ? { note } : {}) });
-  }
-
-  /** A component's screenshot, filed like any other upload. */
-  function pinShot(projectId: string, item: NamedComponent, data: string): void {
-    const upload: AttachmentUpload = {
-      id: randomUUID(),
-      kind: "image",
-      mediaType: "image/png",
-      name: `${item.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "component"}.png`,
-      n: 1,
-      data,
-    };
-    const { url } = storeUpload(upload);
-    const { data: _data, regions: _regions, ...meta } = upload;
-    components.addShot(projectId, item.id, { ...meta, url });
-  }
-
-  /**
-   * Name everything in a project that isn't named yet, and then go and take
-   * its picture.
-   *
-   * Two passes, and the second one is optional in every sense: the naming
-   * pass is a handful of small-model calls over the repo and always runs;
-   * the picture pass starts the project's own dev server, opens it in a
-   * hidden window, and photographs each component by the selector the first
-   * pass wrote down. A project that isn't a page, a headless ruri, or a dev
-   * server that never comes up all land in the same place — entries with no
-   * screenshot, which the user can drop one onto.
-   */
-  async function runSweep(projectId: string, wantShots: boolean): Promise<void> {
-    const project = store.get(projectId);
-    if (!project || ctx.sweeping.has(projectId)) return;
-    ctx.sweeping.add(projectId);
-    sweepNote(projectId, "reading the repo…");
-    try {
-      // Taken before the read, so a file edited while the sweep runs is read
-      // again next time rather than being skipped as "already seen".
-      const startedAt = Date.now();
-      const { found } = await sweepProject(
-        project,
-        components.items(projectId),
-        (note) => sweepNote(projectId, note),
-        components.sweptAt(projectId),
-      );
-      for (const part of found) components.add(projectId, { ...part, found: true });
-      components.markSwept(projectId, startedAt);
-      pushComponents(projectId, project.path);
-
-      // Everything unphotographed gets a look in, not just what this sweep
-      // named — the dev server is already starting, and an entry from six
-      // months ago is exactly as picture-less as one from a minute ago.
-      const targets: ShotTarget[] = components
-        .items(projectId)
-        .filter((item) => item.selector && item.shots.length === 0)
-        .map((item) => ({
-          id: item.id,
-          selector: item.selector!,
-          ...(item.route ? { route: item.route } : {}),
-          ...(item.clicks?.length ? { clicks: item.clicks } : {}),
-        }));
-      const named = found.length === 0 ? "nothing new to name" : `named ${found.length}`;
-      if (!wantShots || !options.capture || targets.length === 0) {
-        sweepNote(projectId, named, false);
-        return;
-      }
-      const shots = await withProjectRunning(
-        project.path,
-        (note) => sweepNote(projectId, note),
-        (url) => options.capture!(url, targets),
-      );
-      let pinned = 0;
-      for (const [componentId, data] of Object.entries(shots ?? {})) {
-        const item = components.items(projectId).find((i) => i.id === componentId);
-        if (!item) continue;
-        pinShot(projectId, item, data);
-        pinned += 1;
-      }
-      pushComponents(projectId, project.path);
-      sweepNote(projectId, `${named}, ${pinned || "no"} picture${pinned === 1 ? "" : "s"}`, false);
-    } catch (err) {
-      warn("server", err, "runSweep");
-      sweepNote(projectId, "the sweep didn't finish — try it again", false);
-    } finally {
-      ctx.sweeping.delete(projectId);
-    }
-  }
+  const componentHost = createComponentHost(ctx);
+  ctx.componentHost = componentHost;
 
   /** Re-scan skills for a project (or just the global ones) and push. */
   function pushSkills(projectId?: string, note?: string): void {
@@ -467,7 +286,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     // a new prompt is going out, so nothing is "just named" any more: what
     // this turn names wears the star beside it, and what the last one named
     // keeps its star in the corner until the user has looked
-    if (owner && components.demote(owner.id)) pushComponents(owner.id, owner.path);
+    if (owner && components.demote(owner.id)) pushComponents(ctx, owner.id, owner.path);
     // the first prompt after a compaction carries the brief, invisibly
     const brief = archive.takePendingBrief(channelId) ?? "";
     if (silent) {
@@ -1283,7 +1102,14 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     findProjects: (query) => findProjects([store.workspaceDir()], query),
   };
 
+  const handlers = { ...componentHandlers };
+
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
+    const handler = (handlers as Partial<Record<string, Handler<MessageType>>>)[msg.type];
+    if (handler) {
+      handler(ctx, ws, msg as never);
+      return;
+    }
     switch (msg.type) {
       case "add_project": {
         const project = store.add(msg.name, msg.path, msg.folder);
@@ -2179,79 +2005,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         break;
       }
 
-      /* ── the component index ──────────────────────────────────── */
-      case "component_named": {
-        const pending = ctx.pendingComponents.get(msg.requestId);
-        if (!pending) break;
-        ctx.pendingComponents.delete(msg.requestId);
-        ctx.permissions.delete(msg.requestId);
-        ctx.clients.broadcast({ type: "permission_resolved", requestId: msg.requestId });
-        const owner = ownerProject(ctx, pending.channelId);
-        const name = (msg.name ?? pending.proposal.name).trim();
-        if (msg.skip || !name || !owner) {
-          // nothing is written down, including the copy of the screenshot
-          // taken when the card went up
-          const orphan = pending.proposal.image?.url;
-          if (orphan) fs.rmSync(storedFilePath(orphan), { force: true });
-          pending.resolve(null);
-          break;
-        }
-        const item = components.add(owner.id, {
-          name,
-          files: msg.files ?? pending.proposal.files,
-          note: msg.note ?? pending.proposal.note,
-        });
-        // already copied when the card went up, so it is kept with the
-        // entry no matter what has happened to the model's own file
-        if (pending.proposal.image) components.addShot(owner.id, item.id, pending.proposal.image);
-        pushComponents(owner.id, owner.path);
-        pending.resolve(name);
-        break;
-      }
-      case "component_update": {
-        components.update(msg.projectId, msg.componentId, {
-          ...(msg.name !== undefined ? { name: msg.name } : {}),
-          ...(msg.aliases !== undefined ? { aliases: msg.aliases } : {}),
-          ...(msg.files !== undefined ? { files: msg.files } : {}),
-          ...(msg.note !== undefined ? { note: msg.note } : {}),
-          ...(msg.selector !== undefined ? { selector: msg.selector } : {}),
-          ...(msg.route !== undefined ? { route: msg.route } : {}),
-          ...(msg.clicks !== undefined ? { clicks: msg.clicks } : {}),
-        });
-        pushComponents(msg.projectId, store.get(msg.projectId)?.path);
-        break;
-      }
-      case "component_remove": {
-        components.remove(msg.projectId, msg.componentId);
-        pushComponents(msg.projectId, store.get(msg.projectId)?.path);
-        break;
-      }
-      case "component_shot": {
-        const { url } = storeUpload(msg.upload);
-        const { data: _data, regions: _regions, ...meta } = msg.upload;
-        components.addShot(msg.projectId, msg.componentId, { ...meta, url });
-        pushComponents(msg.projectId, store.get(msg.projectId)?.path);
-        break;
-      }
-      case "component_unshot": {
-        components.removeShot(msg.projectId, msg.componentId, msg.shotId);
-        pushComponents(msg.projectId, store.get(msg.projectId)?.path);
-        break;
-      }
-
-      case "components_sweep": {
-        void runSweep(msg.projectId, msg.shots !== false);
-        break;
-      }
-
-      /** The star comes off what has been looked at — one card, or the page. */
-      case "component_seen": {
-        if (components.see(msg.projectId, msg.componentId)) {
-          pushComponents(msg.projectId, store.get(msg.projectId)?.path);
-        }
-        break;
-      }
-
       /* ── the vault ────────────────────────────────────────────── */
       case "secret_save": {
         secrets.upsert({
@@ -2482,7 +2235,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         break;
       }
       default: {
-        const unknown: never = msg;
+        const unknown: { type: string } = msg;
         throw new Error(`unknown message type: ${JSON.stringify(unknown)}`);
       }
     }

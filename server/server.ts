@@ -15,7 +15,7 @@ import { configPath } from "./configDir.js";
 import { AgentLogs, Crew } from "./agents.js";
 import { BridgeState } from "./bridgeState.js";
 import { channelProject, ownerProject, running } from "./channel.js";
-import { catchUp, Clients, transcriptOf } from "./clients.js";
+import { Clients } from "./clients.js";
 import { DigestFolder, refreshArchivedTurnFiles, removeTurnFiles } from "./compaction.js";
 import type { PendingComponent, RuriServer, ServerContext, StartServerOptions } from "./context.js";
 import { DraftStore } from "./drafts.js";
@@ -76,6 +76,7 @@ import { boardHandlers } from "./handlers/boards.js";
 import { terminalHandlers } from "./handlers/terminal.js";
 import { skillHandlers } from "./handlers/skills.js";
 import { createManagerHost, projectHandlers } from "./handlers/projects.js";
+import { transcriptHandlers } from "./handlers/transcript.js";
 import type { Handler, MessageType } from "./handlers/types.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
@@ -395,7 +396,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const managerHost = createManagerHost(ctx);
   ctx.managerHost = managerHost;
 
-  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers, ...promptHandlers, ...boardHandlers, ...terminalHandlers, ...skillHandlers, ...projectHandlers };
+  const handlers = { ...componentHandlers, ...rewindHandlers, ...crewHandlers, ...promptHandlers, ...boardHandlers, ...terminalHandlers, ...skillHandlers, ...projectHandlers, ...transcriptHandlers };
 
   function handleMessage(ws: WebSocket, msg: ClientMessage): void {
     const handler = (handlers as Partial<Record<string, Handler<MessageType>>>)[msg.type];
@@ -426,65 +427,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             }
           })
           .catch(() => {});
-        break;
-      }
-      case "remove_event": {
-        const removed = archive.removeTurn(msg.projectId, msg.eventId);
-        if (removed.length > 0) {
-          ctx.clients.broadcast({ type: "events_removed", projectId: msg.projectId, eventIds: removed });
-          // a removed turn takes its extracted checklist items with it
-          if (tracker.removeForTurns(msg.projectId, removed)) {
-            ctx.clients.broadcast({ type: "tracker", projectId: msg.projectId, items: tracker.items(msg.projectId) });
-          }
-        }
-        break;
-      }
-      case "transcript_get": {
-        // the rest of a chat the snapshot only carried the tail of — to
-        // the asker alone, with its pictures made readable on the way
-        const id = msg.projectId;
-        if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
-        ws.send(JSON.stringify(transcriptOf(ctx, id)));
-        // the chat on screen gets its missing notes before any other
-        backfillNotes(ctx, [id], { first: true });
-        // and its digest caught up, ahead of the compaction it may be near
-        void ctx.digests.run(id);
-        break;
-      }
-      case "view": {
-        const known = new Set([...store.sessionIds(), HOME_ID]);
-        const view = ctx.clients.views.get(ws) ?? { channels: new Set<string>(), board: false, seen: new Map() };
-        const before = view.channels;
-        const hadBoard = view.board;
-        view.channels = new Set(msg.channels.filter((id) => known.has(id)));
-        view.board = msg.board === true;
-        ctx.clients.views.set(ws, view);
-        const now = view.channels;
-        for (const id of before) if (!now.has(id)) view.seen.set(id, ctx.clients.revisions.get(id) ?? 0);
-        for (const id of now) if (!before.has(id)) catchUp(ctx, ws, view, id);
-        // the projects page coming up: every chat's tail as it now stands,
-        // since the ones not on screen stopped hearing about their work
-        if (view.board && !hadBoard) {
-          const others = [...known].filter((id) => !now.has(id));
-          ws.send(
-            JSON.stringify({
-              type: "tails",
-              transcripts: ctx.readable.allowArchived(archive.tails(others, TRANSCRIPT_TAIL)),
-            } satisfies ServerMessage),
-          );
-        }
-        // a chat opened or left: its process looks again at whether it stays
-        for (const id of new Set([...before, ...now])) {
-          if (before.has(id) !== now.has(id)) manager.settle(id);
-        }
-        break;
-      }
-      case "history_get": {
-        const id = msg.projectId;
-        if (id !== HOME_ID && !store.sessionIds().includes(id)) break;
-        const events = archive.history(id);
-        ctx.readable.allowReadImages(id, events);
-        ws.send(JSON.stringify({ type: "history", projectId: id, events } satisfies ServerMessage));
         break;
       }
       case "set_pref": {
@@ -606,23 +548,6 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       }
       case "set_model_role": {
         announceRoles(store.assignModelRole(msg.model, msg.role));
-        break;
-      }
-      case "reset_home": {
-        // Skipped while a turn is in flight — it may still be opening
-        // projects; the next navigation resets it once it's quiet.
-        const status = manager.statuses()[HOME_ID];
-        if (status === "working" || status === "permission") break;
-        manager.dispose(HOME_ID);
-        archive.remove(HOME_ID);
-        removeTurnFiles(HOME_ID);
-        agentLogs.remove(HOME_ID);
-        homeLog.endSession();
-        ctx.queues.entries.delete(HOME_ID);
-        ctx.queues.held.delete(HOME_ID);
-        ctx.turns.contexts.delete(HOME_ID);
-        ctx.retries.cancelRetry(HOME_ID);
-        ctx.clients.broadcast({ type: "home_reset" });
         break;
       }
       case "refresh_models": {

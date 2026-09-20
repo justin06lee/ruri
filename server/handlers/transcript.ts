@@ -35,13 +35,25 @@ export const transcriptHandlers = {
     const view = ctx.clients.views.get(ws) ?? {
       channels: new Set<string>(),
       board: false,
+      meters: false,
       seen: new Map(),
     };
     const before = view.channels;
     const hadBoard = view.board;
     view.channels = new Set(msg.channels.filter((id) => known.has(id)));
     view.board = msg.board === true;
+    const wantedMeters = view.meters;
+    view.meters = msg.meters === true;
     ctx.clients.views.set(ws, view);
+    // the meters run while any window has the statistics page up, and not
+    // one moment longer (server/resources.ts)
+    ctx.meters.watch([...ctx.clients.views.values()].some((v) => v.meters));
+    // a window that has just come to the page gets the last reading at
+    // once, rather than a blank panel until the next sample
+    if (view.meters && !wantedMeters) {
+      const latest = ctx.meters.latest();
+      if (latest) ws.send(JSON.stringify({ type: "resources", resources: latest } satisfies ServerMessage));
+    }
     const now = view.channels;
     for (const id of before) if (!now.has(id)) view.seen.set(id, ctx.clients.mark(id));
     for (const id of now) if (!before.has(id)) catchUp(ctx, ws, view, id);

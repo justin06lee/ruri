@@ -189,6 +189,10 @@ export class SessionArchive {
    * events about (a trim, a fold, a rewind), to be built again on demand.
    */
   private readonly places = new Map<string, Map<string, number>>();
+  /** Every harness session id ruri has run, to the chat it belongs to —
+   *  built on demand and dropped whenever one is recorded or forgotten
+   *  (see channelOfSession). */
+  private owners: Map<string, string> | undefined;
   private readonly historyMax: number;
 
   constructor(options: { historyMaxBytes?: number } = {}) {
@@ -279,6 +283,8 @@ export class SessionArchive {
     }
     this.trim(projectId, entry);
     this.data.set(projectId, entry);
+    // a channel this run had not seen before brings its session ids with it
+    this.owners = undefined;
     // an archive from before the history carries every compaction's past
     // inline — moved out once, here, and the smaller file written at once
     if (this.fold(projectId, entry)) void this.flush(projectId);
@@ -637,6 +643,7 @@ export class SessionArchive {
 
   setLastSessionId(projectId: string, sessionId: string): void {
     const entry = this.load(projectId);
+    this.owners = undefined;
     entry.lastSessionId = sessionId;
     entry.sessionIds ??= [];
     if (!entry.sessionIds.includes(sessionId)) entry.sessionIds = [...entry.sessionIds.slice(-59), sessionId];
@@ -652,6 +659,26 @@ export class SessionArchive {
       for (const sessionId of entry.sessionIds ?? []) owned.add(sessionId);
     }
     return owned;
+  }
+
+  /**
+   * Whose a harness session id is.
+   *
+   * A running harness is told on its command line which session to resume,
+   * and every session id a chat has ever run on is recorded here — so a
+   * process on this machine can be traced back to the conversation it is
+   * having (server/resources.ts). Built from what is already loaded and
+   * from the ids on disk, and kept until a channel records a new one.
+   */
+  channelOfSession(sessionId: string): string | undefined {
+    if (this.owners === undefined) {
+      this.owners = new Map();
+      for (const [channelId, entry] of this.data) {
+        if (entry.lastSessionId) this.owners.set(entry.lastSessionId, channelId);
+        for (const id of entry.sessionIds ?? []) this.owners.set(id, channelId);
+      }
+    }
+    return this.owners.get(sessionId);
   }
 
   /** Forget the resumable session id — the next send starts a fresh one. */
@@ -740,6 +767,7 @@ export class SessionArchive {
     };
     this.data.set(projectId, entry);
     this.restack(projectId);
+    this.owners = undefined;
     // a fork of a compacted conversation gets the same split: its own
     // history up to the newest mark, its live part from there
     try {
@@ -837,6 +865,7 @@ export class SessionArchive {
     this.data.delete(projectId);
     this.outlines.delete(projectId);
     this.places.delete(projectId);
+    this.owners = undefined;
     const timer = this.timers.get(projectId);
     if (timer) clearTimeout(timer);
     this.timers.delete(projectId);

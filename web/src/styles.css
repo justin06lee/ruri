@@ -1209,11 +1209,12 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 6px 28px 56px;
 }
 
-/* the head: how many, what state they are in, and the three spans of
-   spend as tiles — cost in large type, tokens and turns under it */
+/* the head: how many, and what state they are in. The three spans of
+   spend used to sit beside it as tiles; they are on the statistics page
+   now, and the count has the row to itself. */
 .projects-head {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: minmax(190px, 320px);
   gap: 14px;
 }
 
@@ -1276,8 +1277,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .stat-label,
-.pcard-fig-label,
-.projects-group {
+.projects-group,
+.stats-group {
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -1492,45 +1493,6 @@ input[type="range"]::-webkit-slider-thumb {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-}
-
-/* the figures: two cells along the foot, today and all time, the cost
-   leading each */
-.pcard-foot {
-  display: flex;
-  border-top: 1.5px solid var(--hairline);
-}
-
-.pcard-fig {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 6px 13px 7px;
-  min-width: 0;
-  font-size: var(--fs-sm);
-  color: var(--ink-faint);
-  font-variant-numeric: tabular-nums;
-}
-
-.pcard-fig + .pcard-fig {
-  border-left: 1.5px solid var(--hairline);
-}
-
-.pcard-fig-label {
-  font-size: 9.5px;
-}
-
-.pcard-fig-row {
-  display: flex;
-  gap: 8px;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.pcard-fig-row b {
-  color: var(--ink);
-  font-weight: 700;
 }
 
 /* the circle the face sits in — the frame carries the chrome, the image
@@ -7467,4 +7429,204 @@ button.stop:hover {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ── home: the statistics page ────────────────────────────────────── */
+
+/* Narrower than the projects grid: this is tables and tiles, read down a
+   column, and a line of figures that runs the width of a monitor is a
+   line nobody's eye can follow back. */
+.board-inner.stats-inner {
+  max-width: 900px;
+  padding: 6px 28px 56px;
+}
+
+.stats-tiles,
+.meters-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+
+/* the machine's tiles sit a shade quieter than the money's: they are a
+   reading of right now, not a total anything was spent on */
+.meter-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 16px 11px;
+  border: 1.5px solid var(--hairline);
+  border-radius: var(--radius-m);
+  background-image: var(--tone);
+  background-size: 6px 6px;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+
+.meter-tile .stat-cost {
+  font-size: 20px;
+}
+
+/* a run of rows under a word on a rule, as the projects page groups its
+   cards — the same shape, so the two pages read as one app */
+.stats-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 26px 0 12px;
+}
+
+.stats-group::after {
+  content: "";
+  flex: 1;
+  border-top: 1.5px solid var(--hairline);
+  opacity: 0.35;
+}
+
+.stats-empty {
+  padding: 14px 16px;
+  border: 1.5px dashed var(--hairline);
+  border-radius: var(--radius-m);
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+}
+
+/* the tables: a name that carries its own bar, then figures in columns
+   that line up down the page (tabular numerals, fixed columns) */
+.stats-table {
+  border: 2px solid var(--rim);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  overflow: hidden;
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.4fr) repeat(5, minmax(0, 1fr));
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+.agents-table .stats-row,
+.limits-table .stats-row {
+  grid-template-columns: minmax(0, 2.4fr) repeat(4, minmax(0, 1fr));
+}
+
+.limits-table .stats-row {
+  grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr) minmax(0, 1.2fr);
+}
+
+.stats-row + .stats-row {
+  border-top: 1.5px solid var(--hairline);
+}
+
+.stats-head {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding-top: 8px;
+  padding-bottom: 7px;
+}
+
+.stats-row b {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.stats-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-name small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the bar under a name: its share of the largest in the column, which is
+   how a table is read at a glance rather than a figure at a time */
+.share {
+  display: block;
+  height: 3px;
+  margin-top: 2px;
+  border-radius: 2px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+
+.share-fill {
+  display: block;
+  height: 100%;
+  background: var(--ink-soft);
+  opacity: 0.55;
+}
+
+.share.mem .share-fill {
+  opacity: 0.75;
+}
+
+.agent-row.openable {
+  cursor: pointer;
+}
+
+.agent-row.openable:hover {
+  background: var(--tint);
+}
+
+.agent-pid,
+.limit-resets {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.stats-row small {
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+/* ── the sidebar's projects row ───────────────────────────────────── */
+
+/* the count rides the row the way a folder's does, and the dot after it
+   says the same thing the row's title does */
+.row-count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.projects-row .dot {
+  margin-left: 6px;
+}
+
+.projects-row .row-count + .dot {
+  margin-left: 6px;
+}
+
+/* the projects page taking the pane off the sidebar, rather than sitting
+   under Home's strip: it has no strip of its own, so it starts at the top */
+.chat.projects-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }

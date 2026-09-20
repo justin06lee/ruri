@@ -41,6 +41,7 @@ import { PrefStore } from "./prefs.js";
 import { ProjectStore } from "./projects.js";
 import { SendQueues } from "./queue.js";
 import { ReadableImages } from "./readable.js";
+import { ResourceMeters } from "./resources.js";
 import { TerminalRelay } from "./relay.js";
 import { Retries } from "./retry.js";
 import { createHttpServer } from "./routes.js";
@@ -145,6 +146,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     notes: new NoteBackfill(),
     retries: new Retries(),
     models: new Models(clients.broadcast),
+    // the agents' weight on this machine, sampled only while the
+    // statistics page is up (server/resources.ts)
+    meters: new ResourceMeters(
+      clients.broadcast,
+      (sessionId) => ctx.archive.channelOfSession(sessionId),
+      () => ctx.terminals.pids(),
+    ),
     usage: new UsageGauges(clients.broadcast),
     bridge: new BridgeState(options.bridge, (channelId) => running(ctx, channelId), clients.broadcast),
     permissions: new Map<string, PermissionRequest>(),
@@ -284,6 +292,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
               warn("server", err, "removing the token file");
             }
             relay.stop();
+            ctx.meters.stop();
             for (const client of ctx.clients.sockets) client.close();
             wss.close(() => server.close(() => done()));
           }),

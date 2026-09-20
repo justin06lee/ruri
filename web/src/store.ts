@@ -27,6 +27,7 @@ import {
   type TccRow,
   type Project,
   type ProjectStats,
+  type Resources,
   type ProjectStatus,
   type QueuedPrompt,
   type RecentSession,
@@ -399,8 +400,13 @@ interface RuriState {
   terminals: Record<string, string[]>;
   /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
   rapid: boolean;
+  /** The projects page, off the sidebar, is showing instead of a chat. */
+  projectsOpen: boolean;
   /** Settings has the whole pane when it's open — it outgrew a dialog. */
   settingsOpen: boolean;
+  /** What the agents are costing this machine — only while the statistics
+   *  page is up to ask for it (server/resources.ts). */
+  resources: Resources | undefined;
   /** Bumped per channel when text lands in its draft from outside (a review
    *  prompt, a rewound prompt) — a mounted composer re-reads the draft map. */
   draftBumps: Record<string, number>;
@@ -441,6 +447,7 @@ interface RuriState {
    *  ever showing you one, and this is you choosing another. */
   setActive(id: string | null): void;
   setRapid(on: boolean): void;
+  setProjectsOpen(on: boolean): void;
   setSettingsOpen(on: boolean): void;
   clearPicked(): void;
   dismissError(): void;
@@ -486,7 +493,9 @@ export const useRuri = create<RuriState>((set) => ({
   recent: {},
   catchups: {},
   rapid: false,
+  projectsOpen: false,
   settingsOpen: false,
+  resources: undefined,
   draftBumps: {},
   workspaceDir: "",
   musicDir: "",
@@ -511,13 +520,15 @@ export const useRuri = create<RuriState>((set) => ({
         // the earlier view belongs to the chat it was opened in
         history: {},
         rapid: false,
+        projectsOpen: false,
         settingsOpen: false,
         unread: id ? { ...s.unread, [id]: false } : s.unread,
       };
     }),
-  setRapid: (on) => set({ rapid: on }),
+  setRapid: (on) => set({ rapid: on, projectsOpen: false }),
+  setProjectsOpen: (on) => set({ projectsOpen: on, rapid: false, settingsOpen: false }),
   closeSkillBody: () => set({ skillBody: null }),
-  setSettingsOpen: (on) => set({ settingsOpen: on }),
+  setSettingsOpen: (on) => set({ settingsOpen: on, projectsOpen: false }),
   clearPicked: () => set({ picked: null }),
   dismissError: () => set({ lastError: null }),
 }));
@@ -626,6 +637,8 @@ export function ensureTranscript(channelId: string): void {
  */
 const onScreen = new Map<string, number>();
 let boardsUp = 0;
+/** Windows with the statistics page up, which is what runs the meters. */
+let metersUp = 0;
 /** The last view the server was told, so a re-render says nothing twice. */
 let lastView = "";
 let viewQueued = false;
@@ -639,6 +652,7 @@ function sendView(): void {
     // current (lib/awake.ts freezes only what moves)
     live: true,
     ...(boardsUp > 0 ? { board: true } : {}),
+    ...(metersUp > 0 ? { meters: true } : {}),
   };
   const json = JSON.stringify(message);
   if (json !== lastView && send(message)) lastView = json;
@@ -678,6 +692,24 @@ export function watchBoard(): () => void {
   syncView();
   return () => {
     boardsUp -= 1;
+    syncView();
+  };
+}
+
+/**
+ * Ask the server to read what the agents are costing this machine.
+ *
+ * It samples only while somebody is asking — the statistics page being up
+ * is the whole reason a `ps` runs (server/resources.ts) — so this is held
+ * for exactly as long as the page is, and the last reading is dropped when
+ * it goes, rather than left to go stale on the page behind it.
+ */
+export function watchMeters(): () => void {
+  metersUp += 1;
+  syncView();
+  return () => {
+    metersUp -= 1;
+    if (metersUp === 0) useRuri.setState({ resources: undefined });
     syncView();
   };
 }
@@ -1081,6 +1113,10 @@ function apply(msg: ServerMessage): void {
     }
     case "stats": {
       setState((s) => ({ stats: { ...s.stats, [msg.projectId]: msg.stats } }));
+      break;
+    }
+    case "resources": {
+      setState({ resources: msg.resources });
       break;
     }
     case "review_prompt":

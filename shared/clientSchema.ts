@@ -141,6 +141,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     channels: z.array(id).max(1_000),
     live: z.boolean(),
     board: z.boolean().optional(),
+    meters: z.boolean().optional(),
   }),
   z.object({ type: z.literal("history_get"), ...projectId }),
   z.object({ type: z.literal("recent_import"), ...projectId, id }),

@@ -27,6 +27,7 @@ import type { UsageGauges } from "./gauges.js";
 import type { HomeLog } from "./homelog.js";
 import type { IdeaStore } from "./ideas.js";
 import type { LedgerStore } from "./ledger.js";
+import type { ResourceMeters } from "./resources.js";
 import type { ManagerHost } from "./manager.js";
 import type { Models } from "./models.js";
 import type { NoteBackfill } from "./notes.js";
@@ -178,6 +179,9 @@ export interface ServerContext {
   readonly retries: Retries;
   readonly models: Models;
   readonly usage: UsageGauges;
+  /** What the agents are costing this machine, while a window is looking
+   *  (server/resources.ts). */
+  readonly meters: ResourceMeters;
   readonly bridge: BridgeState;
   /** The cards up: permissions, questions and components to name. */
   readonly permissions: Map<string, PermissionRequest>;

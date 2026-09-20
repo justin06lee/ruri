@@ -125,6 +125,8 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
       ctx.clients.onGone?.(ws);
       const view = ctx.clients.views.get(ws);
       ctx.clients.views.delete(ws);
+      // and the meters go with it, if it was the one watching them
+      ctx.meters.watch([...ctx.clients.views.values()].some((v) => v.meters));
       // a window gone is every chat it had open, left
       for (const id of view?.channels ?? []) ctx.manager.settle(id);
     });

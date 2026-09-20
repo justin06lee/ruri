@@ -30,7 +30,8 @@ import { Components } from "./Components";
 import { Composer } from "./Composer";
 import { CompactionMark, EventView } from "./EventView";
 import { Exchange, groupTurns, NO_EXCERPTS, turnExcerpts, type Half } from "./Exchange";
-import { HomeTabs, ProjectsPage, type HomeTab } from "./HomeBoard";
+import { HomeTabs, type HomeTab } from "./HomeBoard";
+import { StatisticsPage } from "./Statistics";
 import { Ideas } from "./Ideas";
 import { AskCard } from "./PermissionBanner";
 import { QueuedList } from "./Queue";
@@ -279,11 +280,14 @@ function ChatView({
    */
   const [page, setPage] = useState<"chat" | "tracker" | "ideas" | "components" | "skills">("chat");
   /**
-   * Home is two pages under one strip — the agent's chat and the projects
-   * board — and the strip remembers which one you were on across launches.
+   * Home is two pages under one strip — the agent's chat and the
+   * statistics — and the strip remembers which one you were on across
+   * launches. ("projects" is what the second one used to be; a window
+   * that remembers it comes back to the chat, since the projects are
+   * their own page off the sidebar now.)
    */
   const [homeTab, setHomeTabState] = useState<HomeTab>(() =>
-    getPref("ruri-home-tab") === "projects" ? "projects" : "chat",
+    getPref("ruri-home-tab") === "stats" ? "stats" : "chat",
   );
   const setHomeTab = useCallback((tab: HomeTab) => {
     setHomeTabState(tab);
@@ -752,12 +756,13 @@ function ChatView({
     );
   }
 
-  // Home's other page: every open project, the agent's chat put away.
-  if (homeTabs && homeTab === "projects") {
+  // Home's other page: what all of this has cost, and what it is costing
+  // this machine right now.
+  if (homeTabs && homeTab === "stats") {
     return (
-      <main className={pane("chat home-projects")}>
+      <main className={pane("chat home-stats")}>
         {homeTabs}
-        <ProjectsPage />
+        <StatisticsPage />
       </main>
     );
   }

@@ -391,6 +391,37 @@ export interface Totals {
   ms: number;
 }
 
+/**
+ * One agent process and everything it started, as the machine sees it.
+ *
+ * A harness and its MCP servers are one agent, not six rows: `rss` and
+ * `cpu` are the whole family's, and `helpers` says how many processes that
+ * was besides the harness itself (server/resources.ts).
+ */
+export interface AgentProcess {
+  pid: number;
+  /** The chat it is running for, where its command line said so. */
+  channelId?: string;
+  /** The program: "claude", "codex", "cursor-agent". */
+  name: string;
+  /** Resident memory, in bytes. */
+  rss: number;
+  /** Percent of one core. Over 100 on a process using more than one. */
+  cpu: number;
+  uptimeMs: number;
+  /** Processes under it, counted in the figures above. */
+  helpers: number;
+}
+
+/** What ruri's agents are costing this machine right now. */
+export interface Resources {
+  at: number;
+  agents: AgentProcess[];
+  /** ruri itself: this process and its window. */
+  app: { rss: number; cpu: number; processes: number };
+  host: { totalBytes: number; freeBytes: number; cores: number };
+}
+
 /** A project's spending, from the ledger (see server/ledger.ts): all of
  *  it, today's, and the last seven days'. Keyed by PROJECT id. */
 export interface ProjectStats {
@@ -871,7 +902,7 @@ export type ClientMessage =
    *  projects page is up, which shows every chat's last few lines. The chats
    *  in `channels` also keep their agent process warm between turns; a chat
    *  nobody has open closes its process the moment its work is done. */
-  | { type: "view"; channels: string[]; live: boolean; board?: boolean }
+  | { type: "view"; channels: string[]; live: boolean; board?: boolean; meters?: boolean }
   /** The exchanges before a chat's newest compaction — its history, which
    *  the live transcript no longer carries. Answered with `history`, to
    *  the asker alone. */
@@ -1167,6 +1198,7 @@ export type ServerMessage =
   | { type: "turn"; projectId: string; turn: TurnProgress | null }
   /** A project's spending changed (a turn finished). Keyed by PROJECT id. */
   | { type: "stats"; projectId: string; stats: ProjectStats }
+  | { type: "resources"; resources: Resources }
   | { type: "event"; projectId: string; event: TranscriptEvent }
   /** A subagent's log so far (`key` is its SubagentState.key). */
   | { type: "agent_log"; projectId: string; key: string; events: TranscriptEvent[] }

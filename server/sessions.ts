@@ -2405,8 +2405,18 @@ function providerSessionId(session: ChannelSession): string | undefined {
  * — or until it has sat idle IDLE_REAP_MS, a window left open on a chat
  * overnight. The next prompt resumes the same conversation from its session
  * id, exactly as after a relaunch, for a second or two of startup.
+ *
+ * "Open" means open in a window someone is looking at. A warm CLI is not
+ * free to keep: idle, having done nothing for minutes, `claude` still holds
+ * its 200-odd MB and still asks for the CPU often enough that macOS names
+ * ruri as using significant energy. Nobody is about to type the next prompt
+ * into a window that is behind another app, so a chat open only in sleeping
+ * windows gets ASLEEP_REAP_MS — long enough that switching away for a
+ * moment costs nothing, short enough that walking away from the machine
+ * stops costing the battery.
  */
 const REAP_GRACE_MS = Number(process.env["RURI_REAP_GRACE_MS"]) || 3000;
+const ASLEEP_REAP_MS = Number(process.env["RURI_ASLEEP_REAP_MS"]) || 60_000;
 const IDLE_REAP_MS = Number(process.env["RURI_IDLE_REAP_MS"]) || 10 * 60_000;
 
 export class SessionManager {
@@ -2429,6 +2439,9 @@ export class SessionManager {
    *  chat open in a window, a prompt queued behind the turn, a retry
    *  waiting to go (the server's to say). */
   private keepWarm: (projectId: string) => boolean = () => false;
+  /** Whether a channel is open only in windows that have gone to sleep:
+   *  held, but on the short lease rather than the long one. */
+  private dozing: (projectId: string) => boolean = () => false;
 
   constructor(
     events: SessionEvents,
@@ -2472,6 +2485,11 @@ export class SessionManager {
     this.keepWarm = read;
   }
 
+  /** Where "this is open, but nobody is looking at it" is read from. */
+  useDozing(read: (projectId: string) => boolean): void {
+    this.dozing = read;
+  }
+
   /** Whether a channel's live session is mid-turn (or waiting on the user
    *  inside one) — the state a settings change must not touch. */
   private inTurn(projectId: string): boolean {
@@ -2502,7 +2520,8 @@ export class SessionManager {
     // background work is waited out by its end, not by a clock: the long
     // timer is only a look-again in case that end went unheard
     const held = session.hasBackgroundWork?.() || this.keepWarm(projectId);
-    this.scheduleReap(projectId, held ? IDLE_REAP_MS : REAP_GRACE_MS);
+    const ms = held ? IDLE_REAP_MS : this.dozing(projectId) ? ASLEEP_REAP_MS : REAP_GRACE_MS;
+    this.scheduleReap(projectId, ms);
   }
 
   /** Close this channel's process in `ms`, if it is still idle and free. */

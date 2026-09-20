@@ -32,6 +32,7 @@
     "queue-test": "tsx scripts/queue.ts",
     "terminal-test": "tsx scripts/terminal.ts",
     "meters-test": "tsx scripts/meters.ts",
+    "asleep-test": "tsx scripts/asleep.ts",
     "hidden-test": "tsx scripts/hidden.ts",
     "queue-arrange-test": "tsx scripts/queue-arrange.ts",
     "port-test": "tsx scripts/port.ts",

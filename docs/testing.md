@@ -33,6 +33,7 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 | `provider-events` | none | a fake harness streams a turn; the transcript it makes is what ruri promises for every model |
 | `subagents-test` | none | a fake harness's agents become cards in the chat and logs of their own |
 | `hidden-test` | none | hidden projects, Home's drop file, the finder, and a toggle over the real server |
+| `asleep-test` | none | a window that goes to sleep stops the meters sampling, and wakes them again — the `awake` flag end to end, from the schema to the handler |
 | `terminal-test` | none | a shell printing forty thousand lines: every one arrives, in order and in fewer messages than lines, and a window attaching later is given a capped scrollback ending where the shell did |
 | `rewind-compaction-test` | none | rewinding either side of a compaction, against the real server, no turn run |
 | `retry-test` | none (needs `claude`) | a dropped turn goes again: the real CLI against a mock gateway that answers 529 to everything |

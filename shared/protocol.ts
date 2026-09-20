@@ -901,8 +901,16 @@ export type ClientMessage =
    *  hidden) pauses even those. `board`: Home's
    *  projects page is up, which shows every chat's last few lines. The chats
    *  in `channels` also keep their agent process warm between turns; a chat
-   *  nobody has open closes its process the moment its work is done. */
-  | { type: "view"; channels: string[]; live: boolean; board?: boolean; meters?: boolean }
+   *  nobody has open closes its process the moment its work is done.
+   *
+   *  `awake` is whether anyone is actually looking (lib/awake.ts): the
+   *  window on screen and the one in use. A warm CLI is 150-400 MB and goes
+   *  on costing the battery for as long as it lives, and a window nobody is
+   *  looking at is nobody about to type the next prompt — so a chat open in
+   *  a sleeping window holds its process for a minute rather than the ten a
+   *  watched one gets, and the meters stop sampling altogether. Omitted
+   *  means awake, for a client that does not say. */
+  | { type: "view"; channels: string[]; live: boolean; board?: boolean; meters?: boolean; awake?: boolean }
   /** The exchanges before a chat's newest compaction — its history, which
    *  the live transcript no longer carries. Answered with `history`, to
    *  the asker alone. */

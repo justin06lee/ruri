@@ -259,48 +259,54 @@ export function ProjectsPage() {
   );
 
   return (
-    <div className="board-page projects-page">
-      <div className="board-inner projects-inner">
-        <div className="projects-head">
-          <div className="projects-count">
-            <span className="projects-count-n">
-              {projects.length}
-              <small>{projects.length === 1 ? "project" : "projects"}</small>
-            </span>
-            <span className="projects-live">
-              {waiting > 0 && <span className="st-permission">{waiting} waiting on you</span>}
-              {working > 0 && <span className="st-working">{working} working</span>}
-              {errored > 0 && (
-                <span className="st-error">
-                  {errored} {errored === 1 ? "error" : "errors"}
-                </span>
-              )}
-              {live.length === 0 && (
-                <span className="st-idle">{projects.length === 0 ? "nothing open" : "all quiet"}</span>
-              )}
-            </span>
+    <>
+      {/* the same band of air the settings page stands under: this page has
+          no header bar either, so the count would start hard against the
+          window's edge, with nothing up there to drag the window by */}
+      <div className="page-drag" aria-hidden />
+      <div className="board-page projects-page">
+        <div className="board-inner projects-inner">
+          <div className="projects-head">
+            <div className="projects-count">
+              <span className="projects-count-n">
+                {projects.length}
+                <small>{projects.length === 1 ? "project" : "projects"}</small>
+              </span>
+              <span className="projects-live">
+                {waiting > 0 && <span className="st-permission">{waiting} waiting on you</span>}
+                {working > 0 && <span className="st-working">{working} working</span>}
+                {errored > 0 && (
+                  <span className="st-error">
+                    {errored} {errored === 1 ? "error" : "errors"}
+                  </span>
+                )}
+                {live.length === 0 && (
+                  <span className="st-idle">{projects.length === 0 ? "nothing open" : "all quiet"}</span>
+                )}
+              </span>
+            </div>
           </div>
+
+          {projects.length === 0 && (
+            <div className="board-empty projects-empty">
+              No projects open. Ask Home on the chat tab to open one — “let's work on X and Y today”.
+            </div>
+          )}
+
+          {live.length > 0 && (
+            <>
+              <div className="projects-group">live</div>
+              {grid(live)}
+            </>
+          )}
+          {idle.length > 0 && (
+            <>
+              {live.length > 0 && <div className="projects-group">idle</div>}
+              {grid(idle)}
+            </>
+          )}
         </div>
-
-        {projects.length === 0 && (
-          <div className="board-empty projects-empty">
-            No projects open. Ask Home on the chat tab to open one — “let's work on X and Y today”.
-          </div>
-        )}
-
-        {live.length > 0 && (
-          <>
-            <div className="projects-group">live</div>
-            {grid(live)}
-          </>
-        )}
-        {idle.length > 0 && (
-          <>
-            {live.length > 0 && <div className="projects-group">idle</div>}
-            {grid(idle)}
-          </>
-        )}
       </div>
-    </div>
+    </>
   );
 }

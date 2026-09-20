@@ -572,7 +572,9 @@ export const Sidebar = memo(function Sidebar() {
       <div className="sidebar-header">
         <span className="logo-peeks" aria-hidden>
           {/* hand-placed in the tuner (`make tuner`), which writes peek.ts —
-              x/w/drop position each head, lift is the hover rise */}
+              x/w/drop position each head. `lift` is not read here: the band
+              drags the window, so nothing in it can take a hover (styles.css
+              at .logo-peeks says why). */}
           {PEEKS.map((p) => (
             <img
               key={p.n}
@@ -584,7 +586,6 @@ export const Sidebar = memo(function Sidebar() {
                   left: p.x,
                   width: p.w,
                   "--drop": `${p.drop}px`,
-                  "--lift": `${p.lift}px`,
                 } as React.CSSProperties
               }
             />

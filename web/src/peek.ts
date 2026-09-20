@@ -17,7 +17,9 @@ export interface Peek {
   w: number;
   /** How far down the band it starts, px. */
   drop: number;
-  /** How far it rises when the cursor is over it, px (negative = up). */
+  /** How far it rises when the cursor is over it, px (negative = up).
+   *  The tuner's to set and preview; the app cannot use it, since the band
+   *  drags the window (styles.css at .logo-peeks). */
   lift: number;
 }
 

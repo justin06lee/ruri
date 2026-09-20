@@ -349,11 +349,17 @@ textarea::placeholder {
 }
 
 /* The peek gallery: the user's hand-cut head PNGs resting low across the
-   header, clipped at its bottom edge so only horns and hair show. Hovering
-   one lifts it slightly — just enough to see the face — and that is the
-   whole feature. Pure background: nothing here is clickable, the traffic
-   lights and gear just sit on top, and the bar around the heads drags the
-   window. */
+   header, clipped at its bottom edge so only horns and hair show. Pure
+   background: nothing here is clickable, the traffic lights and gear just
+   sit on top, and the whole band — heads included — drags the window.
+   The heads must never take the mouse again. A drag region swallows mouse
+   events, so a head cut out of it with `no-drag` to catch :hover is a head
+   the window cannot be dragged by, and they cover most of the window's
+   top-left corner. That trade has been made twice now (33343bd lifted them
+   on hover, 7caa262 gave the drag back by polling the cursor, f1234d8 took
+   the polling out and the drag with it); the bar is worth more than the
+   lift. `lift` in peek.ts is still the tuner's to set — it previews the
+   rise with its own toggle — but nothing in the app reads it. */
 .logo-peeks {
   position: absolute;
   inset: 0;
@@ -366,13 +372,6 @@ textarea::placeholder {
   top: var(--drop, 0px);
   height: auto;
   transition: transform 180ms cubic-bezier(0.3, 0.9, 0.3, 1);
-  /* the bar is a window-drag region, and a drag region swallows mouse
-     events — so the heads alone are cut out of it, and :hover reaches them */
-  -webkit-app-region: no-drag;
-}
-
-.peek-head:hover {
-  transform: translateY(var(--lift, -14px));
 }
 
 /* the cutouts swap ink and paper with the theme */
@@ -1579,17 +1578,18 @@ input[type="range"]::-webkit-slider-thumb {
   padding-bottom: 56px;
 }
 
-/* Room to breathe under the titlebar: this page has no header bar over it,
-   and starting hard against the window's edge reads as a mistake. A band of
-   its own rather than a sheet over the top, so the settings scroll up to it
-   and stop, instead of sliding under a strip that would swallow the click
-   and drag the window. */
-.settings-drag {
+/* Room to breathe under the titlebar, for a page with no header bar over
+   it — settings, the projects board: starting hard against the window's
+   edge reads as a mistake, and there is nothing else up there to drag the
+   window by. A band of its own rather than a sheet over the top, so the
+   page scrolls up to it and stops, instead of sliding under a strip that
+   would swallow the click and drag the window. */
+.page-drag {
   height: 46px;
   flex-shrink: 0;
 }
 
-.desktop .settings-drag {
+.desktop .page-drag {
   -webkit-app-region: drag;
 }
 

@@ -532,7 +532,7 @@ export function Settings({ onClose }: { onClose(): void }) {
           has open air instead, so the air does the job — as a band of its
           own above the scroller, not a sheet laid over it, so nothing ever
           scrolls underneath it to be clicked at and dragged instead */}
-      <div className="settings-drag" aria-hidden />
+      <div className="page-drag" aria-hidden />
       {/* the whole pane scrolls, edge to edge; the settings themselves stay
           a centred column inside it */}
       <div className="settings-scroll">

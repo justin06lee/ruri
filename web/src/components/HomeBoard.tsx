@@ -1,33 +1,26 @@
 import { memo, useEffect, useMemo } from "react";
-import {
-  HOME_ID,
-  type Project,
-  type ProjectStats,
-  type SessionInfo,
-  type Totals,
-  type TranscriptEvent,
-} from "../../../shared/protocol";
+import { HOME_ID, type Project, type SessionInfo, type TranscriptEvent } from "../../../shared/protocol";
 import { useRuri, watchBoard } from "../store";
+import { money } from "./figures";
 
 /**
- * Home's two pages and the strip that swaps them.
+ * The projects page, and the strip at the top of Home.
  *
- * Home is the one place that is not a project, so it is the one place to
- * see all of them at once — which project is working, which is waiting on
+ * Every open project at once — which one is working, which is waiting on
  * you, what the last thing each one did was — without walking the sidebar.
- * That is the projects page: every open project as a card with a few
- * lines of what its sessions have been doing, and what it has all cost.
+ * A card per project, a few lines per session of what it has been doing.
  * The lines move a finished step at a time — a tool call, a reply once it
  * is written — and nothing on the page animates: the words of a reply as
  * they come, and anything that moves, belong to the chat that is open, and
- * nowhere else. The figures come off the ledger
- * (server/ledger.ts), which is what makes them true across rewinds,
- * compactions and relaunches.
+ * nowhere else.
  *
- * The other page is the Home agent's chat. They used to share the pane,
- * the board stacked over the agent, and each got in the other's way: the
- * board squeezed to half a card's height, the agent pushed to the floor.
- * Now the strip at the top picks one, and remembers the choice.
+ * It used to carry the money as well: three tiles of spending above the
+ * grid, and every card footed with its own. That made one page out of two
+ * questions — what is everything doing, and what has everything cost — so
+ * the second went to its own page (components/Statistics.tsx) and this one
+ * went to the sidebar, under Home, where a page about the projects
+ * belongs. What is left on Home is the strip: the agent's chat, and the
+ * statistics.
  */
 
 /** The projects the board shows: hidden ones stay hidden here too. The
@@ -43,43 +36,7 @@ function selectShown(s: { projects: Project[] }): Project[] {
   return shownCache;
 }
 
-export type HomeTab = "chat" | "projects";
-
-/** "1.3M", "84k", "512" — room for one number, not a locale's worth. */
-export function shortCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
-  return String(Math.round(n));
-}
-
-function money(usd: number): string {
-  if (usd >= 100) return `$${usd.toFixed(0)}`;
-  if (usd >= 10) return `$${usd.toFixed(1)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
-/** "3h 12m" for a run of turns' wall time. */
-function span(ms: number): string {
-  const mins = Math.round(ms / 60_000);
-  if (mins < 60) return `${mins}m`;
-  const h = Math.floor(mins / 60);
-  const rest = mins % 60;
-  return rest ? `${h}h ${rest}m` : `${h}h`;
-}
-
-const NONE: Totals = { tokens: 0, costUsd: 0, turns: 0, ms: 0 };
-
-function sum(parts: Totals[]): Totals {
-  return parts.reduce(
-    (a, b) => ({
-      tokens: a.tokens + b.tokens,
-      costUsd: a.costUsd + b.costUsd,
-      turns: a.turns + b.turns,
-      ms: a.ms + b.ms,
-    }),
-    NONE,
-  );
-}
+export type HomeTab = "chat" | "stats";
 
 /** One line of activity, in the words the transcript uses. */
 interface Line {
@@ -176,49 +133,6 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
   );
 });
 
-function figuresTitle(label: string, totals: Totals): string {
-  return `${label}: ${totals.tokens.toLocaleString()} tokens, ${money(totals.costUsd)} at API prices, ${totals.turns} turns, ${span(totals.ms)} of turns`;
-}
-
-/** A card's figures for one span: the cost leads, the rest follows. */
-function CardFigures({ totals, label }: { totals: Totals; label: string }) {
-  return (
-    <span className="pcard-fig" title={figuresTitle(label, totals)}>
-      <span className="pcard-fig-label">{label}</span>
-      <span className="pcard-fig-row">
-        <b>{money(totals.costUsd)}</b>
-        <span>{shortCount(totals.tokens)} tok</span>
-        <span>
-          {totals.turns} {totals.turns === 1 ? "turn" : "turns"}
-        </span>
-      </span>
-    </span>
-  );
-}
-
-/** The page's own figures for one span — a tile, cost in large type. */
-function StatTile({ totals, label }: { totals: Totals; label: string }) {
-  return (
-    <div className="stat-tile" title={figuresTitle(label, totals)}>
-      <span className="stat-label">{label}</span>
-      <span className="stat-cost">{money(totals.costUsd)}</span>
-      <span className="stat-sub">
-        <span>
-          <b>{shortCount(totals.tokens)}</b> tok
-        </span>
-        <span>
-          <b>{totals.turns}</b> {totals.turns === 1 ? "turn" : "turns"}
-        </span>
-        {totals.ms > 0 && (
-          <span>
-            <b>{span(totals.ms)}</b>
-          </span>
-        )}
-      </span>
-    </div>
-  );
-}
-
 type Status = "permission" | "working" | "error" | "idle";
 
 const WORD: Record<Status, string> = {
@@ -228,15 +142,7 @@ const WORD: Record<Status, string> = {
   idle: "idle",
 };
 
-function ProjectCard({
-  project,
-  stats,
-  status,
-}: {
-  project: Project;
-  stats: ProjectStats | undefined;
-  status: Status;
-}) {
+function ProjectCard({ project, status }: { project: Project; status: Status }) {
   const setActive = useRuri((s) => s.setActive);
   const first = project.sessions[0];
   return (
@@ -260,12 +166,6 @@ function ProjectCard({
           ))
         )}
       </div>
-      {stats && (stats.total.turns > 0 || stats.today.turns > 0) && (
-        <div className="pcard-foot">
-          <CardFigures totals={stats.today} label="today" />
-          <CardFigures totals={stats.total} label="all time" />
-        </div>
-      )}
     </div>
   );
 }
@@ -284,24 +184,17 @@ function statusOf(project: Project, statuses: Record<string, string>): Status {
 }
 
 /**
- * The strip at the top of Home: chat on one side, projects on the other.
- * The projects tab carries the count and, while anything is running, the
- * same pulsing dot the sidebar uses; the chat tab carries Home's own dot,
- * so a turn you left running shows from the other page.
+ * The strip at the top of Home: the agent's chat on one side, what all of
+ * it is costing on the other.
+ *
+ * The projects used to be the other side of this strip; they are their own
+ * page off the sidebar now, and the statistics took the place. The chat
+ * tab carries Home's own dot, so a turn you left running shows from the
+ * statistics page.
  */
 export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) => void }) {
-  const projects = useRuri(selectShown);
   const statuses = useRuri((s) => s.statuses);
   const homeStatus = statuses[HOME_ID] ?? "idle";
-  let working = 0;
-  let waiting = 0;
-  for (const project of projects) {
-    for (const session of project.sessions) {
-      if (statuses[session.id] === "working") working++;
-      else if (statuses[session.id] === "permission") waiting++;
-    }
-  }
-  const live = waiting > 0 ? "permission" : working > 0 ? "working" : null;
   return (
     <div className="home-tabs">
       <div className="home-tabs-group" role="tablist" aria-label="Home">
@@ -324,25 +217,12 @@ export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) =
         <button
           type="button"
           role="tab"
-          aria-selected={tab === "projects"}
-          className={`home-tab ${tab === "projects" ? "on" : ""}`}
-          title={
-            waiting > 0
-              ? `${waiting} waiting on you, ${working} working`
-              : working > 0
-                ? `${working} working`
-                : "Every open project at a glance"
-          }
-          onClick={() => onTab("projects")}
+          aria-selected={tab === "stats"}
+          className={`home-tab ${tab === "stats" ? "on" : ""}`}
+          title="What all of this has cost — and what the agents are costing this machine right now"
+          onClick={() => onTab("stats")}
         >
-          projects
-          {projects.length > 0 && <span className="home-tab-count">{projects.length}</span>}
-          {live && (
-            <span
-              className={`dot ${live}`}
-              aria-label={live === "permission" ? "a project needs you" : "projects working"}
-            />
-          )}
+          statistics
         </button>
       </div>
     </div>
@@ -353,7 +233,6 @@ export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) =
 export function ProjectsPage() {
   const projects = useRuri(selectShown);
   const statuses = useRuri((s) => s.statuses);
-  const stats = useRuri((s) => s.stats);
   // while this is up, every chat's finished steps come here (and, as it
   // opens, every chat's last few lines as they now stand)
   useEffect(() => watchBoard(), []);
@@ -371,15 +250,10 @@ export function ProjectsPage() {
   const working = live.filter((x) => x.status === "working").length;
   const waiting = live.filter((x) => x.status === "permission").length;
   const errored = live.filter((x) => x.status === "error").length;
-  const ids = [...projects.map((p) => p.id), HOME_ID];
-  const today = sum(ids.map((id) => stats[id]?.today ?? NONE));
-  const week = sum(ids.map((id) => stats[id]?.week ?? NONE));
-  const total = sum(ids.map((id) => stats[id]?.total ?? NONE));
-
   const grid = (items: typeof live) => (
     <div className="projects-grid">
       {items.map(({ project, status }) => (
-        <ProjectCard key={project.id} project={project} stats={stats[project.id]} status={status} />
+        <ProjectCard key={project.id} project={project} status={status} />
       ))}
     </div>
   );
@@ -406,9 +280,6 @@ export function ProjectsPage() {
               )}
             </span>
           </div>
-          <StatTile totals={today} label="today" />
-          <StatTile totals={week} label="this week" />
-          <StatTile totals={total} label="all time" />
         </div>
 
         {projects.length === 0 && (

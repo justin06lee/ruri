@@ -35,6 +35,71 @@ function HomeRow() {
   );
 }
 
+/**
+ * The projects page: every open project at once, in the pane.
+ *
+ * It used to be the other half of Home's strip, which made Home the place
+ * you went to look at everything — a page about the projects, reached
+ * through the agent that opens them. It is its own row now, under Home,
+ * and the strip kept the statistics instead (components/HomeBoard.tsx).
+ * The row carries the count, and the same pulsing dot the sidebar's own
+ * rows use while anything is running.
+ */
+function ProjectsRow() {
+  const open = useRuri((s) => s.projectsOpen);
+  const setOpen = useRuri((s) => s.setProjectsOpen);
+  const projects = useRuri((s) => s.projects);
+  const statuses = useRuri((s) => s.statuses);
+
+  let shown = 0;
+  let working = 0;
+  let waiting = 0;
+  for (const project of projects) {
+    if (project.hidden) continue;
+    shown += 1;
+    for (const session of project.sessions) {
+      if (statuses[session.id] === "working") working++;
+      else if (statuses[session.id] === "permission") waiting++;
+    }
+  }
+  const live = waiting > 0 ? "permission" : working > 0 ? "working" : null;
+
+  return (
+    <div
+      className={`project-row projects-row ${open ? "active" : ""}`}
+      title={
+        waiting > 0
+          ? `${waiting} waiting on you, ${working} working`
+          : working > 0
+            ? `${working} working`
+            : "Every open project at a glance"
+      }
+      onClick={() => setOpen(!open)}
+    >
+      <svg
+        className="home-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M4 5h5l2 2.5h9V19H4V5z" />
+      </svg>
+      <span className="project-name">Projects</span>
+      {shown > 0 && <span className="row-count">{shown}</span>}
+      {live && (
+        <span
+          className={`dot ${live}`}
+          aria-label={live === "permission" ? "a project needs you" : "projects working"}
+        />
+      )}
+    </div>
+  );
+}
+
 /** Rapid fire: the pane that always shows whichever session is ready. */
 function RapidRow() {
   const rapid = useRuri((s) => s.rapid);
@@ -529,6 +594,7 @@ export const Sidebar = memo(function Sidebar() {
 
       <div className="project-list">
         <HomeRow />
+        <ProjectsRow />
         <RapidRow />
         {projects.length === 0 && (
           <div className="sidebar-empty">

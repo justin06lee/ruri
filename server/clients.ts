@@ -21,6 +21,8 @@ export interface ClientView {
   channels: Set<string>;
   /** Home's projects page is up: it shows every chat's last few lines. */
   board: boolean;
+  /** The statistics page is up: it wants the resource meters running. */
+  meters: boolean;
   /** Each chat that left the screen, and where it stood as it went. Back
    *  unchanged, it needs nothing; a few events on, it is sent those; and
    *  rewritten or long gone, it is sent whole again. */

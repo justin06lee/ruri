@@ -19,8 +19,25 @@ import { drainQueue, maybeRetry } from "./dispatch.js";
 import { recordEvent, redacted } from "./events.js";
 import { HOME_ID, managerExtras } from "./manager.js";
 import { ParagraphGate } from "./paragraphs.js";
-import { SessionManager } from "./sessions.js";
+import { SessionManager, type SessionExtras } from "./sessions.js";
 import { contextWindow, pushContexts } from "./turns.js";
+
+/**
+ * A chat's extras, with the chat's own id in the harness's environment.
+ *
+ * ruri starts a harness process per chat, and a process on this machine
+ * has nothing on it that says which conversation it is having — a fresh
+ * session has no session id to be told, so its command line says nothing
+ * either. This is what lets the statistics page point at a process and
+ * name the chat (server/resources.ts). Every branch of the extras goes
+ * through here, so a path added later cannot quietly miss it.
+ */
+function tagged(channelId: string, extras: SessionExtras): SessionExtras {
+  return {
+    ...extras,
+    options: { ...extras.options, env: { ...extras.options?.env, RURI_CHANNEL: channelId } },
+  };
+}
 
 export function createChatManager(ctx: ServerContext): SessionManager {
   const manager = new SessionManager(
@@ -128,7 +145,10 @@ export function createChatManager(ctx: ServerContext): SessionManager {
     (projectId) => ctx.archive.lastSessionId(projectId),
     (project) => {
       if (project.id === HOME_ID) {
-        return managerExtras(ctx.managerHost, ctx.store.workspaceDir(), ctx.homeLog.path());
+        return tagged(
+          project.id,
+          managerExtras(ctx.managerHost, ctx.store.workspaceDir(), ctx.homeLog.path()),
+        );
       }
       // the same words wherever the session runs: Claude takes them as an
       // append to its own preset, everything else as its whole system prompt
@@ -152,7 +172,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         naming: claude ? "tool" : componentDropBriefing(project.path),
         bridge,
       });
-      return {
+      return tagged(project.id, {
         fillSecrets: (input) =>
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
         autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS],
@@ -166,11 +186,14 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           ...(note ? { systemPrompt: { type: "preset", preset: "claude_code", append: note } } : {}),
         },
         ...(note ? { providerSystem: note } : {}),
-      };
+      });
     },
     {
       parse: (model) => ctx.models.registry.parse(model),
-      create: (id, workDir) => ctx.models.registry.createFor(id, workDir, ctx.secrets.env()),
+      // the chat's id rides in beside the vault, for the same reason it
+      // does in `tagged` below (server/resources.ts)
+      create: (id, workDir, channelId) =>
+        ctx.models.registry.createFor(id, workDir, { ...ctx.secrets.env(), RURI_CHANNEL: channelId }),
       canFork: (id) => ctx.models.registry.canForkSession(id),
     },
     (projectId) => ctx.archive.takeResumeAt(projectId),

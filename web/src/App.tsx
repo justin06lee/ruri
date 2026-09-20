@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ChatPane } from "./components/ChatPane";
 import { Settings } from "./components/Settings";
 import { useRapidFire } from "./components/RapidFire";
+import { ProjectsPage } from "./components/HomeBoard";
 import { Sidebar } from "./components/Sidebar";
 import { Switcher } from "./components/Switcher";
 import { prewarmMarkdown } from "./lib/markdownHtml";
@@ -93,6 +94,9 @@ export function App() {
   const showing = rapid.on ? rapid.current : undefined;
   const settingsOpen = useRuri((s) => s.settingsOpen);
   const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
+  // the projects page takes the pane the way settings does: it is not a
+  // chat, and nothing about a chat should be underneath it
+  const projectsOpen = useRuri((s) => s.projectsOpen);
 
   return (
     <div className="app">
@@ -101,6 +105,10 @@ export function App() {
       <Switcher />
       {settingsOpen ? (
         <Settings onClose={() => setSettingsOpen(false)} />
+      ) : projectsOpen ? (
+        <main className="chat projects-pane">
+          <ProjectsPage />
+        </main>
       ) : (
         <ChatPane key={showing ?? "active"} {...(showing ? { channelId: showing } : {})} rapid={rapid} />
       )}

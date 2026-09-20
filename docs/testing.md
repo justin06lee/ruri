@@ -39,6 +39,7 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 | `bridge-test` | none, needs a display | drives the bridge end to end: a hidden browser window over CDP, then TextEdit over Accessibility |
 | `chips-test` | none, needs a display | the composer's marker chips survive a window resize (needs `bun run build:web && bun run build:main` first) |
 | `sweep-test` | tokens | runs the component sweep against a project and prints what the small model would name |
+| `meters-test` | tokens (one short Haiku turn) | the statistics page's resource meters against a real harness: nothing sampled until a window asks, the chat's own process found and named as that chat, and the sampling stopped when the window looks away |
 | `smoke` | tokens | three real turns: a plain reply, a Bash turn, a WebFetch turn with a permission round-trip |
 | `idle-reap-test` | tokens | an open chat keeps its process; leaving it closes it; the next prompt resumes |
 | `bridge-close-test` | tokens | bridge windows close a few seconds after the turn that opened them ends |

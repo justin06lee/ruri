@@ -163,6 +163,15 @@ export class Terminals {
     return this.shells.has(termId);
   }
 
+  /** Every running shell's process id. A shell is ruri's own machinery,
+   *  not an agent, and the meters need to tell them apart
+   *  (server/resources.ts). */
+  pids(): number[] {
+    const out: number[] = [];
+    for (const shell of this.shells.values()) if (shell.child.pid !== undefined) out.push(shell.child.pid);
+    return out;
+  }
+
   /** Everything this tab's shell has printed so far. */
   scrollback(termId: string): string {
     return this.shells.get(termId)?.buffer.read() ?? "";

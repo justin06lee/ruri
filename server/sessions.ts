@@ -112,8 +112,11 @@ export interface SessionExtras {
 export interface ProviderHooks {
   /** Split a model id into provider + native model. */
   parse(model: string | undefined): ModelRef;
-  /** Build a provider instance working in the given project directory. */
-  create(id: string, workDir: string): Provider;
+  /** Build a provider instance working in the given project directory,
+   *  for the given chat — whose id rides into the harness's environment,
+   *  so a process on this machine can be traced back to its conversation
+   *  (server/resources.ts). */
+  create(id: string, workDir: string, channelId: string): Provider;
   /** Whether an agentic session can fork at its provider-native turn ids. */
   canFork?(id: string): boolean;
 }
@@ -2584,7 +2587,7 @@ export class SessionManager {
     if (!session || session.dead) {
       const resume = session?.lastSessionId ?? this.resumeFor(project.id);
       if (route.providerId && this.providers) {
-        const provider = this.providers.create(route.providerId, project.path);
+        const provider = this.providers.create(route.providerId, project.path, project.id);
         // the agentic path (Codex app-server, ACP) is the harness verbatim;
         // run()-per-turn stays as the fallback for anything without it
         session = isSessionProvider(provider)

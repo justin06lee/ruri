@@ -3227,6 +3227,33 @@ input[type="range"]::-webkit-slider-thumb {
   height: 12px;
 }
 
+/* the line's own star: filled, it is the starred projects only — the same
+   star the sidebar puts on a project, saying the same thing about it */
+.rapid-star {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ink-faint);
+  transition: color var(--lighten);
+}
+
+.rapid-star svg {
+  width: 13px;
+  height: 13px;
+}
+
+.rapid-star:hover,
+.rapid-star.on {
+  color: var(--ink);
+  background: none;
+  transform: none;
+}
+
 /* ── the naming card ──────────────────────────────────────────────── */
 
 /* Same card as the question, asked more quietly: one field, and the rest

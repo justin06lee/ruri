@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ModelRole, PermissionId, PermissionState } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
+import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
 import {
   applyTheme,
@@ -12,8 +13,6 @@ import {
   themeAt,
   THEMES,
 } from "../theme";
-
-const STAR_PATH = "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9 2.9-6z";
 
 /**
  * The device-wide model catalog: every model every installed harness can

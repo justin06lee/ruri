@@ -1,4 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { STAR_PATH } from "../icons";
+import { lineOf } from "../lib/rapid";
+import { getPref, setPref } from "../prefs";
 import { useRuri } from "../store";
 
 /**
@@ -13,7 +16,14 @@ import { useRuri } from "../store";
  * big, for as long as it takes to register — before its chat rises into
  * place. Two seconds of theatre that answer the only question a line like
  * this ever raises: which one am I looking at now?
+ *
+ * Who is in the line at all is lib/rapid.ts: every open project, or only the
+ * starred ones (the star on the plate, remembered across launches), and a
+ * hidden project in neither.
  */
+
+/** Whether the line was narrowed to the starred projects, last time. */
+const STARRED_PREF = "ruri-rapid-starred";
 
 /** How long the sent prompt stays on screen before the card leaves. */
 const HOLD_MS = 700;
@@ -29,6 +39,9 @@ export interface RapidFire {
   /** How many sessions could take a prompt right now. */
   ready: number;
   working: number;
+  /** The line is narrowed to the starred projects. */
+  starred: boolean;
+  setStarred: (on: boolean) => void;
   /** True while the card is on its way out — the pane fades on this. */
   leaving: boolean;
   /** The project being handed to, while its name is on screen. */
@@ -38,14 +51,9 @@ export interface RapidFire {
 }
 
 /** The line as the sidebar reads it, and who in it could take a prompt. */
-function line(): { ids: string[]; ready: string[] } {
-  const { statuses } = useRuri.getState();
-  // hidden projects are out of the line, as they are out of the sidebar
-  const projects = useRuri.getState().projects.filter((p) => !p.hidden);
-  const ids = [...projects.filter((p) => p.starred), ...projects.filter((p) => !p.starred)].flatMap(
-    (project) => project.sessions.map((session) => session.id),
-  );
-  return { ids, ready: ids.filter((id) => (statuses[id] ?? "idle") !== "working") };
+function line(starredOnly: boolean): { ids: string[]; ready: string[] } {
+  const { projects, statuses } = useRuri.getState();
+  return lineOf(projects, statuses, starredOnly);
 }
 
 /** Who a session belongs to, for the card that announces it. */
@@ -59,8 +67,8 @@ function whose(sessionId: string): { name: string; title?: string } {
 }
 
 /** The next session ready for a prompt, going round from `from`. */
-function nextAfter(from: string | undefined): string | undefined {
-  const { ids, ready } = line();
+function nextAfter(from: string | undefined, starredOnly: boolean): string | undefined {
+  const { ids, ready } = line(starredOnly);
   if (ready.length === 0) return undefined;
   const at = from ? ids.indexOf(from) : -1;
   if (at === -1) return ready[0];
@@ -73,18 +81,32 @@ function nextAfter(from: string | undefined): string | undefined {
 
 /** Where the pick should be, given where it is: unchanged while that
  *  session can still take a prompt. */
-function repick(current: string | undefined): string | undefined {
-  const { ready } = line();
+function repick(current: string | undefined, starredOnly: boolean): string | undefined {
+  const { ids, ready } = line(starredOnly);
   if (current && ready.includes(current)) return current;
   // entering the line from a session that could take a prompt starts there
   const activeId = useRuri.getState().activeId;
-  const next = current === undefined && activeId && ready.includes(activeId) ? activeId : nextAfter(current);
-  // nobody else waiting: stay on this one and watch it finish
-  return next ?? current;
+  const next =
+    current === undefined && activeId && ready.includes(activeId)
+      ? activeId
+      : nextAfter(current, starredOnly);
+  // Nobody else waiting: stay on this one and watch it finish — but only
+  // while it is still in the line. Narrowed to the starred, hidden away or
+  // closed, it is not ours to hand back, and holding it would go on
+  // offering the composer a session the line no longer holds.
+  return next ?? (current && ids.includes(current) ? current : undefined);
 }
 
 export function useRapidFire(): RapidFire {
   const on = useRuri((s) => s.rapid);
+  // Which line: every open project, or only the starred. Kept here rather
+  // than in the store so the preference can be read as the component first
+  // renders (prefs.ts leans on the store, so the store cannot lean back).
+  const [starred, holdStarred] = useState(() => getPref(STARRED_PREF) === "1");
+  const setStarred = (want: boolean) => {
+    holdStarred(want);
+    setPref(STARRED_PREF, want ? "1" : "0");
+  };
   // subscribed only to render again when the line changes: `line()` reads
   // them from the store itself
   useRuri((s) => s.projects);
@@ -126,7 +148,7 @@ export function useRapidFire(): RapidFire {
   // Worked out as the render happens — projects and statuses are subscribed
   // above, so every change to the line comes through here.
   if (on && !handing) {
-    const next = repick(current);
+    const next = repick(current, starred);
     if (next !== current) setCurrent(next);
   }
 
@@ -138,7 +160,7 @@ export function useRapidFire(): RapidFire {
     }
   }, [current]);
 
-  const { ids, ready } = line();
+  const { ids, ready } = line(starred);
 
   const advance = (reason: "sent" | "skip" = "skip") => {
     if (handing) return;
@@ -149,7 +171,7 @@ export function useRapidFire(): RapidFire {
       setTimeout(() => {
         // the line is read here rather than at the click: the turn the prompt
         // just started has changed who is waiting
-        if (!nextAfter(current)) {
+        if (!nextAfter(current, starred)) {
           // nobody else waiting — stay on this one instead of fading out and
           // straight back in to the same session
           setHanding(false);
@@ -158,7 +180,7 @@ export function useRapidFire(): RapidFire {
         setLeaving(true);
         timers.current.push(
           setTimeout(() => {
-            const next = nextAfter(current);
+            const next = nextAfter(current, starred);
             if (!next) {
               setLeaving(false);
               setHanding(false);
@@ -186,6 +208,8 @@ export function useRapidFire(): RapidFire {
     current,
     ready: ready.length,
     working: ids.length - ready.length,
+    starred,
+    setStarred,
     leaving,
     intro,
     advance,
@@ -227,14 +251,40 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
     return () => observer.disconnect();
   }, [floating]);
 
+  const empty = rapid.starred && rapid.ready + rapid.working === 0;
+
   return (
     <div className={`rapid-bar ${floating ? "floating" : ""}`} ref={barRef}>
       {/* a plate of its own: this floats over the transcript, and without a
           surface under it the conversation reads straight through the text */}
       <div className="rapid-plate">
         <span className="rapid-count">
-          <span className="rapid-lead">rapid fire</span> · {rapid.ready} ready · {rapid.working} working
+          <span className="rapid-lead">rapid fire</span>
+          {/* narrowed to the starred with nothing starred, "0 ready · 0
+              working" reads as a stall rather than an empty line */}
+          {empty ? " · nothing starred" : ` · ${rapid.ready} ready · ${rapid.working} working`}
         </span>
+        <button
+          className={`rapid-star ${rapid.starred ? "on" : ""}`}
+          title={
+            rapid.starred
+              ? "Starred projects only — click for every open project"
+              : "Every open project — click for the starred ones only"
+          }
+          aria-pressed={rapid.starred}
+          onClick={() => rapid.setStarred(!rapid.starred)}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill={rapid.starred ? "currentColor" : "none"}
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d={STAR_PATH} />
+          </svg>
+        </button>
         {rapid.ready > 1 && (
           <button
             className="rapid-skip"

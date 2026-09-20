@@ -4,6 +4,7 @@ import { HOME_ID, type Project, type RecentSession, type SessionInfo } from "../
 import { useConfirm } from "./Confirm";
 import { Player } from "./Player";
 import { getPref, setPref } from "../prefs";
+import { STAR_PATH } from "../icons";
 import { send, useRuri } from "../store";
 
 function HomeRow() {
@@ -110,8 +111,6 @@ function RapidRow() {
     </div>
   );
 }
-
-const STAR_PATH = "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9 2.9-6z";
 
 /**
  * A name being rewritten in place: the row's own text, as a box, with the

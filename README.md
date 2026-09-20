@@ -23,7 +23,7 @@ make update       # stop the running app, rebuild, reinstall, tidy, relaunch
 make build        # only the bundle, into dist-app/
 ```
 
-The first `make` creates a local code-signing identity (`ruri dev`) in your login keychain, so macOS privacy grants survive rebuilds — see [docs/permissions.md](docs/permissions.md). The app is not notarized (no Apple developer account); it is installed by `make`, never downloaded.
+The first `make` creates a local code-signing identity (`ruri dev`) in your login keychain, so macOS privacy grants survive rebuilds — and survive updates too, since ruri now updates itself from its own GitHub releases and macOS ties the grants to the signature. See [docs/permissions.md](docs/permissions.md), which also covers what notarizing would take (an Apple developer account) and what a downloaded, un-notarized build looks like without it.
 
 For development:
 

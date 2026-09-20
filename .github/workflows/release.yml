@@ -1,0 +1,84 @@
+# Pushing a v* tag publishes what the running app updates itself from
+# (subaru, wired up in desktop/main.ts):
+#
+#   ruri-darwin-arm64.zip   the .app, zipped with ditto so the framework
+#                           symlinks and the signature survive
+#   checksums.txt           what the download is checked against
+#
+# `make release` does the same thing from a Mac, and is the way to do it
+# while the signing certificate lives only on that Mac. This workflow is for
+# once it does not — see docs/permissions.md for what each secret is.
+#
+#   CSC_LINK                  the signing certificate, base64 of a .p12
+#   CSC_KEY_PASSWORD          its password
+#   APPLE_ID                  Apple account for notarization
+#   APPLE_APP_SPECIFIC_PASSWORD
+#   APPLE_TEAM_ID
+#
+# With none of them the build is ad-hoc signed: it still installs, but macOS
+# calls it an unidentified developer and every update resets the privacy
+# grants, so set RURI_UPDATE_SIGNING=unsigned if you ship that way.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+
+      - run: bun run typecheck
+      - run: bun test
+
+      - name: Build the bundle
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          bun run build:web
+          bun run build:main
+          # The hardened runtime is what notarization requires, so it goes on
+          # exactly when there is something to notarize with.
+          if [ -n "${{ secrets.APPLE_ID }}" ] && [ -n "$CSC_LINK" ]; then
+            bunx electron-builder --mac \
+              -c.mac.hardenedRuntime=true \
+              -c.mac.entitlements=build/entitlements.mac.plist \
+              -c.mac.entitlementsInherit=build/entitlements.mac.plist
+          else
+            bunx electron-builder --mac
+          fi
+
+      - name: Notarize and staple
+        if: ${{ secrets.APPLE_ID != '' && secrets.CSC_LINK != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          app=dist-app/mac-arm64/ruri.app
+          ditto -c -k --keepParent "$app" /tmp/notarize.zip
+          xcrun notarytool submit /tmp/notarize.zip \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          # Stapled into the bundle, so the machine that downloads it never
+          # has to ask Apple — it opens first time, offline.
+          xcrun stapler staple "$app"
+          xcrun stapler validate "$app"
+
+      - name: Package the way subaru reads it
+        run: |
+          mkdir -p release
+          ditto -c -k --keepParent dist-app/mac-arm64/ruri.app release/ruri-darwin-arm64.zip
+          cd release && shasum -a 256 * > checksums.txt && cat checksums.txt
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/* --title "$GITHUB_REF_NAME" --generate-notes

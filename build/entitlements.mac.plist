@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  What the hardened runtime has to be asked for, and nothing else.
+
+  Notarization requires the hardened runtime, and the hardened runtime is a
+  set of things a process may not do unless its signature says it may. The
+  first three are what any Electron app needs: V8 compiles JavaScript to
+  machine code at runtime and then runs it, which is exactly what the
+  runtime stops by default. Library validation is off because Electron
+  loads its own frameworks, and Apple Events is ruri driving other apps
+  (the bridge's `app_ui`, and quitting System Settings before a grant
+  reset).
+
+  Not here on purpose: the App Sandbox. ruri runs the user's own coding
+  agents against the user's own files, which is the opposite of what a
+  sandbox is for. Accessibility, Screen Recording and the folder grants are
+  not entitlements at all for an app outside the sandbox — they are TCC
+  prompts, asked for on first launch (desktop/permissions.ts).
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+  </dict>
+</plist>

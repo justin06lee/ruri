@@ -9,6 +9,7 @@ import { startServer } from "../server/server.js";
 import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
 import { askAgainIfNewBuild, permissions } from "./permissions.js";
+import { subaru } from "@justin06lee/subaru/electron";
 import { warn } from "../server/log.js";
 
 const execFileAsync = promisify(execFile);
@@ -56,6 +57,63 @@ const CACHE_CAP_BYTES = 16 * 1024 * 1024;
 
 /** How long a quit waits for the bridge and the server to close. */
 const QUIT_TIMEOUT_MS = 5_000;
+
+/**
+ * The macOS privacy grants ruri holds, by tccutil's names — the same list
+ * the Makefile resets, and for the same reason. Only used if a release ever
+ * ships unsigned: then every build is a new app to macOS, the old rows are
+ * stale, and the new one has to ask again (desktop/permissions.ts).
+ */
+const TCC_SERVICES = [
+  "Accessibility",
+  "ScreenCapture",
+  "AppleEvents",
+  "SystemPolicyAllFiles",
+  "SystemPolicyDesktopFolder",
+  "SystemPolicyDocumentsFolder",
+  "SystemPolicyDownloadsFolder",
+  "SystemPolicyRemovableVolumes",
+  "SystemPolicyNetworkVolumes",
+];
+
+/**
+ * Updates, from ruri's own GitHub releases (subaru).
+ *
+ * Once a day it reads the latest release; a newer tag than this build's
+ * asks, with a native dialog, and *Update now* downloads the bundle, checks
+ * it against the published checksum, swaps it for the running one and
+ * relaunches. The quit it relaunches through is the ordinary one, so the
+ * teardown below runs: sessions are torn down and the archive's debounced
+ * writes are flushed before anything goes.
+ *
+ * `signed` is what keeps the privacy grants. macOS ties them to the
+ * signature, so a release signed with the same identity as the one running
+ * is the same app to it and every grant carries over — nothing to reset,
+ * nothing to grant again. subaru checks that before it replaces anything
+ * and refuses a bundle that does not satisfy the running app's designated
+ * requirement, which is the same check macOS makes. That means every
+ * release has to be signed with the one identity (see the Makefile and
+ * docs/permissions.md); `RURI_UPDATE_SIGNING=unsigned` is the way out if a
+ * release ever is not, and takes the grant reset back.
+ *
+ * Off in development (the app is not packaged), and `RURI_NO_UPDATE=1`
+ * turns it off anywhere.
+ */
+function startUpdates(): void {
+  if (process.env["RURI_NO_UPDATE"]) return;
+  const signing = process.env["RURI_UPDATE_SIGNING"] === "unsigned" ? "unsigned" : "signed";
+  const policy = process.env["RURI_UPDATE_POLICY"];
+  void subaru("justin06lee/ruri", {
+    signing,
+    resetPermissions: TCC_SERVICES,
+    ...(policy === "prompt" || policy === "notify" || policy === "auto" || policy === "off"
+      ? { policy }
+      : {}),
+    // a failed check is not worth a dialog; it goes where the rest of
+    // ruri's trouble goes
+    debug: (message) => warn("update", message),
+  }).catch((err) => warn("update", err));
+}
 
 /**
  * The bridge gives every project its own storage partition (cookies and
@@ -249,6 +307,7 @@ async function main(): Promise<void> {
   // a fresh build is a stranger to macOS: it asks for its grants again,
   // dialog by dialog, once the window is up (desktop/permissions.ts)
   setTimeout(() => void askAgainIfNewBuild().catch(() => {}), 1500);
+  startUpdates();
 
   // A GUI app's stdout goes nowhere anyone will look, and a window on an
   // unexpected origin is indistinguishable from a ruri that has lost its

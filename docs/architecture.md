@@ -112,6 +112,9 @@ Environment variables:
 | `RURI_REAP_GRACE_MS` | How long a finished chat nobody has open keeps its agent process before it closes (default 3000) |
 | `RURI_IDLE_REAP_MS` | How long an open chat's agent process may sit idle before it closes anyway (default 600000, ten minutes) |
 | `RURI_ASLEEP_REAP_MS` | How long a chat open only in windows nobody is looking at keeps its agent process (default 60000, one minute) |
+| `RURI_NO_UPDATE` | Set to anything to turn the updater off entirely |
+| `RURI_UPDATE_POLICY` | `prompt` (default), `notify`, `auto` or `off` — what a newer release does |
+| `RURI_UPDATE_SIGNING` | `unsigned` if releases are not signed with one stable identity; takes back the grant reset on each update |
 | `RURI_BRIEF_LISTED` | How many exchanges a compaction brief lists one by one before the oldest are folded into its digest (default 40) |
 | `RURI_HISTORY_MAX_BYTES` | How big a session's history may grow before its oldest exchanges go (default 16 MB) |
 | `RURI_SMALL_MODEL` | Small-tasks model when no model holds the small-tasks tag (default `codex:gpt-5.6-luna`) |

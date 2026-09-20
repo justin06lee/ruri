@@ -23,7 +23,8 @@ TCC_SERVICES := Accessibility ScreenCapture AppleEvents SystemPolicyAllFiles \
 # ruri was never running.
 RUNNING = ps -Ao pid=,comm= | awk '$$2 ~ /\/MacOS\/$(APP)$$/ {print $$1}'
 
-.PHONY: all build install update launch stop icon tuner identity reset-permissions sweep-superseded tidy
+.PHONY: all build install update launch stop icon tuner identity reset-permissions sweep-superseded tidy \
+        release release-app notarize signing
 
 all: build reset-permissions install tidy launch
 
@@ -130,6 +131,101 @@ stop:
 	@osascript -e 'tell application "$(APP)" to quit' >/dev/null 2>&1 || true
 	@for i in $$(seq 1 30); do [ -z "$$($(RUNNING))" ] && break; sleep 0.2; done
 	@p=$$($(RUNNING)); [ -n "$$p" ] && kill $$p >/dev/null 2>&1 || true
+
+# ── releasing ──────────────────────────────────────────────────────────
+#
+# `make release` publishes what the app updates itself from (subaru):
+#
+#   dist-release/ruri-darwin-arm64.zip   the .app, zipped with ditto so the
+#                                        framework symlinks and the signature
+#                                        survive the round trip
+#   dist-release/checksums.txt           what the download is checked against
+#
+# on a GitHub release named after the version in package.json. The running
+# app reads that release once a day (desktop/main.ts).
+
+VERSION  := $(shell node -p "require('./package.json').version")
+REL_DIR  := dist-release
+REL_ZIP  := $(REL_DIR)/$(APP)-darwin-arm64.zip
+
+# A Developer ID Application certificate, if this machine has one. It is the
+# only identity Apple will notarize, and notarizing is the only thing that
+# stops macOS telling whoever downloads ruri that it is from an
+# unidentified developer. Without one the release is still signed — with
+# $(IDENTITY), which keeps privacy grants across updates for anyone already
+# running a build signed with it — but it is not something to hand out.
+DEV_ID = security find-identity -v -p codesigning 2>/dev/null | sed -n 's/^[^"]*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -1
+
+# Notarization credentials, either way notarytool takes them: a keychain
+# profile stored once (`xcrun notarytool store-credentials`), or the Apple
+# ID trio. See docs/permissions.md.
+NOTARY_ARGS = $(if $(NOTARY_PROFILE),--keychain-profile "$(NOTARY_PROFILE)",$(if $(APPLE_ID),--apple-id "$(APPLE_ID)" --password "$(APPLE_APP_SPECIFIC_PASSWORD)" --team-id "$(APPLE_TEAM_ID)",))
+
+# What this machine can currently produce, before anything is built.
+signing:
+	@id=$$($(DEV_ID)); \
+	if [ -n "$$id" ]; then echo "Developer ID: $$id"; else echo "Developer ID: none — releases will be signed as '$(IDENTITY)' and will not be notarized"; fi; \
+	if [ -n "$(NOTARY_PROFILE)" ]; then echo "notarization: keychain profile '$(NOTARY_PROFILE)'"; \
+	elif [ -n "$(APPLE_ID)" ]; then echo "notarization: Apple ID $(APPLE_ID)"; \
+	else echo "notarization: no credentials (set NOTARY_PROFILE, or APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID)"; fi
+
+# The bundle, signed as well as this machine can. The hardened runtime goes
+# on only with a Developer ID: it is what notarization requires, and turning
+# it on for the self-signed build would change the thing that already works
+# for no gain.
+release-app:
+	bun install
+	@test -d node_modules/electron/dist/Electron.app || (cd node_modules/electron && node install.js)
+	bun run build:web
+	bun run build:main
+	@id=$$($(DEV_ID)); \
+	if [ -n "$$id" ]; then \
+	  echo "signing as '$$id' (hardened runtime)"; \
+	  CSC_NAME="$$id" bunx electron-builder --mac \
+	    -c.mac.hardenedRuntime=true \
+	    -c.mac.entitlements=build/entitlements.mac.plist \
+	    -c.mac.entitlementsInherit=build/entitlements.mac.plist; \
+	else \
+	  $(MAKE) --no-print-directory identity; \
+	  echo "no Developer ID — signing as '$(IDENTITY)'"; \
+	  CSC_NAME="$(IDENTITY)" bunx electron-builder --mac; \
+	fi
+
+# Notarization: Apple is sent the bundle, checks it, and records that it
+# did. Stapling writes that record into the bundle itself, so the machine
+# that downloads it never has to ask — the app opens with no warning, on the
+# first try, offline. Skipped, loudly, when there is nothing to do it with.
+notarize:
+	@id=$$($(DEV_ID)); \
+	if [ -z "$$id" ]; then echo "notarize: skipped — no Developer ID Application certificate"; exit 0; fi; \
+	if [ -z "$(NOTARY_PROFILE)$(APPLE_ID)" ]; then echo "notarize: skipped — no credentials (make signing says what is missing)"; exit 0; fi; \
+	set -e; \
+	tmp=$$(mktemp -d); \
+	echo "notarize: submitting $(APP_SRC)"; \
+	ditto -c -k --keepParent "$(APP_SRC)" "$$tmp/notarize.zip"; \
+	xcrun notarytool submit "$$tmp/notarize.zip" $(NOTARY_ARGS) --wait; \
+	xcrun stapler staple "$(APP_SRC)"; \
+	xcrun stapler validate "$(APP_SRC)"; \
+	rm -rf $$tmp; \
+	echo "notarize: stapled"
+
+# The zip subaru downloads, and what it is checked against. ditto, not zip:
+# a .app is full of symlinks and a signature that a plain zip does not carry
+# through, and a bundle that arrives subtly different fails the signature
+# check on the other side.
+$(REL_ZIP): release-app notarize
+	@mkdir -p $(REL_DIR)
+	@rm -f $(REL_DIR)/*
+	ditto -c -k --keepParent "$(APP_SRC)" "$(REL_ZIP)"
+	@cd $(REL_DIR) && shasum -a 256 * > checksums.txt && cat checksums.txt
+
+# Build, sign, notarize, package and publish, in that order. The tag is the
+# version in package.json, which is what the running app compares against.
+release: $(REL_ZIP)
+	@command -v gh >/dev/null || { echo "gh is not installed: brew install gh"; exit 1; }
+	@git diff --quiet || { echo "working tree is dirty — commit before releasing"; exit 1; }
+	gh release create "v$(VERSION)" $(REL_DIR)/* --title "v$(VERSION)" --generate-notes
+	@echo "published v$(VERSION) — a running ruri offers it within a day"
 
 icon:
 	sh scripts/make-icon.sh

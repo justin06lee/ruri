@@ -49,31 +49,20 @@ function ProjectsRow() {
   const open = useRuri((s) => s.projectsOpen);
   const setOpen = useRuri((s) => s.setProjectsOpen);
   const projects = useRuri((s) => s.projects);
-  const statuses = useRuri((s) => s.statuses);
 
-  let shown = 0;
-  let working = 0;
-  let waiting = 0;
-  for (const project of projects) {
-    if (project.hidden) continue;
-    shown += 1;
-    for (const session of project.sessions) {
-      if (statuses[session.id] === "working") working++;
-      else if (statuses[session.id] === "permission") waiting++;
-    }
-  }
-  const live = waiting > 0 ? "permission" : working > 0 ? "working" : null;
+  // How many there are, and nothing about what they are doing: the row is
+  // the way to the page, not a report on it. Every session on every project
+  // already says its own state where it is — in the sidebar under its
+  // folder, on the page's cards — and a dot up here, over a row that never
+  // changes, only asks to be looked at. The statuses are deliberately not
+  // read: this row then repaints when projects open and close, not on
+  // every status of every session in the app.
+  const shown = projects.reduce((n, project) => (project.hidden ? n : n + 1), 0);
 
   return (
     <div
-      className={`project-row projects-row ${open ? "active" : ""}`}
-      title={
-        waiting > 0
-          ? `${waiting} waiting on you, ${working} working`
-          : working > 0
-            ? `${working} working`
-            : "Every open project at a glance"
-      }
+      className={`project-row ${open ? "active" : ""}`}
+      title="Every open project at a glance"
       onClick={() => setOpen(!open)}
     >
       <svg
@@ -90,12 +79,6 @@ function ProjectsRow() {
       </svg>
       <span className="project-name">Projects</span>
       {shown > 0 && <span className="row-count">{shown}</span>}
-      {live && (
-        <span
-          className={`dot ${live}`}
-          aria-label={live === "permission" ? "a project needs you" : "projects working"}
-        />
-      )}
     </div>
   );
 }

@@ -7603,8 +7603,8 @@ button.stop:hover {
 
 /* ── the sidebar's projects row ───────────────────────────────────── */
 
-/* the count rides the row the way a folder's does, and the dot after it
-   says the same thing the row's title does */
+/* the count rides the row the way a folder's does — how many, and nothing
+   about what they are doing (Sidebar.tsx's ProjectsRow says why) */
 .row-count {
   margin-left: auto;
   font-family: var(--mono);
@@ -7612,14 +7612,6 @@ button.stop:hover {
   font-weight: 700;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
-}
-
-.projects-row .dot {
-  margin-left: 6px;
-}
-
-.projects-row .row-count + .dot {
-  margin-left: 6px;
 }
 
 /* the projects page taking the pane off the sidebar, rather than sitting

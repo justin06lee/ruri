@@ -4,6 +4,8 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- perf: ruri stops costing the battery once you look away. A chat open in a window keeps its agent process warm so the next prompt is instant, but "open" now means open in front of someone: a warm `claude` is 200-odd MB and goes on asking for the CPU while it sits there, which is what had macOS naming ruri under *Using Significant Energy* with nothing running. A chat open only in windows nobody is looking at keeps its process for a minute (`RURI_ASLEEP_REAP_MS`) instead of ten, and the statistics meters — a `ps` over every process on the machine, twice a second — stop sampling altogether. Switching apps for a moment costs nothing; walking away gives the memory and the battery back
+
 - build: eslint, prettier and editorconfig; `bun test` unit tests and `bun run test:scripts` for the token-free integration scripts; CI on GitHub Actions
 - build: runtime packages listed under `dependencies`; the bundle is unchanged
 - build: builds are signed with a local self-signed identity (`make identity`), so macOS privacy grants survive a rebuild; the grant reset runs only for an ad-hoc build, and only for the services ruri uses

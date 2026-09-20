@@ -23,6 +23,10 @@ export interface ClientView {
   board: boolean;
   /** The statistics page is up: it wants the resource meters running. */
   meters: boolean;
+  /** Anyone is looking: the window on screen and the one in use
+   *  (web/src/lib/awake.ts). A sleeping window still takes everything its
+   *  chats do — only what costs the machine to hold is let go of. */
+  awake: boolean;
   /** Each chat that left the screen, and where it stood as it went. Back
    *  unchanged, it needs nothing; a few events on, it is sent those; and
    *  rewritten or long gone, it is sent whole again. */
@@ -149,11 +153,26 @@ export class Clients {
     }
   };
 
-  /** Some window has this chat open, seen or not — what keeps its agent
-   *  process warm between turns. */
+  /** A window someone is looking at has this chat open — what keeps its
+   *  agent process warm between turns, since that is someone who may be
+   *  about to type the next prompt. */
   isOpen = (channelId: string): boolean => {
-    for (const view of this.views.values()) if (view.channels.has(channelId)) return true;
+    for (const view of this.views.values()) if (view.awake && view.channels.has(channelId)) return true;
     return false;
+  };
+
+  /** This chat is open, but only in windows that have gone to sleep. The
+   *  process is worth holding a little longer — someone switching apps for
+   *  a moment comes back to a warm session — but not the ten minutes a
+   *  watched chat gets (server/sessions.ts). */
+  isDozing = (channelId: string): boolean => {
+    let open = false;
+    for (const view of this.views.values()) {
+      if (!view.channels.has(channelId)) continue;
+      if (view.awake) return false;
+      open = true;
+    }
+    return open;
   };
 
   /** One transcript event out: to the windows showing its chat and the

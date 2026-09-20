@@ -201,10 +201,14 @@ export function createChatManager(ctx: ServerContext): SessionManager {
   );
   // an unset model is whatever Settings crowned, read live
   manager.useDefaultModel(() => ctx.store.defaultModel());
-  // between turns a process stays for the chat open in a window, a prompt
-  // queued behind the turn, or a retry about to go — for nothing else
+  // between turns a process stays for the chat open in a window someone is
+  // looking at, a prompt queued behind the turn, or a retry about to go —
+  // for nothing else
   manager.useKeepWarm(
     (id) => ctx.clients.isOpen(id) || (ctx.queues.entries.get(id)?.length ?? 0) > 0 || ctx.retries.has(id),
   );
+  // open, but only where nobody is looking: held on the short lease, so a
+  // moment in another app costs nothing and an afternoon costs no battery
+  manager.useDozing((id) => ctx.clients.isDozing(id));
   return manager;
 }

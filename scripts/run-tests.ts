@@ -38,6 +38,7 @@ const SCRIPTS: Script[] = [
   { name: "provider-events", what: "a fake harness turn, event by event" },
   { name: "subagents", what: "a fake harness's agents become cards and logs" },
   { name: "hidden", what: "hidden projects, Home's tools, the finder, the real server" },
+  { name: "asleep", what: "a window asleep stops the meters sampling" },
   { name: "terminal", what: "a noisy shell: output whole and in order, scrollback capped" },
   { name: "rewind-compaction", what: "rewinding either side of a compaction" },
   { name: "retry", what: "a dropped turn goes again (real CLI, mock gateway)", needs: "claude" },

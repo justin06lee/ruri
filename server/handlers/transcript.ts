@@ -36,18 +36,24 @@ export const transcriptHandlers = {
       channels: new Set<string>(),
       board: false,
       meters: false,
+      awake: true,
       seen: new Map(),
     };
     const before = view.channels;
     const hadBoard = view.board;
+    const wasAwake = view.awake;
     view.channels = new Set(msg.channels.filter((id) => known.has(id)));
     view.board = msg.board === true;
     const wantedMeters = view.meters;
     view.meters = msg.meters === true;
+    // a client that does not say is taken to be awake
+    view.awake = msg.awake !== false;
     ctx.clients.views.set(ws, view);
-    // the meters run while any window has the statistics page up, and not
-    // one moment longer (server/resources.ts)
-    ctx.meters.watch([...ctx.clients.views.values()].some((v) => v.meters));
+    // the meters run while any window has the statistics page up *and*
+    // someone is looking at it, and not one moment longer: each sample is a
+    // `ps` over every process on the machine, and a reading nobody reads is
+    // one ruri should not be spawning twice a second (server/resources.ts)
+    ctx.meters.watch([...ctx.clients.views.values()].some((v) => v.meters && v.awake));
     // a window that has just come to the page gets the last reading at
     // once, rather than a blank panel until the next sample
     if (view.meters && !wantedMeters) {
@@ -68,9 +74,12 @@ export const transcriptHandlers = {
         } satisfies ServerMessage),
       );
     }
-    // a chat opened or left: its process looks again at whether it stays
+    // a chat opened or left — or the window waking or going to sleep, which
+    // changes how long the chats it holds are worth keeping warm for — and
+    // each one's process looks again at whether it stays
+    const stirred = wasAwake !== view.awake;
     for (const id of new Set([...before, ...now])) {
-      if (before.has(id) !== now.has(id)) ctx.manager.settle(id);
+      if (stirred || before.has(id) !== now.has(id)) ctx.manager.settle(id);
     }
   },
   remove_event: (ctx, _ws, msg) => {

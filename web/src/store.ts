@@ -41,6 +41,7 @@ import {
 import type { ComposerAttachment } from "./components/Attachments";
 import { overlay, reuse } from "./lib/transcript";
 import { hydratePrefs } from "./prefs";
+import { isAwake, subscribeAwake } from "./lib/awake";
 import { fileToBase64 } from "./lib/files";
 
 export interface Draft {
@@ -634,6 +635,11 @@ export function ensureTranscript(channelId: string): void {
  * an open chat's agent process warm between turns, and closes the rest the
  * moment their work is done. Counted, because a hand-off (rapid fire, a
  * remount) briefly has the old pane and the new one both mounted.
+ *
+ * Whether anyone is looking goes with it. A warm CLI costs 200-odd MB and a
+ * steady trickle of battery for as long as it lives, and nobody is about to
+ * type into a window that is behind another app — so the server is told
+ * when this one sleeps, and lets those processes go a minute later.
  */
 const onScreen = new Map<string, number>();
 let boardsUp = 0;
@@ -653,6 +659,10 @@ function sendView(): void {
     live: true,
     ...(boardsUp > 0 ? { board: true } : {}),
     ...(metersUp > 0 ? { meters: true } : {}),
+    // not what is on screen but whether anyone is in front of it: what
+    // decides how long an open chat's process is kept warm, and whether the
+    // statistics meters sample at all
+    awake: isAwake(),
   };
   const json = JSON.stringify(message);
   if (json !== lastView && send(message)) lastView = json;
@@ -667,6 +677,10 @@ function syncView(): void {
     if (viewQueued) sendView();
   });
 }
+
+// waking and going to sleep change nothing on screen, but they change
+// whether anyone is looking at it, which the server acts on
+subscribeAwake(syncView);
 
 /** Put a chat on screen; the function returned takes it off again. */
 export function watchChannel(channelId: string): () => void {

@@ -6,6 +6,8 @@ import { ProjectsPage } from "./components/HomeBoard";
 import { Sidebar } from "./components/Sidebar";
 import { Switcher } from "./components/Switcher";
 import { prewarmMarkdown } from "./lib/markdownHtml";
+import { HOME_ID } from "../../shared/protocol";
+import { setPref } from "./prefs";
 import { connect, useRuri } from "./store";
 
 let connectedOnce = false;
@@ -79,6 +81,53 @@ function Prewarm(): null {
   return null;
 }
 
+/** A field Tab belongs to: it moves between answers there, or completes
+ *  in a shell. The composer's own box is not one — it has nothing to tab
+ *  to, and it is where the caret sits whenever Home is up. */
+function tabOwnedBy(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.matches(".composer-field textarea")) return false;
+  return el.isContentEditable || el.matches("input, textarea, select");
+}
+
+/**
+ * Tab flips between the Home agent and the projects page — the two
+ * places you go to see everything at once, a key apart. Only from those
+ * two, only with nothing else claiming the key: a menu that completes on
+ * Tab (the composer's commands) has already taken it by the time it gets
+ * here, and a field or a card standing over the page keeps it.
+ */
+function useHomeTabKey(): void {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (tabOwnedBy(document.activeElement)) return;
+      if (document.querySelector('.viewer-overlay, .confirm-overlay, [role="dialog"]')) return;
+      const s = useRuri.getState();
+      if (s.settingsOpen || s.rapid) return;
+      if (s.projectsOpen) {
+        e.preventDefault();
+        // to the agent itself, not whichever of Home's pages was up last:
+        // the pane reads the remembered tab as it mounts, which is now
+        setPref("ruri-home-tab", "chat");
+        s.setActive(HOME_ID);
+        // and the caret back in its box, so a thought left there on the
+        // way over carries on where it was — once the pane is up
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() =>
+            document.querySelector<HTMLTextAreaElement>(".composer-field textarea")?.focus(),
+          ),
+        );
+      } else if (s.activeId === HOME_ID) {
+        e.preventDefault();
+        s.setProjectsOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+}
+
 export function App() {
   useEffect(() => {
     if (!connectedOnce) {
@@ -91,6 +140,7 @@ export function App() {
   // every hand-off (fresh scroll, fresh composer, the fade replayed), and the
   // line has to outlive that.
   const rapid = useRapidFire();
+  useHomeTabKey();
   const showing = rapid.on ? rapid.current : undefined;
   const settingsOpen = useRuri((s) => s.settingsOpen);
   const setSettingsOpen = useRuri((s) => s.setSettingsOpen);

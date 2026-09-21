@@ -303,10 +303,11 @@ function ChatView({
   }, [page]);
 
   // Rewind: pencil on a past prompt → a plain confirmation → the
-  // conversation and the project's files go back to just before it ran and
-  // the prompt lands in the composer, exactly as it was written. Editing it
-  // is then just typing; nothing sends until you press send. Claude sessions
-  // only (file checkpoints), and only while nothing is running.
+  // conversation, what its turns did to the project (files, commits,
+  // branches) and the context gauge go back to just before it ran, and the
+  // prompt lands in the composer, exactly as it was written. Editing it is
+  // then just typing; nothing sends until you press send. A project's
+  // session only, and only while nothing is running.
   const { models, defaultModel } = useRuri(
     useShallow((s) => ({ models: s.models, defaultModel: s.defaultModel })),
   );
@@ -654,10 +655,10 @@ function ChatView({
 
   const busy = status === "working" || status === "permission";
 
-  // Rewind works on every harness; what it can undo differs. Claude rides
-  // the CLI's file checkpoints and forks the conversation at the prompt;
-  // Codex keeps its native conversation but no file checkpoints; other
-  // harnesses come back on a brief of what is kept, files untouched.
+  // Rewind works on every harness, and the project goes back the same way
+  // on all of them (ruri's own checkpoints); what differs is the
+  // conversation. Claude and Codex fork their own at the kept exchange;
+  // other harnesses come back on a brief of what is kept.
   const providerRoute = models.find((m) => m.value === (project.model || defaultModel))?.provider;
   const claudeRoute = !providerRoute;
   const canRewind = !isHome && !busy;
@@ -777,6 +778,22 @@ function ChatView({
     );
   }
 
+  // A header button swaps the whole pane for that page — no navigation,
+  // just this branch; the lit button swaps it back. Ahead of the hero: a
+  // fresh session has the same header, and its buttons have to go
+  // somewhere before the first prompt as much as after it.
+  if (page !== "chat") {
+    return (
+      <main className={pane("chat")}>
+        {header}
+        {page === "tracker" && <Tracker projectId={activeId} onClose={() => setPage("chat")} />}
+        {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
+        {page === "components" && boardId && <Components projectId={boardId} />}
+        {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
+      </main>
+    );
+  }
+
   // No conversation yet (Home or a fresh project): the hero — face, a big
   // title, and the composer front and center.
   if (transcript.length === 0 && !draft && permissions.length === 0) {
@@ -807,20 +824,6 @@ function ChatView({
             />
           </div>
         </div>
-      </main>
-    );
-  }
-
-  // A header button swaps the whole pane for that page — no navigation,
-  // just this branch; the lit button swaps it back.
-  if (page !== "chat") {
-    return (
-      <main className={pane("chat")}>
-        {header}
-        {page === "tracker" && <Tracker projectId={activeId} onClose={() => setPage("chat")} />}
-        {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
-        {page === "components" && boardId && <Components projectId={boardId} />}
-        {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
       </main>
     );
   }
@@ -1012,11 +1015,12 @@ function ChatView({
                 : rewindTarget.text}
             </div>
             <div className="confirm-body">
-              {claudeRoute
-                ? "The conversation and the project's files go back to the moment before this prompt ran — everything after it is discarded. The prompt itself lands in the composer, so you can edit it there and send when you're ready."
-                : providerRoute === "codex"
-                  ? "The native Codex conversation goes back to the moment before this prompt ran — everything after it is discarded. The project's files return from ruri's checkpoint when available; if none was captured, the reply says so. The prompt itself lands in the composer, so you can edit it there and send when you're ready."
-                  : "The conversation goes back to the moment before this prompt ran — everything after it is discarded, and the harness starts again from a brief of what's kept. The project's files return from ruri's checkpoint when available; if none was captured, the reply says so. The prompt itself lands in the composer, so you can edit it there and send when you're ready."}
+              {claudeRoute || providerRoute === "codex"
+                ? "The conversation goes back to the moment before this prompt ran — everything after it is discarded."
+                : "The conversation goes back to the moment before this prompt ran — everything after it is discarded, and the harness starts again from a brief of what's kept."}{" "}
+              What those turns did to the project goes back too — the files they changed, the commits,
+              branches and tags they made — while your own edits in between, and other chats' work, stay. The
+              prompt itself lands in the composer, so you can edit it there and send when you're ready.
             </div>
             <div className="confirm-actions">
               <button className="ghost" onClick={() => setRewindTarget(null)}>

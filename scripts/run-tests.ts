@@ -41,6 +41,7 @@ const SCRIPTS: Script[] = [
   { name: "asleep", what: "a window asleep stops the meters sampling" },
   { name: "terminal", what: "a noisy shell: output whole and in order, scrollback capped" },
   { name: "rewind-compaction", what: "rewinding either side of a compaction" },
+  { name: "rewind-git", what: "a rewind through the server: files, branch, context" },
   { name: "retry", what: "a dropped turn goes again (real CLI, mock gateway)", needs: "claude" },
 ];
 

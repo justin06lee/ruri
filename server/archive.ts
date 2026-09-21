@@ -67,6 +67,10 @@ interface ArchiveData {
    *  context gauge reads the real occupancy on launch instead of zero until
    *  the next turn happens to refill it. */
   contextTokens?: number;
+  /** The occupancy as each turn left it, keyed by the turn's opening
+   *  user-event id — what the context was once that exchange was over, and
+   *  so what it is again when a rewind or a fork goes back to it. */
+  contextAt?: Record<string, number>;
   /** The context window that channel's harness reported for its model —
    *  Codex names its own, and it is not one of Claude's two sizes. */
   contextWindow?: number;
@@ -271,6 +275,7 @@ export class SessionArchive {
         ...(typeof raw.resumeAt === "string" ? { resumeAt: raw.resumeAt } : {}),
         ...(raw.forkNext === true ? { forkNext: true } : {}),
         ...(typeof raw.contextTokens === "number" ? { contextTokens: raw.contextTokens } : {}),
+        ...(raw.contextAt && typeof raw.contextAt === "object" ? { contextAt: raw.contextAt } : {}),
         // an unattributed window is from before it was recorded whose it is
         // — it can't be checked against the current model, so it is dropped
         ...(typeof raw.contextWindow === "number" && typeof raw.contextWindowModel === "string"
@@ -630,6 +635,22 @@ export class SessionArchive {
     this.scheduleWrite(projectId);
   }
 
+  /** Put the reading down against the turn in flight — the newest prompt.
+   *  The last one a turn makes is where it left the context. */
+  noteTurnContext(projectId: string, tokens: number): void {
+    const entry = this.load(projectId);
+    const turn = entry.events.findLast((event) => event.kind === "user");
+    if (!turn) return;
+    (entry.contextAt ??= {})[turn.id] = tokens;
+    this.scheduleWrite(projectId);
+  }
+
+  /** How full the context was once this exchange was over, if a reading
+   *  was taken then. */
+  contextAfter(projectId: string, turnId: string): number | undefined {
+    return this.load(projectId).contextAt?.[turnId];
+  }
+
   /** The window a harness last reported for this channel — only when the
    *  channel still runs the model that reported it. */
   contextWindowOf(projectId: string, model: string): number | undefined {
@@ -743,6 +764,7 @@ export class SessionArchive {
       summaries: Record<string, TurnSummary>;
       chain: Record<string, { user?: string; last?: string }>;
       contextTokens?: number;
+      contextAt?: Record<string, number>;
       contextWindow?: number;
       contextWindowModel?: string;
     },
@@ -761,6 +783,9 @@ export class SessionArchive {
           .map(([id, c]) => [id, { ...c }]),
       ),
       ...(from.contextTokens !== undefined ? { contextTokens: from.contextTokens } : {}),
+      ...(from.contextAt
+        ? { contextAt: Object.fromEntries(Object.entries(from.contextAt).filter(([id]) => kept.has(id))) }
+        : {}),
       ...(from.contextWindow !== undefined && from.contextWindowModel !== undefined
         ? { contextWindow: from.contextWindow, contextWindowModel: from.contextWindowModel }
         : {}),
@@ -816,6 +841,7 @@ export class SessionArchive {
     for (const id of removed) {
       delete entry.summaries[id];
       if (entry.chain) delete entry.chain[id];
+      if (entry.contextAt) delete entry.contextAt[id];
     }
     // rewound back past what the digest folded in: it remembers exchanges
     // that, as far as the conversation now goes, never happened

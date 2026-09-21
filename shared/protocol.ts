@@ -213,9 +213,21 @@ export interface TrackerItem {
  */
 export interface Idea {
   id: string;
+  /** In the user's words — as many lines as it takes, with an [image #n]
+   *  marker wherever a picture was put in. */
   text: string;
   done: boolean;
   ts: number;
+  /** Pictures (or any file) clipped to it, stored like a prompt's; the arrow
+   *  hands them to the composer along with the words. */
+  attachments?: Attachment[];
+}
+
+/** Where an unsent idea waits: the composer-draft store, under this key
+ *  rather than a channel id — so it outlives leaving the page, and a
+ *  relaunch, the way a half-written prompt does. */
+export function ideaDraftKey(projectId: string): string {
+  return `idea:${projectId}`;
 }
 
 /**
@@ -953,8 +965,17 @@ export type ClientMessage =
   /** Set a chat's reasoning effort (one of EFFORT_LEVELS); same addressing. */
   | { type: "set_effort"; projectId: string; effort: string }
   /* ── the ideas board (per PROJECT id, not per session) ──────────── */
-  | { type: "idea_add"; projectId: string; text: string }
-  | { type: "idea_update"; projectId: string; ideaId: string; text?: string; done?: boolean }
+  | { type: "idea_add"; projectId: string; text: string; attachments?: AttachmentUpload[] }
+  /** `attachments`, when present, is the idea's whole list: one already
+   *  stored is named by its id alone, a new one comes with its bytes. */
+  | {
+      type: "idea_update";
+      projectId: string;
+      ideaId: string;
+      text?: string;
+      done?: boolean;
+      attachments?: DraftAttachmentUpload[];
+    }
   | { type: "idea_remove"; projectId: string; ideaId: string }
   /* ── the component index (per PROJECT id) ───────────────────────── */
   /** Answer a naming card: the name the user settled on, or skip. */

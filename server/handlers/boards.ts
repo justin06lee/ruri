@@ -3,8 +3,8 @@
  * split out of their prompts, checked off in review) and the ideas board.
  */
 import { WebSocket } from "ws";
-import type { ServerMessage } from "../../shared/protocol.js";
-import { storedFilePath, storeUpload } from "../uploads.js";
+import type { Attachment, ServerMessage } from "../../shared/protocol.js";
+import { storeAttachments, storedFilePath, storeUpload } from "../uploads.js";
 import type { Handlers } from "./types.js";
 
 export const boardHandlers = {
@@ -100,14 +100,25 @@ export const boardHandlers = {
   },
   idea_add: (ctx, _ws, msg) => {
     const text = msg.text.trim();
-    if (!text) return;
-    ctx.ideas.add(msg.projectId, text);
+    if (!text && !msg.attachments?.length) return;
+    ctx.ideas.add(msg.projectId, text, storeAttachments(msg.attachments ?? []));
     ctx.clients.broadcast({ type: "ideas", projectId: msg.projectId, items: ctx.ideas.items(msg.projectId) });
   },
   idea_update: (ctx, _ws, msg) => {
+    // the list as the window now has it: what it names by id alone was
+    // already stored with the idea, what comes with bytes is new
+    const held = ctx.ideas.get(msg.projectId, msg.ideaId)?.attachments ?? [];
+    const attachments = msg.attachments?.flatMap((att): Attachment[] => {
+      const { data, regions, ...meta } = att;
+      const drawn = regions?.length ? { regions } : {};
+      if (data) return [{ ...meta, ...drawn, url: storeUpload({ ...meta, data }).url }];
+      const stored = held.find((h) => h.id === att.id);
+      return stored ? [{ ...stored, ...drawn }] : [];
+    });
     ctx.ideas.update(msg.projectId, msg.ideaId, {
       ...(msg.text !== undefined ? { text: msg.text } : {}),
       ...(msg.done !== undefined ? { done: msg.done } : {}),
+      ...(attachments ? { attachments } : {}),
     });
     ctx.clients.broadcast({ type: "ideas", projectId: msg.projectId, items: ctx.ideas.items(msg.projectId) });
   },

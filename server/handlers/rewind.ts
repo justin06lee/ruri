@@ -14,122 +14,72 @@ import type { ServerContext } from "../context.js";
 import { errorMessage } from "../log.js";
 import { HOME_ID } from "../manager.js";
 import { promptChain } from "../sessions.js";
-import { contextWindow, resetContext } from "../turns.js";
+import type { RewindReport } from "../checkpoints.js";
+import { contextWindow, restoreContext } from "../turns.js";
 import type { Handlers } from "./types.js";
 
 /**
- * Rewind a session running on a non-Claude harness.
- *
- * Those harnesses cannot fork a conversation at a message, so this rewinds
- * what ruri owns: the transcript truncates, the live session is retired,
- * and the next prompt re-seeds a fresh one with a brief of everything kept
- * — so what the model knows matches what is on screen.
- *
- * The files go back too, from ruri's own checkpoint of the moment before
- * the prompt ran (see checkpoints.ts). That is what makes a rewind here
- * the same move it is on Claude rather than a conversation-only apology.
- * A project that is not a git repository has no checkpoint, and the reply
- * says so instead of implying the files moved.
+ * The words for what a rewind did with the files and the repository —
+ * nothing when all it did was the obvious (the files went back), a clause
+ * for anything worth knowing: a branch moved back, a tag taken away, a
+ * file something else had also changed, a ref left alone and why.
  */
-async function rewindOnHarness(
-  ctx: ServerContext,
-  ws: WebSocket,
-  channelId: string,
-  target: Extract<TranscriptEvent, { kind: "user" }>,
-  why?: string,
-): Promise<void> {
-  const eventId = target.id;
-  const project = channelProject(ctx, channelId);
-  const failed =
-    channelId === HOME_ID || !project?.path
-      ? "there are no files to put back"
-      : await ctx.checkpoints.restore(project, channelId, eventId);
-  why ??= failed
-    ? `the files were left as they are — ${failed} — and it restarts from a brief of what's kept`
-    : "the files went back with it, and the harness restarts from a brief of what's kept";
-  ctx.manager.dispose(channelId);
-  ctx.archive.clearLastSessionId(channelId);
-  const removed = ctx.archive.truncateFrom(channelId, eventId);
-  if (removed.length > 0) {
-    ctx.clients.broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
-    pushTranscript(ctx, channelId);
-    if (ctx.tracker.removeForTurns(channelId, removed)) {
-      ctx.clients.broadcast({ type: "tracker", projectId: channelId, items: ctx.tracker.items(channelId) });
-    }
-    // the prompt itself keeps its checkpoint: it is back in the composer,
-    // and sending it again is a new prompt with a new one
-    if (project?.path)
-      void ctx.checkpoints.forget(
-        project,
-        channelId,
-        removed.filter((id) => id !== eventId),
-      );
+function describe(report: RewindReport, channelId: string): string[] {
+  const short = (name: string) => name.replace(/^refs\/(heads|tags)\//, "");
+  const parts: string[] = [];
+  if (report.head) parts.push(`back on ${short(report.head)}`);
+  for (const ref of report.refs) {
+    const tag = ref.name.startsWith("refs/tags/");
+    if (!ref.to) parts.push(`${tag ? "tag" : "branch"} ${short(ref.name)} taken away`);
+    else if (ref.commits > 0)
+      parts.push(`${short(ref.name)} back ${ref.commits} commit${ref.commits === 1 ? "" : "s"}`);
+    else parts.push(`${tag ? "tag " : ""}${short(ref.name)} put back`);
   }
-  // the brief covers what survived the truncation — the harness comes back
-  // knowing that and nothing after it
-  const kept = buildCompaction(
-    channelId,
-    ctx.archive.allEvents(channelId),
-    ctx.archive.summaries(channelId),
-    ctx.archive.digest(channelId),
-  );
-  // nothing survived: the next prompt opens a genuinely new session, so
-  // any brief left from before must not ride along
-  ctx.archive.setPendingBrief(channelId, kept?.brief ?? "");
-  resetContext(ctx, channelId);
-  ctx.clients.broadcast({ type: "status", projectId: channelId, status: "idle" });
-  if (ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify(composeBack(channelId, target)));
-  ws.send(
-    JSON.stringify({
-      type: "error",
-      message: `rewound the conversation — ${why}`,
-    } satisfies ServerMessage),
-  );
+  const kept = (why: RewindReport["kept"][number]["why"]) => [
+    ...new Set(report.kept.filter((k) => k.why === why).map((k) => short(k.name))),
+  ];
+  const pushed = kept("pushed");
+  if (pushed.length)
+    parts.push(`${pushed.join(", ")} left where it is — its new commits are on a remote already`);
+  const moved = kept("moved");
+  if (moved.length) parts.push(`${moved.join(", ")} left where it is — it has moved on since`);
+  const busyHere = kept("worktree");
+  if (busyHere.length) parts.push(`${busyHere.join(", ")} left alone — another worktree has it checked out`);
+  if (report.conflicts.length) {
+    const names = report.conflicts.slice(0, 3).join(", ");
+    const more = report.conflicts.length > 3 ? ` and ${report.conflicts.length - 3} more` : "";
+    const one = report.conflicts.length === 1;
+    parts.push(
+      `${names}${more} put back whole — something else had changed ${one ? "it" : "them"} since, ` +
+        `and what ${one ? "it" : "they"} held is kept at refs/ruri/${channelId}/undo`,
+    );
+  }
+  return parts;
 }
 
-/** Restore ruri's file checkpoint and retain the provider's real context. */
-async function rewindOnNativeProvider(
+/**
+ * Put the project back as it was before the discarded prompts ran: their
+ * turns' changes taken out of the files, and the branches and tags they
+ * moved put back where that is safe (server/checkpoints.ts) — from ruri's
+ * own checkpoints, which see everything a turn did, the shell included.
+ * Only where ruri has none (a project that is not a git repository) does
+ * Claude's own file checkpoint stand in, for the files its edits touched.
+ * Answers what to tell the user, and whether the files went back at all.
+ */
+async function putBack(
   ctx: ServerContext,
-  ws: WebSocket,
   channelId: string,
-  target: Extract<TranscriptEvent, { kind: "user" }>,
-  resumeAt?: string,
-): Promise<void> {
-  const project = channelProject(ctx, channelId);
-  const failed = project?.path
-    ? await ctx.checkpoints.restore(project, channelId, target.id)
-    : "there are no files to put back";
-  ctx.manager.dispose(channelId);
-  if (resumeAt) ctx.archive.setResumeAt(channelId, resumeAt);
-  else ctx.archive.clearLastSessionId(channelId);
-  const removed = ctx.archive.truncateFrom(channelId, target.id);
-  if (removed.length > 0) {
-    ctx.clients.broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
-    pushTranscript(ctx, channelId);
-    if (ctx.tracker.removeForTurns(channelId, removed)) {
-      ctx.clients.broadcast({ type: "tracker", projectId: channelId, items: ctx.tracker.items(channelId) });
-    }
+  project: { path?: string } | undefined,
+  discarded: string[],
+  claudeFiles?: () => Promise<{ canRewind: boolean; error?: string }>,
+): Promise<{ parts: string[]; restored: boolean }> {
+  if (channelId === HOME_ID || !project?.path) {
+    return { parts: ["there were no files to put back"], restored: false };
   }
-  if (project?.path)
-    void ctx.checkpoints.forget(
-      project,
-      channelId,
-      removed.filter((id) => id !== target.id),
-    );
-  ctx.archive.setPendingBrief(channelId, "");
-  resetContext(ctx, channelId);
-  ctx.clients.broadcast({ type: "status", projectId: channelId, status: "idle" });
-  if (ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify(composeBack(channelId, target)));
-  ws.send(
-    JSON.stringify({
-      type: "error",
-      message: failed
-        ? `rewound the native conversation — the files were left as they are: ${failed}`
-        : "rewound the native conversation and restored the project's files",
-    } satisfies ServerMessage),
-  );
+  const report = await ctx.checkpoints.rewind({ path: project.path }, channelId, discarded);
+  if (!report.error) return { parts: describe(report, channelId), restored: true };
+  if (claudeFiles && (await claudeFiles()).canRewind) return { parts: [], restored: true };
+  return { parts: [`the files were left as they are — ${report.error}`], restored: false };
 }
 
 /**
@@ -149,16 +99,21 @@ function composeBack(channelId: string, target: Extract<TranscriptEvent, { kind:
 
 export const rewindHandlers = {
   rewind: (ctx, ws, msg) => {
-    // Conversation AND code, back to just before this prompt ran: the
-    // CLI restores its file checkpoints, then the session resumes
-    // truncated (forked) at the kept turn's last chain entry. The prompt
-    // itself lands back in the composer — nothing is sent for you.
+    // Everything back to just before this prompt ran, and the prompt back
+    // in the composer — nothing is sent for you.
     //
-    // Other harnesses keep no checkpoints and cannot fork a conversation,
-    // so theirs rewinds what ruri owns: the transcript is truncated and
-    // the harness is retired, re-seeded on the next prompt with a brief
-    // of everything kept (the same brief /compact writes). Their files
-    // stay as they are, and the reply says so.
+    // - The conversation: resumed at the exchange before the prompt where
+    //   the harness can fork there (Claude's session file, a native
+    //   provider thread), so the model holds exactly what is on screen;
+    //   otherwise retired, and the next prompt re-seeds a fresh session
+    //   with a brief of everything kept (what /compact writes). With
+    //   nothing kept at all, the next prompt simply starts afresh.
+    // - The files and the repository: what the discarded turns did, taken
+    //   back out (putBack).
+    // - The context gauge: what the conversation now holds — the reading
+    //   taken when the kept exchange was over, or empty for a fresh start.
+    // - The transcript, its notes, the tracker items split from the
+    //   discarded prompts, and their checkpoints: gone with them.
     const channelId = msg.projectId;
     const eventId = msg.eventId;
     void (async () => {
@@ -170,86 +125,69 @@ export const rewindHandlers = {
         if (!target || target.kind !== "user") throw new Error("that prompt is gone");
         const project = channelProject(ctx, channelId);
         if (!project) throw new Error("unknown session");
-        const chain = ctx.archive.chain(channelId);
-        // The fork point: the latest checkpointed turn before the target.
-        // A compaction started a different session, so the scan stops
-        // there rather than failing — it only means the chain has nothing
-        // to offer, and the fork point is then read from the session's own
-        // transcript below, which is where it comes from nowadays anyway
-        // (the SDK stopped echoing prompts, so `chain` is usually empty).
-        let resumeAt: string | undefined;
-        for (let i = idx - 1; i >= 0; i--) {
-          const ev = events[i]!;
-          if (ev.kind === "compaction") break;
-          if (ev.kind === "user" && chain[ev.id]?.last) {
-            resumeAt = chain[ev.id]!.last;
-            break;
-          }
-        }
-        // A compaction *after* the prompt is different: the session running
-        // now began at that boundary, so it holds neither a uuid to fork at
-        // nor a checkpoint to restore. That isn't a reason to refuse — it's
-        // the same ground a harness rewind stands on, so it takes that path
-        // and says so.
-        if (events.some((e, i) => i > idx && e.kind === "compaction")) {
-          // The CLI's session began at that boundary, so it has nothing
-          // to restore — but ruri's checkpoint was taken by ruri, and a
-          // compaction is not a thing that happens to it.
-          await rewindOnHarness(ctx, ws, channelId, target);
-          return;
-        }
+        const kept = events.slice(0, idx);
+        const discarded = events.slice(idx).flatMap((e) => (e.kind === "user" ? [e.id] : []));
+        const keptHasContext = kept.some((e) => e.kind === "user" || e.kind === "compaction");
+        const lastKept = kept.findLast((e) => e.kind === "user");
+        // A compaction after the prompt means the session running now began
+        // at that boundary: it holds nothing to fork at, and the brief is
+        // the only honest way back.
+        const compactedSince = events.some((e, i) => i > idx && e.kind === "compaction");
         const providerId = ctx.models.registry.parse(project.model).providerId;
-        if (providerId !== undefined) {
-          if (ctx.models.registry.canForkSession(providerId)) {
-            // A native provider fork can keep the exact conversation
-            // prefix. If this is the first prompt ever, clearing the
-            // source id is the exact same empty prefix. A first prompt
-            // after a compaction has older briefed context but no prior
-            // provider turn to anchor, so it takes the honest fallback.
-            const keptHasContext = events
-              .slice(0, idx)
-              .some((event) => event.kind === "user" || event.kind === "compaction");
-            if (resumeAt || !keptHasContext) {
-              await rewindOnNativeProvider(ctx, ws, channelId, target, resumeAt);
-              return;
+        const claude = providerId === undefined;
+
+        // Where the conversation can resume. From the chain map when a turn
+        // recorded it — the scan stops at a compaction, where a different
+        // session began — and on Claude from the session's own transcript,
+        // which is where it comes from nowadays (the SDK stopped echoing
+        // prompts, so the chain is usually empty).
+        const chain = ctx.archive.chain(channelId);
+        let resumeAt: string | undefined;
+        let userUuid: string | undefined;
+        let contextBefore: number | undefined;
+        if (!compactedSince) {
+          for (let i = idx - 1; i >= 0; i--) {
+            const ev = events[i]!;
+            if (ev.kind === "compaction") break;
+            if (ev.kind === "user" && chain[ev.id]?.last) {
+              resumeAt = chain[ev.id]!.last;
+              break;
             }
           }
-          await rewindOnHarness(ctx, ws, channelId, target);
-          return;
+          if (claude) {
+            // `ordinal` picks between prompts sent with identical text
+            const sessionId = ctx.archive.lastSessionId(channelId);
+            const ordinal = kept.filter(
+              (e) => e.kind === "user" && e.text.trim() === target.text.trim(),
+            ).length;
+            const found = sessionId ? await promptChain(project, sessionId, target.text, ordinal) : undefined;
+            userUuid = found?.user ?? chain[eventId]?.user;
+            resumeAt ??= found?.before;
+            contextBefore = found?.contextBefore;
+          }
         }
-        // The prompt's uuid, which the CLI keys its file checkpoints by,
-        // comes from the session's own transcript: the SDK no longer
-        // echoes prompts back, so the chain map built from those echoes
-        // can be empty — or, worse, have pinned a neighbouring message.
-        // `ordinal` picks between prompts sent with identical text.
-        const sessionId = ctx.archive.lastSessionId(channelId);
-        const ordinal = events.filter(
-          (e, i) => i < idx && e.kind === "user" && e.text.trim() === target.text.trim(),
-        ).length;
-        const found = sessionId ? await promptChain(project, sessionId, target.text, ordinal) : undefined;
-        const userUuid = found?.user ?? chain[eventId]?.user;
-        if (userUuid) ctx.archive.setChain(channelId, eventId, "user", userUuid);
-        resumeAt ??= found?.before;
-        // A missing file checkpoint is not the end of the rewind: the CLI
-        // keeps checkpoints with the process that took them, so a prompt
-        // from before a relaunch has none. The conversation still rewinds
-        // and the prompt still comes back — the files are simply left as
-        // they are, and the user is told so.
-        const result = userUuid
-          ? await ctx.manager.rewindFiles(project, userUuid)
-          : { canRewind: false, error: "no checkpoint recorded for that prompt" };
-        // The CLI's own checkpoint is the better one when it is there —
-        // it knows the session. When it isn't, ruri took its own before
-        // the prompt went out, and that is what a relaunch cannot lose.
-        const mine = result.canRewind
-          ? undefined
-          : await ctx.checkpoints.restore(project, channelId, eventId);
-        const filesKept =
-          result.canRewind || mine === undefined
-            ? undefined
-            : (result.error ?? "the CLI couldn't restore the files");
+        const canFork = !compactedSince && (claude || ctx.models.registry.canForkSession(providerId));
+        const mode: "fork" | "fresh" | "brief" = !keptHasContext
+          ? "fresh"
+          : canFork && resumeAt
+            ? "fork"
+            : "brief";
+
+        // The files first, while the session is still there: Claude's own
+        // checkpoints live in its process, and are the stand-in where ruri
+        // has none of its own.
+        const files = await putBack(
+          ctx,
+          channelId,
+          project,
+          discarded,
+          claude && userUuid && !compactedSince
+            ? () => ctx.manager.rewindFiles(project, userUuid)
+            : undefined,
+        );
+
         ctx.manager.dispose(channelId);
-        if (resumeAt) ctx.archive.setResumeAt(channelId, resumeAt);
+        if (mode === "fork") ctx.archive.setResumeAt(channelId, resumeAt!);
         else ctx.archive.clearLastSessionId(channelId);
         const removed = ctx.archive.truncateFrom(channelId, eventId);
         if (removed.length > 0) {
@@ -265,19 +203,47 @@ export const rewindHandlers = {
               items: ctx.tracker.items(channelId),
             });
           }
-          void ctx.checkpoints.forget(
-            project,
-            channelId,
-            removed.filter((id) => id !== eventId),
-          );
+          // the prompt itself keeps its checkpoint while it sits in the
+          // composer; sending it again is a new prompt with a new one
+          if (project.path) {
+            void ctx.checkpoints.forget(
+              project,
+              channelId,
+              removed.filter((id) => id !== eventId),
+            );
+          }
         }
+        // the brief covers what survived the truncation — the harness comes
+        // back knowing that and nothing after it; a fork or a fresh start
+        // must not have any brief left from before ride along
+        const brief =
+          mode === "brief"
+            ? buildCompaction(
+                channelId,
+                ctx.archive.allEvents(channelId),
+                ctx.archive.summaries(channelId),
+                ctx.archive.digest(channelId),
+              )?.brief
+            : undefined;
+        ctx.archive.setPendingBrief(channelId, brief ?? "");
+        const tokens =
+          mode === "fork"
+            ? ((lastKept && ctx.archive.contextAfter(channelId, lastKept.id)) ?? contextBefore ?? 0)
+            : 0;
+        restoreContext(ctx, channelId, tokens);
         ctx.clients.broadcast({ type: "status", projectId: channelId, status: "idle" });
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(composeBack(channelId, target)));
-        if (filesKept && ws.readyState === WebSocket.OPEN) {
+
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify(composeBack(channelId, target)));
+        const parts = [
+          ...files.parts,
+          ...(mode === "brief" ? ["the harness restarts from a brief of what's kept"] : []),
+        ];
+        if (parts.length > 0) {
           ws.send(
             JSON.stringify({
               type: "error",
-              message: `rewound the conversation, but the files were left as they are — ${filesKept}`,
+              message: `rewound — ${parts.join("; ")}`,
             } satisfies ServerMessage),
           );
         }
@@ -330,6 +296,7 @@ export const rewindHandlers = {
           summaries: source.summaries,
           chain: source.chain ?? {},
           ...(source.contextTokens !== undefined ? { contextTokens: source.contextTokens } : {}),
+          ...(source.contextAt ? { contextAt: source.contextAt } : {}),
           ...(source.contextWindow !== undefined && source.contextWindowModel !== undefined
             ? { contextWindow: source.contextWindow, contextWindowModel: source.contextWindowModel }
             : {}),
@@ -377,8 +344,15 @@ export const rewindHandlers = {
           summaries: ctx.archive.allSummaries([fresh.id])[fresh.id] ?? {},
           earlier: ctx.archive.earlier(fresh.id),
         });
-        const tokens = ctx.archive.contextTokens(fresh.id);
+        // What the fork's conversation holds: the source's context as this
+        // exchange left it when the fork resumes there (the source's reading
+        // now only when it forks at the tip, or has no reading from then),
+        // and nothing yet when it opens on a brief.
+        const tokens = forked
+          ? (ctx.archive.contextAfter(channelId, target.id) ?? ctx.archive.contextTokens(fresh.id))
+          : 0;
         if (tokens !== undefined) {
+          ctx.archive.setContextTokens(fresh.id, tokens);
           ctx.clients.broadcast({
             type: "context",
             projectId: fresh.id,

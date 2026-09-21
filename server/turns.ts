@@ -132,14 +132,22 @@ export function pushContexts(ctx: ServerContext): void {
   }
 }
 
-/** A channel's context wiped — after a compaction or a rewind, the next
- *  prompt opens on a fresh session. */
+/** A channel's context wiped — after a compaction, or a rewind that
+ *  leaves the next prompt to open a fresh session. */
 export function resetContext(ctx: ServerContext, channelId: string): void {
-  ctx.turns.contexts.delete(channelId);
-  ctx.archive.setContextTokens(channelId, 0);
-  ctx.clients.broadcast({
-    type: "context",
-    projectId: channelId,
-    context: { tokens: 0, window: contextWindow(ctx, channelId) },
-  });
+  restoreContext(ctx, channelId, 0);
+}
+
+/**
+ * A channel's context set back to a reading from before — a rewind or a
+ * fork that resumes the conversation at an earlier exchange holds exactly
+ * what it held when that exchange was over, and the gauge says so now
+ * rather than at the end of the next turn.
+ */
+export function restoreContext(ctx: ServerContext, channelId: string, tokens: number): void {
+  const context: ContextUsage = { tokens, window: contextWindow(ctx, channelId) };
+  ctx.archive.setContextTokens(channelId, tokens);
+  if (tokens > 0) ctx.turns.contexts.set(channelId, context);
+  else ctx.turns.contexts.delete(channelId);
+  ctx.clients.broadcast({ type: "context", projectId: channelId, context });
 }

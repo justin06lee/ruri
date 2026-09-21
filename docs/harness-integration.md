@@ -17,7 +17,7 @@ The [Astra guidance](https://developers.openai.com/api/docs/guides/latest-model)
 - Native questions and MCP/ACP forms reach the question card. Option values, booleans, integers, optional fields, defaults and bounds survive the round-trip. Secret answers use password inputs and are absent from transcript events.
 - Provider plans update one durable transcript event per turn. Provider item IDs cannot overwrite Ruri's event ID. Codex's completed proposed-plan document is also retained.
 - Visible prompts explicitly identify the model payload sent underneath them, including split prompts, so native turn IDs attach to the correct exchange.
-- Codex forks and rewinds retain real thread context. Rewinds independently restore Ruri's file checkpoint when available. Unsupported providers and retired conversations use the existing compaction brief fallback.
+- Codex forks and rewinds retain real thread context. Rewinds independently take the discarded turns back out of the files and the repository from Ruri's own checkpoints when available. Unsupported providers and retired conversations use the existing compaction brief fallback.
 - Reasoning summaries update live progress as they stream. Yagami fills missing completed-summary text without counting the deltas twice.
 - Concurrent cold sends are rejected. Host input and approval requests are cancelled when the server resolves them or the turn stops. A failed resume reports an error instead of silently starting an empty conversation. Ruri retires a failed connection before retrying with the saved session ID.
 

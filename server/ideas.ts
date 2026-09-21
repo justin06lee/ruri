@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { configPath } from "./configDir.js";
-import type { Idea } from "../shared/protocol.js";
+import type { Attachment, Idea } from "../shared/protocol.js";
 import { isMissing, warn } from "./log.js";
 
 /**
@@ -60,8 +60,14 @@ export class IdeaStore {
     return this.load(projectId);
   }
 
-  add(projectId: string, text: string): Idea {
-    const idea: Idea = { id: randomUUID(), text, done: false, ts: Date.now() };
+  add(projectId: string, text: string, attachments: Attachment[] = []): Idea {
+    const idea: Idea = {
+      id: randomUUID(),
+      text,
+      done: false,
+      ts: Date.now(),
+      ...(attachments.length ? { attachments } : {}),
+    };
     // newest first: a board is read from the top, and the thing just thought
     // of is the thing being thought about
     this.load(projectId).unshift(idea);
@@ -69,10 +75,26 @@ export class IdeaStore {
     return idea;
   }
 
-  update(projectId: string, ideaId: string, patch: { text?: string; done?: boolean }): boolean {
+  /** The idea as it stands, for an update that has to know what it had. */
+  get(projectId: string, ideaId: string): Idea | undefined {
+    return this.load(projectId).find((i) => i.id === ideaId);
+  }
+
+  update(
+    projectId: string,
+    ideaId: string,
+    patch: { text?: string; done?: boolean; attachments?: Attachment[] },
+  ): boolean {
     const idea = this.load(projectId).find((i) => i.id === ideaId);
     if (!idea) return false;
-    if (patch.text !== undefined && patch.text.trim()) idea.text = patch.text.trim();
+    // an idea is words or pictures: emptying the words is fine while a
+    // picture stays, and the last picture can go while words stay
+    const attachments = patch.attachments ?? idea.attachments ?? [];
+    if (patch.text !== undefined && (patch.text.trim() || attachments.length)) idea.text = patch.text.trim();
+    if (patch.attachments !== undefined && (idea.text || patch.attachments.length)) {
+      if (patch.attachments.length) idea.attachments = patch.attachments;
+      else delete idea.attachments;
+    }
     if (patch.done !== undefined) idea.done = patch.done;
     this.save(projectId);
     return true;

@@ -20,8 +20,25 @@ import {
 
 // Every finished turn goes to the small model in the background for a
 // reply recall note (instant compaction). Failures are silent — a nicety.
-// The catch-up brief writes itself: each finished turn is folded in, and
-// most turns change nothing — a fix or a polish pass is not a feature.
+
+/**
+ * How often a project's catch-up brief takes in what its turns did. The
+ * brief writes itself from finished turns, and most turns change nothing
+ * in it — a fix or a polish pass is not a feature — yet each fold is a
+ * small-model call: a whole CLI process for several seconds. Ten agents
+ * working in one project used to mean ten of those a round. Now a
+ * project's first finished turn folds at once, and the turns after it
+ * gather and fold together, at most once a window.
+ */
+const BRIEF_EVERY_MS = Number(process.env["RURI_BRIEF_EVERY_MS"]) || 10 * 60_000;
+/** The turns a fold takes, newest kept — and how much of each. */
+const BRIEF_TURNS = 5;
+const BRIEF_USER_CHARS = 600;
+const BRIEF_REPLY_CHARS = 1_000;
+
+const gathering = new Map<string, { turns: string[]; timer?: NodeJS.Timeout; last: number }>();
+
+/** One finished turn, for the brief to take in with the others. */
 export function foldBrief(
   ctx: ServerContext,
   channelId: string,
@@ -30,11 +47,38 @@ export function foldBrief(
   if (channelId === HOME_ID) return;
   const project = ctx.store.findSession(channelId)?.project;
   if (!project) return;
+  const held = gathering.get(project.id) ?? { turns: [], last: 0 };
+  gathering.set(project.id, held);
+  held.turns.push(
+    `The user asked:\n${turn.user.slice(0, BRIEF_USER_CHARS)}\n\n` +
+      `What the agent did:\n${turn.assistant.slice(0, BRIEF_REPLY_CHARS)}`,
+  );
+  if (held.turns.length > BRIEF_TURNS) held.turns.splice(0, held.turns.length - BRIEF_TURNS);
+  if (held.timer) return;
+  held.timer = setTimeout(
+    () => foldGathered(ctx, project.id),
+    Math.max(0, held.last + BRIEF_EVERY_MS - Date.now()),
+  );
+  held.timer.unref?.();
+}
+
+/** What a project's turns did since the last fold, into its brief. */
+function foldGathered(ctx: ServerContext, projectId: string): void {
+  const held = gathering.get(projectId);
+  const project = ctx.store.get(projectId);
+  if (!held || !project) {
+    gathering.delete(projectId);
+    return;
+  }
+  const turns = held.turns.splice(0);
+  delete held.timer;
+  held.last = Date.now();
+  if (turns.length === 0) return;
   const current = ctx.briefs.get(project.id);
   updateBrief(
     project.name,
     { description: current.description, features: current.features },
-    `The user asked:\n${turn.user}\n\nWhat the agent did:\n${turn.assistant}`,
+    turns.join("\n\n---\n\n"),
   )
     .then((next) => {
       if (!next) return;

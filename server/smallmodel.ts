@@ -1,5 +1,7 @@
-import { Yagami } from "@justin06lee/yagami";
+import { findExecutable, Yagami } from "@justin06lee/yagami";
+import * as fs from "node:fs";
 import type { TranscriptEvent } from "../shared/protocol.js";
+import { configPath } from "./configDir.js";
 import { errorMessage, warn } from "./log.js";
 
 /**
@@ -77,8 +79,84 @@ export function setCompletionClient(next: Yagami | null): void {
   resting.clear();
 }
 
-async function complete(system: string, prompt: string, maxTokens: number): Promise<string> {
-  client ??= new Yagami();
+/**
+ * Codex for a one-line completion, without the user's config.toml.
+ *
+ * `codex exec` starts every MCP server the user's config names before it
+ * answers — a computer-use client, a node REPL, an `npx` that fetches a
+ * package, whatever else is there — and a small-model call is several of
+ * those a turn, per chat. Measured on a real config: 463 MB across nine
+ * processes for twelve seconds, to write "fix header flicker on scroll".
+ * With `--ignore-user-config` (the sign-in still comes from CODEX_HOME)
+ * it is Codex alone: 167 MB, three processes. Disabling the servers one
+ * by one does not reach the ones a plugin brings, and an empty
+ * `mcp_servers` override is merged away, so this is the switch.
+ *
+ * yagami's Codex takes an executable, not extra arguments, so the switch
+ * rides in on a wrapper: the real binary, with the flag put after `exec`
+ * and everything else — `app-server` for the model list — passed through.
+ */
+export function quietCodex(): string | undefined {
+  const real = findExecutable("codex");
+  if (!real) return undefined;
+  const wrapper = configPath("bin", "codex-small");
+  const script = [
+    "#!/bin/sh",
+    "# ruri's small model: codex without the user's config.toml, so none of",
+    "# its MCP servers start for a one-line completion (server/smallmodel.ts)",
+    'if [ "$1" = "exec" ]; then',
+    "  shift",
+    `  exec ${JSON.stringify(real)} exec --ignore-user-config "$@"`,
+    "fi",
+    `exec ${JSON.stringify(real)} "$@"`,
+    "",
+  ].join("\n");
+  try {
+    if (!fs.existsSync(wrapper) || fs.readFileSync(wrapper, "utf8") !== script) {
+      fs.mkdirSync(configPath("bin"), { recursive: true });
+      fs.writeFileSync(wrapper, script, { mode: 0o755 });
+    }
+    fs.chmodSync(wrapper, 0o755);
+    return wrapper;
+  } catch (err) {
+    warn("smallmodel", err, "quiet codex");
+    return undefined;
+  }
+}
+
+function makeClient(): Yagami {
+  const codex = quietCodex();
+  return new Yagami(codex ? { providerConfig: { codex: { path: codex } } } : {});
+}
+
+/**
+ * How many small-model calls run at once, across every chat. Each is a
+ * CLI process of a couple of hundred megabytes for several seconds, and
+ * they come in bursts — a prompt's note and its tracker split together,
+ * a reply's note as ten agents finish at once. Nothing waits on them but
+ * a nicety (a note, a title, a checklist line), so they take turns.
+ */
+const SMALL_AT_ONCE = Math.max(1, Number(process.env["RURI_SMALL_AT_ONCE"]) || 2);
+let running = 0;
+const waiting: Array<() => void> = [];
+
+async function inLine<T>(work: () => Promise<T>): Promise<T> {
+  if (running >= SMALL_AT_ONCE) await new Promise<void>((resolve) => waiting.push(resolve));
+  running += 1;
+  try {
+    return await work();
+  } finally {
+    running -= 1;
+    waiting.shift()?.();
+  }
+}
+
+function complete(system: string, prompt: string, maxTokens: number): Promise<string> {
+  return inLine(() => completeNow(system, prompt, maxTokens));
+}
+
+async function completeNow(system: string, prompt: string, maxTokens: number): Promise<string> {
+  client ??= makeClient();
   const ask = async (id: string) => {
     const response = await client!.messages.create({
       model: id,
@@ -264,7 +342,7 @@ export async function digestHistory(
 const BRIEF_SYSTEM = `You keep a one-screen brief of a software project: what it is, and what is in it.
 It exists so a model with no context can read it in seconds and know the shape of the project. Every token has to earn its place.
 
-You are given the brief as it stands and what just happened in the project. Return the brief, updated.
+You are given the brief as it stands and what just happened in the project — one or more exchanges, oldest first, separated by ---. Return the brief, updated.
 
 RULES
 - DESCRIPTION: one sentence. What the project is and who it's for. Only rewrite it when the project has genuinely become something else.
@@ -297,7 +375,7 @@ export async function updateBrief(
   const prompt =
     `PROJECT NAME: ${project}\n\n` +
     `BRIEF AS IT STANDS:\n${JSON.stringify(current, null, 1)}\n\n` +
-    `WHAT JUST HAPPENED:\n${happened.slice(0, 4000)}`;
+    `WHAT JUST HAPPENED:\n${happened.slice(-8000)}`;
   try {
     const reply = await complete(BRIEF_SYSTEM, prompt, 900);
     const json = reply.slice(reply.indexOf("{"), reply.lastIndexOf("}") + 1);

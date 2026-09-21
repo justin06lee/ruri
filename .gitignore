@@ -9,3 +9,4 @@ build/icon-1024.png
 
 # agent worktrees
 .claude/worktrees/
+dist-release/

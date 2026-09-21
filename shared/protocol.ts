@@ -843,10 +843,13 @@ export type ClientMessage =
   /** Put a queued prompt somewhere else in the line: before `beforeId`, or
    *  at the end when that is not given. */
   | { type: "queue_move"; projectId: string; itemId: string; beforeId?: string }
-  /** Fold one queued prompt into another — `itemId`'s text first, then
-   *  `intoId`'s — as one prompt standing where `intoId` stood. Both sets of
-   *  attachments come along, renumbered so the merged text still points at
-   *  the right ones. */
+  /** Fold one queued prompt into another, as one prompt standing where
+   *  `intoId` stood — the two texts in the order they stood in the line,
+   *  whichever was carried. Both sets of attachments come along, renumbered
+   *  so the merged text still points at the right ones. */
+  /** Take a fold back: the two prompts it was made of, where they stood.
+   *  Nothing happens once the fold has gone out or been rewritten. */
+  | { type: "queue_unmerge"; projectId: string; itemId: string }
   | { type: "queue_merge"; projectId: string; itemId: string; intoId: string }
   /** Start rewriting a queued prompt in the composer. It leaves the line
    *  for now (what is behind it moves up and goes out in its turn), and

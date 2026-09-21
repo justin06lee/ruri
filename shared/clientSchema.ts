@@ -116,6 +116,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("queue_remove"), ...projectId, itemId: id }),
   z.object({ type: z.literal("queue_move"), ...projectId, itemId: id, beforeId: id.optional() }),
   z.object({ type: z.literal("queue_merge"), ...projectId, itemId: id, intoId: id }),
+  z.object({ type: z.literal("queue_unmerge"), ...projectId, itemId: id }),
   z.object({ type: z.literal("queue_edit"), ...projectId, itemId: id }),
   z.object({
     type: z.literal("queue_update"),

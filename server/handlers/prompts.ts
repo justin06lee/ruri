@@ -9,7 +9,7 @@ import type { AskQuestions } from "../../shared/protocol.js";
 import { busy, channelProject, ownerProject, running } from "../channel.js";
 import { knownCommands, splitCommands } from "../commands.js";
 import { dispatch, dispatchSplit, drainQueue, queueWithCommands } from "../dispatch.js";
-import { mergeEntries, reslot, type QueueEntry } from "../queue.js";
+import { combine, reslot, uncombine, type QueueEntry } from "../queue.js";
 import { storeAttachments, storeUpload } from "../uploads.js";
 import { followCrew } from "./crew.js";
 import type { Handler, Handlers } from "./types.js";
@@ -91,15 +91,16 @@ export const promptHandlers = {
   },
   queue_merge: (ctx, _ws, msg) => {
     const queue = ctx.queues.entries.get(msg.projectId);
-    if (!queue || msg.itemId === msg.intoId) return;
-    const from = queue.find((e) => e.id === msg.itemId && !e.silent && !e.editing);
-    const into = queue.find((e) => e.id === msg.intoId && !e.silent && !e.editing);
-    if (!from || !into) return;
-    const merged = mergeEntries(from, into);
-    ctx.queues.entries.set(
-      msg.projectId,
-      queue.filter((e) => e !== from).map((e) => (e === into ? merged : e)),
-    );
+    const next = queue && combine(queue, msg.itemId, msg.intoId);
+    if (!next) return;
+    ctx.queues.entries.set(msg.projectId, next);
+    ctx.queues.broadcastQueue(msg.projectId);
+  },
+  queue_unmerge: (ctx, _ws, msg) => {
+    const queue = ctx.queues.entries.get(msg.projectId);
+    const next = queue && uncombine(queue, msg.itemId);
+    if (!next) return;
+    ctx.queues.entries.set(msg.projectId, next);
     ctx.queues.broadcastQueue(msg.projectId);
   },
   queue_edit: (ctx, _ws, msg) => {
@@ -107,6 +108,8 @@ export const promptHandlers = {
     const entry = queue?.find((e) => e.id === msg.itemId && !e.silent);
     if (!queue || !entry || entry.editing) return;
     entry.editing = true;
+    // a rewrite is the prompt now: taking the fold back would undo it too
+    delete entry.combined;
     entry.editAfter = queue
       .slice(0, queue.indexOf(entry))
       .filter((e) => !e.silent && !e.editing)

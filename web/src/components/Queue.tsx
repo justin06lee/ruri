@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { QueuedPrompt } from "../../../shared/protocol";
 import { composeInto, send } from "../store";
 import { TranscriptAttachments } from "./Attachments";
@@ -7,6 +7,10 @@ import { MarkerText } from "./Markers";
 /** Where a lifted card is about to land: on the edge of another (a place
  *  in line) or on its body (the two become one prompt). */
 type DropZone = "before" | "after" | "merge";
+
+/** How long a fold can be taken back from its card. Long enough to notice
+ *  a drop that landed on the wrong card; after that it is just a prompt. */
+const UNDO_MS = 8000;
 
 interface Lift {
   id: string;
@@ -25,6 +29,7 @@ function QueuedCard({
   held,
   lift,
   onLift,
+  onUndo,
 }: {
   projectId: string;
   item: QueuedPrompt;
@@ -39,6 +44,8 @@ function QueuedCard({
     up(e: React.PointerEvent<HTMLDivElement>): void;
     cancel(): void;
   };
+  /** This card is a fold made a moment ago, and this takes it back. */
+  onUndo?: () => void;
 }) {
   // Editing takes the prompt out of the line and puts it in the composer —
   // the box you wrote it in, with its attachments, not a second one
@@ -78,8 +85,17 @@ function QueuedCard({
     >
       <div className="queued-head">
         <span className="queued-label">
-          {item.editing ? "editing — in the composer" : held ? "standing by" : "queued"}
+          {item.editing ? "editing — in the composer" : onUndo ? "combined" : held ? "standing by" : "queued"}
         </span>
+        {onUndo && (
+          <button
+            className="queued-undo"
+            title="Take the two apart again, back where they were"
+            onClick={onUndo}
+          >
+            undo
+          </button>
+        )}
         <span className="queued-actions">
           {!item.editing && (
             <button
@@ -132,7 +148,9 @@ function QueuedCard({
  * The line of queued prompts, and the carrying of them: press a card and
  * move, and it lifts; let it go on the edge of another and it takes that
  * place in line, let it go on the body of another and the two fold into
- * one prompt — the carried one first, then the one it landed on. The card
+ * one prompt where it landed — the words in the order the two stood in
+ * the line, so the one nearer the front still reads first. For a few
+ * seconds the fold wears an undo that takes it apart again. The card
  * being rewritten sits under the line and takes no part.
  */
 export function QueuedList({
@@ -150,6 +168,13 @@ export function QueuedList({
    *  so a click on the card is still a click. */
   const press = useRef<{ id: string; x: number; y: number; live: boolean } | null>(null);
   const movable = items.filter((item) => !item.editing).length > 1;
+  /** The fold just made here, while it can still be taken back. */
+  const [undoable, setUndoable] = useState<string | null>(null);
+  useEffect(() => {
+    if (!undoable) return;
+    const timer = setTimeout(() => setUndoable(null), UNDO_MS);
+    return () => clearTimeout(timer);
+  }, [undoable]);
 
   const cards = () =>
     [...(listRef.current?.querySelectorAll<HTMLElement>("[data-queued]") ?? [])].filter(
@@ -201,6 +226,7 @@ export function QueuedList({
       if (!over) return;
       if (over.zone === "merge") {
         send({ type: "queue_merge", projectId, itemId: p.id, intoId: over.id });
+        setUndoable(over.id);
         return;
       }
       const line = items.filter((item) => !item.editing && item.id !== p.id).map((item) => item.id);
@@ -224,6 +250,14 @@ export function QueuedList({
           held={held}
           lift={lift}
           onLift={movable ? onLift : undefined}
+          {...(undoable === item.id && !item.editing
+            ? {
+                onUndo: () => {
+                  send({ type: "queue_unmerge", projectId, itemId: item.id });
+                  setUndoable(null);
+                },
+              }
+            : {})}
         />
       ))}
     </div>

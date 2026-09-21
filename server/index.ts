@@ -18,7 +18,12 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 
-const running = await startServer({ port: PORT, token: TOKEN });
+const running = await startServer({
+  port: PORT,
+  token: TOKEN,
+  // RURI_NO_HARNESS_UPDATES=1: a script's server looks at no one's CLIs
+  updateHarnesses: process.env["RURI_NO_HARNESS_UPDATES"] !== "1",
+});
 
 process.on("SIGINT", () => {
   void running.close().finally(() => process.exit(0));

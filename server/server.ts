@@ -51,6 +51,7 @@ import { createSocketServer } from "./socket.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { pushContexts, Turns } from "./turns.js";
+import { HarnessUpdater } from "./updater.js";
 import { sweepUploads } from "./uploads.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
@@ -210,6 +211,16 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
 
   ctx.manager = createChatManager(ctx);
   ctx.crewManager = createCrewManager(ctx);
+  ctx.updater = new HarnessUpdater({
+    busy: (id) => ctx.manager.busyOn(id) || ctx.crewManager.busyOn(id),
+    retire: (id) => {
+      ctx.manager.retireHarness(id);
+      ctx.crewManager.retireHarness(id);
+    },
+    onChange: (harnesses, checking) =>
+      ctx.clients.broadcast({ type: "harnesses", harnesses, ...(checking ? { checking } : {}) }),
+  });
+  if (options.updateHarnesses !== false) ctx.updater.start();
   ctx.managerHost = createManagerHost(ctx);
 
   const server = createHttpServer(ctx);
@@ -278,6 +289,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             clearInterval(sweepTimer);
             clearTimeout(firstSweep);
             ctx.usage.stop();
+            ctx.updater.stop();
             ctx.terminals.closeAll();
             void options.bridge?.closeAll();
             ctx.manager.disposeAll();

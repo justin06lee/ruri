@@ -274,6 +274,8 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("set_model_role"), model: label, role: modelRole }),
   z.object({ type: z.literal("reset_home") }),
   z.object({ type: z.literal("refresh_models") }),
+  z.object({ type: z.literal("check_harnesses"), id: id.optional() }),
+  z.object({ type: z.literal("set_harness_auto"), id, auto: z.boolean() }),
   z.object({ type: z.literal("bridge_takeover"), ...projectId }),
   z.object({ type: z.literal("bridge_release"), ...projectId }),
   z.object({ type: z.literal("bridge_close"), ...projectId }),

@@ -154,6 +154,8 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   set_model_role: { type: "set_model_role", model: "haiku", role: "small" },
   reset_home: { type: "reset_home" },
   refresh_models: { type: "refresh_models" },
+  check_harnesses: { type: "check_harnesses", id: "codex" },
+  set_harness_auto: { type: "set_harness_auto", id: "claude", auto: false },
   bridge_takeover: { type: "bridge_takeover", projectId: "p" },
   bridge_release: { type: "bridge_release", projectId: "p" },
   bridge_close: { type: "bridge_close", projectId: "p" },

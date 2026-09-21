@@ -2832,6 +2832,30 @@ export class SessionManager {
     };
   }
 
+  /** Whether a chat on a harness ("claude" for Claude) is mid-turn — the
+   *  updater will not replace a binary under one. */
+  busyOn(harnessId: string): boolean {
+    for (const [channelId, session] of this.sessions) {
+      if (session.dead) continue;
+      if ((providerSessionId(session) ?? "claude") === harnessId && this.inTurn(channelId)) return true;
+    }
+    return false;
+  }
+
+  /** Retire every live session on a harness as each goes idle: the next
+   *  prompt rebuilds it on the freshly updated binary, resuming the thread. */
+  retireHarness(harnessId: string): void {
+    for (const [channelId, session] of this.sessions) {
+      if (session.dead || (providerSessionId(session) ?? "claude") !== harnessId) continue;
+      this.whenIdle(channelId, () => {
+        const live = this.sessions.get(channelId);
+        if (!live || live !== session) return;
+        live.dispose();
+        this.sessions.delete(channelId);
+      });
+    }
+  }
+
   /** What a channel has working in the background, turn or no turn. */
   backgroundWork(projectId: string): BackgroundWork {
     const session = this.sessions.get(projectId);

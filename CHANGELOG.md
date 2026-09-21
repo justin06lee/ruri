@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- feat(settings): the harnesses keep themselves current. Every coding CLI on the machine is looked at on the hour — version, newest, how it was installed — and brought up to date the way it came (its own updater, bun, npm, brew), never under a chat that is mid-turn on it; warm sessions on an updated one retire as each goes idle. Settings → Harnesses shows them, with Check now, Update, and a switch to update any one by hand
 - feat(composer): cut in instead of queueing — ⌘Enter, ⌘-click send, or hold Enter past a ring that closes round the send button stops the running turn and sends the prompt in its place, with anything already queued following it
 - perf: the small model stops heating the machine. Every recall note, tracker split, title and brief update is a CLI process, and a `codex exec` started every MCP server in the user's `config.toml` for each one — measured at 463 MB across nine processes for twelve seconds, several times a turn, per chat. Codex now answers them without the user's config (167 MB, three processes), they run two at a time across the app instead of all at once, and a project's catch-up brief folds its turns in together at most every ten minutes instead of after every one
 - feat(queue): folding one queued prompt into another keeps the line's order — the one nearer the front reads first, whichever was dragged — and the fold wears an undo for eight seconds that puts both back where they stood

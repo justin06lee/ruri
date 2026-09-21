@@ -116,6 +116,12 @@ export const settingHandlers = {
   set_model_role: (ctx, _ws, msg) => {
     announceRoles(ctx, ctx.store.assignModelRole(msg.model, msg.role));
   },
+  check_harnesses: (ctx, _ws, msg) => {
+    void ctx.updater.check(msg.id);
+  },
+  set_harness_auto: (ctx, _ws, msg) => {
+    ctx.updater.setAuto(msg.id, msg.auto);
+  },
   refresh_models: (ctx) => {
     // Probing spawns a short-lived process per harness, so back-to-back
     // Settings opens within half a minute reuse the last answer.

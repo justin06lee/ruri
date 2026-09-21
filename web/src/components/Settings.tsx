@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ModelRole, PermissionId, PermissionState } from "../../../shared/protocol";
+import type { HarnessInfo, ModelRole, PermissionId, PermissionState } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
@@ -664,12 +664,135 @@ export function Settings({ onClose }: { onClose(): void }) {
           </section>
 
           <section className="settings-group">
+            <h2 className="settings-group-name">Harnesses</h2>
+            <Harnesses />
+          </section>
+
+          <section className="settings-group">
             <h2 className="settings-group-name">Permissions</h2>
             <Grants />
           </section>
         </div>
       </div>
     </main>
+  );
+}
+
+/* ── the harnesses ────────────────────────────────────────────────── */
+
+/** "3m ago", "just now", "2h ago" — when the updater last looked. */
+function ago(ts: number | undefined): string {
+  if (!ts) return "not yet";
+  const mins = Math.round((Date.now() - ts) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
+}
+
+const CHANNEL_WORD: Record<HarnessInfo["channel"], string> = {
+  self: "its own updater",
+  npm: "npm",
+  bun: "bun",
+  brew: "brew",
+  other: "installed some other way",
+};
+
+/** Whether `a` is an older version than `b` (server/updater.ts `older`). */
+function behind(h: HarnessInfo): boolean {
+  if (!h.version || !h.latest) return false;
+  const nums = (v: string) =>
+    v
+      .split("-")[0]!
+      .split(".")
+      .map((n) => Number(n) || 0);
+  const [a, b] = [nums(h.version), nums(h.latest)];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0);
+  }
+  return h.version.includes("-") && !h.latest.includes("-");
+}
+
+/**
+ * Every coding CLI on this machine: what version it is, what the newest
+ * is, and whether it keeps itself current — which it does, on the hour,
+ * the way it was installed, never under a running turn, unless you switch
+ * it to updating by hand. Update runs one now either way.
+ */
+function Harnesses() {
+  const harnesses = useRuri((s) => s.harnesses);
+  const looking = useRuri((s) => s.harnessesChecking);
+  const checked = harnesses.reduce((latest, h) => Math.max(latest, h.checkedAt ?? 0), 0);
+  return (
+    <div className="grants harnesses">
+      <p className="settings-note grants-note">
+        The CLIs every chat runs on. ruri looks on the hour and brings each one up to date the way it was
+        installed — its own updater, bun, npm or brew — never while a chat on it is mid-turn; a chat that was
+        warm on the old one picks up the new one with its next prompt.
+      </p>
+      <div className="grants-head">
+        <button className="ghost" disabled={looking} onClick={() => send({ type: "check_harnesses" })}>
+          {looking ? "looking…" : "Check now"}
+        </button>
+        <span className="settings-note">last looked {ago(checked || undefined)}</span>
+      </div>
+      {harnesses.length === 0 && (
+        <p className="settings-note">The first look is a minute and a half after launch — or Check now.</p>
+      )}
+      {harnesses.map((h) => {
+        const late = behind(h);
+        const status = h.updating
+          ? "updating"
+          : h.channel === "other"
+            ? "not ours"
+            : late
+              ? "behind"
+              : h.latest
+                ? "current"
+                : "unknown";
+        return (
+          <div key={h.id} className="grant-row harness-row">
+            <span className={`grant-status harness-status ${status.replace(" ", "-")}`}>
+              {status === "behind" ? `v${h.latest} out` : status}
+            </span>
+            <span className="grant-body">
+              <span className="grant-name">
+                {h.label} <span className="harness-version">{h.version ? `v${h.version}` : "?"}</span>
+              </span>
+              <span className="grant-why" title={h.path}>
+                {[
+                  h.updatedAt ? `updated from v${h.from} ${ago(h.updatedAt)}` : undefined,
+                  late || h.channel === "other" ? h.note : undefined,
+                  `${CHANNEL_WORD[h.channel]}${h.pkg && h.channel !== "self" ? ` · ${h.pkg}` : ""}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </span>
+            {h.channel !== "other" && (
+              <label className="harness-auto" title="Keep it current by itself, on the hour">
+                <input
+                  type="checkbox"
+                  checked={h.auto !== false}
+                  onChange={(e) => send({ type: "set_harness_auto", id: h.id, auto: e.target.checked })}
+                />
+                by itself
+              </label>
+            )}
+            {h.channel !== "other" && (
+              <button
+                className="ghost grant-ask"
+                disabled={h.updating || !late}
+                title={late ? `Update to v${h.latest} now` : "Already the newest"}
+                onClick={() => send({ type: "check_harnesses", id: h.id })}
+              >
+                {h.updating ? "updating…" : "Update"}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

@@ -819,6 +819,36 @@ export interface TccRow {
   at: number;
 }
 
+/**
+ * One coding CLI on this machine, as the updater sees it: how it was
+ * installed (which is how it gets updated), what version it is and what
+ * the newest is, and what the last round did about it. server/updater.ts.
+ */
+export interface HarnessInfo {
+  id: string;
+  label: string;
+  path: string;
+  /** "self" = its own updater (claude update, opencode upgrade); "npm" /
+   *  "bun" = a global package; "brew" = a formula; "other" = not ours to
+   *  update. */
+  channel: "self" | "npm" | "bun" | "brew" | "other";
+  /** The package (or formula) it is published as. */
+  pkg?: string;
+  version?: string;
+  /** The newest published, when that could be read. */
+  latest?: string;
+  checkedAt?: number;
+  /** Left to update itself (the default), or updated by hand. */
+  auto?: boolean;
+  /** An update is running right now. */
+  updating?: boolean;
+  /** When ruri last updated it, and from what. */
+  updatedAt?: number;
+  from?: string;
+  /** Why it was not updated, when it is behind and was not. */
+  note?: string;
+}
+
 /** Home-agent settings (the Home composer's model/effort/permission dropdowns). */
 export interface HomeSettings {
   model?: string;
@@ -1103,6 +1133,11 @@ export type ClientMessage =
   | { type: "reset_home" }
   /** Re-probe every installed harness's live model catalog. */
   | { type: "refresh_models" }
+  /** Look at every harness now rather than on the hour (updating the ones
+   *  left to themselves) — or, with `id`, update that one now. */
+  | { type: "check_harnesses"; id?: string }
+  /** Leave a harness to update itself, or to the user. */
+  | { type: "set_harness_auto"; id: string; auto: boolean }
   /* ── the bridge (per channel) ───────────────────────────────────── */
   /** Bring what the session is driving on screen, in front, for the user
    *  to work in. `projectId` is the channel id, as everywhere else. */
@@ -1171,6 +1206,10 @@ export type ServerMessage =
       defaultModel: string;
       /** The local account name shown on the sidebar's account bar. */
       user: string;
+      /** Every harness on this machine, as the updater last saw it. */
+      harnesses: HarnessInfo[];
+      /** A round of the updater is going. */
+      harnessesChecking?: boolean;
       /** This machine's window preferences (theme, the theme clock, which
        *  folders are unfolded, the player's volume) — the window's own
        *  storage is a cache of these, not the other way round. */
@@ -1216,6 +1255,9 @@ export type ServerMessage =
   | { type: "starred_models"; models: string[] }
   | { type: "small_model"; model: string }
   | { type: "default_model"; model: string }
+  /** Every harness on this machine, as the updater last saw it —
+   *  `checking` while a round is still going. */
+  | { type: "harnesses"; harnesses: HarnessInfo[]; checking?: boolean }
   | { type: "home_reset" }
   /** The app-side prompt queue for a channel (visible, editable entries).
    *  `held` = standing by since a stopped turn: nothing goes out until the

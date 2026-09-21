@@ -91,6 +91,8 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
       smallModel: ctx.store.smallModel() ?? "",
       defaultModel: ctx.store.defaultModel(),
       user: os.userInfo().username,
+      harnesses: ctx.updater.list(),
+      ...(ctx.updater.checking() ? { harnessesChecking: true } : {}),
       prefs: ctx.prefs.all(),
       composerDrafts: ctx.drafts.all(),
       bridges: ctx.options.bridge?.states() ?? {},

@@ -813,6 +813,7 @@ textarea::placeholder {
   background: none;
   transform: none;
 }
+
 /* ── the dragon in the X's place ──────────────────────────────────────
    A chat at work (a turn, or agents and scripts it left running) keeps a
    small head where its remove button goes, there without a hover; a
@@ -908,7 +909,6 @@ textarea::placeholder {
     animation: none !important;
   }
 }
-
 
 /* ── music player ─────────────────────────────────────────────────── */
 
@@ -1183,29 +1183,62 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── home: the tab strip ──────────────────────────────────────────── */
 
-/* Home is two pages under one strip: the agent's chat and the board of
-   every open project. Neither gets in the other's way — the strip picks
-   one and remembers it. On the hero it floats over the top the way the
-   rapid-fire header does, so the face stays centred in the pane; over a
-   conversation or the projects page it is a band of its own. */
+/* Home is two pages under one strip: the agent's chat and the statistics.
+   The strip floats over the top of both (HomeDeck, HomeBoard.tsx), so the
+   hero's face stays centred in the pane; a conversation, and the
+   statistics, leave its height free at their top (.home-tabs-space). */
 .home-tabs {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 46px;
-  flex-shrink: 0;
-  animation: rise 200ms ease-out;
-}
-
-.home-hero .home-tabs {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 46px;
+  animation: rise 200ms ease-out;
+}
+
+.home-tabs-space {
+  height: 46px;
+  flex-shrink: 0;
 }
 
 .home-hero .hero {
   margin: auto 0;
+}
+
+/* The deck: the two pages side by side on a track twice the pane's width,
+   the one showing in the window. Picking the other slides the track a
+   page along — the one you leave goes out one side as the other comes in —
+   and only the page you are on is mounted outside a slide. */
+.home-deck {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.home-track {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  width: 200%;
+  transition: transform 380ms cubic-bezier(0.3, 0.8, 0.25, 1);
+}
+
+.home-track.on-stats {
+  transform: translateX(-50%);
+}
+
+.home-slide {
+  flex: 0 0 50%;
+  min-width: 0;
+  display: flex;
 }
 
 .desktop .home-tabs {
@@ -1217,6 +1250,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .home-tabs-group {
+  position: relative; /* the pill under the words is placed against this */
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -1228,7 +1262,29 @@ input[type="range"]::-webkit-slider-thumb {
   background-size: 6px 6px;
 }
 
+/* The inked pill that says which page is up: one piece under both words,
+   measured to the one that is on and slid across to the other when it is
+   picked. Placed without a slide the first time (.placed comes a frame
+   later), so it is simply there when Home opens. */
+.home-tab-glide {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: 0;
+  border-radius: 999px;
+  background: var(--ink);
+  pointer-events: none;
+}
+
+.home-tab-glide.placed {
+  transition:
+    transform 380ms cubic-bezier(0.3, 0.8, 0.25, 1),
+    width 380ms cubic-bezier(0.3, 0.8, 0.25, 1);
+}
+
 .home-tab {
+  position: relative; /* over the pill */
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -1252,8 +1308,15 @@ input[type="range"]::-webkit-slider-thumb {
 
 .home-tab.on,
 .home-tab.on:hover {
-  background: var(--ink);
+  background: transparent;
   color: var(--paper);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-track,
+  .home-tab-glide.placed {
+    transition: none;
+  }
 }
 
 .home-tab:active {
@@ -2908,6 +2971,7 @@ input[type="range"]::-webkit-slider-thumb {
   text-transform: uppercase;
   color: var(--ink-faint);
 }
+
 /* a fold made a moment ago can be taken apart again: a small word in ink
    beside the label, there for as long as that is on offer */
 .queued-undo {
@@ -2930,7 +2994,6 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--paper);
   transform: none;
 }
-
 
 .queued-actions {
   display: flex;
@@ -4453,12 +4516,12 @@ input[type="range"]::-webkit-slider-thumb {
 .agent-card-line {
   font-size: var(--fs-md);
 }
+
 /* a script's line is its command, or how it exited: machine words */
 .agent-card.script .agent-card-line {
   font-family: var(--mono);
   font-size: var(--fs-sm);
 }
-
 
 .agent-card-meta {
   font-family: var(--mono);

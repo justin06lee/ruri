@@ -6,6 +6,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 - feat(queue): folding one queued prompt into another keeps the line's order — the one nearer the front reads first, whichever was dragged — and the fold wears an undo for eight seconds that puts both back where they stood
 - feat(sidebar): a session at work has a small dragon's head where its X goes (a folded folder has one for the sessions inside); hovering the row makes it chomp twice
+- feat(home): the chat and statistics pages slide past each other, the strip's pill gliding across, instead of the pane redrawing
 - feat(agents): scripts the model leaves running in the background show on the agents page as cards of their own — running, then how they exited — and open onto their command and output
 - fix(agents): an agent the model sends on again (after a failure, or with more to do) picks its own card back up instead of staying "failed" — within a process and across a process that closed in between
 - feat(projects): a project counts as working while agents or scripts it left running are, with its turn over — on the projects page and in the sidebar

@@ -813,6 +813,102 @@ textarea::placeholder {
   background: none;
   transform: none;
 }
+/* ── the dragon in the X's place ──────────────────────────────────────
+   A chat at work (a turn, or agents and scripts it left running) keeps a
+   small head where its remove button goes, there without a hover; a
+   folded folder keeps one for the chats inside it. Still at rest — the
+   pointer coming onto the row makes it chomp twice, quickly: the shut
+   jaw and the open one swapped four times in a third of a second, once,
+   and then it is still again. */
+
+.project-row .remove.busy,
+.project-folder.busy .folder-actions {
+  display: flex;
+}
+
+.project-folder.busy:not(:hover) .add-session,
+.project-folder.busy:not(:hover) .hide,
+.project-folder.busy:not(:hover) .star:not(.on) {
+  display: none;
+}
+
+/* over the starred folder's own rule, which tucks its X away unhovered */
+.project-folder.busy .folder-actions .remove.busy {
+  display: block;
+}
+
+.row-dragon {
+  position: relative;
+  display: block;
+  width: 15px;
+  height: 15px;
+  color: var(--ink-soft);
+}
+
+.remove.busy:hover .row-dragon {
+  color: var(--ink);
+}
+
+/* over the rows' own rule for the X's svg size */
+.row-dragon .row-dragon-frame.row-dragon-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.row-dragon-frame.f2 {
+  opacity: 0;
+}
+
+.project-row:hover .row-dragon-frame.f1,
+.folder-row:hover .row-dragon-frame.f1 {
+  animation: chomp-open 360ms step-end 1;
+}
+
+.project-row:hover .row-dragon-frame.f2,
+.folder-row:hover .row-dragon-frame.f2 {
+  animation: chomp-shut 360ms step-end 1;
+}
+
+@keyframes chomp-shut {
+  0% {
+    opacity: 1;
+  }
+  25% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  75%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes chomp-open {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+  75%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-dragon-frame {
+    animation: none !important;
+  }
+}
+
 
 /* ── music player ─────────────────────────────────────────────────── */
 

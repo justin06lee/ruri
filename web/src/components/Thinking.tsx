@@ -33,6 +33,28 @@ export function Thinking() {
   );
 }
 
+/**
+ * The same head, small and still: a chat at work, standing in the sidebar
+ * where its row's remove button goes (and a folded folder's, for a chat
+ * inside it). Nothing moves it on a clock — a row is not the place for a
+ * second doodle waving — but running the pointer over the row makes it
+ * chomp twice, quickly (styles.css, .row-dragon): a finite animation that
+ * is over in a third of a second.
+ */
+export function DragonHead() {
+  return (
+    <span className="row-dragon" aria-hidden>
+      {FRAMES.map((d, i) => (
+        <svg key={i} className={`row-dragon-frame f${i + 1}`} viewBox="0 0 512 512">
+          <g transform="translate(0,512) scale(0.1,-0.1)" fill="currentColor" stroke="none">
+            <path d={d} />
+          </g>
+        </svg>
+      ))}
+    </span>
+  );
+}
+
 /* ── the working line ────────────────────────────────────────────── */
 
 /**

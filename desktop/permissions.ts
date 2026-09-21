@@ -22,7 +22,9 @@ import type { PermissionId, PermissionState, TccRow } from "../shared/protocol.j
  * way to ask for it by hand, and — since ruri has Full Disk Access — the
  * privacy database's own rows for ruri and the CLIs its sessions run, so a
  * denial can be seen for what it is. For an ad-hoc build, `make update`
- * resets the lot (tccutil, in the Makefile) and the next launch asks again.
+ * resets the lot (tccutil, in the Makefile) and the next launch asks again;
+ * so does the first launch of a signed build whose identity has changed
+ * (askAgainIfNewBuild).
  */
 
 const HOME = os.homedir();
@@ -175,7 +177,7 @@ async function recorded(id: PermissionId): Promise<boolean | undefined> {
   return value === "2";
 }
 
-const BUNDLE_ID = "com.justin06lee.ruri";
+const BUNDLE_ID = "dev.justin06lee.ruri";
 
 /** A folder or a volume, as reachable as macOS lets it be. Touching one
  *  that has not been asked about IS the asking — so this is only ever
@@ -344,31 +346,43 @@ export const permissions: PermissionHost = {
 };
 
 /**
- * Whether this bundle carries an ad-hoc signature — no identity, so a
- * signature that is new with every build. `codesign -dv` on the bundle
- * says `Signature=adhoc` for one, and names the authority for a signed
- * build (`Authority=ruri dev`, the identity `make identity` creates).
- * Unreadable is taken as signed: better to ask nothing than nine times.
+ * What this build's grants belong to, as macOS sees it — so that a change
+ * in it means the grants from before are void.
+ *
+ * An ad-hoc signature is new with every build, so each version is a
+ * stranger: the version is the answer. A signed build is known by its
+ * designated requirement (`codesign -d -r-`), which names the bundle id and
+ * the certificate: the same for every build signed as `ruri dev`, and
+ * different the moment either changes — a new bundle id, a move to a
+ * Developer ID. Unreadable is null: better to ask nothing than nine times.
  */
-async function adHocSigned(): Promise<boolean> {
+async function grantsBelongTo(): Promise<string | null> {
   // …/ruri.app/Contents/MacOS/ruri → …/ruri.app
   const bundle = path.resolve(app.getPath("exe"), "..", "..", "..");
-  if (!bundle.endsWith(".app")) return false;
-  const { code, err } = await run("/usr/bin/codesign", ["-dv", bundle]);
-  return code === 0 && /^Signature=adhoc$/m.test(err);
+  if (!bundle.endsWith(".app")) return null;
+  const { code, out, err } = await run("/usr/bin/codesign", ["-dv", "-r-", bundle]);
+  if (code !== 0) return null;
+  if (/^Signature=adhoc$/m.test(err)) return app.getVersion();
+  return /^designated => (.+)$/m.exec(out)?.[1]?.trim() ?? null;
 }
 
 /**
- * An ad-hoc-signed build is a stranger to macOS (see the top of this
- * file), so the first launch of one asks for everything again — which is
- * the second half of what `make update` does when it resets the grants.
- * A build signed with the stable identity is the same app to macOS as the
- * last one and its grants carry over, so nothing is asked. Dev runs and
- * test harnesses are not builds and are left alone.
+ * A build macOS does not recognise as the last one asks for everything
+ * again, once, on its first launch. That is every ad-hoc build (the second
+ * half of what `make update` does when it resets the grants), and a signed
+ * build only when its identity has changed: then its grants are void while
+ * the switches in System Settings still read "on", and a ruri that did not
+ * ask would find out one failed Accessibility call at a time. A build
+ * signed the same way as the last is the same app to macOS, its grants
+ * carry over, and nothing is asked. Asking for a grant already held shows
+ * nothing, so a marker from before this knew about identities costs one
+ * silent pass. Dev runs and test harnesses are not builds and are left
+ * alone.
  */
 export async function askAgainIfNewBuild(): Promise<void> {
   if (!app.isPackaged) return;
-  if (!(await adHocSigned())) return;
+  const owner = await grantsBelongTo();
+  if (!owner) return;
   const marker = path.join(app.getPath("userData"), "asked-permissions-for");
   let last = "";
   try {
@@ -376,10 +390,9 @@ export async function askAgainIfNewBuild(): Promise<void> {
   } catch {
     // never asked
   }
-  const version = app.getVersion();
-  if (last === version) return;
+  if (last === owner) return;
   try {
-    fs.writeFileSync(marker, version);
+    fs.writeFileSync(marker, owner);
   } catch {
     // then it asks again next launch too; no harm
   }

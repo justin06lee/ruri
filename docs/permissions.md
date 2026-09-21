@@ -18,7 +18,7 @@ Settings → **Permissions** shows each grant as macOS actually holds it (read f
 
 ## Why grants used to lapse on every build
 
-macOS ties every privacy grant to the app's code signature. An ad-hoc-signed app is re-signed by every build, so a grant made to the last build is void for this one while its switch in System Settings still reads "on". That was the shape of every "it worked yesterday" permission bug, and for a long time `make` worked around it by resetting ruri's rows (`tccutil reset All com.justin06lee.ruri`) before every install and having the new build ask for everything again — nine dialogs per build.
+macOS ties every privacy grant to the app's code signature. An ad-hoc-signed app is re-signed by every build, so a grant made to the last build is void for this one while its switch in System Settings still reads "on". That was the shape of every "it worked yesterday" permission bug, and for a long time `make` worked around it by resetting ruri's rows (`tccutil reset All dev.justin06lee.ruri`) before every install and having the new build ask for everything again — nine dialogs per build.
 
 ## The signing identity
 
@@ -36,14 +36,14 @@ Check a build with:
 
 ```sh
 codesign -dvv dist-app/mac-arm64/ruri.app      # Authority=ruri dev
-codesign -d -r- dist-app/mac-arm64/ruri.app    # designated => identifier "com.justin06lee.ruri" and certificate leaf = H"…"
+codesign -d -r- dist-app/mac-arm64/ruri.app    # designated => identifier "dev.justin06lee.ruri" and certificate leaf = H"…"
 ```
 
 The designated requirement — the bundle id and the certificate's hash — is what macOS files the grants under, and it is the same for every build signed with the identity. So the grants survive `make update`, and the app asks for nothing on launch.
 
 ## The ad-hoc fallback
 
-Without the identity (a machine where `make identity` was never run, or its prompt refused), the build is ad-hoc-signed and the old dance still happens, narrower than before: `make reset-permissions` quits System Settings (it caches the table, and an open pane hides the reset) and runs `tccutil reset <service> com.justin06lee.ruri` for exactly the nine services above — never `All`, never another bundle id — and the first launch of the new build asks for each grant again (`askAgainIfNewBuild`, which checks the bundle's signature with `codesign -dv` and does nothing for a build signed with the identity). Dev runs and test harnesses are not builds and are left alone.
+Without the identity (a machine where `make identity` was never run, or its prompt refused), the build is ad-hoc-signed and the old dance still happens, narrower than before: `make reset-permissions` quits System Settings (it caches the table, and an open pane hides the reset) and runs `tccutil reset <service> dev.justin06lee.ruri` for exactly the nine services above — never `All`, never another bundle id — and the first launch of the new build asks for each grant again (`askAgainIfNewBuild`, which checks the bundle's signature with `codesign -dv` and does nothing for a build signed with the identity). Dev runs and test harnesses are not builds and are left alone.
 
 ## Updates, and what they do to the grants
 
@@ -85,3 +85,14 @@ NOTARY_PROFILE=ruri-notary make release
 `make release` signs with the Developer ID when it finds one (turning on the hardened runtime, which notarization requires, with the entitlements in `build/entitlements.mac.plist`), notarizes, staples, zips the bundle with `ditto`, writes `checksums.txt` and publishes the GitHub release the updater reads. Without a Developer ID it signs with `ruri dev` and skips notarization, saying so rather than pretending. `.github/workflows/release.yml` does the same from a `v*` tag once the certificate and credentials are repository secrets (`CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`).
 
 One thing to know before switching: moving from `ruri dev` to a Developer ID **changes the signature**, so it is exactly the case the updater refuses. Everyone already running a `ruri dev` build has to install the first Developer ID build by hand — and grants them again once — after which updates carry them as before.
+
+## The bundle id
+
+ruri is `dev.justin06lee.ruri`, the reverse of justin06lee.dev. It was `com.justin06lee.ruri` until 0.76, and the bundle id is part of the designated requirement, so the change is the same kind as the one above: the first build with the new id is a new app to macOS. Install it with `make` (the updater would refuse it, rightly), and its first launch asks for every grant again — `askAgainIfNewBuild` notices that what the grants belong to has changed. Nothing else moves: settings, sessions and the window's own storage live under `~/.config/ruri` and `~/Library/Application Support/ruri`, which are named after the app, not its id.
+
+The old id's rows stay in the privacy database, granting things to an app that no longer exists. They do no harm; to clear them once the new build is in and granted:
+
+```bash
+tccutil reset All com.justin06lee.ruri
+defaults delete com.justin06lee.ruri   # only macOS's own file-panel sizes
+```

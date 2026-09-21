@@ -79,7 +79,7 @@ export function installFixture(): void {
       rows: [
         {
           service: "Full Disk Access",
-          client: "com.justin06lee.ruri",
+          client: "dev.justin06lee.ruri",
           allowed: true,
           at: now - 86_400_000 * 20,
         },
@@ -91,7 +91,7 @@ export function installFixture(): void {
         },
         {
           service: "Removable volumes",
-          client: "com.justin06lee.ruri",
+          client: "dev.justin06lee.ruri",
           allowed: false,
           at: now - 86_400_000 * 2,
         },

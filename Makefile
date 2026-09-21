@@ -2,7 +2,7 @@ APP     := ruri
 APP_SRC := dist-app/mac-arm64/$(APP).app
 APP_DST := /Applications/$(APP).app
 APP_KEEP := /tmp/$(APP)-superseded
-BUNDLE_ID := com.justin06lee.ruri
+BUNDLE_ID := dev.justin06lee.ruri
 
 # The code-signing identity every build is signed with — a self-signed
 # certificate in the login keychain, made once by `make identity`. macOS

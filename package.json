@@ -110,7 +110,7 @@
     "esbuild"
   ],
   "build": {
-    "appId": "com.justin06lee.ruri",
+    "appId": "dev.justin06lee.ruri",
     "productName": "ruri",
     "directories": {
       "output": "dist-app",

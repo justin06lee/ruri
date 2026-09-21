@@ -41,7 +41,7 @@ bun run desktop   # the desktop app unpackaged (built UI + Electron)
 - **Streaming markdown replies** with tool chips, inline diffs, previews of what was read, and permission cards that mean the same thing on every harness.
 - **An app-side prompt queue** you can reorder, merge and edit while a turn runs; a prompt splitter; slash commands inside a prompt.
 - **Attachments** — images, videos, PDFs, files — with markers as chips, region crops, a full-size viewer and a sketch pad.
-- **Edit & rewind** with ruri's own file checkpoints on every harness; fork a chat at any exchange; import chats started outside ruri.
+- **Edit & rewind** with ruri's own checkpoints on every harness — the discarded turns' files, commits and context go back, and nothing else does; fork a chat at any exchange; import chats started outside ruri.
 - **Subagents as live cards**, an agents page, and agents of your own started from a brief.
 - **The bridge** — a session looks at and drives what it built: a hidden browser window over CDP, native apps over Accessibility, previews above the composer.
 - **ruri's own `/compact`** — instant and token-free, built from per-turn recall notes; transcripts split into a live part and a capped history.

@@ -36,6 +36,7 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 | `asleep-test` | none | a window that goes to sleep stops the meters sampling, and wakes them again — the `awake` flag end to end, from the schema to the handler |
 | `terminal-test` | none | a shell printing forty thousand lines: every one arrives, in order and in fewer messages than lines, and a window attaching later is given a capped scrollback ending where the shell did |
 | `rewind-compaction-test` | none | rewinding either side of a compaction, against the real server, no turn run |
+| `rewind-git-test` | none | a rewind through the real server on a scratch repo: only the discarded turns' changes out, the commit taken back, the context gauge back to the kept exchange |
 | `retry-test` | none (needs `claude`) | a dropped turn goes again: the real CLI against a mock gateway that answers 529 to everything |
 | `bridge-test` | none, needs a display | drives the bridge end to end: a hidden browser window over CDP, then TextEdit over Accessibility |
 | `chips-test` | none, needs a display | the composer's marker chips survive a window resize (needs `bun run build:web && bun run build:main` first) |
@@ -45,7 +46,8 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 | `idle-reap-test` | tokens | an open chat keeps its process; leaving it closes it; the next prompt resumes |
 | `bridge-close-test` | tokens | bridge windows close a few seconds after the turn that opened them ends |
 | `md-image-test` | tokens | a picture a reply points at by path shows up |
-| `rewind-test`, `fork-test` | tokens | rewind and fork end to end, one real turn each |
+| `rewind-test` | tokens | two Haiku turns on a scratch repo — a Write, then a shell edit and a commit — and a rewind of the second: file, commit, staging, transcript, composer, context gauge |
+| `fork-test` | tokens | fork end to end, one real turn |
 | `queue-test`, `queue-arrange-test` | tokens | the app-side prompt queue: stop keeps it; reorder, merge, edit while it waits |
 | `question-test` | tokens | skipping an AskUserQuestion card is the end of it |
 | `naming-test` | tokens | in bypass, components name themselves |

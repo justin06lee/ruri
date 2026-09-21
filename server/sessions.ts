@@ -106,6 +106,14 @@ export interface SessionExtras {
    * when the input had none, which is almost always.
    */
   fillSecrets?: (input: Record<string, unknown>) => Record<string, unknown> | undefined;
+  /**
+   * What a tool that can change the project's files waits on before it
+   * runs: the checkpoint of the prompt it is working for. The capture runs
+   * alongside the prompt rather than holding it up, and this is what makes
+   * sure it has finished before anything it is meant to have seen can be
+   * changed (server/checkpoints.ts).
+   */
+  beforeTools?: () => Promise<void>;
 }
 
 /** How the manager reaches non-Claude harnesses (see server/providers.ts). */
@@ -263,6 +271,30 @@ function promptTextOf(message: unknown): string {
     .join("");
 }
 
+/** How full the context window was after one API call, from its usage:
+ *  everything sent (fresh and cached) and everything back. */
+function occupancy(message: unknown): number | undefined {
+  const usage = (
+    message as
+      | {
+          usage?: {
+            input_tokens?: number;
+            output_tokens?: number;
+            cache_read_input_tokens?: number;
+            cache_creation_input_tokens?: number;
+          };
+        }
+      | undefined
+  )?.usage;
+  if (!usage) return undefined;
+  const tokens =
+    (usage.input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0) +
+    (usage.output_tokens ?? 0);
+  return tokens > 0 ? tokens : undefined;
+}
+
 /**
  * The CLI's uuid for a prompt — what a file rewind is keyed by.
  *
@@ -277,7 +309,7 @@ export async function promptChain(
   sessionId: string,
   text: string,
   ordinal: number,
-): Promise<{ user: string; before?: string } | undefined> {
+): Promise<{ user: string; before?: string; contextBefore?: number } | undefined> {
   const needle = literalRun(text);
   if (!needle) return undefined;
   try {
@@ -287,8 +319,22 @@ export async function promptChain(
     if (!match) return undefined;
     // the entry just before the prompt is where a resume forks: everything
     // up to it is kept, the prompt and its turn are not
-    const before = messages[messages.findIndex((m) => m.uuid === match.uuid) - 1]?.uuid;
-    return { user: match.uuid, ...(before ? { before } : {}) };
+    const at = messages.findIndex((m) => m.uuid === match.uuid);
+    const before = messages[at - 1]?.uuid;
+    // and how full the context was there: the last main-loop reply before
+    // the prompt says, the same way a live one does (see onContext)
+    const contextBefore = messages
+      .slice(0, at)
+      .reverse()
+      .map((m) =>
+        m.type === "assistant" && m.parent_tool_use_id === null ? occupancy(m.message) : undefined,
+      )
+      .find((n) => n !== undefined);
+    return {
+      user: match.uuid,
+      ...(before ? { before } : {}),
+      ...(contextBefore !== undefined ? { contextBefore } : {}),
+    };
   } catch (err) {
     warn("sessions", err, "promptChain");
     // no transcript on disk (a provider session, a pruned file) — the
@@ -605,6 +651,9 @@ export type QuestionOutcome = "answered" | "late" | "none";
  *  point past which the session has been abandoned anyway. */
 const QUESTION_TIMEOUT_S = 3600;
 
+/** The longest a file-changing tool waits for its prompt's checkpoint. */
+const CHECKPOINT_WAIT_MS = 10_000;
+
 /** Read an AskUserQuestion tool input, keeping only what the card renders.
  *  Anything malformed answers `null` and the tool runs untouched. */
 function readQuestions(input: unknown): AskQuestions | null {
@@ -663,6 +712,8 @@ class ProjectSession implements ChannelSession {
   private readonly modelTotals = new Map<string, number>();
   /** The vault's substitution, when there is a vault (see secrets.ts). */
   private readonly secretFill: SessionExtras["fillSecrets"];
+  /** The file checkpoint a changing tool waits for (SessionExtras.beforeTools). */
+  private readonly toolBarrier: SessionExtras["beforeTools"];
   /** Background tasks the CLI reports live (a shell run in the background,
    *  a subagent). They live in the CLI's process, so it stays while any do. */
   private backgroundTasks = 0;
@@ -683,6 +734,7 @@ class ProjectSession implements ChannelSession {
   ) {
     this.lastSessionId = resume;
     this.secretFill = extras?.fillSecrets;
+    this.toolBarrier = extras?.beforeTools;
     this.agents = new AgentBook(project.id, events);
     this.session = new AgentSession({
       cwd: project.path,
@@ -713,6 +765,9 @@ class ProjectSession implements ChannelSession {
             // needs the file as it was, and a PreToolUse hook is the one
             // point the CLI is required to wait at before touching it.
             { matcher: "Write|Edit", hooks: [this.captureBefore] },
+            // The checkpoint first: nothing that can change a file runs
+            // before the tree it would change has been written down.
+            { matcher: "Bash|Write|Edit|MultiEdit|NotebookEdit", hooks: [this.awaitCheckpoint] },
             // The vault's last moment: the model wrote {{handle}}, the tool
             // is about to run, and this is where the two are reconciled.
             {
@@ -871,6 +926,18 @@ class ProjectSession implements ChannelSession {
         },
       },
     };
+  };
+
+  /** Hold a file-changing tool until the prompt's checkpoint is down — a
+   *  few milliseconds at most, nearly always nothing; never longer than
+   *  CHECKPOINT_WAIT_MS, since a repository too slow to capture is not a
+   *  reason for the turn to stop. */
+  private awaitCheckpoint = async (): Promise<{ continue: true }> => {
+    const barrier = this.toolBarrier;
+    if (barrier) {
+      await Promise.race([barrier().catch(() => {}), new Promise((r) => setTimeout(r, CHECKPOINT_WAIT_MS))]);
+    }
+    return { continue: true };
   };
 
   /**

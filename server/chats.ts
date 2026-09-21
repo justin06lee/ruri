@@ -39,6 +39,15 @@ function tagged(channelId: string, extras: SessionExtras): SessionExtras {
   };
 }
 
+/** Write down the files as a finished turn left them, under its prompt. */
+function settleCheckpoint(ctx: ServerContext, channelId: string): void {
+  if (channelId === HOME_ID) return;
+  const project = channelProject(ctx, channelId);
+  const prompt = ctx.archive.events(channelId).findLast((event) => event.kind === "user");
+  if (!project?.path || !prompt) return;
+  void ctx.checkpoints.settle(project, channelId, prompt.id).catch(() => false);
+}
+
 export function createChatManager(ctx: ServerContext): SessionManager {
   const manager = new SessionManager(
     {
@@ -49,6 +58,11 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         ctx.readable.allowReadImages(projectId, [event]);
         recordEvent(ctx, projectId, event);
         if (event.kind === "result") {
+          // the files as the turn left them: the other half of what it did,
+          // which is what lets a rewind take back this turn and only this
+          // turn. Written before the queue moves, so the next prompt's own
+          // capture lands after it.
+          settleCheckpoint(ctx, projectId);
           ctx.usage.pushUsage();
           pushContexts(ctx);
           // the turn's spend lands in its project's ledger (Home in its own)
@@ -136,6 +150,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         // recorded against the model that named it, so it dies with it
         const model = channelProject(ctx, projectId)?.model || ctx.store.defaultModel();
         ctx.archive.setContextTokens(projectId, tokens, window, model);
+        // and against the turn in flight, for a rewind or a fork to go back to
+        ctx.archive.noteTurnContext(projectId, tokens);
         const context: ContextUsage = { tokens, window: contextWindow(ctx, projectId) };
         ctx.turns.contexts.set(projectId, context);
         ctx.clients.broadcast({ type: "context", projectId, context });
@@ -175,6 +191,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       return tagged(project.id, {
         fillSecrets: (input) =>
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
+        beforeTools: () => ctx.checkpoints.idle(project.id),
         autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS],
         options: {
           // the vault rides into the harness process here, and only here

@@ -150,7 +150,7 @@ await settle();
 
 const refused = seen.find((m) => m.type === "error" && m.message.startsWith("rewind failed")) as
   Extract<ServerMessage, { type: "error" }> | undefined;
-const explained = seen.find((m) => m.type === "error" && m.message.startsWith("rewound the conversation")) as
+const explained = seen.find((m) => m.type === "error" && m.message.startsWith("rewound")) as
   Extract<ServerMessage, { type: "error" }> | undefined;
 const removed2 = seen.find((m) => m.type === "events_removed") as
   Extract<ServerMessage, { type: "events_removed" }> | undefined;

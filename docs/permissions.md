@@ -57,7 +57,7 @@ The relaunch is an ordinary quit, so ruri's teardown runs: sessions are closed a
 
 ## Handing it to someone else: Gatekeeper and notarization
 
-The `ruri dev` identity is self-signed, which means it answers "who made this?" with a certificate nobody has ever heard of. On the machine that made it that is fine. On anyone else's, macOS refuses to open a downloaded copy at all — *"ruri" cannot be opened because Apple cannot check it for malicious software* — and the only way past it is right-click → Open, or clearing the quarantine attribute by hand:
+The `ruri dev` identity is self-signed, which means it answers "who made this?" with a certificate nobody has ever heard of. On the machine that made it that is fine, and so are updates: Gatekeeper only checks files that arrive carrying the quarantine attribute, which a browser download gets and a `make` build or the updater's own download does not. On anyone else's machine, a copy downloaded from the release page is refused — *Apple could not verify "ruri" is free of malware* — until they let it through once. Since macOS Sequoia, right-click → Open no longer does that; it is System Settings → Privacy & Security → **Open Anyway**, or clearing the attribute by hand:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/ruri.app

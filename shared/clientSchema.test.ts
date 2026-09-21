@@ -31,6 +31,7 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   queue_remove: { type: "queue_remove", projectId: "p", itemId: "i" },
   queue_move: { type: "queue_move", projectId: "p", itemId: "i", beforeId: "j" },
   queue_merge: { type: "queue_merge", projectId: "p", itemId: "i", intoId: "j" },
+  queue_unmerge: { type: "queue_unmerge", projectId: "p", itemId: "q1" },
   queue_edit: { type: "queue_edit", projectId: "p", itemId: "i" },
   queue_update: {
     type: "queue_update",

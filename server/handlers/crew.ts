@@ -15,7 +15,9 @@ import { channelProject, ownerProject } from "../channel.js";
 import type { ServerContext } from "../context.js";
 import { redacted } from "../events.js";
 import { HOME_ID } from "../manager.js";
+import { scriptLog } from "../scripts.js";
 import { SessionManager } from "../sessions.js";
+import { pushWork } from "../turns.js";
 import type { Handlers } from "./types.js";
 
 /**
@@ -47,6 +49,7 @@ function crewCard(ctx: ServerContext, key: string, patch: Partial<SubagentState>
   const chatId = ctx.crew.owner(key);
   if (!chatId || !ctx.crew.update(key, patch)) return;
   ctx.clients.toViewers(chatId, { type: "crew", projectId: chatId, agents: ctx.crew.list(chatId) });
+  if (patch.status) pushWork(ctx, chatId);
 }
 
 /** Something one of the user's agents did, into a log (its own, or an
@@ -213,7 +216,9 @@ export const crewHandlers = {
   agent_log: (ctx, ws, msg) => {
     const id = msg.projectId;
     if (id !== HOME_ID && !ctx.store.sessionIds().includes(id)) return;
-    const events = ctx.agentLogs.read(id, msg.key);
+    // a script's page is its command and what it has printed; an agent's
+    // is its log
+    const events = scriptLog(ctx, id, msg.key) ?? ctx.agentLogs.read(id, msg.key);
     ctx.readable.allowReadImages(id, events);
     ws.send(
       JSON.stringify({ type: "agent_log", projectId: id, key: msg.key, events } satisfies ServerMessage),
@@ -236,6 +241,7 @@ export const crewHandlers = {
       startedAt: Date.now(),
     });
     ctx.clients.toViewers(chatId, { type: "crew", projectId: chatId, agents: ctx.crew.list(chatId) });
+    pushWork(ctx, chatId);
     ctx.crewManager.send(project, text);
   },
   agent_send: (ctx, _ws, msg) => {

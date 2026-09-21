@@ -1,7 +1,14 @@
-import { memo, useEffect, useMemo } from "react";
-import { HOME_ID, type Project, type SessionInfo, type TranscriptEvent } from "../../../shared/protocol";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  HOME_ID,
+  type BackgroundWork,
+  type Project,
+  type SessionInfo,
+  type TranscriptEvent,
+} from "../../../shared/protocol";
 import { useRuri, watchBoard } from "../store";
 import { money } from "./figures";
+import { StatisticsPage } from "./Statistics";
 
 /**
  * The projects page, and the strip at the top of Home.
@@ -88,9 +95,23 @@ const LINES = 3;
 
 const NO_EVENTS: TranscriptEvent[] = [];
 
+/** "2 agents and a script at work in the background" — what a chat whose
+ *  turn is over is still doing. */
+function backgroundLine(work: BackgroundWork): string {
+  const count = (n: number, one: string, many: string) => (n === 1 ? `${one}` : `${n} ${many}`);
+  const parts = [
+    work.agents > 0 ? count(work.agents, "an agent", "agents") : undefined,
+    work.scripts > 0 ? count(work.scripts, "a script", "scripts") : undefined,
+  ].filter(Boolean);
+  return `${parts.join(" and ")} at work in the background`;
+}
+
 const SessionLines = memo(function SessionLines({ session, many }: { session: SessionInfo; many: boolean }) {
   const events = useRuri((s) => s.transcripts[session.id] ?? NO_EVENTS);
-  const status = useRuri((s) => s.statuses[session.id] ?? "idle");
+  const turnStatus = useRuri((s) => s.statuses[session.id] ?? "idle");
+  const work = useRuri((s) => s.work[session.id]);
+  // a turn over with its agents or scripts still going is still working
+  const status = work && (turnStatus === "idle" || turnStatus === "error") ? "working" : turnStatus;
   const setActive = useRuri((s) => s.setActive);
   const lines = useMemo(() => {
     const out: Line[] = [];
@@ -100,12 +121,15 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
     }
     // a reply being written is the open chat's business: here it is
     // "thinking" until it is done, and then it is a line
-    if (status === "working" && out[out.length - 1]?.kind !== "tool") {
+    if (turnStatus === "working" && out[out.length - 1]?.kind !== "tool") {
       out.push({ kind: "live", text: "thinking" });
+      if (out.length > LINES) out.shift();
+    } else if (work && turnStatus !== "working" && turnStatus !== "permission") {
+      out.push({ kind: "live", text: backgroundLine(work) });
       if (out.length > LINES) out.shift();
     }
     return out;
-  }, [events, status]);
+  }, [events, turnStatus, work]);
 
   return (
     <button
@@ -172,12 +196,25 @@ function ProjectCard({ project, status }: { project: Project; status: Status }) 
 
 const RANK: Record<Status, number> = { permission: 0, working: 1, error: 2, idle: 3 };
 
-/** What a project is up to, from its sessions: the most urgent one wins. */
-function statusOf(project: Project, statuses: Record<string, string>): Status {
+/** What a project is up to, from its sessions: the most urgent one wins.
+ *  A session whose turn is over is still working while agents or scripts
+ *  it left running are. */
+function statusOf(
+  project: Project,
+  statuses: Record<string, string>,
+  work: Record<string, BackgroundWork>,
+): Status {
   let best: Status = "idle";
   for (const session of project.sessions) {
     const s = statuses[session.id];
-    const status: Status = s === "permission" || s === "working" || s === "error" ? s : "idle";
+    const status: Status =
+      s === "permission" || s === "working"
+        ? s
+        : session.id in work
+          ? "working"
+          : s === "error"
+            ? "error"
+            : "idle";
     if (RANK[status] < RANK[best]) best = status;
   }
   return best;
@@ -191,13 +228,34 @@ function statusOf(project: Project, statuses: Record<string, string>): Status {
  * page off the sidebar now, and the statistics took the place. The chat
  * tab carries Home's own dot, so a turn you left running shows from the
  * statistics page.
+ *
+ * The inked pill that says which page is up is one piece of its own under
+ * the two words, not a background each word wears in turn: picking the
+ * other page slides it across to it (styles.css, .home-tab-glide).
  */
-export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) => void }) {
-  const statuses = useRuri((s) => s.statuses);
-  const homeStatus = statuses[HOME_ID] ?? "idle";
+function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) => void }) {
+  const homeStatus = useRuri((s) => s.statuses[HOME_ID] ?? "idle");
+  const group = useRef<HTMLDivElement>(null);
+  const glide = useRef<HTMLSpanElement>(null);
+  // under whichever word is on — measured, since the chat tab grows a dot
+  // while Home works; the first placing is where it starts, not a slide
+  useLayoutEffect(() => {
+    const place = () => {
+      const on = group.current?.querySelector<HTMLElement>(".home-tab.on");
+      const pill = glide.current;
+      if (!on || !pill) return;
+      pill.style.width = `${on.offsetWidth}px`;
+      pill.style.transform = `translateX(${on.offsetLeft}px)`;
+    };
+    place();
+    const frame = requestAnimationFrame(() => glide.current?.classList.add("placed"));
+    void document.fonts.ready.then(place);
+    return () => cancelAnimationFrame(frame);
+  }, [tab, homeStatus]);
   return (
     <div className="home-tabs">
-      <div className="home-tabs-group" role="tablist" aria-label="Home">
+      <div className="home-tabs-group" role="tablist" aria-label="Home" ref={group}>
+        <span className="home-tab-glide" ref={glide} aria-hidden />
         <button
           type="button"
           role="tab"
@@ -229,23 +287,82 @@ export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) =
   );
 }
 
+/** How long Home's two pages take to slide past each other — the
+ *  .home-track transition in styles.css. */
+const SLIDE_MS = 380;
+
+/**
+ * Home: its two pages side by side on one track, under the strip that
+ * picks between them — the agent's chat on the left, the statistics on the
+ * right. Picking the other one slides the strip's pill across and the
+ * track a page's width along with it, so the page you leave goes out one
+ * side as the other comes in from the other; the strip itself stays put.
+ *
+ * Only the page you are on is mounted. The other is put up for the slide
+ * and taken down once it is out of sight — the statistics watch this
+ * machine's processes while they are up, and nothing should be doing that
+ * behind the chat.
+ */
+export function HomeDeck({
+  tab,
+  onTab,
+  chat,
+}: {
+  tab: HomeTab;
+  onTab: (tab: HomeTab) => void;
+  /** The chat's page, as the pane would show it on its own. */
+  chat: ReactNode;
+}) {
+  const [leaving, setLeaving] = useState<HomeTab | null>(null);
+  useEffect(() => {
+    if (!leaving) return;
+    const timer = setTimeout(() => setLeaving(null), SLIDE_MS + 60);
+    return () => clearTimeout(timer);
+  }, [leaving, tab]);
+  const go = (next: HomeTab) => {
+    if (next === tab) return;
+    setLeaving(tab);
+    onTab(next);
+  };
+  const up = (page: HomeTab) => tab === page || leaving === page;
+  return (
+    <div className="home-deck">
+      <HomeTabs tab={tab} onTab={go} />
+      <div className={`home-track on-${tab}`}>
+        <div className="home-slide" inert={tab !== "chat"}>
+          {up("chat") && chat}
+        </div>
+        <div className="home-slide" inert={tab !== "stats"}>
+          {up("stats") && (
+            <main className="chat home-stats">
+              <div className="home-tabs-space" aria-hidden />
+              <StatisticsPage />
+            </main>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Every open project on one page: what they are doing and what it cost. */
 export function ProjectsPage() {
   const projects = useRuri(selectShown);
   const statuses = useRuri((s) => s.statuses);
+  const work = useRuri((s) => s.work);
   // while this is up, every chat's finished steps come here (and, as it
   // opens, every chat's last few lines as they now stand)
   useEffect(() => watchBoard(), []);
 
   const { live, idle } = useMemo(() => {
     const ranked = projects
-      .map((project) => ({ project, status: statusOf(project, statuses) }))
+      .map((project) => ({ project, status: statusOf(project, statuses, work) }))
       .sort((a, b) => RANK[a.status] - RANK[b.status] || a.project.name.localeCompare(b.project.name));
     return {
       live: ranked.filter((x) => x.status !== "idle"),
       idle: ranked.filter((x) => x.status === "idle"),
     };
-  }, [projects, statuses]);
+  }, [projects, statuses, work]);
 
   const working = live.filter((x) => x.status === "working").length;
   const waiting = live.filter((x) => x.status === "permission").length;

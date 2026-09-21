@@ -20,7 +20,7 @@ import { recordEvent, redacted } from "./events.js";
 import { HOME_ID, managerExtras } from "./manager.js";
 import { ParagraphGate } from "./paragraphs.js";
 import { SessionManager, type SessionExtras } from "./sessions.js";
-import { contextWindow, pushContexts } from "./turns.js";
+import { contextWindow, pushContexts, pushWork } from "./turns.js";
 
 /**
  * A chat's extras, with the chat's own id in the harness's environment.
@@ -124,6 +124,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         ctx.clients.broadcast({ type: "status", projectId, status });
       },
       onProgress: ctx.turns.advance,
+      // an agent or a script started, ended, or was picked back up
+      onBackground: (projectId) => pushWork(ctx, projectId),
       onPermission: (raw) => {
         // PreToolUse hooks run before the approval, so the input reaching
         // here may already hold a real vault value — the card shows handles
@@ -189,6 +191,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         bridge,
       });
       return tagged(project.id, {
+        transcript: () => ctx.archive.events(project.id),
         fillSecrets: (input) =>
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
         beforeTools: () => ctx.checkpoints.idle(project.id),

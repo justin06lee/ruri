@@ -6,6 +6,7 @@ import {
   keepRecent,
   TRANSCRIPT_TAIL,
   briefLine,
+  type BackgroundWork,
   type BridgeState,
   type ClientMessage,
   type Attachment,
@@ -343,6 +344,9 @@ interface RuriState {
   earlier: Record<string, EarlierItem[]>;
   drafts: Record<string, Draft | undefined>;
   statuses: Record<string, ProjectStatus>;
+  /** Each chat's agents and scripts still running with no turn needed —
+   *  a chat is busy while it has any (see `busy`). Absent = none. */
+  work: Record<string, BackgroundWork>;
   permissions: PermissionRequest[];
   unread: Record<string, boolean>;
   models: ModelChoice[];
@@ -454,6 +458,18 @@ interface RuriState {
   dismissError(): void;
 }
 
+/**
+ * Whether a chat is doing anything at all: a turn running (or waiting on
+ * the user inside one), or agents and scripts of its own still at work
+ * after its turn has ended. What the sidebar's dragons and the projects
+ * page go by. Reads two maps and answers a boolean, so a selector made of
+ * it re-renders only when the answer changes.
+ */
+export function isBusy(s: Pick<RuriState, "statuses" | "work">, channelId: string): boolean {
+  const status = s.statuses[channelId];
+  return status === "working" || status === "permission" || channelId in s.work;
+}
+
 export const useRuri = create<RuriState>((set) => ({
   connected: false,
   projects: [],
@@ -464,6 +480,7 @@ export const useRuri = create<RuriState>((set) => ({
   earlier: {},
   drafts: {},
   statuses: {},
+  work: {},
   permissions: [],
   agentLogs: {},
   agentPanel: null,
@@ -772,6 +789,12 @@ function requestAgentLog(projectId: string, key: string): void {
   send({ type: "agent_log", projectId, key });
 }
 
+/** Ask again for a log that is open — a script's, whose output is read
+ *  afresh each time rather than sent as it comes. */
+export function refreshAgentLog(projectId: string, key: string): void {
+  send({ type: "agent_log", projectId, key });
+}
+
 /**
  * Open an agent on the agents page: as its only agent, or — `stack`, from
  * the page itself — on top of the one showing (an agent's own agent, or
@@ -916,6 +939,7 @@ function apply(msg: ServerMessage): void {
         history: {},
         earlier: {},
         statuses: msg.statuses,
+        work: msg.work ?? {},
         permissions: msg.permissions,
         models: msg.models,
         summaries: msg.summaries,
@@ -1302,6 +1326,13 @@ function apply(msg: ServerMessage): void {
     }
     case "status": {
       setState((s) => ({ statuses: { ...s.statuses, [msg.projectId]: msg.status } }));
+      break;
+    }
+    case "work": {
+      setState((s) => {
+        const { [msg.projectId]: _gone, ...rest } = s.work;
+        return { work: msg.work ? { ...rest, [msg.projectId]: msg.work } : rest };
+      });
       break;
     }
     case "permission_request": {

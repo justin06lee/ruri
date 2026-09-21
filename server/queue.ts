@@ -24,6 +24,11 @@ export interface QueueEntry {
    *  steps back in, it goes behind whichever of these are still waiting,
    *  and to the front if none are. */
   editAfter?: string[];
+  /** Two prompts folded into this one, kept as they were so the fold can
+   *  be taken back: `into` is the one it was dropped on, whose place and id
+   *  this took, and `from` the one carried there, which goes back behind
+   *  whichever of `fromAfter` are still waiting (to the front if none). */
+  combined?: { into: QueueEntry; from: QueueEntry; fromAfter: string[] };
 }
 
 export class SendQueues {
@@ -138,10 +143,10 @@ export function reslot(queue: QueueEntry[], visible: QueueEntry[]): QueueEntry[]
 }
 
 /**
- * Two queued prompts as one: `first`'s text, a blank line, `second`'s —
- * standing where `second` stood. `second`'s attachments and the markers
- * that name them are renumbered past `first`'s, so "[image #1]" in each
- * half still means the picture it meant.
+ * Two queued prompts as one: `first`'s text, a blank line, `second`'s,
+ * under `second`'s id. `second`'s attachments and the markers that name
+ * them are renumbered past `first`'s, so "[image #1]" in each half still
+ * means the picture it meant.
  */
 export function mergeEntries(first: QueueEntry, second: QueueEntry): QueueEntry {
   const offset = { image: 0, video: 0, file: 0, region: 0 };
@@ -179,4 +184,57 @@ export function mergeEntries(first: QueueEntry, second: QueueEntry): QueueEntry 
     ...(attachments.length ? { attachments } : {}),
     ...(first.split || second.split ? { split: true } : {}),
   };
+}
+
+/**
+ * The queue with `fromId` carried onto `intoId` and folded into it — or
+ * null when either is not a prompt in line. The words go in the order the
+ * two stood in the line, whichever was carried: the one nearer the front
+ * reads first, the way it would have gone out first. The fold takes the
+ * place of the one it was dropped on, and keeps both halves as they were
+ * so `uncombine` can take it back.
+ */
+export function combine(queue: QueueEntry[], fromId: string, intoId: string): QueueEntry[] | null {
+  if (fromId === intoId) return null;
+  const inLine = (e: QueueEntry) => !e.silent && !e.editing;
+  const from = queue.find((e) => e.id === fromId && inLine(e));
+  const into = queue.find((e) => e.id === intoId && inLine(e));
+  if (!from || !into) return null;
+  const [first, second] = queue.indexOf(from) < queue.indexOf(into) ? [from, into] : [into, from];
+  const merged: QueueEntry = {
+    ...mergeEntries(first, second),
+    id: into.id,
+    combined: {
+      into,
+      from,
+      fromAfter: queue
+        .slice(0, queue.indexOf(from))
+        .filter((e) => inLine(e))
+        .map((e) => e.id),
+    },
+  };
+  return queue.filter((e) => e !== from).map((e) => (e === into ? merged : e));
+}
+
+/**
+ * A fold taken back: the prompt dropped on back in the fold's place, the
+ * one carried back where it had been — or null when `id` is not a fold
+ * still waiting in line (it went out, or was rewritten meanwhile).
+ */
+export function uncombine(queue: QueueEntry[], id: string): QueueEntry[] | null {
+  const merged = queue.find((e) => e.id === id && !e.silent && !e.editing);
+  const parts = merged?.combined;
+  if (!merged || !parts) return null;
+  const next = queue.map((e) => (e === merged ? parts.into : e));
+  const anchors = new Set(parts.fromAfter);
+  let after = -1;
+  next.forEach((e, i) => {
+    if (anchors.has(e.id)) after = i;
+  });
+  if (after >= 0) next.splice(after + 1, 0, parts.from);
+  else {
+    const front = next.findIndex((e) => !e.silent);
+    next.splice(front === -1 ? next.length : front, 0, parts.from);
+  }
+  return next;
 }

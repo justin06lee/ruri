@@ -30,8 +30,7 @@ import { Components } from "./Components";
 import { Composer } from "./Composer";
 import { CompactionMark, EventView } from "./EventView";
 import { Exchange, groupTurns, NO_EXCERPTS, turnExcerpts, type Half } from "./Exchange";
-import { HomeTabs, type HomeTab } from "./HomeBoard";
-import { StatisticsPage } from "./Statistics";
+import { HomeDeck, type HomeTab } from "./HomeBoard";
 import { Ideas } from "./Ideas";
 import { AskCard } from "./PermissionBanner";
 import { QueuedList } from "./Queue";
@@ -293,7 +292,9 @@ function ChatView({
     setHomeTabState(tab);
     setPref("ruri-home-tab", tab);
   }, []);
-  const homeTabs = isHome && !rapid?.on && <HomeTabs tab={homeTab} onTab={setHomeTab} />;
+  // Home's pages slide past each other under one strip (HomeDeck); the
+  // chat's side leaves the strip's height free at its top
+  const homeDeck = isHome && !rapid?.on;
   const openCount = (trackerItems ?? []).filter((i) => i.status === "open").length;
 
   // another of the project's pages takes the agents page's place, as it
@@ -685,8 +686,8 @@ function ChatView({
             agentsOpen
               ? "Back to the chat"
               : agentsWorking > 0
-                ? `Agents — ${agentsWorking} still working; watch one, or start one of your own`
-                : "Agents — start one of your own, and see every one this chat has started"
+                ? `Agents — ${agentsWorking} still at work (agents and background scripts); watch one, or start one of your own`
+                : "Agents — start one of your own, and see every agent and background script this chat has started"
           }
           onClick={() => {
             if (agentsOpen) closeAgent();
@@ -742,153 +743,192 @@ function ChatView({
     </header>
   );
 
-  // The pad, wherever it was opened from — over a fresh session's hero as
-  // much as over a conversation.
-  if (sketch) {
+  // What the chat shows — on Home, the chat's side of the deck.
+  const view = (() => {
+    // The pad, wherever it was opened from — over a fresh session's hero as
+    // much as over a conversation.
+    if (sketch) {
+      return (
+        <main className={pane("chat")}>
+          {header}
+          <Sketch
+            channelId={activeId}
+            {...(sketch.background ? { background: sketch.background } : {})}
+            onClose={() => setSketch(null)}
+          />
+        </main>
+      );
+    }
+
+    // The agents page takes the whole pane, the way the project's other pages do.
+    if (agentsOpen) {
+      return (
+        <main className={pane("chat")}>
+          {header}
+          <AgentsPage channelId={activeId} project={project} agents={agents} />
+        </main>
+      );
+    }
+
+    // A header button swaps the whole pane for that page — no navigation,
+    // just this branch; the lit button swaps it back. Ahead of the hero: a
+    // fresh session has the same header, and its buttons have to go
+    // somewhere before the first prompt as much as after it.
+    if (page !== "chat") {
+      return (
+        <main className={pane("chat")}>
+          {header}
+          {page === "tracker" && <Tracker projectId={activeId} onClose={() => setPage("chat")} />}
+          {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
+          {page === "components" && boardId && <Components projectId={boardId} />}
+          {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
+        </main>
+      );
+    }
+
+    // No conversation yet (Home or a fresh project): the hero — face, a big
+    // title, and the composer front and center.
+    if (transcript.length === 0 && !draft && permissions.length === 0) {
+      return (
+        <main className={pane("chat home-hero")}>
+          {lastError && (
+            <div className="error-bar" onClick={dismissError}>
+              {lastError} <span className="dismiss">dismiss</span>
+            </div>
+          )}
+          {/* a project chat's header — the agents, skills and boards — is
+              there before its first prompt too; Home has none */}
+          {header}
+          <div className="hero">
+            <HeroFace n={isHome ? launchHero : heroFor(boardId ?? activeId)} />
+            <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
+            <div className="hero-composer">
+              {rapid?.on && <RapidBar rapid={rapid} />}
+              <Composer
+                channelId={activeId}
+                project={project}
+                busy={busy}
+                onSketch={openSketch}
+                {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
+              />
+            </div>
+          </div>
+        </main>
+      );
+    }
+
     return (
-      <main className={pane("chat")}>
+      <main className={pane("chat")} ref={chatRef}>
         {header}
-        <Sketch
-          channelId={activeId}
-          {...(sketch.background ? { background: sketch.background } : {})}
-          onClose={() => setSketch(null)}
-        />
-      </main>
-    );
-  }
 
-  // Home's other page: what all of this has cost, and what it is costing
-  // this machine right now.
-  if (homeTabs && homeTab === "stats") {
-    return (
-      <main className={pane("chat home-stats")}>
-        {homeTabs}
-        <StatisticsPage />
-      </main>
-    );
-  }
-
-  // The agents page takes the whole pane, the way the project's other pages do.
-  if (agentsOpen) {
-    return (
-      <main className={pane("chat")}>
-        {header}
-        <AgentsPage channelId={activeId} project={project} agents={agents} />
-      </main>
-    );
-  }
-
-  // A header button swaps the whole pane for that page — no navigation,
-  // just this branch; the lit button swaps it back. Ahead of the hero: a
-  // fresh session has the same header, and its buttons have to go
-  // somewhere before the first prompt as much as after it.
-  if (page !== "chat") {
-    return (
-      <main className={pane("chat")}>
-        {header}
-        {page === "tracker" && <Tracker projectId={activeId} onClose={() => setPage("chat")} />}
-        {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
-        {page === "components" && boardId && <Components projectId={boardId} />}
-        {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
-      </main>
-    );
-  }
-
-  // No conversation yet (Home or a fresh project): the hero — face, a big
-  // title, and the composer front and center.
-  if (transcript.length === 0 && !draft && permissions.length === 0) {
-    return (
-      <main className={pane("chat home-hero")}>
         {lastError && (
           <div className="error-bar" onClick={dismissError}>
             {lastError} <span className="dismiss">dismiss</span>
           </div>
         )}
-        {/* a project chat's header — the agents, skills and boards — is
-            there before its first prompt too; Home has none */}
-        {header}
-        {/* the strip that swaps Home's two pages floats over the top, so
-            the face stays centred in the pane */}
-        {homeTabs}
-        <div className="hero">
-          <HeroFace n={isHome ? launchHero : heroFor(boardId ?? activeId)} />
-          <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
-          <div className="hero-composer">
-            {rapid?.on && <RapidBar rapid={rapid} />}
-            <Composer
-              channelId={activeId}
-              project={project}
-              busy={busy}
-              onSketch={openSketch}
-              {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
-            />
-          </div>
-        </div>
-      </main>
-    );
-  }
 
-  return (
-    <main className={pane("chat")} ref={chatRef}>
-      {header}
+        {homeDeck && <div className="home-tabs-space" aria-hidden />}
 
-      {lastError && (
-        <div className="error-bar" onClick={dismissError}>
-          {lastError} <span className="dismiss">dismiss</span>
-        </div>
-      )}
-
-      {homeTabs}
-
-      {/* the holder ends where the composer begins, so the jump pill always
-          floats just above the composer no matter how tall it grows */}
-      <div className="transcript-holder">
-        <div
-          className="transcript"
-          ref={scrollRef}
-          onScroll={onScroll}
-          onWheel={noteGesture}
-          onTouchMove={noteGesture}
-          onPointerDown={noteGesture}
-          onKeyDown={noteGesture}
-        >
-          <div className="transcript-inner" ref={observeInner}>
-            {/* the earlier exchanges wait for every live turn below them to
-              be laid out — until then the tail is what's on screen */}
-            {shownTurns.length === allTurns.length &&
-              shownEarlier.map((item) => {
-                if (item.kind === "compaction") {
-                  const full = historyTurns.get(`compaction-${item.id}`)?.events[0];
+        {/* the holder ends where the composer begins, so the jump pill always
+            floats just above the composer no matter how tall it grows */}
+        <div className="transcript-holder">
+          <div
+            className="transcript"
+            ref={scrollRef}
+            onScroll={onScroll}
+            onWheel={noteGesture}
+            onTouchMove={noteGesture}
+            onPointerDown={noteGesture}
+            onKeyDown={noteGesture}
+          >
+            <div className="transcript-inner" ref={observeInner}>
+              {/* the earlier exchanges wait for every live turn below them to
+                be laid out — until then the tail is what's on screen */}
+              {shownTurns.length === allTurns.length &&
+                shownEarlier.map((item) => {
+                  if (item.kind === "compaction") {
+                    const full = historyTurns.get(`compaction-${item.id}`)?.events[0];
+                    return (
+                      <div className="turn" key={`earlier-${item.id}`}>
+                        <CompactionMark
+                          event={
+                            full?.kind === "compaction"
+                              ? full
+                              : { kind: "compaction", id: item.id, text: "", ts: item.ts }
+                          }
+                          load={loadHistory}
+                        />
+                      </div>
+                    );
+                  }
+                  const open = opens[item.turnId];
+                  const promptOpen = open?.prompt ?? false;
+                  const replyOpen = open?.reply ?? false;
                   return (
-                    <div className="turn" key={`earlier-${item.id}`}>
-                      <CompactionMark
-                        event={
-                          full?.kind === "compaction"
-                            ? full
-                            : { kind: "compaction", id: item.id, text: "", ts: item.ts }
-                        }
-                        load={loadHistory}
-                      />
+                    <Exchange
+                      key={`earlier-${item.turnId}`}
+                      turnId={item.turnId}
+                      events={promptOpen || replyOpen ? historyTurns.get(item.turnId)?.events : undefined}
+                      note={summaries[item.turnId]}
+                      prompt={item.prompt}
+                      reply={item.reply}
+                      count={item.count}
+                      promptOpen={promptOpen}
+                      replyOpen={replyOpen}
+                      replyFolds={replyOpen}
+                      foldable
+                      loading={(promptOpen || replyOpen) && !history}
+                      project={project}
+                      channelId={activeId}
+                      onRewind={askRewind}
+                      onFork={askFork}
+                      onOpen={openHalf}
+                      onFold={foldExchange}
+                      onFoldHalf={foldHalf}
+                    />
+                  );
+                })}
+              {shownTurns.map((turn, index) => {
+                const head = turn.events[0];
+                // far enough up that the browser may skip laying it out until
+                // it comes near the viewport — see .turn.far
+                const far = index < shownTurns.length - LIVE_TURNS;
+                // a compaction mark, or what came before the first prompt
+                if (turn.solo || head?.kind !== "user") {
+                  return (
+                    <div className={far ? "turn far" : "turn"} key={turn.turnId}>
+                      {turn.events.map((event) => (
+                        <EventView
+                          key={event.id}
+                          event={event}
+                          project={project}
+                          channelId={activeId}
+                          onRewind={askRewind}
+                          onFork={askFork}
+                        />
+                      ))}
                     </div>
                   );
                 }
-                const open = opens[item.turnId];
-                const promptOpen = open?.prompt ?? false;
-                const replyOpen = open?.reply ?? false;
+                const open = opens[turn.turnId];
+                const promptOpen = open?.prompt ?? true;
+                const replyOpen = open?.reply ?? true;
+                const cut = promptOpen && replyOpen ? NO_EXCERPTS : turnExcerpts(turn);
                 return (
                   <Exchange
-                    key={`earlier-${item.turnId}`}
-                    turnId={item.turnId}
-                    events={promptOpen || replyOpen ? historyTurns.get(item.turnId)?.events : undefined}
-                    note={summaries[item.turnId]}
-                    prompt={item.prompt}
-                    reply={item.reply}
-                    count={item.count}
+                    key={turn.turnId}
+                    turnId={turn.turnId}
+                    events={turn.events}
+                    note={summaries[turn.turnId]}
+                    prompt={cut.prompt}
+                    reply={cut.reply}
+                    count={turn.events.length}
                     promptOpen={promptOpen}
                     replyOpen={replyOpen}
-                    replyFolds={replyOpen}
-                    foldable
-                    loading={(promptOpen || replyOpen) && !history}
+                    replyFolds={open?.reply === true}
+                    // below the newest mark nothing has notes to fold to
+                    foldable={false}
+                    far={far}
                     project={project}
                     channelId={activeId}
                     onRewind={askRewind}
@@ -899,157 +939,111 @@ function ChatView({
                   />
                 );
               })}
-            {shownTurns.map((turn, index) => {
-              const head = turn.events[0];
-              // far enough up that the browser may skip laying it out until
-              // it comes near the viewport — see .turn.far
-              const far = index < shownTurns.length - LIVE_TURNS;
-              // a compaction mark, or what came before the first prompt
-              if (turn.solo || head?.kind !== "user") {
-                return (
-                  <div className={far ? "turn far" : "turn"} key={turn.turnId}>
-                    {turn.events.map((event) => (
-                      <EventView
-                        key={event.id}
-                        event={event}
-                        project={project}
-                        channelId={activeId}
-                        onRewind={askRewind}
-                        onFork={askFork}
-                      />
-                    ))}
-                  </div>
-                );
-              }
-              const open = opens[turn.turnId];
-              const promptOpen = open?.prompt ?? true;
-              const replyOpen = open?.reply ?? true;
-              const cut = promptOpen && replyOpen ? NO_EXCERPTS : turnExcerpts(turn);
-              return (
-                <Exchange
-                  key={turn.turnId}
-                  turnId={turn.turnId}
-                  events={turn.events}
-                  note={summaries[turn.turnId]}
-                  prompt={cut.prompt}
-                  reply={cut.reply}
-                  count={turn.events.length}
-                  promptOpen={promptOpen}
-                  replyOpen={replyOpen}
-                  replyFolds={open?.reply === true}
-                  // below the newest mark nothing has notes to fold to
-                  foldable={false}
-                  far={far}
-                  project={project}
-                  channelId={activeId}
-                  onRewind={askRewind}
-                  onFork={askFork}
-                  onOpen={openHalf}
-                  onFold={foldExchange}
-                  onFoldHalf={foldHalf}
-                />
-              );
-            })}
-            {draft && (
-              <div className="msg assistant streaming">
-                <StreamingMarkdown text={draft.text} />
-                <span className="cursor" ref={beat("blink")} />
+              {draft && (
+                <div className="msg assistant streaming">
+                  <StreamingMarkdown text={draft.text} />
+                  <span className="cursor" ref={beat("blink")} />
+                </div>
+              )}
+              {status === "working" && (
+                <div className="working">
+                  {!draft && <Thinking />}
+                  {turn && <WorkingLine turn={turn} effort={project.effort || DEFAULT_EFFORT} />}
+                </div>
+              )}
+              {/* neither a question nor a naming is an allow/deny — each gets
+                its own card, and only a real tool call gets allow/deny */}
+              {permissions.map((request) => (
+                <AskCard key={request.requestId} request={request} />
+              ))}
+              {queuedItems.length > 0 && (
+                <QueuedList projectId={activeId} items={queuedItems} held={queueHeld} />
+              )}
+              {queueHeld && queuedItems.length > 0 && (
+                <div className="queue-standby">
+                  <span>
+                    {queuedItems.length === 1 ? "1 prompt" : `${queuedItems.length} prompts`} held by the stop
+                    — they go out after your next one
+                  </span>
+                  <button
+                    className="ghost"
+                    title="Send what is waiting, now, in the order it was written"
+                    onClick={() => send({ type: "queue_send", projectId: activeId })}
+                  >
+                    Send now
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <SelectionFlags scrollerRef={scrollRef} />
+
+          {showJump && (
+            <button className="jump-latest" onClick={() => scrollToBottom("smooth")}>
+              <Icon d="M12 5v14M5 12l7 7 7-7" /> Latest
+            </button>
+          )}
+          {rapid?.on && <RapidBar rapid={rapid} floating />}
+          <BridgeStrip channelId={activeId} stacked={rapid?.on} />
+        </div>
+
+        {rewindTarget && (
+          <div className="confirm-overlay" onClick={() => setRewindTarget(null)}>
+            <div
+              className="confirm-card"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setRewindTarget(null);
+              }}
+            >
+              <div className="confirm-title">Rewind to this prompt</div>
+              <div className="confirm-quote">
+                {rewindTarget.text.length > 240
+                  ? `${rewindTarget.text.slice(0, 240).trimEnd()}…`
+                  : rewindTarget.text}
               </div>
-            )}
-            {status === "working" && (
-              <div className="working">
-                {!draft && <Thinking />}
-                {turn && <WorkingLine turn={turn} effort={project.effort || DEFAULT_EFFORT} />}
+              <div className="confirm-body">
+                {claudeRoute || providerRoute === "codex"
+                  ? "The conversation goes back to the moment before this prompt ran — everything after it is discarded."
+                  : "The conversation goes back to the moment before this prompt ran — everything after it is discarded, and the harness starts again from a brief of what's kept."}{" "}
+                What those turns did to the project goes back too — the files they changed, the commits,
+                branches and tags they made — while your own edits in between, and other chats' work, stay.
+                The prompt itself lands in the composer, so you can edit it there and send when you're ready.
               </div>
-            )}
-            {/* neither a question nor a naming is an allow/deny — each gets
-              its own card, and only a real tool call gets allow/deny */}
-            {permissions.map((request) => (
-              <AskCard key={request.requestId} request={request} />
-            ))}
-            {queuedItems.length > 0 && (
-              <QueuedList projectId={activeId} items={queuedItems} held={queueHeld} />
-            )}
-            {queueHeld && queuedItems.length > 0 && (
-              <div className="queue-standby">
-                <span>
-                  {queuedItems.length === 1 ? "1 prompt" : `${queuedItems.length} prompts`} held by the stop —
-                  they go out after your next one
-                </span>
+              <div className="confirm-actions">
+                <button className="ghost" onClick={() => setRewindTarget(null)}>
+                  Cancel
+                </button>
                 <button
-                  className="ghost"
-                  title="Send what is waiting, now, in the order it was written"
-                  onClick={() => send({ type: "queue_send", projectId: activeId })}
+                  className="primary"
+                  autoFocus
+                  onClick={() => {
+                    send({ type: "rewind", projectId: activeId, eventId: rewindTarget.id });
+                    setRewindTarget(null);
+                  }}
                 >
-                  Send now
+                  Rewind
                 </button>
               </div>
-            )}
+            </div>
           </div>
-        </div>
-
-        <SelectionFlags scrollerRef={scrollRef} />
-
-        {showJump && (
-          <button className="jump-latest" onClick={() => scrollToBottom("smooth")}>
-            <Icon d="M12 5v14M5 12l7 7 7-7" /> Latest
-          </button>
         )}
-        {rapid?.on && <RapidBar rapid={rapid} floating />}
-        <BridgeStrip channelId={activeId} stacked={rapid?.on} />
-      </div>
 
-      {rewindTarget && (
-        <div className="confirm-overlay" onClick={() => setRewindTarget(null)}>
-          <div
-            className="confirm-card"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setRewindTarget(null);
-            }}
-          >
-            <div className="confirm-title">Rewind to this prompt</div>
-            <div className="confirm-quote">
-              {rewindTarget.text.length > 240
-                ? `${rewindTarget.text.slice(0, 240).trimEnd()}…`
-                : rewindTarget.text}
-            </div>
-            <div className="confirm-body">
-              {claudeRoute || providerRoute === "codex"
-                ? "The conversation goes back to the moment before this prompt ran — everything after it is discarded."
-                : "The conversation goes back to the moment before this prompt ran — everything after it is discarded, and the harness starts again from a brief of what's kept."}{" "}
-              What those turns did to the project goes back too — the files they changed, the commits,
-              branches and tags they made — while your own edits in between, and other chats' work, stay. The
-              prompt itself lands in the composer, so you can edit it there and send when you're ready.
-            </div>
-            <div className="confirm-actions">
-              <button className="ghost" onClick={() => setRewindTarget(null)}>
-                Cancel
-              </button>
-              <button
-                className="primary"
-                autoFocus
-                onClick={() => {
-                  send({ type: "rewind", projectId: activeId, eventId: rewindTarget.id });
-                  setRewindTarget(null);
-                }}
-              >
-                Rewind
-              </button>
-            </div>
-          </div>
+        <div className="composer-dock" ref={observeDock}>
+          <Composer
+            channelId={activeId}
+            project={project}
+            busy={busy}
+            onSketch={openSketch}
+            {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
+          />
         </div>
-      )}
+      </main>
+    );
+  })();
 
-      <div className="composer-dock" ref={observeDock}>
-        <Composer
-          channelId={activeId}
-          project={project}
-          busy={busy}
-          onSketch={openSketch}
-          {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
-        />
-      </div>
-    </main>
-  );
+  // Home: the chat and the statistics on one track, the strip over both.
+  if (homeDeck) return <HomeDeck tab={homeTab} onTab={setHomeTab} chat={view} />;
+  return view;
 }

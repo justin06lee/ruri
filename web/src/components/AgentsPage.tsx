@@ -7,12 +7,28 @@ import {
   backAgent,
   closeAgent,
   composeInto,
+  refreshAgentLog,
   sendAgent,
   startAgent,
   stopAgent,
   useRuri,
 } from "../store";
 import { AgentCard, AgentHead, AgentHost, AgentMeta } from "./chat/AgentCard";
+
+/** How often a running script's page reads its output again. */
+const SCRIPT_REFRESH_MS = 2000;
+
+/** "3 agents · 1 script" — what the chat has, in words. */
+function tally(agents: SubagentState[]): string {
+  const scripts = agents.filter((a) => a.script).length;
+  const others = agents.length - scripts;
+  return [
+    others > 0 ? `${others} agent${others === 1 ? "" : "s"}` : undefined,
+    scripts > 0 ? `${scripts} script${scripts === 1 ? "" : "s"}` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 import { Icon, TOOL_ICONS } from "./chat/Icon";
 import { Dropdown } from "./Dropdown";
 import { EventView } from "./EventView";
@@ -41,11 +57,13 @@ function findAgent(s: Ruri, channelId: string, key: string): SubagentState | und
 /**
  * The agents page, in place of the chat as the project's other pages are:
  * every agent the chat has — the ones the model started and the ones you
- * did — or, with one picked, that agent's own conversation: the brief it
- * was handed, what it said, every tool it ran, live while it works. It is
- * also where you start agents of your own: a brief and a model, and it
- * goes off to work in the project by itself, reporting back here. Esc
- * steps out — from an agent to the list, from the list to the chat.
+ * did — and every script the model left running in the background; or,
+ * with one picked, that agent's own conversation: the brief it was handed,
+ * what it said, every tool it ran, live while it works (a script's page is
+ * its command and what it has printed). It is also where you start agents
+ * of your own: a brief and a model, and it goes off to work in the project
+ * by itself, reporting back here. Esc steps out — from an agent to the
+ * list, from the list to the chat.
  */
 export function AgentsPage({
   channelId,
@@ -99,7 +117,7 @@ function AgentList({
           <span className="board-sub">
             {agents.length === 0
               ? "none in this chat yet"
-              : `${agents.length} in this chat${working.length > 0 ? ` · ${working.length} working` : ""}`}
+              : `${tally(agents)} in this chat${working.length > 0 ? ` · ${working.length} at work` : ""}`}
           </span>
           <button className="icon-button" title="Back to the chat (Esc)" onClick={closeAgent}>
             <Icon d="M18 6L6 18M6 6l12 12" />
@@ -125,8 +143,9 @@ function AgentList({
         </AgentHost.Provider>
         {agents.length === 0 && (
           <div className="board-empty">
-            The agents the model starts show up here as it starts them. Brief one of your own above and it
-            goes off to work in {project.name} by itself — you can watch it here, tell it more, or stop it.
+            The agents the model starts show up here as it starts them, and so do the scripts it leaves
+            running in the background. Brief one of your own above and it goes off to work in {project.name}{" "}
+            by itself — you can watch it here, tell it more, or stop it.
           </div>
         )}
       </div>
@@ -213,6 +232,19 @@ function AgentView({
     const body = bodyRef.current;
     if (body && pinned.current) body.scrollTop = body.scrollHeight;
   }, [log, agent?.status, asks.length]);
+  // a script's output is a file, read when asked: asked again while it
+  // runs, and once more as it ends, for the last of it
+  const script = agent?.script === true;
+  const running = agent?.status === "running";
+  useEffect(() => {
+    if (!script) return;
+    if (!running) {
+      refreshAgentLog(channelId, agentKey);
+      return;
+    }
+    const timer = setInterval(() => refreshAgentLog(channelId, agentKey), SCRIPT_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [script, running, channelId, agentKey]);
   // its report, when it said more than its last message did
   const said = log && [...log].reverse().find((e) => e.kind === "assistant");
   const report =
@@ -221,7 +253,7 @@ function AgentView({
     (said?.kind !== "assistant" || said.text.trim() !== agent.result.trim())
       ? agent.result
       : undefined;
-  const handed = agent?.status !== "running" ? agent?.result : undefined;
+  const handed = agent?.status !== "running" && !agent?.script ? agent?.result : undefined;
   return (
     <section className="agents-page agent-view">
       <div className="agent-view-top">
@@ -282,7 +314,9 @@ function AgentView({
             )}
             {report && (
               <div className="agent-report">
-                <div className="agent-report-label">what it came back with</div>
+                <div className="agent-report-label">
+                  {agent?.script ? "how it ended" : "what it came back with"}
+                </div>
                 <Markdown text={report} />
               </div>
             )}
@@ -292,7 +326,9 @@ function AgentView({
             {agent?.status === "running" && (
               <div className="agent-live">
                 <Thinking />
-                <span className="agent-live-line">{agent.activity ? `${agent.activity}…` : "working…"}</span>
+                <span className="agent-live-line">
+                  {agent.script ? "running…" : agent.activity ? `${agent.activity}…` : "working…"}
+                </span>
               </div>
             )}
           </AgentHost.Provider>

@@ -15,6 +15,16 @@ const AGENT_STATUS: Record<SubagentState["status"], string> = {
   stopped: "stopped",
 };
 
+/** A script's, which runs rather than works. */
+const SCRIPT_STATUS: Record<SubagentState["status"], string> = { ...AGENT_STATUS, running: "running" };
+
+/** How a script ended, from the harness's sentence about it: the exit
+ *  code is the part worth reading ("… completed (exit code 0)"). */
+function scriptEnd(result: string): string {
+  const code = /exit code (-?\d+)/.exec(result)?.[1];
+  return code === undefined ? result : `exit code ${code}`;
+}
+
 function tokenCount(n: number): string {
   return n >= 1_000_000
     ? `${(n / 1_000_000).toFixed(1)}M`
@@ -42,6 +52,7 @@ export function AgentMeta({ agent }: { agent: SubagentState }) {
     agent.tokens ? `${tokenCount(agent.tokens)} tokens` : undefined,
     span((agent.endedAt ?? now) - agent.startedAt),
     agent.background ? "in the background" : undefined,
+    agent.resumed ? (agent.resumed === 1 ? "picked back up" : `picked back up ${agent.resumed}×`) : undefined,
     model,
   ]
     .filter(Boolean)
@@ -52,14 +63,16 @@ export function AgentMeta({ agent }: { agent: SubagentState }) {
 export function AgentHead({ agent }: { agent: SubagentState }) {
   return (
     <span className="agent-head">
-      <Icon d={TOOL_ICONS["agent"]!} />
-      <span className="agent-type">{agent.type ?? (agent.mine ? "yours" : "Agent")}</span>
+      <Icon d={TOOL_ICONS[agent.script ? "terminal" : "agent"]!} />
+      <span className="agent-type">
+        {agent.script ? "script" : (agent.type ?? (agent.mine ? "yours" : "Agent"))}
+      </span>
       <span className="agent-desc">{agent.description}</span>
       <span
         className={`agent-status ${agent.status}`}
         ref={agent.status === "running" ? beat("spin") : undefined}
       >
-        {AGENT_STATUS[agent.status]}
+        {(agent.script ? SCRIPT_STATUS : AGENT_STATUS)[agent.status]}
       </span>
     </span>
   );
@@ -69,19 +82,33 @@ export function AgentHead({ agent }: { agent: SubagentState }) {
  * A subagent in the chat: what it was sent to do, what it is doing right
  * now (or what it came back with), and how far it has got. It opens onto
  * its own conversation — the brief, everything it read, ran and said.
+ *
+ * A script the model left running in the background is one of these too:
+ * its command where an agent's doings go, how it exited where an agent's
+ * report goes, and it opens onto what it has printed.
  */
 export function AgentCard({ agent, channelId }: { agent: SubagentState; channelId?: string }) {
   const host = useContext(AgentHost);
-  const line =
-    agent.status === "running"
+  const line = agent.script
+    ? agent.status !== "running" && agent.result
+      ? scriptEnd(agent.result)
+      : // the command, unless the head already is it (no description given)
+        agent.prompt && agent.prompt.trim() !== agent.description.trim()
+        ? `$ ${excerpt(agent.prompt, 220)}`
+        : undefined
+    : agent.status === "running"
       ? agent.activity
       : agent.result
         ? excerpt(unmarked(agent.result), 220)
         : undefined;
   return (
     <button
-      className={`agent-card ${agent.status}`}
-      title="Open this agent — its brief, everything it did, and what it came back with"
+      className={`agent-card ${agent.status}${agent.script ? " script" : ""}`}
+      title={
+        agent.script
+          ? "Open this script — its command, and everything it has printed"
+          : "Open this agent — its brief, everything it did, and what it came back with"
+      }
       onClick={() => channelId && openAgent(channelId, agent.key, host === "page")}
     >
       <AgentHead agent={agent} />

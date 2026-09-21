@@ -56,6 +56,7 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
       projects: ctx.store.list(),
       transcripts: ctx.readable.allowArchived(ctx.archive.tails(projectIds, TRANSCRIPT_TAIL)),
       statuses: ctx.manager.statuses(),
+      work: Object.fromEntries(ctx.turns.work),
       permissions: [...ctx.permissions.values()],
       models: ctx.models.allModels(),
       summaries: ctx.archive.allSummaries(projectIds),

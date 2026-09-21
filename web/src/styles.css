@@ -814,6 +814,102 @@ textarea::placeholder {
   transform: none;
 }
 
+/* ── the dragon in the X's place ──────────────────────────────────────
+   A chat at work (a turn, or agents and scripts it left running) keeps a
+   small head where its remove button goes, there without a hover; a
+   folded folder keeps one for the chats inside it. Still at rest — the
+   pointer coming onto the row makes it chomp twice, quickly: the shut
+   jaw and the open one swapped four times in a third of a second, once,
+   and then it is still again. */
+
+.project-row .remove.busy,
+.project-folder.busy .folder-actions {
+  display: flex;
+}
+
+.project-folder.busy:not(:hover) .add-session,
+.project-folder.busy:not(:hover) .hide,
+.project-folder.busy:not(:hover) .star:not(.on) {
+  display: none;
+}
+
+/* over the starred folder's own rule, which tucks its X away unhovered */
+.project-folder.busy .folder-actions .remove.busy {
+  display: block;
+}
+
+.row-dragon {
+  position: relative;
+  display: block;
+  width: 15px;
+  height: 15px;
+  color: var(--ink-soft);
+}
+
+.remove.busy:hover .row-dragon {
+  color: var(--ink);
+}
+
+/* over the rows' own rule for the X's svg size */
+.row-dragon .row-dragon-frame.row-dragon-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.row-dragon-frame.f2 {
+  opacity: 0;
+}
+
+.project-row:hover .row-dragon-frame.f1,
+.folder-row:hover .row-dragon-frame.f1 {
+  animation: chomp-open 360ms step-end 1;
+}
+
+.project-row:hover .row-dragon-frame.f2,
+.folder-row:hover .row-dragon-frame.f2 {
+  animation: chomp-shut 360ms step-end 1;
+}
+
+@keyframes chomp-shut {
+  0% {
+    opacity: 1;
+  }
+  25% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  75%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes chomp-open {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+  75%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-dragon-frame {
+    animation: none !important;
+  }
+}
+
 /* ── music player ─────────────────────────────────────────────────── */
 
 .player {
@@ -1087,29 +1183,62 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── home: the tab strip ──────────────────────────────────────────── */
 
-/* Home is two pages under one strip: the agent's chat and the board of
-   every open project. Neither gets in the other's way — the strip picks
-   one and remembers it. On the hero it floats over the top the way the
-   rapid-fire header does, so the face stays centred in the pane; over a
-   conversation or the projects page it is a band of its own. */
+/* Home is two pages under one strip: the agent's chat and the statistics.
+   The strip floats over the top of both (HomeDeck, HomeBoard.tsx), so the
+   hero's face stays centred in the pane; a conversation, and the
+   statistics, leave its height free at their top (.home-tabs-space). */
 .home-tabs {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 46px;
-  flex-shrink: 0;
-  animation: rise 200ms ease-out;
-}
-
-.home-hero .home-tabs {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 46px;
+  animation: rise 200ms ease-out;
+}
+
+.home-tabs-space {
+  height: 46px;
+  flex-shrink: 0;
 }
 
 .home-hero .hero {
   margin: auto 0;
+}
+
+/* The deck: the two pages side by side on a track twice the pane's width,
+   the one showing in the window. Picking the other slides the track a
+   page along — the one you leave goes out one side as the other comes in —
+   and only the page you are on is mounted outside a slide. */
+.home-deck {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.home-track {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  width: 200%;
+  transition: transform 380ms cubic-bezier(0.3, 0.8, 0.25, 1);
+}
+
+.home-track.on-stats {
+  transform: translateX(-50%);
+}
+
+.home-slide {
+  flex: 0 0 50%;
+  min-width: 0;
+  display: flex;
 }
 
 .desktop .home-tabs {
@@ -1121,6 +1250,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .home-tabs-group {
+  position: relative; /* the pill under the words is placed against this */
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -1132,7 +1262,29 @@ input[type="range"]::-webkit-slider-thumb {
   background-size: 6px 6px;
 }
 
+/* The inked pill that says which page is up: one piece under both words,
+   measured to the one that is on and slid across to the other when it is
+   picked. Placed without a slide the first time (.placed comes a frame
+   later), so it is simply there when Home opens. */
+.home-tab-glide {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: 0;
+  border-radius: 999px;
+  background: var(--ink);
+  pointer-events: none;
+}
+
+.home-tab-glide.placed {
+  transition:
+    transform 380ms cubic-bezier(0.3, 0.8, 0.25, 1),
+    width 380ms cubic-bezier(0.3, 0.8, 0.25, 1);
+}
+
 .home-tab {
+  position: relative; /* over the pill */
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -1156,8 +1308,15 @@ input[type="range"]::-webkit-slider-thumb {
 
 .home-tab.on,
 .home-tab.on:hover {
-  background: var(--ink);
+  background: transparent;
   color: var(--paper);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-track,
+  .home-tab-glide.placed {
+    transition: none;
+  }
 }
 
 .home-tab:active {
@@ -2813,6 +2972,29 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
 }
 
+/* a fold made a moment ago can be taken apart again: a small word in ink
+   beside the label, there for as long as that is on offer */
+.queued-undo {
+  margin-right: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--ink-faint);
+  border-radius: 999px;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  animation: rise 160ms ease-out;
+}
+
+.queued-undo:hover {
+  background: var(--ink);
+  color: var(--paper);
+  transform: none;
+}
+
 .queued-actions {
   display: flex;
   gap: 2px;
@@ -4333,6 +4515,12 @@ input[type="range"]::-webkit-slider-thumb {
 
 .agent-card-line {
   font-size: var(--fs-md);
+}
+
+/* a script's line is its command, or how it exited: machine words */
+.agent-card.script .agent-card-line {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
 }
 
 .agent-card-meta {

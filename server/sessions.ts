@@ -39,6 +39,7 @@ import {
   type AskAnswers,
   type AskQuestions,
   type Attachment,
+  type BackgroundWork,
   type FileDiff,
   type ModelChoice,
   type PermissionMode,
@@ -114,6 +115,13 @@ export interface SessionExtras {
    * changed (server/checkpoints.ts).
    */
   beforeTools?: () => Promise<void>;
+  /**
+   * The chat's transcript as it stands. An agent a turn started lives in
+   * the harness's own records long after the process that ran it is gone,
+   * and the model can send it on again from a new one — this is where that
+   * process finds the card it is picking back up.
+   */
+  transcript?: () => TranscriptEvent[];
 }
 
 /** How the manager reaches non-Claude harnesses (see server/providers.ts). */
@@ -156,6 +164,9 @@ interface ChannelSession {
   /** Work the harness is still doing in the background of an idle session
    *  (a shell left running, a subagent) — closing the process would kill it. */
   hasBackgroundWork?(): boolean;
+  /** That work, counted — agents and scripts apart — for the sidebar and
+   *  the projects page to say a chat is busy with no turn running. */
+  backgroundWork?(): BackgroundWork;
   dispose(): void;
   respondPermission(requestId: string, allow: boolean, always?: boolean): boolean;
   /** Answer an AskUserQuestion card. Omitted answers = the user dismissed it,
@@ -494,14 +505,110 @@ function agentCard(
  */
 class AgentBook {
   private readonly cards = new Map<string, { event: ToolEvent; parent?: string; said?: string }>();
+  /** Keys the chat has no card for (an agent's own agent, from an earlier
+   *  process): looked for once, not on every word they say. */
+  private readonly strangers = new Set<string>();
 
   constructor(
     private readonly projectId: string,
     private readonly events: SessionEvents,
+    /** The cards the chat already holds, from its earlier processes — an
+     *  agent one of those started can be picked back up in this one. */
+    private readonly earlier: () => ToolEvent[] = () => [],
   ) {}
 
   has(key: string): boolean {
     return this.cards.has(key);
+  }
+
+  /** A card this process didn't start, taken on from the chat — true when
+   *  there was one to take. Only a top-level card can be: an agent's own
+   *  agents live in its log, not the chat. */
+  adopt(key: string): boolean {
+    if (this.cards.has(key)) return true;
+    if (this.strangers.has(key)) return false;
+    const event = this.earlier().find((e) => e.agent?.key === key);
+    if (!event?.agent) {
+      this.strangers.add(key);
+      return false;
+    }
+    // one left "running" belonged to a process that is gone
+    const agent: SubagentState =
+      event.agent.status === "running" ? { ...event.agent, status: "stopped" } : event.agent;
+    this.cards.set(key, { event: { ...event, agent } });
+    return true;
+  }
+
+  /** The card of the agent the harness knows by `agentId` — this process's
+   *  or, adopted, an earlier one's. */
+  keyOf(agentId: string): string | undefined {
+    for (const [key, card] of this.cards) if (card.event.agent?.agentId === agentId) return key;
+    const key = this.earlier().find((e) => e.agent?.agentId === agentId)?.agent?.key;
+    return key && this.adopt(key) ? key : undefined;
+  }
+
+  /** Whether the agent under `key` has ended — failed, stopped or done. */
+  ended(key: string): boolean {
+    const status = this.cards.get(key)?.event.agent?.status;
+    return status !== undefined && status !== "running";
+  }
+
+  isScript(key: string): boolean {
+    return this.cards.get(key)?.event.agent?.script === true;
+  }
+
+  /**
+   * An agent that had ended, sent on again — Claude resumes one when the
+   * model messages it, a failed one as much as a finished one. It works
+   * again, in the background, with what it was told opening its next
+   * stretch of log; the numbers start over for the run.
+   */
+  resume(key: string, prompt: string | undefined, id: string): void {
+    const card = this.cards.get(key);
+    const current = card?.event.agent;
+    if (!card || !current || current.status === "running") return;
+    const { endedAt: _ended, result: _result, tokens: _tokens, tools: _tools, ...rest } = current;
+    const next: SubagentState = {
+      ...rest,
+      status: "running",
+      background: true,
+      startedAt: Date.now(),
+      resumed: (current.resumed ?? 0) + 1,
+      ...(prompt ? { activity: headline(prompt) } : {}),
+    };
+    card.event = { ...card.event, agent: next };
+    delete card.said;
+    if (prompt) this.log(key, { kind: "user", id: `${id}:brief`, text: prompt, ts: Date.now() });
+    this.emit(card);
+    this.events.onBackground?.(this.projectId);
+  }
+
+  /** A tool call already on screen (a shell left running) becomes a card
+   *  where it stands: the same event, sent again with its state. */
+  attach(event: ToolEvent, parent?: string): void {
+    const key = event.agent?.key;
+    if (!key || this.cards.has(key)) return;
+    const card = { event, ...(parent ? { parent } : {}) };
+    this.cards.set(key, card);
+    this.emit(card);
+    this.events.onBackground?.(this.projectId);
+  }
+
+  /** What is still running here, agents and scripts apart. */
+  running(): BackgroundWork {
+    const work = { agents: 0, scripts: 0 };
+    for (const card of this.cards.values()) {
+      const agent = card.event.agent;
+      if (agent?.status !== "running") continue;
+      if (agent.script) work.scripts += 1;
+      else work.agents += 1;
+    }
+    return work;
+  }
+
+  private emit(card: { event: ToolEvent; parent?: string }): void {
+    if (card.parent) this.events.onAgentEvent?.(this.projectId, card.parent, card.event);
+    else (this.events.onEventUpdate ?? this.events.onEvent)(this.projectId, card.event);
   }
 
   isBackground(key: string): boolean {
@@ -545,10 +652,14 @@ class AgentBook {
     const changed = (Object.keys(next) as Array<keyof SubagentState>).some((k) => next[k] !== current[k]);
     if (!changed) return;
     card.event = { ...card.event, agent: next };
-    if (card.parent) this.events.onAgentEvent?.(this.projectId, card.parent, card.event);
-    else (this.events.onEventUpdate ?? this.events.onEvent)(this.projectId, card.event);
-    // one fewer agent at work: the session may be free to close
-    if (current.status === "running" && next.status !== "running") this.events.onBackground?.(this.projectId);
+    this.emit(card);
+    // one fewer agent at work (or one more gone to the background): the
+    // session may be free to close, and the chat's work has changed
+    if (
+      (current.status === "running" && next.status !== "running") ||
+      (next.background && !current.background)
+    )
+      this.events.onBackground?.(this.projectId);
   }
 
   /** Something the agent did, for its log. */
@@ -579,12 +690,36 @@ interface TaskMessage {
   subtype: "task_started" | "task_progress" | "task_updated" | "task_notification";
   task_id: string;
   tool_use_id?: string;
+  /** "local_agent", "local_bash", … — an older CLI may not say. */
+  task_type?: string;
+  description?: string;
+  /** What a starting agent was told — for one picked back up, the message
+   *  that picked it up. */
+  prompt?: string;
   subagent_type?: string;
   is_backgrounded?: boolean;
   usage?: { total_tokens: number; tool_uses: number };
   status?: "completed" | "failed" | "stopped";
+  /** How it ended, in the CLI's words ("… completed (exit code 0)"). */
+  summary?: string;
+  output_file?: string;
   patch?: { status?: string; is_backgrounded?: boolean; error?: string };
 }
+
+/** The only files a script's page will read: the CLI's own task output. */
+export const SCRIPT_OUTPUT = /^\/.*\/tasks\/[A-Za-z0-9_-]+\.output$/;
+
+/** Where a background shell's output goes, as its tool result names it. */
+function outputPath(text: string): string | undefined {
+  const found = /written to: (\S+?\.output)\b/.exec(text)?.[1];
+  return found && SCRIPT_OUTPUT.test(found) ? found : undefined;
+}
+
+/** How many shell calls are remembered in case one goes to the background. */
+const SHELLS_KEPT = 64;
+
+/** How many announced resumes wait to be named by the agent's first words. */
+const PENDING_KEPT = 16;
 
 /** An agent's report as the tool hands it back, without the bookkeeping
  *  the CLI appends for the model (its id for resuming, its usage). */
@@ -715,13 +850,27 @@ class ProjectSession implements ChannelSession {
   /** The file checkpoint a changing tool waits for (SessionExtras.beforeTools). */
   private readonly toolBarrier: SessionExtras["beforeTools"];
   /** Background tasks the CLI reports live (a shell run in the background,
-   *  a subagent). They live in the CLI's process, so it stays while any do. */
-  private backgroundTasks = 0;
+   *  a subagent), by kind. They live in the CLI's process, so it stays
+   *  while any do. */
+  private backgroundTasks: string[] = [];
   /** The subagents this session's turns have started. */
   private readonly agents: AgentBook;
   /** The CLI's task ids for them, to their spawning tool_use ids — task
    *  messages name the tool_use only some of the time. */
   private readonly taskKeys = new Map<string, string>();
+  /** Tool calls that speak for a card they did not start — a SendMessage
+   *  that picked an agent back up — to that card's key. */
+  private readonly aliases = new Map<string, string>();
+  /** Agents the CLI says it has picked back up before anything has named
+   *  which card they are (a card from before this process, from before
+   *  cards kept the CLI's id): the agent's first words name it. */
+  private readonly pendingResumes = new Map<string, { useId?: string; prompt?: string }>();
+  /** The latest shell calls, by tool_use id, in case the CLI says one has
+   *  gone to the background — then its chip becomes a card. */
+  private readonly shells = new Map<
+    string,
+    { event: ToolEvent; command: string; parent?: string; output?: string }
+  >();
 
   constructor(
     private readonly project: Project,
@@ -735,7 +884,9 @@ class ProjectSession implements ChannelSession {
     this.lastSessionId = resume;
     this.secretFill = extras?.fillSecrets;
     this.toolBarrier = extras?.beforeTools;
-    this.agents = new AgentBook(project.id, events);
+    this.agents = new AgentBook(project.id, events, () =>
+      (extras?.transcript?.() ?? []).filter((e): e is ToolEvent => e.kind === "tool" && !!e.agent),
+    );
     this.session = new AgentSession({
       cwd: project.path,
       appName: "ruri",
@@ -1057,14 +1208,91 @@ class ProjectSession implements ChannelSession {
       this.dead = true;
       this.rejectAllPending();
       // the process is gone, and every agent it was running with it
+      this.backgroundTasks = [];
       this.agents.settle();
+      this.events.onBackground?.(this.project.id);
     }
   }
 
   hasBackgroundWork(): boolean {
     // the CLI's own count, and the agents' cards besides: a background
     // agent is the one thing it would be worst to cut off
-    return this.backgroundTasks > 0 || this.agents.anyRunning();
+    return this.backgroundTasks.length > 0 || this.agents.anyRunning();
+  }
+
+  backgroundWork(): BackgroundWork {
+    if (this.dead) return { agents: 0, scripts: 0 };
+    // the cards say what they are; the CLI's own set is the floor, for
+    // work no card was made for (a workflow, a monitor)
+    const cards = this.agents.running();
+    const scripts = this.backgroundTasks.filter((type) => type === "local_bash").length;
+    return {
+      agents: Math.max(cards.agents, this.backgroundTasks.length - scripts),
+      scripts: Math.max(cards.scripts, scripts),
+    };
+  }
+
+  /** A shell call, remembered in case it goes on in the background. */
+  private noteShell(block: Record<string, unknown>, event: ToolEvent, parent?: string): void {
+    const id = block["id"];
+    const input = (block["input"] ?? {}) as Record<string, unknown>;
+    const command = field(input, "command");
+    if (block["name"] !== "Bash" || typeof id !== "string" || !command) return;
+    this.shells.set(id, { event, command, ...(parent ? { parent } : {}) });
+    if (this.shells.size > SHELLS_KEPT) this.shells.delete(this.shells.keys().next().value!);
+  }
+
+  /** A shell call's result: for one left running, where its output goes. */
+  private shellResults(blocks: unknown): void {
+    if (!Array.isArray(blocks)) return;
+    for (const block of blocks as Array<Record<string, unknown>>) {
+      const id = block["type"] === "tool_result" ? block["tool_use_id"] : undefined;
+      const shell = typeof id === "string" ? this.shells.get(id) : undefined;
+      if (!shell || typeof id !== "string") continue;
+      const output = outputPath(resultText(block["content"]));
+      if (!output) continue;
+      shell.output = output;
+      if (this.agents.has(id)) this.agents.update(id, { output });
+    }
+  }
+
+  /** A shell call the CLI says is running in the background: its chip in
+   *  the chat (or in the log of the agent that ran it) becomes a card. */
+  private scriptStarted(useId: string, taskId: string, description?: string): void {
+    const shell = this.shells.get(useId);
+    if (!shell || this.agents.has(useId)) return;
+    this.agents.attach(
+      {
+        ...shell.event,
+        agent: {
+          key: useId,
+          script: true,
+          description: description?.trim() || headline(shell.command),
+          prompt: shell.command,
+          status: "running",
+          background: true,
+          startedAt: Date.now(),
+          agentId: taskId,
+          ...(shell.output ? { output: shell.output } : {}),
+        },
+      },
+      shell.parent,
+    );
+  }
+
+  /** An agent that had ended, picked back up: its card works again. */
+  private resumeAgent(key: string, taskId: string, useId: string | undefined, prompt?: string): void {
+    this.pendingResumes.delete(taskId);
+    this.taskKeys.set(taskId, key);
+    if (useId) this.aliases.set(useId, key);
+    this.agents.resume(key, prompt, useId ?? taskId);
+  }
+
+  /** The card a task message is about, however it names it. */
+  private taskKey(msg: TaskMessage): string | undefined {
+    const use = msg.tool_use_id;
+    if (use && this.agents.has(use)) return use;
+    return (use ? this.aliases.get(use) : undefined) ?? this.taskKeys.get(msg.task_id);
   }
 
   /** A tool_use block as the transcript shows it: its chip, with the patch
@@ -1096,6 +1324,21 @@ class ProjectSession implements ChannelSession {
     const blocks =
       (msg.message as { content?: Array<Record<string, unknown> & { type: string }> } | undefined)?.content ??
       [];
+    // an agent from an earlier process, or one that had ended, speaking:
+    // it has been picked back up, and a resume the CLI announced without
+    // naming the card is this one
+    this.agents.adopt(parent);
+    for (const [taskId, pending] of this.pendingResumes) {
+      // not a resume after all: a start the CLI announced before its call
+      if (pending.useId !== parent) continue;
+      this.pendingResumes.delete(taskId);
+      this.taskKeys.set(taskId, parent);
+      this.agents.update(parent, { agentId: taskId });
+    }
+    const pending = this.pendingResumes.entries().next().value;
+    if (pending && this.agents.ended(parent)) {
+      this.resumeAgent(parent, pending[0], pending[1].useId, pending[1].prompt);
+    }
     if (msg.subagent_type) this.agents.update(parent, { type: msg.subagent_type });
     const text = blocks
       .filter((b) => b.type === "text")
@@ -1114,6 +1357,7 @@ class ProjectSession implements ChannelSession {
         continue;
       }
       this.agents.log(parent, event);
+      this.noteShell(block, event, parent);
       this.agents.update(parent, { activity: `${event.name} ${event.summary}`.trim() });
       this.events.onProgress(this.project.id, { chars: 1 });
     }
@@ -1124,17 +1368,45 @@ class ProjectSession implements ChannelSession {
    *  the rest ride the same messages; only agents with a card are read. */
   private onTask(msg: TaskMessage): void {
     if (msg.subtype === "task_started") {
-      if (!msg.tool_use_id || !this.agents.has(msg.tool_use_id)) return;
-      this.taskKeys.set(msg.task_id, msg.tool_use_id);
-      this.agents.update(msg.tool_use_id, {
-        ...(msg.subagent_type ? { type: msg.subagent_type } : {}),
-        ...(msg.is_backgrounded ? { background: true } : {}),
-      });
+      // a shell: a card once it is in the background — from the start, or
+      // when a long foreground one is sent there (task_updated, below)
+      if (msg.task_type === "local_bash") {
+        if (!msg.tool_use_id) return;
+        this.taskKeys.set(msg.task_id, msg.tool_use_id);
+        if (msg.is_backgrounded) this.scriptStarted(msg.tool_use_id, msg.task_id, msg.description);
+        return;
+      }
+      if (msg.tool_use_id && this.agents.has(msg.tool_use_id)) {
+        this.taskKeys.set(msg.task_id, msg.tool_use_id);
+        this.agents.update(msg.tool_use_id, {
+          agentId: msg.task_id,
+          ...(msg.subagent_type ? { type: msg.subagent_type } : {}),
+          ...(msg.is_backgrounded ? { background: true } : {}),
+        });
+        return;
+      }
+      // Not a spawn: an agent that had ended, picked back up (the model
+      // messaged it — to carry on after a failure, or with more to do).
+      // The CLI keeps its task id and names the call that woke it.
+      if (msg.task_type !== undefined && msg.task_type !== "local_agent") return;
+      const key = this.taskKeys.get(msg.task_id) ?? this.agents.keyOf(msg.task_id);
+      if (key) this.resumeAgent(key, msg.task_id, msg.tool_use_id, msg.prompt);
+      else if (msg.task_type === "local_agent") {
+        this.pendingResumes.set(msg.task_id, {
+          ...(msg.tool_use_id ? { useId: msg.tool_use_id } : {}),
+          ...(msg.prompt ? { prompt: msg.prompt } : {}),
+        });
+        // ones nothing ever named are let go, oldest first
+        if (this.pendingResumes.size > PENDING_KEPT)
+          this.pendingResumes.delete(this.pendingResumes.keys().next().value!);
+      }
       return;
     }
-    const key =
-      msg.tool_use_id && this.agents.has(msg.tool_use_id) ? msg.tool_use_id : this.taskKeys.get(msg.task_id);
+    const key = this.taskKey(msg);
     if (!key) return;
+    if (msg.subtype === "task_updated" && msg.patch?.is_backgrounded && this.shells.has(key)) {
+      this.scriptStarted(key, msg.task_id);
+    }
     const counts = msg.usage ? { tokens: msg.usage.total_tokens, tools: msg.usage.tool_uses } : {};
     if (msg.subtype === "task_progress") {
       this.agents.update(key, counts);
@@ -1155,14 +1427,21 @@ class ProjectSession implements ChannelSession {
       });
     } else {
       const status = msg.status === "completed" ? "done" : msg.status === "failed" ? "failed" : "stopped";
-      this.agents.update(key, { ...counts, status });
+      // a script's end is its report: how it exited, and where it all went
+      const script = this.agents.isScript(key)
+        ? {
+            ...(msg.summary ? { result: msg.summary } : {}),
+            ...(msg.output_file && SCRIPT_OUTPUT.test(msg.output_file) ? { output: msg.output_file } : {}),
+          }
+        : {};
+      this.agents.update(key, { ...counts, ...script, status });
     }
   }
 
   private handle(msg: SDKMessage): void {
     if (msg.type === "system" && msg.subtype === "background_tasks_changed") {
       // a level, not an edge: the whole live set each time
-      this.backgroundTasks = msg.tasks.length;
+      this.backgroundTasks = msg.tasks.map((task) => task.task_type);
       this.events.onBackground?.(this.project.id);
       return;
     }
@@ -1216,6 +1495,7 @@ class ProjectSession implements ChannelSession {
       // on, its end. One left in the background answered "started" here;
       // its end comes as a task notification.
       const blocks = (msg.message as { content?: unknown }).content;
+      this.shellResults(blocks);
       if (Array.isArray(blocks)) {
         for (const block of blocks as Array<Record<string, unknown>>) {
           const key = block["type"] === "tool_result" ? block["tool_use_id"] : undefined;
@@ -1227,6 +1507,9 @@ class ProjectSession implements ChannelSession {
           });
         }
       }
+    } else if (msg.type === "user" && msg.parent_tool_use_id !== null) {
+      // an agent's own tool results: where a shell it left running writes
+      this.shellResults((msg.message as { content?: unknown }).content);
     } else if (msg.type === "assistant" && msg.parent_tool_use_id !== null) {
       this.subagentSaid(
         msg.parent_tool_use_id,
@@ -1278,7 +1561,10 @@ class ProjectSession implements ChannelSession {
         if (block.type !== "tool_use") continue;
         const event = this.toolEvent(block);
         if (event.agent) this.agents.start(event);
-        else this.pushEvent(event);
+        else {
+          this.pushEvent(event);
+          this.noteShell(block, event);
+        }
       }
     } else if (msg.type === "result") {
       this.lastSessionId = msg.session_id;
@@ -2347,6 +2633,10 @@ class ProviderAgentSession implements ChannelSession {
     return this.agents.anyRunning();
   }
 
+  backgroundWork(): BackgroundWork {
+    return this.dead ? { agents: 0, scripts: 0 } : this.agents.running();
+  }
+
   dispose(): void {
     this.dead = true;
     this.backlog.length = 0;
@@ -2540,6 +2830,12 @@ export class SessionManager {
         this.settle(projectId);
       },
     };
+  }
+
+  /** What a channel has working in the background, turn or no turn. */
+  backgroundWork(projectId: string): BackgroundWork {
+    const session = this.sessions.get(projectId);
+    return (!session?.dead && session?.backgroundWork?.()) || { agents: 0, scripts: 0 };
   }
 
   /** Where the default model is read from (the project store's crown). */

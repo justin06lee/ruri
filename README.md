@@ -39,10 +39,10 @@ bun run desktop   # the desktop app unpackaged (built UI + Electron)
 - **Projects are folders of parallel sessions** — auto-named after their first turn, warm in the background, resumed after a relaunch; idle ones give their process back and resume on the next prompt.
 - **Any harness, verbatim** — Claude, Codex, OpenCode, Gemini, ACP agents; model, reasoning effort and permission mode are per chat.
 - **Streaming markdown replies** with tool chips, inline diffs, previews of what was read, and permission cards that mean the same thing on every harness.
-- **An app-side prompt queue** you can reorder, merge and edit while a turn runs; a prompt splitter; slash commands inside a prompt.
+- **An app-side prompt queue** you can reorder, merge (with an undo) and edit while a turn runs; a prompt splitter; slash commands inside a prompt.
 - **Attachments** — images, videos, PDFs, files — with markers as chips, region crops, a full-size viewer and a sketch pad.
 - **Edit & rewind** with ruri's own checkpoints on every harness — the discarded turns' files, commits and context go back, and nothing else does; fork a chat at any exchange; import chats started outside ruri.
-- **Subagents as live cards**, an agents page, and agents of your own started from a brief.
+- **Subagents and background scripts as live cards**, an agents page, and agents of your own started from a brief; an agent the model sends on again picks its own card back up.
 - **The bridge** — a session looks at and drives what it built: a hidden browser window over CDP, native apps over Accessibility, previews above the composer.
 - **ruri's own `/compact`** — instant and token-free, built from per-turn recall notes; transcripts split into a live part and a capped history.
 - **Turn memory, a feature tracker, catch-up briefs, a component index, an ideas board, the vault** (secrets the model can use but never read) **and a skills page.**

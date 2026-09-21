@@ -5,7 +5,8 @@ import { useConfirm } from "./Confirm";
 import { Player } from "./Player";
 import { getPref, setPref } from "../prefs";
 import { STAR_PATH } from "../icons";
-import { send, useRuri } from "../store";
+import { isBusy, send, useRuri } from "../store";
+import { DragonHead } from "./Thinking";
 
 function HomeRow() {
   const activeId = useRuri((s) => s.activeId);
@@ -162,9 +163,30 @@ function NameEditor({
   );
 }
 
+/** The X — or, while the thing it removes is at work, a dragon's head in
+ *  its place. The head still removes it, asked first like the X is. */
+function RemoveIcon({ busy }: { busy: boolean }) {
+  return busy ? (
+    <DragonHead />
+  ) : (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  );
+}
+
 function SessionRow({ session }: { session: SessionInfo }) {
   const activeId = useRuri((s) => s.activeId);
   const unread = useRuri((s) => s.unread[session.id] ?? false);
+  // a turn running, or agents and scripts it left running after it
+  const busy = useRuri((s) => isBusy(s, session.id));
   const setActive = useRuri((s) => s.setActive);
   const [renaming, setRenaming] = useState(false);
   const { confirm: ask, card } = useConfirm();
@@ -191,29 +213,22 @@ function SessionRow({ session }: { session: SessionInfo }) {
       {unread && <span className="unread-pip" title="Turn finished" />}
       {card}
       <button
-        className="remove"
-        title="Remove session"
+        className={`remove ${busy ? "busy" : ""}`}
+        title={busy ? "Working — click to remove this session anyway" : "Remove session"}
         onClick={(e) => {
           e.stopPropagation();
           void ask({
             title: "Remove this session?",
-            body: "Its transcript is deleted; files are untouched.",
+            body: busy
+              ? "It is still working — that stops, and its transcript is deleted; files are untouched."
+              : "Its transcript is deleted; files are untouched.",
             ok: "Remove",
           }).then((yes) => {
             if (yes) send({ type: "remove_session", sessionId: session.id });
           });
         }}
       >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          aria-hidden
-        >
-          <path d="M6 6l12 12M18 6L6 18" />
-        </svg>
+        <RemoveIcon busy={busy} />
       </button>
     </div>
   );
@@ -314,6 +329,10 @@ function ProjectFolder({
 }) {
   const [renaming, setRenaming] = useState(false);
   const { confirm: ask, card } = useConfirm();
+  // folded, the folder speaks for the chats inside it: any of them at work
+  // puts the head where the folder's X goes
+  const anyBusy = useRuri((s) => project.sessions.some((x) => isBusy(s, x.id)));
+  const busy = collapsed && anyBusy;
   const rename = (name: string | null) => {
     setRenaming(false);
     if (name) send({ type: "rename_project", projectId: project.id, name });
@@ -321,7 +340,7 @@ function ProjectFolder({
   return (
     <div>
       <div
-        className={`folder-row project-folder ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""}`}
+        className={`folder-row project-folder ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${busy ? "busy" : ""}`}
         onClick={onToggle}
         onDoubleClick={(e) => {
           e.preventDefault();
@@ -437,29 +456,22 @@ function ProjectFolder({
           </button>
           {card}
           <button
-            className="remove"
-            title="Remove project"
+            className={`remove ${busy ? "busy" : ""}`}
+            title={busy ? "Working — click to remove this project anyway" : "Remove project"}
             onClick={(e) => {
               e.stopPropagation();
               void ask({
                 title: `Remove "${project.name}"?`,
-                body: "All its sessions go with it; files are untouched.",
+                body: anyBusy
+                  ? "All its sessions go with it, the working ones stopped; files are untouched."
+                  : "All its sessions go with it; files are untouched.",
                 ok: "Remove",
               }).then((yes) => {
                 if (yes) send({ type: "remove_project", projectId: project.id });
               });
             }}
           >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              aria-hidden
-            >
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
+            <RemoveIcon busy={busy} />
           </button>
         </span>
       </div>

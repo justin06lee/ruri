@@ -777,6 +777,22 @@ function ChatView({
     );
   }
 
+  // A header button swaps the whole pane for that page — no navigation,
+  // just this branch; the lit button swaps it back. Ahead of the hero: a
+  // fresh session has the same header, and its buttons have to go
+  // somewhere before the first prompt as much as after it.
+  if (page !== "chat") {
+    return (
+      <main className={pane("chat")}>
+        {header}
+        {page === "tracker" && <Tracker projectId={activeId} onClose={() => setPage("chat")} />}
+        {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
+        {page === "components" && boardId && <Components projectId={boardId} />}
+        {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
+      </main>
+    );
+  }
+
   // No conversation yet (Home or a fresh project): the hero — face, a big
   // title, and the composer front and center.
   if (transcript.length === 0 && !draft && permissions.length === 0) {
@@ -807,20 +823,6 @@ function ChatView({
             />
           </div>
         </div>
-      </main>
-    );
-  }
-
-  // A header button swaps the whole pane for that page — no navigation,
-  // just this branch; the lit button swaps it back.
-  if (page !== "chat") {
-    return (
-      <main className={pane("chat")}>
-        {header}
-        {page === "tracker" && <Tracker projectId={activeId} onClose={() => setPage("chat")} />}
-        {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
-        {page === "components" && boardId && <Components projectId={boardId} />}
-        {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
       </main>
     );
   }

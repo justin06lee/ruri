@@ -44,6 +44,9 @@ export class SendQueues {
   readonly held = new Set<string>();
   // Bumped on interrupt so an in-flight split resolution knows to stand down.
   readonly epochs = new Map<string, number>();
+  /** Channels whose running turn a prompt has stopped to cut in: the held
+   *  queue goes — that prompt at its head — the moment the turn is over. */
+  readonly cutIn = new Set<string>();
 
   constructor(private readonly broadcast: (message: ServerMessage) => void) {}
 
@@ -131,6 +134,7 @@ export class SendQueues {
     this.entries.delete(channelId);
     this.held.delete(channelId);
     this.epochs.delete(channelId);
+    this.cutIn.delete(channelId);
   }
 }
 

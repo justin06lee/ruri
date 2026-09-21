@@ -855,8 +855,11 @@ export type ClientMessage =
   /** Ask macOS for one grant, or (no id) every one in turn. */
   | { type: "permissions_request"; id?: PermissionId }
   | { type: "remove_project"; projectId: string }
-  | { type: "send"; projectId: string; text: string; attachments?: AttachmentUpload[] }
-  | { type: "send_split"; projectId: string; text: string; attachments?: AttachmentUpload[] }
+  /** A prompt. `now`: cut in — the running turn is stopped and this goes
+   *  out in its place the moment it has, ahead of anything queued (which
+   *  follows it); with nothing running it is simply sent. */
+  | { type: "send"; projectId: string; text: string; attachments?: AttachmentUpload[]; now?: true }
+  | { type: "send_split"; projectId: string; text: string; attachments?: AttachmentUpload[]; now?: true }
   /** Drop a prompt still waiting in the app-side queue. Editing one is this
    *  plus a compose: it leaves the queue and lands back in the composer. */
   | { type: "queue_remove"; projectId: string; itemId: string }

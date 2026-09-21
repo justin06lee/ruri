@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import type { AskQuestions } from "../../shared/protocol.js";
 import { busy, channelProject, ownerProject, running } from "../channel.js";
 import { knownCommands, splitCommands } from "../commands.js";
-import { dispatch, dispatchSplit, drainQueue, queueWithCommands } from "../dispatch.js";
+import { cutIn, dispatch, dispatchSplit, drainQueue, queueWithCommands, stopTurn } from "../dispatch.js";
 import { combine, reslot, uncombine, type QueueEntry } from "../queue.js";
 import { storeAttachments, storeUpload } from "../uploads.js";
 import { followCrew } from "./crew.js";
@@ -22,6 +22,8 @@ const send: Handler<"send"> = (ctx, _ws, msg) => {
   // the user is driving again: whatever ruri was about to try again
   // for them, this prompt says it better
   ctx.retries.cancelRetry(channelId);
+  // sent to cut in: the running turn stops and this goes in its place
+  if (msg.now && cutIn(ctx, channelId, msg.text, uploads, false)) return;
   // A queue that has been standing by since a stopped turn: this
   // prompt is the reason it stopped — a clarification, a correction —
   // so it goes out now, ahead of the queue, and the queue falls in
@@ -54,6 +56,7 @@ export const promptHandlers = {
     const uploads = msg.attachments ?? [];
     ctx.retries.cancelRetry(channelId);
     if (!channelProject(ctx, channelId)) throw new Error("unknown session");
+    if (msg.now && cutIn(ctx, channelId, msg.text, uploads, true)) return;
     const ahead = ctx.queues.releaseQueue(channelId) && !running(ctx, channelId);
     if (queueWithCommands(ctx, channelId, msg.text, uploads, true, ahead)) return;
     dispatchSplit(ctx, channelId, msg.text, uploads, ahead);
@@ -177,19 +180,11 @@ export const promptHandlers = {
     if (!ctx.queues.held.has(channelId) && !running(ctx, channelId)) drainQueue(ctx, channelId);
   },
   interrupt: (ctx, _ws, msg) => {
-    ctx.queues.epochs.set(msg.projectId, (ctx.queues.epochs.get(msg.projectId) ?? 0) + 1);
-    ctx.retries.cancelRetry(msg.projectId);
     // The queue is not thrown away with the answer — it stands by. It
     // moves again on the next prompt (which goes ahead of it) or when
     // it is sent on from its own card.
-    ctx.queues.holdQueue(msg.projectId);
-    ctx.manager.interrupt(msg.projectId);
-    // settle the optimistic "working" a pending split may have shown
-    ctx.clients.broadcast({
-      type: "status",
-      projectId: msg.projectId,
-      status: ctx.manager.statuses()[msg.projectId] ?? "idle",
-    });
+    ctx.queues.cutIn.delete(msg.projectId);
+    stopTurn(ctx, msg.projectId);
   },
   draft: (ctx, _ws, msg) => {
     // Every keystroke's worth of unsent prompt, held for the next

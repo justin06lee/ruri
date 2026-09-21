@@ -176,7 +176,13 @@ export function dispatchSplit(
  *  one went out — a caller deciding what a finished turn means next needs
  *  to know, and the send itself is a microtask away. */
 export function drainQueue(ctx: ServerContext, channelId: string): boolean {
-  if (ctx.queues.held.has(channelId)) return false;
+  // standing by since a stop — unless the stop was a prompt cutting in,
+  // which goes now, with the queue behind it moving again
+  if (ctx.queues.held.has(channelId)) {
+    if (!ctx.queues.cutIn.has(channelId)) return false;
+    ctx.queues.releaseQueue(channelId);
+  }
+  ctx.queues.cutIn.delete(channelId);
   const queue = ctx.queues.entries.get(channelId);
   // the one being rewritten is not in line — whatever is behind it goes
   const at = queue?.findIndex((entry) => !entry.editing) ?? -1;
@@ -259,6 +265,37 @@ export function maybeRetry(ctx: ServerContext, channelId: string, event: Transcr
 }
 
 /**
+ * A prompt as the queue holds it: each command written inside it as its
+ * own entry, in the order written, then the prompt with them gone.
+ */
+export function promptEntries(
+  ctx: ServerContext,
+  channelId: string,
+  text: string,
+  uploads: AttachmentUpload[],
+  split: boolean,
+): { entries: QueueEntry[]; commands: number } {
+  const { commands, rest } = splitCommands(text, knownCommands(ownerProject(ctx, channelId)?.path));
+  const entries: QueueEntry[] = commands.map((command) => ({
+    id: randomUUID(),
+    text: command,
+    uploads: [],
+    silent: false,
+  }));
+  if (commands.length === 0 || rest || uploads.length > 0) {
+    entries.push({
+      id: randomUUID(),
+      text: commands.length === 0 ? text : rest,
+      uploads,
+      silent: false,
+      ...(split ? { split: true } : {}),
+      ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
+    });
+  }
+  return { entries, commands: commands.length };
+}
+
+/**
  * Commands written inside a prompt run before it. Each becomes its own
  * queue entry, in the order written, and the prompt (with them gone)
  * follows — through the queue too, so it cannot overtake them. Returns
@@ -274,31 +311,69 @@ export function queueWithCommands(
    *  been standing by since a stop waited for this one, not the reverse. */
   ahead = false,
 ): boolean {
-  const { commands, rest } = splitCommands(text, knownCommands(ownerProject(ctx, channelId)?.path));
+  const { commands } = splitCommands(text, knownCommands(ownerProject(ctx, channelId)?.path));
   if (commands.length === 0) return false;
   const wasBusy = ahead ? running(ctx, channelId) : busy(ctx, channelId);
-  const entries: QueueEntry[] = commands.map((command) => ({
-    id: randomUUID(),
-    text: command,
-    uploads: [],
-    silent: false,
-  }));
-  if (rest || uploads.length > 0) {
-    entries.push({
-      id: randomUUID(),
-      text: rest,
-      uploads,
-      silent: false,
-      ...(split ? { split: true } : {}),
-      ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
-    });
-  }
+  const { entries } = promptEntries(ctx, channelId, text, uploads, split);
   const queue = ctx.queues.entries.get(channelId) ?? [];
   if (ahead) queue.unshift(...entries);
   else queue.push(...entries);
   ctx.queues.entries.set(channelId, queue);
   ctx.queues.broadcastQueue(channelId);
   if (!wasBusy) drainQueue(ctx, channelId);
+  return true;
+}
+
+/**
+ * Stop the running turn: its answer is dropped, a retry it had coming is
+ * not tried, and the queue behind it stands by (it moves again on the next
+ * prompt, or from its own card).
+ */
+export function stopTurn(ctx: ServerContext, channelId: string): void {
+  ctx.queues.epochs.set(channelId, (ctx.queues.epochs.get(channelId) ?? 0) + 1);
+  ctx.retries.cancelRetry(channelId);
+  ctx.queues.holdQueue(channelId);
+  ctx.manager.interrupt(channelId);
+  // settle the optimistic "working" a pending split may have shown
+  ctx.clients.broadcast({
+    type: "status",
+    projectId: channelId,
+    status: ctx.manager.statuses()[channelId] ?? "idle",
+  });
+}
+
+/** How long a cut-in waits for the turn it stopped to say it has. */
+const CUT_IN_WAIT_MS = 15_000;
+
+/**
+ * A prompt that cuts in: the running turn is stopped and this goes out
+ * the moment it has — ahead of the queue, which falls in behind it and
+ * moves again once it is answered, the way it does behind any prompt
+ * sent after a stop. Until then it stands at the head of the line, on
+ * screen. Returns false when nothing is running to cut into.
+ */
+export function cutIn(
+  ctx: ServerContext,
+  channelId: string,
+  text: string,
+  uploads: AttachmentUpload[],
+  split: boolean,
+): boolean {
+  if (!running(ctx, channelId)) return false;
+  stopTurn(ctx, channelId);
+  const { entries } = promptEntries(ctx, channelId, text, uploads, split);
+  const queue = ctx.queues.entries.get(channelId) ?? [];
+  const front = queue.findIndex((entry) => !entry.silent);
+  queue.splice(front === -1 ? queue.length : front, 0, ...entries);
+  ctx.queues.entries.set(channelId, queue);
+  ctx.queues.cutIn.add(channelId);
+  ctx.queues.broadcastQueue(channelId);
+  // the stopped turn's result is what sends it (drainQueue); a harness
+  // that never says it stopped must not keep the prompt waiting forever
+  const timer = setTimeout(() => {
+    if (ctx.queues.cutIn.has(channelId) && !running(ctx, channelId)) drainQueue(ctx, channelId);
+  }, CUT_IN_WAIT_MS);
+  timer.unref?.();
   return true;
 }
 

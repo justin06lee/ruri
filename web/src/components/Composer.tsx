@@ -106,6 +106,12 @@ function MoreActions({
   );
 }
 
+/** How long Enter is held, while a turn runs, before the prompt cuts in —
+ *  stops the turn and goes in its place — rather than queueing behind it.
+ *  Long enough that no ordinary press gets there; the ring on the send
+ *  button fills over exactly this long. */
+const CUT_IN_HOLD_MS = 600;
+
 export function Composer({
   channelId,
   project,
@@ -413,7 +419,25 @@ export function Composer({
     [channelId],
   );
 
-  const submit = async (mode: "send" | "send_split" = "send") => {
+  /** Enter held down while a turn runs: sent the ordinary way (queued) if
+   *  it is let go in time, cut in if it is held past CUT_IN_HOLD_MS. */
+  const hold = useRef<{ timer: number; cut: boolean } | null>(null);
+  const [holding, setHolding] = useState(false);
+  useEffect(() => () => clearTimeout(hold.current?.timer), []);
+  /** Let go of a held Enter: whatever the hold did not already send goes
+   *  out the ordinary way. */
+  const release = () => {
+    const held = hold.current;
+    if (!held) return;
+    hold.current = null;
+    clearTimeout(held.timer);
+    setHolding(false);
+    if (!held.cut) void submit();
+  };
+  // a prompt being rewritten goes back in line; only a new one cuts in
+  const cutting = busy && !editing;
+
+  const submit = async (mode: "send" | "send_split" = "send", now = false) => {
     const trimmed = releaseMarkers(text).trim();
     if (!trimmed && atts.length === 0) return;
     const uploads = await Promise.all(
@@ -453,6 +477,7 @@ export function Composer({
           projectId,
           text: trimmed,
           ...(uploads.length ? { attachments: uploads } : {}),
+          ...(now ? { now: true as const } : {}),
         });
     // nothing took it: the prompt stays here, files and all, to send again
     if (!sent) {
@@ -605,11 +630,34 @@ export function Composer({
                   }
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    void submit();
+                    if (!cutting) {
+                      void submit();
+                      return;
+                    }
+                    // a turn is running: ⌘Enter cuts in at once; plain Enter
+                    // queues on release, or cuts in if held long enough
+                    if (e.metaKey || e.ctrlKey) {
+                      void submit("send", true);
+                      return;
+                    }
+                    if (e.repeat || hold.current) return;
+                    const held = { timer: 0, cut: false };
+                    held.timer = window.setTimeout(() => {
+                      held.cut = true;
+                      setHolding(false);
+                      void submit("send", true);
+                    }, CUT_IN_HOLD_MS);
+                    hold.current = held;
+                    setHolding(true);
                     return;
                   }
                   if ((e.key === "Backspace" || e.key === "Delete") && deleteMarkerAt(e)) e.preventDefault();
                 }}
+                onKeyUp={(e) => {
+                  if (e.key === "Enter") release();
+                }}
+                // the key can come up anywhere once the box has lost focus
+                onBlur={release}
                 onPaste={(e) => {
                   const files = [...e.clipboardData.files];
                   if (files.length > 0) {
@@ -717,12 +765,21 @@ export function Composer({
               )}
               {!shell && (
                 <button
-                  className="send"
-                  title="Send (Enter)"
-                  onClick={() => void submit()}
+                  className={`send ${holding ? "holding" : ""}`}
+                  title={
+                    cutting
+                      ? "Queue it behind the running turn (Enter) — ⌘-click, ⌘Enter or hold Enter to stop the turn and send this instead"
+                      : "Send (Enter)"
+                  }
+                  onClick={(e) => void submit("send", cutting && (e.metaKey || e.ctrlKey))}
                   disabled={!text.trim() && atts.length === 0}
                 >
                   <Icon d="M12 19V5M5 12l7-7 7 7" />
+                  {holding && (
+                    <svg className="hold-ring" viewBox="0 0 36 36" aria-hidden>
+                      <circle cx="18" cy="18" r="16.5" pathLength="1" />
+                    </svg>
+                  )}
                 </button>
               )}
             </div>
@@ -735,9 +792,11 @@ export function Composer({
           ? "Shells in this project — ⌘T for another, ⌘1–9 to switch · they keep running while you're away"
           : editing
             ? "Enter puts the rewrite back in line · the prompts behind it go on without it meanwhile"
-            : compact
-              ? "Enter to send · Shift+Enter for a new line · drop files to attach"
-              : "Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach · scissors to split a long prompt"}
+            : cutting
+              ? "Enter queues it behind the running turn · hold Enter or ⌘Enter to stop the turn and send this instead"
+              : compact
+                ? "Enter to send · Shift+Enter for a new line · drop files to attach"
+                : "Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach · scissors to split a long prompt"}
       </div>
       {viewingAtt && (
         <Viewer

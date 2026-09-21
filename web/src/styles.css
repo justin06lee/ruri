@@ -6488,6 +6488,39 @@ button.send:hover:not(:disabled) {
   background: var(--ink-soft);
 }
 
+/* Enter held while a turn runs: a ring closes round the send button over
+   the hold (CUT_IN_HOLD_MS in Composer.tsx), and when it meets itself the
+   prompt cuts in. Let go before, and it queues as it always did. */
+button.send {
+  position: relative;
+}
+
+/* a hair clear of the button, so it reads as a ring and not an edge */
+.hold-ring {
+  position: absolute;
+  inset: -6px;
+  width: calc(100% + 12px);
+  height: calc(100% + 12px);
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+.hold-ring circle {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: hold-ring 600ms linear forwards;
+}
+
+@keyframes hold-ring {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 button.stop {
   background: var(--paper);
   border-color: var(--edge);

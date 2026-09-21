@@ -685,8 +685,8 @@ function ChatView({
             agentsOpen
               ? "Back to the chat"
               : agentsWorking > 0
-                ? `Agents — ${agentsWorking} still working; watch one, or start one of your own`
-                : "Agents — start one of your own, and see every one this chat has started"
+                ? `Agents — ${agentsWorking} still at work (agents and background scripts); watch one, or start one of your own`
+                : "Agents — start one of your own, and see every agent and background script this chat has started"
           }
           onClick={() => {
             if (agentsOpen) closeAgent();

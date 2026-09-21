@@ -4357,6 +4357,12 @@ input[type="range"]::-webkit-slider-thumb {
 .agent-card-line {
   font-size: var(--fs-md);
 }
+/* a script's line is its command, or how it exited: machine words */
+.agent-card.script .agent-card-line {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+}
+
 
 .agent-card-meta {
   font-family: var(--mono);

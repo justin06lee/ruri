@@ -643,6 +643,26 @@ export interface SubagentState {
    *  model: it works on its own, takes follow-ups there, and can be
    *  stopped there. */
   mine?: boolean;
+  /** Not an agent at all: a shell command the model left running in the
+   *  background (Claude's Bash with run_in_background). `prompt` is the
+   *  command, `description` what it is for, `result` how it ended. */
+  script?: true;
+  /** Where the harness writes what a script prints, as it prints it —
+   *  what the script's page shows. */
+  output?: string;
+  /** The harness's own name for the agent (Claude's task id, the one its
+   *  SendMessage addresses): how a later "carry on" finds this card. */
+  agentId?: string;
+  /** How many times it has been picked back up after it had stopped — a
+   *  failed agent the model sent on again, a finished one given more. */
+  resumed?: number;
+}
+
+/** What a chat still has working with no turn running: agents left in the
+ *  background (or picked back up), and scripts the model left running. */
+export interface BackgroundWork {
+  agents: number;
+  scripts: number;
 }
 
 /** What an agent the user starts is called on its card: its brief's first
@@ -847,10 +867,10 @@ export type ClientMessage =
    *  `intoId` stood — the two texts in the order they stood in the line,
    *  whichever was carried. Both sets of attachments come along, renumbered
    *  so the merged text still points at the right ones. */
+  | { type: "queue_merge"; projectId: string; itemId: string; intoId: string }
   /** Take a fold back: the two prompts it was made of, where they stood.
    *  Nothing happens once the fold has gone out or been rewritten. */
   | { type: "queue_unmerge"; projectId: string; itemId: string }
-  | { type: "queue_merge"; projectId: string; itemId: string; intoId: string }
   /** Start rewriting a queued prompt in the composer. It leaves the line
    *  for now (what is behind it moves up and goes out in its turn), and
    *  comes back with queue_update or queue_edit_cancel. */
@@ -1100,6 +1120,8 @@ export type ServerMessage =
        *  asks for the whole thing (`transcript_get`). */
       transcripts: Record<string, TranscriptEvent[]>;
       statuses: Record<string, ProjectStatus>;
+      /** Every chat with agents or scripts running in the background. */
+      work: Record<string, BackgroundWork>;
       permissions: PermissionRequest[];
       models: ModelChoice[];
       /** Recall notes per project, keyed by the turn's user-event id. */
@@ -1247,6 +1269,9 @@ export type ServerMessage =
    *  the chats not on screen stopped hearing about their work. */
   | { type: "tails"; transcripts: Record<string, TranscriptEvent[]> }
   | { type: "status"; projectId: string; status: ProjectStatus }
+  /** A chat's background work changed — the agents and scripts it has
+   *  running whether or not a turn is. Absent from the map = none. */
+  | { type: "work"; projectId: string; work?: BackgroundWork }
   | { type: "permission_request"; request: PermissionRequest }
   | { type: "permission_resolved"; requestId: string }
   | { type: "models"; models: ModelChoice[] }

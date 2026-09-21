@@ -1,5 +1,11 @@
 import { memo, useEffect, useMemo } from "react";
-import { HOME_ID, type Project, type SessionInfo, type TranscriptEvent } from "../../../shared/protocol";
+import {
+  HOME_ID,
+  type BackgroundWork,
+  type Project,
+  type SessionInfo,
+  type TranscriptEvent,
+} from "../../../shared/protocol";
 import { useRuri, watchBoard } from "../store";
 import { money } from "./figures";
 
@@ -88,9 +94,23 @@ const LINES = 3;
 
 const NO_EVENTS: TranscriptEvent[] = [];
 
+/** "2 agents and a script at work in the background" — what a chat whose
+ *  turn is over is still doing. */
+function backgroundLine(work: BackgroundWork): string {
+  const count = (n: number, one: string, many: string) => (n === 1 ? `${one}` : `${n} ${many}`);
+  const parts = [
+    work.agents > 0 ? count(work.agents, "an agent", "agents") : undefined,
+    work.scripts > 0 ? count(work.scripts, "a script", "scripts") : undefined,
+  ].filter(Boolean);
+  return `${parts.join(" and ")} at work in the background`;
+}
+
 const SessionLines = memo(function SessionLines({ session, many }: { session: SessionInfo; many: boolean }) {
   const events = useRuri((s) => s.transcripts[session.id] ?? NO_EVENTS);
-  const status = useRuri((s) => s.statuses[session.id] ?? "idle");
+  const turnStatus = useRuri((s) => s.statuses[session.id] ?? "idle");
+  const work = useRuri((s) => s.work[session.id]);
+  // a turn over with its agents or scripts still going is still working
+  const status = work && (turnStatus === "idle" || turnStatus === "error") ? "working" : turnStatus;
   const setActive = useRuri((s) => s.setActive);
   const lines = useMemo(() => {
     const out: Line[] = [];
@@ -100,12 +120,15 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
     }
     // a reply being written is the open chat's business: here it is
     // "thinking" until it is done, and then it is a line
-    if (status === "working" && out[out.length - 1]?.kind !== "tool") {
+    if (turnStatus === "working" && out[out.length - 1]?.kind !== "tool") {
       out.push({ kind: "live", text: "thinking" });
+      if (out.length > LINES) out.shift();
+    } else if (work && turnStatus !== "working" && turnStatus !== "permission") {
+      out.push({ kind: "live", text: backgroundLine(work) });
       if (out.length > LINES) out.shift();
     }
     return out;
-  }, [events, status]);
+  }, [events, turnStatus, work]);
 
   return (
     <button
@@ -172,12 +195,25 @@ function ProjectCard({ project, status }: { project: Project; status: Status }) 
 
 const RANK: Record<Status, number> = { permission: 0, working: 1, error: 2, idle: 3 };
 
-/** What a project is up to, from its sessions: the most urgent one wins. */
-function statusOf(project: Project, statuses: Record<string, string>): Status {
+/** What a project is up to, from its sessions: the most urgent one wins.
+ *  A session whose turn is over is still working while agents or scripts
+ *  it left running are. */
+function statusOf(
+  project: Project,
+  statuses: Record<string, string>,
+  work: Record<string, BackgroundWork>,
+): Status {
   let best: Status = "idle";
   for (const session of project.sessions) {
     const s = statuses[session.id];
-    const status: Status = s === "permission" || s === "working" || s === "error" ? s : "idle";
+    const status: Status =
+      s === "permission" || s === "working"
+        ? s
+        : session.id in work
+          ? "working"
+          : s === "error"
+            ? "error"
+            : "idle";
     if (RANK[status] < RANK[best]) best = status;
   }
   return best;
@@ -233,19 +269,20 @@ export function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) =
 export function ProjectsPage() {
   const projects = useRuri(selectShown);
   const statuses = useRuri((s) => s.statuses);
+  const work = useRuri((s) => s.work);
   // while this is up, every chat's finished steps come here (and, as it
   // opens, every chat's last few lines as they now stand)
   useEffect(() => watchBoard(), []);
 
   const { live, idle } = useMemo(() => {
     const ranked = projects
-      .map((project) => ({ project, status: statusOf(project, statuses) }))
+      .map((project) => ({ project, status: statusOf(project, statuses, work) }))
       .sort((a, b) => RANK[a.status] - RANK[b.status] || a.project.name.localeCompare(b.project.name));
     return {
       live: ranked.filter((x) => x.status !== "idle"),
       idle: ranked.filter((x) => x.status === "idle"),
     };
-  }, [projects, statuses]);
+  }, [projects, statuses, work]);
 
   const working = live.filter((x) => x.status === "working").length;
   const waiting = live.filter((x) => x.status === "permission").length;

@@ -3,7 +3,7 @@
  * counter), the reply it is streaming, and each channel's context
  * occupancy against the window its model gets.
  */
-import type { ContextUsage, ServerMessage, TurnProgress } from "../shared/protocol.js";
+import type { BackgroundWork, ContextUsage, ServerMessage, TurnProgress } from "../shared/protocol.js";
 import { channelProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import type { ParagraphGate } from "./paragraphs.js";
@@ -27,6 +27,9 @@ export class Turns {
   readonly sent = new Map<string, number>();
   /** Per-channel context occupancy, reported by the live sessions. */
   readonly contexts = new Map<string, ContextUsage>();
+  /** Per channel, the background work last sent out (chats.ts pushWork):
+   *  only chats with some are in it. */
+  readonly work = new Map<string, BackgroundWork>();
   /** Each channel's reply in progress, held back to whole paragraphs
    *  (server/paragraphs.ts) — and what has been let through so far, for a
    *  window that opens the chat halfway through it. */
@@ -130,6 +133,24 @@ export function pushContexts(ctx: ServerContext): void {
   for (const [channelId, context] of ctx.turns.contexts) {
     ctx.clients.broadcast({ type: "context", projectId: channelId, context });
   }
+}
+
+/**
+ * A chat's background work, sent out when it has changed: the agents and
+ * scripts it has running whether or not a turn is — its own, and the ones
+ * the user started from its agents page. It is what lets the sidebar and
+ * the projects page say a chat is busy after its turn has ended.
+ */
+export function pushWork(ctx: ServerContext, channelId: string): void {
+  const live = ctx.manager.backgroundWork(channelId);
+  const crew = ctx.crew.list(channelId).filter((agent) => agent.status === "running").length;
+  const work: BackgroundWork = { agents: live.agents + crew, scripts: live.scripts };
+  const before = ctx.turns.work.get(channelId);
+  const none = work.agents === 0 && work.scripts === 0;
+  if (none ? !before : before?.agents === work.agents && before.scripts === work.scripts) return;
+  if (none) ctx.turns.work.delete(channelId);
+  else ctx.turns.work.set(channelId, work);
+  ctx.clients.broadcast({ type: "work", projectId: channelId, ...(none ? {} : { work }) });
 }
 
 /** A channel's context wiped — after a compaction, or a rewind that

@@ -87,13 +87,14 @@ All app state sits under `~/.config/ruri` (move it wholesale with `RURI_CONFIG_D
 | `turns/<sessionId>/NNN.md` | Full per-exchange records and preserved attachment paths `/compact` leaves for the fresh session to Read |
 | `agents/<sessionId>/<key>.json` | What each subagent did — its brief, words and tools — for its card on the agents page; `@crew.json` beside them holds the agents you started yourself: their cards, and the session a follow-up resumes |
 | `tracker/<sessionId>.json` | Feature-tracker checklist |
-| `ideas/<projectId>.json` | The ideas board |
+| `ideas/<projectId>.json` | The ideas board, each idea's pictures referenced from `uploads/` (the one being written waits in `drafts.json` under `idea:<projectId>`) |
 | `components/<projectId>.json` | The component index |
 | `briefs.json` | Catch-up briefs, before they're written into their projects |
 | `ledger.json` | What each project has spent, by the day — the board's figures |
 | `secrets.json` | The vault, mode 0600. Values, and nothing that reads them but ruri |
 | `prefs.json` | The window's own preferences: theme, the theme clock, unfolded folders, the player's volume |
 | `terminals.json` | Which shell tabs each project had open |
+| `drafts.json` | What was being written and not yet sent: each chat's composer, and each project's idea box (`idea:<projectId>`), attachments by reference into `uploads/` |
 | `home-log.md` | Home's write-ahead activity log, one block per Home session |
 | `uploads/` | Attached images and videos |
 | `bridge/<channelId>/` | The bridge's screenshots for a session (`shot-<n>.png`) and its live preview (`preview.png`) |

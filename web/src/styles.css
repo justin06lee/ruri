@@ -3322,15 +3322,59 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── the ideas board ──────────────────────────────────────────────── */
 
-/* Shared by every board page's "add one" row. */
-.idea-add {
+/* The box a new idea is written in: the composer's shape — words that
+   grow the box as they come, the pictures above them, a bar underneath —
+   because it is where a thought gets worked on before it is put down. */
+.idea-compose {
   display: flex;
+  flex-direction: column;
   gap: 8px;
   margin-top: 12px;
+  padding: 10px 10px 8px 14px;
+  background: var(--paper-bright);
+  border: 1.5px solid var(--edge);
+  border-radius: var(--radius-l);
+  transition: border-color 100ms ease-out;
 }
 
-.idea-add input {
+.idea-compose:focus-within {
+  border-color: var(--line-soft);
+}
+
+.idea-compose.drag-over {
+  border-color: var(--ink);
+  border-style: dashed;
+}
+
+.idea-compose textarea {
+  width: 100%;
+  resize: none;
+  border: none;
+  background: none;
+  padding: 3px 0;
+  line-height: 1.5;
+}
+
+.idea-compose-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.idea-compose-hint {
   flex: 1;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+}
+
+.idea-picture {
+  padding: 4px 6px;
+}
+
+.idea-picture svg {
+  width: 16px;
+  height: 16px;
+  display: block;
 }
 
 .idea-list,
@@ -3347,20 +3391,24 @@ input[type="range"]::-webkit-slider-thumb {
 
 .idea-row {
   display: flex;
-  align-items: center;
+  /* an idea can run to several lines and carry pictures: the box and the
+     buttons stay level with its first line */
+  align-items: flex-start;
   gap: 10px;
   padding: 6px 8px;
   border-radius: var(--radius-s);
   animation: rise 160ms ease-out;
 }
 
-.idea-row:hover {
+.idea-row:hover,
+.idea-row.editing {
   background: var(--paper-dim);
 }
 
 .idea-box {
   flex-shrink: 0;
   padding: 0;
+  margin-top: 1px;
   border: none;
   background: none;
   color: var(--ink);
@@ -3373,16 +3421,68 @@ input[type="range"]::-webkit-slider-thumb {
   display: block;
 }
 
-.idea-text {
+.idea-body {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.idea-text {
   font-size: 13.5px;
   line-height: 1.5;
+  /* written with line breaks, read with them */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   cursor: text;
 }
 
+.idea-untitled {
+  color: var(--ink-faint);
+}
+
+/* an idea's [image #1], drawn the way the composer draws it */
+.idea-marker {
+  padding: 0 5px;
+  margin: 0 1px;
+  border-radius: 5px;
+  color: var(--paper);
+  background: var(--ink);
+  font-size: 0.92em;
+  white-space: nowrap;
+}
+
+.idea-row.done .idea-marker {
+  background: var(--ink-faint);
+}
+
 .idea-edit {
-  flex: 1;
+  width: 100%;
+  resize: none;
   padding: 3px 6px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.idea-pictures .att-thumb {
+  width: 72px;
+  height: 72px;
+}
+
+.idea-file {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 4px;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.idea-row.done .idea-pictures {
+  opacity: 0.55;
 }
 
 .idea-row.done .idea-box {
@@ -3398,6 +3498,7 @@ input[type="range"]::-webkit-slider-thumb {
 .idea-drop {
   flex-shrink: 0;
   padding: 2px;
+  margin-top: 2px;
   border: none;
   background: none;
   color: var(--ink-faint);

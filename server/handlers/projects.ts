@@ -6,7 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { WebSocket } from "ws";
-import type { ServerMessage } from "../../shared/protocol.js";
+import { ideaDraftKey, type ServerMessage } from "../../shared/protocol.js";
 import { briefless, rebuildCatchup } from "../catchupBrief.js";
 import { buildCompaction, removeTurnFiles } from "../compaction.js";
 import type { ServerContext } from "../context.js";
@@ -41,6 +41,7 @@ function closeProjectById(ctx: ServerContext, projectId: string): void {
   }
   ctx.briefs.remove(projectId);
   ctx.ideas.removeProject(projectId);
+  ctx.drafts.remove(ideaDraftKey(projectId));
   ctx.components.removeProject(projectId);
   ctx.ledger.removeProject(projectId);
   ctx.store.remove(projectId);

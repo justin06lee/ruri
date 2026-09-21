@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- feat(ideas): the box an idea is written in is a real one — it grows with what is written (Shift+Enter for a new line), takes pictures pasted, dropped or picked, and keeps whatever is in it until it is added, through leaving the page and through a relaunch. An idea's pictures show under it, can be added or taken off while editing it, and ride into the composer with it
 - feat: Tab flips between the Home agent and the projects page, whenever nothing else wants the key; coming back lands on Home's chat with the caret in its box
 - fix(chat): a fresh session's header buttons — agents aside, the skills, components, ideas and tracker pages — open before the first prompt too. The hero was drawn ahead of the page the buttons pick, so pressing one lit it and changed nothing
 

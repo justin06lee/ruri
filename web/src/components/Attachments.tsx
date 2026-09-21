@@ -182,7 +182,7 @@ export function cropRegion(objectUrl: string, region: Region): Promise<string> {
 
 /* ── viewer (full size + region editing for images) ──────────────── */
 
-interface ViewTarget {
+export interface ViewTarget {
   kind: "image" | "video" | "file";
   src: string;
   label: string;

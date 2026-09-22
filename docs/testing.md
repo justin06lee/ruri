@@ -52,6 +52,7 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 | `question-test` | tokens | skipping an AskUserQuestion card is the end of it |
 | `naming-test` | tokens | in bypass, components name themselves |
 | `recall-test` | tokens | the recall note a finished reply leaves keeps the work it put forward |
+| `wake-turn-test` | tokens | a background task that ends between turns wakes the CLI: the chat goes busy by itself and the model answers, even with the chat open nowhere; a prompt sent the moment it wakes gets its own result, not the woken turn's |
 | `model-switch-test` | tokens | switching model never touches a running turn; switching back keeps the prompt cache |
 | `subagents-live-test`, `crew-live-test` | tokens | a real Claude subagent, and an agent of your own, card and log end to end |
 | `provider-test`, `provider-check` | tokens | feature parity on a non-Claude harness; every effort level on Codex |

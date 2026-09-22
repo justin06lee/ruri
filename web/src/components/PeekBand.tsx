@@ -1,6 +1,6 @@
-import { memo, useEffect, useMemo, useState, useSyncExternalStore, type HTMLAttributes } from "react";
-import { type BandPicture, pictureUrl, reacts, useBand, usePicture, type Loaded } from "../band";
-import { isAwake, subscribeAwake } from "../lib/awake";
+import { memo, useState, type HTMLAttributes } from "react";
+import { type BandPicture, reacts, useBand } from "../band";
+import { useShown } from "../pictures";
 import { send } from "../store";
 
 /**
@@ -19,24 +19,6 @@ import { send } from "../store";
  * the page only while a press is held.
  */
 
-function useAwake(): boolean {
-  return useSyncExternalStore(subscribeAwake, isAwake);
-}
-
-/** A fresh URL for a picture's bytes while `on` — a new URL is a new
- *  image, so a GIF given one starts again from its first frame. */
-function usePlay(loaded: Loaded | null, on: boolean): string | undefined {
-  const url = useMemo(() => (on && loaded ? URL.createObjectURL(loaded.blob) : undefined), [on, loaded]);
-  // let go of the last one as soon as it is off the screen
-  useEffect(
-    () => () => {
-      if (url) URL.revokeObjectURL(url);
-    },
-    [url],
-  );
-  return url;
-}
-
 export const BandPic = memo(function BandPic({
   picture,
   quiet = false,
@@ -52,29 +34,12 @@ export const BandPic = memo(function BandPic({
 } & HTMLAttributes<HTMLDivElement>) {
   const [over, setOver] = useState(false);
   const hot = over && !quiet;
-  const awake = useAwake();
-  const art = usePicture(picture.src);
-  const swap = usePicture(picture.hoverSrc);
-
-  // what moves while the pointer is on it: the hover picture, if it moves,
-  // or the picture itself when it is set to play on hover
-  const playing =
-    hot &&
-    (picture.hoverSrc ? Boolean(swap?.animated) : Boolean(art?.animated) && picture.animate === "hover");
-  const played = usePlay(picture.hoverSrc ? swap : art, playing);
-
-  let shown: string;
-  if (hot && picture.hoverSrc) shown = played ?? swap?.url ?? pictureUrl(picture.hoverSrc);
-  else if (playing) shown = played ?? art?.url ?? pictureUrl(picture.src);
-  // held on its first frame: set to be, or waiting for the pointer, or the
-  // window is out of use (nothing on it moves then — lib/awake.ts)
-  else if (art?.animated && art.still && (picture.animate !== "always" || !awake)) shown = art.still;
-  else shown = art?.url ?? pictureUrl(picture.src);
+  const shown = useShown(picture, hot);
 
   return (
     <div
       {...rest}
-      className={`band-pic fx-${picture.effect}${hot ? " hot" : ""}${picture.invert ? " invert" : ""}${
+      className={`band-pic fx-host fx-${picture.effect}${hot ? " hot" : ""}${picture.invert ? " invert" : ""}${
         reacts(picture) ? " reacts" : ""
       } ${className}`}
       style={
@@ -96,7 +61,7 @@ export const BandPic = memo(function BandPic({
         onPointerLeave?.(e);
       }}
     >
-      <div className="band-art">
+      <div className="band-art fx-art">
         <img className={`band-img${picture.flip ? " flip" : ""}`} src={shown} alt="" draggable={false} />
       </div>
     </div>

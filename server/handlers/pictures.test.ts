@@ -40,13 +40,13 @@ const upload = (over: Partial<AttachmentUpload> = {}): AttachmentUpload => ({
 
 const ctx = {} as ServerContext;
 
-describe("band_picture", () => {
+describe("store_picture", () => {
   test("a picture is kept with the uploads, and the window told where", () => {
     const { ws, said } = socket();
-    settingHandlers.band_picture(ctx, ws, { type: "band_picture", upload: upload() });
+    settingHandlers.store_picture(ctx, ws, { type: "store_picture", upload: upload() });
     expect(said).toHaveLength(1);
-    const reply = said[0] as Extract<ServerMessage, { type: "band_picture_stored" }>;
-    expect(reply).toMatchObject({ type: "band_picture_stored", id: "pic-1" });
+    const reply = said[0] as Extract<ServerMessage, { type: "picture_stored" }>;
+    expect(reply).toMatchObject({ type: "picture_stored", id: "pic-1" });
     expect(reply.url).toMatch(/^\/uploads\/pic-1-band\.gif$/);
     expect(fs.readFileSync(path.join(dir, "uploads", path.basename(reply.url!)), "utf8")).toBe(
       "GIF89a-bytes",
@@ -56,8 +56,11 @@ describe("band_picture", () => {
   test("anything but a picture — or an SVG, which would be a page — is refused", () => {
     for (const mediaType of ["image/svg+xml", "text/html", "application/pdf"]) {
       const { ws, said } = socket();
-      settingHandlers.band_picture(ctx, ws, { type: "band_picture", upload: upload({ id: "x", mediaType }) });
-      expect(said).toEqual([{ type: "band_picture_stored", id: "x", url: null }]);
+      settingHandlers.store_picture(ctx, ws, {
+        type: "store_picture",
+        upload: upload({ id: "x", mediaType }),
+      });
+      expect(said).toEqual([{ type: "picture_stored", id: "x", url: null }]);
     }
   });
 });

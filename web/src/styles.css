@@ -383,12 +383,6 @@ textarea::placeholder {
 
 .band-art {
   transform-origin: 50% 100%;
-  /* the theme's tone, then the hover's shine; each a no-op until set */
-  filter: var(--pic-tone, brightness(1)) var(--pic-shine, brightness(1));
-  transition:
-    transform var(--speed, 180ms) cubic-bezier(0.3, 0.9, 0.3, 1),
-    opacity var(--speed, 180ms) ease,
-    filter var(--speed, 180ms) ease;
 }
 
 .band-img {
@@ -406,59 +400,72 @@ textarea::placeholder {
 /* line art swaps ink and paper with the theme; a picture set not to keeps
    its own colours */
 [data-theme="dark"] .band-pic.invert {
-  --pic-tone: invert(1);
+  --fx-tone: invert(1);
 }
 
 /* inverted like dark, then pulled toward the fire so the line art sits on
    the same warm paper as everything else */
 [data-theme="ember"] .band-pic.invert {
-  --pic-tone: invert(1) sepia(0.5) saturate(1.5) hue-rotate(332deg);
+  --fx-tone: invert(1) sepia(0.5) saturate(1.5) hue-rotate(332deg);
 }
 
-/* the hovers: --amt is the strength in the effect's own unit (band.ts
-   EFFECTS), --speed how long the move takes, or one round of a repeat */
-.band-pic.hot.fx-lift .band-art {
+/* ── the hovers (lib/effects.ts) ──────────────────────────────────────
+   Shared by the peek band and the hero face: `.fx-host` is what catches
+   the pointer and stays put, `.fx-art` inside it is what moves. --amt is
+   the strength in the effect's own unit, --speed how long the move takes,
+   or one round of one that repeats. */
+.fx-art {
+  /* a tone set by the thing itself, then the hover's shine; each a no-op
+     until set */
+  filter: var(--fx-tone, brightness(1)) var(--fx-shine, brightness(1));
+  transition:
+    transform var(--speed, 180ms) cubic-bezier(0.3, 0.9, 0.3, 1),
+    opacity var(--speed, 180ms) ease,
+    filter var(--speed, 180ms) ease;
+}
+
+.fx-host.hot.fx-lift .fx-art {
   transform: translateY(calc(var(--amt) * -1px));
 }
 
-.band-pic.hot.fx-sink .band-art {
+.fx-host.hot.fx-sink .fx-art {
   transform: translateY(calc(var(--amt) * 1px));
 }
 
-.band-pic.hot.fx-grow .band-art {
+.fx-host.hot.fx-grow .fx-art {
   transform: scale(calc(1 + var(--amt) / 100));
 }
 
-.band-pic.hot.fx-pop .band-art {
+.fx-host.hot.fx-pop .fx-art {
   transform: translateY(calc(var(--amt) * -1px)) scale(1.12);
 }
 
-.band-pic.hot.fx-tilt .band-art,
-.band-pic.hot.fx-spin .band-art {
+.fx-host.hot.fx-tilt .fx-art,
+.fx-host.hot.fx-spin .fx-art {
   transform: rotate(calc(var(--amt) * 1deg));
 }
 
-.band-pic.fx-spin .band-art {
+.fx-host.fx-spin .fx-art {
   transform-origin: 50% 50%;
 }
 
-.band-pic.hot.fx-glow {
-  --pic-shine: drop-shadow(0 0 calc(var(--amt) * 1px) var(--ink));
+.fx-host.hot.fx-glow {
+  --fx-shine: drop-shadow(0 0 calc(var(--amt) * 1px) var(--ink));
 }
 
-.band-pic.hot.fx-fade .band-art {
+.fx-host.hot.fx-fade .fx-art {
   opacity: calc(1 - var(--amt) / 100);
 }
 
-.band-pic.hot.fx-wiggle .band-art {
-  animation: band-wiggle var(--speed) ease-in-out infinite;
+.fx-host.hot.fx-wiggle .fx-art {
+  animation: fx-wiggle var(--speed) ease-in-out infinite;
 }
 
-.band-pic.hot.fx-bounce .band-art {
-  animation: band-bounce var(--speed) ease-in-out infinite;
+.fx-host.hot.fx-bounce .fx-art {
+  animation: fx-bounce var(--speed) ease-in-out infinite;
 }
 
-@keyframes band-wiggle {
+@keyframes fx-wiggle {
   0%,
   100% {
     transform: rotate(0deg);
@@ -471,7 +478,7 @@ textarea::placeholder {
   }
 }
 
-@keyframes band-bounce {
+@keyframes fx-bounce {
   0%,
   100% {
     transform: translateY(0);
@@ -484,11 +491,11 @@ textarea::placeholder {
 /* a repeat is motion someone asked not to have; the one-off moves still
    happen, at once */
 @media (prefers-reduced-motion: reduce) {
-  .band-art {
+  .fx-art {
     transition-duration: 0ms;
   }
-  .band-pic.hot.fx-wiggle .band-art,
-  .band-pic.hot.fx-bounce .band-art {
+  .fx-host.hot.fx-wiggle .fx-art,
+  .fx-host.hot.fx-bounce .fx-art {
     animation: none;
   }
 }
@@ -1837,22 +1844,60 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* the circle the face sits in — the frame carries the chrome, the image
    inside carries the framing (which the tuner sets, per face) */
+/* The face and what it sits in, as Settings → Hero face has them
+   (components/HeroFace.tsx). The host catches the pointer and stays put;
+   the frame is what a hover moves (.fx-host / .fx-art, above). */
+.hero-host {
+  flex-shrink: 0;
+  margin-bottom: 12px;
+}
+
+.hero-host.rerolls {
+  cursor: pointer;
+}
+
 .hero-frame {
   position: relative; /* the face is placed inside it, not laid out by it */
-  width: 132px;
-  height: 132px;
+  width: var(--hero-size, 132px);
+  height: var(--hero-size, 132px);
   border-radius: 50%;
   border: 2px solid var(--rim);
   background: #fff;
-  margin-bottom: 12px;
   overflow: hidden;
-  flex-shrink: 0;
 }
 
-/* Fitted whole inside the circle at zoom 1 — the cut-out faces are taller
-   than they are wide, so cover would decide the crop for them. The tuner's
-   zoom fills past the edge when a face wants that, and left/top slide it
-   under the circle; both come in as inline percentages of the circle. */
+.hero-frame.shape-rounded {
+  border-radius: 24%;
+}
+
+.hero-frame.shape-square {
+  border-radius: 4px;
+}
+
+/* no frame at all: the picture on the page, whole */
+.hero-frame.shape-none {
+  border-radius: 0;
+  border-color: transparent;
+  background: transparent;
+  overflow: visible;
+}
+
+.hero-frame.backdrop-paper {
+  background: var(--paper-bright);
+}
+
+.hero-frame.backdrop-none {
+  background: transparent;
+}
+
+.hero-frame.no-line {
+  border-color: transparent;
+}
+
+/* Fitted whole inside the frame at zoom 1 — the cut-out faces are taller
+   than they are wide, so cover would decide the crop for them. Zoom fills
+   past the edge when a face wants that, and left/top slide it under the
+   frame; both come in as inline percentages of the frame. */
 .hero-face {
   position: absolute;
   left: 50%;
@@ -1861,6 +1906,26 @@ input[type="range"]::-webkit-slider-thumb {
   max-height: 100%;
   display: block;
   transform: translate(-50%, -50%);
+}
+
+/* a face set to follow the dark themes swaps ink and paper, as the band's
+   line art does */
+[data-theme="dark"] .hero-face.invert {
+  filter: invert(1);
+}
+
+[data-theme="ember"] .hero-face.invert {
+  filter: invert(1) sepia(0.5) saturate(1.5) hue-rotate(332deg);
+}
+
+/* and the white behind it swaps with it, or a face that doesn't fill its
+   frame sits in a white box its own paper has gone dark in */
+[data-theme="dark"] .hero-frame.backdrop-white:has(> .hero-face.invert) {
+  background: #000;
+}
+
+[data-theme="ember"] .hero-frame.backdrop-white:has(> .hero-face.invert) {
+  background: var(--theme-ember-paper);
 }
 
 .hero-title {
@@ -2629,6 +2694,119 @@ input[type="range"]::-webkit-slider-thumb {
   width: 64px;
   padding: 3px 6px;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Settings → Hero face (HeroEditor.tsx) ─────────────────────────── */
+
+.heroedit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+}
+
+/* the face at its real size in its real frame, beside all it could be */
+.heroedit-stage {
+  display: flex;
+  align-items: flex-start;
+  gap: 22px;
+  margin-top: 8px;
+  padding: 18px;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--paper-dim) 55%, var(--paper));
+}
+
+.heroedit-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 248px;
+  min-height: 248px;
+}
+
+.heroedit-preview .hero-host {
+  margin-bottom: 0;
+  cursor: grab;
+}
+
+.heroedit-preview .hero-host.framing {
+  cursor: grabbing;
+}
+
+.heroedit-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px;
+}
+
+.heroedit-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1.5px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.heroedit-chip .hero-host {
+  margin-bottom: 0;
+}
+
+.heroedit-chip.active {
+  border-color: var(--ink);
+}
+
+/* out of the mix: there, but not drawn from */
+.heroedit-chip.off .hero-host {
+  opacity: 0.3;
+  filter: grayscale(1);
+}
+
+.heroedit-chip.add {
+  border: 1.5px dashed var(--line-soft);
+  font-size: 18px;
+  color: var(--ink-soft);
+}
+
+.heroedit-chip.still {
+  cursor: default;
+}
+
+.heroedit-star {
+  position: absolute;
+  right: -3px;
+  top: -5px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.heroedit-look {
+  margin-top: 6px;
+}
+
+.heroedit-greetings {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.heroedit-greetings textarea {
+  width: 100%;
+  max-width: 420px;
+  resize: vertical;
+}
+
+.heroedit-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
 }
 
 /* ── chat ─────────────────────────────────────────────────────────── */

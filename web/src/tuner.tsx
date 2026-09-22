@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { HERO_COUNT, heroUrl } from "./hero";
+import { builtinSrc as heroUrl, HERO_COUNT } from "./lib/heroFace";
 import { HERO_CENTER, type HeroFrame, type Peek, PEEKS, HERO_FRAMES } from "./peek";
 import "@fontsource-variable/space-grotesk";
 import "./styles.css";

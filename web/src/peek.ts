@@ -59,7 +59,3 @@ export const HERO_FRAMES: Record<number, HeroFrame> = {
   8: { x: 7.6, y: 11.8, zoom: 1.16 },
   11: { x: -1.6, y: 9.6, zoom: 1 },
 };
-
-export function heroFrame(n: number): HeroFrame {
-  return HERO_FRAMES[n] ?? HERO_CENTER;
-}

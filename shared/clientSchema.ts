@@ -325,7 +325,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("bridge_release"), ...projectId }),
   z.object({ type: z.literal("bridge_close"), ...projectId }),
   z.object({ type: z.literal("set_pref"), key: z.string().min(1).max(200), value: z.string().max(100_000) }),
-  z.object({ type: z.literal("band_picture"), upload: attachmentUpload }),
+  z.object({ type: z.literal("store_picture"), upload: attachmentUpload }),
   z.object({ type: z.literal("window_drag"), phase: z.enum(["start", "move", "end", "zoom"]) }),
 ]);
 

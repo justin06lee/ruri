@@ -33,6 +33,24 @@ function projectsFile(): string {
   return path.join(configDir(), "projects.json");
 }
 
+/** A folder path as typed: `~/` expanded, and taken from `base` when it is
+ *  relative (from wherever the server was started, without one). */
+export function expandPath(p: string, base?: string): string {
+  const expanded = p.startsWith("~/") ? path.join(os.homedir(), p.slice(2)) : p;
+  return base ? path.resolve(base, expanded) : path.resolve(expanded);
+}
+
+/** The one spelling of a folder: symlinks followed, and the letter case the
+ *  disk has — `~/Workspace/ruri` and `/Volumes/…/Workspace/RURI` are the
+ *  same folder. A path that isn't there is its own spelling. */
+function canonical(p: string): string {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return p;
+  }
+}
+
 export class ProjectStore {
   private projects: Project[] = [];
   private workspace: string | undefined;
@@ -198,11 +216,20 @@ export class ProjectStore {
     this.save();
   }
 
+  /** The open project in that folder, however its path is spelled. */
   findByPath(projectPath: string): Project | undefined {
-    const resolved = path.resolve(
-      projectPath.startsWith("~/") ? path.join(os.homedir(), projectPath.slice(2)) : projectPath,
+    const resolved = expandPath(projectPath);
+    const real = canonical(resolved);
+    return this.projects.find((p) => p.path === resolved || canonical(p.path) === real);
+  }
+
+  /** The open project that already answers to any of these names — as its
+   *  display name or its folder's, case-insensitive. */
+  findByName(...names: string[]): Project | undefined {
+    const wanted = new Set(names.map((n) => n.trim().toLowerCase()).filter(Boolean));
+    return this.projects.find(
+      (p) => wanted.has(p.name.toLowerCase()) || wanted.has(path.basename(p.path).toLowerCase()),
     );
-    return this.projects.find((p) => p.path === resolved);
   }
 
   list(): Project[] {
@@ -228,9 +255,7 @@ export class ProjectStore {
   }
 
   add(name: string, projectPath: string, folder?: string): Project {
-    const resolved = path.resolve(
-      projectPath.startsWith("~/") ? path.join(os.homedir(), projectPath.slice(2)) : projectPath,
-    );
+    const resolved = expandPath(projectPath);
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
       throw new Error(`not a directory: ${resolved}`);
     }

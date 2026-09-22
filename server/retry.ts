@@ -20,7 +20,8 @@ export const RETRY_NUDGE =
 
 export interface RetryState {
   attempt: number;
-  timer: NodeJS.Timeout;
+  /** Calls off the wait: its timer, or its watch on the connection. */
+  cancel: () => void;
 }
 
 export class Retries {
@@ -43,7 +44,7 @@ export class Retries {
   cancelRetry = (channelId: string): void => {
     const pending = this.pending.get(channelId);
     if (!pending) return;
-    clearTimeout(pending.timer);
+    pending.cancel();
     this.pending.delete(channelId);
   };
 

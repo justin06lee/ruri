@@ -31,6 +31,7 @@ import {
 import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
 import { IMAGE_EXTS } from "./mime.js";
 import { readCodexCounts } from "./usage.js";
+import { blockedBy, limitResetsAt, NETWORK } from "./blocked.js";
 import { errorMessage, warn } from "./log.js";
 import {
   DEFAULT_EFFORT,
@@ -840,6 +841,14 @@ class ProjectSession implements ChannelSession {
   /** Output tokens this turn has produced so far, across its API calls —
    *  the number under the doodle. Zeroed when a turn starts and ends. */
   private turnOutput = 0;
+  /** This turn's call was refused for the account's usage — the CLI says
+   *  so on the message (`error`) and in a rate-limit event. Cleared when
+   *  the turn's result lands. */
+  private limited = false;
+  /** When the limit lifts, as the last rate-limit event said. Kept across
+   *  turns: the CLI only speaks when the status changes, so a second turn
+   *  into the same limit hears nothing new. */
+  private limitResetsAt: number | undefined;
   /** File bytes captured by captureBefore, keyed by tool_use_id. */
   private readonly preimages = new Map<string, string | null>();
   /** Each model's running token total as of the last result — the CLI
@@ -1439,6 +1448,14 @@ class ProjectSession implements ChannelSession {
   }
 
   private handle(msg: SDKMessage): void {
+    if (msg.type === "rate_limit_event") {
+      const info = msg.rate_limit_info;
+      if (info.status === "rejected") {
+        this.limited = true;
+        this.limitResetsAt = info.resetsAt ? info.resetsAt * 1000 : undefined;
+      } else this.limitResetsAt = undefined;
+      return;
+    }
     if (msg.type === "system" && msg.subtype === "background_tasks_changed") {
       // a level, not an edge: the whole live set each time
       this.backgroundTasks = msg.tasks.map((task) => task.task_type);
@@ -1516,6 +1533,7 @@ class ProjectSession implements ChannelSession {
         msg as unknown as { message: unknown; subagent_type?: string },
       );
     } else if (msg.type === "assistant" && msg.parent_tool_use_id === null) {
+      if (msg.error === "rate_limit" || msg.error === "billing_error") this.limited = true;
       const chainUuid = (msg as { uuid?: string }).uuid;
       if (chainUuid && this.turnEventId) {
         this.events.onChain(this.project.id, this.turnEventId, "last", chainUuid);
@@ -1625,6 +1643,11 @@ class ProjectSession implements ChannelSession {
         : "errors" in msg && msg.errors.length > 0
           ? msg.errors.join("; ")
           : msg.subtype;
+      const limited = this.limited;
+      this.limited = false;
+      const blocked = ok || stopped ? undefined : limited ? "limit" : blockedBy(failure, status);
+      const known = this.limitResetsAt && this.limitResetsAt > Date.now() ? this.limitResetsAt : undefined;
+      const resetsAt = blocked === "limit" ? (known ?? limitResetsAt(failure)) : undefined;
       this.pushEvent({
         kind: "result",
         id: randomUUID(),
@@ -1637,6 +1660,8 @@ class ProjectSession implements ChannelSession {
         ...(stopped ? { stopped: true } : {}),
         ...(ok || stopped ? {} : { error: failure }),
         ...(!ok && !stopped && transientFailure(failure, status) ? { transient: true } : {}),
+        ...(blocked ? { blocked } : {}),
+        ...(resetsAt ? { resetsAt } : {}),
         ts: Date.now(),
       });
       this.setStatus("idle");
@@ -1840,6 +1865,7 @@ class ProviderTurnSession implements ChannelSession {
       ...(stopped ? { stopped: true } : {}),
       ...(error !== undefined ? { error } : {}),
       ...(error !== undefined && !stopped && transientFailure(error) ? { transient: true } : {}),
+      ...(error !== undefined && !stopped ? blockedResult(error) : {}),
       ts: Date.now(),
     });
     this.running = false;
@@ -2467,6 +2493,7 @@ class ProviderAgentSession implements ChannelSession {
       durationMs: Date.now() - started,
       ...(error !== undefined ? { error } : interrupted ? { stopped: true } : {}),
       ...(error !== undefined && transientFailure(error) ? { transient: true } : {}),
+      ...(error !== undefined ? blockedResult(error) : {}),
       ts: Date.now(),
     });
     this.running = false;
@@ -2711,7 +2738,7 @@ function firstSentence(text: string | undefined): string | undefined {
  * second attempt, so they are left to the user.
  */
 const TRANSIENT =
-  /\b5\d\d\b|overloaded|service unavailable|bad gateway|gateway time-?out|internal server error|econnreset|econnrefused|etimedout|epipe|socket hang up|fetch failed|network error|stream (?:error|closed|disconnected)/i;
+  /\b5\d\d\b|overloaded|service unavailable|bad gateway|gateway time-?out|internal server error|stream (?:error|closed)/i;
 /** Limits and refusals wear transient-looking words but are not transient. */
 const NOT_TRANSIENT =
   /usage limit|rate limit|quota|credit|insufficient|out of (?:credits|tokens)|invalid api key|unauthorized|forbidden|authentication/i;
@@ -2721,7 +2748,16 @@ const NOT_TRANSIENT =
 function transientFailure(text: string | undefined, status?: number | null): boolean {
   if (typeof status === "number") return status >= 500 && status < 600;
   if (!text || NOT_TRANSIENT.test(text)) return false;
-  return TRANSIENT.test(text);
+  // a connection that dropped is the plainest blip of all (server/blocked.ts)
+  return TRANSIENT.test(text) || NETWORK.test(text);
+}
+
+/** A provider turn's failure, read for what it was up against — the words
+ *  are all a provider harness gives. */
+function blockedResult(error: string): { blocked?: "network" | "limit"; resetsAt?: number } {
+  const blocked = blockedBy(error);
+  const resetsAt = blocked === "limit" ? limitResetsAt(error) : undefined;
+  return { ...(blocked ? { blocked } : {}), ...(resetsAt ? { resetsAt } : {}) };
 }
 
 /** A harness's usage report as one number: everything sent, everything back. */

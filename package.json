@@ -39,6 +39,7 @@
     "port-test": "tsx scripts/port.ts",
     "md-image-test": "tsx scripts/md-image.ts",
     "retry-test": "tsx scripts/retry.ts",
+    "held-queue-test": "tsx scripts/held-queue.ts",
     "recall-test": "tsx scripts/recall.ts",
     "settings-test": "tsx scripts/session-settings.ts",
     "model-switch-test": "tsx scripts/model-switch.ts",

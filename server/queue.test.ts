@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { combine, uncombine, type QueueEntry } from "./queue.js";
+import type { ServerMessage } from "../shared/protocol.js";
+import { combine, SendQueues, uncombine, type QueueEntry } from "./queue.js";
 
 const entry = (id: string, extra: Partial<QueueEntry> = {}): QueueEntry => ({
   id,
@@ -86,5 +87,41 @@ describe("taking a fold back", () => {
     const queue = [entry("1"), entry("2")];
     expect(uncombine(queue, "1")).toBeNull();
     expect(uncombine(combine(queue, "2", "1")!, "2")).toBeNull();
+  });
+});
+
+describe("a queue standing by", () => {
+  const setup = () => {
+    const sent: ServerMessage[] = [];
+    const queues = new SendQueues((message) => sent.push(message));
+    // a visible prompt, and a split's remainder riding under the answer
+    queues.entries.set("c", [entry("1"), entry("2", { silent: true })]);
+    return { queues, sent };
+  };
+
+  test("a stop drops a split's remainder: that answer is what was stopped", () => {
+    const { queues, sent } = setup();
+    queues.holdQueue("c");
+    expect(ids(queues.entries.get("c")!)).toEqual(["1"]);
+    expect(sent.at(-1)).toMatchObject({ type: "queued", held: { by: "stop" } });
+  });
+
+  test("a dropped connection keeps all of it, in the open, where it can be sent", () => {
+    const { queues, sent } = setup();
+    queues.holdQueue("c", { by: "network" });
+    expect(queues.visibleQueue("c").map((item) => item.id)).toEqual(["1", "2"]);
+    expect(sent.at(-1)).toMatchObject({ held: { by: "network" } });
+    queues.connectionBack("c");
+    expect(sent.at(-1)).toMatchObject({ held: { by: "network", back: true } });
+    // and back only means back to a queue that was waiting on the line
+    queues.holdQueue("c", { by: "limit", resetsAt: 5 });
+    queues.connectionBack("c");
+    expect(queues.held.get("c")).toEqual({ by: "limit", resetsAt: 5 });
+  });
+
+  test("nothing queued is nothing held", () => {
+    const queues = new SendQueues(() => {});
+    queues.holdQueue("c", { by: "limit" });
+    expect(queues.held.has("c")).toBe(false);
   });
 });

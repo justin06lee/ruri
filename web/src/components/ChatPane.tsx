@@ -33,7 +33,7 @@ import { Exchange, groupTurns, NO_EXCERPTS, turnExcerpts, type Half } from "./Ex
 import { HomeDeck, type HomeTab } from "./HomeBoard";
 import { Ideas } from "./Ideas";
 import { AskCard } from "./PermissionBanner";
-import { QueuedList } from "./Queue";
+import { QueuedList, QueueStandby } from "./Queue";
 import { RapidBar, type RapidFire } from "./RapidFire";
 import { SelectionFlags } from "./Selection";
 import { Sketch, type SketchBackground } from "./Sketch";
@@ -224,7 +224,7 @@ function ChatView({
       status: s.statuses[activeId] ?? "idle",
       summaries: s.summaries[activeId] ?? NO_SUMMARIES,
       queuedItems: s.queued[activeId] ?? NO_QUEUED,
-      queueHeld: s.queueHeld[activeId] === true,
+      queueHeld: s.queueHeld[activeId],
       turn: s.turns[activeId],
       crewAgents: s.crew[activeId],
       trackerItems: s.tracker[activeId],
@@ -957,22 +957,10 @@ function ChatView({
                 <AskCard key={request.requestId} request={request} />
               ))}
               {queuedItems.length > 0 && (
-                <QueuedList projectId={activeId} items={queuedItems} held={queueHeld} />
+                <QueuedList projectId={activeId} items={queuedItems} held={queueHeld !== undefined} />
               )}
               {queueHeld && queuedItems.length > 0 && (
-                <div className="queue-standby">
-                  <span>
-                    {queuedItems.length === 1 ? "1 prompt" : `${queuedItems.length} prompts`} held by the stop
-                    — they go out after your next one
-                  </span>
-                  <button
-                    className="ghost"
-                    title="Send what is waiting, now, in the order it was written"
-                    onClick={() => send({ type: "queue_send", projectId: activeId })}
-                  >
-                    Send now
-                  </button>
-                </div>
+                <QueueStandby projectId={activeId} count={queuedItems.length} hold={queueHeld} />
               )}
             </div>
           </div>

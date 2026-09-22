@@ -36,6 +36,7 @@ import type { PrefStore } from "./prefs.js";
 import type { ProjectStore } from "./projects.js";
 import type { SendQueues } from "./queue.js";
 import type { ReadableImages } from "./readable.js";
+import type { ConnectionWatch } from "./blocked.js";
 import type { Retries } from "./retry.js";
 import type { SecretStore } from "./secrets.js";
 import type { SessionManager } from "./sessions.js";
@@ -183,6 +184,9 @@ export interface ServerContext {
   /** Recall notes the small model missed, being written after the fact. */
   readonly notes: NoteBackfill;
   readonly retries: Retries;
+  /** Watches for the API to answer again after a dropped connection
+   *  (server/blocked.ts). */
+  readonly connection: ConnectionWatch;
   readonly models: Models;
   readonly usage: UsageGauges;
   /** What the agents are costing this machine, while a window is looking

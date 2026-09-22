@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { HarnessInfo, ModelRole, PermissionId, PermissionState } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
+import { Integrations } from "./Integrations";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
 import {
@@ -666,6 +667,11 @@ export function Settings({ onClose }: { onClose(): void }) {
           <section className="settings-group">
             <h2 className="settings-group-name">Harnesses</h2>
             <Harnesses />
+          </section>
+
+          <section className="settings-group">
+            <h2 className="settings-group-name">Integrations</h2>
+            <Integrations />
           </section>
 
           <section className="settings-group">

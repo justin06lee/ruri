@@ -849,6 +849,71 @@ export interface HarnessInfo {
   note?: string;
 }
 
+/** The harnesses whose MCP servers and plugins ruri manages. */
+export type IntegrationHarness = "claude" | "codex";
+
+/** An MCP server a harness starts — one row of Settings → Integrations.
+ *  What it is given (environment, headers) travels by name only. */
+export interface McpServerRow {
+  harness: IntegrationHarness;
+  name: string;
+  /** Where it is configured: Claude's user, local (this project, just you)
+   *  or project (.mcp.json, shared) scope; Codex's config; or a plugin. */
+  scope: "user" | "local" | "project" | "codex" | "plugin";
+  /** The plugin that brings it, for scope "plugin". */
+  plugin?: string;
+  transport: "stdio" | "http" | "sse" | "ws";
+  /** The command line it is started with, or the URL it is reached at. */
+  target: string;
+  env?: string[];
+  headers?: string[];
+  enabled: boolean;
+}
+
+/** A plugin — installed, or on offer from a marketplace. */
+export interface PluginRow {
+  harness: IntegrationHarness;
+  /** name@marketplace, the way the CLIs name it. */
+  id: string;
+  name: string;
+  marketplace: string;
+  installed: boolean;
+  enabled?: boolean;
+  version?: string;
+  scope?: string;
+  description?: string;
+  installCount?: number;
+}
+
+export interface MarketplaceRow {
+  harness: IntegrationHarness;
+  name: string;
+  /** Where it comes from: a GitHub repo, a URL, a path. */
+  source: string;
+}
+
+/** Everything the harnesses have plugged in (server/integrations.ts). */
+export interface Integrations {
+  servers: McpServerRow[];
+  plugins: PluginRow[];
+  marketplaces: MarketplaceRow[];
+  /** What could not be read, in words. */
+  errors?: string[];
+}
+
+/** A server to add. Claude takes a scope; Codex keeps one config. */
+export interface McpAdd {
+  harness: IntegrationHarness;
+  name: string;
+  scope: "user" | "local" | "project";
+  transport: "stdio" | "http" | "sse";
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+}
+
 /** Home-agent settings (the Home composer's model/effort/permission dropdowns). */
 export interface HomeSettings {
   model?: string;
@@ -1138,6 +1203,31 @@ export type ClientMessage =
   | { type: "check_harnesses"; id?: string }
   /** Leave a harness to update itself, or to the user. */
   | { type: "set_harness_auto"; id: string; auto: boolean }
+  /* ── integrations: MCP servers, plugins, marketplaces ─────────────── */
+  /** What the harnesses have plugged in — with a project's own servers
+   *  when `projectId` names one. Answered with `integrations`. */
+  | { type: "integrations_get"; projectId?: string }
+  /** Plugins on offer that match `query`. Answered with `plugins_found`. */
+  | { type: "plugins_search"; harness: IntegrationHarness; query: string }
+  | { type: "mcp_add"; add: McpAdd; projectId?: string }
+  | {
+      type: "mcp_remove";
+      harness: IntegrationHarness;
+      name: string;
+      scope: McpServerRow["scope"];
+      projectId?: string;
+    }
+  | {
+      type: "plugin_install";
+      harness: IntegrationHarness;
+      id: string;
+      scope?: "user" | "project" | "local";
+      projectId?: string;
+    }
+  | { type: "plugin_uninstall"; harness: IntegrationHarness; id: string }
+  | { type: "plugin_enable"; id: string; enabled: boolean }
+  | { type: "marketplace_add"; harness: IntegrationHarness; source: string }
+  | { type: "marketplace_remove"; harness: IntegrationHarness; name: string }
   /* ── the bridge (per channel) ───────────────────────────────────── */
   /** Bring what the session is driving on screen, in front, for the user
    *  to work in. `projectId` is the channel id, as everywhere else. */
@@ -1255,6 +1345,10 @@ export type ServerMessage =
   | { type: "starred_models"; models: string[] }
   | { type: "small_model"; model: string }
   | { type: "default_model"; model: string }
+  | { type: "integrations"; projectId?: string; integrations: Integrations }
+  | { type: "plugins_found"; harness: IntegrationHarness; query: string; plugins: PluginRow[]; total: number }
+  /** How a change to the integrations went, in words. */
+  | { type: "integration_done"; ok: boolean; message: string }
   /** Every harness on this machine, as the updater last saw it —
    *  `checking` while a round is still going. */
   | { type: "harnesses"; harnesses: HarnessInfo[]; checking?: boolean }

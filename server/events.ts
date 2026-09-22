@@ -3,11 +3,15 @@
  * windows — and the small-model work every prompt and finished turn sets
  * off (recall notes, tracker items, the catch-up brief, the role title).
  */
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { TranscriptEvent } from "../shared/protocol.js";
 import { writeCatchupFile } from "./brief.js";
+import { writeIndexFile } from "./components.js";
 import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
 import { noteSummary } from "./notes.js";
+import { blankProject, clearRuriDir } from "./ruriDir.js";
 import {
   extractTrackerItems,
   sessionRoleTitle,
@@ -93,10 +97,30 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
     .catch(() => {});
 }
 
-/** Every finished turn: its role title, its reply's recall note, and the
- *  catch-up brief folded forward. */
+/**
+ * A project's `.ruri/` files brought in line with whether it is still blank
+ * (server/ruriDir.ts): taken out as a prompt goes into a blank one, so a
+ * scaffolder run that turn finds the folder as the user left it, and put
+ * back as a turn ends, so the turn that gave the project something real is
+ * the one its brief and index land with — not the next fold, minutes on.
+ */
+function syncProjectFiles(ctx: ServerContext, channelId: string): void {
+  const project = ctx.store.findSession(channelId)?.project;
+  if (!project) return;
+  const blank = blankProject(project.path);
+  const there = fs.existsSync(path.join(project.path, ".ruri"));
+  if (blank && there) clearRuriDir(project.path);
+  else if (!blank && !there) {
+    writeIndexFile(project.path, ctx.components.items(project.id));
+    writeCatchupFile(project.path, project.name, ctx.briefs.get(project.id));
+  }
+}
+
+/** Every finished turn: its project's files, its role title, its reply's
+ *  recall note, and the catch-up brief folded forward. */
 export function createTurnTracker(ctx: ServerContext): TurnTracker {
   return new TurnTracker((projectId, turn) => {
+    syncProjectFiles(ctx, projectId);
     if (!smallModelEnabled()) return;
     const found = ctx.store.findSession(projectId);
     if (found && !found.session.title) {
@@ -147,6 +171,7 @@ export function recordEvent(ctx: ServerContext, projectId: string, raw: Transcri
   ctx.turnTracker.observe(projectId, event);
   if (projectId === HOME_ID) ctx.homeLog.observe(event);
   ctx.clients.pushEvent(projectId, event);
+  if (event.kind === "user") syncProjectFiles(ctx, projectId);
   // every prompt gets its recall note AND its tracker split the moment
   // it's sent — neither waits on (or survives only with) a finished turn,
   // so interrupted turns and "continue" follow-ups can't lose requests.

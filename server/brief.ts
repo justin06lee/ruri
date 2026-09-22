@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { configPath } from "./configDir.js";
-import { ruriDir } from "./components.js";
+import { removeRuriFile, ruriDir } from "./ruriDir.js";
 import { storedFilePath } from "./uploads.js";
 import type { Attachment } from "../shared/protocol.js";
 import { isMissing, warn } from "./log.js";
@@ -195,17 +195,17 @@ function briefText(name: string, brief: ProjectBrief): string {
  * A file, rather than a tool or an injected paragraph, because every harness
  * ruri drives can read a file and only some of them can do anything else —
  * and because a file costs nothing until it is opened. An empty brief takes
- * the file away rather than leaving a stale one to be believed.
+ * the file away rather than leaving a stale one to be believed, and a
+ * project that is still blank gets no file at all (server/ruriDir.ts).
  */
 export function writeCatchupFile(projectDir: string, name: string, brief: ProjectBrief): void {
-  const file = path.join(projectDir, ".ruri", "catchup.md");
   try {
-    if (!brief.description && brief.features.length === 0) {
-      fs.rmSync(file, { force: true });
+    const dir = brief.description || brief.features.length > 0 ? ruriDir(projectDir) : undefined;
+    if (!dir) {
+      removeRuriFile(projectDir, "catchup.md");
       return;
     }
-    ruriDir(projectDir);
-    fs.writeFileSync(file, briefText(name, brief));
+    fs.writeFileSync(path.join(dir, "catchup.md"), briefText(name, brief));
   } catch (err) {
     warn("brief", err, "writeCatchupFile");
     // a read-only project directory is not worth failing a turn over

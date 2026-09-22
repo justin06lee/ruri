@@ -683,6 +683,29 @@ class AgentBook {
         this.update(key, { status });
     }
   }
+
+  /** The task ids in the CLI's last live set of background work. */
+  private listed = new Set<string>();
+
+  /** The CLI's live set, heard: which tasks have just left it. */
+  leftSet(live: Set<string>): string[] {
+    const gone = [...this.listed].filter((id) => !live.has(id));
+    this.listed = live;
+    return gone;
+  }
+
+  /** Tasks that left the live set and whose end never reached their card
+   *  are over all the same — a card left "running" keeps its chat busy,
+   *  and its dragon in the sidebar, for as long as the process lives. One
+   *  listed again since (picked back up) is left alone. */
+  settleTasks(ids: string[]): void {
+    const gone = new Set(ids);
+    for (const [key, card] of this.cards) {
+      const id = card.event.agent?.agentId;
+      if (card.event.agent?.status !== "running" || !id || !gone.has(id) || this.listed.has(id)) continue;
+      this.update(key, { status: "done" });
+    }
+  }
 }
 
 /** A Claude task message, the fields ruri reads (task_started,
@@ -829,6 +852,10 @@ type ResultEvent = Extract<TranscriptEvent, { kind: "result" }>;
  *  so — so this only bounds the case where it never does. */
 const EARLY_GRACE_MS = 5_000;
 
+/** How long a card whose task has left the CLI's live set waits for the
+ *  message saying how it ended, before it is closed anyway. */
+const TASK_END_GRACE_MS = 2_000;
+
 /** How long a task's end is taken to mean the CLI is about to wake. Its
  *  turn starts well inside a second; this only bounds a wake that never
  *  comes. */
@@ -873,6 +900,11 @@ class ProjectSession implements ChannelSession {
   /** What a folded turn spent, carried into the result of the one it was
    *  folded into — so the ledger still counts it. */
   private carry: { tokens: number; cacheRead: number; models: string[] } | undefined;
+  /** A turn is under way — from the prompt going in (or the CLI starting
+   *  one itself) to the result that ends it. The status says "permission"
+   *  while a card waits, in a turn or out of one (a background agent can
+   *  ask after the turn is over); this says which to go back to. */
+  private turnRunning = false;
   /** A background task ended between turns, and the CLI is about to wake
    *  and answer it — its turn starts a moment after the notice. The chat
    *  counts as busy in that moment, so it is not reaped in the gap. */
@@ -1006,6 +1038,7 @@ class ProjectSession implements ChannelSession {
       });
     }
     this.turnOutput = 0;
+    this.turnRunning = true;
     this.setStatus("working");
     this.interrupted = false;
     this.untaken.push({ slash: text.trimStart().startsWith("/") });
@@ -1064,10 +1097,18 @@ class ProjectSession implements ChannelSession {
         : { behavior: "deny", message: "The user denied this tool use in ruri." },
     );
     this.events.onPermissionResolved(requestId);
-    if (this.pending.size === 0 && this.pendingQuestions.size === 0 && this.status === "permission") {
-      this.setStatus("working");
-    }
+    this.cardsAnswered();
     return true;
+  }
+
+  /** The last card is answered: back to the turn it paused — or, asked
+   *  from outside any turn (a background agent, after the turn was over),
+   *  to idle. Going back to "working" with no turn to end it was a dragon
+   *  in the sidebar that never left. */
+  private cardsAnswered(): void {
+    if (this.pending.size === 0 && this.pendingQuestions.size === 0 && this.status === "permission") {
+      this.setStatus(this.turnRunning ? "working" : "idle");
+    }
   }
 
   /**
@@ -1180,9 +1221,7 @@ class ProjectSession implements ChannelSession {
     this.pendingQuestions.delete(requestId);
     pending.resolve(answers);
     this.events.onPermissionResolved(requestId);
-    if (this.pending.size === 0 && this.pendingQuestions.size === 0 && this.status === "permission") {
-      this.setStatus("working");
-    }
+    this.cardsAnswered();
     return pending.late ? "late" : "answered";
   }
 
@@ -1257,6 +1296,10 @@ class ProjectSession implements ChannelSession {
       this.backgroundTasks = [];
       this.agents.settle();
       this.events.onBackground?.(this.project.id);
+      // and any turn it was in: nothing is coming to end it now, and a
+      // chat left "working" wears its dragon for good
+      this.turnRunning = false;
+      if (this.status === "working" || this.status === "permission") this.setStatus("idle");
     }
   }
 
@@ -1496,6 +1539,16 @@ class ProjectSession implements ChannelSession {
     if (msg.type === "system" && msg.subtype === "background_tasks_changed") {
       // a level, not an edge: the whole live set each time
       this.backgroundTasks = msg.tasks.map((task) => task.task_type);
+      // and the last word on what is still running: a card whose task has
+      // left the set is over, even if the message saying so went astray.
+      // That message comes right behind this one as a rule, and says how
+      // it ended — so it gets a moment to, before the card is closed as done
+      const gone = this.agents.leftSet(new Set(msg.tasks.map((task) => task.task_id)));
+      if (gone.length > 0) {
+        setTimeout(() => {
+          if (!this.dead) this.agents.settleTasks(gone);
+        }, TASK_END_GRACE_MS).unref();
+      }
       this.events.onBackground?.(this.project.id);
       return;
     }
@@ -1527,6 +1580,7 @@ class ProjectSession implements ChannelSession {
       }
       // a command the CLI runs itself is taken up here, with no echo
       if (this.untaken[0]?.slash) this.untaken.shift();
+      this.turnRunning = true;
       // With nothing of ours in flight the CLI started this turn itself — a
       // background task ended, and it is answering that. It is a turn like
       // any other: the chat is busy (prompts queue behind it, and the
@@ -1762,6 +1816,7 @@ class ProjectSession implements ChannelSession {
       return;
     }
     this.untaken.length = 0;
+    this.turnRunning = false;
     this.pushEvent(event);
     this.setStatus("idle");
   }
@@ -1785,6 +1840,7 @@ class ProjectSession implements ChannelSession {
     if (!early) return;
     this.early = undefined;
     this.untaken.length = 0;
+    this.turnRunning = false;
     this.pushEvent(early.event);
     this.setStatus("idle");
   }
@@ -2674,8 +2730,7 @@ class ProviderAgentSession implements ChannelSession {
         this.pendingInputs.delete(requestId);
         pending.resolve({ action: "cancel" });
         this.events.onPermissionResolved(requestId);
-        if (this.running && this.pending.size === 0 && this.pendingInputs.size === 0)
-          this.setStatus("working");
+        this.cardsAnswered();
       };
       signal?.addEventListener("abort", cancel, { once: true });
       this.pendingInputs.set(requestId, {
@@ -2704,9 +2759,7 @@ class ProviderAgentSession implements ChannelSession {
     this.pendingInputs.delete(requestId);
     pending.resolve(providerInputResponse(pending.request, pending.questions, answers));
     this.events.onPermissionResolved(requestId);
-    if (this.running && this.pending.size === 0 && this.pendingInputs.size === 0) {
-      this.setStatus("working");
-    }
+    this.cardsAnswered();
     return "answered";
   }
 
@@ -2716,8 +2769,16 @@ class ProviderAgentSession implements ChannelSession {
     this.pending.delete(requestId);
     pending.resolve(allow ? (always ? "allow_always" : "allow") : "deny");
     this.events.onPermissionResolved(requestId);
-    if (this.running && this.pending.size === 0 && this.pendingInputs.size === 0) this.setStatus("working");
+    this.cardsAnswered();
     return true;
+  }
+
+  /** The last card is answered: back to the turn it paused, or — asked
+   *  with no turn running — to idle, rather than "permission" for good. */
+  private cardsAnswered(): void {
+    if (this.pending.size === 0 && this.pendingInputs.size === 0 && this.status === "permission") {
+      this.setStatus(this.running ? "working" : "idle");
+    }
   }
 
   pendingRequests(): string[] {

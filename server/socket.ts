@@ -65,7 +65,12 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
       components: ctx.components.all(boardIds),
       secrets: ctx.secrets.meta(),
       queued: Object.fromEntries(projectIds.map((id) => [id, ctx.queues.visibleQueue(id)])),
-      queuesHeld: projectIds.filter((id) => ctx.queues.held.has(id)),
+      queuesHeld: Object.fromEntries(
+        projectIds.flatMap((id) => {
+          const hold = ctx.queues.held.get(id);
+          return hold ? [[id, hold]] : [];
+        }),
+      ),
       usage: ctx.usage.limits,
       // live figures first; anything not yet seen this run falls back to the
       // last one the archive recorded, so a relaunch shows real occupancy

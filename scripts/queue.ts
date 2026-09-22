@@ -100,7 +100,7 @@ ws.on("message", (raw) => {
   }
   if (msg.type === "queued" && msg.projectId === projectId) {
     queued = msg.items.map((item) => item.text);
-    held = msg.held === true;
+    held = msg.held?.by === "stop";
   }
   if (msg.type === "status" && msg.projectId === projectId) status = msg.status;
   if (msg.type === "event" && msg.projectId === projectId) {

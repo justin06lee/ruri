@@ -227,8 +227,10 @@ export function maybeRetry(ctx: ServerContext, channelId: string, event: Transcr
   // queued are already handled: the caller only asks when the queue had
   // nothing to send. Note that `running` is still true here, since the
   // session flips to idle just after emitting this result — which is why
-  // the wait below, not this, is where "is it busy now" is asked.)
-  if (ctx.queues.held.has(channelId)) return;
+  // the wait below, not this, is where "is it busy now" is asked.) A queue
+  // held for the connection is another matter: the dropped turn was ahead
+  // of it, and picking that back up jumps no one.
+  if (ctx.queues.held.get(channelId)?.by === "stop") return;
   const attempt = (ctx.retries.get(channelId)?.attempt ?? 0) + 1;
   const wait = RETRY_WAITS_MS[attempt - 1];
   if (wait === undefined) {
@@ -241,13 +243,16 @@ export function maybeRetry(ctx: ServerContext, channelId: string, event: Transcr
     });
     return;
   }
+  const offline = event.blocked === "network";
   recordEvent(ctx, channelId, {
     kind: "info",
     id: randomUUID(),
-    text: `the API dropped that one — going again in ${Math.round(wait / 1000)}s (${attempt} of ${RETRY_WAITS_MS.length})`,
+    text: offline
+      ? `the connection dropped — going again once it is back (${attempt} of ${RETRY_WAITS_MS.length})`
+      : `the API dropped that one — going again in ${Math.round(wait / 1000)}s (${attempt} of ${RETRY_WAITS_MS.length})`,
     ts: Date.now(),
   });
-  const timer = setTimeout(() => {
+  const nudge = () => {
     const project = channelProject(ctx, channelId);
     // gone, or busy with something the user sent while we waited
     if (!project || busy(ctx, channelId)) {
@@ -260,8 +265,18 @@ export function maybeRetry(ctx: ServerContext, channelId: string, event: Transcr
       warn("server", err, "retry nudge");
       ctx.retries.delete(channelId);
     }
-  }, wait);
-  ctx.retries.set(channelId, { attempt, timer });
+  };
+  // a dropped connection is waited out, not timed: a nudge down a dead
+  // line fails the same way, and spends a try doing it
+  const key = `retry:${channelId}`;
+  const timer = setTimeout(() => (offline ? ctx.connection.whenBack(key, nudge) : nudge()), wait);
+  ctx.retries.set(channelId, {
+    attempt,
+    cancel: () => {
+      clearTimeout(timer);
+      ctx.connection.cancel(key);
+    },
+  });
 }
 
 /**
@@ -322,6 +337,27 @@ export function queueWithCommands(
   ctx.queues.broadcastQueue(channelId);
   if (!wasBusy) drainQueue(ctx, channelId);
   return true;
+}
+
+/**
+ * A turn the connection or the account let down: the queue behind it
+ * stands by rather than spend itself against the same wall, one prompt
+ * after another, and says why — and a queue held for the connection hears
+ * when the line is back.
+ */
+export function holdForTheWorld(
+  ctx: ServerContext,
+  channelId: string,
+  blocked: "network" | "limit",
+  resetsAt: number | undefined,
+): void {
+  ctx.queues.holdQueue(
+    channelId,
+    blocked === "network" ? { by: "network" } : { by: "limit", ...(resetsAt ? { resetsAt } : {}) },
+  );
+  if (blocked === "network" && ctx.queues.held.has(channelId)) {
+    ctx.connection.whenBack(`hold:${channelId}`, () => ctx.queues.connectionBack(channelId));
+  }
 }
 
 /**

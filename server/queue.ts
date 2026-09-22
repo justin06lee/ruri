@@ -4,7 +4,13 @@
  * editable in the UI); silent entries are split sub-prompts riding under
  * the original prompt the user already sees.
  */
-import type { Attachment, AttachmentUpload, QueuedPrompt, ServerMessage } from "../shared/protocol.js";
+import type {
+  Attachment,
+  AttachmentUpload,
+  QueueHold,
+  QueuedPrompt,
+  ServerMessage,
+} from "../shared/protocol.js";
 
 export interface QueueEntry {
   id: string;
@@ -35,13 +41,16 @@ export class SendQueues {
   /** Each channel's queue, in the order it goes out. */
   readonly entries = new Map<string, QueueEntry[]>();
   /**
-   * Channels whose queue is standing by. Stopping a turn is a change of
-   * mind about *that answer*, not about the prompts waiting behind it — so
-   * the queue survives the stop and simply stops moving. It moves again
-   * when the next prompt goes out (it follows that turn, the way it would
-   * have followed the stopped one) or when the queue is sent on by hand.
+   * Channels whose queue is standing by, and why. Stopping a turn is a
+   * change of mind about *that answer*, not about the prompts waiting
+   * behind it — so the queue survives the stop and simply stops moving.
+   * A turn that fell to a dropped connection or a usage limit holds it
+   * too: every prompt behind it would meet the same wall, one after
+   * another. It moves again when the next prompt goes out (it follows that
+   * turn, the way it would have followed the one that ended) or when the
+   * queue is sent on by hand.
    */
-  readonly held = new Set<string>();
+  readonly held = new Map<string, QueueHold>();
   // Bumped on interrupt so an in-flight split resolution knows to stand down.
   readonly epochs = new Map<string, number>();
   /** Channels whose running turn a prompt has stopped to cut in: the held
@@ -97,22 +106,38 @@ export class SendQueues {
       type: "queued",
       projectId: channelId,
       items: this.visibleQueue(channelId),
-      ...(this.held.has(channelId) ? { held: true } : {}),
+      ...(this.held.has(channelId) ? { held: this.held.get(channelId) } : {}),
     });
   }
 
   /** Everything queued stops where it is. Nothing is thrown away. */
-  holdQueue(channelId: string): void {
+  holdQueue(channelId: string, hold: QueueHold = { by: "stop" }): void {
+    const queue = this.entries.get(channelId) ?? [];
     // A split's silent sub-prompts are the stopped answer's own remainder,
     // not prompts the user is waiting on — stopping means stopping them.
-    const kept = (this.entries.get(channelId) ?? []).filter((entry) => !entry.silent);
+    // A turn the connection or the limit cut short is no change of mind:
+    // the rest of that prompt is still wanted, and waits in the open with
+    // the others, where it can be seen and sent.
+    const kept =
+      hold.by === "stop"
+        ? queue.filter((entry) => !entry.silent)
+        : queue.map((entry) => (entry.silent ? { ...entry, silent: false } : entry));
     if (kept.length > 0) {
       this.entries.set(channelId, kept);
-      this.held.add(channelId);
+      this.held.set(channelId, hold);
     } else {
       this.entries.delete(channelId);
       this.held.delete(channelId);
     }
+    this.broadcastQueue(channelId);
+  }
+
+  /** A queue held for the connection hears that it is back. It still
+   *  waits for the user: they are the one who knows whether what is
+   *  queued still stands. */
+  connectionBack(channelId: string): void {
+    if (this.held.get(channelId)?.by !== "network") return;
+    this.held.set(channelId, { by: "network", back: true });
     this.broadcastQueue(channelId);
   }
 

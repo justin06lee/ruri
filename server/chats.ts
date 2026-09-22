@@ -15,7 +15,7 @@ import {
   drainComponentRequests,
 } from "./components.js";
 import type { ServerContext } from "./context.js";
-import { drainQueue, maybeRetry } from "./dispatch.js";
+import { drainQueue, holdForTheWorld, maybeRetry } from "./dispatch.js";
 import { recordEvent, redacted } from "./events.js";
 import { HOME_ID, managerExtras } from "./manager.js";
 import { ParagraphGate } from "./paragraphs.js";
@@ -78,10 +78,21 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           // a harness without ruri's tools names its components in a file
           const owner = ownerProject(ctx, projectId);
           if (owner) drainComponentRequests(owner.path, projectId, ctx.componentHost);
-          // a prompt already waiting is a better answer to a dropped turn
-          // than a nudge is, and it has just gone out
-          if (!drainQueue(ctx, projectId)) maybeRetry(ctx, projectId, event);
-          else ctx.retries.cancelRetry(projectId);
+          if (event.blocked && !event.ok) {
+            // the connection or the account let the turn down, and every
+            // prompt behind it would meet the same, one after another: the
+            // queue stands by for the user, and the dropped turn waits for
+            // the line to come back
+            holdForTheWorld(ctx, projectId, event.blocked, event.resetsAt);
+            maybeRetry(ctx, projectId, event);
+          } else {
+            // a turn that landed is the line answering
+            if (event.ok) ctx.queues.connectionBack(projectId);
+            // a prompt already waiting is a better answer to a dropped turn
+            // than a nudge is, and it has just gone out
+            if (!drainQueue(ctx, projectId)) maybeRetry(ctx, projectId, event);
+            else ctx.retries.cancelRetry(projectId);
+          }
         }
       },
       onEventUpdate: (projectId, raw) => {

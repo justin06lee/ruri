@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { QueuedPrompt } from "../../../shared/protocol";
+import type { QueuedPrompt, QueueHold } from "../../../shared/protocol";
 import { composeInto, send } from "../store";
 import { TranscriptAttachments } from "./Attachments";
 import { MarkerText } from "./Markers";
@@ -260,6 +260,69 @@ export function QueuedList({
             : {})}
         />
       ))}
+    </div>
+  );
+}
+
+/** A time a limit lifts, as the clock on the wall would say it — with the
+ *  day when it is not today. */
+function whenLifts(at: number): string {
+  const date = new Date(at);
+  const today = date.toDateString() === new Date().toDateString();
+  return date.toLocaleString([], {
+    ...(today ? {} : { weekday: "short" }),
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * The line under a queue that is standing by: why it is, and a button that
+ * sends it on. It never goes by itself — a stop was the user's word, and
+ * after a dropped connection or a usage limit they are the one who knows
+ * whether what they queued still stands.
+ */
+export function QueueStandby({
+  projectId,
+  count,
+  hold,
+}: {
+  projectId: string;
+  count: number;
+  hold: QueueHold;
+}) {
+  const resetsAt = hold.by === "limit" ? hold.resetsAt : undefined;
+  // the line changes when the limit lifts, whether or not anything else
+  // moves: the limit that has lifted, by when it said it would
+  const [liftedAt, setLiftedAt] = useState<number>();
+  useEffect(() => {
+    if (!resetsAt) return;
+    const ms = Math.max(0, Math.min(resetsAt - Date.now() + 500, 2 ** 31 - 1));
+    const timer = setTimeout(() => setLiftedAt(resetsAt), ms);
+    return () => clearTimeout(timer);
+  }, [resetsAt]);
+
+  const prompts = count === 1 ? "1 prompt" : `${count} prompts`;
+  const them = count === 1 ? "it" : "them";
+  const why =
+    hold.by === "stop"
+      ? `${prompts} held by the stop — ${count === 1 ? "it goes" : "they go"} out after your next one`
+      : hold.by === "network"
+        ? hold.back
+          ? `The connection is back — ${prompts} waiting for you`
+          : `The connection dropped — holding ${prompts} until you send ${them}`
+        : resetsAt && liftedAt === resetsAt
+          ? `The usage limit has reset — ${prompts} waiting for you`
+          : `Usage limit reached${resetsAt ? ` until ${whenLifts(resetsAt)}` : ""} — holding ${prompts} until you send ${them}`;
+  return (
+    <div className={`queue-standby by-${hold.by}`}>
+      <span>{why}</span>
+      <button
+        title="Send what is waiting, now, in the order it was written"
+        onClick={() => send({ type: "queue_send", projectId })}
+      >
+        Send queued
+      </button>
     </div>
   );
 }

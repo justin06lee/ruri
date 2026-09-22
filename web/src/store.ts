@@ -35,6 +35,7 @@ import {
   type Resources,
   type ProjectStatus,
   type QueuedPrompt,
+  type QueueHold,
   type RecentSession,
   type ServerMessage,
   type TrackerItem,
@@ -388,9 +389,10 @@ interface RuriState {
   closeSkillBody(): void;
   /** App-side prompt queue per channel — held until the running turn ends. */
   queued: Record<string, QueuedPrompt[]>;
-  /** Channels whose queue is standing by after a stopped turn: nothing goes
-   *  out until the next prompt pulls it along, or it is sent on by hand. */
-  queueHeld: Record<string, boolean>;
+  /** Channels whose queue is standing by, and why (a stop, a dropped
+   *  connection, a usage limit): nothing goes out until the next prompt
+   *  pulls it along, or it is sent on by hand. */
+  queueHeld: Record<string, QueueHold | undefined>;
   /** Limit windows per provider id (percent used) for the usage gauges. */
   usage: Record<string, UsageLimits>;
   /** Context-window occupancy per channel. */
@@ -967,7 +969,7 @@ function apply(msg: ServerMessage): void {
         components: msg.components,
         secrets: msg.secrets,
         queued: msg.queued,
-        queueHeld: Object.fromEntries(msg.queuesHeld.map((id) => [id, true])),
+        queueHeld: msg.queuesHeld,
         usage: msg.usage,
         contexts: msg.contexts,
         turns: msg.turns,
@@ -1057,7 +1059,7 @@ function apply(msg: ServerMessage): void {
     case "queued": {
       setState((s) => ({
         queued: { ...s.queued, [msg.projectId]: msg.items },
-        queueHeld: { ...s.queueHeld, [msg.projectId]: msg.held === true },
+        queueHeld: { ...s.queueHeld, [msg.projectId]: msg.held },
       }));
       break;
     }
@@ -1282,7 +1284,7 @@ function apply(msg: ServerMessage): void {
         statuses: { ...s.statuses, [HOME_ID]: "idle" },
         unread: { ...s.unread, [HOME_ID]: false },
         queued: { ...s.queued, [HOME_ID]: [] },
-        queueHeld: { ...s.queueHeld, [HOME_ID]: false },
+        queueHeld: { ...s.queueHeld, [HOME_ID]: undefined },
         contexts: Object.fromEntries(Object.entries(s.contexts).filter(([k]) => k !== HOME_ID)),
         turns: Object.fromEntries(Object.entries(s.turns).filter(([k]) => k !== HOME_ID)),
       }));

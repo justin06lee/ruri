@@ -359,6 +359,16 @@ export interface RecentSession {
   branch?: string;
 }
 
+/**
+ * Why a queue is standing by rather than moving on as each turn ends. The
+ * user stopped the turn (a change of mind about that answer, not about the
+ * prompts behind it); or the turn fell to a dropped connection — `back`
+ * once the API can be reached again — or to a usage limit, which lifts at
+ * `resetsAt` (ms since the epoch) when the harness says.
+ */
+export type QueueHold =
+  { by: "stop" } | { by: "network"; back?: boolean } | { by: "limit"; resetsAt?: number };
+
 /** A prompt held app-side until the running turn finishes (editable). */
 export interface QueuedPrompt {
   id: string;
@@ -571,6 +581,14 @@ export type TranscriptEvent =
        *  or the user did: overloaded, a 5xx, a connection cut. The one
        *  class of failure that trying again is an answer to. */
       transient?: boolean;
+      /** The turn fell to the world rather than the conversation: nothing
+       *  reached the API (`network`), or the account is out of usage
+       *  (`limit`). Whatever is queued behind it would meet the same, so
+       *  the queue holds instead of moving on. */
+      blocked?: "network" | "limit";
+      /** When the limit that stopped it lifts (ms since the epoch), when
+       *  the harness says. */
+      resetsAt?: number;
       /** The models that answered this turn, by their resolved ids, when the
        *  harness says (Claude's modelUsage). A chat that switched model
        *  mid-conversation shows the switch here. */
@@ -1264,8 +1282,8 @@ export type ServerMessage =
       secrets: SecretMeta[];
       /** App-side prompt queues per channel (visible entries only). */
       queued: Record<string, QueuedPrompt[]>;
-      /** Channels whose queue is standing by after a stopped turn. */
-      queuesHeld: string[];
+      /** Channels whose queue is standing by, and why. */
+      queuesHeld: Record<string, QueueHold>;
       /** Limit windows per provider id (empty until the first read). */
       usage: Record<string, UsageLimits>;
       /** Context occupancy per channel (Claude sessions that have run). */
@@ -1354,9 +1372,9 @@ export type ServerMessage =
   | { type: "harnesses"; harnesses: HarnessInfo[]; checking?: boolean }
   | { type: "home_reset" }
   /** The app-side prompt queue for a channel (visible, editable entries).
-   *  `held` = standing by since a stopped turn: nothing goes out until the
-   *  next prompt pulls it along, or it is sent on by hand. */
-  | { type: "queued"; projectId: string; items: QueuedPrompt[]; held?: boolean }
+   *  `held` = standing by, and why: nothing goes out until the next prompt
+   *  pulls it along, or it is sent on by hand. */
+  | { type: "queued"; projectId: string; items: QueuedPrompt[]; held?: QueueHold }
   /** Transcript events were removed (a command chip was clicked away). */
   | { type: "events_removed"; projectId: string; eventIds: string[] }
   /** A whole transcript at once — a session that came into being with

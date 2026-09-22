@@ -4,6 +4,8 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- feat(queue): a turn that fails for a dropped connection or a usage limit holds the queue instead of sending the next prompt into the same wall. The bar under it says why — "the connection dropped", "the connection is back", "usage limit reached until 9:20 PM" — and Send queued sends it when you say. A dropped turn's retry waits for the connection to come back instead of spending its tries against a dead line; "Can't reach the API server" and "Connection refused" now count as dropped connections
+- fix(statistics): the running agents' table no longer butts against the tiles above it
 - feat(settings): Integrations — the MCP servers, plugins and marketplaces Claude Code and Codex use, listed (everywhere, or for a project), added, removed, searched and installed from Settings through each CLI's own commands, with a server's secrets shown by name only; warm chats on the changed harness restart as each goes idle
 - feat(settings): the harnesses keep themselves current. Every coding CLI on the machine is looked at on the hour — version, newest, how it was installed — and brought up to date the way it came (its own updater, bun, npm, brew), never under a chat that is mid-turn on it; warm sessions on an updated one retire as each goes idle. Settings → Harnesses shows them, with Check now, Update, and a switch to update any one by hand
 - feat(composer): cut in instead of queueing — ⌘Enter, ⌘-click send, or hold Enter past a ring that closes round the send button stops the running turn and sends the prompt in its place, with anything already queued following it

@@ -43,6 +43,7 @@ import { SendQueues } from "./queue.js";
 import { ReadableImages } from "./readable.js";
 import { ResourceMeters } from "./resources.js";
 import { TerminalRelay } from "./relay.js";
+import { ConnectionWatch } from "./blocked.js";
 import { Retries } from "./retry.js";
 import { createHttpServer } from "./routes.js";
 import { SecretStore } from "./secrets.js";
@@ -146,6 +147,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     queues: new SendQueues(clients.broadcast),
     notes: new NoteBackfill(),
     retries: new Retries(),
+    connection: new ConnectionWatch(),
     models: new Models(clients.broadcast),
     // the agents' weight on this machine, sampled only while the
     // statistics page is up (server/resources.ts)

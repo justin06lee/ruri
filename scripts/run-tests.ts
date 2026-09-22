@@ -43,6 +43,11 @@ const SCRIPTS: Script[] = [
   { name: "rewind-compaction", what: "rewinding either side of a compaction" },
   { name: "rewind-git", what: "a rewind through the server: files, branch, context" },
   { name: "retry", what: "a dropped turn goes again (real CLI, mock gateway)", needs: "claude" },
+  {
+    name: "held-queue",
+    what: "a refused connection or a spent limit holds the queue (real CLI, mock gateway)",
+    needs: "claude",
+  },
 ];
 
 /** Whole-run guard: a script that hangs must not hold the suite open. */

@@ -14,6 +14,7 @@ import { titleSession } from "../dispatch.js";
 import { findProjects } from "../finder.js";
 import { errorMessage } from "../log.js";
 import { HOME_ID, type ManagerHost } from "../manager.js";
+import { expandPath } from "../projects.js";
 import { importRecent, listRecent } from "../recent.js";
 import type { Handlers } from "./types.js";
 
@@ -53,11 +54,19 @@ function closeProjectById(ctx: ServerContext, projectId: string): void {
 export function createManagerHost(ctx: ServerContext): ManagerHost {
   const host: ManagerHost = {
     openProject: ({ path: projectPath, name, folder, kickoffPrompt }) => {
-      let project = ctx.store.findByPath(projectPath);
+      // a relative path is the workspace root's — Home's own working directory
+      const dir = expandPath(projectPath, ctx.store.workspaceDir());
+      // Home opens a project once. The same folder by another spelling of
+      // its path (a symlink, another letter case) is the project already
+      // open, and so is another folder answering to an open project's name —
+      // a backup, a worktree, a second clone: the one open is the one meant.
+      const atPath = ctx.store.findByPath(dir);
+      const named = atPath ? undefined : ctx.store.findByName(name ?? "", path.basename(dir));
+      let project = atPath ?? named;
       let opened = false;
       if (!project) {
         try {
-          project = ctx.store.add(name ?? "", projectPath, folder);
+          project = ctx.store.add(name ?? "", dir, folder);
           opened = true;
         } catch (err) {
           return `failed: ${errorMessage(err)}`;
@@ -79,14 +88,15 @@ export function createManagerHost(ctx: ServerContext): ManagerHost {
         titleSession(ctx, sessionId, kickoffPrompt);
       }
       return `${opened ? "opened" : "already open"}: ${project.name} (${project.path})${
-        kickoffPrompt ? " — session started with the kickoff prompt" : ""
-      }`;
+        named ? ` — a project of that name is open, so ${dir} was not opened as another` : ""
+      }${kickoffPrompt ? " — session started with the kickoff prompt" : ""}`;
     },
     newProject: (name) => {
       const clean = name.trim().replace(/\/+$/, "");
       if (!clean || clean.includes("/") || clean.startsWith(".")) return `not a folder name: "${name}"`;
       const dir = path.join(ctx.store.workspaceDir(), clean);
-      if (ctx.store.findByPath(dir)) return `already open: ${clean} (${dir})`;
+      const open = ctx.store.findByPath(dir) ?? ctx.store.findByName(clean);
+      if (open) return `already open: ${open.name} (${open.path}) — nothing new made`;
       try {
         fs.mkdirSync(dir, { recursive: true });
       } catch (err) {
@@ -125,6 +135,7 @@ export function createManagerHost(ctx: ServerContext): ManagerHost {
 
 export const projectHandlers = {
   add_project: (ctx, _ws, msg) => {
+    if (ctx.store.findByPath(msg.path)) return;
     const project = ctx.store.add(msg.name, msg.path, msg.folder);
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
     if (briefless(ctx, project.id)) void rebuildCatchup(ctx, project.id);

@@ -8017,6 +8017,11 @@ button.stop:hover {
   gap: 14px;
 }
 
+/* the table of agents comes straight after, so it keeps the tiles' own gap */
+.meters-summary {
+  margin-bottom: 14px;
+}
+
 /* the machine's tiles sit a shade quieter than the money's: they are a
    reading of right now, not a total anything was spent on */
 .meter-tile {

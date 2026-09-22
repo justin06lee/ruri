@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { HarnessInfo, ModelRole, PermissionId, PermissionState } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
+import { BandEditor } from "./BandEditor";
 import { Integrations } from "./Integrations";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
@@ -607,6 +608,11 @@ export function Settings({ onClose }: { onClose(): void }) {
                 )}
               </div>
             </div>
+          </section>
+
+          <section className="settings-group">
+            <h2 className="settings-group-name">Peek band</h2>
+            <BandEditor />
           </section>
 
           <section className="settings-group">

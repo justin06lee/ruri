@@ -12,8 +12,10 @@ import "./tuner.css";
  * sizes, on the actual background.
  *
  * `make tuner` opens it. Save writes straight back to src/peek.ts, which is
- * the file the app reads, so what you set here is what ships. It's a dev
- * tool: it only exists on the dev server and never enters the app bundle.
+ * the file the app reads, so what you set here is what ships — the heads as
+ * the band's defaults, which Settings → Peek band can then replace. It's a
+ * dev tool: it only exists on the dev server and never enters the app
+ * bundle.
  */
 
 const BAND_W = 264;

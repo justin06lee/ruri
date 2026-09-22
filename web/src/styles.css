@@ -348,18 +348,21 @@ textarea::placeholder {
   background-size: 6px 6px;
 }
 
-/* The peek gallery: the user's hand-cut head PNGs resting low across the
-   header, clipped at its bottom edge so only horns and hair show. Pure
-   background: nothing here is clickable, the traffic lights and gear just
-   sit on top, and the whole band — heads included — drags the window.
-   The heads must never take the mouse again. A drag region swallows mouse
-   events, so a head cut out of it with `no-drag` to catch :hover is a head
-   the window cannot be dragged by, and they cover most of the window's
-   top-left corner. That trade has been made twice now (33343bd lifted them
-   on hover, 7caa262 gave the drag back by polling the cursor, f1234d8 took
-   the polling out and the drag with it); the bar is worth more than the
-   lift. `lift` in peek.ts is still the tuner's to set — it previews the
-   rise with its own toggle — but nothing in the app reads it. */
+/* The peek band: the user's pictures resting low across the header,
+   clipped at its bottom edge — five hand-cut heads showing only horns and
+   hair, until Settings says otherwise (web/src/band.ts). The traffic
+   lights and gear sit on top, and the band is the window's title bar.
+
+   A title bar's drag region swallows the mouse, so a picture in it never
+   sees the pointer. That was traded three times — 33343bd cut the heads
+   out with `no-drag` to lift them on hover (and lost the drag there),
+   7caa262 gave the drag back by polling the cursor, f1234d8 dropped the
+   polling and the drag with it — until b56b6b7 took hover away for good.
+   It is back without that trade: a picture with nothing to do on hover
+   stays in the drag region, and one that reacts (`.reacts`) is cut out and
+   carries the window itself — a press on it has the shell move the window
+   with the cursor (PeekBand.tsx, desktop/main.ts windowDrag). Nothing is
+   polled, and nothing is lost to dragging. */
 .logo-peeks {
   position: absolute;
   inset: 0;
@@ -367,22 +370,127 @@ textarea::placeholder {
   z-index: var(--z-popover);
 }
 
-.peek-head {
+/* The picture's resting box: where it catches the pointer. It never moves
+   — the art inside it does — so a lift that carries the art out from
+   under the pointer does not end the hover and drop it straight back. */
+.band-pic {
   position: absolute;
-  top: var(--drop, 0px);
-  height: auto;
-  transition: transform 180ms cubic-bezier(0.3, 0.9, 0.3, 1);
 }
 
-/* the cutouts swap ink and paper with the theme */
-[data-theme="dark"] .peek-head {
-  filter: invert(1);
+.desktop .band-pic.reacts {
+  -webkit-app-region: no-drag;
+}
+
+.band-art {
+  transform-origin: 50% 100%;
+  /* the theme's tone, then the hover's shine; each a no-op until set */
+  filter: var(--pic-tone, brightness(1)) var(--pic-shine, brightness(1));
+  transition:
+    transform var(--speed, 180ms) cubic-bezier(0.3, 0.9, 0.3, 1),
+    opacity var(--speed, 180ms) ease,
+    filter var(--speed, 180ms) ease;
+}
+
+.band-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.band-img.flip {
+  transform: scaleX(-1);
+}
+
+/* line art swaps ink and paper with the theme; a picture set not to keeps
+   its own colours */
+[data-theme="dark"] .band-pic.invert {
+  --pic-tone: invert(1);
 }
 
 /* inverted like dark, then pulled toward the fire so the line art sits on
    the same warm paper as everything else */
-[data-theme="ember"] .peek-head {
-  filter: invert(1) sepia(0.5) saturate(1.5) hue-rotate(332deg);
+[data-theme="ember"] .band-pic.invert {
+  --pic-tone: invert(1) sepia(0.5) saturate(1.5) hue-rotate(332deg);
+}
+
+/* the hovers: --amt is the strength in the effect's own unit (band.ts
+   EFFECTS), --speed how long the move takes, or one round of a repeat */
+.band-pic.hot.fx-lift .band-art {
+  transform: translateY(calc(var(--amt) * -1px));
+}
+
+.band-pic.hot.fx-sink .band-art {
+  transform: translateY(calc(var(--amt) * 1px));
+}
+
+.band-pic.hot.fx-grow .band-art {
+  transform: scale(calc(1 + var(--amt) / 100));
+}
+
+.band-pic.hot.fx-pop .band-art {
+  transform: translateY(calc(var(--amt) * -1px)) scale(1.12);
+}
+
+.band-pic.hot.fx-tilt .band-art,
+.band-pic.hot.fx-spin .band-art {
+  transform: rotate(calc(var(--amt) * 1deg));
+}
+
+.band-pic.fx-spin .band-art {
+  transform-origin: 50% 50%;
+}
+
+.band-pic.hot.fx-glow {
+  --pic-shine: drop-shadow(0 0 calc(var(--amt) * 1px) var(--ink));
+}
+
+.band-pic.hot.fx-fade .band-art {
+  opacity: calc(1 - var(--amt) / 100);
+}
+
+.band-pic.hot.fx-wiggle .band-art {
+  animation: band-wiggle var(--speed) ease-in-out infinite;
+}
+
+.band-pic.hot.fx-bounce .band-art {
+  animation: band-bounce var(--speed) ease-in-out infinite;
+}
+
+@keyframes band-wiggle {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(calc(var(--amt) * 1deg));
+  }
+  75% {
+    transform: rotate(calc(var(--amt) * -1deg));
+  }
+}
+
+@keyframes band-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(calc(var(--amt) * -1px));
+  }
+}
+
+/* a repeat is motion someone asked not to have; the one-off moves still
+   happen, at once */
+@media (prefers-reduced-motion: reduce) {
+  .band-art {
+    transition-duration: 0ms;
+  }
+  .band-pic.hot.fx-wiggle .band-art,
+  .band-pic.hot.fx-bounce .band-art {
+    animation: none;
+  }
 }
 
 /* the account bar: local user + settings, pinned under the music player */
@@ -2321,6 +2429,206 @@ input[type="range"]::-webkit-slider-thumb {
 .seg-option.active {
   background: var(--ink);
   color: var(--paper);
+}
+
+/* ── Settings → Peek band (BandEditor.tsx) ─────────────────────────── */
+
+.bandedit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+/* the band at twice its size, and room under it for what hangs below */
+.bandedit-stage {
+  position: relative;
+  flex-shrink: 0;
+  outline: none;
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--paper-dim) 55%, var(--paper));
+  overflow: hidden;
+}
+
+.bandedit-stage:focus-visible {
+  box-shadow: 0 0 0 1.5px var(--ink-faint);
+}
+
+.bandedit-space {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+/* the whole of every picture, faint, where the band cuts it off */
+.bandedit-ghosts {
+  position: absolute;
+  inset: 0;
+  opacity: 0.2;
+  pointer-events: none;
+}
+
+/* the band itself, dressed as the sidebar's header is */
+.bandedit-band {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  background-color: var(--paper-dim);
+  background-image: var(--tone);
+  background-size: 6px 6px;
+  border-bottom: 1.5px solid var(--hairline);
+}
+
+.bandedit-band .band-pic {
+  cursor: grab;
+}
+
+.bandedit-stage.moving .band-pic {
+  cursor: grabbing;
+}
+
+.bandedit-band .band-pic.picked {
+  outline: 1px dashed var(--ink-soft);
+  outline-offset: 0.5px;
+}
+
+/* the window's three buttons, where macOS draws them over the band */
+.bandedit-lights {
+  position: absolute;
+  left: 12px;
+  top: 14px;
+  display: flex;
+  gap: 8px;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.bandedit-lights i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ee6a5f;
+}
+
+.bandedit-lights i:nth-child(2) {
+  background: #f5bf4f;
+}
+
+.bandedit-lights i:nth-child(3) {
+  background: #62c554;
+}
+
+.bandedit-hint {
+  margin: 0;
+  max-width: 560px;
+}
+
+.bandedit-problem {
+  margin: 0;
+  color: var(--diff-del-ink);
+}
+
+/* the pictures in order, to pick from — one moved off the band too */
+.bandedit-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.bandedit-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 36px;
+  padding: 3px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background: var(--paper-dim);
+  overflow: hidden;
+}
+
+.bandedit-chip.active {
+  border-color: var(--ink);
+}
+
+.bandedit-chip.add {
+  font-size: 18px;
+  color: var(--ink-soft);
+}
+
+.bandedit-chip.still {
+  cursor: default;
+}
+
+/* a picture shrunk into a chip: whole, however it is shaped */
+.bandedit-thumb {
+  position: static;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+.bandedit-thumb .band-art {
+  display: flex;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.bandedit-thumb .band-img {
+  width: auto;
+  max-width: 100%;
+  max-height: 28px;
+  object-fit: contain;
+}
+
+.bandedit-count {
+  margin-left: 4px;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+}
+
+.bandedit-restore {
+  margin-left: auto;
+}
+
+.bandedit-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.bandedit-panel .settings-row + .settings-row {
+  border-top: 1px solid var(--line-faint);
+}
+
+.bandedit-range {
+  width: 220px;
+}
+
+.bandedit-readout {
+  min-width: 64px;
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.bandedit-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+}
+
+.bandedit-num input {
+  width: 64px;
+  padding: 3px 6px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── chat ─────────────────────────────────────────────────────────── */

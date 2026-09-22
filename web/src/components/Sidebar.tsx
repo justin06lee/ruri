@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { PEEKS } from "../peek";
 import { HOME_ID, type Project, type RecentSession, type SessionInfo } from "../../../shared/protocol";
 import { useConfirm } from "./Confirm";
+import { PeekBand } from "./PeekBand";
 import { Player } from "./Player";
 import { getPref, setPref } from "../prefs";
 import { STAR_PATH } from "../icons";
@@ -569,27 +569,8 @@ export const Sidebar = memo(function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <span className="logo-peeks" aria-hidden>
-          {/* hand-placed in the tuner (`make tuner`), which writes peek.ts —
-              x/w/drop position each head. `lift` is not read here: the band
-              drags the window, so nothing in it can take a hover (styles.css
-              at .logo-peeks says why). */}
-          {PEEKS.map((p) => (
-            <img
-              key={p.n}
-              className="peek-head"
-              src={`/peek/u${p.n}.png`}
-              alt=""
-              style={
-                {
-                  left: p.x,
-                  width: p.w,
-                  "--drop": `${p.drop}px`,
-                } as React.CSSProperties
-              }
-            />
-          ))}
-        </span>
+        {/* the pictures across the top, as Settings has them (band.ts) */}
+        <PeekBand />
       </div>
 
       <div className="project-list">

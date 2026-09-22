@@ -75,6 +75,15 @@
   transition: transform 180ms cubic-bezier(0.3, 0.9, 0.3, 1);
 }
 
+/* the cutouts swap ink and paper with the theme, as the app's band does */
+[data-theme="dark"] .band .peek-head {
+  filter: invert(1);
+}
+
+[data-theme="ember"] .band .peek-head {
+  filter: invert(1) sepia(0.5) saturate(1.5) hue-rotate(332deg);
+}
+
 .band .peek-head.picked {
   outline: 1.5px dashed var(--ink-faint);
   outline-offset: 1px;

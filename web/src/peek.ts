@@ -1,6 +1,8 @@
 /**
  * Where the art sits — placed by hand in the tuner (`make tuner`), saved
- * back here by it, and read by the app.
+ * back here by it, and read by the app: the hero faces' framing, and the
+ * peek band a fresh install shows (lib/peekBand.ts defaultBand — the band
+ * itself is the user's to change in Settings).
  *
  * This file is data, not decisions: every number in it was set by dragging
  * the thing itself. The tuner rewrites it wholesale, so keep the shape and
@@ -18,8 +20,8 @@ export interface Peek {
   /** How far down the band it starts, px. */
   drop: number;
   /** How far it rises when the cursor is over it, px (negative = up).
-   *  The tuner's to set and preview; the app cannot use it, since the band
-   *  drags the window (styles.css at .logo-peeks). */
+   *  The tuner's to set and preview. The app's band takes its hovers from
+   *  Settings instead, where Lift starts at a strength of its own. */
   lift: number;
 }
 

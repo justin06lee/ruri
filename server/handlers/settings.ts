@@ -1,12 +1,17 @@
 /**
  * Settings, as the window changes them: its own preferences, the
  * workspace and music folders, each chat's (or project's, or Home's)
- * model, permission mode and effort, the models' roles, and the vault.
+ * model, permission mode and effort, the models' roles, the vault, and
+ * the peek band's pictures.
  */
+import { WebSocket } from "ws";
+import type { ServerMessage } from "../../shared/protocol.js";
 import type { ServerContext } from "../context.js";
+import { warn } from "../log.js";
 import { HOME_ID } from "../manager.js";
 import { setSmallModel } from "../smallmodel.js";
 import { republishContext } from "../turns.js";
+import { storeUpload } from "../uploads.js";
 import type { Handlers } from "./types.js";
 
 /** The roles changed: the small layer and every window hear the new set.
@@ -28,6 +33,23 @@ export const settingHandlers = {
   set_pref: (ctx, _ws, msg) => {
     ctx.prefs.set(msg.key, msg.value);
     ctx.clients.broadcast({ type: "prefs", prefs: ctx.prefs.all() });
+  },
+  // a picture for the peek band: kept with the uploads, and the sweep
+  // leaves it there for as long as the band's preference names it
+  band_picture: (_ctx, ws, msg) => {
+    let url: string | null = null;
+    if (msg.upload.mediaType.startsWith("image/") && msg.upload.mediaType !== "image/svg+xml") {
+      try {
+        url = storeUpload(msg.upload).url;
+      } catch (err) {
+        warn("settings", err, "band_picture");
+      }
+    }
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({ type: "band_picture_stored", id: msg.upload.id, url } satisfies ServerMessage),
+      );
+    }
   },
   set_workspace: (ctx, _ws, msg) => {
     ctx.store.setWorkspaceDir(msg.path);

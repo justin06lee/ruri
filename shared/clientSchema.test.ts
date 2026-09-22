@@ -182,6 +182,8 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   bridge_release: { type: "bridge_release", projectId: "p" },
   bridge_close: { type: "bridge_close", projectId: "p" },
   set_pref: { type: "set_pref", key: "ruri-theme", value: "dark" },
+  band_picture: { type: "band_picture", upload },
+  window_drag: { type: "window_drag", phase: "move" },
 };
 
 /** The `type` literal of every arm the schema has. */

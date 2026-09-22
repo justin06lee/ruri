@@ -7,11 +7,9 @@ import {
   type SessionInfo,
   type TranscriptEvent,
 } from "../../../shared/protocol";
-import { heroFor, heroUrl, launchHero } from "../hero";
 import { beat } from "../lib/beat";
 import { spinStar } from "../lib/spin";
 import { StreamingMarkdown } from "../markdown";
-import { heroFrame } from "../peek";
 import { getPref, setPref } from "../prefs";
 import {
   closeAgent,
@@ -28,6 +26,7 @@ import { Icon, TOOL_ICONS } from "./chat/Icon";
 import { NO_EARLIER, NO_EVENTS, NO_QUEUED, NO_SUMMARIES } from "./chat/empty";
 import { Components } from "./Components";
 import { Composer } from "./Composer";
+import { HeroTop } from "./HeroFace";
 import { CompactionMark, EventView } from "./EventView";
 import { Exchange, groupTurns, NO_EXCERPTS, turnExcerpts, type Half } from "./Exchange";
 import { HomeDeck, type HomeTab } from "./HomeBoard";
@@ -68,25 +67,6 @@ const IDLE_CAP = 14;
 const EARLIER_FIRST = 24;
 /** How many more each approach to the top adds. */
 const EARLIER_STEP = 40;
-
-/** A hero face in its circle, framed the way the tuner left it. */
-function HeroFace({ n }: { n: number }) {
-  const frame = heroFrame(n);
-  return (
-    <div className="hero-frame">
-      <img
-        className="hero-face"
-        src={heroUrl(n)}
-        alt=""
-        style={{
-          left: `calc(50% + ${frame.x}%)`,
-          top: `calc(50% + ${frame.y}%)`,
-          transform: `translate(-50%, -50%) scale(${frame.zoom})`,
-        }}
-      />
-    </div>
-  );
-}
 
 /** Rapid fire's card fades in as it takes over and out as it hands on —
  *  the pane is the same one either way, so the classes ride on it. */
@@ -800,8 +780,13 @@ function ChatView({
               there before its first prompt too; Home has none */}
           {header}
           <div className="hero">
-            <HeroFace n={isHome ? launchHero : heroFor(boardId ?? activeId)} />
-            <div className="hero-title">{isHome ? "sup." : (session?.title ?? project.name)}</div>
+            {/* keyed by chat: each one's face is drawn as it comes up */}
+            <HeroTop
+              key={isHome ? HOME_ID : (boardId ?? activeId)}
+              channel={isHome ? HOME_ID : (boardId ?? activeId)}
+              home={isHome}
+              {...(isHome ? {} : { title: session?.title ?? project.name })}
+            />
             <div className="hero-composer">
               {rapid?.on && <RapidBar rapid={rapid} />}
               <Composer

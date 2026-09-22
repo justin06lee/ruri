@@ -1,27 +1,25 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BAND_H,
   BAND_W,
   EFFECTS,
   getBand,
-  loadPicture,
-  pictureUrl,
   MAX_PICTURES,
   newId,
   resetBand,
   setBand,
   SPEED_MAX,
   SPEED_MIN,
-  storePicture,
   useBand,
-  usePicture,
   type Animate,
   type BandPicture,
   type HoverEffect,
 } from "../band";
+import { loadPicture, pictureUrl, storePicture, usePicture } from "../pictures";
 import { useConfirm } from "./Confirm";
 import { Dropdown } from "./Dropdown";
 import { BandPic } from "./PeekBand";
+import { NumField, Row } from "./SettingsRows";
 
 /**
  * Settings → Peek band: the pictures across the top of the sidebar, set up
@@ -68,7 +66,7 @@ function Thumb({ src, invert, flip }: { src: string; invert?: boolean; flip?: bo
   const art = usePicture(src);
   return (
     <span className={`band-pic bandedit-thumb${invert ? " invert" : ""}`}>
-      <span className="band-art">
+      <span className="band-art fx-art">
         <img
           className={`band-img${flip ? " flip" : ""}`}
           src={art?.still ?? art?.url ?? pictureUrl(src)}
@@ -89,7 +87,7 @@ function Ghost({ picture }: { picture: BandPicture }) {
       className={`band-pic${picture.invert ? " invert" : ""}`}
       style={{ left: picture.x, top: picture.drop, width: picture.w }}
     >
-      <div className="band-art">
+      <div className="band-art fx-art">
         <img
           className={`band-img${picture.flip ? " flip" : ""}`}
           src={art?.still ?? art?.url ?? pictureUrl(picture.src)}
@@ -97,36 +95,6 @@ function Ghost({ picture }: { picture: BandPicture }) {
           draggable={false}
         />
       </div>
-    </div>
-  );
-}
-
-/** A number typed in: what is being typed stays as typed ("-", "1.") until
- *  it is a number, rather than the field snapping back to the last one. */
-function NumField({ label, value, onChange }: { label: string; value: number; onChange(n: number): void }) {
-  const [draft, setDraft] = useState<string | null>(null);
-  return (
-    <label className="bandedit-num">
-      <input
-        type="number"
-        value={draft ?? String(value)}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          const n = Number(e.target.value);
-          if (e.target.value.trim() !== "" && Number.isFinite(n)) onChange(Math.round(n));
-        }}
-        onBlur={() => setDraft(null)}
-      />
-      <span>{label}</span>
-    </label>
-  );
-}
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="settings-row">
-      <span className="settings-label">{label}</span>
-      <div className="settings-value">{children}</div>
     </div>
   );
 }
@@ -210,7 +178,7 @@ export function BandEditor() {
     for (const file of files.slice(0, room)) {
       setAdding((n) => n + 1);
       try {
-        const src = await storePicture(file);
+        const src = await storePicture(file, "band");
         const loaded = await loadPicture(src);
         // as tall as the band, to start: all of it showing, in the middle
         let w = 64;
@@ -250,7 +218,7 @@ export function BandEditor() {
     setProblem(undefined);
     setAdding((n) => n + 1);
     try {
-      update(selected.id, { [field]: await storePicture(file) });
+      update(selected.id, { [field]: await storePicture(file, "band") });
     } catch (err) {
       setProblem(err instanceof Error ? err.message : String(err));
     } finally {

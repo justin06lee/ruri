@@ -1260,8 +1260,9 @@ export type ClientMessage =
   | { type: "bridge_close"; projectId: string }
   /** Keep one window preference on this machine. An empty value forgets it. */
   | { type: "set_pref"; key: string; value: string }
-  /** Keep a picture for the peek band; answered with band_picture_stored. */
-  | { type: "band_picture"; upload: AttachmentUpload }
+  /** Keep a picture for the peek band or the hero face; answered with
+   *  picture_stored. */
+  | { type: "store_picture"; upload: AttachmentUpload }
   /** Carry the window with the cursor, from a band picture that has to see
    *  the pointer and so is not part of the title bar's drag region. */
   | { type: "window_drag"; phase: WindowDragPhase };
@@ -1340,8 +1341,8 @@ export type ServerMessage =
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
-  /** Where a band_picture is served from now — null if it could not be kept. */
-  | { type: "band_picture_stored"; id: string; url: string | null }
+  /** Where a store_picture is served from now — null if it could not be kept. */
+  | { type: "picture_stored"; id: string; url: string | null }
   /** The grants, and the privacy database's rows behind them. */
   | { type: "permissions"; items: PermissionState[]; rows: TccRow[] }
   /** A turn's recall notes, after one half of them was written. */

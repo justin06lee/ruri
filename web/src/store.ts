@@ -46,7 +46,7 @@ import {
 } from "../../shared/protocol";
 import type { ComposerAttachment } from "./components/Attachments";
 import { overlay, reuse } from "./lib/transcript";
-import { pictureStored } from "./band";
+import { pictureStored } from "./pictures";
 import { hydratePrefs } from "./prefs";
 import { isAwake, subscribeAwake } from "./lib/awake";
 import { fileToBase64 } from "./lib/files";
@@ -1407,7 +1407,7 @@ function apply(msg: ServerMessage): void {
       if (msg.path) setState({ picked: { path: msg.path, target: msg.target ?? "workspace" } });
       break;
     }
-    case "band_picture_stored": {
+    case "picture_stored": {
       pictureStored(msg.id, msg.url);
       break;
     }

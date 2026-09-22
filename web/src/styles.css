@@ -879,36 +879,39 @@ textarea::placeholder {
   transform: translateY(0.5px) rotate(-7deg);
 }
 
-/* The pointer on the row: two hard bites — shut, open, shut, open — each
-   one shaking the head, and the jaws held open until the pointer goes,
-   when the clock takes over again. The held pose is the animation's own
-   last frame, which outranks the clock's step for as long as it lasts. */
+/* The pointer on the row: open, shut, open, shut, open — two hard bites,
+   each one shaking the head — and the jaws held open until the pointer
+   goes, when the clock takes over again. The held pose is the animation's
+   own last frame, which outranks the clock's step for as long as it lasts. */
 .project-row:hover .row-dragon,
 .folder-row:hover .row-dragon {
-  animation: bite-shake 440ms linear 1 forwards;
+  animation: bite-shake 550ms linear 1 forwards;
 }
 
 .project-row:hover .row-dragon-frame.f1,
 .folder-row:hover .row-dragon-frame.f1 {
-  animation: chomp-open 440ms step-end 1 forwards;
+  animation: chomp-open 550ms step-end 1 forwards;
 }
 
 .project-row:hover .row-dragon-frame.f2,
 .folder-row:hover .row-dragon-frame.f2 {
-  animation: chomp-shut 440ms step-end 1 forwards;
+  animation: chomp-shut 550ms step-end 1 forwards;
 }
 
 @keyframes chomp-shut {
   0% {
-    opacity: 1;
-  }
-  25% {
     opacity: 0;
   }
-  50% {
+  20% {
     opacity: 1;
   }
-  75%,
+  40% {
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  80%,
   100% {
     opacity: 0;
   }
@@ -916,53 +919,59 @@ textarea::placeholder {
 
 @keyframes chomp-open {
   0% {
-    opacity: 0;
-  }
-  25% {
     opacity: 1;
   }
-  50% {
+  20% {
     opacity: 0;
   }
-  75%,
+  40% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 0;
+  }
+  80%,
   100% {
     opacity: 1;
   }
 }
 
-/* each bite (0% and 50%) slams down and in, then rattles out before the
-   jaws open again */
+/* each bite (20% and 60%) slams down and in, then rattles out before the
+   jaws open again; still while they are open */
 @keyframes bite-shake {
-  0% {
-    transform: translateY(1px) rotate(-13deg) scale(1.14);
-  }
-  7% {
-    transform: translate(-1px, 0) rotate(9deg) scale(1.08);
-  }
-  14% {
-    transform: translate(1px, 0) rotate(-6deg);
-  }
-  21% {
-    transform: translate(-0.5px, 0) rotate(3deg);
-  }
-  /* still while the jaws are open, then slammed straight into the next */
-  25%,
-  49.9% {
+  0%,
+  19.9% {
     transform: none;
   }
-  50% {
+  20% {
     transform: translateY(1px) rotate(-13deg) scale(1.14);
   }
-  57% {
+  26% {
+    transform: translate(-1px, 0) rotate(9deg) scale(1.08);
+  }
+  32% {
+    transform: translate(1px, 0) rotate(-6deg);
+  }
+  37% {
+    transform: translate(-0.5px, 0) rotate(3deg);
+  }
+  40%,
+  59.9% {
+    transform: none;
+  }
+  60% {
+    transform: translateY(1px) rotate(-13deg) scale(1.14);
+  }
+  66% {
     transform: translate(1px, 0) rotate(9deg) scale(1.08);
   }
-  64% {
+  72% {
     transform: translate(-1px, 0) rotate(-6deg);
   }
-  71% {
+  77% {
     transform: translate(0.5px, 0) rotate(3deg);
   }
-  75%,
+  80%,
   100% {
     transform: none;
   }

@@ -166,9 +166,18 @@ const WORD: Record<Status, string> = {
   idle: "idle",
 };
 
-function ProjectCard({ project, status }: { project: Project; status: Status }) {
+function ProjectCard({
+  project,
+  status,
+  sessions,
+}: {
+  project: Project;
+  status: Status;
+  /** The sessions it lists (see shownSessions). */
+  sessions: SessionInfo[];
+}) {
   const setActive = useRuri((s) => s.setActive);
-  const first = project.sessions[0];
+  const first = sessions[0];
   return (
     <div className={`pcard st-${status}`}>
       <div
@@ -185,7 +194,7 @@ function ProjectCard({ project, status }: { project: Project; status: Status }) 
         {project.sessions.length === 0 ? (
           <span className="board-line note">no sessions open</span>
         ) : (
-          project.sessions.map((session) => (
+          sessions.map((session) => (
             <SessionLines key={session.id} session={session} many={project.sessions.length > 1} />
           ))
         )}
@@ -196,9 +205,24 @@ function ProjectCard({ project, status }: { project: Project; status: Status }) 
 
 const RANK: Record<Status, number> = { permission: 0, working: 1, error: 2, idle: 3 };
 
-/** What a project is up to, from its sessions: the most urgent one wins.
- *  A session whose turn is over is still working while agents or scripts
- *  it left running are. */
+/** What one session is up to. A session whose turn is over is still
+ *  working while agents or scripts it left running are. */
+function sessionStatus(
+  session: SessionInfo,
+  statuses: Record<string, string>,
+  work: Record<string, BackgroundWork>,
+): Status {
+  const s = statuses[session.id];
+  return s === "permission" || s === "working"
+    ? s
+    : session.id in work
+      ? "working"
+      : s === "error"
+        ? "error"
+        : "idle";
+}
+
+/** What a project is up to, from its sessions: the most urgent one wins. */
 function statusOf(
   project: Project,
   statuses: Record<string, string>,
@@ -206,18 +230,26 @@ function statusOf(
 ): Status {
   let best: Status = "idle";
   for (const session of project.sessions) {
-    const s = statuses[session.id];
-    const status: Status =
-      s === "permission" || s === "working"
-        ? s
-        : session.id in work
-          ? "working"
-          : s === "error"
-            ? "error"
-            : "idle";
+    const status = sessionStatus(session, statuses, work);
     if (RANK[status] < RANK[best]) best = status;
   }
   return best;
+}
+
+/**
+ * The sessions a card lists. A live card lists the ones that make it live
+ * — working, waiting on you, errored — and none of the chats that finished
+ * hours ago beside them, which are a click away in the sidebar; an idle
+ * card has nothing live to show, so it shows where each chat left off.
+ */
+function shownSessions(
+  project: Project,
+  status: Status,
+  statuses: Record<string, string>,
+  work: Record<string, BackgroundWork>,
+): SessionInfo[] {
+  if (status === "idle") return project.sessions;
+  return project.sessions.filter((session) => sessionStatus(session, statuses, work) !== "idle");
 }
 
 /**
@@ -356,7 +388,10 @@ export function ProjectsPage() {
 
   const { live, idle } = useMemo(() => {
     const ranked = projects
-      .map((project) => ({ project, status: statusOf(project, statuses, work) }))
+      .map((project) => {
+        const status = statusOf(project, statuses, work);
+        return { project, status, sessions: shownSessions(project, status, statuses, work) };
+      })
       .sort((a, b) => RANK[a.status] - RANK[b.status] || a.project.name.localeCompare(b.project.name));
     return {
       live: ranked.filter((x) => x.status !== "idle"),
@@ -369,8 +404,8 @@ export function ProjectsPage() {
   const errored = live.filter((x) => x.status === "error").length;
   const grid = (items: typeof live) => (
     <div className="projects-grid">
-      {items.map(({ project, status }) => (
-        <ProjectCard key={project.id} project={project} status={status} />
+      {items.map(({ project, status, sessions }) => (
+        <ProjectCard key={project.id} project={project} status={status} sessions={sessions} />
       ))}
     </div>
   );

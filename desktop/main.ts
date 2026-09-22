@@ -4,12 +4,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import { app, BrowserWindow, dialog, Menu, session, shell } from "electron";
+import { app, BrowserWindow, dialog, Menu, screen, session, shell, systemPreferences } from "electron";
 import { startServer } from "../server/server.js";
 import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
 import { askAgainIfNewBuild, permissions } from "./permissions.js";
 import { warn } from "../server/log.js";
+import type { WindowDragPhase } from "../shared/protocol.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -105,6 +106,67 @@ function projectIdsOnDisk(): string[] {
   }
 }
 
+/** The app's own window — the one the peek band is in, as against the
+ *  bridge's hidden ones. */
+let appWindow: BrowserWindow | undefined;
+/** Where the window and the cursor were as a press on the band began. */
+let carrying: { cursor: Electron.Point; at: [number, number] } | undefined;
+/** Where the window stood before a double-click on the band filled the
+ *  screen with it — for the one that puts it back. */
+let unzoomed: Electron.Rectangle | undefined;
+
+/**
+ * Carry the window by a peek band picture. The band is the title bar, but
+ * a picture with a hover of its own has to see the pointer, so it is cut
+ * out of the drag region (web/src/components/PeekBand.tsx) — and a press on
+ * it moves the window here instead: from where the window stood, by as far
+ * as the cursor has come. The page says when the press starts, moves and
+ * ends; nothing here runs between presses.
+ */
+function windowDrag(phase: WindowDragPhase): void {
+  const win = appWindow;
+  if (!win || win.isDestroyed() || win.isFullScreen()) return;
+  if (phase === "start") {
+    const [x = 0, y = 0] = win.getPosition();
+    carrying = { cursor: screen.getCursorScreenPoint(), at: [x, y] };
+    return;
+  }
+  if (phase === "move") {
+    if (!carrying) return;
+    const cursor = screen.getCursorScreenPoint();
+    win.setPosition(
+      carrying.at[0] + cursor.x - carrying.cursor.x,
+      carrying.at[1] + cursor.y - carrying.cursor.y,
+    );
+    return;
+  }
+  if (phase === "end") {
+    carrying = undefined;
+    return;
+  }
+  // a double-click does what one on a title bar does, by the Mac's own
+  // setting for it (Desktop & Dock → "Double-click a window's title bar")
+  const action = systemPreferences.getUserDefault("AppleActionOnDoubleClick", "string");
+  if (action === "Minimize") {
+    win.minimize();
+    return;
+  }
+  if (action === "None") return;
+  const bounds = win.getBounds();
+  const area = screen.getDisplayMatching(bounds).workArea;
+  if (!win.isMaximized() && (bounds.width < area.width || bounds.height < area.height)) {
+    unzoomed = bounds;
+    win.maximize();
+    return;
+  }
+  // back again — to the frame it had, put back by hand when this is what
+  // filled the screen: macOS's own un-zoom, which unmaximize() asks for,
+  // is not dependable (a window it is not showing stays as big as ever)
+  if (unzoomed) win.setBounds(unzoomed);
+  else win.unmaximize();
+  unzoomed = undefined;
+}
+
 function createWindow(port: number, token: string): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
@@ -159,6 +221,7 @@ function createWindow(port: number, token: string): BrowserWindow {
     .filter(Boolean)
     .join("&");
   void win.loadURL(`http://127.0.0.1:${port}/?${query}`);
+  appWindow = win;
 
   const screenshot = process.env["RURI_SCREENSHOT"];
   if (screenshot) {
@@ -243,6 +306,7 @@ async function main(): Promise<void> {
     capture: captureTargets,
     bridge,
     permissions,
+    windowDrag,
   });
 
   createWindow(running.port, token);

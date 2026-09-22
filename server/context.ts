@@ -12,6 +12,7 @@ import type {
   PermissionRequest,
   PermissionState,
   TccRow,
+  WindowDragPhase,
 } from "../shared/protocol.js";
 import type { AgentLogs, Crew } from "./agents.js";
 import type { SessionArchive } from "./archive.js";
@@ -68,6 +69,13 @@ export interface StartServerOptions {
    * Resolves to the chosen directory, or null if the user cancelled.
    */
   pickFolder?: () => Promise<string | null>;
+  /**
+   * Host-provided window carrying (the Electron shell passes one): a press
+   * on a peek band picture that has to see the pointer — and so is not part
+   * of the title bar's drag region — moves the window with the cursor
+   * instead (web/src/components/PeekBand.tsx).
+   */
+  windowDrag?: (phase: WindowDragPhase) => void;
   /**
    * Host-provided macOS grants (the Electron shell passes one): what macOS
    * has let ruri do, the asking for it, and the privacy database's rows —

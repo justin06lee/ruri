@@ -960,6 +960,10 @@ export interface BridgeState {
   takenOver: boolean;
 }
 
+/** A press carrying the window: it begins, the cursor moves, it ends — or a
+ *  double-click, which does what a title bar's does. */
+export type WindowDragPhase = "start" | "move" | "end" | "zoom";
+
 export type ClientMessage =
   | { type: "add_project"; name: string; path: string; folder?: string }
   | { type: "pick_folder"; target?: PickTarget }
@@ -1255,7 +1259,12 @@ export type ClientMessage =
   /** Close it: the window is destroyed, launched apps are quit. */
   | { type: "bridge_close"; projectId: string }
   /** Keep one window preference on this machine. An empty value forgets it. */
-  | { type: "set_pref"; key: string; value: string };
+  | { type: "set_pref"; key: string; value: string }
+  /** Keep a picture for the peek band; answered with band_picture_stored. */
+  | { type: "band_picture"; upload: AttachmentUpload }
+  /** Carry the window with the cursor, from a band picture that has to see
+   *  the pointer and so is not part of the title bar's drag region. */
+  | { type: "window_drag"; phase: WindowDragPhase };
 
 export type ServerMessage =
   | {
@@ -1331,6 +1340,8 @@ export type ServerMessage =
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
+  /** Where a band_picture is served from now — null if it could not be kept. */
+  | { type: "band_picture_stored"; id: string; url: string | null }
   /** The grants, and the privacy database's rows behind them. */
   | { type: "permissions"; items: PermissionState[]; rows: TccRow[] }
   /** A turn's recall notes, after one half of them was written. */

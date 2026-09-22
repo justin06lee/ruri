@@ -1,7 +1,8 @@
 /**
  * What the desktop shell lends the server, asked for from a window: its
- * folder picker, macOS's grants, and the bridge's windows (each absent when
- * ruri runs headless, and then these do nothing).
+ * folder picker, macOS's grants, the bridge's windows, and the app window
+ * itself to carry (each absent when ruri runs headless, and then these do
+ * nothing).
  */
 import { WebSocket } from "ws";
 import type { ClientMessage, ServerMessage } from "../../shared/protocol.js";
@@ -46,5 +47,8 @@ export const hostHandlers = {
   },
   bridge_close: (ctx, _ws, msg) => {
     void ctx.options.bridge?.close(msg.projectId);
+  },
+  window_drag: (ctx, _ws, msg) => {
+    ctx.options.windowDrag?.(msg.phase);
   },
 } satisfies Partial<Handlers>;

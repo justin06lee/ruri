@@ -34,16 +34,17 @@ export function Thinking() {
 }
 
 /**
- * The same head, small and still: a chat at work, standing in the sidebar
- * where its row's remove button goes (and a folded folder's, for a chat
- * inside it). Nothing moves it on a clock — a row is not the place for a
- * second doodle waving — but running the pointer over the row makes it
- * chomp twice, quickly (styles.css, .row-dragon): a finite animation that
- * is over in a third of a second.
+ * The same head, small: a chat at work, standing in the sidebar where its
+ * row's remove button goes (a folded folder's, for a chat inside it; the
+ * Projects row's, for any chat at all). It chomps on the doodle's clock —
+ * jaws open, jaws shut, twice a second, two drawings and no more — and
+ * only while it is in view and the window is in use (lib/beat.ts). Running
+ * the pointer over the row bites twice, quickly and with a shake, and
+ * holds the jaws open until the pointer leaves (styles.css, .row-dragon).
  */
 export function DragonHead() {
   return (
-    <span className="row-dragon" aria-hidden>
+    <span className="row-dragon" aria-hidden ref={beat("chomp")}>
       {FRAMES.map((d, i) => (
         <svg key={i} className={`row-dragon-frame f${i + 1}`} viewBox="0 0 512 512">
           <g transform="translate(0,512) scale(0.1,-0.1)" fill="currentColor" stroke="none">

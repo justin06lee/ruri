@@ -844,6 +844,10 @@ textarea::placeholder {
   width: 15px;
   height: 15px;
   color: var(--ink-soft);
+  /* its own sealed layer, as the doodle is: a step swaps which drawing is
+     opaque and tips the layer, and nothing around it is painted again */
+  contain: strict;
+  will-change: transform;
 }
 
 .remove.busy:hover .row-dragon {
@@ -858,18 +862,40 @@ textarea::placeholder {
   height: 100%;
 }
 
-.row-dragon-frame.f2 {
+/* two steps on the doodle's clock (data-chomp, beat.ts): jaws open (f1),
+   then shut (f2) — and a shut jaw lands, a hair lower and tipped into the
+   bite, so each one has some weight to it. Two drawings, two poses, and
+   nothing in between: the window draws twice a second for it, not 120. */
+.row-dragon-frame.f2,
+.row-dragon[data-chomp="1"] .row-dragon-frame.f1 {
   opacity: 0;
+}
+
+.row-dragon[data-chomp="1"] .row-dragon-frame.f2 {
+  opacity: 1;
+}
+
+.row-dragon[data-chomp="1"] {
+  transform: translateY(0.5px) rotate(-7deg);
+}
+
+/* The pointer on the row: two hard bites — shut, open, shut, open — each
+   one shaking the head, and the jaws held open until the pointer goes,
+   when the clock takes over again. The held pose is the animation's own
+   last frame, which outranks the clock's step for as long as it lasts. */
+.project-row:hover .row-dragon,
+.folder-row:hover .row-dragon {
+  animation: bite-shake 440ms linear 1 forwards;
 }
 
 .project-row:hover .row-dragon-frame.f1,
 .folder-row:hover .row-dragon-frame.f1 {
-  animation: chomp-open 360ms step-end 1;
+  animation: chomp-open 440ms step-end 1 forwards;
 }
 
 .project-row:hover .row-dragon-frame.f2,
 .folder-row:hover .row-dragon-frame.f2 {
-  animation: chomp-shut 360ms step-end 1;
+  animation: chomp-shut 440ms step-end 1 forwards;
 }
 
 @keyframes chomp-shut {
@@ -904,7 +930,46 @@ textarea::placeholder {
   }
 }
 
+/* each bite (0% and 50%) slams down and in, then rattles out before the
+   jaws open again */
+@keyframes bite-shake {
+  0% {
+    transform: translateY(1px) rotate(-13deg) scale(1.14);
+  }
+  7% {
+    transform: translate(-1px, 0) rotate(9deg) scale(1.08);
+  }
+  14% {
+    transform: translate(1px, 0) rotate(-6deg);
+  }
+  21% {
+    transform: translate(-0.5px, 0) rotate(3deg);
+  }
+  /* still while the jaws are open, then slammed straight into the next */
+  25%,
+  49.9% {
+    transform: none;
+  }
+  50% {
+    transform: translateY(1px) rotate(-13deg) scale(1.14);
+  }
+  57% {
+    transform: translate(1px, 0) rotate(9deg) scale(1.08);
+  }
+  64% {
+    transform: translate(-1px, 0) rotate(-6deg);
+  }
+  71% {
+    transform: translate(0.5px, 0) rotate(3deg);
+  }
+  75%,
+  100% {
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .row-dragon,
   .row-dragon-frame {
     animation: none !important;
   }
@@ -8179,6 +8244,17 @@ button.stop:hover {
 
 /* the count rides the row the way a folder's does — how many, and nothing
    about what they are doing (Sidebar.tsx's ProjectsRow says why) */
+/* the Projects row's dragon, standing just ahead of the count — and taking
+   the count's push to the right edge when it is there */
+.row-count-dragon {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.row-count-dragon + .row-count {
+  margin-left: 7px;
+}
+
 .row-count {
   margin-left: auto;
   font-family: var(--mono);

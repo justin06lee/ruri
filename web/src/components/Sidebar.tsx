@@ -44,22 +44,22 @@ function HomeRow() {
  * you went to look at everything — a page about the projects, reached
  * through the agent that opens them. It is its own row now, under Home,
  * and the strip kept the statistics instead (components/HomeBoard.tsx).
- * The row carries the count, and the same pulsing dot the sidebar's own
- * rows use while anything is running.
+ * The row carries the count, and while any chat in any project is at work,
+ * the same dragon the sidebar's own rows wear beside it.
  */
 function ProjectsRow() {
   const open = useRuri((s) => s.projectsOpen);
   const setOpen = useRuri((s) => s.setProjectsOpen);
   const projects = useRuri((s) => s.projects);
 
-  // How many there are, and nothing about what they are doing: the row is
-  // the way to the page, not a report on it. Every session on every project
-  // already says its own state where it is — in the sidebar under its
-  // folder, on the page's cards — and a dot up here, over a row that never
-  // changes, only asks to be looked at. The statuses are deliberately not
-  // read: this row then repaints when projects open and close, not on
-  // every status of every session in the app.
+  // How many there are, and whether anything in them is at work — one
+  // yes or no, so the row repaints when that flips, not on every status of
+  // every session in the app. With the folders scrolled away or folded,
+  // this is the one place left that says something is still running.
   const shown = projects.reduce((n, project) => (project.hidden ? n : n + 1), 0);
+  const working = useRuri((s) =>
+    s.projects.some((project) => !project.hidden && project.sessions.some((x) => isBusy(s, x.id))),
+  );
 
   return (
     <div
@@ -80,6 +80,11 @@ function ProjectsRow() {
         <path d="M4 5h5l2 2.5h9V19H4V5z" />
       </svg>
       <span className="project-name">Projects</span>
+      {working && (
+        <span className="row-count-dragon" title="Something is working">
+          <DragonHead />
+        </span>
+      )}
       {shown > 0 && <span className="row-count">{shown}</span>}
     </div>
   );

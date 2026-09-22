@@ -66,7 +66,7 @@ ruri.app (Electron)
 
 One HTTP server on `127.0.0.1` carries everything: the built UI, uploads, music, the bridge's HTTP face, and the WebSocket. `shared/protocol.ts` is the single wire contract; `server/` is the backend (sessions, archive, compaction, the small-model layer, the Home agent, the bridge tools), `web/src/` the React UI, `desktop/` the Electron shell (window, permissions, hidden bridge windows, native apps, screenshots). `scripts/build-main.ts` bundles main process, server, yagami and the Agent SDK into one file, so the packaged app ships no node_modules; the Claude engine is your installed `claude` binary, found on your login shell's PATH.
 
-All state lives under `~/.config/ruri` (`RURI_CONFIG_DIR` moves it). Each project gets a self-ignoring `.ruri/` folder for its catch-up brief and component index.
+All state lives under `~/.config/ruri` (`RURI_CONFIG_DIR` moves it). Each project gets a self-ignoring `.ruri/` folder for its catch-up brief and component index — once there is something in it: a folder that is still blank is left blank, so `create-next-app`, `bun create` and `git clone` run in it as they would anywhere.
 
 - [docs/architecture.md](docs/architecture.md) — the per-file walk, where things live on disk, environment variables, and the security model
 - [docs/features.md](docs/features.md) — everything it does, in full

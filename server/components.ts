@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { ComponentProposal, Attachment, NamedComponent } from "../shared/protocol.js";
 import { storedFilePath } from "./uploads.js";
 import { isMissing, warn } from "./log.js";
+import { removeRuriFile, ruriDir } from "./ruriDir.js";
 
 /**
  * The component index: the user's own names for the parts of a project, and
@@ -269,23 +270,6 @@ export class ComponentStore {
   }
 }
 
-/**
- * The project's `.ruri/` folder, made and kept out of its git history.
- *
- * ruri writes into the user's repository — a catch-up brief, a component
- * index — because a file is the one interface every harness has. It has no
- * business showing up in their `git status` for it, so the folder ignores
- * itself: one `.gitignore` saying `*`, written once, and git never mentions
- * any of it again.
- */
-export function ruriDir(projectDir: string): string {
-  const dir = path.join(projectDir, ".ruri");
-  fs.mkdirSync(dir, { recursive: true });
-  const ignore = path.join(dir, ".gitignore");
-  if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, "*\n");
-  return dir;
-}
-
 /** Where an attachment's bytes actually sit, for a model that wants to look. */
 function shotPaths(shots: Attachment[]): string[] {
   return shots.flatMap((shot) => (shot.url ? [storedFilePath(shot.url)] : []));
@@ -314,16 +298,16 @@ function entryLines(item: NamedComponent): string[] {
  * none of them can read ruri's config dir and know what it means.
  *
  * An empty index removes the file rather than leaving an empty one behind —
- * a stale index is worse than no index.
+ * a stale index is worse than no index — and a project that is still blank
+ * gets no file at all (server/ruriDir.ts).
  */
 export function writeIndexFile(projectDir: string, items: NamedComponent[]): void {
-  const file = path.join(projectDir, ".ruri", "components.md");
   try {
-    if (items.length === 0) {
-      fs.rmSync(file, { force: true });
+    const dir = items.length > 0 ? ruriDir(projectDir) : undefined;
+    if (!dir) {
+      removeRuriFile(projectDir, "components.md");
       return;
     }
-    ruriDir(projectDir);
     const body = [
       "# Component index",
       "",
@@ -336,7 +320,7 @@ export function writeIndexFile(projectDir: string, items: NamedComponent[]): voi
       "",
       ...items.flatMap((item) => [...entryLines(item), ""]),
     ].join("\n");
-    fs.writeFileSync(file, body);
+    fs.writeFileSync(path.join(dir, "components.md"), body);
   } catch (err) {
     warn("components", err, "writeIndexFile");
     // a read-only project directory is not worth failing a save over

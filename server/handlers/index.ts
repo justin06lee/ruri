@@ -8,6 +8,7 @@ import { boardHandlers } from "./boards.js";
 import { componentHandlers } from "./components.js";
 import { crewHandlers } from "./crew.js";
 import { hostHandlers } from "./host.js";
+import { integrationHandlers } from "./integrations.js";
 import { projectHandlers } from "./projects.js";
 import { promptHandlers } from "./prompts.js";
 import { rewindHandlers } from "./rewind.js";
@@ -29,6 +30,7 @@ const HANDLERS: Handlers = {
   ...skillHandlers,
   ...settingHandlers,
   ...hostHandlers,
+  ...integrationHandlers,
 };
 
 /** One message, already checked against its schema, to its handler. */

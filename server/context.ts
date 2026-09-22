@@ -28,6 +28,7 @@ import type { HomeLog } from "./homelog.js";
 import type { IdeaStore } from "./ideas.js";
 import type { LedgerStore } from "./ledger.js";
 import type { ResourceMeters } from "./resources.js";
+import type { HarnessUpdater } from "./updater.js";
 import type { ManagerHost } from "./manager.js";
 import type { Models } from "./models.js";
 import type { NoteBackfill } from "./notes.js";
@@ -47,6 +48,9 @@ import type { Turns } from "./turns.js";
 export interface StartServerOptions {
   port: number;
   host?: string;
+  /** Keep the machine's coding CLIs current, on the hour (server/updater.ts).
+   *  On unless false — scripts and tests turn it off. */
+  updateHarnesses?: boolean;
   /**
    * The secret every window and script must present — as ?token= on the
    * WebSocket URL, and as x-ruri-token (or ?token=) on any request that
@@ -168,6 +172,8 @@ export interface ServerContext {
   manager: SessionManager;
   /** The agents the user starts from a chat's agents page (handlers/crew.ts). */
   crewManager: SessionManager;
+  /** Keeps the coding CLIs on this machine current (server/updater.ts). */
+  updater: HarnessUpdater;
 
   /* ── the live state, by what it is for ──────────────────────────── */
   readonly clients: Clients;

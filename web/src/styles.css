@@ -7656,6 +7656,226 @@ button.stop:hover {
   font-size: var(--fs-sm);
 }
 
+/* the harnesses: the grants' rows, with a version beside the name and a
+   switch for whether it keeps itself current */
+.harness-status {
+  width: 96px;
+}
+
+.harness-status.current {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.harness-status.behind,
+.harness-status.updating {
+  border-style: dashed;
+  color: var(--ink);
+}
+
+.harness-version {
+  margin-left: 4px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.harness-auto {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.harness-auto input {
+  accent-color: var(--ink);
+  margin: 0;
+}
+
+.grants-head .settings-note {
+  align-self: center;
+}
+
+/* ── settings: integrations ───────────────────────────────────────── */
+
+/* The harnesses' MCP servers, plugins and marketplaces (Integrations.tsx):
+   the grants' rows again — a tag for whose it is, what it is and how it
+   is reached, where it applies, and the one thing to do about it. */
+.integrations {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.int-for {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.int-for select,
+.int-form select {
+  font: inherit;
+  font-size: var(--fs-md);
+  padding: 4px 8px;
+  border: 1.5px solid var(--edge);
+  border-radius: var(--radius-s);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.int-note.failed {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.int-head {
+  margin: 14px 0 2px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.int-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px dashed var(--line-soft, var(--edge));
+}
+
+.int-tag {
+  flex-shrink: 0;
+  width: 52px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 3px 0;
+  border: 1.5px solid var(--edge);
+  border-radius: 999px;
+  color: var(--ink-soft);
+}
+
+.int-tag.claude {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.int-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.int-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.int-off,
+.int-market {
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+
+.int-target,
+.int-given {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.int-desc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-faint);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.int-scope {
+  flex-shrink: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+
+/* where a plugin's server has no Remove of its own: the column holds */
+.int-spacer {
+  flex-shrink: 0;
+  width: 70px;
+}
+
+.int-add {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+.int-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1.5px dashed var(--edge);
+  border-radius: var(--radius-s);
+}
+
+.int-form-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.int-form .int-line {
+  flex: 3;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.int-given-box {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+
+.int-search {
+  flex: 1;
+  min-width: 160px;
+  font-size: var(--fs-md);
+  padding: 5px 8px;
+}
+
+.int-results {
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.int-market-add {
+  margin-top: 6px;
+}
+
 .grants-rows {
   margin-top: 10px;
   font-size: 11px;

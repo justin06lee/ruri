@@ -8,6 +8,10 @@ import {
   briefLine,
   type BackgroundWork,
   type BridgeState,
+  type HarnessInfo,
+  type IntegrationHarness,
+  type Integrations,
+  type PluginRow,
   type ClientMessage,
   type Attachment,
   type CommandInfo,
@@ -430,6 +434,16 @@ interface RuriState {
   defaultModel: string;
   /** The local account name shown on the sidebar's account bar. */
   user: string;
+  /** Every coding CLI on this machine, as the updater last saw it. */
+  harnesses: HarnessInfo[];
+  /** The updater is looking right now. */
+  harnessesChecking: boolean;
+  /** Settings → Integrations, as last read — and for which project. */
+  integrations: { projectId?: string; data: Integrations } | null;
+  /** The plugin browser's last answer. */
+  pluginsFound: { harness: IntegrationHarness; query: string; plugins: PluginRow[]; total: number } | null;
+  /** How the last change to the integrations went. */
+  integrationNote: { ok: boolean; message: string; at: number } | null;
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
   canPermissions: boolean;
@@ -523,6 +537,11 @@ export const useRuri = create<RuriState>((set) => ({
   smallModel: "",
   defaultModel: DEFAULT_MODEL,
   user: "",
+  harnesses: [],
+  harnessesChecking: false,
+  integrations: null,
+  pluginsFound: null,
+  integrationNote: null,
   canPickFolder: false,
   canPermissions: false,
   grants: null,
@@ -969,6 +988,8 @@ function apply(msg: ServerMessage): void {
         smallModel: msg.smallModel,
         defaultModel: msg.defaultModel,
         user: msg.user,
+        harnesses: msg.harnesses ?? [],
+        harnessesChecking: msg.harnessesChecking === true,
         // a mounted composer re-reads its channel's draft on the bump
         draftBumps: restored.reduce<Record<string, number>>(
           (bumps, [channelId]) => ({
@@ -1326,6 +1347,26 @@ function apply(msg: ServerMessage): void {
     }
     case "status": {
       setState((s) => ({ statuses: { ...s.statuses, [msg.projectId]: msg.status } }));
+      break;
+    }
+    case "integrations": {
+      setState({
+        integrations: { ...(msg.projectId ? { projectId: msg.projectId } : {}), data: msg.integrations },
+      });
+      break;
+    }
+    case "plugins_found": {
+      setState({
+        pluginsFound: { harness: msg.harness, query: msg.query, plugins: msg.plugins, total: msg.total },
+      });
+      break;
+    }
+    case "integration_done": {
+      setState({ integrationNote: { ok: msg.ok, message: msg.message, at: Date.now() } });
+      break;
+    }
+    case "harnesses": {
+      setState({ harnesses: msg.harnesses, harnessesChecking: msg.checking === true });
       break;
     }
     case "work": {

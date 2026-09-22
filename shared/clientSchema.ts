@@ -14,6 +14,8 @@ import type { ClientMessage } from "./protocol.js";
 
 /** Ids (sessions, projects, items, requests): short, never empty. */
 const id = z.string().min(1).max(500);
+/** The harnesses whose MCP servers and plugins ruri manages. */
+const integrationHarness = z.enum(["claude", "codex"]);
 /** Free text a person or a model wrote: generous, but not unbounded. */
 const text = z.string().max(2_000_000);
 /** A short label — a name, a model id, a scope. */
@@ -274,6 +276,51 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("set_model_role"), model: label, role: modelRole }),
   z.object({ type: z.literal("reset_home") }),
   z.object({ type: z.literal("refresh_models") }),
+  z.object({ type: z.literal("check_harnesses"), id: id.optional() }),
+  z.object({ type: z.literal("set_harness_auto"), id, auto: z.boolean() }),
+  z.object({ type: z.literal("integrations_get"), projectId: id.optional() }),
+  z.object({ type: z.literal("plugins_search"), harness: integrationHarness, query: z.string().max(200) }),
+  z.object({
+    type: z.literal("mcp_add"),
+    add: z.object({
+      harness: integrationHarness,
+      name: z.string().min(1).max(64),
+      scope: z.enum(["user", "local", "project"]),
+      transport: z.enum(["stdio", "http", "sse"]),
+      command: z.string().max(4000).optional(),
+      args: z.array(z.string().max(4000)).max(100).optional(),
+      url: z.string().max(4000).optional(),
+      env: z.record(z.string().max(200), z.string().max(8000)).optional(),
+      headers: z.record(z.string().max(200), z.string().max(8000)).optional(),
+    }),
+    projectId: id.optional(),
+  }),
+  z.object({
+    type: z.literal("mcp_remove"),
+    harness: integrationHarness,
+    name: z.string().min(1).max(200),
+    scope: z.enum(["user", "local", "project", "codex", "plugin"]),
+    projectId: id.optional(),
+  }),
+  z.object({
+    type: z.literal("plugin_install"),
+    harness: integrationHarness,
+    id,
+    scope: z.enum(["user", "project", "local"]).optional(),
+    projectId: id.optional(),
+  }),
+  z.object({ type: z.literal("plugin_uninstall"), harness: integrationHarness, id }),
+  z.object({ type: z.literal("plugin_enable"), id, enabled: z.boolean() }),
+  z.object({
+    type: z.literal("marketplace_add"),
+    harness: integrationHarness,
+    source: z.string().min(1).max(2000),
+  }),
+  z.object({
+    type: z.literal("marketplace_remove"),
+    harness: integrationHarness,
+    name: z.string().min(1).max(200),
+  }),
   z.object({ type: z.literal("bridge_takeover"), ...projectId }),
   z.object({ type: z.literal("bridge_release"), ...projectId }),
   z.object({ type: z.literal("bridge_close"), ...projectId }),

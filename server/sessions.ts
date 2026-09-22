@@ -822,6 +822,18 @@ function readQuestions(input: unknown): AskQuestions | null {
   return questions.length > 0 ? { questions } : null;
 }
 
+type ResultEvent = Extract<TranscriptEvent, { kind: "result" }>;
+
+/** How long a result that came before the prompt was taken up waits for
+ *  the prompt's own turn to start. The CLI starts it at once — a second or
+ *  so — so this only bounds the case where it never does. */
+const EARLY_GRACE_MS = 5_000;
+
+/** How long a task's end is taken to mean the CLI is about to wake. Its
+ *  turn starts well inside a second; this only bounds a wake that never
+ *  comes. */
+const WAKE_WAIT_MS = 15_000;
+
 class ProjectSession implements ChannelSession {
   status: ProjectStatus = "idle";
   lastSessionId: string | undefined;
@@ -849,6 +861,22 @@ class ProjectSession implements ChannelSession {
    *  turns: the CLI only speaks when the status changes, so a second turn
    *  into the same limit hears nothing new. */
   private limitResetsAt: number | undefined;
+  /** Prompts sent that the CLI has not taken up yet, oldest first. Each is
+   *  echoed when it is — except a slash command the CLI runs itself, which
+   *  the next turn takes up without a word. */
+  private readonly untaken: Array<{ slash: boolean }> = [];
+  /** A result that came while a prompt was still untaken: the end of a
+   *  turn the CLI ran on its own, most likely, with the prompt's turn about
+   *  to start. Held for a moment (finishTurn), and folded into that turn
+   *  when it does start. */
+  private early: { event: ResultEvent; timer: NodeJS.Timeout } | undefined;
+  /** What a folded turn spent, carried into the result of the one it was
+   *  folded into — so the ledger still counts it. */
+  private carry: { tokens: number; cacheRead: number; models: string[] } | undefined;
+  /** A background task ended between turns, and the CLI is about to wake
+   *  and answer it — its turn starts a moment after the notice. The chat
+   *  counts as busy in that moment, so it is not reaped in the gap. */
+  private waking: NodeJS.Timeout | undefined;
   /** File bytes captured by captureBefore, keyed by tool_use_id. */
   private readonly preimages = new Map<string, string | null>();
   /** Each model's running token total as of the last result — the CLI
@@ -906,6 +934,12 @@ class ProjectSession implements ChannelSession {
       options: {
         // snapshot files before edits, so a rewind can restore them
         enableFileCheckpointing: true,
+        // Each prompt echoed back the moment the CLI takes it up — not when
+        // it arrives. A turn the CLI runs on its own (a background task's
+        // end wakes it) can end before a prompt sent meanwhile has even
+        // started, and the echo is how that result is told from the
+        // prompt's own (finishTurn).
+        extraArgs: { "replay-user-messages": null },
         // A subagent's whole conversation, not just its tool calls — what
         // its card opens onto. Its line is the last thing it did; no model
         // is paid to summarise it on a timer (agentProgressSummaries).
@@ -974,6 +1008,7 @@ class ProjectSession implements ChannelSession {
     this.turnOutput = 0;
     this.setStatus("working");
     this.interrupted = false;
+    this.untaken.push({ slash: text.trimStart().startsWith("/") });
     this.session.send(text, images?.length ? { images } : {});
   }
 
@@ -1006,6 +1041,8 @@ class ProjectSession implements ChannelSession {
 
   dispose(): void {
     this.dead = true;
+    if (this.early) clearTimeout(this.early.timer);
+    clearTimeout(this.waking);
     this.session.close();
     this.rejectAllPending();
   }
@@ -1226,7 +1263,7 @@ class ProjectSession implements ChannelSession {
   hasBackgroundWork(): boolean {
     // the CLI's own count, and the agents' cards besides: a background
     // agent is the one thing it would be worst to cut off
-    return this.backgroundTasks.length > 0 || this.agents.anyRunning();
+    return this.backgroundTasks.length > 0 || this.agents.anyRunning() || this.waking !== undefined;
   }
 
   backgroundWork(): BackgroundWork {
@@ -1469,10 +1506,32 @@ class ProjectSession implements ChannelSession {
         msg.subtype === "task_updated" ||
         msg.subtype === "task_notification")
     ) {
+      // a task's end heard between turns: the CLI wakes to answer it
+      if (msg.subtype === "task_notification" && this.status === "idle") this.wake();
       this.onTask(msg as unknown as TaskMessage);
       return;
     }
     if (msg.type === "system" && msg.subtype === "init") {
+      // a turn begins
+      if (this.waking) {
+        clearTimeout(this.waking);
+        this.waking = undefined;
+      }
+      if (this.early) {
+        // the prompt's own, after one the CLI ran first: that one's end is
+        // folded into this one's, rather than signing the prompt done
+        clearTimeout(this.early.timer);
+        const { tokens = 0, cacheRead = 0, models = [] } = this.early.event;
+        this.carry = { tokens, cacheRead, models };
+        this.early = undefined;
+      }
+      // a command the CLI runs itself is taken up here, with no echo
+      if (this.untaken[0]?.slash) this.untaken.shift();
+      // With nothing of ours in flight the CLI started this turn itself — a
+      // background task ended, and it is answering that. It is a turn like
+      // any other: the chat is busy (prompts queue behind it, and the
+      // process is not reaped from under it), and its result ends it.
+      this.setStatus("working");
       this.lastSessionId = msg.session_id;
       this.events.onSessionId(this.project.id, msg.session_id);
       void this.reportModels();
@@ -1502,6 +1561,8 @@ class ProjectSession implements ChannelSession {
           Array.isArray(content) &&
           content.some((block) => (block as { type?: string }).type === "tool_result");
         const synthetic = (msg as { isSynthetic?: boolean }).isSynthetic === true;
+        // the echo of a prompt: the CLI has taken it up
+        if (!toolResult && (msg as { isReplay?: boolean }).isReplay === true) this.untaken.shift();
         if (!toolResult && !synthetic && this.pendingUserEvents.length > 0) {
           this.turnEventId = this.pendingUserEvents.shift()!;
           this.events.onChain(this.project.id, this.turnEventId, "user", uuid);
@@ -1648,24 +1709,84 @@ class ProjectSession implements ChannelSession {
       const blocked = ok || stopped ? undefined : limited ? "limit" : blockedBy(failure, status);
       const known = this.limitResetsAt && this.limitResetsAt > Date.now() ? this.limitResetsAt : undefined;
       const resetsAt = blocked === "limit" ? (known ?? limitResetsAt(failure)) : undefined;
-      this.pushEvent({
-        kind: "result",
-        id: randomUUID(),
-        ok: ok || stopped,
-        costUsd: msg.total_cost_usd,
-        durationMs: msg.duration_ms,
+      this.finishTurn(
+        {
+          kind: "result",
+          id: randomUUID(),
+          ok: ok || stopped,
+          costUsd: msg.total_cost_usd,
+          durationMs: msg.duration_ms,
+          ...(tokens > 0 ? { tokens } : {}),
+          ...(cacheRead > 0 ? { cacheRead } : {}),
+          ...(models.length > 0 ? { models } : {}),
+          ...(stopped ? { stopped: true } : {}),
+          ...(ok || stopped ? {} : { error: failure }),
+          ...(!ok && !stopped && transientFailure(failure, status) ? { transient: true } : {}),
+          ...(blocked ? { blocked } : {}),
+          ...(resetsAt ? { resetsAt } : {}),
+          ts: Date.now(),
+        },
+        stopped,
+      );
+    }
+  }
+
+  /**
+   * A turn is over — but whose? The CLI runs turns of its own: a
+   * background task that ends between turns wakes it to answer, and a
+   * resumed session may have one such answer owed before anything else. A
+   * prompt sent while one of those runs waits in the CLI's queue, and the
+   * result that comes next is that turn's, not the prompt's — which used to
+   * sign the prompt "done" in half a second while its real answer went on
+   * after. So a result that arrives with a prompt still untaken (no echo
+   * yet) is held: the prompt's turn normally starts at once, and the held
+   * one is folded into it. If nothing starts, the prompt was taken up
+   * after all (or dropped), and the result goes through as it would have.
+   * A stop is never held — it means stop.
+   */
+  private finishTurn(event: ResultEvent, stopped: boolean): void {
+    if (this.carry) {
+      const tokens = (event.tokens ?? 0) + this.carry.tokens;
+      const cacheRead = (event.cacheRead ?? 0) + this.carry.cacheRead;
+      const models = [...new Set([...this.carry.models, ...(event.models ?? [])])];
+      event = {
+        ...event,
         ...(tokens > 0 ? { tokens } : {}),
         ...(cacheRead > 0 ? { cacheRead } : {}),
         ...(models.length > 0 ? { models } : {}),
-        ...(stopped ? { stopped: true } : {}),
-        ...(ok || stopped ? {} : { error: failure }),
-        ...(!ok && !stopped && transientFailure(failure, status) ? { transient: true } : {}),
-        ...(blocked ? { blocked } : {}),
-        ...(resetsAt ? { resetsAt } : {}),
-        ts: Date.now(),
-      });
-      this.setStatus("idle");
+      };
+      this.carry = undefined;
     }
+    if (this.untaken.length > 0 && !stopped) {
+      this.early = { event, timer: setTimeout(() => this.releaseEarly(), EARLY_GRACE_MS) };
+      return;
+    }
+    this.untaken.length = 0;
+    this.pushEvent(event);
+    this.setStatus("idle");
+  }
+
+  /** Held open for the turn a task's end is about to start (`waking`). */
+  private wake(): void {
+    clearTimeout(this.waking);
+    this.waking = setTimeout(() => {
+      // it never came: nothing is holding the chat any more
+      this.waking = undefined;
+      this.events.onBackground?.(this.project.id);
+    }, WAKE_WAIT_MS);
+    this.waking.unref();
+    // the reaper looks again, and now sees work
+    this.events.onBackground?.(this.project.id);
+  }
+
+  /** No turn started after a held result: it was the turn's end after all. */
+  private releaseEarly(): void {
+    const early = this.early;
+    if (!early) return;
+    this.early = undefined;
+    this.untaken.length = 0;
+    this.pushEvent(early.event);
+    this.setStatus("idle");
   }
 
   private async reportModels(): Promise<void> {

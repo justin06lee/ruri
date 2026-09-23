@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { WebSocket } from "ws";
 import { ideaDraftKey, type ServerMessage } from "../../shared/protocol.js";
 import { briefless, rebuildCatchup } from "../catchupBrief.js";
+import { rebuildMemory } from "../memory.js";
 import { buildCompaction, removeTurnFiles } from "../compaction.js";
 import type { ServerContext } from "../context.js";
 import { titleSession } from "../dispatch.js";
@@ -144,6 +145,20 @@ export const projectHandlers = {
   },
   catchup_rebuild: (ctx, _ws, msg) => {
     void rebuildCatchup(ctx, msg.projectId);
+  },
+  memory_rebuild: (ctx, _ws, msg) => {
+    void rebuildMemory(ctx, msg.projectId);
+  },
+  /** The architecture page opening on a project. */
+  sheet_get: (ctx, ws, msg) => {
+    if (!ctx.store.get(msg.projectId)) return;
+    ws.send(
+      JSON.stringify({
+        type: "sheet",
+        projectId: msg.projectId,
+        sheet: ctx.briefs.get(msg.projectId),
+      } satisfies ServerMessage),
+    );
   },
   remove_project: (ctx, _ws, msg) => {
     closeProjectById(ctx, msg.projectId);

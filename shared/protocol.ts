@@ -296,6 +296,79 @@ export interface NamedComponent {
   updated?: number;
 }
 
+/** One layer of a project's stack, top (what a person touches) to bottom. */
+export interface StackLayer {
+  name: string;
+  /** The technologies, and what the layer does. */
+  what: string;
+  /** Its folder or files, when it has them. */
+  where?: string;
+}
+
+/** One path through a project — how a request, an action or data moves —
+ *  as the parts it passes through, in order. */
+export interface SystemFlow {
+  name: string;
+  steps: string[];
+}
+
+/**
+ * What a project's agents have learned about working on it — the part of a
+ * project nobody can read off its code — kept across every chat in it and
+ * written into the project as `.ruri/catchup.md`. Each part is a list of
+ * short lines; the lessons carry the date they were learned.
+ */
+export interface ProjectMemory {
+  /** Where the work stands: in progress, just done, next. */
+  now: string[];
+  /** What was decided, each with why. */
+  decisions: string[];
+  /** Approaches that proved out here. */
+  worked: string[];
+  /** What was tried and failed, and why. */
+  failed: string[];
+  /** Traps, constraints and standing rules. */
+  gotchas: string[];
+  /** Asked for and not done, put off, or known broken. */
+  open: string[];
+}
+
+/**
+ * Everything ruri knows about a project as a whole, for a model that has
+ * never seen it: its shape (`.ruri/architecture.md` — what it is, the stack,
+ * how the parts connect, where things are, how to run it) and its working
+ * memory (`.ruri/catchup.md`). Written by the small model from reads of the
+ * repo, from the chats' histories, and from turns as they finish; shown on
+ * the architecture page.
+ */
+export interface ProjectSheet {
+  /** What the project is, who it's for, the problem it solves. */
+  description: string;
+  /** What it can do, one capability a line. */
+  features: string[];
+  layers?: StackLayer[];
+  flows?: SystemFlow[];
+  /** An older sheet's stack, one line each — layers replace it. */
+  stack?: string[];
+  /** How to run, build, test and ship it. */
+  run?: string[];
+  /** Where things are: folders and key files and what each is for. */
+  layout?: string[];
+  /** Rules a session must follow, from the repo's own instructions. */
+  conventions?: string[];
+  memory?: ProjectMemory;
+  /** Pinned screenshots of the main pages. */
+  shots: Attachment[];
+  /** When the shape last changed. */
+  updated?: number;
+  /** When the repo was last read whole for it. */
+  built?: number;
+  /** When the memory last changed. */
+  remembered?: number;
+  /** When the memory was last written from the chats' histories whole. */
+  recalled?: number;
+}
+
 /**
  * One of a component's files, as the library page reads it: the whole
  * file, or — when it is long, or the entry points at a line in it — the
@@ -1299,9 +1372,14 @@ export type ClientMessage =
    * `shots: false` names without starting the project up.
    */
   | { type: "components_sweep"; projectId: string; shots?: boolean }
-  /** Read the repo whole and write the catch-up brief again (see
+  /** Read the repo whole and write the project's shape again (see
    *  server/catchup.ts) — answered with `catchup` as it goes. */
   | { type: "catchup_rebuild"; projectId: string }
+  /** Read the project's chats and write its working memory again (see
+   *  server/memory.ts) — answered with `recall` as it goes. */
+  | { type: "memory_rebuild"; projectId: string }
+  /** The architecture page wants a project's sheet — answered with `sheet`. */
+  | { type: "sheet_get"; projectId: string }
   /** The user has looked: take the star off one component, or off all of
    *  them (which is what leaving the page means). */
   | { type: "component_seen"; projectId: string; componentId?: string }
@@ -1514,9 +1592,14 @@ export type ServerMessage =
   /** How the repo sweep is getting on. `busy` drives the button; `note` is
    *  the one line under it, and is what the sweep is doing right now. */
   | { type: "sweep"; projectId: string; busy: boolean; note?: string }
-  /** The catch-up brief's state for a project: being rebuilt, and when the
-   *  repo was last read whole for it. */
+  /** The project's shape being rebuilt from the repo, and when the repo
+   *  was last read whole for it. */
   | { type: "catchup"; projectId: string; busy: boolean; built?: number; note?: string }
+  /** The project's memory being rebuilt from its chats. */
+  | { type: "recall"; projectId: string; busy: boolean; note?: string }
+  /** A project's sheet: to the window that asked, and to every window as
+   *  it changes. */
+  | { type: "sheet"; projectId: string; sheet: ProjectSheet }
   /** The vault, names only — values never leave the server. */
   | { type: "secrets"; items: SecretMeta[] }
   /** Installed skills: every global one, plus the named project's own.

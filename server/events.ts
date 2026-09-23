@@ -1,61 +1,70 @@
 /**
  * One transcript event's way in: redacted, archived, observed, pushed to the
  * windows — and the small-model work every prompt and finished turn sets
- * off (recall notes, tracker items, the catch-up brief, the role title).
+ * off (recall notes, tracker items, the project's sheet, the role title).
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TranscriptEvent } from "../shared/protocol.js";
-import { writeCatchupFile } from "./brief.js";
+import { writeBriefFiles } from "./brief.js";
+import { pushSheet, rebuildCatchup, shapeless } from "./catchupBrief.js";
 import { writeIndexFile } from "./components.js";
 import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
+import { rebuildMemory } from "./memory.js";
 import { noteSummary } from "./notes.js";
 import { blankProject, clearRuriDir } from "./ruriDir.js";
 import {
+  endsIntact,
   extractTrackerItems,
+  foldMemory,
   sessionRoleTitle,
   smallModelEnabled,
   summarizePrompt,
   summarizeReply,
   TurnTracker,
-  updateBrief,
+  updateShape,
 } from "./smallmodel.js";
 
 // Every finished turn goes to the small model in the background for a
 // reply recall note (instant compaction). Failures are silent — a nicety.
 
 /**
- * How often a project's catch-up brief takes in what its turns did. The
- * brief writes itself from finished turns, and most turns change nothing
- * in it — a fix or a polish pass is not a feature — yet each fold is a
- * small-model call: a whole CLI process for several seconds. Ten agents
- * working in one project used to mean ten of those a round. Now a
- * project's first finished turn folds at once, and the turns after it
- * gather and fold together, at most once a window.
+ * How often a project's sheet takes in what its turns did: its shape (what
+ * it can do, how it is built) and its working memory (what was decided and
+ * why, what worked and what didn't, the traps, what's open). Most turns
+ * change little in either, yet each fold is a small-model call: a whole
+ * CLI process for several seconds. Ten agents working in one project used
+ * to mean ten of those a round. So a project's first finished turn folds at
+ * once, and the turns after it gather and fold together, at most once a
+ * window.
  */
 const BRIEF_EVERY_MS = Number(process.env["RURI_BRIEF_EVERY_MS"]) || 10 * 60_000;
-/** The turns a fold takes, newest kept — and how much of each. */
+/** The turns a fold takes, newest kept — and how much of each. The reply
+ *  is kept long, ends intact: an agent says what it tried and why it
+ *  didn't work in the middle of a turn, and what it concluded at the end. */
 const BRIEF_TURNS = 5;
-const BRIEF_USER_CHARS = 600;
-const BRIEF_REPLY_CHARS = 1_000;
+const BRIEF_USER_CHARS = 1500;
+const BRIEF_REPLY_CHARS = 4000;
 
 const gathering = new Map<string, { turns: string[]; timer?: NodeJS.Timeout; last: number }>();
 
-/** One finished turn, for the brief to take in with the others. */
+/** One finished turn, for the sheet to take in with the others. */
 export function foldBrief(
   ctx: ServerContext,
   channelId: string,
   turn: { user: string; assistant: string },
 ): void {
   if (channelId === HOME_ID) return;
-  const project = ctx.store.findSession(channelId)?.project;
+  const found = ctx.store.findSession(channelId);
+  const project = found?.project;
   if (!project) return;
   const held = gathering.get(project.id) ?? { turns: [], last: 0 };
   gathering.set(project.id, held);
+  const chat = found.session.title ? ` (in the "${found.session.title}" chat)` : "";
   held.turns.push(
-    `The user asked:\n${turn.user.slice(0, BRIEF_USER_CHARS)}\n\n` +
-      `What the agent did:\n${turn.assistant.slice(0, BRIEF_REPLY_CHARS)}`,
+    `[${new Date().toISOString().slice(0, 10)}]${chat} The user asked:\n${turn.user.slice(0, BRIEF_USER_CHARS)}\n\n` +
+      `What the agent did and said:\n${endsIntact(turn.assistant, BRIEF_REPLY_CHARS)}`,
   );
   if (held.turns.length > BRIEF_TURNS) held.turns.splice(0, held.turns.length - BRIEF_TURNS);
   if (held.timer) return;
@@ -66,7 +75,7 @@ export function foldBrief(
   held.timer.unref?.();
 }
 
-/** What a project's turns did since the last fold, into its brief. */
+/** What a project's turns did since the last fold, into its sheet. */
 function foldGathered(ctx: ServerContext, projectId: string): void {
   const held = gathering.get(projectId);
   const project = ctx.store.get(projectId);
@@ -78,23 +87,56 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
   delete held.timer;
   held.last = Date.now();
   if (turns.length === 0) return;
+  const happened = turns.join("\n\n---\n\n");
   const current = ctx.briefs.get(project.id);
-  updateBrief(
-    project.name,
-    { description: current.description, features: current.features },
-    turns.join("\n\n---\n\n"),
-  )
-    .then((next) => {
-      if (!next) return;
-      if (
-        next.description === current.description &&
-        next.features.join("\n") === current.features.join("\n")
-      ) {
-        return;
-      }
-      writeCatchupFile(project.path, project.name, ctx.briefs.write(project.id, next));
+
+  // A sheet from before layers and flows is drawn whole from the repo
+  // once, rather than folded forward from a shape that has none.
+  if (shapeless(ctx, project.id) && current.description) void rebuildCatchup(ctx, project.id);
+  else {
+    updateShape(
+      project.name,
+      {
+        description: current.description,
+        features: current.features,
+        layers: current.layers ?? [],
+        flows: current.flows ?? [],
+        layout: current.layout ?? [],
+      },
+      happened,
+    )
+      .then((next) => {
+        if (!next || JSON.stringify(next) === JSON.stringify(pickShape(current))) return;
+        ctx.briefs.write(project.id, next);
+        pushSheet(ctx, project.id);
+      })
+      .catch(() => {});
+  }
+
+  // A project with no memory yet reads its chats whole — what they hold
+  // includes these turns — rather than starting from this batch alone.
+  if (!current.memory) {
+    void rebuildMemory(ctx, project.id);
+    return;
+  }
+  foldMemory(project.name, current.memory, happened, new Date().toISOString().slice(0, 10))
+    .then((memory) => {
+      if (!memory || JSON.stringify(memory) === JSON.stringify(ctx.briefs.get(project.id).memory)) return;
+      ctx.briefs.remember(project.id, memory);
+      pushSheet(ctx, project.id);
     })
     .catch(() => {});
+}
+
+/** The parts of a sheet a fold of the shape can change. */
+function pickShape(brief: ReturnType<ServerContext["briefs"]["get"]>) {
+  return {
+    description: brief.description,
+    features: brief.features,
+    layers: brief.layers ?? [],
+    flows: brief.flows ?? [],
+    layout: brief.layout ?? [],
+  };
 }
 
 /**
@@ -112,12 +154,12 @@ function syncProjectFiles(ctx: ServerContext, channelId: string): void {
   if (blank && there) clearRuriDir(project.path);
   else if (!blank && !there) {
     writeIndexFile(project.path, ctx.components.items(project.id));
-    writeCatchupFile(project.path, project.name, ctx.briefs.get(project.id));
+    writeBriefFiles(project.path, project.name, ctx.briefs.get(project.id));
   }
 }
 
 /** Every finished turn: its project's files, its role title, its reply's
- *  recall note, and the catch-up brief folded forward. */
+ *  recall note, and the project's sheet folded forward. */
 export function createTurnTracker(ctx: ServerContext): TurnTracker {
   return new TurnTracker((projectId, turn) => {
     syncProjectFiles(ctx, projectId);

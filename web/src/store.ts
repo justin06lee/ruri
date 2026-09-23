@@ -23,6 +23,7 @@ import {
   type Idea,
   type NamedComponent,
   type ComponentFile,
+  type ProjectSheet,
   type SecretMeta,
   type SkillInfo,
   type SubagentState,
@@ -412,9 +413,14 @@ interface RuriState {
   stats: Record<string, ProjectStats>;
   /** Sessions on disk from outside ruri, per PROJECT id, once asked for. */
   recent: Record<string, RecentSession[]>;
-  /** Each project's catch-up brief: being rebuilt, when the repo was last
-   *  read for it, and the last word said about it. */
+  /** Each project's shape: being rebuilt from the repo, when the repo was
+   *  last read for it, and the last word said about it. */
   catchups: Record<string, { busy: boolean; built?: number; note?: string; at: number }>;
+  /** Each project's memory being rebuilt from its chats, and the last word. */
+  recalls: Record<string, { busy: boolean; note?: string; at: number }>;
+  /** Each project's sheet (its architecture and its memory), once the
+   *  architecture page has asked for it — and every change after. */
+  sheets: Record<string, ProjectSheet>;
   /** Shell tab ids per channel, in the order the tab row shows them. */
   terminals: Record<string, string[]>;
   /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
@@ -539,6 +545,8 @@ export const useRuri = create<RuriState>((set) => ({
   stats: {},
   recent: {},
   catchups: {},
+  recalls: {},
+  sheets: {},
   rapid: false,
   projectsOpen: false,
   settingsOpen: false,
@@ -1141,6 +1149,19 @@ function apply(msg: ServerMessage): void {
           },
         },
       }));
+      break;
+    }
+    case "recall": {
+      setState((s) => ({
+        recalls: {
+          ...s.recalls,
+          [msg.projectId]: { busy: msg.busy, at: Date.now(), ...(msg.note ? { note: msg.note } : {}) },
+        },
+      }));
+      break;
+    }
+    case "sheet": {
+      setState((s) => ({ sheets: { ...s.sheets, [msg.projectId]: msg.sheet } }));
       break;
     }
     case "events_removed": {

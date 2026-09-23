@@ -1,6 +1,6 @@
 import { findExecutable, Yagami } from "@justin06lee/yagami";
 import * as fs from "node:fs";
-import type { TranscriptEvent } from "../shared/protocol.js";
+import type { ProjectMemory, StackLayer, SystemFlow, TranscriptEvent } from "../shared/protocol.js";
 import { configPath } from "./configDir.js";
 import { errorMessage, warn } from "./log.js";
 
@@ -310,10 +310,10 @@ const DIGEST_SYSTEM = `You keep the long-term memory of one long conversation be
 You are given the memory as it stands (empty at first) and the next exchanges after it, oldest first, each as terse notes: "user:" what they asked for, "agent:" what came of it. Return the memory with those exchanges folded in.
 
 RULES
-- Keep what still matters later: what the project is and what was built, shipped or decided (keep version numbers, file, feature and command names), the rules and preferences the user set for how to work, and whatever was asked for and is still unfinished or was put off.
+- Keep what still matters later: what was built or shipped (keep version numbers, file, feature and command names); what was decided, WITH ITS REASON; what was tried and did not work, and why, so it is not tried again; the rules and preferences the user set for how to work; and whatever was asked for and is still unfinished or was put off.
 - Drop what later exchanges superseded, fixes that are simply done, and play-by-play. Merge repeats into one line.
 - Never invent anything; fold in only what the notes say.
-- Plain text: short lines, one fact each, under a few one-word headings ("Built:", "Rules:", "Open:"). No other markdown.
+- Plain text: short lines, one fact each, under a few one-word headings ("Built:", "Decided:", "Failed:", "Rules:", "Open:"). No other markdown.
 - At most about 350 words. If it would run longer, merge harder and drop the least useful.
 - Your output is only ever the memory itself: never a remark about the task, never a question, never a refusal.`;
 
@@ -339,83 +339,137 @@ export async function digestHistory(
   return text.length < 40 || DIGEST_REFUSAL.test(text) ? "" : text;
 }
 
-const BRIEF_SYSTEM = `You keep a one-screen brief of a software project: what it is, and what is in it.
-It exists so a model with no context can read it in seconds and know the shape of the project. Every token has to earn its place.
+/* ── the project's shape: .ruri/architecture.md ─────────────────────── */
 
-You are given the brief as it stands and what just happened in the project — one or more exchanges, oldest first, separated by ---. Return the brief, updated.
+type Layer = StackLayer;
+type Flow = SystemFlow;
 
-RULES
-- DESCRIPTION: one sentence. What the project is and who it's for. Only rewrite it when the project has genuinely become something else.
-- FEATURES: one line each, no more than about 10 words. A capability, not a changelog entry: "Rapid fire mode for prompting many sessions in turn", never "fixed rapid fire scroll position".
-- MERGE relentlessly. Features that are one idea get ONE line: a 5-hour gauge, a weekly gauge and a context gauge are "Usage gauges: context, 5h, weekly, per-model". Adding to something already listed edits that line rather than adding another.
-- A fix, a refactor, a polish pass, a version bump: usually nothing to add. Only a NEW capability earns a new line, and only if no existing line can absorb it.
-- Never drop a feature that is still there. Never invent one that isn't.
-- Order: the things that define the project first, small conveniences last.
-- Keep the whole thing under 20 lines. If it would run longer, merge harder.
-
-Reply as JSON and nothing else: {"description": "...", "features": ["...", "..."]}`;
-
-/** What a brief holds — the model returns exactly this. */
-export interface BriefUpdate {
+/** What finished work may change in a project's shape. */
+export interface ShapeUpdate {
   description: string;
   features: string[];
+  layers: Layer[];
+  flows: Flow[];
+  layout: string[];
 }
 
+/** Lines a model returned, cleaned and capped. */
+function lines(value: unknown, max: number): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((l): l is string => typeof l === "string" && l.trim().length > 0)
+        .map((l) => l.trim())
+        .slice(0, max)
+    : [];
+}
+
+function parseLayers(value: unknown): Layer[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .flatMap((raw): Layer[] => {
+      const layer = raw as Partial<Layer>;
+      const name = typeof layer.name === "string" ? layer.name.trim() : "";
+      const what = typeof layer.what === "string" ? layer.what.trim() : "";
+      const where = typeof layer.where === "string" ? layer.where.trim() : "";
+      return name ? [{ name, what, ...(where ? { where } : {}) }] : [];
+    })
+    .slice(0, 8);
+}
+
+function parseFlows(value: unknown): Flow[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .flatMap((raw): Flow[] => {
+      const flow = raw as Partial<Flow>;
+      const name = typeof flow.name === "string" ? flow.name.trim() : "";
+      const steps = lines(flow.steps, 10);
+      return name && steps.length >= 2 ? [{ name, steps }] : [];
+    })
+    .slice(0, 5);
+}
+
+/** The JSON object in a model's reply, or nothing. */
+function objectIn(reply: string): Record<string, unknown> | undefined {
+  const json = reply.slice(reply.indexOf("{"), reply.lastIndexOf("}") + 1);
+  const parsed = JSON.parse(json) as unknown;
+  return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
+}
+
+const SHAPE_SYSTEM = `You keep the architecture sheet of a software project: what it is, what it can do, the stack it is built as, how the parts connect, and where things are.
+It exists so a model with no context can read it in seconds and know the shape of the project. Every token has to earn its place.
+
+You are given the sheet as it stands and what just happened in the project — one or more exchanges, oldest first, separated by ---. Return the sheet, updated.
+
+RULES
+- DESCRIPTION: one or two sentences. What the project is, who it's for, the problem it solves. Only rewrite it when the project has genuinely become something else.
+- FEATURES: one line each, no more than about 10 words. A capability, not a changelog entry: "Rapid fire mode for prompting many sessions in turn", never "fixed rapid fire scroll position". Merge relentlessly: features that are one idea get ONE line; adding to something listed edits that line. A fix, a refactor, a polish pass: nothing to add. Never drop a feature that is still there. At most 16, the defining ones first.
+- LAYERS: the stack, top (what a person touches) to bottom (runtime, engines, OS), each {"name", "what", "where"}. Change them only when the work clearly changed the stack — a new layer, a replaced framework, a new engine underneath.
+- FLOWS: the paths through the system that matter most, each {"name", "steps"} with the parts in order. Change one only when the work clearly rerouted it; add one only for a genuinely new major path. At most 4.
+- LAYOUT: "path — what it is for" lines for the directories and key files that matter. Add a line when the work created an important new part; drop one that no longer exists. At most 16.
+- Never invent anything the exchanges don't show. If nothing structural happened, return the sheet unchanged.
+
+Reply as JSON and nothing else: {"description": "...", "features": [...], "layers": [{"name": "...", "what": "...", "where": "..."}], "flows": [{"name": "...", "steps": ["...", "..."]}], "layout": [...]}`;
+
 /**
- * Fold what just happened into the project's brief. Returns null when there
- * is nothing to change or the model gave something unusable — the brief then
- * stays exactly as it was.
+ * Fold what just happened into the project's shape. Returns null when the
+ * model gave something unusable — the sheet then stays exactly as it was.
  */
-export async function updateBrief(
+export async function updateShape(
   project: string,
-  current: BriefUpdate,
+  current: ShapeUpdate,
   happened: string,
-): Promise<BriefUpdate | null> {
+): Promise<ShapeUpdate | null> {
   if (!smallModelEnabled()) return null;
   const prompt =
     `PROJECT NAME: ${project}\n\n` +
-    `BRIEF AS IT STANDS:\n${JSON.stringify(current, null, 1)}\n\n` +
-    `WHAT JUST HAPPENED:\n${happened.slice(-8000)}`;
+    `SHEET AS IT STANDS:\n${JSON.stringify(current, null, 1)}\n\n` +
+    `WHAT JUST HAPPENED:\n${happened.slice(-12_000)}`;
   try {
-    const reply = await complete(BRIEF_SYSTEM, prompt, 900);
-    const json = reply.slice(reply.indexOf("{"), reply.lastIndexOf("}") + 1);
-    const parsed = JSON.parse(json) as Partial<BriefUpdate>;
-    if (typeof parsed.description !== "string" || !Array.isArray(parsed.features)) return null;
-    const features = parsed.features.filter((line): line is string => typeof line === "string");
-    return { description: parsed.description.trim(), features: features.map((f) => f.trim()) };
+    const parsed = objectIn(await complete(SHAPE_SYSTEM, prompt, 1800));
+    if (!parsed || typeof parsed["description"] !== "string" || !Array.isArray(parsed["features"]))
+      return null;
+    // a part the model left out is kept as it was, not emptied
+    const layers = parseLayers(parsed["layers"]);
+    const flows = parseFlows(parsed["flows"]);
+    const layout = lines(parsed["layout"], 16);
+    return {
+      description: parsed["description"].trim(),
+      features: lines(parsed["features"], 16),
+      layers: layers.length ? layers : current.layers,
+      flows: flows.length ? flows : current.flows,
+      layout: layout.length ? layout : current.layout,
+    };
   } catch (err) {
-    warn("smallmodel", err, "updateBrief");
-    // a brief that can't be updated is better left alone
+    warn("smallmodel", err, "updateShape");
+    // a sheet that can't be updated is better left alone
     return null;
   }
 }
 
-/** The brief written whole — what the fold keeps, plus what only a read
- *  of the repo can say: the stack, how to run it, where things are, and
- *  the rules it lives by. */
-export interface FullBrief extends BriefUpdate {
-  stack: string[];
+/** The sheet written whole from a read of the repo: the shape, plus what
+ *  only the repo says — how to run it and the rules it lives by. */
+export interface FullBrief extends ShapeUpdate {
   run: string[];
-  layout: string[];
   conventions: string[];
 }
 
-const CATCHUP_SYSTEM = `You write the one-screen catch-up brief for a software project, from a read of its repository: README, manifest, Makefile, agent instructions, the tree, and the openings of its main source files.
-It exists so a model with no context can read it in seconds and know the shape of the project before touching it. Every line has to earn its place. Say only what the material shows; never invent a feature, a command, or a file.
+const CATCHUP_SYSTEM = `You write the architecture sheet for a software project, from a read of its repository: README, manifest, Makefile, agent instructions, the tree, and the openings of its main source files.
+It exists so a model with no context can read it in seconds and know the shape of the project before touching it. Every line has to earn its place. Say only what the material shows; never invent a feature, a command, a part or a file.
 
 Return JSON with exactly these keys:
-- "description": one sentence — what the project is and who it's for.
+- "description": one or two sentences — what the project is, who it's for, the problem it solves.
 - "features": what it does, one capability per line, about 10 words each, the defining things first, at most 14 lines. Merge relentlessly: features that are one idea get one line.
-- "stack": languages, frameworks, runtimes, key libraries and tools, as they are actually used — at most 6 lines ("TypeScript + React 19 (Vite) in an Electron shell", "bun for install/scripts; Makefile drives build and install").
+- "layers": the stack as layers, from the top (what a person touches) down to the bottom (runtime, engines, OS), 3–7 of them, each {"name": short name, "what": the technologies and what the layer does, "where": the folder or files, when there is one}. E.g. {"name": "UI", "what": "React 19 + Vite, zustand store, xterm terminals", "where": "web/src/"}.
+- "flows": the 1–4 paths through the system that matter most — how a request, an action or data moves from where it starts to where it ends — each {"name": "A prompt", "steps": ["composer (web/src/components/ChatPane.tsx)", "WebSocket", "server/dispatch.ts", "..."]}, 3–8 steps, each a real part named as the material names it.
 - "run": how to run, build, test, and ship it, one command per line with what it does — taken from scripts, the Makefile and the README, never guessed. At most 8 lines.
 - "layout": where things are — the directories and key files that matter and what each is for, one per line ("server/ — the Node backend: sessions, archive, usage"). At most 14 lines; leave out generated and vendored folders.
 - "conventions": rules a session must follow, from CLAUDE.md / AGENTS.md / README: package manager, branch names, formatting, review steps, things never to do. At most 8 lines; an empty list when there are none.
 
-If a BRIEF AS IT STANDS is given, keep its description and features where they are still right (they were folded in from real work and may know things the repo's files don't say), correcting and completing them from the material.
+If a SHEET AS IT STANDS is given, keep its description and features where they are still right (they were folded in from real work and may know things the repo's files don't say), correcting and completing them from the material.
 
 Reply as JSON and nothing else.`;
 
-/** Write the whole brief from a read of the repo (see server/catchup.ts). */
+/** Write the whole sheet from a read of the repo (see server/catchup.ts). */
 export async function catchupBrief(
   project: string,
   material: string,
@@ -424,7 +478,7 @@ export async function catchupBrief(
   if (!smallModelEnabled()) return null;
   const standing =
     current.description || current.features?.length
-      ? `BRIEF AS IT STANDS:
+      ? `SHEET AS IT STANDS:
 ${JSON.stringify({ description: current.description ?? "", features: current.features ?? [] }, null, 1)}
 
 `
@@ -434,27 +488,97 @@ ${JSON.stringify({ description: current.description ?? "", features: current.fea
 ${standing}MATERIAL:
 ${material.slice(0, 60_000)}`;
   try {
-    const reply = await complete(CATCHUP_SYSTEM, prompt, 2200);
-    const json = reply.slice(reply.indexOf("{"), reply.lastIndexOf("}") + 1);
-    const parsed = JSON.parse(json) as Partial<FullBrief>;
-    if (typeof parsed.description !== "string") return null;
-    const lines = (value: unknown, max: number): string[] =>
-      Array.isArray(value)
-        ? value
-            .filter((l): l is string => typeof l === "string" && l.trim().length > 0)
-            .map((l) => l.trim())
-            .slice(0, max)
-        : [];
+    const parsed = objectIn(await complete(CATCHUP_SYSTEM, prompt, 3000));
+    if (!parsed || typeof parsed["description"] !== "string") return null;
     return {
-      description: parsed.description.trim(),
-      features: lines(parsed.features, 14),
-      stack: lines(parsed.stack, 6),
-      run: lines(parsed.run, 8),
-      layout: lines(parsed.layout, 14),
-      conventions: lines(parsed.conventions, 8),
+      description: parsed["description"].trim(),
+      features: lines(parsed["features"], 14),
+      layers: parseLayers(parsed["layers"]),
+      flows: parseFlows(parsed["flows"]),
+      run: lines(parsed["run"], 8),
+      layout: lines(parsed["layout"], 14),
+      conventions: lines(parsed["conventions"], 8),
     };
   } catch (err) {
     warn("smallmodel", err, "catchupBrief");
+    return null;
+  }
+}
+
+/* ── the working memory: .ruri/catchup.md ──────────────────────────── */
+
+/** How many lines each part keeps. */
+export const MEMORY_CAPS: Record<keyof ProjectMemory, number> = {
+  now: 4,
+  decisions: 12,
+  worked: 8,
+  failed: 10,
+  gotchas: 10,
+  open: 8,
+};
+
+const MEMORY_SYSTEM = `You keep the working memory of a software project: what a coding agent picking the work up cold needs to know that the code itself won't tell it. Fresh sessions read it, other agents working in the same project at the same time read it, and the next harness to take over reads it — so that nobody redoes a settled decision, repeats an attempt that already failed, or trips the same trap twice.
+
+You are given the memory as it stands and what happened in the project — exchanges between the user and a coding agent, oldest first, separated by ---. Return the memory, updated.
+
+PARTS (each a list of short lines):
+- "now": 1–4 lines. Where the work stands at the end of these exchanges: what is in progress, what was just finished, what comes next. Rewrite it each time; don't accumulate.
+- "decisions": choices about how the project works or is built, EACH WITH ITS REASON — "Each project keeps its own component library, not one shared one — the user wants projects kept apart". A decision without its why is half useless; if the exchanges give no reason, say what it was chosen over. At most 12.
+- "worked": approaches, techniques and fixes that proved out here and are worth repeating, with where — "Check UI changes on an isolated server (RURI_CONFIG_DIR=/tmp/…), never the live app". At most 8.
+- "failed": what was tried and did NOT work, and WHY — so nobody tries it again — "Polling the cursor for the band's hover — cost battery; replaced by toggling the drag region". At most 10.
+- "gotchas": traps, constraints and standing rules — quirks that break things silently, what the user insists on or forbids — "\`make update\` quits the app hosting the session — build instead". At most 10.
+- "open": asked for and not done, put off, or known broken — only what is still open. At most 8.
+
+RULES
+- Not a changelog. A feature that was simply built belongs nowhere here unless a decision, a lesson or a trap came with it.
+- Merge relentlessly: one line per idea, and a line that refines an older one replaces it. Each fact goes in ONE part only — the one a newcomer would look in first. When a part is full, drop the least useful line, or the oldest that no longer matters.
+- Take out what the exchanges resolved: an open item that got done, a trap that was fixed for good, a decision that was reversed (the reversal is the new decision).
+- Keep names exact: files, commands, flags, settings, versions.
+- End every new line of decisions, worked, failed and gotchas with the date it was learned, "(YYYY-MM-DD)"; keep the dates already there.
+- Only what the exchanges show. Never invent a reason, a result or a rule.
+- Each line under about 30 words.
+
+Reply as JSON and nothing else: {"now": [...], "decisions": [...], "worked": [...], "failed": [...], "gotchas": [...], "open": [...]}`;
+
+export const NO_MEMORY: ProjectMemory = {
+  now: [],
+  decisions: [],
+  worked: [],
+  failed: [],
+  gotchas: [],
+  open: [],
+};
+
+/**
+ * Fold what happened into a project's working memory — a few finished
+ * turns, or (from server/memory.ts) a whole project's history at once.
+ * Null when the layer is off or the model gave something unusable: the
+ * memory then stays exactly as it was.
+ */
+export async function foldMemory(
+  project: string,
+  memory: ProjectMemory,
+  happened: string,
+  today: string,
+): Promise<ProjectMemory | null> {
+  if (!smallModelEnabled() || !happened.trim()) return null;
+  const prompt =
+    `PROJECT NAME: ${project}\nTODAY: ${today}\n\n` +
+    `MEMORY AS IT STANDS:\n${JSON.stringify(memory, null, 1)}\n\n` +
+    `WHAT HAPPENED:\n${happened.slice(-40_000)}`;
+  try {
+    const parsed = objectIn(await complete(MEMORY_SYSTEM, prompt, 2200));
+    if (!parsed) return null;
+    const next = Object.fromEntries(
+      (Object.keys(MEMORY_CAPS) as Array<keyof ProjectMemory>).map((key) => [
+        key,
+        lines(parsed[key], MEMORY_CAPS[key]),
+      ]),
+    ) as unknown as ProjectMemory;
+    // an answer with nothing in it at all is a model that didn't do the job
+    return Object.values(next).some((part) => part.length > 0) ? next : null;
+  } catch (err) {
+    warn("smallmodel", err, "foldMemory");
     return null;
   }
 }

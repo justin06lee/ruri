@@ -22,12 +22,43 @@ afterAll(() => {
 });
 
 const memory: ProjectMemory = {
-  now: ["Library page done; architecture page next"],
-  decisions: ["Each project keeps its own library — the user wants projects apart (2026-09-22)"],
-  worked: ["Check UI on an isolated server, never the live app (2026-09-22)"],
-  failed: ["Polling the cursor for the band's hover — cost battery (2026-09-10)"],
-  gotchas: ["`make update` quits the app hosting the session (2026-09-01)"],
-  open: ["A cross-project library search"],
+  now: [{ id: "n001", text: "Library page done; architecture page next", by: "model" }],
+  decisions: [
+    {
+      id: "d001",
+      text: "Each project keeps its own library",
+      why: "the user wants projects apart",
+      date: "2026-09-22",
+      by: "agent",
+    },
+  ],
+  worked: [
+    {
+      id: "w001",
+      text: "Check UI on an isolated server, never the live app",
+      date: "2026-09-22",
+      by: "model",
+    },
+  ],
+  failed: [
+    {
+      id: "f001",
+      text: "Polling the cursor for the band's hover",
+      why: "cost battery",
+      date: "2026-09-10",
+      by: "model",
+    },
+  ],
+  gotchas: [
+    {
+      id: "g001",
+      text: "`make update` quits the app hosting the session",
+      date: "2026-09-01",
+      by: "user",
+      pinned: true,
+    },
+  ],
+  open: [{ id: "o001", text: "Merge feat/self-update once subaru is published", by: "model" }],
 };
 
 describe("the sheet", () => {
@@ -53,7 +84,7 @@ describe("the sheet", () => {
     // a fold of the shape leaves the memory alone, and the memory the shape
     store.write("p", { description: "Still a desktop app.", features: ["Parallel sessions"] });
     expect(store.get("p").memory).toEqual(memory);
-    store.remember("p", { ...memory, now: ["something else"] });
+    store.remember("p", { ...memory, now: [{ id: "n002", text: "something else", by: "model" }] });
     expect(store.get("p").description).toBe("Still a desktop app.");
   });
 
@@ -95,12 +126,30 @@ describe("the sheet", () => {
     expect(text).toContain("- Go 1.23");
   });
 
-  test("catchup.md is the memory, with the reasons and the dates, and points at the shape", () => {
-    const text = catchupText("ruri", { description: "A desktop app.", features: [], memory, shots: [] });
+  test("catchup.md is the memory, with the reasons, the dates, the sources and git, and points at the shape", () => {
+    const text = catchupText(
+      "ruri",
+      { description: "A desktop app.", features: [], memory, shots: [] },
+      {
+        refs: { d001: "7a3637b4#16" },
+        facts: { o001: "[git: feat/self-update is not merged yet]" },
+        git: ["Branch: on master (abc1234)"],
+        asOf: "20:53",
+      },
+    );
     expect(text).toContain("## Decisions, and why");
-    expect(text).toContain("the user wants projects apart (2026-09-22)");
+    expect(text).toContain(
+      "Each project keeps its own library — the user wants projects apart (2026-09-22 · 7a3637b4#16 · by an agent)",
+    );
     expect(text).toContain("## What didn't, and why");
+    expect(text).toContain("Polling the cursor for the band's hover — cost battery (2026-09-10)");
     expect(text).toContain("## Gotchas and rules");
+    expect(text).toContain("(2026-09-01 · by the user)");
+    expect(text).toContain("once subaru is published [git: feat/self-update is not merged yet]");
+    expect(text).toContain("From git at 20:53");
+    expect(text).toContain("- Branch: on master (abc1234)");
+    expect(text).toContain("ruri note decision");
+    expect(text).toContain("ruri recall show 7a3637b4#16");
     expect(text).toContain("architecture.md");
     expect(catchupText("x", { description: "d", features: [], shots: [] })).toContain(
       "Nothing has been gathered from the work yet.",
@@ -120,7 +169,7 @@ describe("the sheet", () => {
 });
 
 describe("the memory's reading of the chats", () => {
-  const at = (day: number) => Date.UTC(2026, 8, day);
+  const at = (day: number) => Date.UTC(2026, 8, day, 12);
   let n = 0;
   const user = (text: string, ts: number): TranscriptEvent =>
     ({ kind: "user", id: `u${++n}`, text, ts }) as TranscriptEvent;
@@ -165,7 +214,8 @@ describe("the memory's reading of the chats", () => {
     const text = memoryMaterial(ctx, "p");
     expect(text.indexOf("CHAT: Band")).toBeLessThan(text.indexOf("CHAT: Library"));
     expect(text).not.toContain("CHAT: Idle");
-    expect(text).toContain("[2026-09-01] user: band hover\n   agent: polling failed: battery");
+    expect(text).toContain("[old#1 · 2026-09-01] user: band hover\n   agent: polling failed: battery");
+    expect(text).toContain("refs start old");
     expect(text).toContain("user: build the library");
     expect(text).toContain("Tried polling the cursor; it cost battery.");
   });

@@ -394,6 +394,7 @@ export function installCommand(projectDir: string, deps: string[]): string {
 
 /** Flags that take a value; every other flag is a switch. */
 const VALUED = new Set([
+  "why",
   "dir",
   "name",
   "slug",
@@ -453,7 +454,7 @@ function oneFlag(args: ParsedArgs, key: string): string | undefined {
   return args.flags.get(key)?.at(-1);
 }
 
-export const HELP = `ruri — this project's component library
+export const HELP = `ruri — this project's component library, and its memory
 
   ruri list                          everything in the library
   ruri search <words>                find components by what they are

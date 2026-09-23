@@ -14,6 +14,7 @@ import { mentionBlock, mentionedIn } from "./components.js";
 import type { ServerContext } from "./context.js";
 import { recordEvent } from "./events.js";
 import { pushComponents } from "./handlers/components.js";
+import { briefContext, withRelevance } from "./handoff.js";
 import { errorMessage, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
 import { backfillNotes } from "./notes.js";
@@ -85,8 +86,9 @@ export function dispatch(
   // this turn names wears the star beside it, and what the last one named
   // keeps its star in the corner until the user has looked
   if (owner && ctx.components.demote(owner.id)) pushComponents(ctx, owner.id, owner.path);
-  // the first prompt after a compaction carries the brief, invisibly
-  const brief = ctx.archive.takePendingBrief(channelId) ?? "";
+  // the first prompt after a compaction carries the brief, invisibly —
+  // with what of the conversation bears on this prompt at more length
+  const brief = withRelevance(ctx, channelId, ctx.archive.takePendingBrief(channelId) ?? "", text);
   if (silent) {
     // a split sub-prompt: files are already stored, no new user event
     const payload = modelPayload(text, uploads);
@@ -435,6 +437,7 @@ function compactChannel(ctx: ServerContext, channelId: string): void {
     ctx.archive.allEvents(channelId),
     ctx.archive.summaries(channelId),
     ctx.archive.digest(channelId),
+    briefContext(ctx, channelId),
   );
   if (built === null) {
     const event: TranscriptEvent = {

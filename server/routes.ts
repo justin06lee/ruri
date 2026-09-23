@@ -15,6 +15,7 @@ import type { ServerContext } from "./context.js";
 import { libraryHost } from "./handlers/components.js";
 import { listSeats, sendLetter } from "./handlers/talk.js";
 import { runLibrary } from "./library.js";
+import { MEMORY_HELP, runMemoryCommand } from "./memoryCli.js";
 import { errorMessage, isMissing, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
 import { mimeOf, STATIC_MIME } from "./mime.js";
@@ -209,8 +210,22 @@ async function serveLibraryCall(
     reply(400, `ruri: bad request: ${errorMessage(err)}`);
     return;
   }
-  const answer = runLibrary(host, form.getAll("a"), form.get("cwd") ?? undefined);
-  reply(answer.ok ? 200 : 400, answer.text);
+  const argv = form.getAll("a");
+  // the memory's commands first (server/memoryCli.ts); the rest are the
+  // library's, and help is both
+  const memory = await runMemoryCommand(ctx, id, argv).catch((err: unknown) => {
+    warn("memory", err, "runMemoryCommand");
+    return { ok: false, text: `ruri ${argv[0] ?? ""} failed: ${errorMessage(err)}` };
+  });
+  if (memory) {
+    reply(memory.ok ? 200 : 400, memory.text);
+    return;
+  }
+  const answer = runLibrary(host, argv, form.get("cwd") ?? undefined);
+  const help =
+    ["help", "-h", undefined].includes(argv[0]?.toLowerCase()) ||
+    (!answer.ok && answer.text.startsWith("ruri: no command"));
+  reply(answer.ok ? 200 : 400, help ? `${answer.text}\n\n${MEMORY_HELP}` : answer.text);
 }
 
 export function createHttpServer(ctx: ServerContext): http.Server {

@@ -4,20 +4,142 @@
  * from a read of the repo (server/brief.ts keeps it, server/catchup.ts
  * reads the repo, server/memory.ts reads the chats).
  */
-import { writeBriefFiles } from "./brief.js";
+import type { MemorySource, ServerMessage, SheetGit, SourceLabel } from "../shared/protocol.js";
+import { writeBriefFiles, type SheetExtras } from "./brief.js";
 import { buildCatchup } from "./catchup.js";
 import type { ServerContext } from "./context.js";
+import { branchFacts, commitsSince, gitLines, gitState, headSync, sheetGit } from "./gitState.js";
 import { warn } from "./log.js";
+import { allLines } from "./memoryLines.js";
 import { smallModelEnabled } from "./smallmodel.js";
 
-/** The sheet as it now stands, into the project's two files and onto
- *  every window's architecture page. */
-export function pushSheet(ctx: ServerContext, projectId: string): void {
+/* ── where a line came from ────────────────────────────────────────── */
+
+/** An exchange as a ref: the chat's first eight characters and the
+ *  exchange's number in it — `7a3637b4#16`. */
+export function exchangeRef(chatId: string, n: number): string {
+  return `${chatId.slice(0, 8)}#${n}`;
+}
+
+/** A line's exchange, as the page and the files name it — undefined once
+ *  the chat is gone, or a rewind took the exchange. */
+export function sourceLabel(ctx: ServerContext, source: MemorySource): SourceLabel | undefined {
+  const found = ctx.store.findSession(source.chat);
+  if (!found) return undefined;
+  const n = ctx.archive.turnIds(source.chat).indexOf(source.turn) + 1;
+  if (n === 0) return undefined;
+  return { ref: exchangeRef(source.chat, n), chat: found.session.title || "untitled", n };
+}
+
+/** A chat of the project, by the start of its id. */
+export function chatByPrefix(ctx: ServerContext, projectId: string, prefix: string): string | undefined {
+  const wanted = prefix.toLowerCase();
+  const hits = (ctx.store.get(projectId)?.sessions ?? []).filter((s) =>
+    s.id.toLowerCase().startsWith(wanted),
+  );
+  return hits.length === 1 ? hits[0]!.id : undefined;
+}
+
+/** `7a3637b4#16` back to its chat and the exchange's prompt. */
+export function resolveRef(ctx: ServerContext, projectId: string, ref: string): MemorySource | undefined {
+  const match = /^([0-9a-z-]{4,})#(\d+)$/i.exec(ref.trim());
+  if (!match) return undefined;
+  const chat = chatByPrefix(ctx, projectId, match[1]!);
+  if (!chat) return undefined;
+  const turn = ctx.archive.turnIds(chat)[Number(match[2]) - 1];
+  return turn ? { chat, turn } : undefined;
+}
+
+/* ── the sheet, written and shown ──────────────────────────────────── */
+
+const clock = (ts: number) => {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
+/** Everything the files and the page carry beyond the sheet itself: where
+ *  each line came from, git's word on the branches lines name, and the
+ *  repo as git has it now. */
+async function sheetExtras(
+  ctx: ServerContext,
+  projectId: string,
+): Promise<{ extra: SheetExtras; sources: Record<string, SourceLabel>; git?: SheetGit }> {
   const project = ctx.store.get(projectId);
-  if (!project) return;
-  const sheet = ctx.briefs.get(projectId);
-  writeBriefFiles(project.path, project.name, sheet);
-  ctx.clients.broadcast({ type: "sheet", projectId, sheet });
+  if (!project) return { extra: {}, sources: {} };
+  const [state, sinceRead] = await Promise.all([
+    gitState(project.path),
+    (async () => {
+      const at = ctx.briefs.get(projectId).builtAt;
+      return at ? commitsSince(project.path, at) : undefined;
+    })(),
+  ]);
+  const memory = ctx.briefs.get(projectId).memory;
+  const sources: Record<string, SourceLabel> = {};
+  const refs: Record<string, string> = {};
+  const facts: Record<string, string> = {};
+  for (const { part, line } of memory ? allLines(memory) : []) {
+    const label = line.source ? sourceLabel(ctx, line.source) : undefined;
+    if (label) {
+      sources[line.id] = label;
+      refs[line.id] = label.ref;
+    }
+    if (part === "open" || part === "now") {
+      const fact = branchFacts(line.text, state);
+      if (fact) facts[line.id] = fact;
+    }
+  }
+  return {
+    extra: {
+      refs,
+      facts,
+      ...(state ? { git: gitLines(state), asOf: clock(Date.now()) } : {}),
+      ...(sinceRead !== undefined ? { sinceRead } : {}),
+    },
+    sources,
+    ...(state ? { git: sheetGit(state, sinceRead) } : {}),
+  };
+}
+
+/** The sheet as the page gets it. */
+export async function sheetMessage(ctx: ServerContext, projectId: string): Promise<ServerMessage> {
+  const { sources, git } = await sheetExtras(ctx, projectId);
+  return { type: "sheet", projectId, sheet: ctx.briefs.get(projectId), sources, ...(git ? { git } : {}) };
+}
+
+/** The sheet as it now stands, into the project's two files and onto
+ *  every window's architecture page. Git is asked first, so the sheet
+ *  written is the one standing when the answer came — never an older one
+ *  overtaking a newer. */
+export function pushSheet(ctx: ServerContext, projectId: string): void {
+  void (async () => {
+    const { extra, sources, git } = await sheetExtras(ctx, projectId);
+    const project = ctx.store.get(projectId);
+    if (!project) return;
+    const sheet = ctx.briefs.get(projectId);
+    writeBriefFiles(project.path, project.name, sheet, extra);
+    ctx.clients.broadcast({ type: "sheet", projectId, sheet, sources, ...(git ? { git } : {}) });
+  })().catch((err: unknown) => warn("brief", err, "pushSheet"));
+}
+
+const refreshing = new Map<string, NodeJS.Timeout>();
+
+/** The sheet written again shortly — a turn just ended, so git's part of
+ *  it (the branch, what's uncommitted, the last commits) has likely moved.
+ *  A burst of turns ending is one refresh. */
+export function refreshSheet(ctx: ServerContext, projectId: string): void {
+  if (refreshing.has(projectId)) return;
+  const timer = setTimeout(() => {
+    refreshing.delete(projectId);
+    pushSheet(ctx, projectId);
+  }, 1500);
+  timer.unref?.();
+  refreshing.set(projectId, timer);
+}
+
+/** The commit a read of the repo happened at. */
+export function headOf(ctx: ServerContext, projectId: string): string | undefined {
+  const project = ctx.store.get(projectId);
+  return project ? headSync(project.path) : undefined;
 }
 
 export function catchupNote(ctx: ServerContext, projectId: string, busy: boolean, note?: string): void {
@@ -49,7 +171,8 @@ export async function rebuildCatchup(ctx: ServerContext, projectId: string): Pro
       catchupNote(ctx, projectId, false, "the sheet could not be written — try again");
       return;
     }
-    ctx.briefs.write(projectId, built, true);
+    const at = headOf(ctx, projectId);
+    ctx.briefs.write(projectId, { ...built, ...(at ? { builtAt: at } : {}) }, true);
     pushSheet(ctx, projectId);
     catchupNote(ctx, projectId, false, "written from the repo");
   } catch (err) {

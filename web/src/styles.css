@@ -5100,15 +5100,47 @@ input[type="range"]::-webkit-slider-thumb {
   border-top: 1.5px dashed var(--line-soft);
 }
 
-/* where the work stands: now across the top, the lessons in cards */
+/* where the work stands: git and now across the top, the lessons in cards */
 .arch-now {
   display: flex;
-  gap: 14px;
+  flex-direction: column;
+  gap: 10px;
   padding: 12px 16px;
   border: 1.5px solid var(--line);
   border-radius: var(--radius-m);
   background-image: var(--tone);
   background-size: 6px 6px;
+}
+
+.arch-now-chats {
+  display: flex;
+  gap: 14px;
+}
+
+.arch-now-chats ul {
+  flex: 1;
+}
+
+.arch-git {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding-left: 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.arch-now .arch-now-label {
+  flex-shrink: 0;
+  width: 112px;
+  color: var(--ink);
+}
+
+.arch-git code {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--ink);
 }
 
 .arch-now-label {
@@ -5163,6 +5195,143 @@ input[type="range"]::-webkit-slider-thumb {
   font-weight: 400;
   font-size: var(--fs-xs);
   color: var(--ink-faint);
+}
+
+.arch-card-add {
+  margin-left: auto;
+  align-self: center;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.arch-card:hover .arch-card-add,
+.arch-card-add:focus-within {
+  opacity: 1;
+}
+
+.arch-card-add .icon-button,
+.arch-actions .icon-button {
+  width: 20px;
+  height: 20px;
+}
+
+.arch-card-add .icon-button svg,
+.arch-actions .icon-button svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* a line of the sheet or the memory: its tools float at the line's corner
+   and fade in on hover — out of the text's flow, so a line that fills its
+   width doesn't wrap them onto a blank line of their own */
+.arch-line,
+.arch-pair-value {
+  position: relative;
+}
+
+.arch-actions {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  z-index: 1;
+  display: inline-flex;
+  gap: 1px;
+  padding: 1px;
+  border-radius: var(--radius-s);
+  background: var(--paper-bright);
+  box-shadow: 0 0 0 1px var(--line-soft);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.arch-line:hover > .arch-actions,
+.arch-pair-value:hover > .arch-actions,
+.arch-actions:focus-within {
+  pointer-events: auto;
+}
+
+.arch-line:hover > .arch-actions,
+.arch-pair-value:hover > .arch-actions,
+.arch-actions:focus-within {
+  opacity: 1;
+}
+
+.arch-tool.on {
+  color: var(--ink);
+}
+
+.arch-line.pinned::marker {
+  color: var(--ink);
+}
+
+.arch-line-why {
+  color: var(--ink-soft);
+}
+
+.arch-line-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  margin-left: 8px;
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+  vertical-align: baseline;
+}
+
+.arch-line-meta > span + span::before {
+  content: "·";
+  margin-right: 8px;
+}
+
+.arch-source {
+  cursor: help;
+}
+
+.arch-pinned {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.arch-pair-value.mono {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+}
+
+.arch-pair.editing {
+  display: block;
+  grid-column: 1 / -1;
+}
+
+/* rewriting a line in place */
+.arch-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0;
+}
+
+.arch-editor input {
+  flex: 3 1 260px;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.arch-editor input.arch-editor-why {
+  flex: 2 1 180px;
+}
+
+.arch-editor-buttons {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.arch-editor-buttons button {
+  padding: 3px 10px;
+  font-size: var(--fs-sm);
 }
 
 .arch-card-none,

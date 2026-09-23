@@ -312,25 +312,85 @@ export interface SystemFlow {
   steps: string[];
 }
 
+/** The exchange a line of the memory was learned from: a chat, and the
+ *  prompt that opened the exchange (its event id, so a rewind that takes
+ *  the exchange away takes the reference with it). */
+export interface MemorySource {
+  chat: string;
+  turn: string;
+}
+
+/**
+ * One line of a project's working memory. Who wrote it decides who may
+ * change it: the small model rewrites and merges its own lines freely; an
+ * agent's (`ruri note`, written by the session that did the work) and the
+ * user's (typed on the architecture page) are never reworded by the model.
+ */
+export interface MemoryLine {
+  /** Stable, so the page and `ruri forget` can name the line. */
+  id: string;
+  text: string;
+  /** A decision's reason, a failure's cause. */
+  why?: string;
+  /** The day it was learned, YYYY-MM-DD, in the user's own time. */
+  date?: string;
+  by: "model" | "agent" | "user";
+  source?: MemorySource;
+  /** Kept exactly as it is, whatever later work says — the user's call. */
+  pinned?: boolean;
+}
+
 /**
  * What a project's agents have learned about working on it — the part of a
  * project nobody can read off its code — kept across every chat in it and
  * written into the project as `.ruri/catchup.md`. Each part is a list of
- * short lines; the lessons carry the date they were learned.
+ * short lines, each with when and where it was learned.
  */
 export interface ProjectMemory {
   /** Where the work stands: in progress, just done, next. */
-  now: string[];
+  now: MemoryLine[];
   /** What was decided, each with why. */
-  decisions: string[];
+  decisions: MemoryLine[];
   /** Approaches that proved out here. */
-  worked: string[];
+  worked: MemoryLine[];
   /** What was tried and failed, and why. */
-  failed: string[];
+  failed: MemoryLine[];
   /** Traps, constraints and standing rules. */
-  gotchas: string[];
+  gotchas: MemoryLine[];
   /** Asked for and not done, put off, or known broken. */
-  open: string[];
+  open: MemoryLine[];
+}
+
+export type MemoryPart = keyof ProjectMemory;
+
+/** The shape's lists the user may correct line by line. */
+export type SheetSection = "features" | "map" | "layout" | "run" | "conventions";
+
+/** A concept a session may be asked to change, and the files it lives in —
+ *  the part of the sheet that says where to go, not just what exists. */
+export interface ConceptPlace {
+  name: string;
+  files: string[];
+}
+
+/** A memory line's source, as the page shows it: which chat, which
+ *  exchange, and the ref `ruri recall show` takes. */
+export interface SourceLabel {
+  ref: string;
+  chat: string;
+  n: number;
+}
+
+/** The repo as git has it, beside the sheet — facts, not recollection. */
+export interface SheetGit {
+  branch: string;
+  head: string;
+  /** Uncommitted files. */
+  dirty: number;
+  /** Local branches not merged into the mainline. */
+  unmerged: string[];
+  /** Commits since the repo was last read for the sheet. */
+  sinceRead?: number;
 }
 
 /**
@@ -356,6 +416,8 @@ export interface ProjectSheet {
   layout?: string[];
   /** Rules a session must follow, from the repo's own instructions. */
   conventions?: string[];
+  /** Where to change what: concepts and the files they live in. */
+  map?: ConceptPlace[];
   memory?: ProjectMemory;
   /** Pinned screenshots of the main pages. */
   shots: Attachment[];
@@ -363,6 +425,8 @@ export interface ProjectSheet {
   updated?: number;
   /** When the repo was last read whole for it. */
   built?: number;
+  /** The commit the repo stood at when it was read. */
+  builtAt?: string;
   /** When the memory last changed. */
   remembered?: number;
   /** When the memory was last written from the chats' histories whole. */
@@ -1380,6 +1444,34 @@ export type ClientMessage =
   | { type: "memory_rebuild"; projectId: string }
   /** The architecture page wants a project's sheet — answered with `sheet`. */
   | { type: "sheet_get"; projectId: string }
+  /** The user correcting the memory on the page: pin a line so nothing
+   *  rewrites it, unpin it, or strike it. */
+  | {
+      type: "memory_line";
+      projectId: string;
+      part: MemoryPart;
+      lineId: string;
+      action: "pin" | "unpin" | "remove";
+    }
+  /** The user's own line: a correction of `lineId`, or a new one. The
+   *  user's lines are pinned. */
+  | {
+      type: "memory_write";
+      projectId: string;
+      part: MemoryPart;
+      lineId?: string;
+      text: string;
+      why?: string;
+    }
+  /** The user correcting a line of the shape: `text` replaces the line at
+   *  `index`, or, left out, strikes it. A map line reads "name — a, b". */
+  | {
+      type: "sheet_line";
+      projectId: string;
+      section: SheetSection;
+      index: number;
+      text?: string;
+    }
   /** The user has looked: take the star off one component, or off all of
    *  them (which is what leaving the page means). */
   | { type: "component_seen"; projectId: string; componentId?: string }
@@ -1598,8 +1690,15 @@ export type ServerMessage =
   /** The project's memory being rebuilt from its chats. */
   | { type: "recall"; projectId: string; busy: boolean; note?: string }
   /** A project's sheet: to the window that asked, and to every window as
-   *  it changes. */
-  | { type: "sheet"; projectId: string; sheet: ProjectSheet }
+   *  it changes — with where each memory line came from, and the repo as
+   *  git has it now. */
+  | {
+      type: "sheet";
+      projectId: string;
+      sheet: ProjectSheet;
+      sources?: Record<string, SourceLabel>;
+      git?: SheetGit;
+    }
   /** The vault, names only — values never leave the server. */
   | { type: "secrets"; items: SecretMeta[] }
   /** Installed skills: every global one, plus the named project's own.

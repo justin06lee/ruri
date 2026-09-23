@@ -27,6 +27,8 @@ const filePath = z.string().max(4_000);
 const bytes = z.string().max(150_000_000);
 
 const attachmentKind = z.enum(["image", "video", "file"]);
+
+const memoryPart = z.enum(["now", "decisions", "worked", "failed", "gotchas", "open"]);
 /** Who one agent may message (server/talk.ts), and the whole set of them.
  *  A few thousand chats is far more than anyone keeps open. */
 const talkRule = z.object({
@@ -246,6 +248,28 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("catchup_rebuild"), ...projectId }),
   z.object({ type: z.literal("memory_rebuild"), ...projectId }),
   z.object({ type: z.literal("sheet_get"), ...projectId }),
+  z.object({
+    type: z.literal("memory_line"),
+    ...projectId,
+    part: memoryPart,
+    lineId: id,
+    action: z.enum(["pin", "unpin", "remove"]),
+  }),
+  z.object({
+    type: z.literal("memory_write"),
+    ...projectId,
+    part: memoryPart,
+    lineId: id.optional(),
+    text: label.min(1),
+    why: label.optional(),
+  }),
+  z.object({
+    type: z.literal("sheet_line"),
+    ...projectId,
+    section: z.enum(["features", "map", "layout", "run", "conventions"]),
+    index: z.number().int().min(0).max(1000),
+    text: label.min(1).optional(),
+  }),
   z.object({ type: z.literal("component_seen"), ...projectId, componentId: id.optional() }),
   z.object({ type: z.literal("component_code"), ...projectId, componentId: id }),
   z.object({ type: z.literal("library_dir"), ...projectId, dir: filePath }),

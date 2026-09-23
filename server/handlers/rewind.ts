@@ -11,6 +11,7 @@ import { busy, channelProject } from "../channel.js";
 import { pushTranscript } from "../clients.js";
 import { buildCompaction } from "../compaction.js";
 import type { ServerContext } from "../context.js";
+import { briefContext } from "../handoff.js";
 import { errorMessage } from "../log.js";
 import { HOME_ID } from "../manager.js";
 import { promptChain } from "../sessions.js";
@@ -223,6 +224,7 @@ export const rewindHandlers = {
                 ctx.archive.allEvents(channelId),
                 ctx.archive.summaries(channelId),
                 ctx.archive.digest(channelId),
+                briefContext(ctx, channelId),
               )?.brief
             : undefined;
         ctx.archive.setPendingBrief(channelId, brief ?? "");
@@ -333,7 +335,13 @@ export const rewindHandlers = {
           const digest =
             source && kept.some((e) => e.kind === "user" && e.id === source.through) ? source : undefined;
           if (digest) ctx.archive.setDigest(fresh.id, digest);
-          const built = buildCompaction(fresh.id, kept, ctx.archive.summaries(fresh.id), digest);
+          const built = buildCompaction(
+            fresh.id,
+            kept,
+            ctx.archive.summaries(fresh.id),
+            digest,
+            briefContext(ctx, fresh.id),
+          );
           if (built) ctx.archive.setPendingBrief(fresh.id, built.brief);
         }
         ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });

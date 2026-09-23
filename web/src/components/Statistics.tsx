@@ -16,6 +16,7 @@
 import { memo, useEffect, useMemo } from "react";
 import { HOME_ID, type AgentProcess, type Project, type Totals } from "../../../shared/protocol";
 import { useRuri, watchMeters } from "../store";
+import { Capped } from "./Capped";
 import { money, shortCount, span, sum, NONE } from "./figures";
 
 /** "1.4 GB", "312 MB" — one number and its unit, never more. */
@@ -106,21 +107,23 @@ const Spending = memo(function Spending({ projects }: { projects: Project[] }) {
         <span>turns</span>
         <span>time</span>
       </div>
-      {rows.map((row) => (
-        <div className="stats-row" key={row.id} title={figuresTitle(row.name, row.totals)}>
-          <span className="stats-name">
-            {row.name}
-            <Share of={row.totals.costUsd} all={most} kind="cost" />
-          </span>
-          <span>{row.today.turns > 0 ? money(row.today.costUsd) : "—"}</span>
-          <span>
-            <b>{money(row.totals.costUsd)}</b>
-          </span>
-          <span>{shortCount(row.totals.tokens)}</span>
-          <span>{row.totals.turns}</span>
-          <span>{row.totals.ms > 0 ? span(row.totals.ms) : "—"}</span>
-        </div>
-      ))}
+      <Capped max={8}>
+        {rows.map((row) => (
+          <div className="stats-row" key={row.id} title={figuresTitle(row.name, row.totals)}>
+            <span className="stats-name">
+              {row.name}
+              <Share of={row.totals.costUsd} all={most} kind="cost" />
+            </span>
+            <span>{row.today.turns > 0 ? money(row.today.costUsd) : "—"}</span>
+            <span>
+              <b>{money(row.totals.costUsd)}</b>
+            </span>
+            <span>{shortCount(row.totals.tokens)}</span>
+            <span>{row.totals.turns}</span>
+            <span>{row.totals.ms > 0 ? span(row.totals.ms) : "—"}</span>
+          </div>
+        ))}
+      </Capped>
     </div>
   );
 });
@@ -239,36 +242,38 @@ const Agents = memo(function Agents() {
             <span>up</span>
             <span>pid</span>
           </div>
-          {agents.map((agent) => {
-            const { lead, sub } = agentTitle(agent, nameOf);
-            const open = agent.channelId && nameOf(agent.channelId);
-            return (
-              <div
-                className={`stats-row agent-row${open ? " openable" : ""}`}
-                key={agent.pid}
-                role={open ? "button" : undefined}
-                title={
-                  open
-                    ? `Open ${lead} — ${agent.name}, ${agent.helpers} helper processes`
-                    : `${agent.name}, ${agent.helpers} helper processes`
-                }
-                onClick={() => open && agent.channelId && setActive(agent.channelId)}
-              >
-                <span className="stats-name">
-                  {lead}
-                  <small>{sub}</small>
-                  <Share of={agent.rss} all={agents[0]!.rss} kind="mem" />
-                </span>
-                <span>
-                  <b>{bytes(agent.rss)}</b>
-                  {agent.helpers > 0 && <small> +{agent.helpers}</small>}
-                </span>
-                <span>{agent.cpu.toFixed(0)}%</span>
-                <span>{upFor(agent.uptimeMs)}</span>
-                <span className="agent-pid">{agent.pid}</span>
-              </div>
-            );
-          })}
+          <Capped max={8}>
+            {agents.map((agent) => {
+              const { lead, sub } = agentTitle(agent, nameOf);
+              const open = agent.channelId && nameOf(agent.channelId);
+              return (
+                <div
+                  className={`stats-row agent-row${open ? " openable" : ""}`}
+                  key={agent.pid}
+                  role={open ? "button" : undefined}
+                  title={
+                    open
+                      ? `Open ${lead} — ${agent.name}, ${agent.helpers} helper processes`
+                      : `${agent.name}, ${agent.helpers} helper processes`
+                  }
+                  onClick={() => open && agent.channelId && setActive(agent.channelId)}
+                >
+                  <span className="stats-name">
+                    {lead}
+                    <small>{sub}</small>
+                    <Share of={agent.rss} all={agents[0]!.rss} kind="mem" />
+                  </span>
+                  <span>
+                    <b>{bytes(agent.rss)}</b>
+                    {agent.helpers > 0 && <small> +{agent.helpers}</small>}
+                  </span>
+                  <span>{agent.cpu.toFixed(0)}%</span>
+                  <span>{upFor(agent.uptimeMs)}</span>
+                  <span className="agent-pid">{agent.pid}</span>
+                </div>
+              );
+            })}
+          </Capped>
         </div>
       )}
     </>

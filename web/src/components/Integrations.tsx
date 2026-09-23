@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { IntegrationHarness, McpAdd, McpServerRow, PluginRow } from "../../../shared/protocol";
 import { splitCommand } from "../lib/commandLine";
 import { send, useRuri } from "../store";
+import { Capped } from "./Capped";
 
 /**
  * Settings → Integrations: what Claude Code and Codex plug in — MCP
@@ -102,80 +103,86 @@ export function Integrations() {
         <>
           <h3 className="int-head">MCP servers</h3>
           {data.servers.length === 0 && <p className="settings-note">none yet</p>}
-          {data.servers.map((server) => (
-            <div key={`${server.harness}:${server.scope}:${server.name}`} className="int-row">
-              <Tag harness={server.harness} />
-              <span className="int-body">
-                <span className="int-name">
-                  {server.name}
-                  {!server.enabled && <span className="int-off"> · off</span>}
-                </span>
-                <span className="int-target" title={server.target}>
-                  {server.target}
-                </span>
-                {(server.env || server.headers) && (
-                  <span className="int-given">
-                    given {[...(server.env ?? []), ...(server.headers ?? [])].join(", ")}
+          <Capped>
+            {data.servers.map((server) => (
+              <div key={`${server.harness}:${server.scope}:${server.name}`} className="int-row">
+                <Tag harness={server.harness} />
+                <span className="int-body">
+                  <span className="int-name">
+                    {server.name}
+                    {!server.enabled && <span className="int-off"> · off</span>}
                   </span>
+                  <span className="int-target" title={server.target}>
+                    {server.target}
+                  </span>
+                  {(server.env || server.headers) && (
+                    <span className="int-given">
+                      given {[...(server.env ?? []), ...(server.headers ?? [])].join(", ")}
+                    </span>
+                  )}
+                </span>
+                <span className="int-scope">
+                  {server.scope === "plugin"
+                    ? `from ${server.plugin?.split("@")[0]}`
+                    : SCOPE_WORD[server.scope]}
+                </span>
+                {server.scope !== "plugin" ? (
+                  <button
+                    className="ghost grant-ask"
+                    disabled={busy}
+                    title={`Take ${server.name} out of ${HARNESS[server.harness]}'s config`}
+                    onClick={() =>
+                      act({
+                        type: "mcp_remove",
+                        harness: server.harness,
+                        name: server.name,
+                        scope: server.scope,
+                        ...(projectId ? { projectId } : {}),
+                      })
+                    }
+                  >
+                    Remove
+                  </button>
+                ) : (
+                  <span className="int-spacer" />
                 )}
-              </span>
-              <span className="int-scope">
-                {server.scope === "plugin"
-                  ? `from ${server.plugin?.split("@")[0]}`
-                  : SCOPE_WORD[server.scope]}
-              </span>
-              {server.scope !== "plugin" ? (
-                <button
-                  className="ghost grant-ask"
-                  disabled={busy}
-                  title={`Take ${server.name} out of ${HARNESS[server.harness]}'s config`}
-                  onClick={() =>
-                    act({
-                      type: "mcp_remove",
-                      harness: server.harness,
-                      name: server.name,
-                      scope: server.scope,
-                      ...(projectId ? { projectId } : {}),
-                    })
-                  }
-                >
-                  Remove
-                </button>
-              ) : (
-                <span className="int-spacer" />
-              )}
-            </div>
-          ))}
+              </div>
+            ))}
+          </Capped>
           <AddServer projectId={projectId} projectName={project?.name} busy={busy} onAdd={act} />
 
           <h3 className="int-head">Plugins</h3>
           {data.plugins.length === 0 && <p className="settings-note">none installed</p>}
-          {data.plugins.map((plugin) => (
-            <PluginLine key={`${plugin.harness}:${plugin.id}`} plugin={plugin} busy={busy} onAct={act} />
-          ))}
+          <Capped>
+            {data.plugins.map((plugin) => (
+              <PluginLine key={`${plugin.harness}:${plugin.id}`} plugin={plugin} busy={busy} onAct={act} />
+            ))}
+          </Capped>
           <BrowsePlugins busy={busy} onAct={act} projectId={projectId} />
 
           <h3 className="int-head">Marketplaces</h3>
-          {data.marketplaces.map((market) => (
-            <div key={`${market.harness}:${market.name}`} className="int-row">
-              <Tag harness={market.harness} />
-              <span className="int-body">
-                <span className="int-name">{market.name}</span>
-                <span className="int-target" title={market.source}>
-                  {market.source || "built in"}
+          <Capped>
+            {data.marketplaces.map((market) => (
+              <div key={`${market.harness}:${market.name}`} className="int-row">
+                <Tag harness={market.harness} />
+                <span className="int-body">
+                  <span className="int-name">{market.name}</span>
+                  <span className="int-target" title={market.source}>
+                    {market.source || "built in"}
+                  </span>
                 </span>
-              </span>
-              <button
-                className="ghost grant-ask"
-                disabled={busy}
-                onClick={() =>
-                  act({ type: "marketplace_remove", harness: market.harness, name: market.name })
-                }
-              >
-                Remove
-              </button>
-            </div>
-          ))}
+                <button
+                  className="ghost grant-ask"
+                  disabled={busy}
+                  onClick={() =>
+                    act({ type: "marketplace_remove", harness: market.harness, name: market.name })
+                  }
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </Capped>
           <AddMarketplace busy={busy} onAct={act} />
         </>
       )}
@@ -401,7 +408,7 @@ function BrowsePlugins({
               : `${shown.total} to install`}
         </p>
       )}
-      <div className="int-results">
+      <Capped className="int-results">
         {shown?.plugins.map((plugin) => (
           <div key={plugin.id} className="int-row">
             <span className="int-body">
@@ -430,7 +437,7 @@ function BrowsePlugins({
             </button>
           </div>
         ))}
-      </div>
+      </Capped>
     </div>
   );
 }

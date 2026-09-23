@@ -7,6 +7,7 @@ import {
   type TranscriptEvent,
 } from "../../../shared/protocol";
 import { useRuri, watchBoard } from "../store";
+import { Capped } from "./Capped";
 import { money } from "./figures";
 import { StatisticsPage } from "./Statistics";
 
@@ -190,7 +191,8 @@ function ProjectCard({
         <span className="pcard-name">{project.name}</span>
         <span className="pcard-status">{WORD[status]}</span>
       </div>
-      <div className="pcard-body">
+      {/* a project of twenty chats is not a card twenty chats tall */}
+      <Capped max={4} className="pcard-body">
         {project.sessions.length === 0 ? (
           <span className="board-line note">no sessions open</span>
         ) : (
@@ -198,7 +200,7 @@ function ProjectCard({
             <SessionLines key={session.id} session={session} many={project.sessions.length > 1} />
           ))
         )}
-      </div>
+      </Capped>
     </div>
   );
 }

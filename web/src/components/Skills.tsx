@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SkillInfo } from "../../../shared/protocol";
 import { Markdown } from "../markdown";
 import { send, useRuri } from "../store";
+import { Capped } from "./Capped";
 
 /**
  * Skills: the folders of instructions a harness reads before it works, in
@@ -206,9 +207,11 @@ export function Skills({ projectId }: { projectId?: string }) {
         <div className="skill-group">
           <div className="skill-group-head">Everywhere</div>
           {global.length === 0 && <div className="board-empty">No global skills installed.</div>}
-          {global.map((skill) => (
-            <Row key={`g/${skill.name}`} skill={skill} {...(projectId ? { projectId } : {})} />
-          ))}
+          <Capped max={8}>
+            {global.map((skill) => (
+              <Row key={`g/${skill.name}`} skill={skill} {...(projectId ? { projectId } : {})} />
+            ))}
+          </Capped>
         </div>
 
         <div className="skill-group">
@@ -219,9 +222,11 @@ export function Skills({ projectId }: { projectId?: string }) {
               with it.
             </div>
           )}
-          {local.map((skill) => (
-            <Row key={`p/${skill.name}`} skill={skill} {...(projectId ? { projectId } : {})} />
-          ))}
+          <Capped max={8}>
+            {local.map((skill) => (
+              <Row key={`p/${skill.name}`} skill={skill} {...(projectId ? { projectId } : {})} />
+            ))}
+          </Capped>
         </div>
       </div>
       <SkillReader />

@@ -49,17 +49,23 @@ export function sessionBriefing(input: {
 
   const catchup = path.join(input.projectDir, ".ruri", "catchup.md");
   const architecture = path.join(input.projectDir, ".ruri", "architecture.md");
-  if (exists(catchup)) {
-    blocks.push(
-      [
-        "<ruri:catchup>",
-        `If you don't already know ${input.projectName} — a fresh session, a harness that has just taken over, work you have no memory of — read ${catchup} first: where the work stands, what was decided and why, what worked, what was tried and failed and why, the traps, and what is still open, gathered from every chat in this project. Don't redo a settled decision or retry a failed approach without a new reason.`,
-        `The project's shape — what it is, the stack from top to bottom, how the parts connect, where things are, how to run it, the rules it lives by — is in ${architecture}.`,
-        "Both are one screen, kept current by ruri as turns finish: much cheaper than reading the code to find out, and much more reliable than guessing. Don't read them if you already have the context. Don't edit them.",
-        "</ruri:catchup>",
-      ].join("\n"),
-    );
-  }
+  // The words are the same in every session, whatever the files hold, so
+  // the prompt stays cached; what changes is in the files.
+  blocks.push(
+    [
+      "<ruri:catchup>",
+      ...(exists(catchup)
+        ? [
+            `If you don't already know ${input.projectName} — a fresh session, a harness that has just taken over, work you have no memory of — read ${catchup} first: what git says right now, what was decided and why, what worked, what was tried and failed and why, the traps, and what is still open, gathered from every chat in this project. Don't redo a settled decision or retry a failed approach without a new reason.`,
+            `The project's shape — where to change what, the stack from top to bottom, how the parts connect, where things are, how to run it, the rules it lives by — is in ${architecture}.`,
+            "Both are one screen, kept current by ruri as turns finish: much cheaper than reading the code to find out, and much more reliable than guessing. Each memory line ends with the exchange it came from; check one with `ruri recall show <ref>` before you lean on it. Don't read them if you already have the context. Don't edit them.",
+          ]
+        : []),
+      'When your work settles something a later session will need — a decision and its reason, an approach that failed and why, a trap, something left open — write it down from your shell: `ruri note decision "<what>" --why "<why>"` (or failed, worked, trap, open). One line each, only what the code won\'t tell the next session; not a log of what you built.',
+      "`ruri recall <words>` searches every earlier exchange in this project, across its chats, and `ruri recall show <ref>` prints one whole; `ruri state` is git and this chat's changes, live.",
+      "</ruri:catchup>",
+    ].join("\n"),
+  );
 
   // The library's words never change with what is in it — the list lives
   // in the file, the skill and the command — so this block is the same on

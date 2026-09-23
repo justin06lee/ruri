@@ -67,6 +67,17 @@ const HEAD_CHARS = 1500;
 const BATCH_FILES = 7;
 const BATCH_CONCURRENCY = 5;
 
+/** Every source file in the project — code and views, not tests, builds or
+ *  vendored code — for a read of the repo that has to know where things
+ *  are (server/catchup.ts). */
+export async function sourceFiles(dir: string): Promise<string[]> {
+  return (await repoFiles(dir)).filter((rel) => {
+    if (SKIP_DIRS.test(rel) || SKIP_FILE.test(rel)) return false;
+    const ext = path.extname(rel).toLowerCase();
+    return VIEW_EXT.has(ext) || CODE_EXT.has(ext);
+  });
+}
+
 /** Every file in the project git will admit to, tracked or merely present.
  *  Off the main thread: a big repo takes git a while, and nothing else
  *  should wait on it. */

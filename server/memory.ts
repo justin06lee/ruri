@@ -16,8 +16,10 @@
  * notes of its recent ones, and the last few replies at more length —
  * those are where an agent says what it tried, what broke and why.
  */
-import { assembleTurns, endsIntact, foldMemory, NO_MEMORY, smallModelEnabled } from "./smallmodel.js";
-import { pushSheet } from "./catchupBrief.js";
+import type { ProjectMemory } from "../shared/protocol.js";
+import { assembleTurns, endsIntact, foldMemory, smallModelEnabled } from "./smallmodel.js";
+import { exchangeRef, pushSheet, resolveRef } from "./catchupBrief.js";
+import { dayOf, MEMORY_PARTS, rebase } from "./memoryLines.js";
 import type { ServerContext } from "./context.js";
 import { warn } from "./log.js";
 
@@ -35,7 +37,7 @@ function squash(text: string, max = 200): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-const day = (ts: number) => new Date(ts).toISOString().slice(0, 10);
+const day = dayOf;
 
 /** Everything the memory is written from: one block per chat, the chat
  *  least recently at work first, so the newest is what the model reads
@@ -50,20 +52,28 @@ export function memoryMaterial(ctx: ServerContext, projectId: string): string {
     const digest = ctx.archive.digest(session.id);
     const recent = turns.slice(-EXCHANGES_PER_CHAT);
     const start = turns.length - recent.length;
-    const parts = [`=== CHAT: ${session.title || "untitled"} (last at work ${day(recent.at(-1)!.ts)}) ===`];
+    const parts = [
+      `=== CHAT: ${session.title || "untitled"} (its exchanges' refs start ${session.id.slice(0, 8)}; last at work ${day(recent.at(-1)!.ts)}) ===`,
+    ];
     if (digest?.text && start > 0) parts.push(`Its earlier exchanges, condensed:\n${digest.text.trim()}`);
     parts.push(
       "Its exchanges, oldest first:",
       ...recent.map(({ turn, ts }, i) => {
         const note = notes[turn.turnId];
-        return `${start + i + 1}. [${day(ts)}] user: ${note?.user?.trim() || squash(turn.user)}\n   agent: ${note?.reply?.trim() || squash(turn.assistant)}`;
+        return `[${exchangeRef(session.id, start + i + 1)} · ${day(ts)}] user: ${note?.user?.trim() || squash(turn.user)}\n   agent: ${note?.reply?.trim() || squash(turn.assistant)}`;
       }),
     );
-    const full = recent.slice(-FULL_REPLIES).filter(({ turn }) => turn.assistant.trim());
+    const full = recent
+      .map((entry, i) => ({ ...entry, n: start + i + 1 }))
+      .slice(-FULL_REPLIES)
+      .filter(({ turn }) => turn.assistant.trim());
     if (full.length) {
       parts.push(
         "Its last replies, at more length:",
-        ...full.map(({ turn, ts }) => `[${day(ts)}] ${endsIntact(turn.assistant.trim(), REPLY_CHARS)}`),
+        ...full.map(
+          ({ turn, ts, n }) =>
+            `[${exchangeRef(session.id, n)} · ${day(ts)}] ${endsIntact(turn.assistant.trim(), REPLY_CHARS)}`,
+        ),
       );
     }
     return [{ last: recent.at(-1)!.ts, text: parts.join("\n") }];
@@ -84,7 +94,21 @@ function recallNote(ctx: ServerContext, projectId: string, busy: boolean, note?:
   ctx.clients.broadcast({ type: "recall", projectId, busy, ...(note ? { note } : {}) });
 }
 
-/** Write a project's memory from its chats, replacing what was there. */
+/** What a rewrite from the chats starts from: the lines the model doesn't
+ *  own — the user's, the agents', whatever the user pinned. The model's
+ *  own it writes again from the whole history. */
+function keptThroughRewrite(memory: ProjectMemory | undefined): ProjectMemory | undefined {
+  if (!memory) return undefined;
+  return Object.fromEntries(
+    MEMORY_PARTS.map((part) => [
+      part,
+      part === "now" ? [] : memory[part].filter((line) => line.by !== "model" || line.pinned),
+    ]),
+  ) as unknown as ProjectMemory;
+}
+
+/** Write a project's memory from its chats, replacing the small model's
+ *  own lines; the user's, the agents' and the pinned stay. */
 export async function rebuildMemory(ctx: ServerContext, projectId: string): Promise<void> {
   const project = ctx.store.get(projectId);
   if (!project || ctx.recalling.has(projectId) || !smallModelEnabled()) return;
@@ -96,7 +120,11 @@ export async function rebuildMemory(ctx: ServerContext, projectId: string): Prom
       recallNote(ctx, projectId, false, "no finished work in any chat yet");
       return;
     }
-    const memory = await foldMemory(project.name, NO_MEMORY, material, day(Date.now()));
+    const before = keptThroughRewrite(ctx.briefs.get(projectId).memory);
+    const folded = await foldMemory(project.name, before, material, day(Date.now()), (ref) =>
+      resolveRef(ctx, projectId, ref),
+    );
+    const memory = folded && rebase(folded, before, keptThroughRewrite(ctx.briefs.get(projectId).memory));
     if (!memory) {
       recallNote(ctx, projectId, false, "the memory could not be written — try again");
       return;

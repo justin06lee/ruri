@@ -1,6 +1,16 @@
 import { findExecutable, Yagami } from "@justin06lee/yagami";
 import * as fs from "node:fs";
-import type { ProjectMemory, StackLayer, SystemFlow, TranscriptEvent } from "../shared/protocol.js";
+import * as path from "node:path";
+import type {
+  ConceptPlace,
+  MemoryPart,
+  MemorySource,
+  ProjectMemory,
+  StackLayer,
+  SystemFlow,
+  TranscriptEvent,
+} from "../shared/protocol.js";
+import { applyFold, emptyMemory, MEMORY_PARTS, type FoldEntry } from "./memoryLines.js";
 import { configPath } from "./configDir.js";
 import { errorMessage, warn } from "./log.js";
 
@@ -200,6 +210,15 @@ export interface Turn {
   user: string;
   assistant: string;
   tools: string[];
+  /** The files its tools changed, as the transcript's diffs name them. */
+  files?: string[];
+}
+
+/** A tool event's changed file, onto the turn's list (once each). */
+function noteFile(turn: Turn, event: TranscriptEvent): void {
+  if (event.kind !== "tool" || !event.diff?.path) return;
+  const files = (turn.files ??= []);
+  if (!files.includes(event.diff.path)) files.push(event.diff.path);
 }
 
 const PROMPT_SUMMARY_SYSTEM = `You compress messages a user sent to a coding agent into the fewest words that lose no detail.
@@ -351,6 +370,7 @@ export interface ShapeUpdate {
   layers: Layer[];
   flows: Flow[];
   layout: string[];
+  map: ConceptPlace[];
 }
 
 /** Lines a model returned, cleaned and capped. */
@@ -388,6 +408,35 @@ function parseFlows(value: unknown): Flow[] {
     .slice(0, 5);
 }
 
+/**
+ * Where to change what, as the model gave it — each file one that is
+ * really in the project (when the project is known), so the map never
+ * sends a session to a path somebody guessed.
+ */
+function parseMap(value: unknown, projectDir?: string): ConceptPlace[] {
+  if (!Array.isArray(value)) return [];
+  const real = (file: string) => {
+    if (!projectDir) return true;
+    const rel = file.replace(/:\d+$/, "");
+    if (path.isAbsolute(rel) || rel.startsWith("..")) return false;
+    try {
+      return fs.existsSync(path.join(projectDir, rel));
+    } catch {
+      return false;
+    }
+  };
+  return value
+    .flatMap((raw): ConceptPlace[] => {
+      const place = raw as Partial<ConceptPlace>;
+      const name = typeof place.name === "string" ? place.name.trim() : "";
+      const files = lines(place.files, 5)
+        .map((f) => f.replace(/^\.\//, ""))
+        .filter(real);
+      return name && files.length ? [{ name, files }] : [];
+    })
+    .slice(0, 20);
+}
+
 /** The JSON object in a model's reply, or nothing. */
 function objectIn(reply: string): Record<string, unknown> | undefined {
   const json = reply.slice(reply.indexOf("{"), reply.lastIndexOf("}") + 1);
@@ -406,9 +455,10 @@ RULES
 - LAYERS: the stack, top (what a person touches) to bottom (runtime, engines, OS), each {"name", "what", "where"}. Change them only when the work clearly changed the stack — a new layer, a replaced framework, a new engine underneath.
 - FLOWS: the paths through the system that matter most, each {"name", "steps"} with the parts in order. Change one only when the work clearly rerouted it; add one only for a genuinely new major path. At most 4.
 - LAYOUT: "path — what it is for" lines for the directories and key files that matter. Add a line when the work created an important new part; drop one that no longer exists. At most 16.
+- MAP: where to change what — the things a session is likely to be asked to change (a feature, a subsystem, a screen), each {"name": what a person would call it, "files": the 1–4 files it lives in, most central first}. This is what a fresh session reads to know where to go, so it matters most. Each exchange lists the files it changed: when an exchange worked on something, make sure that thing is in the map with those files (merge into the entry it belongs to; never list a file the exchanges or the sheet don't name). Merge entries that are one thing. At most 20, the most worked-on first.
 - Never invent anything the exchanges don't show. If nothing structural happened, return the sheet unchanged.
 
-Reply as JSON and nothing else: {"description": "...", "features": [...], "layers": [{"name": "...", "what": "...", "where": "..."}], "flows": [{"name": "...", "steps": ["...", "..."]}], "layout": [...]}`;
+Reply as JSON and nothing else: {"description": "...", "features": [...], "layers": [{"name": "...", "what": "...", "where": "..."}], "flows": [{"name": "...", "steps": ["...", "..."]}], "layout": [...], "map": [{"name": "...", "files": ["..."]}]}`;
 
 /**
  * Fold what just happened into the project's shape. Returns null when the
@@ -418,6 +468,7 @@ export async function updateShape(
   project: string,
   current: ShapeUpdate,
   happened: string,
+  projectDir?: string,
 ): Promise<ShapeUpdate | null> {
   if (!smallModelEnabled()) return null;
   const prompt =
@@ -432,12 +483,14 @@ export async function updateShape(
     const layers = parseLayers(parsed["layers"]);
     const flows = parseFlows(parsed["flows"]);
     const layout = lines(parsed["layout"], 16);
+    const map = parseMap(parsed["map"], projectDir);
     return {
       description: parsed["description"].trim(),
       features: lines(parsed["features"], 16),
       layers: layers.length ? layers : current.layers,
       flows: flows.length ? flows : current.flows,
       layout: layout.length ? layout : current.layout,
+      map: map.length ? map : current.map,
     };
   } catch (err) {
     warn("smallmodel", err, "updateShape");
@@ -464,6 +517,7 @@ Return JSON with exactly these keys:
 - "run": how to run, build, test, and ship it, one command per line with what it does — taken from scripts, the Makefile and the README, never guessed. At most 8 lines.
 - "layout": where things are — the directories and key files that matter and what each is for, one per line ("server/ — the Node backend: sessions, archive, usage"). At most 14 lines; leave out generated and vendored folders.
 - "conventions": rules a session must follow, from CLAUDE.md / AGENTS.md / README: package manager, branch names, formatting, review steps, things never to do. At most 8 lines; an empty list when there are none.
+- "map": where to change what — the 8–16 things a session is most likely to be asked to change (features, subsystems, screens), each {"name": what a person would call it, "files": the 1–4 files it lives in, most central first}. E.g. {"name": "compaction brief", "files": ["server/compaction.ts", "server/dispatch.ts"]}. Only paths that appear in the material. This is the part a session with a task in hand reads first — make it the map of the project a newcomer would draw after a day in it.
 
 If a SHEET AS IT STANDS is given, keep its description and features where they are still right (they were folded in from real work and may know things the repo's files don't say), correcting and completing them from the material.
 
@@ -474,6 +528,7 @@ export async function catchupBrief(
   project: string,
   material: string,
   current: Partial<FullBrief>,
+  projectDir?: string,
 ): Promise<FullBrief | null> {
   if (!smallModelEnabled()) return null;
   const standing =
@@ -498,6 +553,7 @@ ${material.slice(0, 60_000)}`;
       run: lines(parsed["run"], 8),
       layout: lines(parsed["layout"], 14),
       conventions: lines(parsed["conventions"], 8),
+      map: parseMap(parsed["map"], projectDir),
     };
   } catch (err) {
     warn("smallmodel", err, "catchupBrief");
@@ -507,76 +563,110 @@ ${material.slice(0, 60_000)}`;
 
 /* ── the working memory: .ruri/catchup.md ──────────────────────────── */
 
-/** How many lines each part keeps. */
-export const MEMORY_CAPS: Record<keyof ProjectMemory, number> = {
-  now: 4,
-  decisions: 12,
-  worked: 8,
-  failed: 10,
-  gotchas: 10,
-  open: 8,
-};
-
 const MEMORY_SYSTEM = `You keep the working memory of a software project: what a coding agent picking the work up cold needs to know that the code itself won't tell it. Fresh sessions read it, other agents working in the same project at the same time read it, and the next harness to take over reads it — so that nobody redoes a settled decision, repeats an attempt that already failed, or trips the same trap twice.
 
-You are given the memory as it stands and what happened in the project — exchanges between the user and a coding agent, oldest first, separated by ---. Return the memory, updated.
+You are given the memory as it stands and what happened in the project — exchanges between the user and a coding agent, oldest first, each opening with its ref in brackets, like [7a3637b4#16 · 2026-09-22]. Return the memory, updated.
 
-PARTS (each a list of short lines):
-- "now": 1–4 lines. Where the work stands at the end of these exchanges: what is in progress, what was just finished, what comes next. Rewrite it each time; don't accumulate.
-- "decisions": choices about how the project works or is built, EACH WITH ITS REASON — "Each project keeps its own component library, not one shared one — the user wants projects kept apart". A decision without its why is half useless; if the exchanges give no reason, say what it was chosen over. At most 12.
-- "worked": approaches, techniques and fixes that proved out here and are worth repeating, with where — "Check UI changes on an isolated server (RURI_CONFIG_DIR=/tmp/…), never the live app". At most 8.
-- "failed": what was tried and did NOT work, and WHY — so nobody tries it again — "Polling the cursor for the band's hover — cost battery; replaced by toggling the drag region". At most 10.
-- "gotchas": traps, constraints and standing rules — quirks that break things silently, what the user insists on or forbids — "\`make update\` quits the app hosting the session — build instead". At most 10.
+HOW LINES COME BACK
+Every line of the memory has an id and says who wrote it ("by"). Return each part as a list of entries, in the order a newcomer should read them:
+- {"id": "d4k2"} keeps a line exactly as it is. Most lines, most of the time, come back like this — never retype a line you are keeping.
+- {"id": "d4k2", "text": "...", "why": "..."} rewords a line, when the exchanges refine or correct it. Only lines by "model".
+- {"text": "...", "why": "...", "from": "7a3637b4#16"} adds a line. "from" is the ref of the exchange that shows it — always give it.
+- A line you leave out is dropped. Listing a line's id under another part moves it there.
+Lines by "agent" were written by the session that did the work, and lines by "user" by the user: never reword either. Keep them — or drop an agent's line, only when the exchanges resolved or reversed it.
+
+PARTS
+- "now": 1–4 plain strings. Where the work stands at the end of these exchanges: what is in progress, what was just finished, what comes next. Rewrite it each time.
+- "decisions": choices about how the project works or is built, with the reason in "why" — {"text": "Each project keeps its own component library", "why": "the user wants projects kept apart"}. Only a reason the exchanges give; with none, say what it was chosen over, or leave "why" out. At most 12.
+- "worked": approaches, techniques and fixes that proved out here and are worth repeating, with where. At most 8.
+- "failed": what was tried and did NOT work, with the cause in "why" — so nobody tries it again. A bug that got fixed is not a failure. At most 10.
+- "gotchas": traps, constraints and standing rules — quirks that break things silently, what the user insists on or forbids. At most 10.
 - "open": asked for and not done, put off, or known broken — only what is still open. At most 8.
 
 RULES
-- Not a changelog. A feature that was simply built belongs nowhere here unless a decision, a lesson or a trap came with it.
-- Merge relentlessly: one line per idea, and a line that refines an older one replaces it. Each fact goes in ONE part only — the one a newcomer would look in first. When a part is full, drop the least useful line, or the oldest that no longer matters.
-- Take out what the exchanges resolved: an open item that got done, a trap that was fixed for good, a decision that was reversed (the reversal is the new decision).
+- Not a changelog. A feature that was simply built belongs nowhere here unless a decision, a lesson or a trap came with it. Nothing about this memory itself.
+- One idea per line, each fact in ONE part only. A line that refines an older one replaces it.
+- Take out what the exchanges resolved: an open item that got done, a trap fixed for good, a decision reversed (the reversal is the new decision).
 - Keep names exact: files, commands, flags, settings, versions.
-- End every new line of decisions, worked, failed and gotchas with the date it was learned, "(YYYY-MM-DD)"; keep the dates already there.
-- Only what the exchanges show. Never invent a reason, a result or a rule.
-- Each line under about 30 words.
+- Only what the exchanges show. Never invent a reason, a result or a rule — a missing "why" is better than a made-up one.
+- "text" under about 20 words, "why" under about 15. No dates: ruri keeps those.
 
-Reply as JSON and nothing else: {"now": [...], "decisions": [...], "worked": [...], "failed": [...], "gotchas": [...], "open": [...]}`;
+Reply as JSON and nothing else: {"now": ["..."], "decisions": [...], "worked": [...], "failed": [...], "gotchas": [...], "open": [...]}`;
 
-export const NO_MEMORY: ProjectMemory = {
-  now: [],
-  decisions: [],
-  worked: [],
-  failed: [],
-  gotchas: [],
-  open: [],
-};
+/** The memory as the model is shown it: every line by its id, with who
+ *  wrote it — and not when or where, which are ruri's to keep. */
+function memoryForModel(memory: ProjectMemory): string {
+  const shown = Object.fromEntries(
+    MEMORY_PARTS.map((part) => [
+      part,
+      part === "now"
+        ? memory.now.map((line) => line.text)
+        : memory[part].map((line) => ({
+            id: line.id,
+            text: line.text,
+            ...(line.why ? { why: line.why } : {}),
+            by: line.pinned && line.by === "model" ? "user" : line.by,
+          })),
+    ]),
+  );
+  return JSON.stringify(shown, null, 1);
+}
+
+/** One part of the model's answer, as entries — a bare string is a new line. */
+function entriesOf(value: unknown): FoldEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((raw): FoldEntry[] => {
+    if (typeof raw === "string") return raw.trim() ? [{ text: raw.trim() }] : [];
+    if (!raw || typeof raw !== "object") return [];
+    const entry = raw as Record<string, unknown>;
+    const pick = (key: string) =>
+      typeof entry[key] === "string" ? (entry[key] as string).trim() : undefined;
+    const id = pick("id");
+    const text = pick("text");
+    const why = pick("why");
+    const from = pick("from");
+    return id || text
+      ? [
+          {
+            ...(id ? { id } : {}),
+            ...(text ? { text } : {}),
+            ...(why ? { why } : {}),
+            ...(from ? { from } : {}),
+          },
+        ]
+      : [];
+  });
+}
 
 /**
  * Fold what happened into a project's working memory — a few finished
  * turns, or (from server/memory.ts) a whole project's history at once.
+ * `resolve` turns an exchange's ref back into the chat and prompt it names.
  * Null when the layer is off or the model gave something unusable: the
  * memory then stays exactly as it was.
  */
 export async function foldMemory(
   project: string,
-  memory: ProjectMemory,
+  memory: ProjectMemory | undefined,
   happened: string,
   today: string,
+  resolve: (ref: string) => MemorySource | undefined = () => undefined,
 ): Promise<ProjectMemory | null> {
   if (!smallModelEnabled() || !happened.trim()) return null;
+  const current = memory ?? emptyMemory();
   const prompt =
     `PROJECT NAME: ${project}\nTODAY: ${today}\n\n` +
-    `MEMORY AS IT STANDS:\n${JSON.stringify(memory, null, 1)}\n\n` +
+    `MEMORY AS IT STANDS:\n${memoryForModel(current)}\n\n` +
     `WHAT HAPPENED:\n${happened.slice(-40_000)}`;
   try {
-    const parsed = objectIn(await complete(MEMORY_SYSTEM, prompt, 2200));
+    const parsed = objectIn(await complete(MEMORY_SYSTEM, prompt, 2400));
     if (!parsed) return null;
-    const next = Object.fromEntries(
-      (Object.keys(MEMORY_CAPS) as Array<keyof ProjectMemory>).map((key) => [
-        key,
-        lines(parsed[key], MEMORY_CAPS[key]),
-      ]),
-    ) as unknown as ProjectMemory;
+    const proposed = Object.fromEntries(
+      MEMORY_PARTS.map((part) => [part, entriesOf(parsed[part])]),
+    ) as Record<MemoryPart, FoldEntry[]>;
     // an answer with nothing in it at all is a model that didn't do the job
-    return Object.values(next).some((part) => part.length > 0) ? next : null;
+    if (MEMORY_PARTS.every((part) => proposed[part].length === 0)) return null;
+    return applyFold(current, proposed, today, resolve);
   } catch (err) {
     warn("smallmodel", err, "foldMemory");
     return null;
@@ -710,6 +800,7 @@ export class TurnTracker {
       turn.assistant += (turn.assistant ? "\n\n" : "") + event.text;
     } else if (event.kind === "tool") {
       turn.tools.push(event.name);
+      noteFile(turn, event);
     } else if (event.kind === "result") {
       this.open.delete(projectId);
       if (turn.assistant.trim()) this.onTurn(projectId, turn);
@@ -746,6 +837,7 @@ export function assembleTurns(
       open.turn.assistant += (open.turn.assistant ? "\n\n" : "") + event.text;
     } else if (event.kind === "tool") {
       open.turn.tools.push(event.name);
+      noteFile(open.turn, event);
     } else if (event.kind === "result") {
       open.finished = true;
     }

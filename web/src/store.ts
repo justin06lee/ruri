@@ -24,6 +24,8 @@ import {
   type NamedComponent,
   type ComponentFile,
   type ProjectSheet,
+  type SheetGit,
+  type SourceLabel,
   type SecretMeta,
   type SkillInfo,
   type SubagentState,
@@ -421,6 +423,9 @@ interface RuriState {
   /** Each project's sheet (its architecture and its memory), once the
    *  architecture page has asked for it — and every change after. */
   sheets: Record<string, ProjectSheet>;
+  /** Beside each sheet: where each memory line came from, and the repo as
+   *  git had it when the sheet was sent. */
+  sheetFacts: Record<string, { sources: Record<string, SourceLabel>; git?: SheetGit }>;
   /** Shell tab ids per channel, in the order the tab row shows them. */
   terminals: Record<string, string[]>;
   /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
@@ -547,6 +552,7 @@ export const useRuri = create<RuriState>((set) => ({
   catchups: {},
   recalls: {},
   sheets: {},
+  sheetFacts: {},
   rapid: false,
   projectsOpen: false,
   settingsOpen: false,
@@ -1161,7 +1167,13 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "sheet": {
-      setState((s) => ({ sheets: { ...s.sheets, [msg.projectId]: msg.sheet } }));
+      setState((s) => ({
+        sheets: { ...s.sheets, [msg.projectId]: msg.sheet },
+        sheetFacts: {
+          ...s.sheetFacts,
+          [msg.projectId]: { sources: msg.sources ?? {}, ...(msg.git ? { git: msg.git } : {}) },
+        },
+      }));
       break;
     }
     case "events_removed": {

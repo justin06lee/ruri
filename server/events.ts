@@ -6,12 +6,20 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TranscriptEvent } from "../shared/protocol.js";
-import { writeBriefFiles } from "./brief.js";
-import { pushSheet, rebuildCatchup, shapeless } from "./catchupBrief.js";
+import {
+  exchangeRef,
+  pushSheet,
+  rebuildCatchup,
+  refreshSheet,
+  resolveRef,
+  shapeless,
+} from "./catchupBrief.js";
 import { writeIndexFile } from "./components.js";
 import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
 import { rebuildMemory } from "./memory.js";
+import { dayOf, rebase } from "./memoryLines.js";
+import { projectRelative } from "./recall.js";
 import { noteSummary } from "./notes.js";
 import { blankProject, clearRuriDir } from "./ruriDir.js";
 import {
@@ -49,11 +57,12 @@ const BRIEF_REPLY_CHARS = 4000;
 
 const gathering = new Map<string, { turns: string[]; timer?: NodeJS.Timeout; last: number }>();
 
-/** One finished turn, for the sheet to take in with the others. */
+/** One finished turn, for the sheet to take in with the others — opening
+ *  with its ref, so a line the model learns from it can say where. */
 export function foldBrief(
   ctx: ServerContext,
   channelId: string,
-  turn: { user: string; assistant: string },
+  turn: { turnId?: string; user: string; assistant: string; files?: string[] },
 ): void {
   if (channelId === HOME_ID) return;
   const found = ctx.store.findSession(channelId);
@@ -62,9 +71,13 @@ export function foldBrief(
   const held = gathering.get(project.id) ?? { turns: [], last: 0 };
   gathering.set(project.id, held);
   const chat = found.session.title ? ` (in the "${found.session.title}" chat)` : "";
+  const n = turn.turnId ? ctx.archive.turnIds(channelId).indexOf(turn.turnId) + 1 : 0;
+  const tag = [n ? exchangeRef(channelId, n) : "", dayOf()].filter(Boolean).join(" · ");
+  const changed = (turn.files ?? []).map((file) => projectRelative(file, project.name));
+  const files = changed.length ? `\n\nFiles it changed: ${changed.slice(0, 30).join(", ")}` : "";
   held.turns.push(
-    `[${new Date().toISOString().slice(0, 10)}]${chat} The user asked:\n${turn.user.slice(0, BRIEF_USER_CHARS)}\n\n` +
-      `What the agent did and said:\n${endsIntact(turn.assistant, BRIEF_REPLY_CHARS)}`,
+    `[${tag}]${chat} The user asked:\n${turn.user.slice(0, BRIEF_USER_CHARS)}\n\n` +
+      `What the agent did and said:\n${endsIntact(turn.assistant, BRIEF_REPLY_CHARS)}${files}`,
   );
   if (held.turns.length > BRIEF_TURNS) held.turns.splice(0, held.turns.length - BRIEF_TURNS);
   if (held.timer) return;
@@ -94,19 +107,13 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
   // once, rather than folded forward from a shape that has none.
   if (shapeless(ctx, project.id) && current.description) void rebuildCatchup(ctx, project.id);
   else {
-    updateShape(
-      project.name,
-      {
-        description: current.description,
-        features: current.features,
-        layers: current.layers ?? [],
-        flows: current.flows ?? [],
-        layout: current.layout ?? [],
-      },
-      happened,
-    )
+    updateShape(project.name, pickShape(current), happened, project.path)
       .then((next) => {
         if (!next || JSON.stringify(next) === JSON.stringify(pickShape(current))) return;
+        // the user corrected the shape while the model wrote: theirs stands,
+        // and the next fold starts from it
+        if (JSON.stringify(pickShape(ctx.briefs.get(project.id))) !== JSON.stringify(pickShape(current)))
+          return;
         ctx.briefs.write(project.id, next);
         pushSheet(ctx, project.id);
       })
@@ -119,9 +126,13 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
     void rebuildMemory(ctx, project.id);
     return;
   }
-  foldMemory(project.name, current.memory, happened, new Date().toISOString().slice(0, 10))
-    .then((memory) => {
-      if (!memory || JSON.stringify(memory) === JSON.stringify(ctx.briefs.get(project.id).memory)) return;
+  const before = current.memory;
+  foldMemory(project.name, before, happened, dayOf(), (ref) => resolveRef(ctx, project.id, ref))
+    .then((folded) => {
+      if (!folded) return;
+      const live = ctx.briefs.get(project.id).memory;
+      const memory = rebase(folded, before, live);
+      if (JSON.stringify(memory) === JSON.stringify(live)) return;
       ctx.briefs.remember(project.id, memory);
       pushSheet(ctx, project.id);
     })
@@ -136,6 +147,7 @@ function pickShape(brief: ReturnType<ServerContext["briefs"]["get"]>) {
     layers: brief.layers ?? [],
     flows: brief.flows ?? [],
     layout: brief.layout ?? [],
+    map: brief.map ?? [],
   };
 }
 
@@ -154,7 +166,7 @@ function syncProjectFiles(ctx: ServerContext, channelId: string): void {
   if (blank && there) clearRuriDir(project.path);
   else if (!blank && !there) {
     writeIndexFile(project.path, ctx.components.items(project.id));
-    writeBriefFiles(project.path, project.name, ctx.briefs.get(project.id));
+    pushSheet(ctx, project.id);
   }
 }
 
@@ -163,6 +175,9 @@ function syncProjectFiles(ctx: ServerContext, channelId: string): void {
 export function createTurnTracker(ctx: ServerContext): TurnTracker {
   return new TurnTracker((projectId, turn) => {
     syncProjectFiles(ctx, projectId);
+    // the turn likely moved git — catch-up.md leads with it
+    const owner = ctx.store.findSession(projectId)?.project;
+    if (owner) refreshSheet(ctx, owner.id);
     if (!smallModelEnabled()) return;
     const found = ctx.store.findSession(projectId);
     if (found && !found.session.title) {

@@ -11,6 +11,7 @@ import { busy, channelProject } from "../channel.js";
 import { pushTranscript } from "../clients.js";
 import { buildCompaction } from "../compaction.js";
 import type { ServerContext } from "../context.js";
+import { briefContext } from "../handoff.js";
 import { errorMessage } from "../log.js";
 import { HOME_ID } from "../manager.js";
 import { promptChain } from "../sessions.js";
@@ -145,12 +146,13 @@ export const rewindHandlers = {
         let resumeAt: string | undefined;
         let userUuid: string | undefined;
         let contextBefore: number | undefined;
+        let chained: string | undefined;
         if (!compactedSince) {
           for (let i = idx - 1; i >= 0; i--) {
             const ev = events[i]!;
             if (ev.kind === "compaction") break;
             if (ev.kind === "user" && chain[ev.id]?.last) {
-              resumeAt = chain[ev.id]!.last;
+              chained = chain[ev.id]!.last;
               break;
             }
           }
@@ -162,9 +164,12 @@ export const rewindHandlers = {
             ).length;
             const found = sessionId ? await promptChain(project, sessionId, target.text, ordinal) : undefined;
             userUuid = found?.user ?? chain[eventId]?.user;
-            resumeAt ??= found?.before;
+            // the session's own transcript first: it can only name a point in
+            // that session, where the chain map (which records no session)
+            // can name one in a session the chat has since left
+            resumeAt = found?.before ?? chained;
             contextBefore = found?.contextBefore;
-          }
+          } else resumeAt = chained;
         }
         const canFork = !compactedSince && (claude || ctx.models.registry.canForkSession(providerId));
         const mode: "fork" | "fresh" | "brief" = !keptHasContext
@@ -187,7 +192,8 @@ export const rewindHandlers = {
         );
 
         ctx.manager.dispose(channelId);
-        if (mode === "fork") ctx.archive.setResumeAt(channelId, resumeAt!);
+        const resumed = ctx.archive.lastSessionId(channelId);
+        if (mode === "fork" && resumed) ctx.archive.setResumeAt(channelId, resumed, resumeAt!);
         else ctx.archive.clearLastSessionId(channelId);
         const removed = ctx.archive.truncateFrom(channelId, eventId);
         if (removed.length > 0) {
@@ -223,6 +229,7 @@ export const rewindHandlers = {
                 ctx.archive.allEvents(channelId),
                 ctx.archive.summaries(channelId),
                 ctx.archive.digest(channelId),
+                briefContext(ctx, channelId),
               )?.brief
             : undefined;
         ctx.archive.setPendingBrief(channelId, brief ?? "");
@@ -320,8 +327,8 @@ export const rewindHandlers = {
           }
           if (at || !next) {
             ctx.archive.setLastSessionId(fresh.id, sessionId);
-            if (at) ctx.archive.setResumeAt(fresh.id, at);
-            else ctx.archive.setForkNext(fresh.id);
+            if (at) ctx.archive.setResumeAt(fresh.id, sessionId, at);
+            else ctx.archive.setForkNext(fresh.id, sessionId);
             forked = true;
           }
         }
@@ -333,7 +340,13 @@ export const rewindHandlers = {
           const digest =
             source && kept.some((e) => e.kind === "user" && e.id === source.through) ? source : undefined;
           if (digest) ctx.archive.setDigest(fresh.id, digest);
-          const built = buildCompaction(fresh.id, kept, ctx.archive.summaries(fresh.id), digest);
+          const built = buildCompaction(
+            fresh.id,
+            kept,
+            ctx.archive.summaries(fresh.id),
+            digest,
+            briefContext(ctx, fresh.id),
+          );
           if (built) ctx.archive.setPendingBrief(fresh.id, built.brief);
         }
         ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });

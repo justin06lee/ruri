@@ -7,9 +7,10 @@ import { removeLibrarySkill } from "../library.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { WebSocket } from "ws";
-import { ideaDraftKey, type ServerMessage } from "../../shared/protocol.js";
-import { briefless, rebuildCatchup } from "../catchupBrief.js";
+import { ideaDraftKey, type MemoryLine, type ServerMessage } from "../../shared/protocol.js";
+import { briefless, pushSheet, rebuildCatchup, sheetMessage } from "../catchupBrief.js";
 import { rebuildMemory } from "../memory.js";
+import { addLine, dayOf, findLine, replaceLine } from "../memoryLines.js";
 import { buildCompaction, removeTurnFiles } from "../compaction.js";
 import type { ServerContext } from "../context.js";
 import { titleSession } from "../dispatch.js";
@@ -152,13 +153,57 @@ export const projectHandlers = {
   /** The architecture page opening on a project. */
   sheet_get: (ctx, ws, msg) => {
     if (!ctx.store.get(msg.projectId)) return;
-    ws.send(
-      JSON.stringify({
-        type: "sheet",
-        projectId: msg.projectId,
-        sheet: ctx.briefs.get(msg.projectId),
-      } satisfies ServerMessage),
-    );
+    void sheetMessage(ctx, msg.projectId)
+      .then((message) => {
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+      })
+      .catch(() => {});
+  },
+  /** The user pinning a memory line, unpinning it, or striking it. */
+  memory_line: (ctx, _ws, msg) => {
+    const memory = ctx.briefs.get(msg.projectId).memory;
+    const found = findLine(memory, msg.lineId);
+    if (!memory || !found) return;
+    const { pinned: _pinned, ...line } = found.line;
+    const next =
+      msg.action === "remove" ? undefined : msg.action === "pin" ? { ...line, pinned: true } : line;
+    ctx.briefs.remember(msg.projectId, replaceLine(memory, found.line.id, next));
+    pushSheet(ctx, msg.projectId);
+  },
+  /** The user's own line, or their correction of one — theirs, and pinned. */
+  memory_write: (ctx, _ws, msg) => {
+    if (!ctx.store.get(msg.projectId)) return;
+    const memory = ctx.briefs.get(msg.projectId).memory;
+    const text = msg.text.trim();
+    const why = msg.why?.trim();
+    if (msg.lineId) {
+      const found = findLine(memory, msg.lineId);
+      if (!memory || !found) return;
+      const { why: _why, ...rest } = found.line;
+      const next: MemoryLine = {
+        ...rest,
+        text,
+        ...(why ? { why } : {}),
+        date: dayOf(),
+        by: "user",
+        pinned: true,
+      };
+      ctx.briefs.remember(msg.projectId, replaceLine(memory, found.line.id, next));
+    } else {
+      const added = addLine(memory, msg.part, {
+        text,
+        ...(why ? { why } : {}),
+        date: dayOf(),
+        by: "user",
+        pinned: true,
+      });
+      ctx.briefs.remember(msg.projectId, added.memory);
+    }
+    pushSheet(ctx, msg.projectId);
+  },
+  /** The user correcting a line of the shape, or striking it. */
+  sheet_line: (ctx, _ws, msg) => {
+    if (ctx.briefs.correct(msg.projectId, msg.section, msg.index, msg.text)) pushSheet(ctx, msg.projectId);
   },
   remove_project: (ctx, _ws, msg) => {
     closeProjectById(ctx, msg.projectId);

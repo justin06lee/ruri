@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Project } from "../shared/protocol.js";
 import { catchupBrief, type FullBrief } from "./smallmodel.js";
-import { describeFile, sweepCandidates } from "./sweep.js";
+import { describeFile, sourceFiles, sweepCandidates } from "./sweep.js";
 import { isMissing, warn } from "./log.js";
 
 /**
@@ -30,6 +30,22 @@ const RULES_CHARS = 3500;
 const HEAD_CHARS = 900;
 /** How many source files' openings the model sees. */
 const SOURCE_FILES = 26;
+/** How many source paths it sees, so the map can name where things are. */
+const SOURCE_PATHS = 500;
+
+/** Every source path, a line per folder: "server/: a.ts, b.ts" — the whole
+ *  of where things are, at a few tokens a file. */
+function pathList(files: string[]): string {
+  const byDir = new Map<string, string[]>();
+  for (const rel of files.slice(0, SOURCE_PATHS)) {
+    const dir = path.dirname(rel);
+    byDir.set(dir, [...(byDir.get(dir) ?? []), path.basename(rel)]);
+  }
+  return [...byDir]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([dir, names]) => `${dir === "." ? "" : `${dir}/`}: ${names.join(", ")}`)
+    .join("\n");
+}
 
 /** Folders that are nobody's layout. */
 const SKIP_DIRS = new Set([
@@ -157,6 +173,8 @@ async function catchupMaterial(project: Project): Promise<string> {
     if (text) parts.push(`=== ${name} ===\n${text}`);
   }
   parts.push(`=== TREE (two levels) ===\n${tree(dir)}`);
+  const paths = await sourceFiles(dir);
+  if (paths.length) parts.push(`=== SOURCE FILES (every path, by folder) ===\n${pathList(paths)}`);
   const heads = (await sweepCandidates(dir)).slice(0, SOURCE_FILES).flatMap((rel) => {
     const d = describeFile(dir, rel, HEAD_CHARS);
     return d ? [`--- ${d.path} ---\n${d.head}`] : [];
@@ -168,5 +186,5 @@ async function catchupMaterial(project: Project): Promise<string> {
 /** Read the repo and write the whole shape. Null when the model gave
  *  nothing usable (the sheet then stays as it was). */
 export async function buildCatchup(project: Project, current: Partial<FullBrief>): Promise<FullBrief | null> {
-  return catchupBrief(project.name, await catchupMaterial(project), current);
+  return catchupBrief(project.name, await catchupMaterial(project), current, project.path);
 }

@@ -871,6 +871,11 @@ class ProjectSession implements ChannelSession {
   /** The user pressed stop — the next result reads "stopped", not as an
    *  error (the CLI reports an abort as a diagnostic-soup failure). */
   private interrupted = false;
+  /** The CLI has started a turn in this process — so the session id its
+   *  results carry is one that exists. A start that fails before any turn
+   *  (a resume of a session or a message Claude can't find) still reports
+   *  an id: the fork it would have made, which was never written. */
+  private began = false;
   /** Sent prompts awaiting their SDK echo, to map event id → chain uuid. */
   private readonly pendingUserEvents: string[] = [];
   /** The user event whose turn the incoming chain uuids belong to. */
@@ -1586,6 +1591,7 @@ class ProjectSession implements ChannelSession {
       // any other: the chat is busy (prompts queue behind it, and the
       // process is not reaped from under it), and its result ends it.
       this.setStatus("working");
+      this.began = true;
       this.lastSessionId = msg.session_id;
       this.events.onSessionId(this.project.id, msg.session_id);
       void this.reportModels();
@@ -1700,8 +1706,13 @@ class ProjectSession implements ChannelSession {
         }
       }
     } else if (msg.type === "result") {
-      this.lastSessionId = msg.session_id;
-      this.events.onSessionId(this.project.id, msg.session_id);
+      // only a session that began is one to come back to: adopting the id a
+      // failed start reports left the chat resuming a session that isn't
+      // there, every prompt after
+      if (this.began) {
+        this.lastSessionId = msg.session_id;
+        this.events.onSessionId(this.project.id, msg.session_id);
+      }
       // the turn is over: a question still up was not waited for — its
       // card stays, and an answer to it goes out as the next prompt
       for (const requestId of [...this.pendingQuestions.keys()]) this.questionWentLate(requestId);
@@ -3026,11 +3037,16 @@ export class SessionManager {
     private readonly extrasFor: (project: Project) => SessionExtras | undefined = () => undefined,
     /** Non-Claude harness support; omitted = Claude-only. */
     private readonly providers?: ProviderHooks,
-    /** A pending rewind's fork point, claimed when a Claude session builds
-     *  (the archive's take-once resumeAt). */
-    private readonly resumeAtFor: (projectId: string) => string | undefined = () => undefined,
-    /** A pending tip fork, claimed when a Claude session builds. */
-    private readonly forkFor: (projectId: string) => boolean = () => false,
+    /** A pending rewind's fork point, claimed whenever a session builds
+     *  (the archive's take-once resumeAt) — and only a point in the session
+     *  being resumed comes back. */
+    private readonly resumeAtFor: (
+      projectId: string,
+      resumeId: string | undefined,
+    ) => string | undefined = () => undefined,
+    /** A pending tip fork, claimed whenever a session builds; true only for
+     *  the session being resumed. */
+    private readonly forkFor: (projectId: string, resumeId: string | undefined) => boolean = () => false,
   ) {
     this.events = {
       ...events,
@@ -3075,6 +3091,13 @@ export class SessionManager {
   }
 
   /** What a channel has working in the background, turn or no turn. */
+  /** Whether the channel has a process up that a prompt would go to as it
+   *  is — nothing to resume, so nothing to check before it goes. */
+  live(projectId: string): boolean {
+    const session = this.sessions.get(projectId);
+    return session !== undefined && !session.dead;
+  }
+
   backgroundWork(projectId: string): BackgroundWork {
     const session = this.sessions.get(projectId);
     return (!session?.dead && session?.backgroundWork?.()) || { agents: 0, scripts: 0 };
@@ -3210,6 +3233,11 @@ export class SessionManager {
     }
     if (!session || session.dead) {
       const resume = session?.lastSessionId ?? this.resumeFor(project.id);
+      // A pending fork point is claimed by whatever builds next, resuming or
+      // not, so none can outlive the session it was set in and be handed
+      // to a later one.
+      const resumeAt = this.resumeAtFor(project.id, resume);
+      const forkAtTip = this.forkFor(project.id, resume);
       if (route.providerId && this.providers) {
         const provider = this.providers.create(route.providerId, project.path, project.id);
         // the agentic path (Codex app-server, ACP) is the harness verbatim;
@@ -3222,9 +3250,9 @@ export class SessionManager {
               provider,
               route.model,
               resume,
-              resume && this.providers.canFork?.(route.providerId) ? this.resumeAtFor(project.id) : undefined,
+              resume && this.providers.canFork?.(route.providerId) ? resumeAt : undefined,
               this.extrasFor(project),
-              resume && this.providers.canFork?.(route.providerId) ? this.forkFor(project.id) : false,
+              resume && this.providers.canFork?.(route.providerId) ? forkAtTip : false,
             )
           : new ProviderTurnSession(
               project,
@@ -3242,9 +3270,9 @@ export class SessionManager {
           { ...project, ...(route.model !== undefined ? { model: route.model } : {}) },
           this.events,
           claudeResume,
-          claudeResume ? this.resumeAtFor(project.id) : undefined,
+          claudeResume ? resumeAt : undefined,
           this.extrasFor(project),
-          claudeResume ? this.forkFor(project.id) : false,
+          claudeResume ? forkAtTip : false,
         );
       }
       this.sessions.set(project.id, session);

@@ -243,8 +243,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         }),
       canFork: (id) => ctx.models.registry.canForkSession(id),
     },
-    (projectId) => ctx.archive.takeResumeAt(projectId),
-    (projectId) => ctx.archive.takeForkNext(projectId),
+    (projectId, resumeId) => ctx.archive.takeResumeAt(projectId, resumeId),
+    (projectId, resumeId) => ctx.archive.takeForkNext(projectId, resumeId),
   );
   // an unset model is whatever Settings crowned, read live
   manager.useDefaultModel(() => ctx.store.defaultModel());

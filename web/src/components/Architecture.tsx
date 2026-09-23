@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type {
-  MemoryLine,
-  MemoryPart,
-  ProjectSheet,
-  SheetGit,
-  SheetSection,
-  SourceLabel,
-} from "../../../shared/protocol";
+import type { ProjectSheet, SheetSection } from "../../../shared/protocol";
 import { since, useNoteStale } from "../lib/runNote";
 import { send, useRuri } from "../store";
 
@@ -14,19 +7,18 @@ import { send, useRuri } from "../store";
  * The architecture page: the project at a glance — where to change what,
  * the stack it is built as from what a person touches down to the engines
  * under it, the paths through it that matter, where things are, what it
- * can do — and, under that, where the work on it stands: what git says,
- * what was decided and why, what worked, what didn't and why, the traps,
- * what's still open.
+ * can do.
  *
- * It is the same thing every session is pointed at on its first prompt —
- * `.ruri/architecture.md` and `.ruri/catchup.md` in the project — drawn for
- * a person rather than written for a model. The small model writes the
- * shape from a read of the repo and the memory from the chats, and folds
- * both forward as turns finish; agents add what they learn with `ruri
- * note` (server/brief.ts). This page is where the user corrects all of it:
- * any line can be struck or rewritten, a memory line pinned so nothing
- * rewrites it, and a line of their own added. Their lines are pinned, and
- * sessions are told to trust them most.
+ * It is the same sheet every session is pointed at on its first prompt —
+ * `.ruri/architecture.md` in the project — drawn for a person rather than
+ * written for a model. The small model writes it from a read of the repo
+ * and folds it forward as turns finish (server/brief.ts); this page is
+ * where the user corrects it: any line can be struck or rewritten.
+ *
+ * The shape only. Where the work stands — the running log of what was
+ * decided, tried, and left open — was drawn here too, and was the wrong
+ * thing to put beside the stack: a page of dated, one-chat details that
+ * buried the part worth reading.
  */
 
 /** "path — what it is", split so the path can be set as a path. */
@@ -40,30 +32,13 @@ function split(line: string): [string, string] {
 const ICON = {
   edit: <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />,
   strike: <path d="M6 6l12 12M18 6L6 18" />,
-  pin: (
-    <>
-      <path d="M9 4h6l-1 6 4 4H6l4-4-1-6z" />
-      <path d="M12 14v6" />
-    </>
-  ),
-  add: <path d="M12 5v14M5 12h14" />,
 };
 
-function Tool({
-  icon,
-  title,
-  on,
-  onClick,
-}: {
-  icon: keyof typeof ICON;
-  title: string;
-  on?: boolean;
-  onClick(): void;
-}) {
+function Tool({ icon, title, onClick }: { icon: keyof typeof ICON; title: string; onClick(): void }) {
   return (
     <button
       type="button"
-      className={`icon-button arch-tool${on ? " on" : ""}`}
+      className="icon-button arch-tool"
       title={title}
       aria-label={title}
       onClick={(e) => {
@@ -86,31 +61,26 @@ function Tool({
   );
 }
 
-/** A line being written or rewritten in place: Enter keeps it, Escape
- *  leaves it as it was. With `why`, a second field for the reason. */
+/** A line being rewritten in place: Enter keeps it, Escape leaves it as
+ *  it was. */
 function LineEditor({
   text,
-  why,
-  withWhy,
   placeholder,
   onSave,
   onCancel,
 }: {
   text: string;
-  why?: string;
-  withWhy?: boolean;
   placeholder: string;
-  onSave(text: string, why?: string): void;
+  onSave(text: string): void;
   onCancel(): void;
 }) {
   const [draft, setDraft] = useState(text);
-  const [reason, setReason] = useState(why ?? "");
   const first = useRef<HTMLInputElement>(null);
   useEffect(() => first.current?.focus(), []);
   const save = () => {
     const kept = draft.trim();
     if (!kept) return onCancel();
-    onSave(kept, withWhy ? reason.trim() : undefined);
+    onSave(kept);
   };
   const keys = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -130,15 +100,6 @@ function LineEditor({
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={keys}
       />
-      {withWhy && (
-        <input
-          className="arch-editor-why"
-          value={reason}
-          placeholder="why (optional)"
-          onChange={(e) => setReason(e.target.value)}
-          onKeyDown={keys}
-        />
-      )}
       <span className="arch-editor-buttons">
         <button type="button" className="primary" onClick={save}>
           Keep
@@ -349,259 +310,11 @@ function SheetLines({
   );
 }
 
-/* ── where the work stands ──────────────────────────────────────────── */
-
-/** The parts of the memory, in the order a newcomer needs them. */
-const MEMORY_PARTS: Array<{ key: Exclude<MemoryPart, "now">; title: string; hint: string; why?: boolean }> = [
-  {
-    key: "decisions",
-    title: "Decisions, and why",
-    hint: "settled — don't redo them without a new reason",
-    why: true,
-  },
-  { key: "failed", title: "What didn't work, and why", hint: "tried already", why: true },
-  { key: "worked", title: "What worked", hint: "worth repeating" },
-  { key: "gotchas", title: "Gotchas and rules", hint: "traps, constraints, what you insist on" },
-  { key: "open", title: "Still open", hint: "asked for and not done, or known broken" },
-];
-
-/** Who wrote a line, as the page says it. */
-function author(line: MemoryLine): string | undefined {
-  if (line.by === "user") return "you";
-  if (line.by === "agent") return "an agent";
-  return undefined;
-}
-
-function MemoryItem({
-  projectId,
-  part,
-  line,
-  source,
-  withWhy,
-}: {
-  projectId: string;
-  part: MemoryPart;
-  line: MemoryLine;
-  source?: SourceLabel;
-  withWhy?: boolean;
-}) {
-  const [editing, setEditing] = useState(false);
-  if (editing) {
-    return (
-      <li className="arch-line editing">
-        <LineEditor
-          text={line.text}
-          {...(line.why ? { why: line.why } : {})}
-          withWhy={withWhy || Boolean(line.why)}
-          placeholder="the line"
-          onCancel={() => setEditing(false)}
-          onSave={(text, why) => {
-            send({
-              type: "memory_write",
-              projectId,
-              part,
-              lineId: line.id,
-              text,
-              ...(why ? { why } : {}),
-            });
-            setEditing(false);
-          }}
-        />
-      </li>
-    );
-  }
-  const by = author(line);
-  const pinned = line.pinned === true;
-  return (
-    <li className={`arch-line${pinned ? " pinned" : ""}`}>
-      <span className="arch-line-text">{line.text}</span>
-      {line.why && <span className="arch-line-why"> — {line.why}</span>}
-      {(line.date || source || by || pinned) && (
-        <span className="arch-line-meta">
-          {line.date && <span>{line.date}</span>}
-          {source && (
-            <span className="arch-source" title={`ruri recall show ${source.ref}`}>
-              “{source.chat}” #{source.n}
-            </span>
-          )}
-          {by && <span>by {by}</span>}
-          {pinned && <span className="arch-pinned">pinned</span>}
-        </span>
-      )}
-      {part !== "now" ? (
-        <span className="arch-actions">
-          <Tool
-            icon="pin"
-            on={pinned}
-            title={pinned ? "Unpin — let later work rewrite or retire it" : "Pin — keep it exactly as it is"}
-            onClick={() =>
-              send({
-                type: "memory_line",
-                projectId,
-                part,
-                lineId: line.id,
-                action: pinned ? "unpin" : "pin",
-              })
-            }
-          />
-          <Tool icon="edit" title="Correct this line — it becomes yours" onClick={() => setEditing(true)} />
-          <Tool
-            icon="strike"
-            title="Strike this line — it's wrong, or no longer true"
-            onClick={() => send({ type: "memory_line", projectId, part, lineId: line.id, action: "remove" })}
-          />
-        </span>
-      ) : (
-        <span className="arch-actions">
-          <Tool
-            icon="strike"
-            title="Strike this line"
-            onClick={() => send({ type: "memory_line", projectId, part, lineId: line.id, action: "remove" })}
-          />
-        </span>
-      )}
-    </li>
-  );
-}
-
-function MemoryCard({
-  projectId,
-  part,
-  title,
-  hint,
-  why,
-  lines,
-  sources,
-}: {
-  projectId: string;
-  part: MemoryPart;
-  title: string;
-  hint: string;
-  why?: boolean;
-  lines: MemoryLine[];
-  sources: Record<string, SourceLabel>;
-}) {
-  const [adding, setAdding] = useState(false);
-  return (
-    <div className={`arch-card ${part}`}>
-      <div className="arch-card-head">
-        {title}
-        <span className="arch-card-hint">{hint}</span>
-        <span className="arch-card-add">
-          <Tool icon="add" title="Add a line of your own" onClick={() => setAdding(true)} />
-        </span>
-      </div>
-      {lines.length || adding ? (
-        <ul>
-          {lines.map((line) => (
-            <MemoryItem
-              key={line.id}
-              projectId={projectId}
-              part={part}
-              line={line}
-              {...(sources[line.id] ? { source: sources[line.id] } : {})}
-              {...(why ? { withWhy: true } : {})}
-            />
-          ))}
-          {adding && (
-            <li className="arch-line editing">
-              <LineEditor
-                text=""
-                withWhy={why ?? false}
-                placeholder="a line of your own"
-                onCancel={() => setAdding(false)}
-                onSave={(text, reason) => {
-                  send({ type: "memory_write", projectId, part, text, ...(reason ? { why: reason } : {}) });
-                  setAdding(false);
-                }}
-              />
-            </li>
-          )}
-        </ul>
-      ) : (
-        <div className="arch-card-none">nothing yet</div>
-      )}
-    </div>
-  );
-}
-
-/** Git's account, in one line. */
-function GitLine({ git }: { git: SheetGit }) {
-  return (
-    <div className="arch-git">
-      <span className="arch-now-label">Git</span>
-      <span>
-        on <code>{git.branch}</code> ({git.head})
-      </span>
-      <span>{git.dirty ? `${git.dirty} uncommitted` : "clean"}</span>
-      {git.unmerged.length > 0 && (
-        <span>
-          not merged:{" "}
-          {git.unmerged.map((name, i) => (
-            <span key={name}>
-              {i > 0 && ", "}
-              <code>{name}</code>
-            </span>
-          ))}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function Memory({
-  projectId,
-  sheet,
-  sources,
-  git,
-}: {
-  projectId: string;
-  sheet: ProjectSheet;
-  sources: Record<string, SourceLabel>;
-  git?: SheetGit;
-}) {
-  const memory = sheet.memory;
-  return (
-    <>
-      {(git || memory?.now.length) && (
-        <div className="arch-now">
-          {git && <GitLine git={git} />}
-          {memory?.now.length ? (
-            <div className="arch-now-chats">
-              <span className="arch-now-label">Where it stands</span>
-              <ul>
-                {memory.now.map((line) => (
-                  <MemoryItem key={line.id} projectId={projectId} part="now" line={line} />
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </div>
-      )}
-      <div className="arch-memory">
-        {MEMORY_PARTS.map(({ key, title, hint, why }) => (
-          <MemoryCard
-            key={key}
-            projectId={projectId}
-            part={key}
-            title={title}
-            hint={hint}
-            {...(why ? { why } : {})}
-            lines={memory?.[key] ?? []}
-            sources={sources}
-          />
-        ))}
-      </div>
-    </>
-  );
-}
-
 export function Architecture({ projectId }: { projectId: string }) {
   const sheet = useRuri((s) => s.sheets[projectId]);
   const facts = useRuri((s) => s.sheetFacts[projectId]);
   const title = useRuri((s) => s.projects.find((p) => p.id === projectId)?.name) ?? "This project";
   const shape = useRuri((s) => s.catchups[projectId]);
-  const recall = useRuri((s) => s.recalls[projectId]);
 
   // the sheet is the server's: asked for when the page opens, and kept
   // current after that by every change it broadcasts
@@ -631,20 +344,6 @@ export function Architecture({ projectId }: { projectId: string }) {
       onRun={() => send({ type: "catchup_rebuild", projectId })}
     />
   );
-  const readChats = (
-    <Rerun
-      busy={recall?.busy === true}
-      {...(recall?.note ? { note: recall.note } : {})}
-      {...(recall?.at ? { at: recall.at } : {})}
-      last={since(sheet?.remembered)}
-      lastLabel="last gathered"
-      button="Read the chats"
-      busyLabel="Reading…"
-      title="Read every chat in this project again and write where the work stands afresh — your lines, pinned lines and agents' notes stay"
-      onRun={() => send({ type: "memory_rebuild", projectId })}
-    />
-  );
-
   if (!sheet) {
     return (
       <section className="board-page arch-page">
@@ -668,9 +367,8 @@ export function Architecture({ projectId }: { projectId: string }) {
         {blank ? (
           <div className="arch-blank">
             <p>
-              Nothing written about this project yet. Every session here is pointed at this sheet before it
-              starts —<code>.ruri/architecture.md</code> for its shape and <code>.ruri/catchup.md</code> for
-              where the work stands — so it is worth having.
+              Nothing written about this project yet. Every session here is pointed at this sheet —{" "}
+              <code>.ruri/architecture.md</code> — before it starts, so it is worth having.
             </p>
             {readRepo}
           </div>
@@ -722,21 +420,10 @@ export function Architecture({ projectId }: { projectId: string }) {
           </>
         )}
 
-        <div className="arch-divider" />
-        <Section title="Where the work stands" extra={readChats}>
-          <Memory
-            projectId={projectId}
-            sheet={sheet}
-            sources={facts?.sources ?? {}}
-            {...(facts?.git ? { git: facts.git } : {})}
-          />
-        </Section>
-
         <div className="board-foot">
-          Written into the project as <code>.ruri/architecture.md</code> and <code>.ruri/catchup.md</code>,
-          and every session here is told to read them first. Both fold in what each chat&apos;s turns do as
-          they finish, and agents add what they learn with <code>ruri note</code>. Hover a line to correct,
-          pin or strike it — your lines are pinned, and sessions are told to trust them most.
+          Written into the project as <code>.ruri/architecture.md</code>, and every session here is told to
+          read it first. It folds in what each chat&apos;s turns change as they finish. Hover a line to
+          rewrite or strike it.
         </div>
       </div>
     </section>

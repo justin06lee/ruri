@@ -168,6 +168,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     pendingComponents: new Map<string, PendingComponent>(),
     talk: new TalkBook(),
     sweeping: new Set<string>(),
+    photographers: new Map<string, string>(),
     catchingUp: new Set<string>(),
     recalling: new Set<string>(),
     crewSaid: new Map<string, string>(),

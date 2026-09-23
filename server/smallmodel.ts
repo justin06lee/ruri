@@ -212,6 +212,8 @@ export interface Turn {
   tools: string[];
   /** The files its tools changed, as the transcript's diffs name them. */
   files?: string[];
+  /** When its prompt went in. */
+  started?: number;
 }
 
 /** A tool event's changed file, onto the turn's list (once each). */
@@ -791,7 +793,13 @@ export class TurnTracker {
 
   observe(projectId: string, event: TranscriptEvent): void {
     if (event.kind === "user") {
-      this.open.set(projectId, { turnId: event.id, user: event.text, assistant: "", tools: [] });
+      this.open.set(projectId, {
+        turnId: event.id,
+        user: event.text,
+        assistant: "",
+        tools: [],
+        started: Date.now(),
+      });
       return;
     }
     const turn = this.open.get(projectId);
@@ -936,6 +944,87 @@ export async function nameProjectParts(
   } catch (err) {
     warn("smallmodel", err, "nameProjectParts");
     // a batch that comes back unusable is one batch — the sweep carries on
+    return [];
+  }
+}
+
+const REVIEW_SYSTEM = `You keep a project's component library true to its code. Each entry is a piece of the interface a person points at — its name, one line of note, and a picture — and the code under some of them has changed since they were written.
+
+For each entry you get: its name, its note as it stands, the openings of its files as they are NOW, and the commits to those files since the entry was last known to be right (and whether there are uncommitted edits).
+
+Decide two things per entry:
+
+NOTE
+- If the note is still true of the thing as it is now, return "" — do not reword a true note.
+- If the changes made it wrong or incomplete in a way that matters, rewrite it: ONE line, what it is and the one thing worth knowing before touching it, in the same plain voice. No "this component", no filler.
+- A rewrite is written from the files as they are NOW: keep nothing of the old note that they no longer bear out — a part that was taken out is not mentioned at all.
+- Commits often touch a file for a DIFFERENT thing that lives in it too. Only let a commit change this entry's note if it is about this entry.
+
+LOOKS
+- true only if a commit plainly changed how THIS thing looks on screen — its layout, what it shows, its controls, its styling.
+- false for behaviour, wiring, performance, or commits about something else in the same file. When unsure, false.
+
+Reply with STRICT JSON and nothing else: {"entries": [{"slug": "...", "note": "...", "looks": false}]}`;
+
+/** One entry going to review: what it says, and what happened under it. */
+export interface ReviewEntry {
+  slug: string;
+  name: string;
+  note: string;
+  files: Array<{ path: string; head: string }>;
+  commits: string[];
+  uncommitted: boolean;
+}
+
+/** What the review made of one entry. */
+export interface ReviewOutcome {
+  slug: string;
+  /** Its new note — absent when the old one still holds. */
+  note?: string;
+  /** Its look changed, so its picture is out of date. */
+  looks: boolean;
+}
+
+/**
+ * Read the changes under a few library entries and say, per entry, whether
+ * its note still holds and whether it looks different now. One small-model
+ * call per batch (server/handlers/components.ts runs the batches); an
+ * entry the reply leaves out is simply not reviewed this time.
+ */
+export async function reviewComponents(
+  projectName: string,
+  entries: ReviewEntry[],
+): Promise<ReviewOutcome[]> {
+  if (!smallModelEnabled() || entries.length === 0) return [];
+  const prompt =
+    `PROJECT: ${projectName}\n\n` +
+    entries
+      .map((entry) =>
+        [
+          `=== ${entry.slug} — ${entry.name}`,
+          `NOTE: ${entry.note || "(none)"}`,
+          `CHANGES SINCE: ${entry.commits.length ? "" : "(no commits)"}`,
+          ...entry.commits.map((c) => `- ${c}`),
+          ...(entry.uncommitted ? ["- (and uncommitted edits)"] : []),
+          ...entry.files.map((file) => `--- ${file.path} ---\n${file.head}`),
+        ].join("\n"),
+      )
+      .join("\n\n");
+  try {
+    const raw = await complete(REVIEW_SYSTEM, prompt, 1500);
+    const json = raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
+    const parsed = JSON.parse(json) as { entries?: unknown };
+    if (!Array.isArray(parsed.entries)) return [];
+    const asked = new Set(entries.map((e) => e.slug));
+    return parsed.entries.flatMap((value): ReviewOutcome[] => {
+      const entry = value as { slug?: unknown; note?: unknown; looks?: unknown };
+      const slug = typeof entry.slug === "string" ? entry.slug.trim() : "";
+      if (!asked.has(slug)) return [];
+      const note = typeof entry.note === "string" ? entry.note.trim() : "";
+      return [{ slug, ...(note ? { note } : {}), looks: entry.looks === true }];
+    });
+  } catch (err) {
+    warn("smallmodel", err, "reviewComponents");
     return [];
   }
 }

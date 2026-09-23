@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ComponentFile, NamedComponent } from "../../../shared/protocol";
+import { componentStale, type ComponentFile, type NamedComponent } from "../../../shared/protocol";
 import { ToolImage } from "./Attachments";
 import { fileToBase64 } from "../lib/files";
 import { highlightFor } from "../lib/highlighter";
@@ -26,8 +26,14 @@ import { HTTP_BASE, send, useRuri } from "../store";
  * it (a card comes up in the chat with its suggested name, and what the
  * user confirms is the entry), or registers it from its shell. And the
  * button at the top reads the whole repo and names what nobody has — the
- * only way in for what was built before any of this (server/sweep.ts,
- * server/shots.ts). Correcting any of it is what this page is for.
+ * only way in for what was built before any of this (server/sweep.ts).
+ *
+ * The same button keeps it true: entries whose files moved or went are
+ * re-pointed or retired, notes the code has outgrown are rewritten, and
+ * everything without a current picture gets one — photographed by selector
+ * where that reaches, and by an agent in a "Library pictures" chat where it
+ * doesn't (server/handlers/components.ts). A card whose code changed after
+ * its picture says so. Correcting any of it is what this page is for.
  *
  * Interface only — screens, panels, cards, controls. Backend code has no
  * place in a component library, and nothing puts it here.
@@ -171,6 +177,7 @@ function useDraft(value: string): [string, (next: string) => void] {
 function Tile({ projectId, item, onOpen }: { projectId: string; item: NamedComponent; onOpen(): void }) {
   const shot = item.shots[0];
   const [broken, setBroken] = useState(false);
+  const behind = componentStale(item).picture;
   return (
     <button
       type="button"
@@ -192,7 +199,17 @@ function Tile({ projectId, item, onOpen }: { projectId: string; item: NamedCompo
       {item.star === "still" && <Star where="still" />}
       <span className="lib-tile-shot">
         {shot?.url && !broken ? (
-          <img src={HTTP_BASE + shot.url} alt="" loading="lazy" onError={() => setBroken(true)} />
+          <>
+            <img src={HTTP_BASE + shot.url} alt="" loading="lazy" onError={() => setBroken(true)} />
+            {behind && (
+              <span
+                className="lib-tile-behind"
+                title="Its code changed after this picture was taken — Update everything retakes it"
+              >
+                outdated
+              </span>
+            )}
+          </>
         ) : (
           <span className="lib-tile-blank">
             <span className="lib-tile-glyph">{(item.slug[0] ?? "?").toUpperCase()}</span>
@@ -427,6 +444,7 @@ function Detail({ projectId, item, onBack }: { projectId: string; item: NamedCom
     send({ type: "component_update", projectId, componentId: item.id, ...extra });
   const install = `ruri add ${item.slug}`;
   const shot = item.shots[Math.min(shown, item.shots.length - 1)];
+  const behind = componentStale(item);
 
   return (
     <div className="lib-detail">
@@ -491,11 +509,17 @@ function Detail({ projectId, item, onBack }: { projectId: string; item: NamedCom
               <ToolImage key={shot.id} image={{ url: shot.url, name: shot.name }} />
             ) : (
               <div className="lib-preview-blank">
-                No picture yet. Drop or paste one here — or give it an <b>on screen</b> path and press{" "}
-                <b>Name everything</b> to have it taken.
+                No picture yet. Drop or paste one here — or press <b>Update everything</b> to have it taken.
               </div>
             )}
           </div>
+          {(behind.picture || behind.note) && (
+            <div className="lib-behind">
+              Its code has changed since {behind.picture ? "this picture" : "its note was written"}
+              {item.changedAt ? ` (${new Date(item.changedAt).toLocaleDateString()})` : ""} —{" "}
+              <b>Update everything</b> {behind.picture ? "retakes it" : "rereads it"}.
+            </div>
+          )}
           <div className="lib-thumbs">
             {/* The picture opens; only the × takes it away — looking at a
                 screenshot must never be what deletes it. */}
@@ -585,8 +609,8 @@ function Detail({ projectId, item, onBack }: { projectId: string; item: NamedCom
           />
           {/* What finds it in the running app — this is what gets
               photographed, so a wrong one here is a picture of the wrong
-              thing. Fix it and sweep again; anything still without a
-              picture gets another go. */}
+              thing. Fix it and update again; anything still without a
+              current picture gets another go. */}
           <Field
             label="on screen"
             value={showPath(item)}
@@ -742,12 +766,13 @@ export function Components({ projectId }: { projectId: string }) {
                   className="comp-sweep"
                   disabled={busy}
                   title={
-                    "Read the whole repo, name every piece of interface nobody has named yet, and — if " +
-                    "the project can be opened — start it up and photograph each one"
+                    "Bring the library up to date with the code: follow files that moved, retire what's " +
+                    "gone, rewrite notes the code has outgrown, name what nobody has — then photograph " +
+                    "everything without a current picture, in a “Library pictures” chat where it takes an agent"
                   }
                   onClick={() => send({ type: "components_sweep", projectId })}
                 >
-                  {busy ? "Sweeping…" : "Name everything"}
+                  {busy ? "Updating…" : "Update everything"}
                 </button>
               </div>
             </div>
@@ -779,8 +804,8 @@ export function Components({ projectId }: { projectId: string }) {
                 Nothing in the library yet. Pieces arrive on their own — when a session builds part of this
                 project's interface it puts it in, under a name you get to change; agents look here before
                 building, and copy what they need with <code>ruri add</code>. For everything that was here
-                before any of that, <b>Name everything</b> reads the repo, names each piece of interface it
-                finds, and takes its picture if the project can be opened.
+                before any of that, <b>Update everything</b> reads the repo, names each piece of interface it
+                finds, and takes its picture.
               </div>
             ) : shown.length === 0 ? (
               <div className="board-empty lib-empty">Nothing matches “{query}”.</div>

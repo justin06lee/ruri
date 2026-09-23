@@ -1,14 +1,16 @@
 /**
  * The component library from the app's side: the host the model's naming
  * tools reach (the card that asks the user for a name), the `ruri`
- * command's view of the app, the repo sweep that names and photographs
- * what nobody has yet, and the library page's messages. The library
+ * command's view of the app, the refresh that brings the library up to
+ * date with the code and photographs what has no current picture, and the
+ * library page's messages. The library
  * itself is server/components.ts; the command, server/library.ts.
  */
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  componentStale,
   type Attachment,
   type AttachmentUpload,
   type ComponentProposal,
@@ -29,8 +31,21 @@ import {
 } from "../library.js";
 import { isMissing, warn } from "../log.js";
 import { IMAGE_MIME } from "../mime.js";
+import { dispatch } from "../dispatch.js";
+import {
+  changesSince,
+  currentAsOf,
+  dirtyFiles,
+  fileHistory,
+  mtimeIn,
+  tidyFiles,
+  type EntryChange,
+  type FileCommit,
+} from "../libraryRefresh.js";
+import { photoPrompt, type PhotoTarget } from "../photographer.js";
 import { withProjectRunning, type ShotTarget } from "../shots.js";
-import { sweepProject } from "../sweep.js";
+import { reviewComponents, smallModelEnabled, type ReviewEntry } from "../smallmodel.js";
+import { describeFile, sweepProject } from "../sweep.js";
 import { storedFilePath, storeUpload } from "../uploads.js";
 import type { Handlers } from "./types.js";
 
@@ -194,7 +209,8 @@ export function libraryHost(ctx: ServerContext, channelId: string): LibraryHost 
       return shot ? ctx.components.addShot(projectId, componentId, shot) : false;
     },
     copyShots: (projectId, componentId, shots) => {
-      for (const shot of shots) ctx.components.addShot(projectId, componentId, shot);
+      // newest first there, newest first here
+      for (const shot of [...shots].reverse()) ctx.components.addShot(projectId, componentId, shot);
     },
     dir: (projectId) => ctx.components.dir(projectId),
     setDir: (projectId, dir) => ctx.components.setDir(projectId, dir),
@@ -224,72 +240,228 @@ function pinShot(ctx: ServerContext, projectId: string, item: NamedComponent, da
   ctx.components.addShot(projectId, item.id, { ...meta, url });
 }
 
+/** Review batches: entries per small-model call, and calls at once. */
+const REVIEW_BATCH = 5;
+const REVIEW_AT_ONCE = 3;
+/** Characters of each of an entry's files the review reads. */
+const REVIEW_HEAD = 900;
+
+/** A commit as the review and the pictures chat read it. */
+function commitLine(commit: FileCommit): string {
+  return `${new Date(commit.at).toISOString().slice(0, 10)} ${commit.subject}`;
+}
+
 /**
- * Name everything in a project that isn't named yet, and then go and take
- * its picture.
+ * Look at what changed under the entries that have fallen behind their
+ * code, and bring their notes up to date — the small model, a few entries a
+ * call. What it says changed their look is left with an out-of-date
+ * picture, for the picture pass. Answers how many notes it rewrote.
+ */
+async function reviewStale(
+  ctx: ServerContext,
+  project: { id: string; name: string; path: string },
+  changes: Map<string, EntryChange>,
+  onNote: (note: string) => void,
+): Promise<number> {
+  const stale = ctx.components.items(project.id).filter((item) => {
+    const behind = componentStale(item);
+    return behind.note || behind.picture;
+  });
+  if (stale.length === 0) return 0;
+  // with nothing to go on — no commits past the grace, no edits in the
+  // tree (a turn changed it, and its work is committed with the picture it
+  // left) — there is nothing to read: the note stands, and a picture that
+  // is behind is retaken rather than guessed at
+  const blind = stale.filter((item) => !changes.get(item.id));
+  for (const item of blind) {
+    ctx.components.reviewed(project.id, item.id, { looks: componentStale(item).picture });
+  }
+  const readable = stale.filter((item) => changes.get(item.id));
+  if (readable.length === 0 || !smallModelEnabled()) return 0;
+  const batches: NamedComponent[][] = [];
+  for (let at = 0; at < readable.length; at += REVIEW_BATCH) {
+    batches.push(readable.slice(at, at + REVIEW_BATCH));
+  }
+  let done = 0;
+  let rewritten = 0;
+  let next = 0;
+  onNote(`reading what changed under ${readable.length}…`);
+  const workers = Array.from({ length: Math.min(REVIEW_AT_ONCE, batches.length) }, async () => {
+    for (;;) {
+      const batch = batches[next++];
+      if (!batch) return;
+      const entries: ReviewEntry[] = batch.map((item) => {
+        const change = changes.get(item.id)!;
+        return {
+          slug: item.slug,
+          name: item.name,
+          note: item.note,
+          files: item.files.slice(0, 3).flatMap((file) => {
+            const read = describeFile(project.path, file.split(":")[0]!.trim(), REVIEW_HEAD);
+            return read ? [read] : [];
+          }),
+          commits: change.commits.slice(0, 10).map(commitLine),
+          uncommitted: change.uncommitted,
+        };
+      });
+      const outcomes = await reviewComponents(project.name, entries);
+      for (const outcome of outcomes) {
+        const item = batch.find((i) => i.slug === outcome.slug);
+        if (!item) continue;
+        if (outcome.note && outcome.note !== item.note) rewritten += 1;
+        ctx.components.reviewed(project.id, item.id, {
+          ...(outcome.note ? { note: outcome.note } : {}),
+          looks: outcome.looks,
+        });
+      }
+      done += 1;
+      onNote(`reading what changed — ${done} of ${batches.length}`);
+    }
+  });
+  await Promise.all(workers);
+  return rewritten;
+}
+
+/**
+ * Hand what still has no current picture to the project's pictures chat —
+ * the one this made last time when it is still there, a new one when not.
+ * Answers the chat's title, or undefined when one is already at it.
+ */
+function startPhotographer(
+  ctx: ServerContext,
+  projectId: string,
+  targets: PhotoTarget[],
+): "started" | "busy" | undefined {
+  const prior = ctx.photographers.get(projectId);
+  const kept = prior && ctx.store.findSession(prior)?.project.id === projectId ? prior : undefined;
+  if (kept && ctx.turns.progress.has(kept)) return "busy";
+  const sessionId = kept ?? ctx.store.newSession(projectId)?.id;
+  if (!sessionId) return undefined;
+  ctx.photographers.set(projectId, sessionId);
+  ctx.store.setSessionTitle(sessionId, PHOTO_CHAT);
+  ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+  dispatch(ctx, sessionId, photoPrompt(targets), []);
+  return "started";
+}
+
+/** What the pictures chat is called in the sidebar. */
+const PHOTO_CHAT = "Library pictures";
+
+/**
+ * Bring a project's library up to date with its code, and fill it in.
  *
- * Two passes, and the second one is optional in every sense: the naming
- * pass is a handful of small-model calls over the repo and always runs;
- * the picture pass starts the project's own dev server, opens it in a
- * hidden window, and photographs each component by the selector the first
- * pass wrote down. A project that isn't a page, a headless ruri, or a dev
- * server that never comes up all land in the same place — entries with no
- * screenshot, which the user can drop one onto.
+ *  1. Files: an entry's files that moved are followed through git's
+ *     renames; ones that are gone are dropped, and an entry with nothing
+ *     left is retired (kept beside the library, not deleted).
+ *  2. Changes: git's commits and uncommitted edits to each entry's own
+ *     files since its picture and note were current (server/libraryRefresh.ts).
+ *     Turns that edited them already said so as they ended.
+ *  3. New: the repo read for interface nobody has named (server/sweep.ts).
+ *  4. Review: the small model reads what changed under each entry that
+ *     fell behind, rewrites notes that stopped being true, and says whose
+ *     look changed.
+ *  5. Pictures: every entry with no picture, or one its look has left
+ *     behind — first the mechanical pass (the project's dev server, a
+ *     hidden window, each selector's rectangle), then, for whatever that
+ *     couldn't reach, the pictures chat: an agent that runs the app and
+ *     photographs each one (server/photographer.ts).
  */
 async function runSweep(ctx: ServerContext, projectId: string, wantShots: boolean): Promise<void> {
   const project = ctx.store.get(projectId);
   if (!project || ctx.sweeping.has(projectId)) return;
   ctx.sweeping.add(projectId);
-  sweepNote(ctx, projectId, "reading the repo…");
+  const note = (text: string) => sweepNote(ctx, projectId, text);
+  const said: string[] = [];
   try {
     // Taken before the read, so a file edited while the sweep runs is read
     // again next time rather than being skipped as "already seen".
     const startedAt = Date.now();
+
+    note("checking the library against the repo…");
+    const tidy = await tidyFiles(project.path, ctx.components.items(projectId));
+    for (const entry of tidy) {
+      if (entry.gone) continue;
+      ctx.components.update(projectId, entry.id, {
+        ...(entry.files ? { files: entry.files } : {}),
+        ...(entry.uses ? { uses: entry.uses } : {}),
+      });
+    }
+    const retired = ctx.components.retire(
+      projectId,
+      tidy.filter((entry) => entry.gone).map((entry) => entry.id),
+    );
+    const moved = tidy.length - retired.length;
+    if (moved) said.push(`${moved} re-pointed`);
+    if (retired.length) said.push(`${retired.length} gone`);
+
+    const items = ctx.components.items(projectId);
+    const oldest = Math.min(Date.now(), ...items.map(currentAsOf));
+    const [history, dirty] = await Promise.all([fileHistory(project.path, oldest), dirtyFiles(project.path)]);
+    const changes = new Map(
+      changesSince(items, history, dirty, mtimeIn(project.path)).map((change) => [change.id, change]),
+    );
+    for (const change of changes.values()) ctx.components.noteChange(projectId, change.id, change.at);
+
     const { found } = await sweepProject(
       project,
       ctx.components.items(projectId),
-      (note) => sweepNote(ctx, projectId, note),
+      note,
       ctx.components.sweptAt(projectId),
     );
     for (const part of found) ctx.components.add(projectId, { ...part, found: true });
     ctx.components.markSwept(projectId, startedAt);
+    if (found.length) said.push(`named ${found.length}`);
     pushComponents(ctx, projectId, project.path);
 
-    // Everything unphotographed gets a look in, not just what this sweep
-    // named — the dev server is already starting, and an entry from six
-    // months ago is exactly as picture-less as one from a minute ago.
-    const targets: ShotTarget[] = ctx.components
-      .items(projectId)
-      .filter((item) => item.selector && item.shots.length === 0)
+    const rewritten = await reviewStale(ctx, project, changes, note);
+    if (rewritten) said.push(`${rewritten} note${rewritten === 1 ? "" : "s"} updated`);
+    pushComponents(ctx, projectId, project.path);
+
+    // Everything without a current picture gets a look in, not just what
+    // this run named — an entry from six months ago is exactly as
+    // picture-less as one from a minute ago.
+    const unpictured = () =>
+      ctx.components
+        .items(projectId)
+        .filter((item) => item.shots.length === 0 || componentStale(item).picture);
+    const capture = ctx.options.capture;
+    const targets: ShotTarget[] = unpictured()
+      .filter((item) => item.selector)
       .map((item) => ({
         id: item.id,
         selector: item.selector!,
         ...(item.route ? { route: item.route } : {}),
         ...(item.clicks?.length ? { clicks: item.clicks } : {}),
       }));
-    const named = found.length === 0 ? "nothing new to name" : `named ${found.length}`;
-    const capture = ctx.options.capture;
-    if (!wantShots || !capture || targets.length === 0) {
-      sweepNote(ctx, projectId, named, false);
-      return;
+    if (wantShots && capture && targets.length) {
+      const shots = await withProjectRunning(project.path, note, (url) => capture(url, targets));
+      let pinned = 0;
+      for (const [componentId, data] of Object.entries(shots ?? {})) {
+        const item = ctx.components.items(projectId).find((i) => i.id === componentId);
+        if (!item) continue;
+        pinShot(ctx, projectId, item, data);
+        pinned += 1;
+      }
+      if (pinned) said.push(`${pinned} picture${pinned === 1 ? "" : "s"}`);
+      pushComponents(ctx, projectId, project.path);
     }
-    const shots = await withProjectRunning(
-      project.path,
-      (note) => sweepNote(ctx, projectId, note),
-      (url) => capture(url, targets),
-    );
-    let pinned = 0;
-    for (const [componentId, data] of Object.entries(shots ?? {})) {
-      const item = ctx.components.items(projectId).find((i) => i.id === componentId);
-      if (!item) continue;
-      pinShot(ctx, projectId, item, data);
-      pinned += 1;
+
+    const left = unpictured();
+    if (wantShots && left.length) {
+      const photos: PhotoTarget[] = left.map((item) => {
+        const commits = changes.get(item.id)?.commits.map(commitLine);
+        return item.shots.length === 0
+          ? { item, why: "none" }
+          : { item, why: "changed", ...(commits?.length ? { commits } : {}) };
+      });
+      const started = startPhotographer(ctx, projectId, photos);
+      if (started === "started") said.push(`${left.length} to photograph in “${PHOTO_CHAT}”`);
+      else if (started === "busy") said.push(`pictures still being taken in “${PHOTO_CHAT}”`);
     }
-    pushComponents(ctx, projectId, project.path);
-    sweepNote(ctx, projectId, `${named}, ${pinned || "no"} picture${pinned === 1 ? "" : "s"}`, false);
+    sweepNote(ctx, projectId, said.length ? said.join(", ") : "all up to date", false);
   } catch (err) {
     warn("server", err, "runSweep");
-    sweepNote(ctx, projectId, "the sweep didn't finish — try it again", false);
+    sweepNote(ctx, projectId, "the update didn't finish — try it again", false);
   } finally {
     ctx.sweeping.delete(projectId);
   }

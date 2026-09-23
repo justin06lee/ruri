@@ -269,8 +269,17 @@ export interface NamedComponent {
   installs?: string[];
   /** Anything else the model should know before touching it. */
   note: string;
-  /** What it looks like. */
+  /** What it looks like — newest first: the first is the picture. */
   shots: Attachment[];
+  /** When its picture was last known to show it as it is: set when one is
+   *  added, and when a review of a change finds its look untouched. */
+  shotAt?: number;
+  /** When its note was last known to hold: written, or reviewed. */
+  noteAt?: number;
+  /** The last change seen to its own files — a turn that edited them, or
+   *  git's last commit to them. Later than `shotAt`, the picture is out of
+   *  date; later than `noteAt`, the note may be (componentStale). */
+  changedAt?: number;
   /**
    * A CSS selector that finds it in the running app. Written down by
    * whoever read the source — a class name in the JSX is one — and it is
@@ -294,6 +303,17 @@ export interface NamedComponent {
   ts: number;
   /** When the entry last changed. */
   updated?: number;
+}
+
+/** Whether a component's picture and note have fallen behind its code. A
+ *  picture-less entry is not stale — it is missing one, which is its own
+ *  thing on the page. */
+export function componentStale(item: NamedComponent): { picture: boolean; note: boolean } {
+  const changed = item.changedAt ?? 0;
+  return {
+    picture: item.shots.length > 0 && changed > (item.shotAt ?? 0),
+    note: changed > (item.noteAt ?? item.ts),
+  };
 }
 
 /** One layer of a project's stack, top (what a person touches) to bottom. */
@@ -1431,9 +1451,11 @@ export type ClientMessage =
   | { type: "component_shot"; projectId: string; componentId: string; upload: AttachmentUpload }
   | { type: "component_unshot"; projectId: string; componentId: string; shotId: string }
   /**
-   * Sweep the repo: read what isn't named yet, name it, and — when the
-   * project is something that can be opened — go and take its picture.
-   * `shots: false` names without starting the project up.
+   * Update everything: bring the library up to date with the code, name
+   * what isn't named yet, and take a picture of every entry without a
+   * current one — by selector, then in a "Library pictures" chat for the
+   * rest (server/handlers/components.ts). `shots: false` does everything
+   * but the pictures.
    */
   | { type: "components_sweep"; projectId: string; shots?: boolean }
   /** Read the repo whole and write the project's shape again (see

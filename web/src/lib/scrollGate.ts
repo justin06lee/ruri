@@ -2,8 +2,9 @@
  * A capped box in the chat takes the wheel only once you are in it.
  *
  * The chat scrolls, and so do a few boxes in it with a height cap: the patch
- * under a Write or Edit, a compaction's brief, a permission's command, a
- * question's preview. Left alone, a long flick down the conversation stops
+ * under a Write or Edit, a permission's command, a question's preview.
+ * (Not a compaction's brief: that is opened on purpose, to be read, and
+ * scrolls straight away.) Left alone, a long flick down the conversation stops
  * dead as one of them slides under the pointer, and the rest of the flick
  * scrolls a patch nobody was reading.
  *

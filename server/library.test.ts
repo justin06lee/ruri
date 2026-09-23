@@ -169,7 +169,7 @@ describe("interface only", () => {
     const aside = JSON.parse(fs.readFileSync(path.join(config, "components", "p.not-ui.json"), "utf8"));
     expect(aside.items.map((i: { name: string }) => i.name)).toEqual(["compaction"]);
     // migrated once: the file now says so, and a reload changes nothing
-    expect(JSON.parse(fs.readFileSync(file, "utf8")).version).toBe(2);
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).version).toBe(3);
     expect(new ComponentStore().items("p").map((i) => i.slug)).toEqual(["talk-page"]);
   });
 });

@@ -186,8 +186,8 @@ video {
   background: transparent;
 }
 
-/* A box in the chat with a height cap — a patch, a compaction's brief, a
-   permission's command — scrolls only once you are in it (lib/scrollGate.ts).
+/* A box in the chat with a height cap — a patch, a permission's command —
+   scrolls only once you are in it (lib/scrollGate.ts).
    Until then it does not scroll at all, and the wheel goes past it to the
    chat. The gutter is held either way, so the scrollbar arriving rewraps
    nothing under it. */
@@ -4431,6 +4431,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .lib-tile-shot {
+  position: relative;
   display: block;
   aspect-ratio: 16 / 10;
   margin-bottom: 6px;
@@ -4446,6 +4447,19 @@ input[type="range"]::-webkit-slider-thumb {
   object-fit: cover;
   object-position: top left;
   display: block;
+}
+
+/* a picture its code has moved on from: still shown, but marked */
+.lib-tile-behind {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 1px 7px;
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+  background: var(--paper-bright);
+  border: 1px dashed var(--line-soft);
+  border-radius: 99px;
 }
 
 .lib-tile-blank {
@@ -4529,6 +4543,12 @@ input[type="range"]::-webkit-slider-thumb {
 
 .lib-detail-name:hover {
   border-color: var(--line-soft);
+}
+
+.lib-behind {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
 }
 
 .lib-found {
@@ -5094,134 +5114,17 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-soft);
 }
 
-.arch-divider {
-  height: 0;
-  margin: 18px 0 4px;
-  border-top: 1.5px dashed var(--line-soft);
-}
-
-/* where the work stands: git and now across the top, the lessons in cards */
-.arch-now {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 16px;
-  border: 1.5px solid var(--line);
-  border-radius: var(--radius-m);
-  background-image: var(--tone);
-  background-size: 6px 6px;
-}
-
-.arch-now-chats {
-  display: flex;
-  gap: 14px;
-}
-
-.arch-now-chats ul {
-  flex: 1;
-}
-
-.arch-git {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 14px;
-  padding-left: 0;
-  font-size: 13px;
-  color: var(--ink-soft);
-}
-
-.arch-now .arch-now-label {
-  flex-shrink: 0;
-  width: 112px;
-  color: var(--ink);
-}
-
-.arch-git code {
-  font-family: var(--mono);
-  font-size: var(--fs-sm);
-  color: var(--ink);
-}
-
-.arch-now-label {
-  flex-shrink: 0;
-  font-weight: 700;
-  font-size: 13px;
-  padding-top: 1px;
-}
-
-.arch-now ul,
-.arch-card ul {
-  margin: 0;
-  padding-left: 16px;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.arch-memory {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-@media (max-width: 760px) {
-  .arch-memory {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.arch-card {
-  padding: 12px 14px;
-  border: 1.5px solid var(--line-soft);
-  border-radius: var(--radius-m);
-  background: var(--paper-bright);
-}
-
-.arch-card.decisions {
-  grid-column: 1 / -1;
-}
-
-.arch-card-head {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  margin-bottom: 8px;
-  font-weight: 700;
-  font-size: 13px;
-}
-
-.arch-card-hint {
-  font-weight: 400;
-  font-size: var(--fs-xs);
-  color: var(--ink-faint);
-}
-
-.arch-card-add {
-  margin-left: auto;
-  align-self: center;
-  opacity: 0;
-  transition: opacity 160ms ease;
-}
-
-.arch-card:hover .arch-card-add,
-.arch-card-add:focus-within {
-  opacity: 1;
-}
-
-.arch-card-add .icon-button,
 .arch-actions .icon-button {
   width: 20px;
   height: 20px;
 }
 
-.arch-card-add .icon-button svg,
 .arch-actions .icon-button svg {
   width: 12px;
   height: 12px;
 }
 
-/* a line of the sheet or the memory: its tools float at the line's corner
+/* a line of the sheet: its tools float at the line's corner
    and fade in on hover — out of the text's flow, so a line that fills its
    width doesn't wrap them onto a blank line of their own */
 .arch-line,
@@ -5257,42 +5160,6 @@ input[type="range"]::-webkit-slider-thumb {
   opacity: 1;
 }
 
-.arch-tool.on {
-  color: var(--ink);
-}
-
-.arch-line.pinned::marker {
-  color: var(--ink);
-}
-
-.arch-line-why {
-  color: var(--ink-soft);
-}
-
-.arch-line-meta {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0 8px;
-  margin-left: 8px;
-  font-size: var(--fs-xs);
-  color: var(--ink-faint);
-  vertical-align: baseline;
-}
-
-.arch-line-meta > span + span::before {
-  content: "·";
-  margin-right: 8px;
-}
-
-.arch-source {
-  cursor: help;
-}
-
-.arch-pinned {
-  font-weight: 600;
-  color: var(--ink-soft);
-}
-
 .arch-pair-value.mono {
   font-family: var(--mono);
   font-size: var(--fs-sm);
@@ -5320,10 +5187,6 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 13px;
 }
 
-.arch-editor input.arch-editor-why {
-  flex: 2 1 180px;
-}
-
 .arch-editor-buttons {
   display: inline-flex;
   gap: 4px;
@@ -5334,7 +5197,6 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: var(--fs-sm);
 }
 
-.arch-card-none,
 .arch-empty {
   font-size: var(--fs-md);
   color: var(--ink-faint);

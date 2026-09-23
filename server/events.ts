@@ -15,6 +15,7 @@ import {
   shapeless,
 } from "./catchupBrief.js";
 import { writeIndexFile } from "./components.js";
+import { pushComponents } from "./handlers/components.js";
 import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
 import { rebuildMemory } from "./memory.js";
@@ -178,6 +179,18 @@ export function createTurnTracker(ctx: ServerContext): TurnTracker {
     // the turn likely moved git — catch-up.md leads with it
     const owner = ctx.store.findSession(projectId)?.project;
     if (owner) refreshSheet(ctx, owner.id);
+    // what it edited may be in the library, whose picture and note now
+    // show it as it was
+    if (owner && turn.files?.length) {
+      // diffs name a file from the project's folder name down
+      // ("ruri/web/src/…"), or whole when it is outside it
+      const files = turn.files.map((file) =>
+        path.isAbsolute(file) ? path.relative(owner.path, file) : projectRelative(file, owner.name),
+      );
+      if (ctx.components.touch(owner.id, files, turn.started ?? Date.now())) {
+        pushComponents(ctx, owner.id, owner.path);
+      }
+    }
     if (!smallModelEnabled()) return;
     const found = ctx.store.findSession(projectId);
     if (found && !found.session.title) {

@@ -8742,8 +8742,6 @@ button.stop:hover {
 
 /* ── the sidebar's projects row ───────────────────────────────────── */
 
-/* the count rides the row the way a folder's does — how many, and nothing
-   about what they are doing (Sidebar.tsx's ProjectsRow says why) */
 /* the Projects row's dragon, standing just ahead of the count of projects
    at work — and taking the count's push to the right edge. A hair higher
    than centred: its jaw hangs low in the drawing, and beside the digits it

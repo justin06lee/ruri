@@ -358,11 +358,14 @@ textarea::placeholder {
    out with `no-drag` to lift them on hover (and lost the drag there),
    7caa262 gave the drag back by polling the cursor, f1234d8 dropped the
    polling and the drag with it — until b56b6b7 took hover away for good.
-   It is back without that trade: a picture with nothing to do on hover
-   stays in the drag region, and one that reacts (`.reacts`) is cut out and
-   carries the window itself — a press on it has the shell move the window
-   with the cursor (PeekBand.tsx, desktop/main.ts windowDrag). Nothing is
-   polled, and nothing is lost to dragging. */
+   154ecd1 cut only the pictures with a hover out, and hover still did not
+   dependably reach them. Now the region is gone from the band whenever
+   ruri is the window in use (below): the pictures and the gaps between
+   them see the pointer like the rest of the page, and a press anywhere on
+   the band carries the window itself — the shell moves it with the cursor
+   while the button is down (PeekBand.tsx, desktop/main.ts windowDrag).
+   Behind another app the band is the title bar again, so the first press
+   drags the window natively as it comes forward. Nothing is polled. */
 .logo-peeks {
   position: absolute;
   inset: 0;
@@ -377,7 +380,9 @@ textarea::placeholder {
   position: absolute;
 }
 
-.desktop .band-pic.reacts {
+/* the window in use (awake.ts marks the one that isn't): the band is the
+   page's, and carries the window itself */
+html:not([data-asleep]) .desktop .sidebar-header {
   -webkit-app-region: no-drag;
 }
 

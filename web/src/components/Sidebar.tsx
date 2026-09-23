@@ -44,21 +44,25 @@ function HomeRow() {
  * you went to look at everything — a page about the projects, reached
  * through the agent that opens them. It is its own row now, under Home,
  * and the strip kept the statistics instead (components/HomeBoard.tsx).
- * The row carries the count, and while any chat in any project is at work,
- * the same dragon the sidebar's own rows wear beside it.
+ * While any project is at work, the row wears the same dragon the
+ * sidebar's own rows do, and beside it how many projects are — the ones
+ * open are counted on the page itself.
  */
 function ProjectsRow() {
   const open = useRuri((s) => s.projectsOpen);
   const setOpen = useRuri((s) => s.setProjectsOpen);
-  const projects = useRuri((s) => s.projects);
 
-  // How many there are, and whether anything in them is at work — one
-  // yes or no, so the row repaints when that flips, not on every status of
-  // every session in the app. With the folders scrolled away or folded,
-  // this is the one place left that says something is still running.
-  const shown = projects.reduce((n, project) => (project.hidden ? n : n + 1), 0);
-  const working = useRuri((s) =>
-    s.projects.some((project) => !project.hidden && project.sessions.some((x) => isBusy(s, x.id))),
+  // How many projects are at work right now — a turn running, a card
+  // waiting on the user, agents or scripts still going — counted the way
+  // the row dragons are lit (isBusy). One number, so the row repaints when
+  // it changes, not on every status of every session in the app. With the
+  // folders scrolled away or folded, this is the one place left that says
+  // how much is still running; how many are open is the projects page's.
+  const active = useRuri((s) =>
+    s.projects.reduce(
+      (n, project) => (!project.hidden && project.sessions.some((x) => isBusy(s, x.id)) ? n + 1 : n),
+      0,
+    ),
   );
 
   return (
@@ -80,12 +84,16 @@ function ProjectsRow() {
         <path d="M4 5h5l2 2.5h9V19H4V5z" />
       </svg>
       <span className="project-name">Projects</span>
-      {working && (
-        <span className="row-count-dragon" title="Something is working">
-          <DragonHead />
-        </span>
+      {active > 0 && (
+        <>
+          <span className="row-count-dragon" title="Something is working">
+            <DragonHead />
+          </span>
+          <span className="row-count" title={`${active} ${active === 1 ? "project" : "projects"} at work`}>
+            {active}
+          </span>
+        </>
       )}
-      {shown > 0 && <span className="row-count">{shown}</span>}
     </div>
   );
 }

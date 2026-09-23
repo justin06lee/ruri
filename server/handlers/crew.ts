@@ -14,10 +14,12 @@ import { sessionBriefing } from "../briefing.js";
 import { channelProject, ownerProject } from "../channel.js";
 import type { ServerContext } from "../context.js";
 import { redacted } from "../events.js";
+import { cliEnv, skillDir } from "../library.js";
 import { HOME_ID } from "../manager.js";
 import { scriptLog } from "../scripts.js";
 import { SessionManager } from "../sessions.js";
 import { pushWork } from "../turns.js";
+import { ensureLibrarySkill, libraryEndpoint } from "./components.js";
 import type { Handlers } from "./types.js";
 
 /**
@@ -192,19 +194,33 @@ export function createCrewManager(ctx: ServerContext): SessionManager {
       ]
         .filter(Boolean)
         .join("\n\n");
+      // the chat the agent works for: its `ruri` command speaks as that
+      // chat, and its project's library is the one it is handed
+      const chatId = ctx.crew.owner(project.id);
+      const owner = chatId ? ownerProject(ctx, chatId) : undefined;
+      if (owner) ensureLibrarySkill(ctx, owner.id);
       return {
         fillSecrets: (input) =>
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
         options: {
-          env: ctx.secrets.env(),
+          env: { ...ctx.secrets.env(), ...(chatId ? cliEnv(libraryEndpoint(ctx, chatId)) : {}) },
           systemPrompt: { type: "preset", preset: "claude_code", append: note },
+          ...(owner
+            ? { plugins: [{ type: "local", path: skillDir(owner.id), skipMcpDiscovery: true }] }
+            : {}),
         },
         providerSystem: note,
       };
     },
     {
       parse: (model) => ctx.models.registry.parse(model),
-      create: (id, workDir) => ctx.models.registry.createFor(id, workDir, ctx.secrets.env()),
+      create: (id, workDir, key) => {
+        const chatId = ctx.crew.owner(key);
+        return ctx.models.registry.createFor(id, workDir, {
+          ...ctx.secrets.env(),
+          ...(chatId ? cliEnv(libraryEndpoint(ctx, chatId)) : {}),
+        });
+      },
       canFork: (id) => ctx.models.registry.canForkSession(id),
     },
   );

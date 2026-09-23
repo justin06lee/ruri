@@ -260,14 +260,18 @@ export function installFixture(): void {
         {
           id: "c1",
           name: "the dragon gauges",
+          slug: "dragon-gauges",
           aliases: ["the bars", "the gauges"],
-          files: ["web/src/components/Dragon.tsx", "web/src/styles.css:2864"],
+          files: ["web/src/components/Dragon.tsx"],
+          uses: ["web/src/styles.css:2864"],
+          tags: ["gauge", "usage"],
           note: "Four of them flank the composer: context, 5h, weekly, per-model.",
           shots: [],
           ts: now - 400_000,
         },
       ],
     },
+    componentDirs: {},
     skills: [
       {
         name: "omniscience",

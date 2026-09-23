@@ -63,6 +63,7 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
       tracker: ctx.tracker.all(projectIds),
       ideas: ctx.ideas.all(boardIds),
       components: ctx.components.all(boardIds),
+      componentDirs: ctx.components.allDirs(boardIds),
       secrets: ctx.secrets.meta(),
       queued: Object.fromEntries(projectIds.map((id) => [id, ctx.queues.visibleQueue(id)])),
       queuesHeld: Object.fromEntries(

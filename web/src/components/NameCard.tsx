@@ -53,7 +53,7 @@ export function NameCard({ request }: { request: PermissionRequest }) {
     <div className="ask-card name-card">
       <div className="ask-title">
         <span className="ask-badge">New</span>
-        <span className="name-lead">I made something. What do you call it?</span>
+        <span className="name-lead">I made something for the library. What do you call it?</span>
       </div>
 
       <input
@@ -80,12 +80,12 @@ export function NameCard({ request }: { request: PermissionRequest }) {
 
       {open && (
         <div className="name-detail">
-          <label className="comp-field">
-            <span>in the code</span>
+          <label className="lib-field">
+            <span>its files</span>
             <input value={files} onChange={(e) => setFiles(e.target.value)} />
           </label>
           <textarea
-            className="comp-note"
+            className="lib-note"
             value={note}
             placeholder="one line on what it is…"
             onChange={(e) => setNote(e.target.value)}

@@ -3,6 +3,7 @@
  * hidden, a session added or removed, a terminal's chat brought in — and
  * the same moves as the Home agent makes them through its tools.
  */
+import { removeLibrarySkill } from "../library.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { WebSocket } from "ws";
@@ -44,6 +45,7 @@ function closeProjectById(ctx: ServerContext, projectId: string): void {
   ctx.ideas.removeProject(projectId);
   ctx.drafts.remove(ideaDraftKey(projectId));
   ctx.components.removeProject(projectId);
+  removeLibrarySkill(projectId);
   ctx.ledger.removeProject(projectId);
   ctx.store.remove(projectId);
   ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });

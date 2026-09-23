@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import type { NamedComponent } from "../shared/protocol.js";
+import { isUiFile } from "./library.js";
 import { nameProjectParts, type SweptComponent } from "./smallmodel.js";
 import { errorCode, isMissing, warn } from "./log.js";
 
@@ -26,6 +27,10 @@ const execFileAsync = promisify(execFile);
  * rather than from a model's imagination. Then the small model names them
  * in batches, so this costs about what a handful of turn summaries costs
  * and runs on whatever harness the user is signed into.
+ *
+ * It names interface and nothing else — screens, panels, controls — since
+ * what it names goes into the project's component library, which holds
+ * nothing else.
  *
  * What comes out is a guess. It is marked as one (`found: true`), it wears
  * a star until it's looked at, and every field of it is editable on the
@@ -191,9 +196,20 @@ function touchedSince(dir: string, rel: string, since: number): boolean {
   }
 }
 
-/** The files worth spending a model call on, best first. */
-export async function sweepCandidates(dir: string): Promise<string[]> {
+/** The files worth spending a model call on, best first. `interfaceOnly`
+ *  is the sweep's reading — the component library holds interface and
+ *  nothing else — where the catch-up read wants the whole shape. */
+export async function sweepCandidates(dir: string, interfaceOnly = false): Promise<string[]> {
   const all = (await repoFiles(dir)).filter((rel) => !SKIP_DIRS.test(rel) && !SKIP_FILE.test(rel));
+  if (interfaceOnly) {
+    return all
+      .filter((rel) => {
+        const ext = path.extname(rel).toLowerCase();
+        return (VIEW_EXT.has(ext) || CODE_EXT.has(ext)) && isUiFile(rel);
+      })
+      .sort((a, b) => score(b) - score(a) || a.localeCompare(b))
+      .slice(0, MAX_FILES);
+  }
   const views = all.filter((rel) => VIEW_EXT.has(path.extname(rel).toLowerCase()));
   // A project with no views is not disqualified — its parts get named the
   // same way. It just has to look wider to find them.
@@ -239,7 +255,7 @@ export async function sweepProject(
   since = 0,
 ): Promise<SweepResult> {
   const already = claimed(existing);
-  const candidates = (await sweepCandidates(project.path))
+  const candidates = (await sweepCandidates(project.path, true))
     // a file that is already somebody's component doesn't need naming twice,
     // and one that hasn't changed since the last sweep was already read
     .filter((rel) => !already.has(rel) && touchedSince(project.path, rel, since));
@@ -277,6 +293,8 @@ export async function sweepProject(
       for (const part of parts) {
         const key = part.name.toLowerCase();
         if (takenNames.has(key)) continue;
+        // the library is interface; a part with none in it is not one
+        if (!part.files.some(isUiFile)) continue;
         // the same thing named twice from two batches, or a thing whose
         // first file already belongs to something else
         const primary = part.files[0]?.split(":")[0]?.trim();

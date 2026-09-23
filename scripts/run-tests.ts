@@ -40,6 +40,7 @@ const SCRIPTS: Script[] = [
   { name: "hidden", what: "hidden projects, Home's tools, the finder, the real server" },
   { name: "asleep", what: "a window asleep stops the meters sampling" },
   { name: "terminal", what: "a noisy shell: output whole and in order, scrollback capped" },
+  { name: "naming", what: "`ruri register`: straight in under bypass, a card otherwise" },
   { name: "rewind-compaction", what: "rewinding either side of a compaction" },
   { name: "rewind-git", what: "a rewind through the server: files, branch, context" },
   { name: "retry", what: "a dropped turn goes again (real CLI, mock gateway)", needs: "claude" },

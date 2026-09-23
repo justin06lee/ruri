@@ -4,14 +4,13 @@
  * The naming card is a confirmation: the model has already chosen a name
  * and photographed the thing. Bypass is the mode where ruri stops asking
  * for confirmations, so there the entry is written the moment it is
- * proposed — and the name is still yours to change on the components page.
- * In every other mode the card still comes up.
+ * proposed — and the name is still yours to change on the library page.
+ * In every other mode the card still comes up, and the entry is written
+ * when it is answered.
  *
- * Drives the file-based proposal path (`.ruri/components.jsonl`, which is
- * how a harness without ruri's own tools names things), so it needs one
- * trivial real turn per mode to make the server drain it.
- *
- * Costs two small real turns — run manually: bun run naming-test
+ * Drives the path every harness has — the `ruri register` command, whose
+ * shell script posts to POST /library/<chat> (server/library.ts) — so it
+ * needs no model at all, and costs nothing: bun run naming-test
  */
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
@@ -75,9 +74,9 @@ async function connect(url: string): Promise<WebSocket> {
 let projectId: string | undefined;
 /** The project the session belongs to — the permission mode is set on it. */
 let boardId: string | undefined;
-let status = "idle";
 let named: NamedComponent[] = [];
 let cards = 0;
+let cardId: string | undefined;
 const waiters = new Set<() => void>();
 
 const ws = await connect(wsUrl(PORT));
@@ -89,9 +88,11 @@ ws.on("message", (raw) => {
     boardId = project.id;
     projectId = project.sessions[0]!.id;
   }
-  if (msg.type === "status" && msg.projectId === projectId) status = msg.status;
   if (msg.type === "components") named = msg.items;
-  if (msg.type === "permission_request" && msg.request.kind === "component") cards += 1;
+  if (msg.type === "permission_request" && msg.request.kind === "component") {
+    cards += 1;
+    cardId = msg.request.requestId;
+  }
   for (const waiter of [...waiters]) waiter();
 });
 
@@ -114,29 +115,19 @@ function until(what: string, done: () => boolean, ms: number): Promise<void> {
 }
 
 const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const idle = () => status !== "working" && status !== "permission";
 
-/** What a harness writes when it wants something named. */
-function propose(name: string): void {
-  fs.mkdirSync(path.join(projectDir, ".ruri"), { recursive: true });
-  fs.writeFileSync(
-    path.join(projectDir, ".ruri", "components.jsonl"),
-    `${JSON.stringify({ name, files: ["src/thing.tsx"], note: "a thing" })}\n`,
-  );
+/** What an agent's `ruri register` sends, and what it hears back. */
+async function register(slug: string, name: string): Promise<{ status: number; text: string }> {
+  const form = new URLSearchParams({ cwd: projectDir });
+  for (const arg of ["register", slug, "--files", "src/thing.tsx", "--note", "a thing", "--name", name]) {
+    form.append("a", arg);
+  }
+  const res = await fetch(`http://127.0.0.1:${PORT}/library/${projectId}`, { method: "POST", body: form });
+  return { status: res.status, text: await res.text() };
 }
 
-/** One trivial turn — the drain runs when a turn finishes. */
-async function turn(word: string): Promise<void> {
-  send({
-    type: "send",
-    projectId: projectId!,
-    text: `Reply with exactly this one word and nothing else: ${word}`,
-  });
-  await until("the turn to start", () => status === "working", 90_000);
-  await until("the turn to finish", idle, 180_000);
-  await settle(2500);
-}
-
+fs.mkdirSync(path.join(projectDir, "src"), { recursive: true });
+fs.writeFileSync(path.join(projectDir, "src", "thing.tsx"), "export function Thing() {}\n");
 send({ type: "add_project", name: "naming", path: projectDir });
 await until("the project", () => Boolean(projectId), 30_000);
 if (!projectId) {
@@ -145,25 +136,56 @@ if (!projectId) {
 }
 
 // bypass is the default mode, and the one that should not ask
-propose("the amber rail");
-await turn("one");
+const first = await register("amber-rail", "the amber rail");
+await until("the entry", () => named.some((c) => c.name === "the amber rail"), 5_000);
 check(
   "bypass names it without a card",
   named.some((c) => c.name === "the amber rail"),
-  named.map((c) => c.name),
+  first,
+);
+check(
+  "under the handle it asked for",
+  named.some((c) => c.slug === "amber-rail"),
+  named.map((c) => c.slug),
 );
 check("and puts nothing up to confirm", cards === 0, { cards });
+check("and says so", first.status === 200 && first.text.startsWith("registered amber-rail"), first);
 
 // every other mode still asks
 send({ type: "set_permission_mode", projectId: boardId!, mode: "default" });
 await settle(500);
-propose("the copper dial");
-await turn("two");
+const second = await register("copper-dial", "the copper dial");
+await until("the card", () => cards === 1, 5_000);
 check("outside bypass the card still comes up", cards === 1, { cards });
+check(
+  "and the command does not wait on it",
+  second.status === 200 && second.text.startsWith("asked the user"),
+  second,
+);
 check(
   "and nothing is written until it is answered",
   !named.some((c) => c.name === "the copper dial"),
   named.map((c) => c.name),
+);
+send({ type: "component_named", requestId: cardId!, name: "the copper knob" });
+await until("the answer", () => named.some((c) => c.name === "the copper knob"), 5_000);
+check(
+  "answered, it is written under the name the user gave it",
+  named.some((c) => c.name === "the copper knob" && c.slug === "copper-dial"),
+  named.map((c) => [c.name, c.slug]),
+);
+
+// and backend code is turned away
+const backend = await (async () => {
+  const form = new URLSearchParams({ cwd: projectDir });
+  for (const arg of ["register", "db", "--files", "server/db.ts"]) form.append("a", arg);
+  const res = await fetch(`http://127.0.0.1:${PORT}/library/${projectId}`, { method: "POST", body: form });
+  return { status: res.status, text: await res.text() };
+})();
+check(
+  "backend files are not interface",
+  backend.status === 400 && backend.text.includes("interface"),
+  backend,
 );
 
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);

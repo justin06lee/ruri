@@ -1,8 +1,9 @@
 /**
- * The component index from the app's side: the host the model's naming
- * tools reach (the card that asks the user for a name), the repo sweep that
- * names and photographs what nobody has yet, and the components page's
- * messages. The index itself is server/components.ts.
+ * The component library from the app's side: the host the model's naming
+ * tools reach (the card that asks the user for a name), the `ruri`
+ * command's view of the app, the repo sweep that names and photographs
+ * what nobody has yet, and the library page's messages. The library
+ * itself is server/components.ts; the command, server/library.ts.
  */
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
@@ -14,16 +15,44 @@ import {
   DEFAULT_PERMISSION_MODE,
   type NamedComponent,
   type PermissionRequest,
+  type ServerMessage,
 } from "../../shared/protocol.js";
 import { channelProject, ownerProject } from "../channel.js";
 import { type ComponentHost, writeIndexFile } from "../components.js";
 import type { ServerContext } from "../context.js";
+import {
+  readComponent,
+  skillDir,
+  writeLibrarySkill,
+  type LibraryHost,
+  type LibraryProject,
+} from "../library.js";
 import { isMissing, warn } from "../log.js";
 import { IMAGE_MIME } from "../mime.js";
 import { withProjectRunning, type ShotTarget } from "../shots.js";
 import { sweepProject } from "../sweep.js";
 import { storedFilePath, storeUpload } from "../uploads.js";
 import type { Handlers } from "./types.js";
+
+/**
+ * What a proposal writes into the library, under the name it was given.
+ * Its files are its own as named — the tool and `ruri register` both take
+ * a component's own files apart from the places it reaches into — so the
+ * guesswork splitFiles does for a sweep is not done here; a file named
+ * with a line is still a place it reaches.
+ */
+function fromProposal(proposal: ComponentProposal, name: string) {
+  return {
+    name,
+    files: proposal.files,
+    note: proposal.note,
+    exact: true,
+    ...(proposal.slug ? { slug: proposal.slug } : {}),
+    ...(proposal.uses ? { uses: proposal.uses } : {}),
+    ...(proposal.tags ? { tags: proposal.tags } : {}),
+    ...(proposal.deps ? { deps: proposal.deps } : {}),
+  };
+}
 
 export function createComponentHost(ctx: ServerContext): ComponentHost {
   return {
@@ -47,6 +76,10 @@ export function createComponentHost(ctx: ServerContext): ComponentHost {
           name: proposal.name,
           files: proposal.files,
           note: proposal.note,
+          ...(proposal.slug ? { slug: proposal.slug } : {}),
+          ...(proposal.uses?.length ? { uses: proposal.uses } : {}),
+          ...(proposal.tags?.length ? { tags: proposal.tags } : {}),
+          ...(proposal.deps?.length ? { deps: proposal.deps } : {}),
           ...(shot ? { image: shot } : {}),
         };
         // Bypass is the mode where ruri stops asking, and the card is only
@@ -57,11 +90,7 @@ export function createComponentHost(ctx: ServerContext): ComponentHost {
         const mode = channelProject(ctx, channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
         const straight = shown.name.trim();
         if (mode === "bypassPermissions" && straight) {
-          const item = ctx.components.add(owner.id, {
-            name: straight,
-            files: shown.files,
-            note: shown.note,
-          });
+          const item = ctx.components.add(owner.id, fromProposal(shown, straight));
           if (shown.image) ctx.components.addShot(owner.id, item.id, shown.image);
           pushComponents(ctx, owner.id, owner.path);
           resolve(straight);
@@ -86,7 +115,7 @@ export function createComponentHost(ctx: ServerContext): ComponentHost {
 /** An image the model pointed at, stored the way every attachment is. A
  *  relative path is read against the project it was named from, since that
  *  is the directory the model was working in. */
-function storeShot(file: string, projectDir?: string): Attachment | undefined {
+export function storeShot(file: string, projectDir?: string): Attachment | undefined {
   try {
     const full = path.isAbsolute(file) ? file : path.resolve(projectDir ?? ".", file);
     const data = fs.readFileSync(full).toString("base64");
@@ -108,11 +137,70 @@ function storeShot(file: string, projectDir?: string): Attachment | undefined {
   }
 }
 
-/** Push a project's component index to disk and to every client. */
+/** Push a project's component library everywhere it is read: the file in
+ *  the project, Claude's skill, and every window. */
 export function pushComponents(ctx: ServerContext, projectId: string, projectDir?: string): void {
   const items = ctx.components.items(projectId);
+  const dir = ctx.components.dir(projectId);
   if (projectDir) writeIndexFile(projectDir, items);
-  ctx.clients.broadcast({ type: "components", projectId, items });
+  const project = ctx.store.get(projectId);
+  if (project) writeLibrarySkill(projectId, project.name, items, dir);
+  ctx.clients.broadcast({ type: "components", projectId, items, ...(dir ? { dir } : {}) });
+}
+
+/** Where a session's `ruri` command posts to (server/library.ts): this
+ *  server, as the chat it belongs to. */
+export function libraryEndpoint(ctx: ServerContext, channelId: string): string {
+  return `http://127.0.0.1:${ctx.listeningPort}/library/${channelId}`;
+}
+
+/** A project's skill written, if it isn't there yet — a session is about
+ *  to be handed it, and a plugin folder that isn't there is no plugin. */
+export function ensureLibrarySkill(ctx: ServerContext, projectId: string): void {
+  if (fs.existsSync(path.join(skillDir(projectId), "skills", "components", "SKILL.md"))) return;
+  const project = ctx.store.get(projectId);
+  if (!project) return;
+  writeLibrarySkill(projectId, project.name, ctx.components.items(projectId), ctx.components.dir(projectId));
+}
+
+/**
+ * The `ruri` command's view of the app, for a session in `channelId`
+ * (server/library.ts runs the command). Undefined for a channel that
+ * belongs to no project — Home has no library.
+ */
+export function libraryHost(ctx: ServerContext, channelId: string): LibraryHost | undefined {
+  const owner = ownerProject(ctx, channelId);
+  if (!owner) return undefined;
+  const open = (): LibraryProject[] =>
+    ctx.store.list().map((p) => ({ id: p.id, name: p.name, path: p.path }));
+  return {
+    here: { id: owner.id, name: owner.name, path: owner.path },
+    projects: open,
+    // the card the naming tool puts up, from the shell: written at once in
+    // bypass (inside propose, before this returns), asked about otherwise
+    ask: (proposal) => {
+      const mode = channelProject(ctx, channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
+      void ctx.componentHost.propose(channelId, proposal);
+      return mode === "bypassPermissions" ? "added" : "asked";
+    },
+    items: (projectId) => ctx.components.items(projectId),
+    find: (projectId, handle) => ctx.components.find(projectId, handle),
+    add: (projectId, input) => ctx.components.add(projectId, input),
+    update: (projectId, componentId, patch) => ctx.components.update(projectId, componentId, patch),
+    remove: (projectId, componentId) => ctx.components.remove(projectId, componentId),
+    shoot: (projectId, componentId, file) => {
+      const project = ctx.store.get(projectId);
+      const shot = storeShot(file, project?.path);
+      return shot ? ctx.components.addShot(projectId, componentId, shot) : false;
+    },
+    copyShots: (projectId, componentId, shots) => {
+      for (const shot of shots) ctx.components.addShot(projectId, componentId, shot);
+    },
+    dir: (projectId) => ctx.components.dir(projectId),
+    setDir: (projectId, dir) => ctx.components.setDir(projectId, dir),
+    noteInstall: (projectId, componentId, paths) => ctx.components.noteInstall(projectId, componentId, paths),
+    changed: (projectId) => pushComponents(ctx, projectId, ctx.store.get(projectId)?.path),
+  };
 }
 
 /* ── the repo sweep ───────────────────────────────────────────────── */
@@ -224,11 +312,17 @@ export const componentHandlers = {
       pending.resolve(null);
       return;
     }
-    const item = ctx.components.add(owner.id, {
-      name,
-      files: msg.files ?? pending.proposal.files,
-      note: msg.note ?? pending.proposal.note,
-    });
+    const item = ctx.components.add(
+      owner.id,
+      fromProposal(
+        {
+          ...pending.proposal,
+          files: msg.files ?? pending.proposal.files,
+          note: msg.note ?? pending.proposal.note,
+        },
+        name,
+      ),
+    );
     // already copied when the card went up, so it is kept with the
     // entry no matter what has happened to the model's own file
     if (pending.proposal.image) ctx.components.addShot(owner.id, item.id, pending.proposal.image);
@@ -238,8 +332,12 @@ export const componentHandlers = {
   component_update: (ctx, _ws, msg) => {
     ctx.components.update(msg.projectId, msg.componentId, {
       ...(msg.name !== undefined ? { name: msg.name } : {}),
+      ...(msg.slug !== undefined ? { slug: msg.slug } : {}),
       ...(msg.aliases !== undefined ? { aliases: msg.aliases } : {}),
       ...(msg.files !== undefined ? { files: msg.files } : {}),
+      ...(msg.uses !== undefined ? { uses: msg.uses } : {}),
+      ...(msg.tags !== undefined ? { tags: msg.tags } : {}),
+      ...(msg.deps !== undefined ? { deps: msg.deps } : {}),
       ...(msg.note !== undefined ? { note: msg.note } : {}),
       ...(msg.selector !== undefined ? { selector: msg.selector } : {}),
       ...(msg.route !== undefined ? { route: msg.route } : {}),
@@ -269,5 +367,23 @@ export const componentHandlers = {
     if (ctx.components.see(msg.projectId, msg.componentId)) {
       pushComponents(ctx, msg.projectId, ctx.store.get(msg.projectId)?.path);
     }
+  },
+  /** A component's code, for the window that opened it. */
+  component_code: (ctx, ws, msg) => {
+    const project = ctx.store.get(msg.projectId);
+    const item = ctx.components.items(msg.projectId).find((i) => i.id === msg.componentId);
+    if (!project || !item) return;
+    ws.send(
+      JSON.stringify({
+        type: "component_code",
+        projectId: msg.projectId,
+        componentId: msg.componentId,
+        files: readComponent(project.path, item),
+      } satisfies ServerMessage),
+    );
+  },
+  library_dir: (ctx, _ws, msg) => {
+    ctx.components.setDir(msg.projectId, msg.dir);
+    pushComponents(ctx, msg.projectId, ctx.store.get(msg.projectId)?.path);
   },
 } satisfies Partial<Handlers>;

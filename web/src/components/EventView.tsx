@@ -97,9 +97,11 @@ export function CompactionMark({
         </button>
         <ZigzagRule />
       </div>
+      {/* no scroll gate on the brief (lib/scrollGate.ts): it is opened on
+          purpose, to be read, so the wheel is its own the moment it's there */}
       {open &&
         (event.entries?.length || event.digest ? (
-          <div className="compaction-brief scroll-gate">
+          <div className="compaction-brief">
             {/* the oldest exchanges, condensed together — a long chat's
                 list stops at its newest few (server/compaction.ts) */}
             {event.digest && (
@@ -126,7 +128,7 @@ export function CompactionMark({
           <div className="compaction-brief raw">loading…</div>
         ) : (
           // compactions from before the structured entries: the raw brief
-          <pre className="compaction-brief raw scroll-gate">{event.text}</pre>
+          <pre className="compaction-brief raw">{event.text}</pre>
         ))}
     </div>
   );

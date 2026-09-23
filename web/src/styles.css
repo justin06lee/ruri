@@ -186,8 +186,8 @@ video {
   background: transparent;
 }
 
-/* A box in the chat with a height cap — a patch, a compaction's brief, a
-   permission's command — scrolls only once you are in it (lib/scrollGate.ts).
+/* A box in the chat with a height cap — a patch, a permission's command —
+   scrolls only once you are in it (lib/scrollGate.ts).
    Until then it does not scroll at all, and the wheel goes past it to the
    chat. The gutter is held either way, so the scrollbar arriving rewraps
    nothing under it. */

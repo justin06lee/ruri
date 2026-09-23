@@ -9,6 +9,7 @@ import type { ComponentProposal, Attachment, NamedComponent } from "../shared/pr
 import { isMissing, warn } from "./log.js";
 import { removeRuriFile, ruriDir } from "./ruriDir.js";
 import { entryLines, isUiEntry, libraryListing, splitFiles, slugify, uniqueSlug } from "./library.js";
+import { storedFilePath } from "./uploads.js";
 
 /**
  * The component library: every piece of a project's interface ruri has on
@@ -59,7 +60,8 @@ function names(item: NamedComponent): string[] {
 
 /** What a component's file on disk holds: the entries, when the repo was
  *  last swept, the folder `ruri add` installs to, and which shape the
- *  entries are in (2: the library's — slugs, own files apart from uses). */
+ *  entries are in (2: the library's — slugs, own files apart from uses;
+ *  3: pictures newest first, with when the picture and note were current). */
 interface LibraryFile {
   items?: NamedComponent[];
   sweptAt?: number;
@@ -67,7 +69,43 @@ interface LibraryFile {
   version?: number;
 }
 
-const VERSION = 2;
+const VERSION = 3;
+
+/** Pictures an entry keeps. The first is the one shown; the rest are what
+ *  it used to look like, and past a handful they are only clutter. */
+const MAX_SHOTS = 6;
+
+/** When a stored picture was taken, as near as its file can say. */
+function shotTime(shot: Attachment): number | undefined {
+  if (!shot.url) return undefined;
+  try {
+    return fs.statSync(storedFilePath(shot.url)).mtimeMs;
+  } catch (err) {
+    if (!isMissing(err)) warn("components", err, "shotTime");
+    return undefined;
+  }
+}
+
+/**
+ * An entry from before version 3, put the new way round. Pictures were
+ * added to the end and the first one shown, so a component re-photographed
+ * after it changed went on wearing its old face. Now the newest is first:
+ * the old list is ordered by when each picture was filed, keeping pictures
+ * filed together (one `--shot a --shot b`) in the order they were given.
+ */
+function newestFirst(item: NamedComponent): NamedComponent {
+  const timed = item.shots.map((shot, i) => ({ shot, i, at: shotTime(shot) ?? 0 }));
+  // pictures within a minute of each other came in together
+  const batchOf = (at: number) => Math.floor(at / 60_000);
+  timed.sort((a, b) => batchOf(b.at) - batchOf(a.at) || a.i - b.i);
+  const newest = Math.max(0, ...timed.map((t) => t.at));
+  return {
+    ...item,
+    shots: timed.map((t) => t.shot),
+    ...(newest ? { shotAt: newest } : {}),
+    noteAt: item.noteAt ?? item.updated ?? item.ts,
+  };
+}
 
 /** Anything the library turned away as it became interface-only, kept
  *  beside it rather than thrown away. */
@@ -131,6 +169,10 @@ export class ComponentStore {
           taken.add(slug);
           return { ...item, slug, ...splitFiles(item.files, slug, item.uses) };
         });
+        migrated = true;
+      }
+      if ((raw.version ?? 1) < 3) {
+        items = items.map(newestFirst);
         migrated = true;
       }
     } catch (err) {
@@ -254,9 +296,11 @@ export class ComponentStore {
     const name = input.name.trim();
     const items = this.load(projectId);
     const wantedSlug = input.slug?.trim() ? slugify(input.slug) : undefined;
-    // the same name is the same component; a handle already taken by
-    // another only means this one gets a number on its own
-    const existing = items.find((i) => i.name.toLowerCase() === name.toLowerCase());
+    // the same name is the same component, and so is the same handle asked
+    // for on purpose — a session updating what it built says which one
+    const existing =
+      items.find((i) => i.name.toLowerCase() === name.toLowerCase()) ??
+      (wantedSlug ? items.find((i) => i.slug === wantedSlug) : undefined);
     // a file given with a line is a place it reaches, not its own code
     const split = input.files
       ? splitFiles(input.files, wantedSlug ?? slugify(name), input.uses, input.exact)
@@ -266,7 +310,10 @@ export class ComponentStore {
       if (split?.uses?.length) existing.uses = [...new Set([...(existing.uses ?? []), ...split.uses])];
       if (input.tags?.length) existing.tags = [...new Set([...(existing.tags ?? []), ...input.tags])];
       if (input.deps?.length) existing.deps = [...new Set([...(existing.deps ?? []), ...input.deps])];
-      if (input.note?.trim()) existing.note = input.note.trim();
+      if (input.note?.trim()) {
+        existing.note = input.note.trim();
+        existing.noteAt = Date.now();
+      }
       if (input.selector?.trim()) existing.selector = input.selector.trim();
       existing.updated = Date.now();
       this.save(projectId);
@@ -285,6 +332,7 @@ export class ComponentStore {
       ...(input.tags?.length ? { tags: input.tags } : {}),
       ...(input.deps?.length ? { deps: input.deps } : {}),
       note: input.note?.trim() ?? "",
+      noteAt: Date.now(),
       shots: [],
       ...(input.selector?.trim() ? { selector: input.selector.trim() } : {}),
       ...(input.route?.trim() ? { route: input.route.trim() } : {}),
@@ -367,7 +415,10 @@ export class ComponentStore {
       if (next.length) item[key] = next;
       else delete item[key];
     }
-    if (patch.note !== undefined) item.note = patch.note;
+    if (patch.note !== undefined && patch.note !== item.note) {
+      item.note = patch.note;
+      item.noteAt = Date.now();
+    }
     if (patch.selector !== undefined) {
       const selector = patch.selector.trim();
       if (selector) item.selector = selector;
@@ -388,12 +439,92 @@ export class ComponentStore {
     return true;
   }
 
+  /** A new picture, which becomes the one shown. */
   addShot(projectId: string, componentId: string, shot: Attachment): boolean {
     const item = this.load(projectId).find((i) => i.id === componentId);
     if (!item) return false;
-    item.shots = [...item.shots, shot];
+    item.shots = [shot, ...item.shots].slice(0, MAX_SHOTS);
+    item.shotAt = Date.now();
     this.save(projectId);
     return true;
+  }
+
+  /**
+   * A finished turn edited these files (repo-relative). Every entry they
+   * belong to has changed — unless the turn also gave it a new picture or
+   * note, which was done after the edit and so is current: that part is
+   * stamped with the change, and only what the turn left alone falls behind.
+   * Answers whether anything moved.
+   */
+  touch(projectId: string, files: string[], turnStarted: number): boolean {
+    const edited = new Set(files);
+    const now = Date.now();
+    let moved = false;
+    for (const item of this.load(projectId)) {
+      if (!item.files.some((f) => edited.has(f.split(":")[0]!.trim()))) continue;
+      if ((item.shotAt ?? 0) >= turnStarted) item.shotAt = now;
+      if ((item.noteAt ?? 0) >= turnStarted) item.noteAt = now;
+      item.changedAt = now;
+      moved = true;
+    }
+    if (moved) this.save(projectId);
+    return moved;
+  }
+
+  /** What git says about when an entry's files last changed — only ever
+   *  moves the stamp forward. */
+  noteChange(projectId: string, componentId: string, at: number): boolean {
+    const item = this.load(projectId).find((i) => i.id === componentId);
+    if (!item || at <= (item.changedAt ?? 0)) return false;
+    item.changedAt = at;
+    this.save(projectId);
+    return true;
+  }
+
+  /**
+   * A change to an entry has been looked at: its note rewritten (or found
+   * still true), and its look judged. A look that didn't change keeps the
+   * picture it has; one that did is left out of date, for a new picture.
+   */
+  reviewed(projectId: string, componentId: string, outcome: { note?: string; looks: boolean }): void {
+    const item = this.load(projectId).find((i) => i.id === componentId);
+    if (!item) return;
+    const now = Date.now();
+    if (outcome.note?.trim()) item.note = outcome.note.trim();
+    item.noteAt = now;
+    if (!outcome.looks && item.shots.length) item.shotAt = now;
+    item.updated = now;
+    this.save(projectId);
+  }
+
+  /**
+   * Take out the entries whose code is gone, keeping them beside the
+   * library rather than throwing them away — the same file-of-its-own
+   * the move to interface-only used.
+   */
+  retire(projectId: string, componentIds: string[]): NamedComponent[] {
+    const gone = new Set(componentIds);
+    const items = this.load(projectId);
+    const out = items.filter((i) => gone.has(i.id));
+    if (out.length === 0) return [];
+    this.data.set(
+      projectId,
+      items.filter((i) => !gone.has(i.id)),
+    );
+    try {
+      const file = path.join(componentsDir(), `${projectId}.gone.json`);
+      let before: NamedComponent[] = [];
+      try {
+        before = (JSON.parse(fs.readFileSync(file, "utf8")) as { items?: NamedComponent[] }).items ?? [];
+      } catch (err) {
+        if (!isMissing(err)) warn("components", err, "retire read");
+      }
+      writeJsonAtomic(file, { items: [...before, ...out] }, 2);
+    } catch (err) {
+      warn("components", err, "retire");
+    }
+    this.save(projectId);
+    return out;
   }
 
   removeShot(projectId: string, componentId: string, shotId: string): boolean {
@@ -496,7 +627,7 @@ export function componentTools(
     tools: [
       tool(
         "name_component",
-        "Put a piece of this project's interface you have just built or substantially changed into its component library, so the user can refer to it by name and later sessions can find and reuse it. Interface only — a screen, panel, card, control or dialog, never backend code. Shows the user a card with your suggested name and your screenshot of it; they edit the name and confirm. Call it once per component, right after you finish it.",
+        "Put a piece of this project's interface you have just built into its component library, so the user can refer to it by name and later sessions can find and reuse it. Interface only — a screen, panel, card, control or dialog, never backend code. Shows the user a card with your suggested name and your screenshot of it; they edit the name and confirm. Call it once per component, right after you finish it. For one already in the library that you changed, update it instead (`ruri edit <slug> --shot <new screenshot>`) — naming it again under its own name or handle also updates it.",
         {
           name: z
             .string()

@@ -4431,6 +4431,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .lib-tile-shot {
+  position: relative;
   display: block;
   aspect-ratio: 16 / 10;
   margin-bottom: 6px;
@@ -4446,6 +4447,19 @@ input[type="range"]::-webkit-slider-thumb {
   object-fit: cover;
   object-position: top left;
   display: block;
+}
+
+/* a picture its code has moved on from: still shown, but marked */
+.lib-tile-behind {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 1px 7px;
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+  background: var(--paper-bright);
+  border: 1px dashed var(--line-soft);
+  border-radius: 99px;
 }
 
 .lib-tile-blank {
@@ -4529,6 +4543,12 @@ input[type="range"]::-webkit-slider-thumb {
 
 .lib-detail-name:hover {
   border-color: var(--line-soft);
+}
+
+.lib-behind {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
 }
 
 .lib-found {

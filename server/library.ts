@@ -1,6 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Attachment, ComponentFile, ComponentProposal, NamedComponent } from "../shared/protocol.js";
+import {
+  componentStale,
+  type Attachment,
+  type ComponentFile,
+  type ComponentProposal,
+  type NamedComponent,
+} from "../shared/protocol.js";
 import { configPath } from "./configDir.js";
 import { isMissing, warn } from "./log.js";
 import { storedFilePath } from "./uploads.js";
@@ -273,7 +279,12 @@ export function entryLines(item: NamedComponent): string[] {
     lines.push(
       paths.length === 1
         ? `Screenshot (read it if you need to see it): ${paths[0]}`
-        : `Screenshots (read them if you need to see it): ${paths.join(", ")}`,
+        : `Screenshots, newest first (read them if you need to see it): ${paths.join(", ")}`,
+    );
+  }
+  if (componentStale(item).picture) {
+    lines.push(
+      `Its code has changed since that picture — if you change it, \`ruri edit ${item.slug} --shot <new picture>\``,
     );
   }
   return lines;
@@ -467,7 +478,9 @@ export const HELP = `ruri — this project's component library, and its memory
                 [--uses <paths:line>] [--tags a,b] [--deps pkg,pkg] [--shot <image>]
                                      put a piece of interface you built into the library
   ruri edit <slug> [--name] [--slug] [--note] [--files] [--uses] [--tags] [--deps] [--aliases] [--shot]
-                                     change an entry (lists replace what was there; --shot adds a picture)
+                                     change an entry (lists replace what was there; --shot adds a picture,
+                                     which becomes the one shown) — do this after changing one that is
+                                     already in the library, so its picture and note show it as it is now
   ruri remove <slug>                 take it out of the library (its code stays in the project)
   ruri dir [<folder>]                show or set the folder \`ruri add\` copies into
 
@@ -789,7 +802,11 @@ function edit(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAnswer 
     return no("none of those files looks like interface — the library holds interface only");
   }
   host.update(here.id, item.id, patch);
-  const unread = shots.filter((shot) => !host.shoot(here.id, item.id, cwd ? path.resolve(cwd, shot) : shot));
+  // each new picture goes in front, so the first one given is filed last
+  // and ends up the one shown
+  const unread = [...shots]
+    .reverse()
+    .filter((shot) => !host.shoot(here.id, item.id, cwd ? path.resolve(cwd, shot) : shot));
   host.changed(here.id);
   const now = host.find(here.id, patch.slug ?? item.slug) ?? item;
   return yes(
@@ -986,7 +1003,7 @@ export function writeLibrarySkill(
       ? "Nothing is in the library yet."
       : `${items.length} component${items.length === 1 ? "" : "s"}, as of ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC.${dir ? ` \`ruri add\` installs into ${dir}.` : ""}`,
     "",
-    'Before building any interface here, look for it below (or `ruri search <words>`), and reuse or extend what exists. After building a reusable piece of interface, put it in the library: `ruri register <slug> --files <paths> --note "<one line>" --shot <screenshot>` (or name it with mcp__ruri__name_component, which asks the user what to call it).',
+    'Before building any interface here, look for it below (or `ruri search <words>`), and reuse or extend what exists. After building a reusable piece of interface, put it in the library: `ruri register <slug> --files <paths> --note "<one line>" --shot <screenshot>` (or name it with mcp__ruri__name_component, which asks the user what to call it). After changing one that is already here, update its entry: `ruri edit <slug> --shot <new screenshot>`, and `--note` if it no longer holds.',
     "",
     "- `ruri show <slug>` — one in full, with its code",
     "- `ruri add <slug> [--dir <folder>]` — copy it into the project; `ruri add <project>/<slug>` takes one from another open project",

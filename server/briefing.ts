@@ -81,6 +81,7 @@ export function sessionBriefing(input: {
       '  ruri register <slug> --files <paths> --note "<one line>" --shot <screenshot>    put interface you built into the library',
       "  ruri edit <slug> …  ·  ruri remove <slug>  ·  ruri help",
       "Before building interface here, look in the library and reuse or extend what is there; after building a piece worth reusing, put it in. Interface only — screens, panels, cards, controls, dialogs, their styles — never backend code.",
+      "When you change a piece that is already in the library, update its entry before you finish: `ruri edit <slug> --shot <new screenshot>`, and `--note` if what it says no longer holds. A new picture becomes the one shown, so the entry shows the thing as it is now.",
       "When the user names a part of the interface you can't place, look it up there before searching the code for their words.",
       "</ruri:library>",
     ].join("\n"),
@@ -90,7 +91,7 @@ export function sessionBriefing(input: {
     blocks.push(
       [
         "<ruri:naming>",
-        "When you build or substantially change a piece of this project's interface, put it in the component library: call mcp__ruri__name_component right after you finish it, with your suggested name, its files, one line on what it is, and a screenshot of it.",
+        "When you build a new piece of this project's interface, put it in the component library: call mcp__ruri__name_component right after you finish it, with your suggested name, its files, one line on what it is, and a screenshot of it. One that is already in the library isn't named again — update it with `ruri edit <slug> --shot <new screenshot>` instead.",
         "Take the screenshot if you don't already have one — the card shows it, and without it you are asking the user to name something they cannot see. ruri keeps its own copy with the entry, so later sessions can read it back to know what the name refers to.",
         'The user gets a card, edits the name to whatever they will actually call it, and confirms — and from then on that name is how they will refer to it. Suggest the name a person would use: "the dragon gauges", not "DragonGauge". One call per component, not per file.',
         'mcp__ruri__list_components answers "what is what" when they use a name you don\'t recognise, or ask what exists.',

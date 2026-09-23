@@ -216,6 +216,9 @@ export interface ServerContext {
   readonly talk: TalkBook;
   /** Projects mid-sweep (handlers/components.ts). */
   readonly sweeping: Set<string>;
+  /** Each project's chat that takes the library's pictures, by project id
+   *  (handlers/components.ts) — one per project, reused while it lasts. */
+  readonly photographers: Map<string, string>;
   /** Projects whose repo is being read for their brief right now. */
   readonly catchingUp: Set<string>;
   /** Projects whose working memory is being written from their chats. */

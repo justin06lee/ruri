@@ -244,6 +244,8 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("component_unshot"), ...projectId, componentId: id, shotId: id }),
   z.object({ type: z.literal("components_sweep"), ...projectId, shots: z.boolean().optional() }),
   z.object({ type: z.literal("catchup_rebuild"), ...projectId }),
+  z.object({ type: z.literal("memory_rebuild"), ...projectId }),
+  z.object({ type: z.literal("sheet_get"), ...projectId }),
   z.object({ type: z.literal("component_seen"), ...projectId, componentId: id.optional() }),
   z.object({ type: z.literal("component_code"), ...projectId, componentId: id }),
   z.object({ type: z.literal("library_dir"), ...projectId, dir: filePath }),

@@ -119,6 +119,8 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   component_unshot: { type: "component_unshot", projectId: "p", componentId: "c", shotId: "s" },
   components_sweep: { type: "components_sweep", projectId: "p", shots: true },
   catchup_rebuild: { type: "catchup_rebuild", projectId: "p" },
+  memory_rebuild: { type: "memory_rebuild", projectId: "p" },
+  sheet_get: { type: "sheet_get", projectId: "p" },
   component_seen: { type: "component_seen", projectId: "p", componentId: "c" },
   component_code: { type: "component_code", projectId: "p", componentId: "c" },
   library_dir: { type: "library_dir", projectId: "p", dir: "src/components/ui" },

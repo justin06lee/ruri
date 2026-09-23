@@ -6,10 +6,11 @@ import { errorCode, isMissing, warn } from "./log.js";
  * The project's `.ruri/` folder: the one place ruri writes into a user's
  * repository.
  *
- * It writes there — a catch-up brief, a component index — because a file is
- * the one interface every harness has. It has no business showing up in
- * their `git status` for it, so the folder ignores itself: one `.gitignore`
- * saying `*`, written once, and git never mentions any of it again.
+ * It writes there — a catch-up, an architecture sheet, the component
+ * library — because a file is the one interface every harness has. It has
+ * no business showing up in their `git status` for it, so the folder
+ * ignores itself: one `.gitignore` saying `*`, written once, and git never
+ * mentions any of it again.
  *
  * Nor has it any business in a folder that is still blank. A new project is
  * where `create-next-app`, `bun create vite` and `git clone` get run, and
@@ -56,7 +57,7 @@ const SCAFFOLD_SAFE = new Set([
 
 /** The files ruri keeps in `.ruri/` itself — the ones it may take away
  *  again. A drop file a model is halfway through writing is not one. */
-const OWN = [".gitignore", "catchup.md", "components.md"];
+const OWN = [".gitignore", "catchup.md", "architecture.md", "components.md"];
 
 /**
  * Whether a project folder is still blank: nothing in it but ruri's own

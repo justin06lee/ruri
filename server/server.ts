@@ -11,7 +11,7 @@ import { AgentLogs, Crew } from "./agents.js";
 import { SessionArchive } from "./archive.js";
 import { writeTextAtomic } from "./atomic.js";
 import { BridgeState } from "./bridgeState.js";
-import { BriefStore, writeCatchupFile } from "./brief.js";
+import { BriefStore, writeBriefFiles } from "./brief.js";
 import { installCli, writeLibrarySkill } from "./library.js";
 import { briefless, rebuildCatchup } from "./catchupBrief.js";
 import { ownerProject, running } from "./channel.js";
@@ -101,7 +101,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     writeLibrarySkill(project.id, project.name, components.items(project.id), components.dir(project.id));
     // briefs used to be kept per session; a project's brief is the project's
     for (const session of project.sessions) briefs.move(session.id, project.id);
-    writeCatchupFile(project.path, project.name, briefs.get(project.id));
+    writeBriefFiles(project.path, project.name, briefs.get(project.id));
     for (const session of project.sessions) {
       // Older compacted exchanges retained attachment metadata in the
       // transcript but not in their .md record. Rewriting only archives that
@@ -169,6 +169,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     talk: new TalkBook(),
     sweeping: new Set<string>(),
     catchingUp: new Set<string>(),
+    recalling: new Set<string>(),
     crewSaid: new Map<string, string>(),
     musicRoot: () => store.customMusicDir() ?? defaultMusicDir(),
     // the session managers, the turn tracker and the two hosts are wired

@@ -6,21 +6,21 @@ import { describeFile, sweepCandidates } from "./sweep.js";
 import { isMissing, warn } from "./log.js";
 
 /**
- * The catch-up brief, written whole.
+ * A project's shape (`.ruri/architecture.md`), written whole.
  *
- * The brief usually writes itself a turn at a time (see brief.ts): each
- * finished exchange is folded in, and after a while it says what the
- * project is. That is no help to a project that arrives in ruri with a
- * year of work already in it — nothing has happened here yet, so the brief
- * is empty, and the first session in it starts from nothing.
+ * The shape usually folds itself forward a few turns at a time (see
+ * brief.ts): what finished work added to what the project can do, or to
+ * how it is built. That is no help to a project that arrives in ruri with
+ * a year of work already in it — nothing has happened here yet, so the
+ * sheet is empty, and the first session in it starts from nothing.
  *
  * This is the other door: read the repo the way a person joining it would
  * — the README, the manifest, the Makefile, the agent instructions, the
  * shape of the tree, the top of the files that matter — and have the small
- * model write the brief in one go: what it is, what's in it, the stack,
- * how to run it, where things are, and the rules it lives by. It runs when
- * a project is opened without a brief, and whenever the user asks for it
- * again.
+ * model write the sheet in one go: what it is, what it does, the stack as
+ * layers, the paths through it, how to run it, where things are, and the
+ * rules it lives by. It runs when a project is opened without a sheet, and
+ * whenever the user asks for it again.
  */
 
 /** How much of each file rides along. */
@@ -152,7 +152,7 @@ async function catchupMaterial(project: Project): Promise<string> {
   if (man) parts.push(`=== MANIFEST ===\n${man}`);
   const make = readHead(path.join(dir, "Makefile"), MANIFEST_CHARS);
   if (make) parts.push(`=== Makefile ===\n${make}`);
-  for (const name of ["CLAUDE.md", "AGENTS.md", ".ruri/components.md"]) {
+  for (const name of ["CLAUDE.md", "AGENTS.md"]) {
     const text = readHead(path.join(dir, name), RULES_CHARS);
     if (text) parts.push(`=== ${name} ===\n${text}`);
   }
@@ -165,8 +165,8 @@ async function catchupMaterial(project: Project): Promise<string> {
   return parts.join("\n\n");
 }
 
-/** Read the repo and write the whole brief. Null when the model gave
- *  nothing usable (the brief then stays as it was). */
+/** Read the repo and write the whole shape. Null when the model gave
+ *  nothing usable (the sheet then stays as it was). */
 export async function buildCatchup(project: Project, current: Partial<FullBrief>): Promise<FullBrief | null> {
   return catchupBrief(project.name, await catchupMaterial(project), current);
 }

@@ -48,13 +48,14 @@ export function sessionBriefing(input: {
   const blocks: string[] = [];
 
   const catchup = path.join(input.projectDir, ".ruri", "catchup.md");
+  const architecture = path.join(input.projectDir, ".ruri", "architecture.md");
   if (exists(catchup)) {
     blocks.push(
       [
         "<ruri:catchup>",
-        `If you don't already know what ${input.projectName} is — a fresh session, a harness that has just taken over, work you have no memory of — read ${catchup} first.`,
-        "It is one screen: what this project is, what is in it, the stack, how to run it, where things are, and the rules it lives by — written from a read of the repo and kept current by ruri as turns finish. It is much cheaper than reading the code to find out, and much more reliable than guessing.",
-        "Don't read it if you already have the context. Don't edit it.",
+        `If you don't already know ${input.projectName} — a fresh session, a harness that has just taken over, work you have no memory of — read ${catchup} first: where the work stands, what was decided and why, what worked, what was tried and failed and why, the traps, and what is still open, gathered from every chat in this project. Don't redo a settled decision or retry a failed approach without a new reason.`,
+        `The project's shape — what it is, the stack from top to bottom, how the parts connect, where things are, how to run it, the rules it lives by — is in ${architecture}.`,
+        "Both are one screen, kept current by ruri as turns finish: much cheaper than reading the code to find out, and much more reliable than guessing. Don't read them if you already have the context. Don't edit them.",
         "</ruri:catchup>",
       ].join("\n"),
     );

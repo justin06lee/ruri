@@ -24,6 +24,7 @@ import { AgentsPage } from "./AgentsPage";
 import { BridgeStrip } from "./Bridge";
 import { Icon, TOOL_ICONS } from "./chat/Icon";
 import { NO_EARLIER, NO_EVENTS, NO_QUEUED, NO_SUMMARIES } from "./chat/empty";
+import { Architecture } from "./Architecture";
 import { Components } from "./Components";
 import { Composer } from "./Composer";
 import { HeroTop } from "./HeroFace";
@@ -258,7 +259,9 @@ function ChatView({
    * tracker items, but it does not yank you onto the tracker page to look
    * at them — the toggle's badge is the whole notification.
    */
-  const [page, setPage] = useState<"chat" | "tracker" | "ideas" | "components" | "skills" | "talk">("chat");
+  const [page, setPage] = useState<
+    "chat" | "tracker" | "ideas" | "components" | "architecture" | "skills" | "talk"
+  >("chat");
   // messages between this chat's agent and others still on their way
   const talking = useRuri(
     (s) =>
@@ -713,8 +716,16 @@ function ChatView({
           <Icon d="M4 7.5A1.5 1.5 0 0 1 5.5 6H9a2.2 2.2 0 1 1 4 0h3.5A1.5 1.5 0 0 1 18 7.5V11a2.2 2.2 0 1 1 0 4v3.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5z" />
         </button>
         <button
+          className={`icon-button ${page === "architecture" ? "active" : ""}`}
+          title="Architecture — what this project is, the stack, how it fits together, and where the work stands"
+          onClick={() => setPage(page === "architecture" ? "chat" : "architecture")}
+        >
+          {/* three layers stacked: the stack, and the page that draws it */}
+          <Icon d="M12 3l9 4.5-9 4.5-9-4.5zM3 12l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5" />
+        </button>
+        <button
           className={`icon-button comp-toggle ${page === "components" ? "active" : ""}`}
-          title="Components — your names for the parts of this project"
+          title="Components — this project's component library"
           onClick={() => setPage(page === "components" ? "chat" : "components")}
         >
           <Icon d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" />
@@ -784,6 +795,7 @@ function ChatView({
           {page === "tracker" && <Tracker projectId={activeId} onClose={() => setPage("chat")} />}
           {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
           {page === "components" && boardId && <Components projectId={boardId} />}
+          {page === "architecture" && boardId && <Architecture projectId={boardId} />}
           {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
           {page === "talk" && <TalkPage channelId={activeId} />}
         </main>

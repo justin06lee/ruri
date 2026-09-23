@@ -218,6 +218,8 @@ export interface ServerContext {
   readonly sweeping: Set<string>;
   /** Projects whose repo is being read for their brief right now. */
   readonly catchingUp: Set<string>;
+  /** Projects whose working memory is being written from their chats. */
+  readonly recalling: Set<string>;
   /** The last thing each of the user's agents said this turn: its report. */
   readonly crewSaid: Map<string, string>;
 

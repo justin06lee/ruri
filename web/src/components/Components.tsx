@@ -3,6 +3,7 @@ import type { ComponentFile, NamedComponent } from "../../../shared/protocol";
 import { ToolImage } from "./Attachments";
 import { fileToBase64 } from "../lib/files";
 import { highlightFor } from "../lib/highlighter";
+import { useNoteStale } from "../lib/runNote";
 import { spinStar } from "../lib/spin";
 import { HTTP_BASE, send, useRuri } from "../store";
 
@@ -163,9 +164,6 @@ function useDraft(value: string): [string, (next: string) => void] {
   }
   return [draft, setDraft];
 }
-
-/** How long a finished sweep's summary line stays up. */
-const FINAL_NOTE_MS = 25_000;
 
 /* ── the gallery ───────────────────────────────────────────────────── */
 
@@ -637,68 +635,6 @@ function Detail({ projectId, item, onBack }: { projectId: string; item: NamedCom
 
 /* ── the page ──────────────────────────────────────────────────────── */
 
-/**
- * Whether a finished run's last word has been up for `FINAL_NOTE_MS` and
- * should go. `at` is when the run last reported — every report is a new
- * one — so the note is stale only once the timer has run out for the
- * report on screen now; a newer report, or a run under way, is fresh.
- */
-function useNoteStale(at: number | undefined, busy: boolean): boolean {
-  const [staleAt, setStaleAt] = useState<number>();
-  useEffect(() => {
-    if (at === undefined || busy) return;
-    const timer = setTimeout(() => setStaleAt(at), FINAL_NOTE_MS);
-    return () => clearTimeout(timer);
-  }, [at, busy]);
-  return !busy && at !== undefined && staleAt === at;
-}
-
-/** "just now", "2h ago", "3d ago" — when the repo was last read. */
-function since(at: number | undefined): string {
-  if (!at) return "never";
-  const mins = Math.round((Date.now() - at) / 60_000);
-  if (mins < 2) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
-/**
- * The catch-up brief's control: the other file in .ruri/ that tells a
- * model what this project is. It writes itself a turn at a time; this is
- * the read of the whole repo that writes it all at once — what happens by
- * itself when a project first arrives, and again on request.
- */
-function CatchupLine({ projectId }: { projectId: string }) {
-  const state = useRuri((s) => s.catchups[projectId]);
-  const busy = state?.busy === true;
-  const noteStale = useNoteStale(state?.at, busy);
-  const note = state?.note && !noteStale ? state.note : undefined;
-  return (
-    <div className="board-foot catchup-line">
-      The catch-up brief in <code>.ruri/catchup.md</code> — what this project is, the stack, how to run it,
-      where things are —{" "}
-      {note ? (
-        <span className="catchup-note">{note}</span>
-      ) : (
-        <>
-          last read from the repo <b>{since(state?.built)}</b>
-        </>
-      )}
-      .
-      <button
-        className="catchup-rebuild"
-        disabled={busy}
-        title="Read the whole repo again and write the brief afresh — its description and features are kept where they still hold"
-        onClick={() => send({ type: "catchup_rebuild", projectId })}
-      >
-        {busy ? "Reading…" : "Rebuild"}
-      </button>
-    </div>
-  );
-}
-
 /** Where `ruri add` copies into — set by the first agent to say, or here. */
 function InstallDir({ projectId }: { projectId: string }) {
   const dir = useRuri((s) => s.componentDirs[projectId]) ?? "";
@@ -863,7 +799,6 @@ export function Components({ projectId }: { projectId: string }) {
                 <code>ruri</code> command.
               </div>
             )}
-            <CatchupLine projectId={projectId} />
           </>
         )}
       </div>

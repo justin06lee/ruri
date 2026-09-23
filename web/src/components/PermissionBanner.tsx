@@ -1,4 +1,4 @@
-import { HOME_ID, type PermissionRequest } from "../../../shared/protocol";
+import { HOME_ID, type PermissionRequest, type TalkAsk } from "../../../shared/protocol";
 import { harnessName } from "../lib/models";
 import { Markdown } from "../markdown";
 import { send, showError, useRuri } from "../store";
@@ -78,12 +78,59 @@ export function PermissionBanner({ request }: { request: PermissionRequest }) {
   );
 }
 
-/** A card waiting on the user: a question, a naming, or an allow/deny. */
+const REPLY_WORD: Record<TalkAsk["reply"], string> = {
+  wait: "It will wait for the answer.",
+  later: "Its answer will come back to this chat when it is ready.",
+  none: "It asks for no answer.",
+};
+
+/** An agent asking to message another agent (server/talk.ts) — outside
+ *  bypass mode, every message waits on this. */
+function MessageCard({ request }: { request: PermissionRequest }) {
+  const ask = request.input as TalkAsk;
+  const respond = (allow: boolean) => {
+    if (!send({ type: "permission_response", requestId: request.requestId, allow })) {
+      showError("Not connected — the answer did not go through; try again once ruri is back.");
+    }
+  };
+  return (
+    <div className="permission-card message-card">
+      <div className="permission-head">
+        <span className="permission-badge">
+          <Icon d={toolIcon(request.toolName)} />
+          message
+        </span>
+        wants to message{" "}
+        <b>
+          {ask.project}
+          {ask.title ? ` · ${ask.title}` : ""}
+        </b>
+      </div>
+      <div className="permission-plan scroll-gate">
+        <Markdown text={ask.text} />
+      </div>
+      <div className="message-card-reply">{REPLY_WORD[ask.reply]}</div>
+      <div className="permission-actions">
+        <button className="primary" onClick={() => respond(true)}>
+          Send it
+        </button>
+        <button className="ghost" onClick={() => respond(false)}>
+          Don&rsquo;t
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** A card waiting on the user: a question, a naming, a message to send,
+ *  or an allow/deny. */
 export function AskCard({ request }: { request: PermissionRequest }) {
   return request.kind === "question" ? (
     <QuestionCard request={request} />
   ) : request.kind === "component" ? (
     <NameCard request={request} />
+  ) : request.kind === "message" ? (
+    <MessageCard request={request} />
   ) : (
     <PermissionBanner request={request} />
   );

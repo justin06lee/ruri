@@ -8783,3 +8783,260 @@ button.stop:hover {
   min-height: 0;
   overflow: hidden;
 }
+
+/* ── talk: agents messaging agents (TalkPage.tsx, server/talk.ts) ───── */
+
+.talk-note {
+  margin: 12px 2px 4px;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+/* whose rule on the left, the rule on the right */
+.talk-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 250px) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 12px;
+  align-items: start;
+}
+
+.talk-whos {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 460px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1.5px solid var(--hairline);
+  border-radius: var(--radius-s);
+}
+
+.talk-who {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  text-align: left;
+}
+
+/* a project heads its chats; a chat hangs under its project */
+.talk-who.kind-project {
+  margin-top: 6px;
+  font-weight: 700;
+}
+
+.talk-who.kind-chat {
+  padding-left: 20px;
+}
+
+.talk-who:hover {
+  background: var(--paper-dim);
+}
+
+.talk-who.active {
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1.5px var(--edge);
+}
+
+.talk-who-name {
+  font-size: var(--fs-md);
+  color: var(--ink);
+}
+
+.talk-this {
+  font-weight: 500;
+  color: var(--ink-faint);
+}
+
+.talk-who-rule {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ink-faint);
+}
+
+/* a rule of its own reads darker than one going by the rule above it */
+.talk-who.own .talk-who-rule {
+  color: var(--ink-soft);
+}
+
+.talk-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--hairline);
+  border-radius: var(--radius-s);
+  background: var(--paper);
+}
+
+.talk-rule-head {
+  font-size: var(--fs-md);
+  color: var(--ink-soft);
+}
+
+.talk-rule-who {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.talk-modes {
+  align-self: flex-start;
+  flex-wrap: wrap;
+}
+
+.talk-going {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+}
+
+.talk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.talk-project {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line-soft, var(--edge));
+}
+
+.talk-project:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.talk-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.talk-check input {
+  accent-color: var(--ink);
+}
+
+.talk-check.one {
+  padding-left: 22px;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.talk-check small {
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+
+.talk-check.self {
+  opacity: 0.55;
+}
+
+.talk-lately {
+  margin: 22px 2px 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.talk-letters {
+  display: flex;
+  flex-direction: column;
+}
+
+.talk-letter {
+  padding: 8px 2px;
+  border-top: 1px dashed var(--line-soft, var(--edge));
+}
+
+.talk-letter-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: var(--fs-sm);
+}
+
+.talk-letter-who {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.talk-arrow {
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+.talk-status,
+.talk-when {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+}
+
+/* what still wants something — you, or the other agent — reads dark */
+.talk-letter.st-asking .talk-status,
+.talk-letter.st-queued .talk-status,
+.talk-letter.st-working .talk-status {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.talk-letter-text {
+  margin-top: 3px;
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.talk-letter-note {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+}
+
+/* a prompt another agent sent: still a prompt, on the prompt's side, but
+   drawn in a dashed line and saying whose it is */
+.msg.user.letter {
+  border-style: dashed;
+}
+
+.letter-from {
+  margin-bottom: 4px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+}
+
+.letter-from b {
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.message-card-reply {
+  margin: -4px 0 12px;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+}

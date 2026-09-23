@@ -51,6 +51,7 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 | `queue-test`, `queue-arrange-test` | tokens | the app-side prompt queue: stop keeps it; reorder, merge, edit while it waits |
 | `question-test` | tokens | skipping an AskUserQuestion card is the end of it |
 | `naming-test` | tokens | in bypass, components name themselves |
+| `talk-test` | tokens | a chat asks a chat in another project and gets its answer back; outside bypass the card, and a no; `POST /talk` (free alone: `TALK_HTTP_ONLY=1`) |
 | `recall-test` | tokens | the recall note a finished reply leaves keeps the work it put forward |
 | `wake-turn-test` | tokens | a background task that ends between turns wakes the CLI: the chat goes busy by itself and the model answers, even with the chat open nowhere; a prompt sent the moment it wakes gets its own result, not the woken turn's |
 | `model-switch-test` | tokens | switching model never touches a running turn; switching back keeps the prompt cache |

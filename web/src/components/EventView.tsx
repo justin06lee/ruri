@@ -198,7 +198,18 @@ export const EventView = memo(function EventView({
         );
       }
       return (
-        <div className="msg user">
+        <div className={`msg user${event.from ? " letter" : ""}`}>
+          {/* another agent's message, not the user's — or an answer to one
+              this chat sent (server/talk.ts) */}
+          {event.from && (
+            <div className="letter-from">
+              {event.from.answer ? "answer from" : "message from"}{" "}
+              <b>
+                {event.from.project}
+                {event.from.title ? ` · ${event.from.title}` : ""}
+              </b>
+            </div>
+          )}
           {onRewind && (
             <button
               className="icon-button rewind-pencil"

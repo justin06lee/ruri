@@ -184,6 +184,15 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   set_pref: { type: "set_pref", key: "ruri-theme", value: "dark" },
   store_picture: { type: "store_picture", upload },
   window_drag: { type: "window_drag", phase: "move" },
+  talk_get: { type: "talk_get" },
+  talk_set: {
+    type: "talk_set",
+    policy: {
+      everyone: { to: "anyone", projects: [], chats: [] },
+      projects: { p: { to: "listed", projects: ["q"], chats: ["c"] } },
+      chats: { c: { to: "nobody", projects: [], chats: [] } },
+    },
+  },
 };
 
 /** The `type` literal of every arm the schema has. */

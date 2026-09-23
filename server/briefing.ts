@@ -40,6 +40,9 @@ export function sessionBriefing(input: {
    *  the tools block for Claude, the endpoint block for everything else,
    *  or nothing when this run has no windows to offer. */
   bridge?: string;
+  /** What the session is told about talking to the other agents open in
+   *  ruri (server/talk.ts): tools for Claude, an endpoint for the rest. */
+  talk?: string;
 }): string {
   const blocks: string[] = [];
 
@@ -84,6 +87,8 @@ export function sessionBriefing(input: {
   }
 
   if (input.bridge) blocks.push(input.bridge);
+
+  if (input.talk) blocks.push(input.talk);
 
   const vault = input.secrets.briefing(input.claude);
   if (vault) blocks.push(vault);

@@ -134,6 +134,7 @@ function QueuedCard({
           </button>
         </span>
       </div>
+      {item.from && <div className="letter-from">message from {item.from}</div>}
       <div className="queued-text">
         <MarkerText text={item.text} />
       </div>

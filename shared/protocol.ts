@@ -302,6 +302,82 @@ export interface SecretMeta {
  * new piece of interface exists is the moment to write down what it will be
  * called from then on, while both parties are looking straight at it.
  */
+/* ── agents talking to agents (server/talk.ts) ──────────────────────── */
+
+/** What an agent asked for back when it messaged another: to wait for the
+ *  answer, to have it come to its chat when it is ready, or nothing. */
+export type TalkReply = "wait" | "later" | "none";
+
+/** Where a prompt came from when another agent sent it: on the user event
+ *  it arrived as, so the chat can say whose it is. */
+export interface LetterFrom {
+  /** The chat that sent it. */
+  agent: string;
+  /** That chat's project's name, and its own title ("" when it has none). */
+  project: string;
+  title: string;
+  /** The message this is — or, with `answer`, the one it answers. */
+  letter: string;
+  /** What the sender asked for back. */
+  reply: TalkReply;
+  /** The answer to a message this chat sent, coming back to it. */
+  answer?: boolean;
+  /** How many agents deep this has gone since the user last spoke. */
+  depth: number;
+}
+
+/** Who one agent may message: anyone, only the chats and projects listed
+ *  (a project meaning every chat in it, new ones too), or no one. */
+export interface TalkRule {
+  to: "anyone" | "listed" | "nobody";
+  projects: string[];
+  chats: string[];
+}
+
+/** Who may message whom: one rule for every agent, which a project's rule
+ *  overrides for the chats in it, which a chat's own overrides for it. */
+export interface TalkPolicy {
+  everyone: TalkRule;
+  projects: Record<string, TalkRule>;
+  chats: Record<string, TalkRule>;
+}
+
+/** Where a message between agents has got to. */
+export type TalkStatus =
+  | "asking" // waiting on the user's allow or deny
+  | "denied" // the user said no
+  | "refused" // the limits (or ruri's own guards) said no
+  | "queued" // in the other chat's queue
+  | "working" // the other chat's turn on it is running
+  | "answered" // that turn is done
+  | "failed" // that turn failed
+  | "dropped"; // taken out of the queue before it went
+
+/** One message between agents, as the talk page lists them. */
+export interface TalkLetter {
+  id: string;
+  /** Chat ids. */
+  from: string;
+  to: string;
+  /** The message, cut short. */
+  text: string;
+  reply: TalkReply;
+  status: TalkStatus;
+  /** Why it was refused, or how it failed. */
+  note?: string;
+  ts: number;
+}
+
+/** What an agent asks to send, on the card that asks the user. */
+export interface TalkAsk {
+  /** The chat it is for. */
+  to: string;
+  project: string;
+  title: string;
+  text: string;
+  reply: TalkReply;
+}
+
 export interface ComponentProposal {
   /** What the model suggests calling it, in the user's kind of words. */
   name: string;
@@ -379,6 +455,8 @@ export interface QueuedPrompt {
    *  where it was (relative to what is still there) when the rewrite is
    *  sent — see queue_edit / queue_update. */
   editing?: true;
+  /** Sent by another agent: whose, as "project · chat". */
+  from?: string;
 }
 
 /** A harness's account limit windows (percent USED, 0-100). A missing field
@@ -549,7 +627,15 @@ export function excerpt(text: string, max: number): string {
 }
 
 export type TranscriptEvent =
-  | { kind: "user"; id: string; text: string; attachments?: Attachment[]; ts: number }
+  | {
+      kind: "user";
+      id: string;
+      text: string;
+      attachments?: Attachment[];
+      /** Sent by another agent, not typed by the user (server/talk.ts). */
+      from?: LetterFrom;
+      ts: number;
+    }
   | { kind: "assistant"; id: string; text: string; ts: number }
   | {
       kind: "tool";
@@ -736,8 +822,12 @@ export interface PermissionRequest {
    * "component" is the same trick again: the model made something and is
    * asking what to call it. `input` is a {@link ComponentProposal}, and it
    * answers with `component_named`.
+   *
+   * "message" is an agent asking to message another agent (server/talk.ts)
+   * outside bypass mode: `input` is a {@link TalkAsk}, and it answers with
+   * `permission_response` like any allow/deny.
    */
-  kind?: "permission" | "question" | "component";
+  kind?: "permission" | "question" | "component" | "message";
   /** A question whose tool call has stopped waiting (the turn ended, or the
    *  CLI gave up on the hook): the card stays, and answering it sends the
    *  answers as a new prompt instead. */
@@ -1266,7 +1356,12 @@ export type ClientMessage =
   /** Carry the window with the cursor, from a press on the peek band —
    *  which, while ruri is in use, sees the pointer instead of being part
    *  of the title bar's drag region. */
-  | { type: "window_drag"; phase: WindowDragPhase };
+  | { type: "window_drag"; phase: WindowDragPhase }
+  /** The talk page opened: send who may message whom, and what has been
+   *  said lately. Answered with `talk`. */
+  | { type: "talk_get" }
+  /** The talk page's limits, whole. */
+  | { type: "talk_set"; policy: TalkPolicy };
 
 export type ServerMessage =
   | {
@@ -1377,6 +1472,8 @@ export type ServerMessage =
   | { type: "small_model"; model: string }
   | { type: "default_model"; model: string }
   | { type: "integrations"; projectId?: string; integrations: Integrations }
+  /** Who may message whom, and the latest messages between agents. */
+  | { type: "talk"; policy: TalkPolicy; letters: TalkLetter[] }
   | { type: "plugins_found"; harness: IntegrationHarness; query: string; plugins: PluginRow[]; total: number }
   /** How a change to the integrations went, in words. */
   | { type: "integration_done"; ok: boolean; message: string }

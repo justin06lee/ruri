@@ -7,10 +7,12 @@
 import type {
   Attachment,
   AttachmentUpload,
+  LetterFrom,
   QueueHold,
   QueuedPrompt,
   ServerMessage,
 } from "../shared/protocol.js";
+import { seatName } from "./talk.js";
 
 export interface QueueEntry {
   id: string;
@@ -35,6 +37,8 @@ export interface QueueEntry {
    *  this took, and `from` the one carried there, which goes back behind
    *  whichever of `fromAfter` are still waiting (to the front if none). */
   combined?: { into: QueueEntry; from: QueueEntry; fromAfter: string[] };
+  /** A message from another agent (server/talk.ts), not the user's. */
+  from?: LetterFrom;
 }
 
 export class SendQueues {
@@ -67,6 +71,7 @@ export class SendQueues {
         text: entry.text,
         ...(entry.attachments?.length ? { attachments: entry.attachments } : {}),
         ...(entry.editing ? { editing: true as const } : {}),
+        ...(entry.from ? { from: seatName(entry.from.project, entry.from.title) } : {}),
       }));
   }
 
@@ -229,6 +234,9 @@ export function combine(queue: QueueEntry[], fromId: string, intoId: string): Qu
   const from = queue.find((e) => e.id === fromId && inLine(e));
   const into = queue.find((e) => e.id === intoId && inLine(e));
   if (!from || !into) return null;
+  // a message from another agent keeps its own place: it is not the
+  // user's to fold into theirs, and its sender is waiting on that one
+  if (from.from || into.from) return null;
   const [first, second] = queue.indexOf(from) < queue.indexOf(into) ? [from, into] : [into, from];
   const merged: QueueEntry = {
     ...mergeEntries(first, second),

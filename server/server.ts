@@ -27,6 +27,7 @@ import { UsageGauges } from "./gauges.js";
 import { createComponentHost } from "./handlers/components.js";
 import { createCrewManager } from "./handlers/crew.js";
 import { createManagerHost } from "./handlers/projects.js";
+import { pushTalk } from "./handlers/talk.js";
 import { HomeLog } from "./homelog.js";
 import { IdeaStore } from "./ideas.js";
 import { LedgerStore } from "./ledger.js";
@@ -49,6 +50,7 @@ import { createHttpServer } from "./routes.js";
 import { SecretStore } from "./secrets.js";
 import { digestHistory, setSmallModel } from "./smallmodel.js";
 import { createSocketServer } from "./socket.js";
+import { TalkBook } from "./talk.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { pushContexts, Turns } from "./turns.js";
@@ -160,6 +162,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     bridge: new BridgeState(options.bridge, (channelId) => running(ctx, channelId), clients.broadcast),
     permissions: new Map<string, PermissionRequest>(),
     pendingComponents: new Map<string, PendingComponent>(),
+    talk: new TalkBook(),
     sweeping: new Set<string>(),
     catchingUp: new Set<string>(),
     crewSaid: new Map<string, string>(),
@@ -198,6 +201,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const notesTimer = setInterval(allNotes, 60 * 60_000);
   notesTimer.unref();
   ctx.componentHost = createComponentHost(ctx);
+  // every window hears who may message whom, and each message as it moves
+  ctx.talk.onChange = () => pushTalk(ctx);
 
   // Projects that arrived before this existed: one at a time, in the
   // background, so a launch with ten of them does not fire ten reads of the

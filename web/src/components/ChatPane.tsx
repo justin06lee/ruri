@@ -37,6 +37,7 @@ import { RapidBar, type RapidFire } from "./RapidFire";
 import { SelectionFlags } from "./Selection";
 import { Sketch, type SketchBackground } from "./Sketch";
 import { Skills } from "./Skills";
+import { TalkPage } from "./TalkPage";
 import { Thinking, WorkingLine } from "./Thinking";
 import { Tracker } from "./Tracker";
 
@@ -257,7 +258,16 @@ function ChatView({
    * tracker items, but it does not yank you onto the tracker page to look
    * at them — the toggle's badge is the whole notification.
    */
-  const [page, setPage] = useState<"chat" | "tracker" | "ideas" | "components" | "skills">("chat");
+  const [page, setPage] = useState<"chat" | "tracker" | "ideas" | "components" | "skills" | "talk">("chat");
+  // messages between this chat's agent and others still on their way
+  const talking = useRuri(
+    (s) =>
+      s.talk?.letters.filter(
+        (l) =>
+          (l.from === activeId || l.to === activeId) &&
+          (l.status === "asking" || l.status === "queued" || l.status === "working"),
+      ).length ?? 0,
+  );
   /**
    * Home is two pages under one strip — the agent's chat and the
    * statistics — and the strip remembers which one you were on across
@@ -681,6 +691,19 @@ function ChatView({
           {agentsWorking > 0 && <span className="tracker-badge">{agentsWorking}</span>}
         </button>
         <button
+          className={`icon-button ${page === "talk" ? "active" : ""}`}
+          title={
+            talking > 0
+              ? `Talk — ${talking} ${talking === 1 ? "message" : "messages"} between this chat and other agents on the way; and who your agents may message`
+              : "Talk — who your agents may message, in this project and the others, and what they have said lately"
+          }
+          onClick={() => setPage(page === "talk" ? "chat" : "talk")}
+        >
+          {/* two speech bubbles: one agent, and another answering */}
+          <Icon d="M3 5.5A1.5 1.5 0 0 1 4.5 4h9A1.5 1.5 0 0 1 15 5.5v5a1.5 1.5 0 0 1-1.5 1.5H8l-3 2.5V12h-.5A1.5 1.5 0 0 1 3 10.5zM17.5 8h2A1.5 1.5 0 0 1 21 9.5v5a1.5 1.5 0 0 1-1.5 1.5H19v2.5L16 16h-4.5a1.5 1.5 0 0 1-1.5-1.5V14" />
+          {talking > 0 && <span className="tracker-badge">{talking}</span>}
+        </button>
+        <button
           className={`icon-button ${page === "skills" ? "active" : ""}`}
           title="Skills — what this project and this machine load before working"
           onClick={() => setPage(page === "skills" ? "chat" : "skills")}
@@ -762,6 +785,7 @@ function ChatView({
           {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
           {page === "components" && boardId && <Components projectId={boardId} />}
           {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
+          {page === "talk" && <TalkPage channelId={activeId} />}
         </main>
       );
     }

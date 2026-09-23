@@ -12,6 +12,7 @@ import { cutIn, dispatch, dispatchSplit, drainQueue, queueWithCommands, stopTurn
 import { combine, reslot, uncombine, type QueueEntry } from "../queue.js";
 import { storeAttachments, storeUpload } from "../uploads.js";
 import { followCrew } from "./crew.js";
+import { answerTalk, talkDropped } from "./talk.js";
 import type { Handler, Handlers } from "./types.js";
 
 /** A prompt sent: now, or into the queue behind whatever is running. */
@@ -65,6 +66,8 @@ export const promptHandlers = {
     const queue = ctx.queues.entries.get(msg.projectId);
     if (!queue) return;
     const kept = queue.filter((e) => e.id !== msg.itemId || e.silent);
+    // a message from another agent taken out: its sender hears so
+    talkDropped(ctx, queue.find((e) => e.id === msg.itemId && !e.silent)?.from);
     if (kept.length !== queue.length) {
       if (kept.length === 0) {
         ctx.queues.entries.delete(msg.projectId);
@@ -160,6 +163,8 @@ export const promptHandlers = {
         silent: false,
         ...(msg.split ? { split: true } : {}),
         ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
+        // rewritten by the user, still the other agent's message
+        ...(entry.from ? { from: entry.from } : {}),
       });
     }
     ctx.queues.placeBack(channelId, entry, entries);
@@ -204,6 +209,8 @@ export const promptHandlers = {
     ctx.drafts.set(msg.projectId, msg.text, attachments);
   },
   permission_response: (ctx, _ws, msg) => {
+    // an agent asking to message another: ruri's own card, not the harness's
+    if (answerTalk(ctx, msg.requestId, msg.allow)) return;
     ctx.manager.respondPermission(msg.requestId, msg.allow, msg.always ?? false);
     ctx.crewManager.respondPermission(msg.requestId, msg.allow, msg.always ?? false);
   },

@@ -44,6 +44,7 @@ bun run desktop   # the desktop app unpackaged (built UI + Electron)
 - **Edit & rewind** with ruri's own checkpoints on every harness — the discarded turns' files, commits and context go back, and nothing else does; fork a chat at any exchange; import chats started outside ruri.
 - **MCP servers, plugins and marketplaces** for Claude Code and Codex, listed, added and removed from Settings through each CLI's own commands.
 - **Subagents and background scripts as live cards**, an agents page, and agents of your own started from a brief; an agent the model sends on again picks its own card back up.
+- **Agents talk to agents** — a chat's agent can message a chat in any open project and hear back, waiting on the answer or having it come later; the talk page in every chat's header says who may message whom, and outside Bypass each message waits on your OK.
 - **The bridge** — a session looks at and drives what it built: a hidden browser window over CDP, native apps over Accessibility, previews above the composer.
 - **ruri's own `/compact`** — instant and token-free, built from per-turn recall notes; transcripts split into a live part and a capped history.
 - **Turn memory, a feature tracker, catch-up briefs, a component index, an ideas board, the vault** (secrets the model can use but never read) **and a skills page.**

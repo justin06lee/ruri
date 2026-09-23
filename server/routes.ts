@@ -11,6 +11,7 @@ import { originAllowed, presentedToken, tokenMatches } from "./auth.js";
 import { bridgeDir, runBridge } from "./bridge.js";
 import { ownerProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
+import { listSeats, sendLetter } from "./handlers/talk.js";
 import { errorMessage, isMissing, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
 import { mimeOf, STATIC_MIME } from "./mime.js";
@@ -128,17 +129,66 @@ async function serveBridgeCall(
   });
 }
 
+/**
+ * POST /talk/<channelId> — talking to the other agents, for a harness that
+ * cannot hold ruri's tools (server/talk.ts): {"do": "list"}, or
+ * {"do": "send", "to", "message", "reply"}, answered {"ok", "text"}. As
+ * with the bridge, the chat's id is the right to speak as that chat; the
+ * handles list_agents hands out name the others without being theirs.
+ */
+async function serveTalkCall(
+  ctx: ServerContext,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const reply = (status: number, body: Record<string, unknown>): void => {
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(body));
+  };
+  const id = (req.url ?? "").slice("/talk/".length).split("?")[0] ?? "";
+  if (!id || !ctx.store.sessionIds().includes(id)) {
+    reply(404, { ok: false, error: "no such chat" });
+    return;
+  }
+  let body: { do?: unknown; to?: unknown; message?: unknown; reply?: unknown };
+  try {
+    body = JSON.parse(await readBody(req, 256 * 1024)) as typeof body;
+  } catch (err) {
+    reply(400, { ok: false, error: `bad request: ${errorMessage(err)}` });
+    return;
+  }
+  if (body?.do === "list") {
+    reply(200, { ok: true, text: listSeats(ctx, id) });
+    return;
+  }
+  if (body?.do !== "send" || typeof body.to !== "string" || typeof body.message !== "string") {
+    reply(400, {
+      ok: false,
+      error: 'send {"do": "list"} or {"do": "send", "to": "<handle>", "message": "..."}',
+    });
+    return;
+  }
+  const mode = body.reply === "wait" || body.reply === "none" ? body.reply : "later";
+  reply(200, {
+    ok: true,
+    text: await sendLetter(ctx, id, { to: body.to, message: body.message, reply: mode }),
+  });
+}
+
 export function createHttpServer(ctx: ServerContext): http.Server {
   const { options } = ctx;
   return http.createServer((req, res) => {
     const method = req.method ?? "GET";
     if (method !== "GET" && method !== "HEAD") {
       // Anything that changes something needs the page's own origin (or
-      // none) and the token. The one exception is the bridge call, whose
-      // session id is its capability — harnesses curl it from shells with
-      // no token in hand — but it still refuses a browser's Origin.
+      // none) and the token. The exceptions are the bridge and talk calls,
+      // whose session id is their capability — harnesses curl them from
+      // shells with no token in hand — but they still refuse a browser's
+      // Origin.
       const pathname = (req.url ?? "/").split("?")[0] ?? "/";
-      const bridgeCall = pathname.startsWith("/bridge/") && !pathname.startsWith("/bridge/preview/");
+      const bridgeCall =
+        (pathname.startsWith("/bridge/") && !pathname.startsWith("/bridge/preview/")) ||
+        pathname.startsWith("/talk/");
       if (!originAllowed(req.headers.origin, ctx.listeningPort, !options.staticDir)) {
         res.writeHead(403);
         res.end();
@@ -176,6 +226,10 @@ export function createHttpServer(ctx: ServerContext): http.Server {
     }
     if (req.method === "POST" && req.url?.startsWith("/bridge/")) {
       void serveBridgeCall(ctx, req, res);
+      return;
+    }
+    if (req.method === "POST" && req.url?.startsWith("/talk/")) {
+      void serveTalkCall(ctx, req, res);
       return;
     }
     if (req.url?.startsWith("/readfile?")) {

@@ -44,6 +44,7 @@ import type { SessionManager } from "./sessions.js";
 import type { CaptureHost } from "./shots.js";
 import type { TurnTracker } from "./smallmodel.js";
 import type { Terminals } from "./terminal.js";
+import type { TalkBook } from "./talk.js";
 import type { TrackerStore } from "./tracker.js";
 import type { Turns } from "./turns.js";
 
@@ -210,6 +211,9 @@ export interface ServerContext {
    * user chose.
    */
   readonly pendingComponents: Map<string, PendingComponent>;
+  /** Agents talking to agents: who may message whom, the messages in
+   *  flight, and the cards asking the user about them (server/talk.ts). */
+  readonly talk: TalkBook;
   /** Projects mid-sweep (handlers/components.ts). */
   readonly sweeping: Set<string>;
   /** Projects whose repo is being read for their brief right now. */

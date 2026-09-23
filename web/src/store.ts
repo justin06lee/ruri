@@ -11,6 +11,8 @@ import {
   type HarnessInfo,
   type IntegrationHarness,
   type Integrations,
+  type TalkLetter,
+  type TalkPolicy,
   type PluginRow,
   type ClientMessage,
   type Attachment,
@@ -443,6 +445,9 @@ interface RuriState {
   harnessesChecking: boolean;
   /** Settings → Integrations, as last read — and for which project. */
   integrations: { projectId?: string; data: Integrations } | null;
+  /** Who may message whom, and the latest messages between agents (the
+   *  talk page, server/talk.ts) — asked for on every connect. */
+  talk: { policy: TalkPolicy; letters: TalkLetter[] } | null;
   /** The plugin browser's last answer. */
   pluginsFound: { harness: IntegrationHarness; query: string; plugins: PluginRow[]; total: number } | null;
   /** How the last change to the integrations went. */
@@ -543,6 +548,7 @@ export const useRuri = create<RuriState>((set) => ({
   harnesses: [],
   harnessesChecking: false,
   integrations: null,
+  talk: null,
   pluginsFound: null,
   integrationNote: null,
   canPickFolder: false,
@@ -912,6 +918,8 @@ export function connect(): void {
       ws.onopen = () => {
         useRuri.setState({ connected: true });
         flushUnsavedDrafts();
+        // who may message whom: the talk page, and the header's count
+        send({ type: "talk_get" });
         // a new connection knows nothing of what is on screen
         lastView = "";
         sendView();
@@ -1350,6 +1358,10 @@ function apply(msg: ServerMessage): void {
     }
     case "status": {
       setState((s) => ({ statuses: { ...s.statuses, [msg.projectId]: msg.status } }));
+      break;
+    }
+    case "talk": {
+      setState({ talk: { policy: msg.policy, letters: msg.letters } });
       break;
     }
     case "integrations": {

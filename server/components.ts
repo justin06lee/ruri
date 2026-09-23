@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, tool, type SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { ComponentProposal, Attachment, NamedComponent } from "../shared/protocol.js";
 import { storedFilePath } from "./uploads.js";
@@ -343,8 +343,15 @@ export interface ComponentHost {
 /** The tool names, auto-allowed: they ask the user themselves. */
 export const COMPONENT_TOOLS = ["mcp__ruri__name_component", "mcp__ruri__list_components"];
 
-/** The in-process MCP server a Claude project session gets. */
-export function componentTools(host: ComponentHost, channelId: string) {
+/** The in-process MCP server a Claude project session gets — its naming
+ *  tools, and whatever else of ruri's rides on the same server (`more`:
+ *  the talk tools, server/talk.ts). */
+export function componentTools(
+  host: ComponentHost,
+  channelId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the SDK's own element type for a mixed list
+  more: Array<SdkMcpToolDefinition<any>> = [],
+) {
   return createSdkMcpServer({
     name: "ruri",
     version: "1.0.0",
@@ -405,6 +412,7 @@ export function componentTools(host: ComponentHost, channelId: string) {
           ],
         }),
       ),
+      ...more,
     ],
   });
 }

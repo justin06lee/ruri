@@ -5,7 +5,7 @@
  * tried again) and ruri's own /compact.
  */
 import { randomUUID } from "node:crypto";
-import type { AttachmentUpload, TranscriptEvent } from "../shared/protocol.js";
+import type { AttachmentUpload, LetterFrom, TranscriptEvent } from "../shared/protocol.js";
 import { busy, channelProject, ownerProject, running } from "./channel.js";
 import { pushTranscript } from "./clients.js";
 import { knownCommands, splitCommands } from "./commands.js";
@@ -20,6 +20,7 @@ import { backfillNotes } from "./notes.js";
 import type { QueueEntry } from "./queue.js";
 import { RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
 import { sessionRoleTitle, smallModelEnabled, splitPrompt } from "./smallmodel.js";
+import { answerPrompt, letterPrompt } from "./talk.js";
 import { resetContext } from "./turns.js";
 import { modelPayload, processAttachments, storeAttachments } from "./uploads.js";
 
@@ -62,10 +63,14 @@ export function dispatch(
   text: string,
   uploads: AttachmentUpload[],
   silent = false,
+  /** Another agent sent it (server/talk.ts): the transcript says whose,
+   *  and the model reads it wrapped as a message, not as the user. */
+  from?: LetterFrom,
 ): void {
   // /compact is ruri's own, not the harness's: summaries + full-turn file
-  // hooks into a fresh session, with the zigzag mark in the transcript
-  if (!silent && text.trim() === "/compact" && uploads.length === 0) {
+  // hooks into a fresh session, with the zigzag mark in the transcript —
+  // the user's to ask for, never another agent's
+  if (!silent && !from && text.trim() === "/compact" && uploads.length === 0) {
     compactChannel(ctx, channelId);
     return;
   }
@@ -106,11 +111,16 @@ export function dispatch(
     id: randomUUID(),
     text: processed.display,
     ...(processed.attachments.length ? { attachments: processed.attachments } : {}),
+    ...(from ? { from } : {}),
     ts: Date.now(),
   };
   recordEvent(ctx, channelId, userEvent);
   checkpoint(ctx, channelId, userEvent.id);
-  ctx.manager.send(project, brief + processed.text + named, processed.images, undefined, true, userEvent.id);
+  const said = from
+    ? (from.answer ? answerPrompt : letterPrompt)(from, ctx.talk.handleOf(from.agent), processed.text)
+    : processed.text;
+  if (from && !from.answer) ctx.talk.mark(from.letter, "working");
+  ctx.manager.send(project, brief + said + named, processed.images, undefined, true, userEvent.id);
 }
 
 /**
@@ -196,7 +206,7 @@ export function drainQueue(ctx: ServerContext, channelId: string): boolean {
   queueMicrotask(() => {
     try {
       if (next.split) dispatchSplit(ctx, channelId, next.text, next.uploads);
-      else dispatch(ctx, channelId, next.text, next.uploads, next.silent);
+      else dispatch(ctx, channelId, next.text, next.uploads, next.silent, next.from);
     } catch (err) {
       // the send failed (the channel vanished, the harness would not
       // start): the prompt goes back to the head of the line rather than

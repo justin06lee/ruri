@@ -27,6 +27,18 @@ const filePath = z.string().max(4_000);
 const bytes = z.string().max(150_000_000);
 
 const attachmentKind = z.enum(["image", "video", "file"]);
+/** Who one agent may message (server/talk.ts), and the whole set of them.
+ *  A few thousand chats is far more than anyone keeps open. */
+const talkRule = z.object({
+  to: z.enum(["anyone", "listed", "nobody"]),
+  projects: z.array(id).max(5_000),
+  chats: z.array(id).max(5_000),
+});
+const talkPolicy = z.object({
+  everyone: talkRule,
+  projects: z.record(id, talkRule),
+  chats: z.record(id, talkRule),
+});
 const permissionMode = z.enum(["default", "acceptEdits", "plan", "bypassPermissions"]);
 const permissionId = z.enum([
   "accessibility",
@@ -327,6 +339,8 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("set_pref"), key: z.string().min(1).max(200), value: z.string().max(100_000) }),
   z.object({ type: z.literal("store_picture"), upload: attachmentUpload }),
   z.object({ type: z.literal("window_drag"), phase: z.enum(["start", "move", "end", "zoom"]) }),
+  z.object({ type: z.literal("talk_get") }),
+  z.object({ type: z.literal("talk_set"), policy: talkPolicy }),
 ]);
 
 /** Why a message was refused, in a line: the first issue, with its path. */

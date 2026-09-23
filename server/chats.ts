@@ -18,8 +18,10 @@ import type { ServerContext } from "./context.js";
 import { drainQueue, holdForTheWorld, maybeRetry } from "./dispatch.js";
 import { recordEvent, redacted } from "./events.js";
 import { HOME_ID, managerExtras } from "./manager.js";
+import { talkHost, talkTurnEnded } from "./handlers/talk.js";
 import { ParagraphGate } from "./paragraphs.js";
 import { SessionManager, type SessionExtras } from "./sessions.js";
+import { TALK_TOOLS, talkHttpBriefing, talkToolBriefing, talkTools } from "./talk.js";
 import { contextWindow, pushContexts, pushWork } from "./turns.js";
 
 /**
@@ -93,6 +95,9 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             if (!drainQueue(ctx, projectId)) maybeRetry(ctx, projectId, event);
             else ctx.retries.cancelRetry(projectId);
           }
+          // a message from another agent that started this turn is answered
+          // by it — read before the next prompt (a microtask away) lands
+          talkTurnEnded(ctx, projectId, event);
         }
       },
       onEventUpdate: (projectId, raw) => {
@@ -200,18 +205,23 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         // Claude gets tools for naming; everything else gets the drop file
         naming: claude ? "tool" : componentDropBriefing(project.path),
         bridge,
+        // the other agents open in ruri: tools, or the same over HTTP
+        talk: claude
+          ? talkToolBriefing()
+          : talkHttpBriefing(`http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`),
       });
       return tagged(project.id, {
         transcript: () => ctx.archive.events(project.id),
         fillSecrets: (input) =>
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
         beforeTools: () => ctx.checkpoints.idle(project.id),
-        autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS],
+        // ruri asks the user about these itself, message by message
+        autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS, ...TALK_TOOLS],
         options: {
           // the vault rides into the harness process here, and only here
           env: ctx.secrets.env(),
           mcpServers: {
-            ruri: componentTools(ctx.componentHost, project.id),
+            ruri: componentTools(ctx.componentHost, project.id, talkTools(talkHost(ctx), project.id)),
             bridge: bridgeTools(ctx.options.bridge, bridgeCtx),
           },
           ...(note ? { systemPrompt: { type: "preset", preset: "claude_code", append: note } } : {}),

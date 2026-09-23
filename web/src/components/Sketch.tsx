@@ -56,13 +56,66 @@ const TOOLS: Array<{ id: Tool; title: string; d: string }> = [
   { id: "erase", title: "Erase a shape (X)", d: "M4 15l7-7 8 8-4 4H8l-4-4zM11 8l8 8" },
 ];
 
-const COLORS = [
-  { id: "ink", value: "#191510" },
-  { id: "red", value: "#d0342c" },
-  { id: "blue", value: "#2b6cb0" },
-  { id: "green", value: "#2f855a" },
-  { id: "paper", value: "#f6f1e6" },
-];
+/**
+ * The five colours, by name. A shape keeps the name, not the colour, and
+ * the name is painted in the theme on screen: ink and paper are the
+ * theme's own, read off the page, so on dark and ember the pad is the
+ * theme's paper and the pen writes in its ink — light on dark — instead of
+ * a cream sheet with black on it; the three accents are lifted on the dark
+ * themes so they still read there. The picture that goes in the prompt is
+ * drawn the same way, so it looks like the pad did.
+ */
+type Swatch = "ink" | "red" | "blue" | "green" | "paper";
+
+const SWATCHES: Swatch[] = ["ink", "red", "blue", "green", "paper"];
+
+type Palette = Record<Swatch, string>;
+
+const ACCENTS: Record<"light" | "dark" | "ember", Pick<Palette, "red" | "blue" | "green">> = {
+  light: { red: "#d0342c", blue: "#2b6cb0", green: "#2f855a" },
+  dark: { red: "#ff6b5e", blue: "#6aa8f0", green: "#55c48a" },
+  ember: { red: "#ff6a4a", blue: "#86a9d4", green: "#9cc46a" },
+};
+
+/** The light theme's colours as older pads kept them, by hex — they are
+ *  the swatches they were picked as, and follow the theme like the rest. */
+const KEPT_AS_HEX: Record<string, Swatch> = {
+  "#191510": "ink",
+  "#f6f1e6": "paper",
+  "#d0342c": "red",
+  "#2b6cb0": "blue",
+  "#2f855a": "green",
+};
+
+function readPalette(): Palette {
+  const root = document.documentElement;
+  const theme = root.dataset["theme"];
+  const css = getComputedStyle(root);
+  const own = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+  return {
+    ink: own("--ink", "#191510"),
+    paper: own("--paper", "#f6f1e6"),
+    ...ACCENTS[theme === "dark" || theme === "ember" ? theme : "light"],
+  };
+}
+
+/** The palette of the theme on screen, repainted when the theme turns. */
+function usePalette(): Palette {
+  const [palette, setPalette] = useState(readPalette);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setPalette(readPalette()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+  return palette;
+}
+
+/** A shape's colour as drawn: a swatch in the theme's palette, or — for
+ *  anything that is neither a swatch nor one kept as hex — as written. */
+function paint(color: string, palette: Palette): string {
+  const swatch = Object.hasOwn(palette, color) ? (color as Swatch) : KEPT_AS_HEX[color.toLowerCase()];
+  return swatch ? palette[swatch] : color;
+}
 
 const WIDTHS = [2, 4, 8];
 
@@ -86,7 +139,6 @@ const SIZES: Array<{ id: string; label: string; px: number }> = [
 const BLANK = { w: 1400, h: 900 };
 /** A picture bigger than this is drawn at this, so the pad stays quick. */
 const MAX_SIDE = 2400;
-const PAPER = "#f6f1e6";
 /** Lines of a label, as a fraction of its size. */
 const LINE = 1.25;
 
@@ -202,17 +254,18 @@ function bounds(shape: Shape): { x: number; y: number; w: number; h: number } {
   }
 }
 
-function draw(ctx: CanvasRenderingContext2D, shape: Shape): void {
+function draw(ctx: CanvasRenderingContext2D, shape: Shape, palette: Palette): void {
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
+  const color = paint(shape.color, palette);
   if (shape.kind === "text") {
     ctx.font = `600 ${shape.size}px ${shape.font ?? FONTS[0]!.family}`;
     ctx.textBaseline = "alphabetic";
     // a paper halo so the words read on a busy picture
     ctx.lineWidth = Math.max(3, shape.size / 6);
-    ctx.strokeStyle = shape.color === PAPER ? "#191510" : PAPER;
-    ctx.fillStyle = shape.color;
+    ctx.strokeStyle = color === palette.paper ? palette.ink : palette.paper;
+    ctx.fillStyle = color;
     shape.text.split("\n").forEach((line, i) => {
       const y = shape.y + i * shape.size * LINE;
       ctx.strokeText(line, shape.x, y);
@@ -221,7 +274,7 @@ function draw(ctx: CanvasRenderingContext2D, shape: Shape): void {
     ctx.restore();
     return;
   }
-  ctx.strokeStyle = shape.color;
+  ctx.strokeStyle = color;
   ctx.lineWidth = shape.width;
   switch (shape.kind) {
     case "pen": {
@@ -310,7 +363,8 @@ export function Sketch({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<Tool>(background ? "arrow" : "pen");
-  const [color, setColor] = useState(background ? COLORS[1]!.value : COLORS[0]!.value);
+  const palette = usePalette();
+  const [color, setColor] = useState<Swatch>(background ? "red" : "ink");
   const [width, setWidth] = useState(4);
   const [shapes, setShapes] = useState<Shape[]>(kept?.shapes ?? []);
   const [history, setHistory] = useState<Shape[][]>((kept as PadState | undefined)?.history ?? []);
@@ -375,18 +429,18 @@ export function Sketch({
     ctx.clearRect(0, 0, size.w, size.h);
     if (image) ctx.drawImage(image, 0, 0, size.w, size.h);
     else {
-      ctx.fillStyle = PAPER;
+      ctx.fillStyle = palette.paper;
       ctx.fillRect(0, 0, size.w, size.h);
     }
-    for (const shape of shapes) draw(ctx, shape);
-    if (draft) draw(ctx, draft);
+    for (const shape of shapes) draw(ctx, shape, palette);
+    if (draft) draw(ctx, draft, palette);
     if (hanging) {
       ctx.save();
       ctx.globalAlpha = 0.85;
-      draw(ctx, hanging);
+      draw(ctx, hanging, palette);
       ctx.restore();
     }
-  }, [shapes, draft, image, size, hanging]);
+  }, [shapes, draft, image, size, hanging, palette]);
 
   /** Where a pointer falls on the pad, in its own pixels. */
   const at = (e: { clientX: number; clientY: number }): Point => {
@@ -618,14 +672,14 @@ export function Sketch({
           </button>
         ))}
         <span className="sketch-sep" />
-        {COLORS.map((c) => (
+        {SWATCHES.map((swatch) => (
           <button
-            key={c.id}
+            key={swatch}
             type="button"
-            className={`sketch-swatch ${color === c.value ? "active" : ""}`}
-            style={{ background: c.value }}
-            title={c.id}
-            onClick={() => setColor(c.value)}
+            className={`sketch-swatch ${color === swatch ? "active" : ""}`}
+            style={{ background: palette[swatch] }}
+            title={swatch}
+            onClick={() => setColor(swatch)}
           />
         ))}
         <span className="sketch-sep" />
@@ -717,7 +771,13 @@ export function Sketch({
               style={{
                 fontFamily: writingFont.family,
                 fontSize: Math.round(Math.max(14, Math.min(34, writingSize.px * 0.75))),
-                color,
+                // the words as they will land: in their colour, on the pad's
+                // paper, haloed the way the pad halos them
+                color: paint(color, palette),
+                background: palette.paper,
+                ...(color === "paper"
+                  ? { textShadow: `0 0 2px ${palette.ink}, 0 0 1px ${palette.ink}` }
+                  : {}),
               }}
               value={writing.value}
               onChange={(e) => setWriting({ ...writing, value: e.target.value })}

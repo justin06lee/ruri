@@ -1399,6 +1399,12 @@ input[type="range"]::-webkit-slider-thumb {
   flex-shrink: 0;
 }
 
+/* the sketch pad's toolbar is where the strip floats; the pad has its
+   own close, and the strip comes back with the chat */
+.home-deck:has(.sketch-page) .home-tabs {
+  display: none;
+}
+
 .home-hero .hero {
   margin: auto 0;
 }

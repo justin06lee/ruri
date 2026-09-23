@@ -57,12 +57,17 @@ interface ArchiveData {
    *  prompt's own uuid (`user` — the file-rewind target) and the turn's
    *  latest chain uuid (`last` — the fork point when rewinding PAST it). */
   chain?: Record<string, { user?: string; last?: string }>;
-  /** A rewind's fork point: the next Claude session resumes truncated here. */
-  resumeAt?: string;
-  /** The next Claude session forks the resumed one at its tip — a chat
+  /** A rewind's fork point: the next Claude session resumes truncated at
+   *  `uuid` — a message in `session`'s transcript, and in no other. The
+   *  session it belongs to is part of it: a bare uuid outlived the session
+   *  it named (a /compact moves the chat to a new one) and was handed to
+   *  the next, which fails every resume with "No message found with
+   *  message.uuid". */
+  resumeAt?: { session: string; uuid: string };
+  /** The next session forks `forkNext` (a session id) at its tip — a chat
    *  forked at its latest exchange shares the file up to there and then
    *  goes its own way, leaving the original's file alone. */
-  forkNext?: boolean;
+  forkNext?: string;
   /** Tokens in the window after the channel's last API call. Persisted so the
    *  context gauge reads the real occupancy on launch instead of zero until
    *  the next turn happens to refill it. */
@@ -272,8 +277,15 @@ export class SessionArchive {
           ? { digest: { text: raw.digest.text, through: raw.digest.through } }
           : {}),
         ...(raw.chain && typeof raw.chain === "object" ? { chain: raw.chain } : {}),
-        ...(typeof raw.resumeAt === "string" ? { resumeAt: raw.resumeAt } : {}),
-        ...(raw.forkNext === true ? { forkNext: true } : {}),
+        // an anchor from before they named their session is dropped: nothing
+        // says which session it belongs to, which is the bug they had
+        ...(raw.resumeAt &&
+        typeof raw.resumeAt === "object" &&
+        typeof raw.resumeAt.session === "string" &&
+        typeof raw.resumeAt.uuid === "string"
+          ? { resumeAt: { session: raw.resumeAt.session, uuid: raw.resumeAt.uuid } }
+          : {}),
+        ...(typeof raw.forkNext === "string" ? { forkNext: raw.forkNext } : {}),
         ...(typeof raw.contextTokens === "number" ? { contextTokens: raw.contextTokens } : {}),
         ...(raw.contextAt && typeof raw.contextAt === "object" ? { contextAt: raw.contextAt } : {}),
         // an unattributed window is from before it was recorded whose it is
@@ -702,9 +714,13 @@ export class SessionArchive {
     return this.owners.get(sessionId);
   }
 
-  /** Forget the resumable session id — the next send starts a fresh one. */
+  /** Forget the resumable session id — the next send starts a fresh one,
+   *  and a fork point pending in the old one goes with it. */
   clearLastSessionId(projectId: string): void {
-    delete this.load(projectId).lastSessionId;
+    const entry = this.load(projectId);
+    delete entry.lastSessionId;
+    delete entry.resumeAt;
+    delete entry.forkNext;
     this.scheduleWrite(projectId);
   }
 
@@ -720,34 +736,42 @@ export class SessionArchive {
     return this.load(projectId).chain ?? {};
   }
 
-  setResumeAt(projectId: string, uuid: string): void {
-    this.load(projectId).resumeAt = uuid;
+  /** A rewind's fork point: `uuid`, in `session`'s transcript. */
+  setResumeAt(projectId: string, session: string, uuid: string): void {
+    this.load(projectId).resumeAt = { session, uuid };
     this.scheduleWrite(projectId);
   }
 
-  /** Claim the pending rewind fork point (cleared once taken). */
-  takeResumeAt(projectId: string): string | undefined {
+  /**
+   * Claim the pending rewind fork point for a session about to resume
+   * `resumeId`. Taken whatever happens — a point is good for one build —
+   * and handed over only when it is that session's: a point in any other
+   * session's transcript is one Claude can't find.
+   */
+  takeResumeAt(projectId: string, resumeId: string | undefined): string | undefined {
     const entry = this.load(projectId);
     const at = entry.resumeAt;
-    if (at !== undefined) {
-      delete entry.resumeAt;
-      this.scheduleWrite(projectId);
-    }
-    return at;
+    if (at === undefined) return undefined;
+    delete entry.resumeAt;
+    this.scheduleWrite(projectId);
+    return resumeId !== undefined && at.session === resumeId ? at.uuid : undefined;
   }
 
-  setForkNext(projectId: string): void {
-    this.load(projectId).forkNext = true;
+  /** The next session forks `session` at its tip. */
+  setForkNext(projectId: string, session: string): void {
+    this.load(projectId).forkNext = session;
     this.scheduleWrite(projectId);
   }
 
-  /** Claim the pending tip fork (cleared once taken). */
-  takeForkNext(projectId: string): boolean {
+  /** Claim the pending tip fork for a session about to resume `resumeId`
+   *  — taken either way, true only when it is that session's. */
+  takeForkNext(projectId: string, resumeId: string | undefined): boolean {
     const entry = this.load(projectId);
-    if (!entry.forkNext) return false;
+    const session = entry.forkNext;
+    if (session === undefined) return false;
     delete entry.forkNext;
     this.scheduleWrite(projectId);
-    return true;
+    return resumeId !== undefined && session === resumeId;
   }
 
   /**
@@ -873,6 +897,16 @@ export class SessionArchive {
     const earlier = this.earlier(projectId).flatMap((item) => (item.kind === "turn" ? [item.turnId] : []));
     const live = this.load(projectId).events.flatMap((event) => (event.kind === "user" ? [event.id] : []));
     return earlier.length > 0 ? [...earlier, ...live] : live;
+  }
+
+  /** Whether a brief is waiting for the next prompt. */
+  hasPendingBrief(projectId: string): boolean {
+    return this.load(projectId).pendingBrief !== undefined;
+  }
+
+  /** The pending rewind fork point, left where it is. */
+  resumePoint(projectId: string): { session: string; uuid: string } | undefined {
+    return this.load(projectId).resumeAt;
   }
 
   /** Claim the pending compaction brief (cleared once taken). */

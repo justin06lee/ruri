@@ -80,12 +80,51 @@ async function listClaude(project: Project, taken: Set<string>): Promise<RecentS
   }
 }
 
+/** Where the CLI keeps every project's transcripts: its config folder
+ *  (CLAUDE_CONFIG_DIR, as the CLI itself reads it, else ~/.claude). */
+function claudeProjectsRoot(): string {
+  return path.join(process.env["CLAUDE_CONFIG_DIR"] || path.join(os.homedir(), ".claude"), "projects");
+}
+
+/** The folder the CLI keeps a project's transcripts in, by its guess. */
+function claudeProjectDir(projectPath: string): string {
+  return path.join(claudeProjectsRoot(), projectPath.replace(/[^A-Za-z0-9]/g, "-"));
+}
+
+/**
+ * Whether a Claude session is known to be gone: the CLI keeps this
+ * project's transcripts in a folder we can see, and the session's file is
+ * in neither it nor anywhere else the CLI keeps them. False when it can't
+ * tell — no such folder, as with a CLI keeping its sessions somewhere else
+ * — so a session is only ever given up on for a reason.
+ */
+export function claudeSessionGone(projectPath: string, sessionId: string): boolean {
+  if (!fs.existsSync(claudeProjectDir(projectPath))) return false;
+  return claudeSessionFile({ path: projectPath }, sessionId) === undefined;
+}
+
+/**
+ * Whether a message is in a Claude session's transcript — what a rewind's
+ * fork point has to be for a resume to find it. Undefined when the
+ * transcript can't be read, which is no evidence either way.
+ */
+export function claudeSessionHas(projectPath: string, sessionId: string, uuid: string): boolean | undefined {
+  const file = claudeSessionFile({ path: projectPath }, sessionId);
+  if (!file) return undefined;
+  try {
+    return fs.readFileSync(file, "utf8").includes(`"uuid":"${uuid}"`);
+  } catch (err) {
+    if (!isMissing(err)) warn("recent", err, "claudeSessionHas");
+    return undefined;
+  }
+}
+
 /** Where the CLI keeps a project's transcripts: the path, every
  *  non-alphanumeric turned to a dash. Falls back to a scan when the CLI's
  *  own encoding differs from this guess. */
-function claudeSessionFile(project: Project, sessionId: string): string | undefined {
-  const root = path.join(os.homedir(), ".claude", "projects");
-  const guess = path.join(root, project.path.replace(/[^A-Za-z0-9]/g, "-"), `${sessionId}.jsonl`);
+function claudeSessionFile(project: Pick<Project, "path">, sessionId: string): string | undefined {
+  const root = claudeProjectsRoot();
+  const guess = path.join(claudeProjectDir(project.path), `${sessionId}.jsonl`);
   if (fs.existsSync(guess)) return guess;
   try {
     for (const dir of fs.readdirSync(root)) {

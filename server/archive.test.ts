@@ -168,3 +168,50 @@ describe("the history file", () => {
     expect(fs.statSync(path.join(dir, "history", "c.jsonl")).size).toBeLessThanOrEqual(60_000);
   });
 });
+
+describe("a rewind's fork point, tied to its session", () => {
+  test("it is handed over only to the session it was set in, and taken either way", () => {
+    const archive = new SessionArchive();
+    archive.setLastSessionId("c", "S1");
+    archive.setResumeAt("c", "S1", "u9");
+    // a build resuming some other session takes it, and gets nothing
+    expect(archive.takeResumeAt("c", "S2")).toBeUndefined();
+    expect(archive.takeResumeAt("c", "S1")).toBeUndefined();
+    archive.setResumeAt("c", "S1", "u9");
+    expect(archive.takeResumeAt("c", "S1")).toBe("u9");
+    expect(archive.takeResumeAt("c", "S1")).toBeUndefined();
+  });
+
+  test("a compaction's move to a fresh session takes the pending point and tip fork with it", () => {
+    const archive = new SessionArchive();
+    archive.setLastSessionId("c", "S1");
+    archive.setResumeAt("c", "S1", "u9");
+    archive.setForkNext("c", "S1");
+    archive.clearLastSessionId("c");
+    expect(archive.resumePoint("c")).toBeUndefined();
+    expect(archive.takeResumeAt("c", "S1")).toBeUndefined();
+    expect(archive.takeForkNext("c", "S1")).toBe(false);
+  });
+
+  test("a tip fork is the session's it was set in", () => {
+    const archive = new SessionArchive();
+    archive.setForkNext("c", "S1");
+    expect(archive.takeForkNext("c", "S2")).toBe(false);
+    archive.setForkNext("c", "S1");
+    expect(archive.takeForkNext("c", "S1")).toBe(true);
+  });
+
+  test("a point survives a restart, and one from before points named their session doesn't", () => {
+    const archive = new SessionArchive();
+    archive.append("c", user("u1"));
+    archive.setResumeAt("c", "S1", "u9");
+    archive.flushAll();
+    expect(new SessionArchive().resumePoint("c")).toEqual({ session: "S1", uuid: "u9" });
+    const file = path.join(dir, "sessions", "c.json");
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify({ ...raw, resumeAt: "860dc3e1", forkNext: true }));
+    const again = new SessionArchive();
+    expect(again.resumePoint("c")).toBeUndefined();
+    expect(again.takeForkNext("c", "S1")).toBe(false);
+  });
+});

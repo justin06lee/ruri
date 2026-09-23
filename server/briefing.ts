@@ -7,10 +7,11 @@ import { isMissing, warn } from "./log.js";
 /**
  * What every project session is told about ruri itself, before it starts.
  *
- * Three things live here, and they have one shape in common: each one points
- * at a file rather than pasting its contents in. The catch-up brief, the
- * component index and the vault are all things a session might never need —
- * so none of them costs a token until the model decides it does.
+ * The things that live here have one shape in common: each one points at a
+ * file, a command or a tool rather than pasting its contents in. The
+ * catch-up brief, the component library and the vault are all things a
+ * session might never need — so none of them costs a token until the model
+ * decides it does, and none of them changes the prompt when it changes.
  *
  * It rides the Claude system prompt as an append, and the provider system
  * prompt on every other harness, so the words are the same wherever a
@@ -33,8 +34,8 @@ export function sessionBriefing(input: {
   secrets: SecretStore;
   /** Claude loads a project's own skills itself; nothing else does. */
   claude: boolean;
-  /** "tool" when the harness holds ruri's naming tool; otherwise the drop
-   *  file's instructions, which say the same thing a longer way. */
+  /** "tool" when the harness holds ruri's naming tool; otherwise "", and
+   *  the session puts what it builds in the library with `ruri register`. */
   naming: string;
   /** What the session is told about the bridge (see server/bridge.ts):
    *  the tools block for Claude, the endpoint block for everything else,
@@ -59,23 +60,30 @@ export function sessionBriefing(input: {
     );
   }
 
+  // The library's words never change with what is in it — the list lives
+  // in the file, the skill and the command — so this block is the same on
+  // every session and the prompt stays cached.
   const components = path.join(input.projectDir, ".ruri", "components.md");
-  if (exists(components)) {
-    blocks.push(
-      [
-        "<ruri:components>",
-        `The user has names for parts of this project that the code does not use. They are indexed at ${components} — each name, the files behind it, and screenshots.`,
-        "When the user names something you can't place, read that file before searching the codebase for their words.",
-        "</ruri:components>",
-      ].join("\n"),
-    );
-  }
+  blocks.push(
+    [
+      "<ruri:library>",
+      `This project has a component library: every piece of its interface on file — what the user calls it, its handle, its files, a screenshot. It is listed in ${components}${input.claude ? " and in the ruri:components skill" : ""}, and it is behind the \`ruri\` command in your shell:`,
+      "  ruri search <words>               find what exists",
+      "  ruri show <slug>                  one in full, with its code",
+      "  ruri add <slug> --dir <folder>    copy one into the project (the folder is remembered; `ruri add <project>/<slug>` takes one from another open project)",
+      '  ruri register <slug> --files <paths> --note "<one line>" --shot <screenshot>    put interface you built into the library',
+      "  ruri edit <slug> …  ·  ruri remove <slug>  ·  ruri help",
+      "Before building interface here, look in the library and reuse or extend what is there; after building a piece worth reusing, put it in. Interface only — screens, panels, cards, controls, dialogs, their styles — never backend code.",
+      "When the user names a part of the interface you can't place, look it up there before searching the code for their words.",
+      "</ruri:library>",
+    ].join("\n"),
+  );
 
   if (input.naming === "tool") {
     blocks.push(
       [
         "<ruri:naming>",
-        "When you build or substantially change a piece of this project's interface, call mcp__ruri__name_component right after you finish it: your suggested name, the files it lives in, one line on what it is, and a screenshot of it.",
+        "When you build or substantially change a piece of this project's interface, put it in the component library: call mcp__ruri__name_component right after you finish it, with your suggested name, its files, one line on what it is, and a screenshot of it.",
         "Take the screenshot if you don't already have one — the card shows it, and without it you are asking the user to name something they cannot see. ruri keeps its own copy with the entry, so later sessions can read it back to know what the name refers to.",
         'The user gets a card, edits the name to whatever they will actually call it, and confirms — and from then on that name is how they will refer to it. Suggest the name a person would use: "the dragon gauges", not "DragonGauge". One call per component, not per file.',
         'mcp__ruri__list_components answers "what is what" when they use a name you don\'t recognise, or ask what exists.',

@@ -47,7 +47,8 @@ bun run desktop   # the desktop app unpackaged (built UI + Electron)
 - **Agents talk to agents** — a chat's agent can message a chat in any open project and hear back, waiting on the answer or having it come later; the talk page in every chat's header says who may message whom, and outside Bypass each message waits on your OK.
 - **The bridge** — a session looks at and drives what it built: a hidden browser window over CDP, native apps over Accessibility, previews above the composer.
 - **ruri's own `/compact`** — instant and token-free, built from per-turn recall notes; transcripts split into a live part and a capped history.
-- **Turn memory, a feature tracker, catch-up briefs, a component index, an ideas board, the vault** (secrets the model can use but never read) **and a skills page.**
+- **A component library per project** — every piece of its interface with a picture, a name and its code, in a searchable gallery; agents find, read and install components with the `ruri` command (`ruri search`, `ruri show`, `ruri add peek-band`) and put back what they build.
+- **Turn memory, a feature tracker, catch-up briefs, an ideas board, the vault** (secrets the model can use but never read) **and a skills page.**
 - **Shells in the composer** on a real pty, a tab row per project; **rapid fire** for assembly-line prompting across sessions.
 - **Questions never go to a hole** — every harness's question and form elicitation shares one card.
 - **A manga look** on warm paper, three themes on a clock, the dragon gauges for context and account limits, the peek band in the title bar (the hand-cut heads, or any pictures and GIFs you give it, each with its own hover), a hero face per project (the twelve Ruris or your own, one always or drawn at random, framed and dressed as you like), a music player in the sidebar, and an art tuner.
@@ -67,7 +68,7 @@ ruri.app (Electron)
 
 One HTTP server on `127.0.0.1` carries everything: the built UI, uploads, music, the bridge's HTTP face, and the WebSocket. `shared/protocol.ts` is the single wire contract; `server/` is the backend (sessions, archive, compaction, the small-model layer, the Home agent, the bridge tools), `web/src/` the React UI, `desktop/` the Electron shell (window, permissions, hidden bridge windows, native apps, screenshots). `scripts/build-main.ts` bundles main process, server, yagami and the Agent SDK into one file, so the packaged app ships no node_modules; the Claude engine is your installed `claude` binary, found on your login shell's PATH.
 
-All state lives under `~/.config/ruri` (`RURI_CONFIG_DIR` moves it). Each project gets a self-ignoring `.ruri/` folder for its catch-up brief and component index — once there is something in it: a folder that is still blank is left blank, so `create-next-app`, `bun create` and `git clone` run in it as they would anywhere.
+All state lives under `~/.config/ruri` (`RURI_CONFIG_DIR` moves it). Each project gets a self-ignoring `.ruri/` folder for its catch-up brief and component library — once there is something in it: a folder that is still blank is left blank, so `create-next-app`, `bun create` and `git clone` run in it as they would anywhere.
 
 - [docs/architecture.md](docs/architecture.md) — the per-file walk, where things live on disk, environment variables, and the security model
 - [docs/features.md](docs/features.md) — everything it does, in full

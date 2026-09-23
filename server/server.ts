@@ -12,6 +12,7 @@ import { SessionArchive } from "./archive.js";
 import { writeTextAtomic } from "./atomic.js";
 import { BridgeState } from "./bridgeState.js";
 import { BriefStore, writeCatchupFile } from "./brief.js";
+import { installCli, writeLibrarySkill } from "./library.js";
 import { briefless, rebuildCatchup } from "./catchupBrief.js";
 import { ownerProject, running } from "./channel.js";
 import { createChatManager } from "./chats.js";
@@ -93,8 +94,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const prefs = new PrefStore();
   // both project files are written from what's already on disk at startup, so
   // a session opened before anything happens still finds them there
+  // the `ruri` command every session finds on its PATH (server/library.ts)
+  installCli();
   for (const project of store.list()) {
     writeIndexFile(project.path, components.items(project.id));
+    writeLibrarySkill(project.id, project.name, components.items(project.id), components.dir(project.id));
     // briefs used to be kept per session; a project's brief is the project's
     for (const session of project.sessions) briefs.move(session.id, project.id);
     writeCatchupFile(project.path, project.name, briefs.get(project.id));

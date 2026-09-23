@@ -4130,16 +4130,11 @@ input[type="range"]::-webkit-slider-thumb {
   display: block;
 }
 
-.idea-list,
-.comp-list {
+.idea-list {
   padding: 12px 2px 14px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.comp-list {
-  gap: 12px;
 }
 
 .idea-row {
@@ -4312,24 +4307,618 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 11px;
 }
 
-/* ── the component index ──────────────────────────────────────────── */
+/* ── the component library ────────────────────────────────────────── */
 
-.comp-card {
+/* A gallery wants more room than the other project pages' column. */
+.board-inner.lib-inner {
+  max-width: 1120px;
+}
+
+/* the project's name over the library, and one line of what it holds */
+.lib-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0 18px;
+}
+
+.lib-title {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+.lib-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 10px;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+}
+
+.lib-sub-sep {
+  color: var(--line-soft);
+}
+
+.lib-dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lib-dir input {
+  width: 190px;
+  padding: 2px 8px;
+  font-size: var(--fs-sm);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 0.92em;
+}
+
+.lib-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-m);
+  background: var(--paper-bright);
+  color: var(--ink-faint);
+  transition: border-color 100ms ease-out;
+}
+
+.lib-search:focus-within {
+  border-color: var(--ink);
+}
+
+.lib-search > svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.lib-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 0;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+}
+
+.lib-search-clear {
+  padding: 3px;
+  border: none;
+  background: none;
+  color: var(--ink-faint);
+  line-height: 0;
+}
+
+.lib-search-clear:hover {
+  color: var(--ink);
+  background: none;
+}
+
+.lib-search-clear svg {
+  width: 14px;
+  height: 14px;
+}
+
+.lib-empty {
+  padding: 22px 2px 10px;
+}
+
+.lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
+  gap: 16px;
+  padding: 16px 0 18px;
+}
+
+/* A card: the picture, then what it's called and its handle. */
+.lib-tile {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 8px 8px 10px;
   border: 1.5px solid var(--line-soft);
   border-radius: var(--radius-m);
   background: var(--paper);
-  padding: 10px 12px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  text-align: left;
+  font-weight: 400;
   animation: rise 160ms ease-out;
+  transition: border-color 120ms ease-out;
+}
+
+.lib-tile:hover {
+  background: var(--paper);
+  border-color: var(--ink);
+}
+
+.lib-tile:active {
+  transform: scale(0.985);
 }
 
 /* A card with a star on it is a card you haven't read yet — the border says
    so quietly, so the page reads as new-things-then-the-rest at a glance. */
-.comp-card.fresh {
+.lib-tile.fresh {
   border-color: var(--line);
+}
+
+.lib-tile-shot {
+  display: block;
+  aspect-ratio: 16 / 10;
+  margin-bottom: 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-s);
+  background: var(--paper-dim);
+  overflow: hidden;
+}
+
+.lib-tile-shot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+  display: block;
+}
+
+.lib-tile-blank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  background-image: var(--tone);
+  background-size: 6px 6px;
+  color: var(--ink-faint);
+  font-size: var(--fs-xs);
+}
+
+.lib-tile-glyph {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink-soft);
+}
+
+.lib-tile-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+  font-weight: 700;
+  font-size: 13.5px;
+  line-height: 1.3;
+}
+
+.lib-tile-slug {
+  padding: 0 2px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── one component ── */
+
+.lib-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 4px;
+  animation: rise 160ms ease-out;
+}
+
+.lib-detail-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lib-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 10px 4px 4px;
+  flex-shrink: 0;
+}
+
+.lib-back svg {
+  width: 16px;
+  height: 16px;
+}
+
+.lib-detail-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 22px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.lib-detail-name:hover {
+  border-color: var(--line-soft);
+}
+
+.lib-found {
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+  border: 1px dashed var(--line-soft);
+  border-radius: 99px;
+  padding: 2px 8px;
+}
+
+/* the command an agent installs it with */
+.lib-install {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 14px;
+  border: 1.5px solid var(--hairline);
+  border-radius: var(--radius-s);
+  background-image: var(--tone);
+  background-size: 6px 6px;
+}
+
+.lib-install code {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lib-install code::before {
+  content: "$ ";
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+.lib-copy {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  font-size: var(--fs-sm);
+  border: 1.5px solid var(--line-soft);
+  background: var(--paper);
+}
+
+.lib-copy.copied {
+  color: var(--paper);
+  background: var(--ink);
+}
+
+.lib-detail-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .lib-detail-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.lib-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lib-preview-main {
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-m);
+  background: var(--paper-dim);
+  overflow: hidden;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lib-preview-main .tool-image {
+  width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+}
+
+.lib-preview-main .tool-image img {
+  display: block;
+  width: 100%;
+  max-width: none;
+  max-height: 460px;
+  object-fit: contain;
+}
+
+.lib-preview-blank {
+  padding: 28px;
+  text-align: center;
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  color: var(--ink-faint);
+  background-image: var(--tone);
+  background-size: 6px 6px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lib-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* the × rides the corner of the picture, so the picture itself is free to
+   be what it looks like: something you click to see */
+.lib-thumb {
+  position: relative;
+  width: 76px;
+  height: 52px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background: var(--paper-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.lib-thumb.on,
+.lib-thumb:hover {
+  border-color: var(--ink);
+}
+
+.lib-thumb.add {
+  border-style: dashed;
+}
+
+.lib-thumb.add input {
+  display: none;
+}
+
+.lib-thumb.add svg {
+  width: 18px;
+  height: 18px;
+}
+
+.lib-thumb-pick {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: calc(var(--radius-s) - 1px);
+  background: none;
+  overflow: hidden;
+}
+
+.lib-thumb-pick img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.lib-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lib-note {
+  min-height: 132px;
+  resize: vertical;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.lib-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+}
+
+.lib-field > span {
+  width: 84px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.lib-field input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-md);
+  padding: 4px 8px;
+}
+
+.lib-field.static > div {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.lib-meta-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 6px;
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+
+.lib-remove {
+  margin-left: auto;
+  font-size: var(--fs-sm);
+}
+
+.lib-section-title {
+  margin-top: 6px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.lib-codebox {
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  background: var(--paper-bright);
+}
+
+.lib-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 1.5px solid var(--hairline);
+  overflow-x: auto;
+  background: var(--paper);
+}
+
+.lib-tab {
+  flex-shrink: 0;
+  padding: 5px 10px 6px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-s) var(--radius-s) 0 0;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+
+.lib-tab:hover {
+  background: var(--paper-dim);
+  color: var(--ink);
+}
+
+.lib-tab:active {
+  transform: none;
+}
+
+.lib-tab.on {
+  color: var(--ink);
+  font-weight: 700;
+  border-bottom-color: var(--ink);
+}
+
+/* a place it reaches into, not its own file */
+.lib-tab.reach {
+  font-style: italic;
+  color: var(--ink-faint);
+}
+
+.lib-tab.gone {
+  text-decoration: line-through;
+}
+
+.lib-tab-line {
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+.lib-tabs-gap {
+  flex: 1;
+}
+
+.lib-tabs .lib-copy {
+  margin-bottom: 5px;
+}
+
+.lib-code-path,
+.lib-code-cut {
+  padding: 6px 14px 0;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+}
+
+.lib-code-cut {
+  padding-top: 2px;
+}
+
+.lib-code {
+  max-height: 560px;
+  overflow: auto;
+  margin-top: 6px;
+}
+
+.lib-code-inner {
+  position: relative;
+  display: flex;
+  min-width: max-content;
+  padding: 4px 0 10px;
+}
+
+.lib-code-gutter,
+.lib-code-text {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: var(--lib-line);
+}
+
+.lib-code-gutter {
+  position: sticky;
+  left: 0;
+  z-index: var(--z-raised);
+  padding: 0 12px 0 14px;
+  text-align: right;
+  color: var(--ink-faint);
+  background: var(--paper-bright);
+  user-select: none;
+}
+
+/* positioned, so it paints over the marked line's band rather than under */
+.lib-code-text {
+  position: relative;
+  padding: 0 18px 0 6px;
+}
+
+.lib-code-text code {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+}
+
+/* the line the entry points at */
+.lib-code-mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--lib-line);
+  margin-top: 4px;
+  background: var(--paper-deep);
+  pointer-events: none;
+}
+
+.lib-code-missing {
+  padding: 16px;
+  font-size: var(--fs-md);
+  color: var(--ink-faint);
 }
 
 /* ── the new-component star ───────────────────────────────────────── */
@@ -4400,121 +4989,6 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: var(--fs-sm);
   font-weight: 600;
   padding: 3px 11px;
-}
-
-.comp-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.comp-name {
-  flex: 1;
-  font-weight: 700;
-  font-size: 14px;
-  border-color: transparent;
-  background: transparent;
-  padding: 3px 6px;
-}
-
-.comp-name:hover {
-  border-color: var(--line-soft);
-}
-
-.comp-field {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: var(--fs-sm);
-  color: var(--ink-faint);
-}
-
-.comp-field span {
-  width: 74px;
-  flex-shrink: 0;
-  text-align: right;
-}
-
-.comp-field input {
-  flex: 1;
-  font-size: var(--fs-md);
-  padding: 4px 8px;
-}
-
-.comp-note {
-  min-height: 46px;
-  resize: vertical;
-  font-size: var(--fs-md);
-  line-height: 1.6;
-}
-
-.comp-shots {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.comp-shot,
-.comp-shot-add {
-  width: 84px;
-  height: 58px;
-  padding: 0;
-  border: 1.5px solid var(--line-soft);
-  border-radius: var(--radius-s);
-  background: var(--paper-dim);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--ink-faint);
-}
-
-/* the × rides the corner of the picture, so the picture itself is free to
-   be what it looks like: something you click to see */
-.comp-shot {
-  position: relative;
-  overflow: visible;
-}
-
-.comp-shot .tool-image {
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: none;
-  border-radius: calc(var(--radius-s) - 1px);
-  background: none;
-  overflow: hidden;
-}
-
-.comp-shot .tool-image img {
-  width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
-  object-fit: cover;
-}
-
-.comp-shot:hover {
-  border-color: var(--ink);
-}
-
-.comp-shot-add {
-  border-style: dashed;
-}
-
-.comp-shot-add:hover {
-  color: var(--ink);
-  border-color: var(--ink);
-}
-
-.comp-shot-add input {
-  display: none;
-}
-
-.comp-shot-add svg {
-  width: 18px;
-  height: 18px;
 }
 
 /* ── skills ───────────────────────────────────────────────────────── */

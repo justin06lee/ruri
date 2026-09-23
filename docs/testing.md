@@ -34,6 +34,7 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 | `subagents-test` | none | a fake harness's agents become cards in the chat and logs of their own |
 | `hidden-test` | none | hidden projects, Home's drop file, the finder, and a toggle over the real server |
 | `asleep-test` | none | a window that goes to sleep stops the meters sampling, and wakes them again — the `awake` flag end to end, from the schema to the handler |
+| `naming-test` | none | `ruri register` over `POST /library`: in bypass a component goes straight into the library under its handle; otherwise a card comes up, the command doesn't wait on it, and the answer's name is the one kept; backend files are turned away |
 | `terminal-test` | none | a shell printing forty thousand lines: every one arrives, in order and in fewer messages than lines, and a window attaching later is given a capped scrollback ending where the shell did |
 | `rewind-compaction-test` | none | rewinding either side of a compaction, against the real server, no turn run |
 | `rewind-git-test` | none | a rewind through the real server on a scratch repo: only the discarded turns' changes out, the commit taken back, the context gauge back to the kept exchange |
@@ -50,7 +51,6 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 | `fork-test` | tokens | fork end to end, one real turn |
 | `queue-test`, `queue-arrange-test` | tokens | the app-side prompt queue: stop keeps it; reorder, merge, edit while it waits |
 | `question-test` | tokens | skipping an AskUserQuestion card is the end of it |
-| `naming-test` | tokens | in bypass, components name themselves |
 | `talk-test` | tokens | a chat asks a chat in another project and gets its answer back; outside bypass the card, and a no; `POST /talk` (free alone: `TALK_HTTP_ONLY=1`) |
 | `recall-test` | tokens | the recall note a finished reply leaves keeps the work it put forward |
 | `wake-turn-test` | tokens | a background task that ends between turns wakes the CLI: the chat goes busy by itself and the model answers, even with the chat open nowhere; a prompt sent the moment it wakes gets its own result, not the woken turn's |

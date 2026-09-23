@@ -22,6 +22,7 @@ import {
   type EarlierItem,
   type Idea,
   type NamedComponent,
+  type ComponentFile,
   type SecretMeta,
   type SkillInfo,
   type SubagentState,
@@ -366,6 +367,10 @@ interface RuriState {
   ideas: Record<string, Idea[]>;
   /** Component indexes, keyed by PROJECT id. */
   components: Record<string, NamedComponent[]>;
+  /** The folder each project's `ruri add` installs into, when set. */
+  componentDirs: Record<string, string>;
+  /** Components' code as the library page last read it, by component id. */
+  componentCode: Record<string, ComponentFile[]>;
   /** How each project's repo sweep is getting on. `at` is when the line
    *  last changed — a finished sweep's last word is worth reading, and
    *  worth taking down again a little later. */
@@ -513,6 +518,8 @@ export const useRuri = create<RuriState>((set) => ({
   tracker: {},
   ideas: {},
   components: {},
+  componentDirs: {},
+  componentCode: {},
   sweeps: {},
   bridges: {},
   secrets: [],
@@ -976,6 +983,7 @@ function apply(msg: ServerMessage): void {
         tracker: msg.tracker,
         ideas: msg.ideas,
         components: msg.components,
+        componentDirs: msg.componentDirs,
         secrets: msg.secrets,
         queued: msg.queued,
         queueHeld: msg.queuesHeld,
@@ -1209,7 +1217,16 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "components": {
-      setState((s) => ({ components: { ...s.components, [msg.projectId]: msg.items } }));
+      setState((s) => {
+        const dirs = { ...s.componentDirs };
+        if (msg.dir) dirs[msg.projectId] = msg.dir;
+        else delete dirs[msg.projectId];
+        return { components: { ...s.components, [msg.projectId]: msg.items }, componentDirs: dirs };
+      });
+      break;
+    }
+    case "component_code": {
+      setState((s) => ({ componentCode: { ...s.componentCode, [msg.componentId]: msg.files } }));
       break;
     }
     case "sweep": {

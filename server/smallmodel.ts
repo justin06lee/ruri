@@ -629,18 +629,17 @@ export function assembleTurns(
   return turns;
 }
 
-const SWEEP_SYSTEM = `You read source files from one project and name the parts of it a person would point at and talk about.
+const SWEEP_SYSTEM = `You read source files from one project and name the pieces of its interface a person would point at and talk about.
 
 The point is a user saying "the dragon gauges" or "the surah picker" and a model knowing exactly which files that is. So you are naming THINGS THE USER SEES AND USES, in the words they would use — never the code's own words.
 
 NAMING
 - Lowercase, plain, the phrase someone would say out loud: "the terminal tabs", "the file picker", "the login card". Never "DragonGauge", never "TerminalTabsComponent", never a filename.
-- Name the thing, not the file. One component usually spans several files (a view, its styles, the server side of it) — list them all under one name.
-- If a project has no visible interface at all, name its parts the same way: what a person working on it would call each piece ("the compaction pipeline", "the usage poller").
+- Name the thing, not the file. One component usually spans several files (a view and its styles) — list them all under one name, its own files first.
 
 WHAT EARNS A NAME
-- A screen, a panel, a card, a bar, a dialog, a control someone can point at. A named subsystem when there is no UI.
-- NOT: helpers, types, config, constants, utils, wrappers, test files, generated code, anything nobody would ever refer to by name.
+- Interface only: a screen, a panel, a card, a bar, a dialog, a control someone can see and point at.
+- NOT: backend code of any kind — servers, APIs, pipelines, workers, stores, databases — even when it is what the interface talks to. NOT helpers, types, config, constants, utils, wrappers, test files, generated code, anything nobody would ever refer to by name.
 - Better to return three real ones than nine padded ones. If a batch of files holds nothing worth naming, return an empty list.
 
 SELECTOR — this is what lets the project be opened and the thing photographed automatically, so it matters
@@ -653,7 +652,7 @@ SELECTOR — this is what lets the project be opened and the thing photographed 
 
 EACH ENTRY
 - "name": as above.
-- "files": repo-relative paths, only from the files you were given.
+- "files": repo-relative paths of the interface files that make it up, only from the files you were given.
 - "note": ONE line. What it is, and the one thing worth knowing before touching it. No filler, no "this component is responsible for".
 
 Skip anything the ALREADY NAMED list covers, under any wording.

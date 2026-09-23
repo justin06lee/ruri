@@ -86,6 +86,19 @@ export function want(language: string, code: string): string {
   return name;
 }
 
+/**
+ * A block's HTML for a view that draws it itself (the library's code
+ * view): the highlighting when it is known or cheap; otherwise the escaped
+ * text now, and the name to mark the <code> with so the highlighting is
+ * placed there when it comes back.
+ */
+export function highlightFor(language: string, code: string): { html: string; name?: string } {
+  const hit = known(language, code);
+  if (hit !== undefined) return { html: hit };
+  if (worthAWorker(code)) return { html: escapeHtml(code), name: want(language, code) };
+  return { html: highlightNow(language, code) };
+}
+
 /** Whether a block this long should be sent away rather than done here. */
 export function worthAWorker(code: string): boolean {
   return code.length >= INLINE_MAX && pool() !== undefined;

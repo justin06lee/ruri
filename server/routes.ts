@@ -1,8 +1,9 @@
 /**
  * The HTTP side of the server: health, music, uploads, the bridge's
- * pictures and calls, the files a chat may show, and — when there is a
- * built UI — the UI itself. Anything that changes something is checked for
- * its origin and token first (server/auth.ts).
+ * pictures and calls, talk, the `ruri` command, the files a chat may
+ * show, and — when there is a built UI — the UI itself. Anything that
+ * changes something is checked for its origin and token first
+ * (server/auth.ts).
  */
 import * as fs from "node:fs";
 import * as http from "node:http";
@@ -11,7 +12,9 @@ import { originAllowed, presentedToken, tokenMatches } from "./auth.js";
 import { bridgeDir, runBridge } from "./bridge.js";
 import { ownerProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
+import { libraryHost } from "./handlers/components.js";
 import { listSeats, sendLetter } from "./handlers/talk.js";
+import { runLibrary } from "./library.js";
 import { errorMessage, isMissing, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
 import { mimeOf, STATIC_MIME } from "./mime.js";
@@ -175,20 +178,56 @@ async function serveTalkCall(
   });
 }
 
+/**
+ * POST /library/<channelId> — the `ruri` command a session runs in its
+ * shell (server/library.ts): the arguments as repeated `a` fields and the
+ * shell's directory as `cwd`, form-encoded, answered as plain text for
+ * the command to print — 200 when it did what was asked, 400 when not.
+ * The chat's id is the right to change its project's library, as with
+ * the bridge and talk.
+ */
+async function serveLibraryCall(
+  ctx: ServerContext,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const reply = (status: number, text: string): void => {
+    res.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
+    // the command prints it with a newline of its own
+    res.end(text.replace(/\n+$/, ""));
+  };
+  const id = (req.url ?? "").slice("/library/".length).split("?")[0] ?? "";
+  const host = id && ctx.store.sessionIds().includes(id) ? libraryHost(ctx, id) : undefined;
+  if (!host) {
+    reply(404, "ruri: this session's chat is gone");
+    return;
+  }
+  let form: URLSearchParams;
+  try {
+    form = new URLSearchParams(await readBody(req, 1024 * 1024));
+  } catch (err) {
+    reply(400, `ruri: bad request: ${errorMessage(err)}`);
+    return;
+  }
+  const answer = runLibrary(host, form.getAll("a"), form.get("cwd") ?? undefined);
+  reply(answer.ok ? 200 : 400, answer.text);
+}
+
 export function createHttpServer(ctx: ServerContext): http.Server {
   const { options } = ctx;
   return http.createServer((req, res) => {
     const method = req.method ?? "GET";
     if (method !== "GET" && method !== "HEAD") {
       // Anything that changes something needs the page's own origin (or
-      // none) and the token. The exceptions are the bridge and talk calls,
-      // whose session id is their capability — harnesses curl them from
-      // shells with no token in hand — but they still refuse a browser's
-      // Origin.
+      // none) and the token. The exceptions are the bridge, talk and
+      // library calls, whose session id is their capability — harnesses
+      // curl them from shells with no token in hand — but they still
+      // refuse a browser's Origin.
       const pathname = (req.url ?? "/").split("?")[0] ?? "/";
       const bridgeCall =
         (pathname.startsWith("/bridge/") && !pathname.startsWith("/bridge/preview/")) ||
-        pathname.startsWith("/talk/");
+        pathname.startsWith("/talk/") ||
+        pathname.startsWith("/library/");
       if (!originAllowed(req.headers.origin, ctx.listeningPort, !options.staticDir)) {
         res.writeHead(403);
         res.end();
@@ -230,6 +269,10 @@ export function createHttpServer(ctx: ServerContext): http.Server {
     }
     if (req.method === "POST" && req.url?.startsWith("/talk/")) {
       void serveTalkCall(ctx, req, res);
+      return;
+    }
+    if (req.method === "POST" && req.url?.startsWith("/library/")) {
+      void serveLibraryCall(ctx, req, res);
       return;
     }
     if (req.url?.startsWith("/readfile?")) {

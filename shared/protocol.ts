@@ -231,23 +231,42 @@ export function ideaDraftKey(projectId: string): string {
 }
 
 /**
- * A named piece of a project's interface: the words the user actually uses
- * for it, where it lives in the code, and what it looks like.
+ * One piece of a project's interface in its component library: the words
+ * the user actually uses for it, the handle the library knows it by, its
+ * code, and what it looks like.
  *
  * The point is the gap between "the dragon gauges" and
- * `web/src/components/Dragon.tsx` — the user names things by what they see.
- * ruri keeps the index, writes it into the project as `.ruri/components.md`
- * for any harness to read, and hands the matching entries to the model
- * alongside a prompt that names one. Keyed by PROJECT id.
+ * `web/src/components/Dragon.tsx` — the user names things by what they see
+ * — and, past that, a library the agents build up and draw from: each
+ * entry can be looked up (`ruri search`), read (`ruri show`), and copied
+ * into place (`ruri add`), shadcn-style. ruri writes the library into the
+ * project as `.ruri/components.md` for any harness to read, as a skill for
+ * Claude, and hands the matching entries to the model alongside a prompt
+ * that names one. Interface only: screens, panels, controls — never the
+ * backend. Keyed by PROJECT id; every project has its own library.
  */
 export interface NamedComponent {
   id: string;
   /** What the user calls it. */
   name: string;
+  /** The library's handle for it — `ruri add peek-band` — kebab-case and
+   *  unique in its project. Made from the name when it arrives. */
+  slug: string;
   /** Other names that mean the same thing. */
   aliases: string[];
-  /** Where it lives — "web/src/components/Dragon.tsx:40" or a bare path. */
+  /** Its own code: the files `ruri add` copies and the page shows, as
+   *  repo-relative paths ("web/src/components/Dragon.tsx"). */
   files: string[];
+  /** Other places it reaches into — shared styles, the screen it sits on,
+   *  the server side of it — optionally with a line ("styles.css:2864").
+   *  Shown and read, never copied. */
+  uses?: string[];
+  /** Words to find it by beyond its name ("dialog", "nav", "animation"). */
+  tags?: string[];
+  /** Packages its code needs, which `ruri add` names for installing. */
+  deps?: string[];
+  /** Where `ruri add` has put copies of it, repo-relative. */
+  installs?: string[];
   /** Anything else the model should know before touching it. */
   note: string;
   /** What it looks like. */
@@ -273,6 +292,30 @@ export interface NamedComponent {
    *  built it — so the name is a guess until the user corrects it. */
   found?: boolean;
   ts: number;
+  /** When the entry last changed. */
+  updated?: number;
+}
+
+/**
+ * One of a component's files, as the library page reads it: the whole
+ * file, or — when it is long, or the entry points at a line in it — the
+ * stretch of it that matters, starting at `from`.
+ */
+export interface ComponentFile {
+  /** As the entry lists it, without the line. */
+  path: string;
+  /** Whether it is the component's own code (`files`) or a place it
+   *  reaches into (`uses`). */
+  own: boolean;
+  /** The line the entry points at. */
+  line?: number;
+  text?: string;
+  /** The first line of `text` (1 when it is the whole file). */
+  from?: number;
+  /** How many lines the file has in all. */
+  lines?: number;
+  /** Not there, or not readable. */
+  missing?: boolean;
 }
 
 /**
@@ -385,6 +428,14 @@ export interface ComponentProposal {
   files: string[];
   /** One line on what it is. */
   note: string;
+  /** The handle it should go into the library under (`peek-band`). */
+  slug?: string;
+  /** Places it reaches into beyond its own files ("styles.css:2864"). */
+  uses?: string[];
+  /** Words to find it by. */
+  tags?: string[];
+  /** Packages its code needs. */
+  deps?: string[];
   /** An image of it the model already has, as a path on disk. Server-side
    *  only: the card is sent `image`, which is ruri's own copy of it. */
   shot?: string;
@@ -1210,7 +1261,7 @@ export type ClientMessage =
       attachments?: DraftAttachmentUpload[];
     }
   | { type: "idea_remove"; projectId: string; ideaId: string }
-  /* ── the component index (per PROJECT id) ───────────────────────── */
+  /* ── the component library (per PROJECT id) ─────────────────────── */
   /** Answer a naming card: the name the user settled on, or skip. */
   | {
       type: "component_named";
@@ -1225,8 +1276,12 @@ export type ClientMessage =
       projectId: string;
       componentId: string;
       name?: string;
+      slug?: string;
       aliases?: string[];
       files?: string[];
+      uses?: string[];
+      tags?: string[];
+      deps?: string[];
       note?: string;
       /** How to find it in the running app, so it can be photographed:
        *  the selector, and optionally the route and the clicks that bring
@@ -1250,6 +1305,11 @@ export type ClientMessage =
   /** The user has looked: take the star off one component, or off all of
    *  them (which is what leaving the page means). */
   | { type: "component_seen"; projectId: string; componentId?: string }
+  /** Read a component's code for the library page — answered with
+   *  `component_code`, to this window only. */
+  | { type: "component_code"; projectId: string; componentId: string }
+  /** The folder `ruri add` copies components into ("" forgets it). */
+  | { type: "library_dir"; projectId: string; dir: string }
   /* ── the vault ──────────────────────────────────────────────────── */
   /** Save (or overwrite) one credential. An absent `secret` keeps the
    *  stored value and edits only the fields around it. */
@@ -1382,8 +1442,10 @@ export type ServerMessage =
       tracker: Record<string, TrackerItem[]>;
       /** Ideas boards, keyed by PROJECT id. */
       ideas: Record<string, Idea[]>;
-      /** Component indexes, keyed by PROJECT id. */
+      /** Component libraries, keyed by PROJECT id. */
       components: Record<string, NamedComponent[]>;
+      /** Where each project's library installs to, when that is set. */
+      componentDirs: Record<string, string>;
       /** The vault's names (never its values). */
       secrets: SecretMeta[];
       /** App-side prompt queues per channel (visible entries only). */
@@ -1445,8 +1507,10 @@ export type ServerMessage =
   | { type: "turn_summary"; projectId: string; turnId: string; note: TurnNote }
   /** A project's ideas board. */
   | { type: "ideas"; projectId: string; items: Idea[] }
-  /** A project's component index. */
-  | { type: "components"; projectId: string; items: NamedComponent[] }
+  /** A project's component library, and the folder it installs to. */
+  | { type: "components"; projectId: string; items: NamedComponent[]; dir?: string }
+  /** A component's code, as the library page asked for it. */
+  | { type: "component_code"; projectId: string; componentId: string; files: ComponentFile[] }
   /** How the repo sweep is getting on. `busy` drives the button; `note` is
    *  the one line under it, and is what the sweep is doing right now. */
   | { type: "sweep"; projectId: string; busy: boolean; note?: string }

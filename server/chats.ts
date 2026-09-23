@@ -8,15 +8,12 @@ import type { ContextUsage, PermissionRequest } from "../shared/protocol.js";
 import { BRIDGE_TOOLS, bridgeHttpBriefing, bridgeTools, bridgeToolBriefing } from "./bridge.js";
 import { sessionBriefing } from "./briefing.js";
 import { channelProject, ownerProject } from "./channel.js";
-import {
-  COMPONENT_TOOLS,
-  componentDropBriefing,
-  componentTools,
-  drainComponentRequests,
-} from "./components.js";
+import { COMPONENT_TOOLS, componentTools } from "./components.js";
 import type { ServerContext } from "./context.js";
 import { drainQueue, holdForTheWorld, maybeRetry } from "./dispatch.js";
 import { recordEvent, redacted } from "./events.js";
+import { ensureLibrarySkill, libraryEndpoint } from "./handlers/components.js";
+import { cliEnv, skillDir } from "./library.js";
 import { HOME_ID, managerExtras } from "./manager.js";
 import { talkHost, talkTurnEnded } from "./handlers/talk.js";
 import { ParagraphGate } from "./paragraphs.js";
@@ -77,9 +74,6 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             });
             ctx.clients.broadcast({ type: "stats", projectId: spender, stats: ctx.ledger.stats(spender) });
           }
-          // a harness without ruri's tools names its components in a file
-          const owner = ownerProject(ctx, projectId);
-          if (owner) drainComponentRequests(owner.path, projectId, ctx.componentHost);
           if (event.blocked && !event.ok) {
             // the connection or the account let the turn down, and every
             // prompt behind it would meet the same, one after another: the
@@ -192,6 +186,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       // which is long before any session is made
       const owner = ownerProject(ctx, project.id);
       const bridgeCtx = { channelId: project.id, projectId: owner?.id ?? project.id };
+      if (owner) ensureLibrarySkill(ctx, owner.id);
       const bridge = !ctx.options.bridge
         ? ""
         : claude
@@ -202,8 +197,9 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         projectName: project.name,
         secrets: ctx.secrets,
         claude,
-        // Claude gets tools for naming; everything else gets the drop file
-        naming: claude ? "tool" : componentDropBriefing(project.path),
+        // Claude gets a tool for naming, and asks the user; everything
+        // else registers from the shell with `ruri register`
+        naming: claude ? "tool" : "",
         bridge,
         // the other agents open in ruri: tools, or the same over HTTP
         talk: claude
@@ -218,12 +214,18 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         // ruri asks the user about these itself, message by message
         autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS, ...TALK_TOOLS],
         options: {
-          // the vault rides into the harness process here, and only here
-          env: ctx.secrets.env(),
+          // the vault rides into the harness process here, and only here —
+          // beside the `ruri` command and where it posts
+          env: { ...ctx.secrets.env(), ...cliEnv(libraryEndpoint(ctx, project.id)) },
           mcpServers: {
             ruri: componentTools(ctx.componentHost, project.id, talkTools(talkHost(ctx), project.id)),
             bridge: bridgeTools(ctx.options.bridge, bridgeCtx),
           },
+          // the component library as a skill, whose list changes and whose
+          // description never does (server/library.ts)
+          ...(owner
+            ? { plugins: [{ type: "local", path: skillDir(owner.id), skipMcpDiscovery: true }] }
+            : {}),
           ...(note ? { systemPrompt: { type: "preset", preset: "claude_code", append: note } } : {}),
         },
         ...(note ? { providerSystem: note } : {}),
@@ -234,7 +236,11 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       // the chat's id rides in beside the vault, for the same reason it
       // does in `tagged` below (server/resources.ts)
       create: (id, workDir, channelId) =>
-        ctx.models.registry.createFor(id, workDir, { ...ctx.secrets.env(), RURI_CHANNEL: channelId }),
+        ctx.models.registry.createFor(id, workDir, {
+          ...ctx.secrets.env(),
+          ...(channelId === HOME_ID ? {} : cliEnv(libraryEndpoint(ctx, channelId))),
+          RURI_CHANNEL: channelId,
+        }),
       canFork: (id) => ctx.models.registry.canForkSession(id),
     },
     (projectId) => ctx.archive.takeResumeAt(projectId),

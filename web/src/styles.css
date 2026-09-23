@@ -4705,6 +4705,12 @@ input[type="range"]::-webkit-slider-thumb {
   padding-top: 6px;
 }
 
+.vault-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .vault-row {
   display: flex;
   align-items: center;
@@ -8432,11 +8438,6 @@ button.stop:hover {
   padding: 5px 8px;
 }
 
-.int-results {
-  max-height: 380px;
-  overflow-y: auto;
-}
-
 .int-market-add {
   margin-top: 6px;
 }
@@ -8453,9 +8454,16 @@ button.stop:hover {
   user-select: none;
 }
 
+/* the table can run to hundreds of rows: it scrolls past a dozen or so,
+   the way every open-ended list in a page does (components/Capped.tsx) */
+.grants-scroll {
+  max-height: 264px;
+  overflow-y: auto;
+  margin-top: 6px;
+}
+
 .grants-rows table {
   width: 100%;
-  margin-top: 6px;
   border-collapse: collapse;
   font-family: var(--mono);
   font-size: var(--fs-xs);
@@ -8659,7 +8667,8 @@ button.stop:hover {
   grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr) minmax(0, 1.2fr);
 }
 
-.stats-row + .stats-row {
+.stats-row + .stats-row,
+.stats-head + .capped {
   border-top: 1.5px solid var(--hairline);
 }
 

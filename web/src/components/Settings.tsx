@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { HarnessInfo, ModelRole, PermissionId, PermissionState } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 import { BandEditor } from "./BandEditor";
+import { Capped } from "./Capped";
 import { HeroEditor } from "./HeroEditor";
 import { Integrations } from "./Integrations";
 import { STAR_PATH } from "../icons";
@@ -57,7 +58,7 @@ function ModelCatalog() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      <div className={`model-list ${dragging ? "carrying" : ""}`}>
+      <Capped max={8} className={`model-list ${dragging ? "carrying" : ""}`}>
         {rows.length === 0 && <div className="model-empty">Nothing matches.</div>}
         {rows.map((m) => {
           const starred = starredIds.includes(m.value);
@@ -132,7 +133,7 @@ function ModelCatalog() {
             </div>
           );
         })}
-      </div>
+      </Capped>
       <div className="model-hint">
         Starred models are what the composer's model picker offers. The star only favourites and unfavourites.
         The small-tasks model — session titles, turn summaries, prompt splitting, the tracker, starting on GPT
@@ -183,29 +184,33 @@ function Vault() {
 
   return (
     <div className="vault">
-      {secrets.map((entry) => (
-        <div key={entry.id} className="vault-row">
-          <span className="vault-handle">{`{{${entry.name}}}`}</span>
-          {entry.username && <span className="vault-who">{entry.username}</span>}
-          {!entry.hasValue && <span className="vault-who">no value yet</span>}
-          <button
-            className="ghost"
-            title="Edit — the stored value stays unless you type a new one"
-            onClick={() => {
-              setEditing(entry.id);
-              setName(entry.name);
-              setUsername(entry.username ?? "");
-              setNote(entry.note ?? "");
-              setSecret("");
-            }}
-          >
-            Edit
-          </button>
-          <button className="ghost" onClick={() => send({ type: "secret_remove", id: entry.id })}>
-            Forget
-          </button>
-        </div>
-      ))}
+      {secrets.length > 0 && (
+        <Capped className="vault-rows">
+          {secrets.map((entry) => (
+            <div key={entry.id} className="vault-row">
+              <span className="vault-handle">{`{{${entry.name}}}`}</span>
+              {entry.username && <span className="vault-who">{entry.username}</span>}
+              {!entry.hasValue && <span className="vault-who">no value yet</span>}
+              <button
+                className="ghost"
+                title="Edit — the stored value stays unless you type a new one"
+                onClick={() => {
+                  setEditing(entry.id);
+                  setName(entry.name);
+                  setUsername(entry.username ?? "");
+                  setNote(entry.note ?? "");
+                  setSecret("");
+                }}
+              >
+                Edit
+              </button>
+              <button className="ghost" onClick={() => send({ type: "secret_remove", id: entry.id })}>
+                Forget
+              </button>
+            </div>
+          ))}
+        </Capped>
+      )}
 
       <div className="vault-form">
         <input placeholder="name (deploy-box)" value={name} onChange={(e) => setName(e.target.value)} />
@@ -757,59 +762,61 @@ function Harnesses() {
       {harnesses.length === 0 && (
         <p className="settings-note">The first look is a minute and a half after launch — or Check now.</p>
       )}
-      {harnesses.map((h) => {
-        const late = behind(h);
-        const status = h.updating
-          ? "updating"
-          : h.channel === "other"
-            ? "not ours"
-            : late
-              ? "behind"
-              : h.latest
-                ? "current"
-                : "unknown";
-        return (
-          <div key={h.id} className="grant-row harness-row">
-            <span className={`grant-status harness-status ${status.replace(" ", "-")}`}>
-              {status === "behind" ? `v${h.latest} out` : status}
-            </span>
-            <span className="grant-body">
-              <span className="grant-name">
-                {h.label} <span className="harness-version">{h.version ? `v${h.version}` : "?"}</span>
+      <Capped>
+        {harnesses.map((h) => {
+          const late = behind(h);
+          const status = h.updating
+            ? "updating"
+            : h.channel === "other"
+              ? "not ours"
+              : late
+                ? "behind"
+                : h.latest
+                  ? "current"
+                  : "unknown";
+          return (
+            <div key={h.id} className="grant-row harness-row">
+              <span className={`grant-status harness-status ${status.replace(" ", "-")}`}>
+                {status === "behind" ? `v${h.latest} out` : status}
               </span>
-              <span className="grant-why" title={h.path}>
-                {[
-                  h.updatedAt ? `updated from v${h.from} ${ago(h.updatedAt)}` : undefined,
-                  late || h.channel === "other" ? h.note : undefined,
-                  `${CHANNEL_WORD[h.channel]}${h.pkg && h.channel !== "self" ? ` · ${h.pkg}` : ""}`,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
+              <span className="grant-body">
+                <span className="grant-name">
+                  {h.label} <span className="harness-version">{h.version ? `v${h.version}` : "?"}</span>
+                </span>
+                <span className="grant-why" title={h.path}>
+                  {[
+                    h.updatedAt ? `updated from v${h.from} ${ago(h.updatedAt)}` : undefined,
+                    late || h.channel === "other" ? h.note : undefined,
+                    `${CHANNEL_WORD[h.channel]}${h.pkg && h.channel !== "self" ? ` · ${h.pkg}` : ""}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
               </span>
-            </span>
-            {h.channel !== "other" && (
-              <label className="harness-auto" title="Keep it current by itself, on the hour">
-                <input
-                  type="checkbox"
-                  checked={h.auto !== false}
-                  onChange={(e) => send({ type: "set_harness_auto", id: h.id, auto: e.target.checked })}
-                />
-                by itself
-              </label>
-            )}
-            {h.channel !== "other" && (
-              <button
-                className="ghost grant-ask"
-                disabled={h.updating || !late}
-                title={late ? `Update to v${h.latest} now` : "Already the newest"}
-                onClick={() => send({ type: "check_harnesses", id: h.id })}
-              >
-                {h.updating ? "updating…" : "Update"}
-              </button>
-            )}
-          </div>
-        );
-      })}
+              {h.channel !== "other" && (
+                <label className="harness-auto" title="Keep it current by itself, on the hour">
+                  <input
+                    type="checkbox"
+                    checked={h.auto !== false}
+                    onChange={(e) => send({ type: "set_harness_auto", id: h.id, auto: e.target.checked })}
+                  />
+                  by itself
+                </label>
+              )}
+              {h.channel !== "other" && (
+                <button
+                  className="ghost grant-ask"
+                  disabled={h.updating || !late}
+                  title={late ? `Update to v${h.latest} now` : "Already the newest"}
+                  onClick={() => send({ type: "check_harnesses", id: h.id })}
+                >
+                  {h.updating ? "updating…" : "Update"}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </Capped>
     </div>
   );
 }
@@ -897,20 +904,22 @@ function Grants() {
       {grants && grants.rows.length > 0 && (
         <details className="grants-rows">
           <summary>What macOS remembers — ruri, the CLIs, the shell ({grants.rows.length} rows)</summary>
-          <table>
-            <tbody>
-              {grants.rows.map((row) => (
-                <tr key={`${row.service}|${row.client}|${row.at}`} className={row.allowed ? "" : "refused"}>
-                  <td className="grants-service">{row.service}</td>
-                  <td className="grants-client" title={row.client}>
-                    {row.client.replace(/^\/Users\/[^/]+/, "~")}
-                  </td>
-                  <td className="grants-verdict">{row.allowed ? "allowed" : "refused"}</td>
-                  <td className="grants-when">{new Date(row.at).toLocaleDateString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="grants-scroll">
+            <table>
+              <tbody>
+                {grants.rows.map((row) => (
+                  <tr key={`${row.service}|${row.client}|${row.at}`} className={row.allowed ? "" : "refused"}>
+                    <td className="grants-service">{row.service}</td>
+                    <td className="grants-client" title={row.client}>
+                      {row.client.replace(/^\/Users\/[^/]+/, "~")}
+                    </td>
+                    <td className="grants-verdict">{row.allowed ? "allowed" : "refused"}</td>
+                    <td className="grants-when">{new Date(row.at).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </details>
       )}
       {grants && grants.rows.length === 0 && (

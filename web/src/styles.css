@@ -8744,11 +8744,15 @@ button.stop:hover {
 
 /* the count rides the row the way a folder's does — how many, and nothing
    about what they are doing (Sidebar.tsx's ProjectsRow says why) */
-/* the Projects row's dragon, standing just ahead of the count — and taking
-   the count's push to the right edge when it is there */
+/* the Projects row's dragon, standing just ahead of the count of projects
+   at work — and taking the count's push to the right edge. A hair higher
+   than centred: its jaw hangs low in the drawing, and beside the digits it
+   read as sitting under them. */
 .row-count-dragon {
   margin-left: auto;
   flex-shrink: 0;
+  position: relative;
+  top: -1.5px;
 }
 
 .row-count-dragon + .row-count {

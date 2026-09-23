@@ -67,13 +67,6 @@ export function defaultBand(): Band {
   };
 }
 
-/** Whether a picture does anything under the pointer — and so has to
- *  catch it, which in the desktop app means leaving the window's drag
- *  region (components/PeekBand.tsx). */
-export function reacts(picture: BandPicture): boolean {
-  return picture.effect !== "none" || Boolean(picture.hoverSrc) || picture.animate === "hover";
-}
-
 /* ── reading it back ─────────────────────────────────────────────── */
 
 /** Only pictures ruri serves itself: the built-in heads and uploads. */

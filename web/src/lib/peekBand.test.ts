@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { PEEKS } from "../peek";
-import { defaultBand, EFFECTS, MAX_PICTURES, parseBand, reacts, type BandPicture } from "./peekBand";
+import { defaultBand, EFFECTS, MAX_PICTURES, parseBand, type BandPicture } from "./peekBand";
 
 const picture = (over: Partial<BandPicture> = {}): BandPicture => ({
   id: "a",
@@ -26,7 +26,7 @@ describe("parseBand", () => {
     expect(band.pictures.map((p) => [p.src, p.x, p.w, p.drop])).toEqual(
       PEEKS.map((p) => [`/peek/u${p.n}.png`, p.x, p.w, p.drop]),
     );
-    expect(band.pictures.every((p) => !reacts(p))).toBe(true);
+    expect(band.pictures.every((p) => p.effect === "none" && !p.hoverSrc)).toBe(true);
   });
 
   test("something unreadable is the default too", () => {
@@ -85,15 +85,5 @@ describe("parseBand", () => {
   test("no more than the band holds", () => {
     const many = Array.from({ length: MAX_PICTURES + 5 }, (_, i) => picture({ id: `p${i}` }));
     expect(parseBand(stored(many)).pictures).toHaveLength(MAX_PICTURES);
-  });
-});
-
-describe("reacts", () => {
-  test("a picture reacts when it has anything to do under the pointer", () => {
-    expect(reacts(picture())).toBe(false);
-    expect(reacts(picture({ effect: "lift" }))).toBe(true);
-    expect(reacts(picture({ hoverSrc: "/uploads/x.png" }))).toBe(true);
-    expect(reacts(picture({ animate: "hover" }))).toBe(true);
-    expect(reacts(picture({ animate: "still" }))).toBe(false);
   });
 });

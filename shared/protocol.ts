@@ -1263,8 +1263,9 @@ export type ClientMessage =
   /** Keep a picture for the peek band or the hero face; answered with
    *  picture_stored. */
   | { type: "store_picture"; upload: AttachmentUpload }
-  /** Carry the window with the cursor, from a band picture that has to see
-   *  the pointer and so is not part of the title bar's drag region. */
+  /** Carry the window with the cursor, from a press on the peek band —
+   *  which, while ruri is in use, sees the pointer instead of being part
+   *  of the title bar's drag region. */
   | { type: "window_drag"; phase: WindowDragPhase };
 
 export type ServerMessage =

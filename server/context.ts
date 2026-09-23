@@ -71,9 +71,9 @@ export interface StartServerOptions {
   pickFolder?: () => Promise<string | null>;
   /**
    * Host-provided window carrying (the Electron shell passes one): a press
-   * on a peek band picture that has to see the pointer — and so is not part
-   * of the title bar's drag region — moves the window with the cursor
-   * instead (web/src/components/PeekBand.tsx).
+   * on the peek band — which, while ruri is in use, is not part of the
+   * title bar's drag region, so its pictures can see the pointer — moves
+   * the window with the cursor instead (web/src/components/PeekBand.tsx).
    */
   windowDrag?: (phase: WindowDragPhase) => void;
   /**

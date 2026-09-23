@@ -116,12 +116,12 @@ let carrying: { cursor: Electron.Point; at: [number, number] } | undefined;
 let unzoomed: Electron.Rectangle | undefined;
 
 /**
- * Carry the window by a peek band picture. The band is the title bar, but
- * a picture with a hover of its own has to see the pointer, so it is cut
- * out of the drag region (web/src/components/PeekBand.tsx) — and a press on
- * it moves the window here instead: from where the window stood, by as far
- * as the cursor has come. The page says when the press starts, moves and
- * ends; nothing here runs between presses.
+ * Carry the window by the peek band. The band is the title bar, but its
+ * pictures have to see the pointer, so while ruri is the window in use
+ * the band is no drag region at all (web/src/components/PeekBand.tsx) —
+ * and a press on it moves the window here instead: from where the window
+ * stood, by as far as the cursor has come. The page says when the press
+ * starts, moves and ends; nothing here runs between presses.
  */
 function windowDrag(phase: WindowDragPhase): void {
   const win = appWindow;

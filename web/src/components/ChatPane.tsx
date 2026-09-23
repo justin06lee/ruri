@@ -717,7 +717,7 @@ function ChatView({
         </button>
         <button
           className={`icon-button ${page === "architecture" ? "active" : ""}`}
-          title="Architecture — what this project is, the stack, how it fits together, and where the work stands"
+          title="Architecture — what this project is, the stack, how it fits together, and where things are"
           onClick={() => setPage(page === "architecture" ? "chat" : "architecture")}
         >
           {/* three layers stacked: the stack, and the page that draws it */}

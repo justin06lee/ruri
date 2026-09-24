@@ -170,8 +170,10 @@ export class ProjectStore {
 
   /**
    * The star is a favourite, nothing more: starred or not. Roles (small-tasks,
-   * default) are handed over by dragging their tags onto another model, and
-   * unstarring a role holder releases the role.
+   * default) are handed over by dragging their tags onto another model — and
+   * a model holding one keeps its star. Unstarring it used to release the
+   * role, which took the tag off the page with nowhere left to drag it back
+   * from; the tag goes to another model first.
    */
   cycleModelStar(model: string): {
     starred: string[];
@@ -179,9 +181,8 @@ export class ProjectStore {
     default: string | undefined;
   } {
     if (this.starredModelIds.includes(model)) {
+      if (this.smallModelId === model || this.defaultModel() === model) return this.modelRoles();
       this.starredModelIds = this.starredModelIds.filter((m) => m !== model);
-      if (this.smallModelId === model) this.smallModelId = undefined;
-      if (this.defaultModelId === model) this.setDefaultModel(undefined);
     } else {
       this.starredModelIds = [...this.starredModelIds, model];
     }

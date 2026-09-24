@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { HarnessInfo, ModelRole, PermissionId, PermissionState } from "../../../shared/protocol";
+import type {
+  HarnessInfo,
+  ModelChoice,
+  ModelRole,
+  PermissionId,
+  PermissionState,
+} from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
@@ -9,6 +15,7 @@ import { Integrations } from "./Integrations";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
 import { markFor } from "../lib/marks";
+import { roughName } from "../lib/models";
 import {
   applyTheme,
   currentTheme,
@@ -19,6 +26,26 @@ import {
   themeAt,
   THEMES,
 } from "../theme";
+
+/** A row for a model no harness lists right now — a CLI that stopped
+ *  offering it, or a catalog not probed yet — named from its id. */
+function unlisted(value: string): ModelChoice {
+  const colon = value.indexOf(":");
+  if (colon === -1) {
+    return { value, displayName: `${roughName(value)}${value.endsWith("[1m]") ? " 1M" : ""}` };
+  }
+  const provider = value.slice(0, colon);
+  return {
+    value,
+    displayName:
+      value
+        .slice(colon + 1)
+        .split("/")
+        .pop() || value,
+    provider,
+    providerLabel: provider,
+  };
+}
 
 /**
  * The device-wide model catalog: every model every installed harness can
@@ -42,8 +69,15 @@ function ModelCatalog() {
     send({ type: "refresh_models" });
   }, []);
 
+  // A starred model or a role's holder keeps its row when the harnesses stop
+  // listing it — the Claude CLI once dropped every [1m] model, and the
+  // default's tag went with it, out of reach.
+  const listed = new Set(models.map((m) => m.value));
+  const kept = [...new Set([...starredIds, smallModel, defaultModel])]
+    .filter((value) => value && !listed.has(value))
+    .map(unlisted);
   const q = query.trim().toLowerCase();
-  const matches = models.filter((m) =>
+  const matches = [...models, ...kept].filter((m) =>
     `${m.displayName} ${m.value} ${m.providerLabel ?? "claude code"}`.toLowerCase().includes(q),
   );
   // starred float to the top, catalog order within each half
@@ -111,7 +145,14 @@ function ModelCatalog() {
             >
               <button
                 className={`model-star ${starred ? "on" : ""}`}
-                title={starred ? "Starred — click to unstar" : "Star — pin into the picker"}
+                title={
+                  starred && (small || isDefault)
+                    ? `The ${small ? "small-tasks model" : "default"} stays starred — drag its tag to another model first`
+                    : starred
+                      ? "Starred — click to unstar"
+                      : "Star — pin into the picker"
+                }
+                disabled={starred && (small || isDefault)}
                 onClick={() => send({ type: "toggle_model_star", model: m.value })}
               >
                 <svg
@@ -126,7 +167,10 @@ function ModelCatalog() {
                 </svg>
               </button>
               <ModelIcon pick={markFor(m.value, m)} />
-              <span className="model-name" title={m.value}>
+              <span
+                className="model-name"
+                title={listed.has(m.value) ? m.value : `${m.value} — not in its harness's list right now`}
+              >
                 {m.displayName}
               </span>
               {small &&
@@ -138,10 +182,11 @@ function ModelCatalog() {
         })}
       </Capped>
       <div className="model-hint">
-        Starred models are what the composer's model picker offers. The star only favourites and unfavourites.
-        The small-tasks model — session titles, turn summaries, prompt splitting, the tracker, starting on GPT
-        Luna — and the default that new chats and projects start on, starting on Fable 5.1, move by dragging
-        their tags onto another model (nothing already open moves).
+        Starred models are what the composer's model picker offers. The star only favourites and unfavourites
+        — except on a model wearing a tag, which stays starred until the tag moves. The small-tasks model —
+        session titles, turn summaries, prompt splitting, the tracker, starting on GPT Luna — and the default
+        that new chats and projects start on, starting on Fable 5.1, move by dragging their tags onto another
+        model (nothing already open moves).
       </div>
     </div>
   );

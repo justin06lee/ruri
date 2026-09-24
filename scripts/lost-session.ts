@@ -85,8 +85,13 @@ function claudeDirsOf(dir: string): string[] {
     return [];
   }
 }
-function cleanup(code: number): never {
+/** The server first, and the CLIs it closes on its way out — one still
+ *  shutting down writes a last line into a transcript folder removed under it. */
+async function cleanup(code: number): Promise<never> {
+  const exited = new Promise((resolve) => server.once("exit", resolve));
   server.kill("SIGINT");
+  await Promise.race([exited, new Promise((r) => setTimeout(r, 5_000))]);
+  await new Promise((r) => setTimeout(r, 1_000));
   for (const dir of [dirA, dirB]) {
     for (const claudeDir of claudeDirsOf(dir)) fs.rmSync(claudeDir, { recursive: true, force: true });
     fs.rmSync(dir, { recursive: true, force: true });
@@ -96,7 +101,7 @@ function cleanup(code: number): never {
 }
 setTimeout(() => {
   console.error("LOST-SESSION FAIL: timed out");
-  cleanup(1);
+  void cleanup(1);
 }, 300_000).unref();
 
 async function connect(url: string): Promise<WebSocket> {
@@ -111,7 +116,7 @@ async function connect(url: string): Promise<WebSocket> {
     } catch {
       if (Date.now() - start > 60_000) {
         console.error("LOST-SESSION FAIL: could not connect");
-        cleanup(1);
+        await cleanup(1);
       }
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -231,4 +236,4 @@ check(
 );
 
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
-cleanup(failed === 0 ? 0 : 1);
+await cleanup(failed === 0 ? 0 : 1);

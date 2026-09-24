@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { builtinSrc as heroUrl, HERO_COUNT } from "./lib/heroFace";
 import { HERO_CENTER, type HeroFrame, type Peek, PEEKS, HERO_FRAMES } from "./peek";
 import "@fontsource-variable/space-grotesk";
 import "./styles.css";
 import "./tuner.css";
+
+// the hero faces are gone from the app (and their pictures with them); the
+// tuner is on its way out too
+const HERO_COUNT = 12;
+const heroUrl = (n: number): string => `/hero/v${n}.png`;
 
 /**
  * The art tuner: place the peeking heads in the titlebar band, and frame each

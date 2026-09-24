@@ -27,7 +27,7 @@ import { NO_EARLIER, NO_EVENTS, NO_QUEUED, NO_SUMMARIES } from "./chat/empty";
 import { Architecture } from "./Architecture";
 import { Components } from "./Components";
 import { Composer } from "./Composer";
-import { HeroTop } from "./HeroFace";
+import { EmptyTop } from "./EmptyTop";
 import { CompactionMark, EventView } from "./EventView";
 import { Exchange, groupTurns, NO_EXCERPTS, turnExcerpts, type Half } from "./Exchange";
 import { HomeDeck, type HomeTab } from "./HomeBoard";
@@ -759,8 +759,8 @@ function ChatView({
 
   // What the chat shows — on Home, the chat's side of the deck.
   const view = (() => {
-    // The pad, wherever it was opened from — over a fresh session's hero as
-    // much as over a conversation.
+    // The pad, wherever it was opened from — over a fresh session as much
+    // as over a conversation.
     if (sketch) {
       return (
         <main className={pane("chat")}>
@@ -802,8 +802,8 @@ function ChatView({
       );
     }
 
-    // No conversation yet (Home or a fresh project): the hero — face, a big
-    // title, and the composer front and center.
+    // No conversation yet (Home or a fresh project): a big title and the
+    // composer front and center.
     if (transcript.length === 0 && !draft && permissions.length === 0) {
       return (
         <main className={pane("chat home-hero")}>
@@ -816,13 +816,7 @@ function ChatView({
               there before its first prompt too; Home has none */}
           {header}
           <div className="hero">
-            {/* keyed by chat: each one's face is drawn as it comes up */}
-            <HeroTop
-              key={isHome ? HOME_ID : (boardId ?? activeId)}
-              channel={isHome ? HOME_ID : (boardId ?? activeId)}
-              home={isHome}
-              {...(isHome ? {} : { title: session?.title ?? project.name })}
-            />
+            <EmptyTop home={isHome} {...(isHome ? {} : { title: session?.title ?? project.name })} />
             <div className="hero-composer">
               {rapid?.on && <RapidBar rapid={rapid} />}
               <Composer

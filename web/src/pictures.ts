@@ -5,7 +5,7 @@ import { HTTP_BASE, send } from "./store";
 
 /**
  * The user's own pictures, wherever the app shows them — the peek band
- * (band.ts), the hero face (hero.ts): kept as uploads, fetched once, and
+ * (band.ts): kept as uploads, fetched once, and
  * known to move or not, with a still of the first frame for one that does.
  * And which of its frames a picture should be showing: moving, held still,
  * or started over from the top because the pointer just arrived.
@@ -156,11 +156,11 @@ const EXT: Record<string, string> = {
 
 /**
  * Keep a picture the user picked, and answer with the URL it is served
- * from. `kind` names the file (band.gif, face.png) — short, since the URL
+ * from. `kind` names the file (band.gif) — short, since the URL
  * lands in a preference. Throws, with something to say, when it can't be
  * used.
  */
-export async function storePicture(file: File, kind: "band" | "face"): Promise<string> {
+export async function storePicture(file: File, kind: "band"): Promise<string> {
   if (!file.type.startsWith("image/")) throw new Error(`${file.name} is not a picture`);
   if (file.size > MAX_PICTURE_BYTES) throw new Error(`${file.name} is over 25 MB`);
   const blob = file.type === "image/svg+xml" ? await rasterize(file) : file;

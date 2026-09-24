@@ -154,7 +154,7 @@ body {
   color: var(--paper);
 }
 
-/* Chrome art (the hero face, thumbnails) is not selectable or draggable —
+/* Chrome art (the peek band, thumbnails) is not selectable or draggable —
    a drag-select across the page must never paint over the images. */
 img,
 video {
@@ -415,7 +415,7 @@ html:not([data-asleep]) .desktop .sidebar-header {
 }
 
 /* ── the hovers (lib/effects.ts) ──────────────────────────────────────
-   Shared by the peek band and the hero face: `.fx-host` is what catches
+   The peek band's: `.fx-host` is what catches
    the pointer and stays put, `.fx-art` inside it is what moves. --amt is
    the strength in the effect's own unit, --speed how long the move takes,
    or one round of one that repeats. */
@@ -1379,7 +1379,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* Home is two pages under one strip: the agent's chat and the statistics.
    The strip floats over the top of both (HomeDeck, HomeBoard.tsx), so the
-   hero's face stays centred in the pane; a conversation, and the
+   empty chat stays centred in the pane; a conversation, and the
    statistics, leave its height free at their top (.home-tabs-space). */
 .home-tabs {
   position: absolute;
@@ -1851,92 +1851,6 @@ input[type="range"]::-webkit-slider-thumb {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-}
-
-/* the circle the face sits in — the frame carries the chrome, the image
-   inside carries the framing (which the tuner sets, per face) */
-/* The face and what it sits in, as Settings → Hero face has them
-   (components/HeroFace.tsx). The host catches the pointer and stays put;
-   the frame is what a hover moves (.fx-host / .fx-art, above). */
-.hero-host {
-  flex-shrink: 0;
-  margin-bottom: 12px;
-}
-
-.hero-host.rerolls {
-  cursor: pointer;
-}
-
-.hero-frame {
-  position: relative; /* the face is placed inside it, not laid out by it */
-  width: var(--hero-size, 132px);
-  height: var(--hero-size, 132px);
-  border-radius: 50%;
-  border: 2px solid var(--rim);
-  background: #fff;
-  overflow: hidden;
-}
-
-.hero-frame.shape-rounded {
-  border-radius: 24%;
-}
-
-.hero-frame.shape-square {
-  border-radius: 4px;
-}
-
-/* no frame at all: the picture on the page, whole */
-.hero-frame.shape-none {
-  border-radius: 0;
-  border-color: transparent;
-  background: transparent;
-  overflow: visible;
-}
-
-.hero-frame.backdrop-paper {
-  background: var(--paper-bright);
-}
-
-.hero-frame.backdrop-none {
-  background: transparent;
-}
-
-.hero-frame.no-line {
-  border-color: transparent;
-}
-
-/* Fitted whole inside the frame at zoom 1 — the cut-out faces are taller
-   than they are wide, so cover would decide the crop for them. Zoom fills
-   past the edge when a face wants that, and left/top slide it under the
-   frame; both come in as inline percentages of the frame. */
-.hero-face {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  max-width: 100%;
-  max-height: 100%;
-  display: block;
-  transform: translate(-50%, -50%);
-}
-
-/* a face set to follow the dark themes swaps ink and paper, as the band's
-   line art does */
-[data-theme="dark"] .hero-face.invert {
-  filter: invert(1);
-}
-
-[data-theme="ember"] .hero-face.invert {
-  filter: invert(1) sepia(0.5) saturate(1.5) hue-rotate(332deg);
-}
-
-/* and the white behind it swaps with it, or a face that doesn't fill its
-   frame sits in a white box its own paper has gone dark in */
-[data-theme="dark"] .hero-frame.backdrop-white:has(> .hero-face.invert) {
-  background: #000;
-}
-
-[data-theme="ember"] .hero-frame.backdrop-white:has(> .hero-face.invert) {
-  background: var(--theme-ember-paper);
 }
 
 .hero-title {
@@ -2707,117 +2621,19 @@ input[type="range"]::-webkit-slider-thumb {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Settings → Hero face (HeroEditor.tsx) ─────────────────────────── */
+/* ── Settings → Greeting (GreetingEditor.tsx) ────────────────────── */
 
-.heroedit {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 4px;
-}
-
-/* the face at its real size in its real frame, beside all it could be */
-.heroedit-stage {
-  display: flex;
-  align-items: flex-start;
-  gap: 22px;
-  margin-top: 8px;
-  padding: 18px;
-  border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--paper-dim) 55%, var(--paper));
-}
-
-.heroedit-preview {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  min-width: 248px;
-  min-height: 248px;
-}
-
-.heroedit-preview .hero-host {
-  margin-bottom: 0;
-  cursor: grab;
-}
-
-.heroedit-preview .hero-host.framing {
-  cursor: grabbing;
-}
-
-.heroedit-grid {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 8px;
-}
-
-.heroedit-chip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  padding: 0;
-  border: 1.5px solid transparent;
-  border-radius: 50%;
-  background: transparent;
-}
-
-.heroedit-chip .hero-host {
-  margin-bottom: 0;
-}
-
-.heroedit-chip.active {
-  border-color: var(--ink);
-}
-
-/* out of the mix: there, but not drawn from */
-.heroedit-chip.off .hero-host {
-  opacity: 0.3;
-  filter: grayscale(1);
-}
-
-.heroedit-chip.add {
-  border: 1.5px dashed var(--line-soft);
-  font-size: 18px;
-  color: var(--ink-soft);
-}
-
-.heroedit-chip.still {
-  cursor: default;
-}
-
-.heroedit-star {
-  position: absolute;
-  right: -3px;
-  top: -5px;
-  font-size: 13px;
-  color: var(--ink);
-}
-
-.heroedit-look {
-  margin-top: 6px;
-}
-
-.heroedit-greetings {
+.greeting-edit {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.heroedit-greetings textarea {
+.greeting-edit textarea {
   width: 100%;
   max-width: 420px;
   resize: vertical;
-}
-
-.heroedit-foot {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 6px;
 }
 
 /* ── chat ─────────────────────────────────────────────────────────── */

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 
 /**
  * The pieces a settings panel is made of, for the editors that are more
- * than a row or two (BandEditor.tsx, HeroEditor.tsx): a labelled row, and a
+ * than a row or two (BandEditor.tsx, GreetingEditor.tsx): a labelled row, and a
  * number field that can be typed into.
  */
 

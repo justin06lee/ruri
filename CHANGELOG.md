@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- fix(attachments): an SVG attached to a prompt reaches the model and shows in the transcript. Its thumbnail was served as octet-stream and drew as a broken frame, and the model was sent an image type it doesn't take, so it saw neither picture. A picture the model can't take (SVG, BMP, AVIF, …) now goes as a PNG the composer draws, with the original's path beside it; one nothing can draw (HEIC) goes as a path; a thumbnail that won't draw shows as a file tile.
 - feat(components): the library keeps up with the code. **Update everything** (was Name everything) follows moved files, retires entries whose code is gone, has the small model rewrite notes the code has outgrown and judge whose look changed, and gets every entry a current picture — by selector where that reaches, and by an agent in a "Library pictures" chat where it doesn't. Pictures are newest first, so a retaken one is the one shown; a turn that edits a component marks it changed; cards whose code moved on say **outdated**; sessions are told to update what they change.
 - feat(architecture): the page draws the shape only — where the work stands (git's line, status, and the memory cards) is gone from it; `catchup.md` is still written and read.
 - fix(chat): the compaction brief scrolls with the wheel without a click first.

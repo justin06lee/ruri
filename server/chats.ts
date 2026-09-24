@@ -5,6 +5,7 @@
  * session is told and given (its briefing, the vault, ruri's tools).
  */
 import type { ContextUsage, PermissionRequest } from "../shared/protocol.js";
+import { stackBriefing } from "./brief.js";
 import { BRIDGE_TOOLS, bridgeHttpBriefing, bridgeTools, bridgeToolBriefing } from "./bridge.js";
 import { sessionBriefing } from "./briefing.js";
 import { channelProject, ownerProject } from "./channel.js";
@@ -208,6 +209,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         talk: claude
           ? talkToolBriefing()
           : talkHttpBriefing(`http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`),
+        stack: owner ? stackBriefing(ctx.briefs.get(owner.id)) : "",
       });
       return tagged(project.id, {
         transcript: () => ctx.archive.events(project.id),

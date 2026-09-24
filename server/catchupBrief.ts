@@ -5,8 +5,8 @@
  * reads the repo, server/memory.ts reads the chats).
  */
 import type { MemorySource, ServerMessage, SheetGit, SourceLabel } from "../shared/protocol.js";
-import { writeBriefFiles, type SheetExtras } from "./brief.js";
-import { buildCatchup } from "./catchup.js";
+import { layered, slugLayers, writeBriefFiles, type SheetExtras } from "./brief.js";
+import { buildCatchup, buildLayerSheets, placeUnowned, splitBigLayers } from "./catchup.js";
 import type { ServerContext } from "./context.js";
 import { branchFacts, commitsSince, gitLines, gitState, headSync, sheetGit } from "./gitState.js";
 import { warn } from "./log.js";
@@ -153,11 +153,12 @@ export function catchupNote(ctx: ServerContext, projectId: string, busy: boolean
 }
 
 /**
- * Read the repo and write the project's whole shape. Runs by itself when a
- * project arrives without one — a project opened with a year of work in it
- * is exactly the one whose first session most needs to be told what it is
- * — when one from before layers and flows first folds a turn, and again
- * whenever the user asks.
+ * Read the repo and write the project's whole shape: the index first (what
+ * it is, the stack, the paths across it, how to run it), then each layer's
+ * own sheet, one layer at a time. Runs by itself when a project arrives
+ * without one — a project opened with a year of work in it is exactly the
+ * one whose first session most needs to be told what it is — when one from
+ * before layer sheets first folds a turn, and again whenever the user asks.
  */
 export async function rebuildCatchup(ctx: ServerContext, projectId: string): Promise<void> {
   const project = ctx.store.get(projectId);
@@ -172,9 +173,35 @@ export async function rebuildCatchup(ctx: ServerContext, projectId: string): Pro
       return;
     }
     const at = headOf(ctx, projectId);
-    ctx.briefs.write(projectId, { ...built, ...(at ? { builtAt: at } : {}) }, true);
+    // where to change what, as the sheet knew it before it had layers: each
+    // entry goes on to the layer that owns it rather than being lost
+    const known = current.map ?? [];
+    // a layer that owns too much for one sheet is cut into its parts, and
+    // every file ends up owned by some layer
+    const say = (note: string) => catchupNote(ctx, projectId, true, note);
+    const cut = slugLayers(await splitBigLayers(project, built.layers, say), current.layers);
+    const layers = await placeUnowned(project, cut, say);
+    const index = ctx.briefs.write(projectId, { ...built, layers, ...(at ? { builtAt: at } : {}) }, true);
     pushSheet(ctx, projectId);
-    catchupNote(ctx, projectId, false, "written from the repo");
+    const written = await buildLayerSheets(
+      project,
+      index.layers ?? [],
+      index.layerSheets ?? {},
+      known,
+      (slug, sheet) => {
+        ctx.briefs.writeLayer(projectId, slug, sheet);
+        pushSheet(ctx, projectId);
+      },
+      (note) => catchupNote(ctx, projectId, true, note),
+    );
+    catchupNote(
+      ctx,
+      projectId,
+      false,
+      written
+        ? `written from the repo, ${written} layer${written === 1 ? "" : "s"}`
+        : "written from the repo",
+    );
   } catch (err) {
     warn("server", err, "rebuildCatchup");
     catchupNote(ctx, projectId, false, "the sheet could not be written — try again");
@@ -183,11 +210,20 @@ export async function rebuildCatchup(ctx: ServerContext, projectId: string): Pro
   }
 }
 
-/** Whether a project's shape predates layers and flows — one from an
- *  older ruri, due a read of the repo to draw them. */
+/** Whether a project's shape predates layer sheets — one from an older
+ *  ruri, due a read of the repo to cut its stack finer and write a sheet
+ *  for each layer. */
 export function shapeless(ctx: ServerContext, projectId: string): boolean {
-  return !ctx.briefs.get(projectId).layers?.length;
+  const brief = ctx.briefs.get(projectId);
+  if (!brief.layers?.length) return true;
+  // read since layers had sheets and still without one (nothing the stack
+  // owns, or a model that wouldn't answer): that read counts — asking again
+  // on every fold would be a whole read of the repo every ten minutes
+  return !layered(brief) && (brief.built ?? 0) < LAYER_SHEETS_SINCE;
 }
+
+/** When layers started having sheets of their own. */
+const LAYER_SHEETS_SINCE = Date.UTC(2026, 8, 24);
 
 /** Whether a project has a brief worth the name. */
 export function briefless(ctx: ServerContext, projectId: string): boolean {

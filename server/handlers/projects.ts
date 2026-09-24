@@ -205,6 +205,11 @@ export const projectHandlers = {
   sheet_line: (ctx, _ws, msg) => {
     if (ctx.briefs.correct(msg.projectId, msg.section, msg.index, msg.text)) pushSheet(ctx, msg.projectId);
   },
+  layer_line: (ctx, _ws, msg) => {
+    if (ctx.briefs.correctLayer(msg.projectId, msg.slug, msg.section, msg.index, msg.text)) {
+      pushSheet(ctx, msg.projectId);
+    }
+  },
   remove_project: (ctx, _ws, msg) => {
     closeProjectById(ctx, msg.projectId);
   },

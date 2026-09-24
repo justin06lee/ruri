@@ -1,18 +1,33 @@
 import { useEffect, useRef, useState } from "react";
-import type { ProjectSheet, SheetSection } from "../../../shared/protocol";
+import type {
+  LayerSection,
+  LayerSheet,
+  ProjectSheet,
+  SheetSection,
+  StackLayer,
+  SystemFlow,
+} from "../../../shared/protocol";
+import { ownsSummary } from "../../../shared/protocol";
 import { since, useNoteStale } from "../lib/runNote";
 import { send, useRuri } from "../store";
 
 /**
- * The architecture page: the project at a glance — where to change what,
- * the stack it is built as from what a person touches down to the engines
- * under it, the paths through it that matter, where things are, what it
- * can do.
+ * The architecture page: the project at a glance — the stack it is built
+ * as, from what a person touches down to the engines under it, the paths
+ * through it that matter, where things are, how to run it, what it can do.
  *
- * It is the same sheet every session is pointed at on its first prompt —
- * `.ruri/architecture.md` in the project — drawn for a person rather than
- * written for a model. The small model writes it from a read of the repo
- * and folds it forward as turns finish (server/brief.ts); this page is
+ * The stack is the index. Every session in the project is shown it before
+ * it starts, and each layer with code of its own has a sheet behind it —
+ * where to change what inside it, how it works, its key files, its traps —
+ * which a session reads before working in that layer. Here a bar opens its
+ * sheet underneath, so the user sees exactly what an agent gets. (An older
+ * sheet, not read since layers had sheets, keeps its one map of where to
+ * change what at the top instead.)
+ *
+ * It is `.ruri/architecture.md` and `.ruri/layers/` in the project, drawn
+ * for a person rather than written for a model. The small model writes it
+ * from a read of the repo and folds it forward as turns finish, a turn only
+ * into the layers whose files it changed (server/brief.ts); this page is
  * where the user corrects it: any line can be struck or rewritten.
  *
  * The shape only. Where the work stands — the running log of what was
@@ -168,17 +183,71 @@ function Section({
 
 /* ── the shape ──────────────────────────────────────────────────────── */
 
-function Stack({ sheet }: { sheet: ProjectSheet }) {
+/** What a layer owns, as its bar shows it: folders and a count (its sheet
+ *  lists every path). */
+function owns(layer: StackLayer): string {
+  return layer.paths?.length ? ownsSummary(layer.paths) : (layer.where ?? "");
+}
+
+/** Correcting a line of the sheet's own lists. */
+function sheetLine(projectId: string, section: SheetSection) {
+  return (index: number, text?: string) =>
+    send({ type: "sheet_line", projectId, section, index, ...(text !== undefined ? { text } : {}) });
+}
+
+/** Correcting a line of one layer's sheet. */
+function layerLine(projectId: string, slug: string, section: LayerSection | "summary") {
+  return (index: number, text?: string) =>
+    send({ type: "layer_line", projectId, slug, section, index, ...(text !== undefined ? { text } : {}) });
+}
+
+/**
+ * The stack, top to bottom — the index every session is shown. A bar with
+ * a sheet behind it opens it underneath: the layer's own architecture,
+ * the part a session reads before working in it.
+ */
+function Stack({ projectId, sheet }: { projectId: string; sheet: ProjectSheet }) {
+  const [open, setOpen] = useState<string>();
   if (sheet.layers?.length) {
     return (
       <div className="arch-stack">
-        {sheet.layers.map((layer, i) => (
-          <div key={`${layer.name}-${i}`} className="arch-layer">
-            <span className="arch-layer-name">{layer.name}</span>
-            <span className="arch-layer-what">{layer.what}</span>
-            {layer.where && <span className="arch-layer-where">{layer.where}</span>}
-          </div>
-        ))}
+        {sheet.layers.map((layer, i) => {
+          const layerSheet = layer.slug ? sheet.layerSheets?.[layer.slug] : undefined;
+          const where = owns(layer);
+          const body = (
+            <>
+              <span className="arch-layer-name">{layer.name}</span>
+              <span className="arch-layer-what">{layer.what}</span>
+              {where && (
+                <span className="arch-layer-where" title={layer.paths?.join("\n") ?? where}>
+                  {where}
+                </span>
+              )}
+            </>
+          );
+          if (!layerSheet || !layer.slug) {
+            return (
+              <div key={`${layer.name}-${i}`} className="arch-layer">
+                {body}
+              </div>
+            );
+          }
+          const shown = open === layer.slug;
+          return (
+            <div key={layer.slug} className={`arch-layer-wrap${shown ? " open" : ""}`}>
+              <button
+                type="button"
+                className="arch-layer has-sheet"
+                aria-expanded={shown}
+                title={shown ? "Fold its sheet away" : "Open this layer's sheet"}
+                onClick={() => setOpen(shown ? undefined : layer.slug)}
+              >
+                {body}
+              </button>
+              {shown && <LayerPanel projectId={projectId} slug={layer.slug} sheet={layerSheet} />}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -194,10 +263,10 @@ function Stack({ sheet }: { sheet: ProjectSheet }) {
   return <div className="arch-empty">Not drawn yet — read the repo to draw it.</div>;
 }
 
-function Flows({ sheet }: { sheet: ProjectSheet }) {
+function Flows({ flows }: { flows: SystemFlow[] }) {
   return (
     <div className="arch-flows">
-      {(sheet.flows ?? []).map((flow) => (
+      {flows.map((flow) => (
         <div key={flow.name} className="arch-flow">
           <div className="arch-flow-name">{flow.name}</div>
           <div className="arch-flow-steps">
@@ -229,17 +298,18 @@ function Flows({ sheet }: { sheet: ProjectSheet }) {
  * the key as a path when `mono`.
  */
 function SheetLines({
-  projectId,
-  section,
+  onLine,
   lines,
+  placeholder = "the line",
   pairs,
   mono,
   monoValue,
   two,
 }: {
-  projectId: string;
-  section: SheetSection;
+  /** The line at `index` rewritten as `text`, or struck. */
+  onLine(index: number, text?: string): void;
   lines: string[];
+  placeholder?: string;
   pairs?: boolean;
   mono?: boolean;
   monoValue?: boolean;
@@ -249,20 +319,16 @@ function SheetLines({
   const tools = (i: number) => (
     <span className="arch-actions">
       <Tool icon="edit" title="Rewrite this line" onClick={() => setEditing(i)} />
-      <Tool
-        icon="strike"
-        title="Strike this line — it's wrong, or gone"
-        onClick={() => send({ type: "sheet_line", projectId, section, index: i })}
-      />
+      <Tool icon="strike" title="Strike this line — it's wrong, or gone" onClick={() => onLine(i)} />
     </span>
   );
   const editor = (i: number, line: string) => (
     <LineEditor
       text={line}
-      placeholder={section === "map" ? "what it is — file, file" : "the line"}
+      placeholder={placeholder}
       onCancel={() => setEditing(undefined)}
       onSave={(text) => {
-        send({ type: "sheet_line", projectId, section, index: i, text });
+        onLine(i, text);
         setEditing(undefined);
       }}
     />
@@ -307,6 +373,95 @@ function SheetLines({
         </li>
       ))}
     </ul>
+  );
+}
+
+/** A heading inside a layer's sheet. */
+function Part({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="arch-layer-part">
+      <div className="arch-layer-part-title">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+/** A layer's summary, rewritable in place. */
+function Summary({ text, onSave }: { text: string; onSave(text: string): void }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <div className="arch-layer-summary editing">
+        <LineEditor
+          text={text}
+          placeholder="what this layer is and does"
+          onCancel={() => setEditing(false)}
+          onSave={(next) => {
+            onSave(next);
+            setEditing(false);
+          }}
+        />
+      </div>
+    );
+  }
+  return (
+    <p className="arch-layer-summary arch-line">
+      {text}
+      <span className="arch-actions">
+        <Tool icon="edit" title="Rewrite the summary" onClick={() => setEditing(true)} />
+      </span>
+    </p>
+  );
+}
+
+/**
+ * One layer's own sheet, under its bar: what it is, where to change what
+ * inside it, how work moves through it, its key files, its traps, what it
+ * talks to — exactly what `.ruri/layers/<slug>.md` gives a session. Every
+ * line is the user's to rewrite or strike.
+ */
+function LayerPanel({ projectId, slug, sheet }: { projectId: string; slug: string; sheet: LayerSheet }) {
+  const map = sheet.map.map((place) => `${place.name} — ${place.files.join(", ")}`);
+  return (
+    <div className="arch-layer-sheet">
+      {sheet.summary && (
+        <Summary text={sheet.summary} onSave={(text) => layerLine(projectId, slug, "summary")(0, text)} />
+      )}
+      {map.length > 0 && (
+        <Part title="Where to change what">
+          <SheetLines
+            onLine={layerLine(projectId, slug, "map")}
+            lines={map}
+            placeholder="what it is — file, file"
+            pairs
+            monoValue
+          />
+        </Part>
+      )}
+      {sheet.flows.length > 0 && (
+        <Part title="How it works">
+          <Flows flows={sheet.flows} />
+        </Part>
+      )}
+      {sheet.files.length > 0 && (
+        <Part title="Key files">
+          <SheetLines onLine={layerLine(projectId, slug, "files")} lines={sheet.files} pairs mono />
+        </Part>
+      )}
+      {sheet.rules.length > 0 && (
+        <Part title="Rules and traps">
+          <SheetLines onLine={layerLine(projectId, slug, "rules")} lines={sheet.rules} />
+        </Part>
+      )}
+      {sheet.edges.length > 0 && (
+        <Part title="What it talks to">
+          <SheetLines onLine={layerLine(projectId, slug, "edges")} lines={sheet.edges} pairs />
+        </Part>
+      )}
+      <div className="arch-layer-file">
+        <code>.ruri/layers/{slug}.md</code> · <code>ruri layer {slug}</code>
+      </div>
+    </div>
   );
 }
 
@@ -355,6 +510,7 @@ export function Architecture({ projectId }: { projectId: string }) {
   }
 
   const blank = !sheet.description && sheet.features.length === 0;
+  const layered = Object.keys(sheet.layerSheets ?? {}).length > 0;
   const map = (sheet.map ?? []).map((place) => `${place.name} — ${place.files.join(", ")}`);
   return (
     <section className="board-page arch-page">
@@ -374,56 +530,72 @@ export function Architecture({ projectId }: { projectId: string }) {
           </div>
         ) : (
           <>
-            <Section title="Where to change what" extra={readRepo}>
-              {map.length ? (
-                <SheetLines projectId={projectId} section="map" lines={map} pairs monoValue />
-              ) : (
-                <div className="arch-empty">
-                  Not mapped yet — reading the repo maps it, and every turn adds the files it worked on.
+            {/* where to change what is each layer's own now — an older
+                sheet, not read since, still has the one map */}
+            {!layered && (
+              <Section title="Where to change what" extra={readRepo}>
+                {map.length ? (
+                  <SheetLines
+                    onLine={sheetLine(projectId, "map")}
+                    lines={map}
+                    placeholder="what it is — file, file"
+                    pairs
+                    monoValue
+                  />
+                ) : (
+                  <div className="arch-empty">
+                    Not mapped yet — reading the repo maps it, and every turn adds the files it worked on.
+                  </div>
+                )}
+              </Section>
+            )}
+
+            <Section title="The stack, top to bottom" {...(layered ? { extra: readRepo } : {})}>
+              <Stack projectId={projectId} sheet={sheet} />
+              {layered && (
+                <div className="arch-stack-note">
+                  Every session here is shown this stack, and reads the sheet of the layer it is about to work
+                  in — open one to see what it gets.
                 </div>
               )}
             </Section>
 
-            <Section title="The stack, top to bottom">
-              <Stack sheet={sheet} />
-            </Section>
-
             {sheet.flows?.length ? (
               <Section title="How it flows">
-                <Flows sheet={sheet} />
+                <Flows flows={sheet.flows} />
               </Section>
             ) : null}
 
             {sheet.layout?.length ? (
               <Section title="Where things are">
-                <SheetLines projectId={projectId} section="layout" lines={sheet.layout} pairs mono />
+                <SheetLines onLine={sheetLine(projectId, "layout")} lines={sheet.layout} pairs mono />
               </Section>
             ) : null}
 
             {sheet.run?.length ? (
               <Section title="How to run it">
-                <SheetLines projectId={projectId} section="run" lines={sheet.run} pairs mono />
+                <SheetLines onLine={sheetLine(projectId, "run")} lines={sheet.run} pairs mono />
               </Section>
             ) : null}
 
             {sheet.conventions?.length ? (
               <Section title="Conventions">
-                <SheetLines projectId={projectId} section="conventions" lines={sheet.conventions} />
+                <SheetLines onLine={sheetLine(projectId, "conventions")} lines={sheet.conventions} />
               </Section>
             ) : null}
 
             {sheet.features.length > 0 && (
               <Section title="What it does">
-                <SheetLines projectId={projectId} section="features" lines={sheet.features} two />
+                <SheetLines onLine={sheetLine(projectId, "features")} lines={sheet.features} two />
               </Section>
             )}
           </>
         )}
 
         <div className="board-foot">
-          Written into the project as <code>.ruri/architecture.md</code>, and every session here is told to
-          read it first. It folds in what each chat&apos;s turns change as they finish. Hover a line to
-          rewrite or strike it.
+          Written into the project as <code>.ruri/architecture.md</code>, with each layer&apos;s sheet in{" "}
+          <code>.ruri/layers/</code>. It folds in what each chat&apos;s turns change as they finish — a turn
+          only into the layers whose files it changed. Hover a line to rewrite or strike it.
         </div>
       </div>
     </section>

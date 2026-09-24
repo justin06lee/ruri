@@ -13,6 +13,11 @@ import { isMissing, warn } from "./log.js";
  * session might never need — so none of them costs a token until the model
  * decides it does, and none of them changes the prompt when it changes.
  *
+ * The one exception is the stack: a line a layer, each naming its sheet,
+ * so a session sees the whole project at once and picks the one layer it
+ * needs to read about. It is short, it changes only when the stack does,
+ * and a chat's briefing is written once for the life of its session.
+ *
  * It rides the Claude system prompt as an append, and the provider system
  * prompt on every other harness, so the words are the same wherever a
  * session runs.
@@ -44,6 +49,9 @@ export function sessionBriefing(input: {
   /** What the session is told about talking to the other agents open in
    *  ruri (server/talk.ts): tools for Claude, an endpoint for the rest. */
   talk?: string;
+  /** The project's stack, one line a layer, each pointing at its sheet
+   *  (brief.ts stackBriefing) — empty for a project without layer sheets. */
+  stack?: string;
 }): string {
   const blocks: string[] = [];
 
@@ -57,8 +65,16 @@ export function sessionBriefing(input: {
       ...(exists(catchup)
         ? [
             `If you don't already know ${input.projectName} — a fresh session, a harness that has just taken over, work you have no memory of — read ${catchup} first: what git says right now, what was decided and why, what worked, what was tried and failed and why, the traps, and what is still open, gathered from every chat in this project. Don't redo a settled decision or retry a failed approach without a new reason.`,
-            `The project's shape — where to change what, the stack from top to bottom, how the parts connect, where things are, how to run it, the rules it lives by — is in ${architecture}.`,
-            "Both are one screen, kept current by ruri as turns finish: much cheaper than reading the code to find out, and much more reliable than guessing. Each memory line ends with the exchange it came from; check one with `ruri recall show <ref>` before you lean on it. Don't read them if you already have the context. Don't edit them.",
+            ...(input.stack
+              ? [
+                  `${input.projectName}'s stack, top to bottom. Each layer with a handle in brackets has a sheet of its own — where to change what inside it, how it works, its key files, its traps — at ${path.join(input.projectDir, ".ruri", "layers")}/<handle>.md (\`ruri layer <handle>\` prints it). Before you work in a layer, read its sheet; read only the ones your work is in, and don't guess at a layer you haven't read.`,
+                  input.stack,
+                  `How the layers connect, where things are, how to run it and the rules it lives by are in ${architecture}.`,
+                ]
+              : [
+                  `The project's shape — where to change what, the stack from top to bottom, how the parts connect, where things are, how to run it, the rules it lives by — is in ${architecture}.`,
+                ]),
+            "These are kept current by ruri as turns finish: much cheaper than reading the code to find out, and much more reliable than guessing. Each memory line ends with the exchange it came from; check one with `ruri recall show <ref>` before you lean on it. Don't read them if you already have the context. Don't edit them.",
           ]
         : []),
       'When your work settles something a later session will need — a decision and its reason, an approach that failed and why, a trap, something left open — write it down from your shell: `ruri note decision "<what>" --why "<why>"` (or failed, worked, trap, open). One line each, only what the code won\'t tell the next session; not a log of what you built.',

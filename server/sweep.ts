@@ -78,6 +78,20 @@ export async function sourceFiles(dir: string): Promise<string[]> {
   });
 }
 
+/** What a layer is made of beyond its code: its styles, schemas and
+ *  scripts belong to it as much as its source does. */
+const LAYER_EXT = new Set([".css", ".scss", ".sass", ".less", ".sql", ".proto", ".graphql", ".sh"]);
+
+/** Every file a layer of the project can own — its source, and the styles,
+ *  schemas and scripts that go with it (server/catchup.ts). */
+export async function layerCandidates(dir: string): Promise<string[]> {
+  return (await repoFiles(dir)).filter((rel) => {
+    if (SKIP_DIRS.test(rel) || SKIP_FILE.test(rel)) return false;
+    const ext = path.extname(rel).toLowerCase();
+    return VIEW_EXT.has(ext) || CODE_EXT.has(ext) || LAYER_EXT.has(ext);
+  });
+}
+
 /** Every file in the project git will admit to, tracked or merely present.
  *  Off the main thread: a big repo takes git a while, and nothing else
  *  should wait on it. */

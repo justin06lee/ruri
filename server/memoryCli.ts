@@ -1,10 +1,10 @@
-import type { MemoryPart } from "../shared/protocol.js";
-import { memoryLineText } from "./brief.js";
+import type { MemoryPart, StackLayer } from "../shared/protocol.js";
+import { layerFile, layerText, memoryLineText } from "./brief.js";
 import { chatByPrefix, exchangeRef, pushSheet, sourceLabel } from "./catchupBrief.js";
 import { ownerProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import { branchFacts, gitLines, gitState } from "./gitState.js";
-import { parseArgs } from "./library.js";
+import { parseArgs, slugify } from "./library.js";
 import { addLine, allLines, dayOf, findLine, lineText, memoryEmpty, replaceLine } from "./memoryLines.js";
 import {
   exchangeLine,
@@ -26,7 +26,8 @@ import {
  * only guess at a reason from outside. `ruri recall` searches every
  * exchange in the project, across its chats, and prints one whole; the
  * ref after each memory line is what it takes. `ruri state` is git and
- * this chat's changes, live.
+ * this chat's changes, live. `ruri layer` is the stack, and one layer's
+ * own sheet — what a session reads before working in that layer.
  */
 
 export interface MemoryAnswer {
@@ -56,7 +57,17 @@ const KINDS: Record<string, MemoryPart> = {
   todo: "open",
 };
 
-export const MEMORY_COMMANDS = new Set(["note", "memory", "forget", "done", "state", "recall"]);
+export const MEMORY_COMMANDS = new Set([
+  "note",
+  "memory",
+  "forget",
+  "done",
+  "state",
+  "recall",
+  "layer",
+  "layers",
+  "stack",
+]);
 
 export const MEMORY_HELP = `and this project's memory — .ruri/catchup.md, which every session reads first:
 
@@ -67,7 +78,13 @@ export const MEMORY_HELP = `and this project's memory — .ruri/catchup.md, whic
   ruri forget <id>                   take out a line that is wrong, or done (not one of the user's)
   ruri state                         git, and what this chat has changed — live
   ruri recall <words>                search every exchange in this project, across its chats
-  ruri recall show <ref>             one exchange whole; a ref is what follows a memory line: 7a3637b4#16`;
+  ruri recall show <ref>             one exchange whole; a ref is what follows a memory line: 7a3637b4#16
+
+and its architecture — the stack every session is shown, and a sheet for each layer:
+
+  ruri layer                         the stack, top to bottom, each layer with its handle
+  ruri layer <slug>                  one layer's sheet: where to change what in it, how it works, its
+                                     key files, its traps — read it before you work in that layer`;
 
 const TITLES: Record<MemoryPart, string> = {
   now: "Where it stands",
@@ -198,6 +215,45 @@ export async function runMemoryCommand(
       return yes(`took out ${found.line.id}: ${lineText(found.line)}`);
     }
 
+    case "layer":
+    case "layers":
+    case "stack": {
+      const brief = ctx.briefs.get(projectId);
+      const layers = brief.layers ?? [];
+      if (layers.length === 0) {
+        return yes(
+          `${project.name} has no stack on file yet — the user can have it read from the repo on the architecture page`,
+        );
+      }
+      const wanted = args.words.slice(1).join(" ").trim();
+      if (!wanted) {
+        const out = [`${project.name} — the stack, top to bottom`, ""];
+        layers.forEach((layer, i) => {
+          const sheet = layer.slug && brief.layerSheets?.[layer.slug];
+          out.push(
+            `${i + 1}. ${layer.slug ?? slugify(layer.name)} — ${layer.name}${layer.what ? `: ${layer.what}` : ""}${sheet ? "" : " (no sheet)"}`,
+          );
+        });
+        out.push("", "ruri layer <slug> prints one layer's sheet.");
+        return yes(out.join("\n"));
+      }
+      const layer = findLayer(layers, wanted);
+      if (!layer) {
+        return no(
+          `no layer "${wanted}" — the stack is ${layers.map((l) => l.slug ?? slugify(l.name)).join(", ")}`,
+        );
+      }
+      const sheet = layer.slug ? brief.layerSheets?.[layer.slug] : undefined;
+      if (!sheet) {
+        return yes(
+          `${layer.name} has no sheet of its own${layer.paths?.length ? ` — it owns ${layer.paths.join(", ")}` : " — it has no code of its own"}.${layer.what ? ` ${layer.what}.` : ""}`,
+        );
+      }
+      return yes(
+        `${layerText(project.name, layer, sheet, project.path)}\n(also at ${layerFile(layer.slug!)})`,
+      );
+    }
+
     case "state": {
       const state = await gitState(project.path);
       const out = [`${project.name} — now`, ""];
@@ -277,4 +333,15 @@ export async function runMemoryCommand(
     }
   }
   return undefined;
+}
+
+/** A layer by its handle, its name, or the start of either. */
+function findLayer(layers: StackLayer[], wanted: string): StackLayer | undefined {
+  const key = slugify(wanted);
+  const handle = (layer: StackLayer) => layer.slug ?? slugify(layer.name);
+  return (
+    layers.find((l) => handle(l) === key) ??
+    layers.find((l) => l.name.toLowerCase() === wanted.toLowerCase()) ??
+    layers.find((l) => handle(l).startsWith(key) || slugify(l.name).startsWith(key))
+  );
 }

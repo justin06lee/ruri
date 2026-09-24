@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
   ConceptPlace,
+  LayerSheet,
   MemoryPart,
   MemorySource,
   ProjectMemory,
@@ -385,17 +386,45 @@ function lines(value: unknown, max: number): string[] {
     : [];
 }
 
-function parseLayers(value: unknown): Layer[] {
+/**
+ * The stack as the model gave it. Each layer's paths are the folders and
+ * files it owns — kept only where they are really in the project (when the
+ * project is known), so a changed file can find its layer.
+ */
+function parseLayers(value: unknown, projectDir?: string, max = 12): Layer[] {
   if (!Array.isArray(value)) return [];
+  const real = (rel: string) => {
+    if (!projectDir) return true;
+    if (path.isAbsolute(rel) || rel.startsWith("..")) return false;
+    try {
+      return fs.existsSync(path.join(projectDir, rel.replace(/\/+$/, "")));
+    } catch {
+      return false;
+    }
+  };
   return value
     .flatMap((raw): Layer[] => {
       const layer = raw as Partial<Layer>;
       const name = typeof layer.name === "string" ? layer.name.trim() : "";
       const what = typeof layer.what === "string" ? layer.what.trim() : "";
       const where = typeof layer.where === "string" ? layer.where.trim() : "";
-      return name ? [{ name, what, ...(where ? { where } : {}) }] : [];
+      const slug = typeof layer.slug === "string" ? layer.slug.trim() : "";
+      const paths = lines(layer.paths, 24)
+        .map((p) => p.replace(/^\.\//, ""))
+        .filter(real);
+      return name
+        ? [
+            {
+              name,
+              what,
+              ...(where ? { where } : {}),
+              ...(slug ? { slug } : {}),
+              ...(paths.length ? { paths } : {}),
+            },
+          ]
+        : [];
     })
-    .slice(0, 8);
+    .slice(0, max);
 }
 
 function parseFlows(value: unknown): Flow[] {
@@ -463,29 +492,53 @@ RULES
 Reply as JSON and nothing else: {"description": "...", "features": [...], "layers": [{"name": "...", "what": "...", "where": "..."}], "flows": [{"name": "...", "steps": ["...", "..."]}], "layout": [...], "map": [{"name": "...", "files": ["..."]}]}`;
 
 /**
- * Fold what just happened into the project's shape. Returns null when the
- * model gave something unusable — the sheet then stays exactly as it was.
+ * The same job for a layered sheet — the index, whose layers each have a
+ * sheet of their own that turns fold into separately (LAYER_FOLD_SYSTEM).
+ * So no map here, and a layer carries its handle and what it owns.
+ */
+const INDEX_SYSTEM = `You keep the index of a software project's architecture: what it is, what it can do, the stack it is built as (each layer has a detailed sheet of its own, kept elsewhere), how the layers connect, and where things are.
+It exists so a model with no context can read it in seconds, see the whole project, and pick the one layer it needs to read about. Every token has to earn its place.
+
+You are given the index as it stands and what just happened in the project — one or more exchanges, oldest first, separated by ---. Return the index, updated.
+
+RULES
+- DESCRIPTION: one or two sentences. What the project is, who it's for, the problem it solves. Only rewrite it when the project has genuinely become something else.
+- FEATURES: one line each, no more than about 10 words. A capability, not a changelog entry. Merge relentlessly; adding to something listed edits that line. A fix, a refactor, a polish pass: nothing to add. Never drop a feature that is still there. At most 16, the defining ones first.
+- LAYERS: the stack, top (what a person touches) to bottom (runtime, engines, OS), each {"name", "slug", "what", "paths"}. Keep every layer's slug exactly as given. "paths" are the folders (ending in /) and files the layer owns. Change the layers only when the work clearly changed the stack: a new part big enough to be its own layer (give it a new slug and its paths), a layer that is gone, files that moved to another layer. Otherwise return them unchanged.
+- FLOWS: the paths ACROSS layers that matter most, each {"name", "steps"}. Change one only when the work clearly rerouted it. At most 4.
+- LAYOUT: "path — what it is for" lines for the directories and key files that matter. Add a line when the work created an important new part; drop one that no longer exists. At most 16.
+- Never invent anything the exchanges don't show. If nothing structural happened, return the index unchanged.
+
+Reply as JSON and nothing else: {"description": "...", "features": [...], "layers": [{"name": "...", "slug": "...", "what": "...", "paths": ["..."]}], "flows": [{"name": "...", "steps": ["...", "..."]}], "layout": [...]}`;
+
+/**
+ * Fold what just happened into the project's shape — the whole sheet for
+ * an older one, the index for a layered one (`layered`: its layers have
+ * sheets, which fold separately). Returns null when the model gave
+ * something unusable — the sheet then stays exactly as it was.
  */
 export async function updateShape(
   project: string,
   current: ShapeUpdate,
   happened: string,
   projectDir?: string,
+  layered = false,
 ): Promise<ShapeUpdate | null> {
   if (!smallModelEnabled()) return null;
+  const standing = layered ? { ...current, map: undefined } : current;
   const prompt =
     `PROJECT NAME: ${project}\n\n` +
-    `SHEET AS IT STANDS:\n${JSON.stringify(current, null, 1)}\n\n` +
+    `${layered ? "INDEX" : "SHEET"} AS IT STANDS:\n${JSON.stringify(standing, null, 1)}\n\n` +
     `WHAT JUST HAPPENED:\n${happened.slice(-12_000)}`;
   try {
-    const parsed = objectIn(await complete(SHAPE_SYSTEM, prompt, 1800));
+    const parsed = objectIn(await complete(layered ? INDEX_SYSTEM : SHAPE_SYSTEM, prompt, 1800));
     if (!parsed || typeof parsed["description"] !== "string" || !Array.isArray(parsed["features"]))
       return null;
     // a part the model left out is kept as it was, not emptied
-    const layers = parseLayers(parsed["layers"]);
+    const layers = parseLayers(parsed["layers"], projectDir);
     const flows = parseFlows(parsed["flows"]);
     const layout = lines(parsed["layout"], 16);
-    const map = parseMap(parsed["map"], projectDir);
+    const map = layered ? current.map : parseMap(parsed["map"], projectDir);
     return {
       description: parsed["description"].trim(),
       features: lines(parsed["features"], 16),
@@ -514,12 +567,13 @@ It exists so a model with no context can read it in seconds and know the shape o
 Return JSON with exactly these keys:
 - "description": one or two sentences — what the project is, who it's for, the problem it solves.
 - "features": what it does, one capability per line, about 10 words each, the defining things first, at most 14 lines. Merge relentlessly: features that are one idea get one line.
-- "layers": the stack as layers, from the top (what a person touches) down to the bottom (runtime, engines, OS), 3–7 of them, each {"name": short name, "what": the technologies and what the layer does, "where": the folder or files, when there is one}. E.g. {"name": "UI", "what": "React 19 + Vite, zustand store, xterm terminals", "where": "web/src/"}.
-- "flows": the 1–4 paths through the system that matter most — how a request, an action or data moves from where it starts to where it ends — each {"name": "A prompt", "steps": ["composer (web/src/components/ChatPane.tsx)", "WebSocket", "server/dispatch.ts", "..."]}, 3–8 steps, each a real part named as the material names it.
+- "layers": the stack as layers, from the top (what a person touches) down to the bottom (runtime, engines, OS), each {"name": short name, "slug": a kebab-case handle, "what": the technologies and what the layer does, in one line, "paths": the folders (ending in /) and files it owns}. E.g. {"name": "UI", "slug": "ui", "what": "React 19 + Vite, zustand store, xterm terminals", "paths": ["web/src/"]}.
+  This stack is the index every session is shown, and each layer gets a detailed sheet of its own, which a session reads before working in that layer — so a layer is a part of the codebase a person would work in as one thing. Cut it that way: a folder that holds several separate concerns (a backend doing sessions, storage, and a browser bridge) is several layers, each owning its own files; a small project may have only 3 or 4. Typically 4–12. The longest path wins when two layers could own a file, so a layer can own "server/" as the catch-all while others own "server/bridge.ts" and "server/cdp.ts". Every source file should end up owned by exactly one layer; runtime/engine layers with no code of their own have no paths.
+- "flows": the 1–4 paths through the system that matter most, across its layers — how a request, an action or data moves from where it starts to where it ends — each {"name": "A prompt", "steps": ["composer (web/src/components/ChatPane.tsx)", "WebSocket", "server/dispatch.ts", "..."]}, 3–8 steps, each a real part named as the material names it.
 - "run": how to run, build, test, and ship it, one command per line with what it does — taken from scripts, the Makefile and the README, never guessed. At most 8 lines.
 - "layout": where things are — the directories and key files that matter and what each is for, one per line ("server/ — the Node backend: sessions, archive, usage"). At most 14 lines; leave out generated and vendored folders.
 - "conventions": rules a session must follow, from CLAUDE.md / AGENTS.md / README: package manager, branch names, formatting, review steps, things never to do. At most 8 lines; an empty list when there are none.
-- "map": where to change what — the 8–16 things a session is most likely to be asked to change (features, subsystems, screens), each {"name": what a person would call it, "files": the 1–4 files it lives in, most central first}. E.g. {"name": "compaction brief", "files": ["server/compaction.ts", "server/dispatch.ts"]}. Only paths that appear in the material. This is the part a session with a task in hand reads first — make it the map of the project a newcomer would draw after a day in it.
+- "flows" name steps across layers; where to change what inside each layer is written into that layer's own sheet afterwards, not here.
 
 If a SHEET AS IT STANDS is given, keep its description and features where they are still right (they were folded in from real work and may know things the repo's files don't say), correcting and completing them from the material.
 
@@ -550,16 +604,180 @@ ${material.slice(0, 60_000)}`;
     return {
       description: parsed["description"].trim(),
       features: lines(parsed["features"], 14),
-      layers: parseLayers(parsed["layers"]),
+      layers: parseLayers(parsed["layers"], projectDir),
       flows: parseFlows(parsed["flows"]),
       run: lines(parsed["run"], 8),
       layout: lines(parsed["layout"], 14),
       conventions: lines(parsed["conventions"], 8),
-      map: parseMap(parsed["map"], projectDir),
+      // where to change what is each layer's now (writeLayerSheet)
+      map: [],
     };
   } catch (err) {
     warn("smallmodel", err, "catchupBrief");
     return null;
+  }
+}
+
+/* ── a layer's own sheet: .ruri/layers/<slug>.md ───────────────────── */
+
+const LAYER_SHEET_RULES = `- "summary": 2–4 sentences: what this layer does, how it is built, and the idea a newcomer must grasp before touching it.
+- "map": where to change what inside this layer — the things a session is most likely to be asked to change here (a feature, a screen, a mechanism), each {"name": what a person would call it, "files": the 1–4 files it lives in, most central first}. At most 12. This is the part a session with a task in hand reads first.
+- "flows": how work moves through this layer, each {"name", "steps"} with its parts in order, 3–8 steps. At most 3; an empty list when it has no path worth drawing.
+- "files": its key files, each "path — its job", at most 10, the most central first. E.g. "server/bridge.ts — the tools a session drives the hidden browser with".
+- "rules": the traps and rules of working in this layer — what breaks if you forget it, what must never be done here, the non-obvious invariant. Only what the material shows. At most 6; an empty list is fine.
+- "edges": the other layers it talks to and how, "layer name — how" (e.g. "Wire contract — every message it sends is typed in shared/protocol.ts"). At most 5.`;
+
+const LAYER_SYSTEM = `You write the architecture sheet for ONE layer of a software project, from a read of the files it owns. The project's whole stack is given so you know what lies around it.
+A session about to work in this layer reads this sheet — and only this sheet — to know where to go and what not to break. It has to be short and exact: every line earns its place. Say only what the material shows; never invent a file, a feature, or a rule. Every file you name must be one of the layer's files as listed.
+
+Return JSON with exactly these keys:
+${LAYER_SHEET_RULES}
+
+If a SHEET AS IT STANDS is given, keep what is still right in it (it was folded in from real work and may know things the files don't say), correcting and completing it from the material.
+
+Reply as JSON and nothing else.`;
+
+const LAYER_FOLD_SYSTEM = `You keep the architecture sheet of ONE layer of a software project. You are given the sheet as it stands and exchanges that changed files in this layer, oldest first, separated by --- (each lists the files it changed). Return the sheet, updated.
+
+Keep the same shape:
+${LAYER_SHEET_RULES}
+
+RULES
+- When an exchange worked on something in this layer, make sure it is in the map with the files it changed (merge into the entry it belongs to).
+- Add a rule only when an exchange plainly shows a trap or a rule — something that broke, something the user insisted on. Never a log of what was built.
+- Change the summary, flows or edges only when the work clearly changed them. Drop anything that no longer exists.
+- Never name a file the exchanges or the sheet don't. If nothing structural happened, return the sheet unchanged.
+
+Reply as JSON and nothing else.`;
+
+/** A layer sheet as the model gave it, files checked against the project. */
+function parseLayerSheet(parsed: Record<string, unknown>, projectDir?: string): LayerSheet | null {
+  const summary = typeof parsed["summary"] === "string" ? parsed["summary"].trim() : "";
+  const map = parseMap(parsed["map"], projectDir).slice(0, 12);
+  if (!summary && map.length === 0) return null;
+  return {
+    summary,
+    map,
+    flows: parseFlows(parsed["flows"]).slice(0, 3),
+    // "path — what it is for: …" is the format echoed back, not a line
+    files: lines(parsed["files"], 10).map((line) => line.replace(/ — what it is for:\s*/i, " — ")),
+    rules: lines(parsed["rules"], 6),
+    edges: lines(parsed["edges"], 5),
+  };
+}
+
+/** Write one layer's sheet from a read of its files (see server/catchup.ts). */
+export async function writeLayerSheet(
+  project: string,
+  layer: StackLayer,
+  material: string,
+  current: LayerSheet | undefined,
+  projectDir?: string,
+): Promise<LayerSheet | null> {
+  if (!smallModelEnabled()) return null;
+  const standing = current ? `SHEET AS IT STANDS:\n${JSON.stringify(current, null, 1)}\n\n` : "";
+  const prompt =
+    `PROJECT NAME: ${project}\n\n` +
+    `THE LAYER: ${layer.name} — ${layer.what} (owns ${(layer.paths ?? []).join(", ")})\n\n` +
+    `${standing}MATERIAL:\n${material.slice(0, 40_000)}`;
+  try {
+    const parsed = objectIn(await complete(LAYER_SYSTEM, prompt, 2200));
+    return parsed ? parseLayerSheet(parsed, projectDir) : null;
+  } catch (err) {
+    warn("smallmodel", err, "writeLayerSheet");
+    return null;
+  }
+}
+
+/** Fold the exchanges that changed a layer's files into its sheet. Null
+ *  when the model gave something unusable — the sheet stays as it was. */
+export async function foldLayerSheet(
+  project: string,
+  layer: StackLayer,
+  current: LayerSheet,
+  happened: string,
+  projectDir?: string,
+): Promise<LayerSheet | null> {
+  if (!smallModelEnabled()) return null;
+  const { updated: _updated, ...sheet } = current;
+  const prompt =
+    `PROJECT NAME: ${project}\n\n` +
+    `THE LAYER: ${layer.name} — ${layer.what} (owns ${(layer.paths ?? []).join(", ")})\n\n` +
+    `SHEET AS IT STANDS:\n${JSON.stringify(sheet, null, 1)}\n\n` +
+    `WHAT JUST HAPPENED:\n${happened.slice(-10_000)}`;
+  try {
+    const parsed = objectIn(await complete(LAYER_FOLD_SYSTEM, prompt, 2000));
+    return parsed ? parseLayerSheet(parsed, projectDir) : null;
+  } catch (err) {
+    warn("smallmodel", err, "foldLayerSheet");
+    return null;
+  }
+}
+
+const LAYER_SPLIT_SYSTEM = `You split one layer of a software project's stack into the parts a person works on separately. It has grown too big for one architecture sheet: a session about to work in it should read about the part it is working in, not all of it.
+
+You get the layer, the whole stack around it, and every file the layer owns, each with the first thing it says about itself.
+
+Return 2–6 layers, each {"name", "slug", "what", "paths"}:
+- Group by what the files are FOR — a feature, a subsystem, a job — never by file type. A part is something a person would work on as one thing: "Sessions and harnesses", "Browser bridge", "Component library".
+- "name": what a person would call the part. "slug": a short kebab-case handle. "what": one line — what it does, and with what.
+- "paths": subfolders (ending in /) or files, only from the list. Every file must end up owned by exactly one part. The longest path wins, so one part may own the whole folder as the catch-all (e.g. "server/") while the others own their specific files.
+- Order them as the stack runs, top (nearest the user) to bottom.
+- Never reuse a name another layer of the stack already has, or one that could be mistaken for it. When the layer is tooling — build scripts, test harnesses, checks — say so in every part's name ("Integration tests: queue and providers", "Build and packaging"), so no part reads like the code it tests.
+
+Reply as JSON and nothing else: {"layers": [{"name": "...", "slug": "...", "what": "...", "paths": ["..."]}]}`;
+
+/** Cut one too-big layer into its parts (see server/catchup.ts). An empty
+ *  list when the model gave nothing usable — the layer then stays whole. */
+export async function splitLayer(
+  project: string,
+  layer: StackLayer,
+  stack: string,
+  files: string,
+  projectDir?: string,
+): Promise<StackLayer[]> {
+  if (!smallModelEnabled()) return [];
+  const prompt =
+    `PROJECT NAME: ${project}\n\n` +
+    `THE STACK:\n${stack}\n\n` +
+    `THE LAYER TO SPLIT: ${layer.name} — ${layer.what} (owns ${(layer.paths ?? []).join(", ")})\n\n` +
+    `ITS FILES:\n${files.slice(0, 40_000)}`;
+  try {
+    const parsed = objectIn(await complete(LAYER_SPLIT_SYSTEM, prompt, 1800));
+    const parts = parseLayers(parsed?.["layers"], projectDir, 6);
+    return parts.length >= 2 ? parts : [];
+  } catch (err) {
+    warn("smallmodel", err, "splitLayer");
+    return [];
+  }
+}
+
+const PLACE_SYSTEM = `You finish cutting a software project's source into its stack. Every layer owns folders and files; the files below are owned by none of them yet. Say which layer each one belongs to, from what it is for.
+
+You get the stack — each layer's slug, name, what it does and some of what it owns — and the unowned files, each with the first thing it says about itself.
+
+Reply as JSON and nothing else: {"files": {"<file path>": "<layer slug>", ...}} — every file listed, each with one of the stack's slugs. Use "none" only for a file that belongs to no layer at all (a stray config, a scratch file).`;
+
+/** Which layer each of these unowned files belongs to (see server/catchup.ts). */
+export async function placeFiles(
+  project: string,
+  stack: string,
+  files: string,
+): Promise<Record<string, string>> {
+  if (!smallModelEnabled()) return {};
+  const prompt = `PROJECT NAME: ${project}\n\nTHE STACK:\n${stack}\n\nUNOWNED FILES:\n${files.slice(0, 40_000)}`;
+  try {
+    const parsed = objectIn(await complete(PLACE_SYSTEM, prompt, 3000));
+    const placed = parsed?.["files"];
+    if (!placed || typeof placed !== "object") return {};
+    return Object.fromEntries(
+      Object.entries(placed as Record<string, unknown>).flatMap(([file, slug]) =>
+        typeof slug === "string" ? [[file.trim(), slug.trim()]] : [],
+      ),
+    );
+  } catch (err) {
+    warn("smallmodel", err, "placeFiles");
+    return {};
   }
 }
 

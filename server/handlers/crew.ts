@@ -10,6 +10,7 @@ import {
   type SubagentState,
   type TranscriptEvent,
 } from "../../shared/protocol.js";
+import { stackBriefing } from "../brief.js";
 import { sessionBriefing } from "../briefing.js";
 import { channelProject, ownerProject } from "../channel.js";
 import type { ServerContext } from "../context.js";
@@ -182,6 +183,10 @@ export function createCrewManager(ctx: ServerContext): SessionManager {
     (key) => ctx.crew.sessionId(key),
     (project) => {
       const claude = !ctx.models.registry.parse(project.model || ctx.store.defaultModel()).providerId;
+      // the chat the agent works for: its `ruri` command speaks as that
+      // chat, and its project's library (and stack) is the one it is handed
+      const chatId = ctx.crew.owner(project.id);
+      const owner = chatId ? ownerProject(ctx, chatId) : undefined;
       const note = [
         sessionBriefing({
           projectDir: project.path,
@@ -189,15 +194,12 @@ export function createCrewManager(ctx: ServerContext): SessionManager {
           secrets: ctx.secrets,
           claude,
           naming: "",
+          stack: owner ? stackBriefing(ctx.briefs.get(owner.id)) : "",
         }),
         CREW_BRIEFING,
       ]
         .filter(Boolean)
         .join("\n\n");
-      // the chat the agent works for: its `ruri` command speaks as that
-      // chat, and its project's library is the one it is handed
-      const chatId = ctx.crew.owner(project.id);
-      const owner = chatId ? ownerProject(ctx, chatId) : undefined;
       if (owner) ensureLibrarySkill(ctx, owner.id);
       return {
         fillSecrets: (input) =>

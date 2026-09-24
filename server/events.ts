@@ -5,7 +5,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { TranscriptEvent } from "../shared/protocol.js";
+import type { StackLayer, TranscriptEvent } from "../shared/protocol.js";
 import {
   exchangeRef,
   pushSheet,
@@ -14,6 +14,7 @@ import {
   resolveRef,
   shapeless,
 } from "./catchupBrief.js";
+import { layered, layerOfFile } from "./brief.js";
 import { writeIndexFile } from "./components.js";
 import { pushComponents } from "./handlers/components.js";
 import type { ServerContext } from "./context.js";
@@ -26,6 +27,7 @@ import { blankProject, clearRuriDir } from "./ruriDir.js";
 import {
   endsIntact,
   extractTrackerItems,
+  foldLayerSheet,
   foldMemory,
   sessionRoleTitle,
   smallModelEnabled,
@@ -56,7 +58,17 @@ const BRIEF_TURNS = 5;
 const BRIEF_USER_CHARS = 1500;
 const BRIEF_REPLY_CHARS = 4000;
 
-const gathering = new Map<string, { turns: string[]; timer?: NodeJS.Timeout; last: number }>();
+/** A finished turn as a fold reads it, and the files it changed
+ *  (project-relative) — which decide the layers it folds into. */
+export interface Gathered {
+  text: string;
+  files: string[];
+}
+
+const gathering = new Map<string, { turns: Gathered[]; timer?: NodeJS.Timeout; last: number }>();
+
+/** The most layer sheets one fold rewrites — the layers most worked on. */
+const LAYER_FOLDS = 3;
 
 /** One finished turn, for the sheet to take in with the others — opening
  *  with its ref, so a line the model learns from it can say where. */
@@ -76,10 +88,12 @@ export function foldBrief(
   const tag = [n ? exchangeRef(channelId, n) : "", dayOf()].filter(Boolean).join(" · ");
   const changed = (turn.files ?? []).map((file) => projectRelative(file, project.name));
   const files = changed.length ? `\n\nFiles it changed: ${changed.slice(0, 30).join(", ")}` : "";
-  held.turns.push(
-    `[${tag}]${chat} The user asked:\n${turn.user.slice(0, BRIEF_USER_CHARS)}\n\n` +
+  held.turns.push({
+    text:
+      `[${tag}]${chat} The user asked:\n${turn.user.slice(0, BRIEF_USER_CHARS)}\n\n` +
       `What the agent did and said:\n${endsIntact(turn.assistant, BRIEF_REPLY_CHARS)}${files}`,
-  );
+    files: changed,
+  });
   if (held.turns.length > BRIEF_TURNS) held.turns.splice(0, held.turns.length - BRIEF_TURNS);
   if (held.timer) return;
   held.timer = setTimeout(
@@ -101,14 +115,15 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
   delete held.timer;
   held.last = Date.now();
   if (turns.length === 0) return;
-  const happened = turns.join("\n\n---\n\n");
+  const happened = turns.map((turn) => turn.text).join("\n\n---\n\n");
   const current = ctx.briefs.get(project.id);
 
-  // A sheet from before layers and flows is drawn whole from the repo
-  // once, rather than folded forward from a shape that has none.
+  // A sheet from before layer sheets is drawn whole from the repo once,
+  // rather than folded forward from a shape that has none.
   if (shapeless(ctx, project.id) && current.description) void rebuildCatchup(ctx, project.id);
   else {
-    updateShape(project.name, pickShape(current), happened, project.path)
+    foldLayers(ctx, project.id, turns);
+    updateShape(project.name, pickShape(current), happened, project.path, layered(current))
       .then((next) => {
         if (!next || JSON.stringify(next) === JSON.stringify(pickShape(current))) return;
         // the user corrected the shape while the model wrote: theirs stands,
@@ -138,6 +153,54 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
       pushSheet(ctx, project.id);
     })
     .catch(() => {});
+}
+
+/**
+ * The turns into the sheets of the layers whose files they changed — each
+ * layer given only the turns that touched it, and only the few layers most
+ * worked on, since each is a small-model call. A turn that changed nothing
+ * a layer owns folds into no layer at all.
+ */
+export function foldLayers(ctx: ServerContext, projectId: string, turns: Gathered[]): void {
+  const project = ctx.store.get(projectId);
+  const brief = ctx.briefs.get(projectId);
+  const layers = brief.layers ?? [];
+  if (!project || !layered(brief)) return;
+  const touched = new Map<string, { layer: StackLayer; turns: Gathered[]; files: number }>();
+  for (const turn of turns) {
+    const seen = new Set<string>();
+    for (const file of turn.files) {
+      const layer = layerOfFile(layers, file);
+      if (!layer?.slug || !brief.layerSheets?.[layer.slug]) continue;
+      const entry = touched.get(layer.slug) ?? { layer, turns: [], files: 0 };
+      entry.files += 1;
+      if (!seen.has(layer.slug)) entry.turns.push(turn);
+      seen.add(layer.slug);
+      touched.set(layer.slug, entry);
+    }
+  }
+  const busiest = [...touched.entries()].sort((a, b) => b[1].files - a[1].files).slice(0, LAYER_FOLDS);
+  for (const [slug, { layer, turns: its }] of busiest) {
+    const before = brief.layerSheets![slug]!;
+    foldLayerSheet(
+      project.name,
+      layer,
+      before,
+      its.map((turn) => turn.text).join("\n\n---\n\n"),
+      project.path,
+    )
+      .then((next) => {
+        if (!next) return;
+        const { updated: _was, ...old } = before;
+        if (JSON.stringify(next) === JSON.stringify(old)) return;
+        // the user corrected the sheet while the model wrote: theirs stands
+        const live = ctx.briefs.get(projectId).layerSheets?.[slug];
+        if (JSON.stringify(live) !== JSON.stringify(before)) return;
+        ctx.briefs.writeLayer(projectId, slug, next);
+        pushSheet(ctx, projectId);
+      })
+      .catch(() => {});
+  }
 }
 
 /** The parts of a sheet a fold of the shape can change. */

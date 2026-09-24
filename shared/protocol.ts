@@ -324,14 +324,67 @@ export function componentStale(item: NamedComponent): { picture: boolean; note: 
   };
 }
 
-/** One layer of a project's stack, top (what a person touches) to bottom. */
+/** One layer of a project's stack, top (what a person touches) to bottom.
+ *  The stack is the index every session is shown; each layer with code of
+ *  its own has a sheet behind it (LayerSheet), read when the work is in it. */
 export interface StackLayer {
   name: string;
   /** The technologies, and what the layer does. */
   what: string;
   /** Its folder or files, when it has them. */
   where?: string;
+  /** Its handle — the name of its sheet (`.ruri/layers/<slug>.md`) and what
+   *  `ruri layer <slug>` takes. Made from the name when it arrives. */
+  slug?: string;
+  /** The repo-relative folders and files it owns ("server/bridge.ts",
+   *  "web/src/") — how a changed file finds the layer whose sheet it moves. */
+  paths?: string[];
 }
+
+/**
+ * One layer's own architecture sheet: what a session about to work in that
+ * part of the project needs, and nothing about the rest. Short on purpose —
+ * a project grows by gaining layers, not by its sheets growing — and
+ * written into the project as `.ruri/layers/<slug>.md`.
+ */
+export interface LayerSheet {
+  /** What the layer is and does, and how it's built: a short paragraph. */
+  summary: string;
+  /** Where to change what, inside this layer. */
+  map: ConceptPlace[];
+  /** How work moves through it: its own paths, part to part. */
+  flows: SystemFlow[];
+  /** Its key files, "path — what it is for". */
+  files: string[];
+  /** The traps and rules of working in it. */
+  rules: string[];
+  /** The other layers it talks to, and how: "wire contract — every message is typed in shared/protocol.ts". */
+  edges: string[];
+  /** When it was last written or folded. */
+  updated?: number;
+}
+
+/**
+ * What a layer owns, short enough for a line of the stack: its folders,
+ * and the folders its own files sit in, then how many files — "web/src/,
+ * web/src/lib/ · 24 files". The whole list is the layer's own sheet's.
+ */
+export function ownsSummary(paths: string[]): string {
+  const folders: string[] = [];
+  let files = 0;
+  for (const p of paths) {
+    const folder = p.endsWith("/") ? p : p.includes("/") ? `${p.slice(0, p.lastIndexOf("/") + 1)}` : "./";
+    if (!p.endsWith("/")) files += 1;
+    if (!folders.includes(folder)) folders.push(folder);
+  }
+  if (files === 0) return folders.join(", ");
+  if (paths.length === 1) return paths[0]!;
+  const shown = folders.slice(0, 3).join(", ") + (folders.length > 3 ? ` +${folders.length - 3}` : "");
+  return `${shown} · ${files} file${files === 1 ? "" : "s"}`;
+}
+
+/** A layer sheet's lists the user may correct line by line. */
+export type LayerSection = "map" | "files" | "rules" | "edges";
 
 /** One path through a project — how a request, an action or data moves —
  *  as the parts it passes through, in order. */
@@ -444,8 +497,11 @@ export interface ProjectSheet {
   layout?: string[];
   /** Rules a session must follow, from the repo's own instructions. */
   conventions?: string[];
-  /** Where to change what: concepts and the files they live in. */
+  /** Where to change what: concepts and the files they live in. A sheet
+   *  with layer sheets keeps this in them instead, one map per layer. */
   map?: ConceptPlace[];
+  /** Each layer's own sheet, by its slug. */
+  layerSheets?: Record<string, LayerSheet>;
   memory?: ProjectMemory;
   /** Pinned screenshots of the main pages. */
   shots: Attachment[];
@@ -1499,6 +1555,15 @@ export type ClientMessage =
       type: "sheet_line";
       projectId: string;
       section: SheetSection;
+      index: number;
+      text?: string;
+    }
+  /** The same, for a line of one layer's sheet — or its summary, whole. */
+  | {
+      type: "layer_line";
+      projectId: string;
+      slug: string;
+      section: LayerSection | "summary";
       index: number;
       text?: string;
     }

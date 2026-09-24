@@ -6,6 +6,8 @@ import { storedFilePath } from "./uploads.js";
 import type {
   Attachment,
   ConceptPlace,
+  LayerSection,
+  LayerSheet,
   MemoryLine,
   ProjectMemory,
   ProjectSheet,
@@ -13,6 +15,8 @@ import type {
   StackLayer,
   SystemFlow,
 } from "../shared/protocol.js";
+import { ownsSummary } from "../shared/protocol.js";
+import { slugify, uniqueSlug } from "./library.js";
 import { isMissing, warn } from "./log.js";
 import { lineText, memoryEmpty, readMemory } from "./memoryLines.js";
 
@@ -45,6 +49,17 @@ import { lineText, memoryEmpty, readMemory } from "./memoryLines.js";
  * drops what stopped mattering, so both stay a screen long however long
  * the project runs.
  *
+ * The shape is itself two levels, so that it stays a screen long however
+ * big the project gets. `architecture.md` is the index — the stack, top to
+ * bottom, one line a layer, which every session is also shown before it
+ * starts (server/briefing.ts) — and each layer with code of its own has a
+ * sheet behind it, `.ruri/layers/<slug>.md`: where to change what inside
+ * it, how work moves through it, its key files, its traps, what it talks
+ * to. A session reads the sheet of the layer it is about to work in and
+ * none of the others. A project grows by gaining layers, not by any one
+ * sheet growing, and a turn only folds into the sheets of the layers whose
+ * files it changed (server/events.ts).
+ *
  * They are written into each project, and the session is told the files
  * are there; nothing costs context until something reads them. The
  * architecture page shows the user the same thing, and is where they
@@ -56,7 +71,12 @@ export type ProjectBrief = ProjectSheet;
 
 /** The keys a write of the shape may set; anything else stays. */
 export type BriefWrite = Pick<ProjectBrief, "description" | "features"> &
-  Partial<Pick<ProjectBrief, "layers" | "flows" | "run" | "layout" | "conventions" | "map" | "builtAt">>;
+  Partial<
+    Pick<
+      ProjectBrief,
+      "layers" | "flows" | "run" | "layout" | "conventions" | "map" | "layerSheets" | "builtAt"
+    >
+  >;
 
 function briefsFile(): string {
   return configPath("briefs.json");
@@ -71,9 +91,94 @@ function list(value: unknown): string[] | undefined {
 
 function layersOf(value: unknown): StackLayer[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  return value.filter(
-    (l): l is StackLayer => !!l && typeof l === "object" && typeof (l as StackLayer).name === "string",
-  );
+  return value.flatMap((raw): StackLayer[] => {
+    if (!raw || typeof raw !== "object") return [];
+    const layer = raw as Partial<StackLayer>;
+    if (typeof layer.name !== "string") return [];
+    const paths = list(layer.paths);
+    return [
+      {
+        name: layer.name,
+        what: typeof layer.what === "string" ? layer.what : "",
+        ...(typeof layer.where === "string" && layer.where ? { where: layer.where } : {}),
+        ...(typeof layer.slug === "string" && layer.slug ? { slug: layer.slug } : {}),
+        ...(paths?.length ? { paths } : {}),
+      },
+    ];
+  });
+}
+
+/**
+ * Every layer with a handle of its own, unique in the stack. A layer the
+ * model renamed keeps the handle it had (matched by name, then by what it
+ * owns), so its sheet stays its sheet.
+ */
+export function slugLayers(layers: StackLayer[], before: StackLayer[] = []): StackLayer[] {
+  const taken: string[] = [];
+  return layers.map((layer) => {
+    const same =
+      before.find((b) => b.name.toLowerCase() === layer.name.toLowerCase()) ??
+      before.find(
+        (b) => b.paths?.length && layer.paths?.length && b.paths.join("|") === layer.paths.join("|"),
+      );
+    const paths = layer.paths?.length ? layer.paths : same?.paths;
+    const slug = uniqueSlug(slugify(layer.slug || same?.slug || layer.name), taken);
+    taken.push(slug);
+    return { ...layer, slug, ...(paths?.length ? { paths } : {}) };
+  });
+}
+
+/** A layer's own folders and files, as prefixes: "web/src/" owns what is
+ *  under it, "server/bridge.ts" owns that file. */
+function owns(prefix: string, file: string): boolean {
+  const clean = prefix.replace(/^\.\//, "").replace(/\*+$/, "");
+  if (!clean || clean === "/" || clean === ".") return false;
+  return clean.endsWith("/") ? file.startsWith(clean) : file === clean || file.startsWith(`${clean}/`);
+}
+
+/** The layer a repo-relative file belongs to: the one owning it by the
+ *  longest path, so "server/bridge.ts" beats "server/". */
+export function layerOfFile(layers: StackLayer[], file: string): StackLayer | undefined {
+  let best: StackLayer | undefined;
+  let length = 0;
+  for (const layer of layers) {
+    for (const prefix of layer.paths ?? []) {
+      if (owns(prefix, file) && prefix.length > length) {
+        best = layer;
+        length = prefix.length;
+      }
+    }
+  }
+  return best;
+}
+
+function layerSheetOf(value: unknown): LayerSheet | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Partial<LayerSheet>;
+  return {
+    summary: typeof raw.summary === "string" ? raw.summary : "",
+    map: mapOf(raw.map) ?? [],
+    flows: flowsOf(raw.flows) ?? [],
+    files: list(raw.files) ?? [],
+    rules: list(raw.rules) ?? [],
+    edges: list(raw.edges) ?? [],
+    ...(typeof raw.updated === "number" ? { updated: raw.updated } : {}),
+  };
+}
+
+function layerSheetsOf(value: unknown): Record<string, LayerSheet> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const out: Record<string, LayerSheet> = {};
+  for (const [slug, raw] of Object.entries(value as Record<string, unknown>)) {
+    const sheet = layerSheetOf(raw);
+    if (sheet) out[slug] = sheet;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** Whether a project's shape is layered: its stack has sheets behind it. */
+export function layered(brief: ProjectBrief): boolean {
+  return Object.keys(brief.layerSheets ?? {}).length > 0;
 }
 
 function flowsOf(value: unknown): SystemFlow[] | undefined {
@@ -130,6 +235,7 @@ export class BriefStore {
         const flows = flowsOf(brief.flows);
         const memory = readMemory(brief.memory);
         const map = mapOf(brief.map);
+        const layerSheets = layerSheetsOf(brief.layerSheets);
         const number = (key: "updated" | "built" | "remembered" | "recalled") =>
           typeof brief[key] === "number" ? { [key]: brief[key] } : {};
         this.briefs.set(projectId, {
@@ -142,6 +248,7 @@ export class BriefStore {
           ...(list(brief.layout) ? { layout: list(brief.layout) } : {}),
           ...(list(brief.conventions) ? { conventions: list(brief.conventions) } : {}),
           ...(map?.length ? { map } : {}),
+          ...(layerSheets ? { layerSheets } : {}),
           ...(memory ? { memory } : {}),
           ...(typeof brief.builtAt === "string" ? { builtAt: brief.builtAt } : {}),
           shots: Array.isArray(brief.shots) ? brief.shots : [],
@@ -177,15 +284,85 @@ export class BriefStore {
    *  one-line stack for its layers. */
   write(projectId: string, next: BriefWrite, built = false): ProjectBrief {
     const { stack: _stack, ...kept } = this.get(projectId);
-    const brief: ProjectBrief = {
+    const merged: ProjectBrief = {
       ...(built && next.layers?.length ? kept : this.get(projectId)),
       ...next,
       updated: Date.now(),
       ...(built ? { built: Date.now() } : {}),
     };
+    // every layer has a handle, and a sheet goes when its layer does
+    const layers = merged.layers?.length
+      ? slugLayers(merged.layers, this.get(projectId).layers)
+      : merged.layers;
+    const slugs = new Set((layers ?? []).map((l) => l.slug));
+    const sheets = Object.fromEntries(
+      Object.entries(merged.layerSheets ?? {}).filter(([slug]) => slugs.has(slug)),
+    );
+    const { layerSheets: _sheets, ...rest } = merged;
+    const brief: ProjectBrief = {
+      ...rest,
+      ...(layers ? { layers } : {}),
+      ...(Object.keys(sheets).length ? { layerSheets: sheets } : {}),
+    };
     this.briefs.set(projectId, brief);
     this.save();
     return brief;
+  }
+
+  /** One layer's sheet, written whole or folded forward. */
+  writeLayer(projectId: string, slug: string, sheet: LayerSheet): ProjectBrief {
+    const brief = this.get(projectId);
+    if (!brief.layers?.some((l) => l.slug === slug)) return brief;
+    const next: ProjectBrief = {
+      ...brief,
+      layerSheets: { ...brief.layerSheets, [slug]: { ...sheet, updated: Date.now() } },
+      updated: Date.now(),
+    };
+    this.briefs.set(projectId, next);
+    this.save();
+    return next;
+  }
+
+  /**
+   * The user's correction of one line of a layer's sheet: `text` in place
+   * of the line at `index`, or the line struck; the summary is rewritten
+   * whole. Null when there is no such line, or a map line doesn't read
+   * "name — files".
+   */
+  correctLayer(
+    projectId: string,
+    slug: string,
+    section: LayerSection | "summary",
+    index: number,
+    text?: string,
+  ): ProjectBrief | null {
+    const brief = this.get(projectId);
+    const sheet = brief.layerSheets?.[slug];
+    if (!sheet) return null;
+    let next: LayerSheet;
+    if (section === "summary") {
+      next = { ...sheet, summary: (text ?? "").trim() };
+    } else if (section === "map") {
+      const map = [...sheet.map];
+      if (index >= map.length) return null;
+      if (text === undefined) map.splice(index, 1);
+      else {
+        const place = parseMapLine(text);
+        if (!place) return null;
+        map[index] = place;
+      }
+      next = { ...sheet, map };
+    } else {
+      const items = [...sheet[section]];
+      if (index >= items.length) return null;
+      if (text === undefined) items.splice(index, 1);
+      else items[index] = text.trim();
+      next = { ...sheet, [section]: items };
+    }
+    const out: ProjectBrief = { ...brief, layerSheets: { ...brief.layerSheets, [slug]: next } };
+    this.briefs.set(projectId, out);
+    this.save();
+    return out;
   }
 
   /** Replace the working memory. `recalled`: it was written from the
@@ -307,11 +484,38 @@ function present(projectDir: string | undefined, files: string[]): string[] {
   });
 }
 
+/** Where a layer's sheet lives, from the project's root. */
+export function layerFile(slug: string): string {
+  return `.ruri/layers/${slug}.md`;
+}
+
+/** What a layer owns, as one short string — folders and a count, for the
+ *  stack; every path, for its own sheet. */
+function ownsText(layer: StackLayer, whole = false): string {
+  if (!layer.paths?.length) return layer.where ?? "";
+  return whole ? layer.paths.join(", ") : ownsSummary(layer.paths);
+}
+
+/** The stack, one line a layer: its name, its handle, what it is, what it
+ *  owns — for the index and for every session's briefing. */
+export function stackLines(brief: ProjectBrief): string[] {
+  return (brief.layers ?? []).map((layer, i) => {
+    const sheet = layer.slug && brief.layerSheets?.[layer.slug] ? ` → \`${layerFile(layer.slug)}\`` : "";
+    const owns = ownsText(layer);
+    return `${i + 1}. **${layer.name}**${layer.what ? ` — ${layer.what}` : ""}${owns ? ` (\`${owns}\`)` : ""}${sheet}`;
+  });
+}
+
 /**
- * The shape as the model reads it — where to change what first, because
- * that is what a session with a task in hand needs; then the stack
- * numbered from the top, each flow one line of arrows, where things are,
- * how to run it, the rules; what it does last, which is for people.
+ * The shape as the model reads it.
+ *
+ * Layered (every project whose repo has been read since layers had sheets):
+ * the index — the stack first, each layer pointing at its sheet, then the
+ * paths across layers, where things are, how to run it, the rules, what it
+ * does. Where to change what lives in the layers' sheets.
+ *
+ * An older sheet, with no layer sheets yet: where to change what first,
+ * because that is what a session with a task in hand needs, then the rest.
  */
 export function architectureText(
   name: string,
@@ -319,10 +523,13 @@ export function architectureText(
   extra: SheetExtras = {},
   projectDir?: string,
 ): string {
+  const indexed = layered(brief);
   const lines = [
     `# ${name} — architecture`,
     "",
-    "The shape of this project, for a model that has never seen it: where to change what, the stack it is built as, how the parts connect, where things are, how to run it. Where the work stands — git, decisions, what worked and what didn't, what's open — is in catchup.md beside this file.",
+    indexed
+      ? "The shape of this project, for a model that has never seen it: the stack it is built as, top to bottom, how the parts connect, where things are, how to run it. This is the index. Each layer has a sheet of its own in `.ruri/layers/` — where to change what inside it, how it works, its key files, its traps — so read the one for the layer you are about to work in (`ruri layer <slug>` prints it), and leave the rest. Where the work stands — git, decisions, what worked and what didn't, what's open — is in catchup.md beside this file."
+      : "The shape of this project, for a model that has never seen it: where to change what, the stack it is built as, how the parts connect, where things are, how to run it. Where the work stands — git, decisions, what worked and what didn't, what's open — is in catchup.md beside this file.",
     "ruri writes this file; don't edit it by hand — the user corrects it on the architecture page.",
     "",
   ];
@@ -339,19 +546,15 @@ export function architectureText(
     );
   }
   if (brief.description) lines.push(brief.description, "");
-  const map = (brief.map ?? []).flatMap((place) => {
-    const files = present(projectDir, place.files);
-    return files.length ? [`**${place.name}:** ${files.join(", ")}`] : [];
-  });
-  section(lines, "Where to change what", map);
-  if (brief.layers?.length) {
-    lines.push("## The stack, top to bottom", "");
-    brief.layers.forEach((layer, i) => {
-      lines.push(
-        `${i + 1}. **${layer.name}**${layer.what ? ` — ${layer.what}` : ""}${layer.where ? ` (\`${layer.where}\`)` : ""}`,
-      );
+  if (!indexed) {
+    const map = (brief.map ?? []).flatMap((place) => {
+      const files = present(projectDir, place.files);
+      return files.length ? [`**${place.name}:** ${files.join(", ")}`] : [];
     });
-    lines.push("");
+    section(lines, "Where to change what", map);
+  }
+  if (brief.layers?.length) {
+    lines.push("## The stack, top to bottom", "", ...stackLines(brief), "");
   } else section(lines, "Stack", brief.stack);
   if (brief.flows?.length) {
     lines.push("## How it flows", "");
@@ -365,6 +568,58 @@ export function architectureText(
   const shots = brief.shots.flatMap((shot) => (shot.url ? [storedFilePath(shot.url)] : []));
   section(lines, "What it looks like", shots);
   return lines.join("\n");
+}
+
+/** One layer's sheet as the model reads it: what it is and owns, then
+ *  where to change what — the part a session with a task in hand wants —
+ *  how work moves through it, its key files, its traps, what it talks to. */
+export function layerText(
+  projectName: string,
+  layer: StackLayer,
+  sheet: LayerSheet,
+  projectDir?: string,
+): string {
+  const owns = ownsText(layer, true);
+  const lines = [
+    `# ${projectName} — ${layer.name}`,
+    "",
+    `One layer of ${projectName}'s stack${owns ? `, owning \`${owns}\`` : ""}. The whole stack, and how the layers connect, is in \`.ruri/architecture.md\`.`,
+    "ruri writes this file; don't edit it by hand — the user corrects it on the architecture page. Where it and the code disagree, the code is right.",
+    "",
+  ];
+  if (sheet.summary) lines.push(sheet.summary, "");
+  else if (layer.what) lines.push(layer.what, "");
+  const map = sheet.map.flatMap((place) => {
+    const files = present(projectDir, place.files);
+    return files.length ? [`**${place.name}:** ${files.join(", ")}`] : [];
+  });
+  section(lines, "Where to change what", map);
+  if (sheet.flows.length) {
+    lines.push("## How it works", "");
+    for (const flow of sheet.flows) lines.push(`- **${flow.name}:** ${flow.steps.join(" → ")}`);
+    lines.push("");
+  }
+  section(lines, "Key files", sheet.files);
+  section(lines, "Rules and traps", sheet.rules);
+  section(lines, "What it talks to", sheet.edges);
+  return lines.join("\n");
+}
+
+/**
+ * The stack as every session in the project is shown it before it starts
+ * (server/briefing.ts): a line a layer, its name, its handle and what it
+ * does — the handle is its sheet's name, so the folders and paths stay in
+ * the index and the sheets. Nothing, for a project with no layer sheets.
+ */
+export function stackBriefing(brief: ProjectBrief): string {
+  if (!layered(brief)) return "";
+  return (brief.layers ?? [])
+    .map((layer, i) => {
+      const sheet = layer.slug && brief.layerSheets?.[layer.slug];
+      const handle = sheet ? ` (${layer.slug})` : "";
+      return `${i + 1}. ${layer.name}${handle}${layer.what ? ` — ${layer.what}` : ""}`;
+    })
+    .join("\n");
 }
 
 /** How the file says who wrote a line. */
@@ -429,6 +684,31 @@ export function catchupText(name: string, brief: ProjectBrief, extra: SheetExtra
   return lines.join("\n");
 }
 
+/** Each layer's sheet into `.ruri/layers/`, and nothing else left there —
+ *  a layer that went takes its file with it. */
+function writeLayerFiles(dir: string, name: string, brief: ProjectBrief, projectDir: string): void {
+  const folder = path.join(dir, "layers");
+  const written = new Set<string>();
+  for (const layer of brief.layers ?? []) {
+    const sheet = layer.slug ? brief.layerSheets?.[layer.slug] : undefined;
+    if (!layer.slug || !sheet) continue;
+    fs.mkdirSync(folder, { recursive: true });
+    fs.writeFileSync(path.join(folder, `${layer.slug}.md`), layerText(name, layer, sheet, projectDir));
+    written.add(`${layer.slug}.md`);
+  }
+  let there: string[];
+  try {
+    there = fs.readdirSync(folder);
+  } catch (err) {
+    if (!isMissing(err)) warn("brief", err, "writeLayerFiles");
+    return;
+  }
+  for (const file of there) {
+    if (file.endsWith(".md") && !written.has(file)) fs.rmSync(path.join(folder, file), { force: true });
+  }
+  if (written.size === 0) fs.rmSync(folder, { recursive: true, force: true });
+}
+
 /**
  * Put both where the model can reach them: `<project>/.ruri/architecture.md`
  * and `<project>/.ruri/catchup.md`.
@@ -448,12 +728,14 @@ export function writeBriefFiles(
   try {
     const dir = brief.description || brief.features.length > 0 ? ruriDir(projectDir) : undefined;
     if (!dir) {
+      fs.rmSync(path.join(projectDir, ".ruri", "layers"), { recursive: true, force: true });
       removeRuriFile(projectDir, "catchup.md");
       removeRuriFile(projectDir, "architecture.md");
       return;
     }
     fs.writeFileSync(path.join(dir, "architecture.md"), architectureText(name, brief, extra, projectDir));
     fs.writeFileSync(path.join(dir, "catchup.md"), catchupText(name, brief, extra));
+    writeLayerFiles(dir, name, brief, projectDir);
   } catch (err) {
     warn("brief", err, "writeBriefFiles");
     // a read-only project directory is not worth failing a turn over

@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 export interface DropdownOption {
   value: string;
   label: string;
+  /** Drawn before the label, in the menu and on the trigger — a model's
+   *  mark (Marks.tsx ModelIcon). */
+  icon?: ReactNode;
 }
 
 /** Manga-styled replacement for a native <select>: trigger + ink-bordered menu. */
@@ -48,6 +51,7 @@ export function Dropdown({
         title={title}
         onClick={() => setOpen(!open)}
       >
+        {current?.icon}
         <span className="dropdown-label">{current?.label ?? ""}</span>
         <svg
           className="dropdown-chevron"
@@ -87,6 +91,7 @@ export function Dropdown({
               >
                 <path d="M20 6L9 17l-5-5" />
               </svg>
+              {option.icon}
               {option.label}
             </button>
           ))}
@@ -187,6 +192,7 @@ export function ComboDropdown({
         title={title}
         onClick={() => setOpen(!open)}
       >
+        {current?.icon}
         <span className="dropdown-label">{current?.label ?? ""}</span>
         <svg
           className="dropdown-chevron"
@@ -216,6 +222,7 @@ export function ComboDropdown({
               }}
             >
               {CHECK}
+              {option.icon}
               {option.label}
             </button>
           ))}

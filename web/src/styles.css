@@ -354,11 +354,11 @@ textarea::placeholder {
    lights and gear sit on top, and the band is the window's title bar.
 
    A title bar's drag region swallows the mouse, so a picture in it never
-   sees the pointer. That was traded three times — 33343bd cut the heads
+   sees the pointer. That was traded three times — 50a9e25 cut the heads
    out with `no-drag` to lift them on hover (and lost the drag there),
-   7caa262 gave the drag back by polling the cursor, f1234d8 dropped the
-   polling and the drag with it — until b56b6b7 took hover away for good.
-   154ecd1 cut only the pictures with a hover out, and hover still did not
+   64c89ae gave the drag back by polling the cursor, 361da12 dropped the
+   polling and the drag with it — until 9d37485 took hover away for good.
+   47c86e0 cut only the pictures with a hover out, and hover still did not
    dependably reach them. Now the region is gone from the band whenever
    ruri is the window in use (below): the pictures and the gaps between
    them see the pointer like the rest of the page, and a press anywhere on

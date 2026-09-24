@@ -21,8 +21,8 @@ import { isMissing, warn } from "./log.js";
  */
 
 const MAX_KEYS = 200;
-/** Room for the largest: the peek band and the hero face each keep a list
- *  of pictures, framings and greetings in one (web/src/band.ts, hero.ts). */
+/** Room for the largest: the peek band keeps its list of pictures and
+ *  placings in one (web/src/band.ts). */
 const MAX_VALUE = 32_000;
 
 function prefsFile(): string {

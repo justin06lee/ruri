@@ -1,7 +1,7 @@
 /**
  * What a picture can do when the pointer is on it, and how a moving one
- * moves — shared by the peek band (lib/peekBand.ts) and the hero face
- * (lib/heroFace.ts), and drawn by the same CSS (styles.css at .fx-host).
+ * moves — the peek band's (lib/peekBand.ts), drawn by the CSS at .fx-host
+ * in styles.css.
  */
 
 /** What a picture does when the pointer is on it. */

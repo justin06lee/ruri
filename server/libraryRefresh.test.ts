@@ -265,16 +265,16 @@ describe("the pictures chat", () => {
     const prompt = photoPrompt([
       { item: entry({ selector: ".band-stage", route: "/", clicks: [".open"] }), why: "none" },
       {
-        item: entry({ slug: "hero-face", name: "the hero face", shots: [shot("s")] }),
+        item: entry({ slug: "dragon-gauges", name: "the dragon gauges", shots: [shot("s")] }),
         why: "changed",
-        commits: ["2026-09-22 feat: circle frame"],
+        commits: ["2026-09-22 feat: sweating dragons"],
       },
     ]);
     expect(prompt).toContain("2 of them");
     expect(prompt).toContain('peek-band — "the peek band" (no picture yet)');
     expect(prompt).toContain("on screen: / >> .open >> .band-stage");
     expect(prompt).toContain("(its look changed since its picture)");
-    expect(prompt).toContain("changed by: 2026-09-22 feat: circle frame");
+    expect(prompt).toContain("changed by: 2026-09-22 feat: sweating dragons");
     expect(prompt).toContain("ruri edit <slug> --shot <png>");
     expect(prompt).toContain("Don't change the project's code");
   });

@@ -1675,8 +1675,7 @@ export type ClientMessage =
   | { type: "bridge_close"; projectId: string }
   /** Keep one window preference on this machine. An empty value forgets it. */
   | { type: "set_pref"; key: string; value: string }
-  /** Keep a picture for the peek band or the hero face; answered with
-   *  picture_stored. */
+  /** Keep a picture for the peek band; answered with picture_stored. */
   | { type: "store_picture"; upload: AttachmentUpload }
   /** Carry the window with the cursor, from a press on the peek band —
    *  which, while ruri is in use, sees the pointer instead of being part

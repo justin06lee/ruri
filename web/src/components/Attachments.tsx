@@ -316,7 +316,7 @@ export function Viewer({
    * reaching for became wherever you happened to cross out. Pointer capture
    * looked like the tidy answer and isn't: the release does not reliably
    * come back, and a drag that never ends is worse than one that ends early.
-   * Listening on the window is what the tuner's band does, and it cannot
+   * Listening on the window is what the band editor's drag does, and it cannot
    * miss. The rect stays clamped to the picture either way, so going wide is
    * simply "all the way to that edge".
    */

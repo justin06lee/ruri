@@ -27,7 +27,7 @@ import { NO_EARLIER, NO_EVENTS, NO_QUEUED, NO_SUMMARIES } from "./chat/empty";
 import { Architecture } from "./Architecture";
 import { Components } from "./Components";
 import { Composer } from "./Composer";
-import { HeroTop } from "./HeroFace";
+import { EmptyTop } from "./EmptyTop";
 import { CompactionMark, EventView } from "./EventView";
 import { Exchange, groupTurns, NO_EXCERPTS, turnExcerpts, type Half } from "./Exchange";
 import { HomeDeck, type HomeTab } from "./HomeBoard";
@@ -649,11 +649,15 @@ function ChatView({
 
   const busy = status === "working" || status === "permission";
 
+  // The model this chat runs on — an unset one is the crowned default —
+  // and what the catalog says of it.
+  const model = project.model || defaultModel;
+  const modelChoice = models.find((m) => m.value === model);
   // Rewind works on every harness, and the project goes back the same way
   // on all of them (ruri's own checkpoints); what differs is the
   // conversation. Claude and Codex fork their own at the kept exchange;
   // other harnesses come back on a brief of what is kept.
-  const providerRoute = models.find((m) => m.value === (project.model || defaultModel))?.provider;
+  const providerRoute = modelChoice?.provider;
   const claudeRoute = !providerRoute;
   const canRewind = !isHome && !busy;
   const askRewind = canRewind ? startRewind : undefined;
@@ -759,8 +763,8 @@ function ChatView({
 
   // What the chat shows — on Home, the chat's side of the deck.
   const view = (() => {
-    // The pad, wherever it was opened from — over a fresh session's hero as
-    // much as over a conversation.
+    // The pad, wherever it was opened from — over a fresh session as much
+    // as over a conversation.
     if (sketch) {
       return (
         <main className={pane("chat")}>
@@ -802,8 +806,8 @@ function ChatView({
       );
     }
 
-    // No conversation yet (Home or a fresh project): the hero — face, a big
-    // title, and the composer front and center.
+    // No conversation yet (Home or a fresh project): the marks of whoever
+    // made its model, a big title, and the composer front and center.
     if (transcript.length === 0 && !draft && permissions.length === 0) {
       return (
         <main className={pane("chat home-hero")}>
@@ -816,11 +820,10 @@ function ChatView({
               there before its first prompt too; Home has none */}
           {header}
           <div className="hero">
-            {/* keyed by chat: each one's face is drawn as it comes up */}
-            <HeroTop
-              key={isHome ? HOME_ID : (boardId ?? activeId)}
-              channel={isHome ? HOME_ID : (boardId ?? activeId)}
+            <EmptyTop
               home={isHome}
+              model={model}
+              {...(modelChoice ? { choice: modelChoice } : {})}
               {...(isHome ? {} : { title: session?.title ?? project.name })}
             />
             <div className="hero-composer">

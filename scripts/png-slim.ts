@@ -8,7 +8,7 @@
  * (editor metadata) are dropped; colour chunks (iCCP, sRGB, gAMA, pHYs)
  * stay, since browsers read them.
  *
- *   bun scripts/png-slim.ts web/public/hero/*.png ...
+ *   bun scripts/png-slim.ts assets/dragon/*.png ...
  *
  * A file is only rewritten when the result is smaller, and every rewrite
  * is checked by inflating it back and comparing to the original.

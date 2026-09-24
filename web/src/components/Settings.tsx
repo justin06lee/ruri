@@ -3,7 +3,7 @@ import type { HarnessInfo, ModelRole, PermissionId, PermissionState } from "../.
 import { send, useRuri } from "../store";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
-import { HeroEditor } from "./HeroEditor";
+import { GreetingEditor } from "./GreetingEditor";
 import { Integrations } from "./Integrations";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
@@ -622,8 +622,8 @@ export function Settings({ onClose }: { onClose(): void }) {
           </section>
 
           <section className="settings-group">
-            <h2 className="settings-group-name">Hero face</h2>
-            <HeroEditor />
+            <h2 className="settings-group-name">Greeting</h2>
+            <GreetingEditor />
           </section>
 
           <section className="settings-group">

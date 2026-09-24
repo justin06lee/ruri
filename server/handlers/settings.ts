@@ -2,7 +2,7 @@
  * Settings, as the window changes them: its own preferences, the
  * workspace and music folders, each chat's (or project's, or Home's)
  * model, permission mode and effort, the models' roles, the vault, and
- * the pictures of the peek band and the hero face.
+ * the pictures of the peek band.
  */
 import { WebSocket } from "ws";
 import type { ServerMessage } from "../../shared/protocol.js";
@@ -34,7 +34,7 @@ export const settingHandlers = {
     ctx.prefs.set(msg.key, msg.value);
     ctx.clients.broadcast({ type: "prefs", prefs: ctx.prefs.all() });
   },
-  // a picture for the peek band or the hero face: kept with the uploads,
+  // a picture for the peek band: kept with the uploads,
   // and the sweep leaves it there for as long as a preference names it
   store_picture: (_ctx, ws, msg) => {
     let url: string | null = null;

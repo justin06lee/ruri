@@ -154,7 +154,7 @@ body {
   color: var(--paper);
 }
 
-/* Chrome art (the hero face, thumbnails) is not selectable or draggable —
+/* Chrome art (the peek band, thumbnails) is not selectable or draggable —
    a drag-select across the page must never paint over the images. */
 img,
 video {
@@ -349,8 +349,8 @@ textarea::placeholder {
 }
 
 /* The peek band: the user's pictures resting low across the header,
-   clipped at its bottom edge — five hand-cut heads showing only horns and
-   hair, until Settings says otherwise (web/src/band.ts). The traffic
+   clipped at its bottom edge — the mountain path's sky, one picture per
+   theme, until Settings says otherwise (web/src/band.ts). The traffic
    lights and gear sit on top, and the band is the window's title bar.
 
    A title bar's drag region swallows the mouse, so a picture in it never
@@ -422,7 +422,7 @@ html:not([data-asleep]) .desktop .sidebar-header {
 }
 
 /* ── the hovers (lib/effects.ts) ──────────────────────────────────────
-   Shared by the peek band and the hero face: `.fx-host` is what catches
+   The peek band's: `.fx-host` is what catches
    the pointer and stays put, `.fx-art` inside it is what moves. --amt is
    the strength in the effect's own unit, --speed how long the move takes,
    or one round of one that repeats. */
@@ -1386,7 +1386,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* Home is two pages under one strip: the agent's chat and the statistics.
    The strip floats over the top of both (HomeDeck, HomeBoard.tsx), so the
-   hero's face stays centred in the pane; a conversation, and the
+   empty chat stays centred in the pane; a conversation, and the
    statistics, leave its height free at their top (.home-tabs-space). */
 .home-tabs {
   position: absolute;
@@ -1860,90 +1860,112 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
 }
 
-/* the circle the face sits in — the frame carries the chrome, the image
-   inside carries the framing (which the tuner sets, per face) */
-/* The face and what it sits in, as Settings → Hero face has them
-   (components/HeroFace.tsx). The host catches the pointer and stays put;
-   the frame is what a hover moves (.fx-host / .fx-art, above). */
-.hero-host {
+/* ── the marks over an empty chat (components/Marks.tsx) ─────────────
+   The lab's mark × its product's, doodled: the lines are the theme's ink
+   (currentColor), the fills are the brands' own colours laid a hair off
+   them (.wash). Each mark sits at its own small tilt and gives a little
+   wiggle under the pointer. */
+.marks {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 104px;
+  margin-bottom: 14px;
+  color: var(--ink);
+}
+
+.mark {
+  width: 98px;
+  height: 98px;
   flex-shrink: 0;
-  margin-bottom: 12px;
-}
-
-.hero-host.rerolls {
-  cursor: pointer;
-}
-
-.hero-frame {
-  position: relative; /* the face is placed inside it, not laid out by it */
-  width: var(--hero-size, 132px);
-  height: var(--hero-size, 132px);
-  border-radius: 50%;
-  border: 2px solid var(--rim);
-  background: #fff;
-  overflow: hidden;
-}
-
-.hero-frame.shape-rounded {
-  border-radius: 24%;
-}
-
-.hero-frame.shape-square {
-  border-radius: 4px;
-}
-
-/* no frame at all: the picture on the page, whole */
-.hero-frame.shape-none {
-  border-radius: 0;
-  border-color: transparent;
-  background: transparent;
   overflow: visible;
+  transform: rotate(var(--tilt, 0deg));
 }
 
-.hero-frame.backdrop-paper {
-  background: var(--paper-bright);
+.mark .ink {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.hero-frame.backdrop-none {
-  background: transparent;
+.mark .wash {
+  transform: translate(2.6px, 2.3px);
 }
 
-.hero-frame.no-line {
-  border-color: transparent;
+/* a mark drawn as lines rather than shapes: the blossom */
+.mark .knot {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-/* Fitted whole inside the frame at zoom 1 — the cut-out faces are taller
-   than they are wide, so cover would decide the crop for them. Zoom fills
-   past the edge when a face wants that, and left/top slide it under the
-   frame; both come in as inline percentages of the frame. */
-.hero-face {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  max-width: 100%;
-  max-height: 100%;
-  display: block;
-  transform: translate(-50%, -50%);
+.mark-x {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  margin: 0 2px;
 }
 
-/* a face set to follow the dark themes swaps ink and paper, as the band's
-   line art does */
-[data-theme="dark"] .hero-face.invert {
-  filter: invert(1);
+.mark-x .ink {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
 }
 
-[data-theme="ember"] .hero-face.invert {
-  filter: invert(1) sepia(0.5) saturate(1.5) hue-rotate(332deg);
+/* a name lettered by hand, over a smudge of the brand's colour */
+.mark-letters {
+  max-width: 230px;
+  padding: 0 6px;
+  font-family: "Marker Felt", "Chalkboard SE", "Noteworthy", "Comic Sans MS", cursive;
+  font-size: 34px;
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  text-align: center;
+  text-shadow: 2.5px 2.5px 0 var(--wash);
+  transform: rotate(-3deg);
+  overflow-wrap: anywhere;
 }
 
-/* and the white behind it swaps with it, or a face that doesn't fill its
-   frame sits in a white box its own paper has gone dark in */
-[data-theme="dark"] .hero-frame.backdrop-white:has(> .hero-face.invert) {
-  background: #000;
+.marks:hover .mark,
+.marks:hover .mark-letters {
+  animation: mark-wiggle 520ms ease-in-out;
 }
 
-[data-theme="ember"] .hero-frame.backdrop-white:has(> .hero-face.invert) {
-  background: var(--theme-ember-paper);
+.marks:hover .mark-x {
+  animation: mark-spin 520ms ease-in-out;
+}
+
+@keyframes mark-wiggle {
+  0%,
+  100% {
+    transform: rotate(var(--tilt, -3deg));
+  }
+  30% {
+    transform: rotate(calc(var(--tilt, -3deg) - 6deg));
+  }
+  65% {
+    transform: rotate(calc(var(--tilt, -3deg) + 5deg));
+  }
+}
+
+@keyframes mark-spin {
+  50% {
+    transform: rotate(90deg) scale(1.15);
+  }
+  100% {
+    transform: rotate(180deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marks:hover .mark,
+  .marks:hover .mark-letters,
+  .marks:hover .mark-x {
+    animation: none;
+  }
 }
 
 .hero-title {
@@ -2714,117 +2736,19 @@ input[type="range"]::-webkit-slider-thumb {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Settings → Hero face (HeroEditor.tsx) ─────────────────────────── */
+/* ── Settings → Greeting (GreetingEditor.tsx) ────────────────────── */
 
-.heroedit {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 4px;
-}
-
-/* the face at its real size in its real frame, beside all it could be */
-.heroedit-stage {
-  display: flex;
-  align-items: flex-start;
-  gap: 22px;
-  margin-top: 8px;
-  padding: 18px;
-  border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--paper-dim) 55%, var(--paper));
-}
-
-.heroedit-preview {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  min-width: 248px;
-  min-height: 248px;
-}
-
-.heroedit-preview .hero-host {
-  margin-bottom: 0;
-  cursor: grab;
-}
-
-.heroedit-preview .hero-host.framing {
-  cursor: grabbing;
-}
-
-.heroedit-grid {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 8px;
-}
-
-.heroedit-chip {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  padding: 0;
-  border: 1.5px solid transparent;
-  border-radius: 50%;
-  background: transparent;
-}
-
-.heroedit-chip .hero-host {
-  margin-bottom: 0;
-}
-
-.heroedit-chip.active {
-  border-color: var(--ink);
-}
-
-/* out of the mix: there, but not drawn from */
-.heroedit-chip.off .hero-host {
-  opacity: 0.3;
-  filter: grayscale(1);
-}
-
-.heroedit-chip.add {
-  border: 1.5px dashed var(--line-soft);
-  font-size: 18px;
-  color: var(--ink-soft);
-}
-
-.heroedit-chip.still {
-  cursor: default;
-}
-
-.heroedit-star {
-  position: absolute;
-  right: -3px;
-  top: -5px;
-  font-size: 13px;
-  color: var(--ink);
-}
-
-.heroedit-look {
-  margin-top: 6px;
-}
-
-.heroedit-greetings {
+.greeting-edit {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.heroedit-greetings textarea {
+.greeting-edit textarea {
   width: 100%;
   max-width: 420px;
   resize: vertical;
-}
-
-.heroedit-foot {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 6px;
 }
 
 /* ── chat ─────────────────────────────────────────────────────────── */

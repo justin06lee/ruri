@@ -28,6 +28,7 @@ import { UsageGauges } from "./gauges.js";
 import { createComponentHost } from "./handlers/components.js";
 import { createCrewManager } from "./handlers/crew.js";
 import { createManagerHost } from "./handlers/projects.js";
+import { announceRoles } from "./handlers/settings.js";
 import { pushTalk } from "./handlers/talk.js";
 import { HomeLog } from "./homelog.js";
 import { IdeaStore } from "./ideas.js";
@@ -177,6 +178,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     // below, once there is a context for them to see
   } as ServerContext;
 
+  // a Claude catalog without the "[1m]" ids takes the stars and tags left on
+  // them over to the plain ones it lists (ProjectStore.foldListedModels)
+  ctx.models.onClaude = (ids) => {
+    if (ctx.store.foldListedModels(new Set(ids))) announceRoles(ctx, ctx.store.modelRoles());
+  };
   ctx.models.probeModels();
 
   ctx.usage.pushUsage(true);

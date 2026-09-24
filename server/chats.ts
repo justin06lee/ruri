@@ -166,6 +166,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         // recorded against the model that named it, so it dies with it
         const model = channelProject(ctx, projectId)?.model || ctx.store.defaultModel();
         ctx.archive.setContextTokens(projectId, tokens, window, model);
+        if (window) ctx.models.windows.set(model, window);
         // and against the turn in flight, for a rewind or a fork to go back to
         ctx.archive.noteTurnContext(projectId, tokens);
         const context: ContextUsage = { tokens, window: contextWindow(ctx, projectId) };

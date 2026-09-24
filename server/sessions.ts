@@ -911,6 +911,10 @@ class ProjectSession implements ChannelSession {
   /** Output tokens this turn has produced so far, across its API calls —
    *  the number under the doodle. Zeroed when a turn starts and ends. */
   private turnOutput = 0;
+  /** How full the context was after the main loop's last API call, and the
+   *  model that call ran on — the result names that model's window. */
+  private lastContext = 0;
+  private mainModel: string | undefined;
   /** This turn's call was refused for the account's usage — the CLI says
    *  so on the message (`error`) and in a rate-limit event. Cleared when
    *  the turn's result lands. */
@@ -1710,7 +1714,11 @@ class ProjectSession implements ChannelSession {
           (usage.cache_read_input_tokens ?? 0) +
           (usage.cache_creation_input_tokens ?? 0) +
           (usage.output_tokens ?? 0);
-        if (tokens > 0) this.events.onContext(this.project.id, tokens);
+        if (tokens > 0) {
+          this.lastContext = tokens;
+          this.mainModel = (msg.message as { model?: string }).model ?? this.mainModel;
+          this.events.onContext(this.project.id, tokens);
+        }
         // the call is over, so its output is counted rather than guessed:
         // this replaces whatever the stream estimated for it
         if (usage.output_tokens) {
@@ -1799,9 +1807,15 @@ class ProjectSession implements ChannelSession {
               outputTokens?: number;
               cacheReadInputTokens?: number;
               cacheCreationInputTokens?: number;
+              contextWindow?: number;
             }
           >
         | undefined;
+      // the window itself, as the CLI knows it — no longer guessed from a
+      // "[1m]" in the id: the plain models have the million-token window
+      // now too, and the CLI stopped listing the "[1m]" ones
+      const window = mainWindow(usageByModel, this.mainModel);
+      if (window && this.lastContext > 0) this.events.onContext(this.project.id, this.lastContext, window);
       const models: string[] = [];
       if (usageByModel) {
         for (const [id, u] of Object.entries(usageByModel)) {
@@ -3035,6 +3049,26 @@ const TRANSIENT =
 /** Limits and refusals wear transient-looking words but are not transient. */
 const NOT_TRANSIENT =
   /usage limit|rate limit|quota|credit|insufficient|out of (?:credits|tokens)|invalid api key|unauthorized|forbidden|authentication/i;
+
+/** The context window the CLI reports for the model the main loop ran on.
+ *  A result's modelUsage keys a model as it was asked for
+ *  ("claude-opus-5-5[1m]"), a message as it was served ("claude-opus-5-5");
+ *  with no main-loop call to go by, a result naming one model names it. */
+export function mainWindow(
+  usage: Record<string, { contextWindow?: number }> | undefined,
+  model: string | undefined,
+): number | undefined {
+  if (!usage) return undefined;
+  const bare = (id: string) => id.replace(/\[1m\]$/, "");
+  const entries = Object.entries(usage);
+  const hit = model
+    ? entries.find(([id]) => bare(id) === bare(model))
+    : entries.length === 1
+      ? entries[0]
+      : undefined;
+  const window = hit?.[1].contextWindow;
+  return typeof window === "number" && window > 0 ? window : undefined;
+}
 
 /** How long to wait before opening a provider's process again after it died
  *  starting (ProviderAgentSession.sendStarting): long enough for the other

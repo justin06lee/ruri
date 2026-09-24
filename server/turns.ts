@@ -93,13 +93,15 @@ export class Turns {
 }
 
 /**
- * The context window a channel's model gets. A harness that names its own
- * (Codex reports the model's real size) wins — but only for the model that
- * named it; otherwise it is Claude's two sizes, 1M with the [1m] flag.
+ * The context window a channel's model gets. The size its harness named for
+ * this channel wins (Claude's CLI and Codex both report it with a turn) —
+ * but only for the model that named it; then the size any chat's turn has
+ * reported for that model since launch (a fork, a new chat); and only with
+ * neither, a guess: Claude's two sizes, 1M with the [1m] flag.
  */
 export function contextWindow(ctx: ServerContext, channelId: string): number {
   const model = channelProject(ctx, channelId)?.model || ctx.store.defaultModel();
-  const reported = ctx.archive.contextWindowOf(channelId, model);
+  const reported = ctx.archive.contextWindowOf(channelId, model) ?? ctx.models.windows.get(model);
   if (reported) return reported;
   return model.includes("[1m]") ? 1_000_000 : 200_000;
 }

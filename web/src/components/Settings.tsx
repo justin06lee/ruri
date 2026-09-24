@@ -28,11 +28,15 @@ import {
 } from "../theme";
 
 /** A row for a model no harness lists right now — a CLI that stopped
- *  offering it, or a catalog not probed yet — named from its id. */
-function unlisted(value: string): ModelChoice {
+ *  offering it, or a catalog not probed yet — named from its id: a Claude
+ *  "[1m]" id by the plain model the catalog does list ("Opus 5.5 1M"), since
+ *  an id alone says "opus" and nothing of which one. */
+function unlisted(value: string, models: ModelChoice[]): ModelChoice {
   const colon = value.indexOf(":");
   if (colon === -1) {
-    return { value, displayName: `${roughName(value)}${value.endsWith("[1m]") ? " 1M" : ""}` };
+    const plain = value.replace(/\[1m\]$/, "");
+    const name = models.find((m) => m.value === plain)?.displayName ?? roughName(plain);
+    return { value, displayName: `${name}${plain === value ? "" : " 1M"}` };
   }
   const provider = value.slice(0, colon);
   return {
@@ -70,12 +74,12 @@ function ModelCatalog() {
   }, []);
 
   // A starred model or a role's holder keeps its row when the harnesses stop
-  // listing it — the Claude CLI once dropped every [1m] model, and the
-  // default's tag went with it, out of reach.
+  // listing it, so its star and tag stay within reach. (A Claude "[1m]" one
+  // the CLI stopped listing moves to its plain id on the server instead.)
   const listed = new Set(models.map((m) => m.value));
   const kept = [...new Set([...starredIds, smallModel, defaultModel])]
     .filter((value) => value && !listed.has(value))
-    .map(unlisted);
+    .map((value) => unlisted(value, models));
   const q = query.trim().toLowerCase();
   const matches = [...models, ...kept].filter((m) =>
     `${m.displayName} ${m.value} ${m.providerLabel ?? "claude code"}`.toLowerCase().includes(q),

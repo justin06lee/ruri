@@ -14,6 +14,7 @@ import {
   type PermissionRequest as YagamiPermissionRequest,
   type Provider,
   type ProviderSession,
+  type ProviderSessionOptions,
   type SDKMessage,
   type SessionPermissionDecision,
   type SessionPermissionRequest,
@@ -2502,7 +2503,12 @@ class ProviderAgentSession implements ChannelSession {
   lastSessionId: string | undefined;
   dead = false;
 
-  private readonly session: ProviderSession;
+  private session: ProviderSession;
+  /** How it was opened — opened again when its process dies starting. */
+  private openOptions: ProviderSessionOptions;
+  /** The user stopped the turn: a start that died is not tried again. */
+  private halted = false;
+  private readonly provider: SessionProvider;
   private nativeModel: string | undefined;
   private running = false;
   private readonly backlog: Array<{
@@ -2545,7 +2551,8 @@ class ProviderAgentSession implements ChannelSession {
     if (resume?.startsWith(`${providerId}:`)) this.lastSessionId = resume;
     const nativeResume = this.lastSessionId?.slice(providerId.length + 1);
     this.permissionMode = project.permissionMode ?? DEFAULT_PERMISSION_MODE;
-    this.session = provider.openSession({
+    this.provider = provider;
+    this.openOptions = {
       cwd: project.path,
       appName: "ruri",
       ...(nativeModel ? { model: nativeModel } : {}),
@@ -2557,7 +2564,8 @@ class ProviderAgentSession implements ChannelSession {
       native: nativePermissions(providerId, this.permissionMode),
       permissions: { decide: (req, signal) => this.decide(req, signal) },
       input: { respond: (req, signal) => this.requestInput(req, signal) },
-    });
+    };
+    this.session = provider.openSession(this.openOptions);
   }
 
   send(
@@ -2594,6 +2602,7 @@ class ProviderAgentSession implements ChannelSession {
     if (eventId) this.lastTurnEventId = eventId;
     const turnEventId = eventId ?? this.lastTurnEventId;
     this.running = true;
+    this.halted = false;
     const started = Date.now();
     let draftId = randomUUID();
     let acc = "";
@@ -2629,7 +2638,7 @@ class ProviderAgentSession implements ChannelSession {
             { type: "text", text: prompt },
           ] as ContentBlockParam[])
         : prompt;
-      for await (const event of this.session.send(input)) {
+      for await (const event of this.sendStarting(input)) {
         // a subagent's own work, tagged with its thread (Codex)
         const thread = (event as { thread?: unknown }).thread;
         if (typeof thread === "string") {
@@ -2741,6 +2750,45 @@ class ProviderAgentSession implements ChannelSession {
       void this.run(next.text, next.images, next.eventId);
     } else {
       this.setStatus(error === undefined ? "idle" : "error");
+    }
+  }
+
+  /**
+   * The turn's events, from a process that is up to it.
+   *
+   * An agent that dies as it starts — OpenCode exits "database is locked"
+   * when another OpenCode opens its database in the same moment, as ruri's
+   * small model does beside every prompt — or one kept warm that died
+   * while idle, fails the prompt before hearing a word of it: "ACP
+   * connection closed", and the next prompt worked. Nothing was done, so
+   * nothing is done twice: the process is opened again, on the session it
+   * had by then, and the same prompt goes to it.
+   */
+  private async *sendStarting(input: string | ContentBlockParam[]): AsyncGenerator<AgentEvent> {
+    for (let attempt = 0; ; attempt++) {
+      let heard = false;
+      try {
+        for await (const event of this.session.send(input)) {
+          if (event.type !== "session") heard = true;
+          yield event;
+        }
+        return;
+      } catch (err) {
+        const wait = START_RETRY_MS[attempt];
+        if (heard || wait === undefined || this.dead || this.halted || !startFailed(err)) throw err;
+        warn("sessions", err, `${this.providerId} died starting; again in ${wait}ms`);
+        void this.session.close();
+        await new Promise((resolve) => setTimeout(resolve, wait));
+        if (this.dead || this.halted) throw err;
+        // a session it opened before dying is the one to go back to — a
+        // fork it made included, which must not be made twice
+        const native = this.lastSessionId?.slice(this.providerId.length + 1);
+        if (native && native !== this.openOptions.resume) {
+          const { forkAt: _forkAt, fork: _fork, ...rest } = this.openOptions;
+          this.openOptions = { ...rest, resume: native };
+        }
+        this.session = this.provider.openSession(this.openOptions);
+      }
     }
   }
 
@@ -2861,6 +2909,7 @@ class ProviderAgentSession implements ChannelSession {
   }
 
   interrupt(): void {
+    this.halted = true;
     this.backlog.length = 0;
     this.rejectPending();
     void this.session.interrupt();
@@ -2986,6 +3035,18 @@ const TRANSIENT =
 /** Limits and refusals wear transient-looking words but are not transient. */
 const NOT_TRANSIENT =
   /usage limit|rate limit|quota|credit|insufficient|out of (?:credits|tokens)|invalid api key|unauthorized|forbidden|authentication/i;
+
+/** How long to wait before opening a provider's process again after it died
+ *  starting (ProviderAgentSession.sendStarting): long enough for the other
+ *  process holding the lock to be through its own start. */
+const START_RETRY_MS = [500, 1500];
+
+/** A harness process that died on the way up rather than said no: not
+ *  signed out, not missing — those are the same on a second try. */
+function startFailed(err: unknown): boolean {
+  if (err instanceof AuthRequiredError || err instanceof ProviderNotInstalledError) return false;
+  return /connection closed|exited with code|database is locked/i.test(errorMessage(err));
+}
 
 /** Whether a failed turn's error reads like something worth simply redoing.
  *  `status` is the HTTP status when the harness names one (Claude does). */

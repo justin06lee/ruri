@@ -38,6 +38,7 @@
     "queue-arrange-test": "tsx scripts/queue-arrange.ts",
     "port-test": "tsx scripts/port.ts",
     "md-image-test": "tsx scripts/md-image.ts",
+    "svg-attachment-test": "tsx scripts/svg-attachment.ts",
     "retry-test": "tsx scripts/retry.ts",
     "held-queue-test": "tsx scripts/held-queue.ts",
     "wake-turn-test": "tsx scripts/wake-turn.ts",

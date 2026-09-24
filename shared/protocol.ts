@@ -142,9 +142,17 @@ export interface Attachment {
   regions?: DraftRegion[];
 }
 
+/** The picture types every harness's model takes as they are. Any other
+ *  image (an SVG, a BMP, an AVIF, …) is shown to it as a PNG drawn by the
+ *  composer — see `AttachmentUpload.picture`. */
+export const MODEL_IMAGE_TYPES: readonly string[] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
 /** Wire form when sending: base64 payload plus optional region annotations. */
 export interface AttachmentUpload extends Omit<Attachment, "regions"> {
   data: string;
+  /** A PNG of an image whose own type the model cannot take (base64): the
+   *  model is shown this, and handed the original's path to open. */
+  picture?: string;
   /** Region crops of an image, each numbered as the prompt's [region #n]
    *  names it (the crop carries that number drawn on it). `rect` is the box
    *  itself, in fractions of the image, so the archive can hand it back. */

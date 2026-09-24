@@ -43,6 +43,13 @@ describe("the tables", () => {
     }
   });
 
+  test("every picture is served as one, whatever it was saved under", () => {
+    for (const [ext, mime] of Object.entries(IMAGE_MIME)) {
+      expect(mimeOf(`upload${ext}`, UPLOAD_MIME)).toBe(mime);
+    }
+    expect(mimeOf("c8e2-logo-framed.svg", UPLOAD_MIME)).toBe("image/svg+xml");
+  });
+
   test("text previews are served as text, the rest as octet-stream", () => {
     expect(mimeOf("notes.md", UPLOAD_MIME)).toBe("text/plain; charset=utf-8");
     expect(mimeOf("data.csv", UPLOAD_MIME)).toBe("text/csv; charset=utf-8");

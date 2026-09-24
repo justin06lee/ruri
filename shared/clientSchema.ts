@@ -78,6 +78,7 @@ const attachmentBase = {
 const attachmentUpload = z.object({
   ...attachmentBase,
   data: bytes,
+  picture: bytes.optional(),
   regions: z
     .array(
       z.object({

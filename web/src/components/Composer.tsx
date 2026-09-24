@@ -1,11 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { HOME_ID, type Project } from "../../../shared/protocol";
+import { HOME_ID, MODEL_IMAGE_TYPES, type Project } from "../../../shared/protocol";
 import { fileToBase64 } from "../lib/files";
 import { clearComposerDraft, composerDrafts, send, setComposerDraft, showError, useRuri } from "../store";
 import { tooBigNotice, useConfirm } from "./Confirm";
 import {
   AttachmentStrip,
   cropRegion,
+  drawAsPng,
   fileKind,
   Viewer,
   type ComposerAttachment,
@@ -441,26 +442,34 @@ export function Composer({
     const trimmed = releaseMarkers(text).trim();
     if (!trimmed && atts.length === 0) return;
     const uploads = await Promise.all(
-      atts.map(async (att) => ({
-        id: att.id,
-        kind: att.kind,
-        mediaType: att.mediaType,
-        name: att.name,
-        n: att.n,
-        data: await fileToBase64(att.file),
-        ...(att.regions.length
-          ? {
-              regions: await Promise.all(
-                att.regions.map(async (region) => ({
-                  n: region.n,
-                  data: await cropRegion(att.objectUrl, region),
-                  mediaType: "image/png",
-                  rect: { x: region.x, y: region.y, w: region.w, h: region.h },
-                })),
-              ),
-            }
-          : {}),
-      })),
+      atts.map(async (att) => {
+        // a picture the model would not take as it is goes with a PNG of it
+        const picture =
+          att.kind === "image" && !MODEL_IMAGE_TYPES.includes(att.mediaType)
+            ? await drawAsPng(att.objectUrl, att.mediaType)
+            : null;
+        return {
+          id: att.id,
+          kind: att.kind,
+          mediaType: att.mediaType,
+          name: att.name,
+          n: att.n,
+          data: await fileToBase64(att.file),
+          ...(picture ? { picture } : {}),
+          ...(att.regions.length
+            ? {
+                regions: await Promise.all(
+                  att.regions.map(async (region) => ({
+                    n: region.n,
+                    data: await cropRegion(att.objectUrl, region),
+                    mediaType: "image/png",
+                    rect: { x: region.x, y: region.y, w: region.w, h: region.h },
+                  })),
+                ),
+              }
+            : {}),
+        };
+      }),
     );
     const sent = editing
       ? // the rewrite goes back in line where the prompt was

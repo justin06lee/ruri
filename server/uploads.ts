@@ -3,7 +3,7 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { configPath } from "./configDir.js";
 import { mimeOf, UPLOAD_EXT, UPLOAD_MIME } from "./mime.js";
-import type { Attachment, AttachmentUpload } from "../shared/protocol.js";
+import { MODEL_IMAGE_TYPES, type Attachment, type AttachmentUpload } from "../shared/protocol.js";
 import { isMissing, warn } from "./log.js";
 
 /**
@@ -58,7 +58,7 @@ export function storeUpload(upload: AttachmentUpload): { url: string; filePath: 
 export function storeAttachments(uploads: AttachmentUpload[]): Attachment[] {
   return uploads.map((upload) => {
     const { url } = storeUpload(upload);
-    const { data: _data, regions, ...meta } = upload;
+    const { data: _data, picture: _picture, regions, ...meta } = upload;
     // the crops were for the model; the boxes they were cut from stay with
     // the attachment, so a rewound prompt comes back with them drawn
     const boxes = (regions ?? []).flatMap((r) => (r.rect ? [{ ...r.rect, n: r.n }] : []));
@@ -86,12 +86,25 @@ export function modelPayload(
   const images: Array<{ data: string; mediaType?: string }> = [];
   let outText = text;
   for (const upload of uploads) {
-    if (upload.kind === "image") {
-      images.push({ data: upload.data, mediaType: upload.mediaType });
+    // An SVG, a BMP, … is a picture to the user and not one the model will
+    // take: sent as it is, the whole image fails to load on its side. It is
+    // shown the composer's PNG of it instead, and handed the original too —
+    // an SVG's source is often the very thing being asked about. With no
+    // PNG (a type the composer could not draw either), it goes as a file.
+    const takes = MODEL_IMAGE_TYPES.includes(upload.mediaType);
+    if (upload.kind === "image" && (takes || upload.picture)) {
+      images.push(
+        takes
+          ? { data: upload.data, mediaType: upload.mediaType }
+          : { data: upload.picture!, mediaType: "image/png" },
+      );
       // a region rides as its own image with its number drawn on it, so the
       // [region #n] the user wrote needs no explaining in their own prompt
       for (const region of upload.regions ?? []) {
         images.push({ data: region.data, mediaType: region.mediaType });
+      }
+      if (!takes) {
+        outText += `\n[image #${upload.n}: ${upload.name}] is shown to you drawn as a PNG; the original is saved at ${uploadPath(upload)} — read it with tools if needed.`;
       }
       continue;
     }

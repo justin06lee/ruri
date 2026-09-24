@@ -56,14 +56,19 @@ export const UPLOAD_EXT: Record<string, string> = {
   "image/webp": "webp",
   "image/gif": "gif",
   "image/avif": "avif",
+  "image/svg+xml": "svg",
+  "image/bmp": "bmp",
   "video/mp4": "mp4",
   "video/quicktime": "mov",
   "video/webm": "webm",
   "application/pdf": "pdf",
 };
 
-/** How an upload is served back, by the extension it was saved with. */
+/** How an upload is served back, by the extension it was saved with. A
+ *  picture saved under its own name's extension (its type was one the table
+ *  above lacks) is still served as one: as octet-stream it would not draw. */
 export const UPLOAD_MIME: Record<string, string> = {
+  ...IMAGE_MIME,
   ...Object.fromEntries(Object.entries(UPLOAD_EXT).map(([mime, ext]) => [`.${ext}`, mime])),
   // preview types for common "file" attachments; anything else streams as
   // octet-stream (the viewer fetches text previews itself, so that's fine)

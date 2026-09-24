@@ -180,6 +180,39 @@ export function cropRegion(objectUrl: string, region: Region): Promise<string> {
   });
 }
 
+/**
+ * An image the model cannot take as it is (an SVG, a BMP, …) drawn as a PNG
+ * it can, for it to be shown in the original's place. A vector is drawn
+ * large enough to read — an icon's 24px would tell the model nothing — and
+ * nothing is drawn past 2048px on its longest side, which the model would
+ * only shrink again. Returns base64 PNG, or null when the browser cannot
+ * decode the picture either (the server then hands it over as a file).
+ */
+export function drawAsPng(objectUrl: string, mediaType: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        // an SVG with only a viewBox can report no size of its own
+        const w0 = img.naturalWidth || 1024;
+        const h0 = img.naturalHeight || w0;
+        const longest = Math.max(w0, h0);
+        const floor = mediaType === "image/svg+xml" ? Math.max(1, 1024 / longest) : 1;
+        const scale = Math.min(2048 / longest, floor);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(w0 * scale));
+        canvas.height = Math.max(1, Math.round(h0 * scale));
+        canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/png").split(",")[1] || null);
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = objectUrl;
+  });
+}
+
 /* ── viewer (full size + region editing for images) ──────────────── */
 
 export interface ViewTarget {
@@ -462,6 +495,15 @@ export function Viewer({
 
 const SHORT_KIND = { image: "img", video: "vid", file: "file" } as const;
 
+/** A picture's thumbnail — or, when it will not draw (a type the browser
+ *  cannot decode, a file since swept away), the file tile rather than a
+ *  broken frame. */
+function PictureThumb({ src, name }: { src: string; name: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return <FileTile name={name} />;
+  return <img src={src} alt="" onError={() => setBroken(true)} />;
+}
+
 /** Thumbnail body for a non-media attachment: doc glyph + extension badge. */
 function FileTile({ name }: { name: string }) {
   return (
@@ -506,7 +548,7 @@ export function AttachmentStrip({
           onClick={() => onView(att)}
         >
           {att.kind === "image" ? (
-            <img src={att.objectUrl} alt="" />
+            <PictureThumb src={att.objectUrl} name={att.name} />
           ) : att.kind === "video" ? (
             <video src={att.objectUrl} muted />
           ) : (
@@ -591,7 +633,7 @@ export function TranscriptAttachments({ attachments }: { attachments: Attachment
               }
             >
               {att.kind === "image" ? (
-                <img src={src} alt="" />
+                <PictureThumb src={src} name={att.name} />
               ) : att.kind === "video" ? (
                 <video src={src} muted />
               ) : (

@@ -343,7 +343,9 @@ textarea::placeholder {
      hand-tuned against exactly this height */
   height: 46px;
   flex-shrink: 0;
-  border-bottom: 1.5px solid var(--hairline);
+  /* the hairline, made opaque: the see-through one let the screentone's
+     dots through underneath it, and the rule read as dotted */
+  border-bottom: 1.5px solid color-mix(in srgb, var(--ink) 10%, var(--paper-dim));
   background-image: var(--tone);
   background-size: 6px 6px;
 }
@@ -1929,6 +1931,26 @@ input[type="range"]::-webkit-slider-thumb {
   overflow-wrap: anywhere;
 }
 
+/* one mark, small, beside a model's name in a list (ModelIcon): drawn in
+   the text's own colour, so a highlighted row turns its lines with it */
+.model-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.model-icon .mark {
+  width: 100%;
+  height: 100%;
+}
+
+.dropdown-trigger .model-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: -2px;
+}
+
 .marks:hover .mark,
 .marks:hover .mark-letters {
   animation: mark-wiggle 520ms ease-in-out;
@@ -2583,7 +2605,8 @@ input[type="range"]::-webkit-slider-thumb {
   background-color: var(--paper-dim);
   background-image: var(--tone);
   background-size: 6px 6px;
-  border-bottom: 1.5px solid var(--hairline);
+  /* opaque, as on the sidebar's (.sidebar-header) */
+  border-bottom: 1.5px solid color-mix(in srgb, var(--ink) 10%, var(--paper-dim));
 }
 
 .bandedit-band .band-pic {

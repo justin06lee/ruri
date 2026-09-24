@@ -4,9 +4,11 @@ import { send, useRuri } from "../store";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
 import { GreetingEditor } from "./GreetingEditor";
+import { ModelIcon } from "./Marks";
 import { Integrations } from "./Integrations";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
+import { markFor } from "../lib/marks";
 import {
   applyTheme,
   currentTheme,
@@ -123,6 +125,7 @@ function ModelCatalog() {
                   <path d={STAR_PATH} />
                 </svg>
               </button>
+              <ModelIcon pick={markFor(m.value, m)} />
               <span className="model-name" title={m.value}>
                 {m.displayName}
               </span>

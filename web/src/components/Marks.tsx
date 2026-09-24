@@ -1010,6 +1010,31 @@ const same = (a: string, b: string) =>
 /** A name worth lettering: short enough to read in one glance. */
 const clip = (name: string) => (name.length > 22 ? `${name.slice(0, 21).trimEnd()}…` : name);
 
+/**
+ * The one mark a model wears in a list — the model pickers, Settings'
+ * catalog: its product's, or its lab's where the product is only a name
+ * (DeepSeek, GLM, MiniMax), or its harness's when no lab is known. Where
+ * there is none, an empty box the same size, so the names still line up.
+ */
+const ICONS: Record<Lab, () => ReactNode> = {
+  anthropic: Claude,
+  openai: ChatGPT,
+  google: Gemini,
+  xai: Grok,
+  moonshot: Kimi,
+  alibaba: Qwen,
+  zhipu: Zai,
+  mistral: LeChat,
+  meta: Llama,
+  deepseek: DeepSeek,
+  minimax: MiniMax,
+};
+
+export function ModelIcon({ pick }: { pick: MarkPick }) {
+  const Mark = pick.lab ? ICONS[pick.lab] : HARNESS_MARKS[pick.harness]?.Mark;
+  return <span className="model-icon">{Mark && <Mark />}</span>;
+}
+
 /** The lab's mark × its product's, for whatever `markFor` made of the model. */
 export function MarkPair({ pick }: { pick: MarkPick }) {
   if (pick.lab) {

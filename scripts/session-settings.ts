@@ -120,7 +120,8 @@ check("the crown is starred", later.starredModels().includes("opus[1m]"));
 // The star used to cycle through the roles (starred → small → default →
 // none). Now it only pins a model into the pickers, and the small-tasks
 // and default roles move by dragging their tags (assignModelRole) — so a
-// second click is an unstar, and unstarring a role's holder releases it.
+// second click is an unstar, except on a role's holder, which keeps its
+// star until its tag has gone to another model.
 const cyc = new ProjectStore();
 const roles = (m: string) => {
   const r = cyc.cycleModelStar(m);
@@ -131,21 +132,28 @@ check("a second star: plain again", roles("sonnet") === "- - -");
 check("a role stars its holder", cyc.assignModelRole("sonnet", "small").starred.includes("sonnet"));
 check("and the star does not cycle the role on", cyc.modelRoles().small === "sonnet");
 check(
-  "unstarring the small model releases the role",
-  roles("sonnet") === "- - -" && cyc.modelRoles().small === undefined,
+  "the small model can't be unstarred: its star and its role stay",
+  roles("sonnet") === "starred small -" && cyc.modelRoles().small === "sonnet",
 );
 check(
   "the crown from before is still on",
   cyc.defaultModel() === "opus[1m]" && cyc.starredModels().includes("opus[1m]"),
 );
-check(
-  "unstarring the default hands it back to the built-in",
-  roles("opus[1m]") === "- - -" && cyc.defaultModel() === DEFAULT_MODEL,
-);
+check("nor can the default", roles("opus[1m]") === "starred - default" && cyc.defaultModel() === "opus[1m]");
 cyc.assignModelRole("haiku", "small");
 cyc.assignModelRole("sonnet", "small");
 check("a role handed over leaves its old holder", cyc.modelRoles().small === "sonnet");
 check("and the old holder stays starred", cyc.starredModels().includes("haiku"));
+check("which can be unstarred now it holds nothing", roles("haiku") === "- - -");
+cyc.assignModelRole("sonnet", "default");
+check(
+  "the old default, once handed over, can be unstarred like any other",
+  !cyc.cycleModelStar("opus[1m]").starred.includes("opus[1m]"),
+);
+check(
+  "nothing unstarred took a role with it",
+  cyc.modelRoles().small === "sonnet" && cyc.defaultModel() === "sonnet",
+);
 
 /* ── the wholesale form still clears the chats' own picks ──────────── */
 for (const s of again.get(project.id)!.sessions) delete s.model;

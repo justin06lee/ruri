@@ -2464,6 +2464,12 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink);
 }
 
+/* a tag's holder: its star is held, not a button — and not faded like one */
+.model-star:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
 .model-name {
   flex: 1;
   min-width: 0;

@@ -28,7 +28,7 @@ export interface BootOptions {
   /** More environment for the server. */
   env?: Record<string, string>;
   /** Where the server's output goes (default: stdout piped, stderr inherited). */
-  stdio?: ["ignore", "pipe" | "ignore" | "inherit", "inherit" | "ignore"];
+  stdio?: ["ignore", "pipe" | "ignore" | "inherit", "pipe" | "inherit" | "ignore"];
 }
 
 /** Start the standalone server (server/index.ts) with the token set. */

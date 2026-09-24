@@ -17,6 +17,11 @@ export class Models {
    *  display names, so it borrows from here rather than undoing them. */
   readonly claudeNames = new Map<string, string>();
   providerModels: ModelChoice[] = [];
+  /** Each model's context window, as a turn on it last reported it — for a
+   *  chat that hasn't run a turn on it yet (server/turns.ts contextWindow). */
+  readonly windows = new Map<string, number>();
+  /** Told the ids of Claude's catalog whenever a list of it lands. */
+  onClaude: ((ids: string[]) => void) | undefined;
   private probing = false;
   probedAt = 0;
 
@@ -35,6 +40,7 @@ export class Models {
       .then(({ claude, harnesses }) => {
         for (const m of claude) this.claudeNames.set(m.value, m.displayName);
         if (this.claudeModels.length === 0 && claude.length > 0) this.claudeModels = claude;
+        if (claude.length > 0) this.onClaude?.(claude.map((m) => m.value));
         this.providerModels = harnesses;
         if (this.allModels().length > 0) this.broadcast({ type: "models", models: this.allModels() });
       })
@@ -55,6 +61,7 @@ export class Models {
     }));
     if (cleaned.length === 0 || JSON.stringify(cleaned) === JSON.stringify(this.claudeModels)) return;
     this.claudeModels = cleaned;
+    this.onClaude?.(cleaned.map((m) => m.value));
     this.broadcast({ type: "models", models: this.allModels() });
   };
 }

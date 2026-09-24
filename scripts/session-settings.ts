@@ -155,6 +155,44 @@ check(
   cyc.modelRoles().small === "sonnet" && cyc.defaultModel() === "sonnet",
 );
 
+// The Claude CLI stopped listing the "[1m]" models once the plain ones had
+// the million-token window too: stars and tags left on one move to the
+// plain id the catalog lists, and nothing else is touched.
+const folds = new ProjectStore();
+folds.assignModelRole("opus[1m]", "default");
+folds.assignModelRole("claude-fable-5-1[1m]", "small");
+if (!folds.starredModels().includes("opus")) folds.cycleModelStar("opus");
+const starredBefore = folds.starredModels();
+const catalog = new Set(["opus", "claude-fable-5-1", "haiku", "sonnet"]);
+check("a catalog without the [1m] ids moves what was on them", folds.foldListedModels(catalog));
+check("the default is the plain one", folds.defaultModel() === "opus");
+check("so is the small-tasks model", folds.modelRoles().small === "claude-fable-5-1");
+const plainStars = [
+  ...new Set(
+    starredBefore.map((id) =>
+      id.endsWith("[1m]") && catalog.has(id.slice(0, -4)) && !catalog.has(id) ? id.slice(0, -4) : id,
+    ),
+  ),
+];
+check(
+  "stars move too, in place, and one already on the plain id isn't doubled",
+  JSON.stringify(folds.starredModels()) === JSON.stringify(plainStars) &&
+    folds.starredModels().filter((id) => id === "opus").length === 1 &&
+    !folds.starredModels().some((id) => id === "opus[1m]" || id === "claude-fable-5-1[1m]"),
+  { before: starredBefore, after: folds.starredModels() },
+);
+check("a second look finds nothing to move", !folds.foldListedModels(catalog));
+const listsOneM = new ProjectStore();
+listsOneM.assignModelRole("opus[1m]", "default");
+check(
+  "a catalog that still lists the [1m] id leaves it be",
+  !listsOneM.foldListedModels(new Set(["opus", "opus[1m]"])) && listsOneM.defaultModel() === "opus[1m]",
+);
+check(
+  "and one without the plain id either",
+  !listsOneM.foldListedModels(new Set(["sonnet"])) && listsOneM.defaultModel() === "opus[1m]",
+);
+
 /* ── the wholesale form still clears the chats' own picks ──────────── */
 for (const s of again.get(project.id)!.sessions) delete s.model;
 again.update(project.id, { model: "opus" });

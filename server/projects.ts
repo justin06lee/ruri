@@ -190,6 +190,40 @@ export class ProjectStore {
     return this.modelRoles();
   }
 
+  /**
+   * Stars and roles on a Claude model's "[1m]" id, moved to the plain id the
+   * CLI lists instead. The CLI stopped listing the "[1m]" ones when the plain
+   * models got the million-token window themselves (`opus` reports
+   * 1,000,000, as `opus[1m]` does), and a star or a tag left on the old id
+   * sat on a row of its own under a name worked out from the id. Chats on
+   * one are left as they are: the CLI still takes it. True when anything
+   * moved.
+   */
+  foldListedModels(listed: ReadonlySet<string>): boolean {
+    const fold = (id: string): string => {
+      if (id.includes(":") || !id.endsWith("[1m]") || listed.has(id)) return id;
+      const plain = id.slice(0, -"[1m]".length);
+      return listed.has(plain) ? plain : id;
+    };
+    const starred = [...new Set(this.starredModelIds.map(fold))];
+    const small = this.smallModelId && fold(this.smallModelId);
+    const crowned = this.defaultModelId && fold(this.defaultModelId);
+    if (
+      starred.join("\n") === this.starredModelIds.join("\n") &&
+      small === this.smallModelId &&
+      crowned === this.defaultModelId
+    ) {
+      return false;
+    }
+    this.starredModelIds = starred;
+    this.smallModelId = small;
+    // not setDefaultModel: nothing riding the default needs pinning to the
+    // old id, which is the same model
+    this.defaultModelId = crowned;
+    this.save();
+    return true;
+  }
+
   /** Hand a role to a model outright: starred if it wasn't, and the role's
    *  previous holder simply stops holding it. */
   assignModelRole(

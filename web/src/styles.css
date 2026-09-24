@@ -1853,6 +1853,114 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
 }
 
+/* ── the marks over an empty chat (components/Marks.tsx) ─────────────
+   The lab's mark × its product's, doodled: the lines are the theme's ink
+   (currentColor), the fills are the brands' own colours laid a hair off
+   them (.wash). Each mark sits at its own small tilt and gives a little
+   wiggle under the pointer. */
+.marks {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 104px;
+  margin-bottom: 14px;
+  color: var(--ink);
+}
+
+.mark {
+  width: 98px;
+  height: 98px;
+  flex-shrink: 0;
+  overflow: visible;
+  transform: rotate(var(--tilt, 0deg));
+}
+
+.mark .ink {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mark .wash {
+  transform: translate(2.6px, 2.3px);
+}
+
+/* a mark drawn as lines rather than shapes: the blossom */
+.mark .knot {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mark-x {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+
+.mark-x .ink {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+}
+
+/* a name lettered by hand, over a smudge of the brand's colour */
+.mark-letters {
+  max-width: 230px;
+  padding: 0 6px;
+  font-family: "Marker Felt", "Chalkboard SE", "Noteworthy", "Comic Sans MS", cursive;
+  font-size: 34px;
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  text-align: center;
+  text-shadow: 2.5px 2.5px 0 var(--wash);
+  transform: rotate(-3deg);
+  overflow-wrap: anywhere;
+}
+
+.marks:hover .mark,
+.marks:hover .mark-letters {
+  animation: mark-wiggle 520ms ease-in-out;
+}
+
+.marks:hover .mark-x {
+  animation: mark-spin 520ms ease-in-out;
+}
+
+@keyframes mark-wiggle {
+  0%,
+  100% {
+    transform: rotate(var(--tilt, -3deg));
+  }
+  30% {
+    transform: rotate(calc(var(--tilt, -3deg) - 6deg));
+  }
+  65% {
+    transform: rotate(calc(var(--tilt, -3deg) + 5deg));
+  }
+}
+
+@keyframes mark-spin {
+  50% {
+    transform: rotate(90deg) scale(1.15);
+  }
+  100% {
+    transform: rotate(180deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marks:hover .mark,
+  .marks:hover .mark-letters,
+  .marks:hover .mark-x {
+    animation: none;
+  }
+}
+
 .hero-title {
   font-size: 34px;
   font-weight: 750;

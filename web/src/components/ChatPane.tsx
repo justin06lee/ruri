@@ -649,11 +649,15 @@ function ChatView({
 
   const busy = status === "working" || status === "permission";
 
+  // The model this chat runs on — an unset one is the crowned default —
+  // and what the catalog says of it.
+  const model = project.model || defaultModel;
+  const modelChoice = models.find((m) => m.value === model);
   // Rewind works on every harness, and the project goes back the same way
   // on all of them (ruri's own checkpoints); what differs is the
   // conversation. Claude and Codex fork their own at the kept exchange;
   // other harnesses come back on a brief of what is kept.
-  const providerRoute = models.find((m) => m.value === (project.model || defaultModel))?.provider;
+  const providerRoute = modelChoice?.provider;
   const claudeRoute = !providerRoute;
   const canRewind = !isHome && !busy;
   const askRewind = canRewind ? startRewind : undefined;
@@ -802,8 +806,8 @@ function ChatView({
       );
     }
 
-    // No conversation yet (Home or a fresh project): a big title and the
-    // composer front and center.
+    // No conversation yet (Home or a fresh project): the marks of whoever
+    // made its model, a big title, and the composer front and center.
     if (transcript.length === 0 && !draft && permissions.length === 0) {
       return (
         <main className={pane("chat home-hero")}>
@@ -816,7 +820,12 @@ function ChatView({
               there before its first prompt too; Home has none */}
           {header}
           <div className="hero">
-            <EmptyTop home={isHome} {...(isHome ? {} : { title: session?.title ?? project.name })} />
+            <EmptyTop
+              home={isHome}
+              model={model}
+              {...(modelChoice ? { choice: modelChoice } : {})}
+              {...(isHome ? {} : { title: session?.title ?? project.name })}
+            />
             <div className="hero-composer">
               {rapid?.on && <RapidBar rapid={rapid} />}
               <Composer

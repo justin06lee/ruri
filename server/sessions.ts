@@ -65,6 +65,13 @@ export interface SessionEvents {
   onModels(models: ModelChoice[]): void;
   /** The live Claude session id changed (used to resume across restarts). */
   onSessionId(projectId: string, sessionId: string): void;
+  /** A resumed Claude session failed to start before any turn began: the
+   *  CLI has no conversation by that id, or no message at the rewind point
+   *  it was to fork from. `prompts` were sent to it and none was taken up —
+   *  the server lets the session go and sends them to a fresh one. Unset,
+   *  the failure is the turn's error, as it always was. `lost` says which
+   *  was missing. */
+  onLostStart?(projectId: string, sessionId: string, lost: "session" | "point", prompts: LostPrompt[]): void;
   /** Context-window occupancy after the session's latest API call, with the
    *  model's own window when the harness reports one (Codex does). */
   onContext(projectId: string, tokens: number, window?: number): void;
@@ -88,6 +95,18 @@ export interface SessionEvents {
    *  looks again at whether an idle session can close. */
   onBackground?(projectId: string): void;
 }
+
+/** A prompt as it went to a session, to go again word for word: `eventId`
+ *  is the transcript's user event it answers to, when there is one. */
+export interface LostPrompt {
+  text: string;
+  images?: Array<{ data: string; mediaType?: string }>;
+  eventId?: string;
+}
+
+/** What the CLI says when a resume has nothing to resume: the session's file
+ *  is gone, or the message a rewind forks at isn't in it. */
+const LOST_START = /No conversation found with session ID|No message found with message\.uuid/;
 
 /** Extra per-project session config (the Home agent's MCP tools live here). */
 export interface SessionExtras {
@@ -876,6 +895,12 @@ class ProjectSession implements ChannelSession {
    *  (a resume of a session or a message Claude can't find) still reports
    *  an id: the fork it would have made, which was never written. */
   private began = false;
+  /** The session id this process was started to resume, if any. */
+  private readonly resumed: string | undefined;
+  /** Its start failed for a session that isn't there, and the prompts went
+   *  on to a fresh one (onLostStart): nothing this process says after that
+   *  is the chat's any more, not even that it has gone idle. */
+  private lost = false;
   /** Sent prompts awaiting their SDK echo, to map event id → chain uuid. */
   private readonly pendingUserEvents: string[] = [];
   /** The user event whose turn the incoming chain uuids belong to. */
@@ -896,7 +921,7 @@ class ProjectSession implements ChannelSession {
   /** Prompts sent that the CLI has not taken up yet, oldest first. Each is
    *  echoed when it is — except a slash command the CLI runs itself, which
    *  the next turn takes up without a word. */
-  private readonly untaken: Array<{ slash: boolean }> = [];
+  private readonly untaken: Array<{ slash: boolean; prompt: LostPrompt }> = [];
   /** A result that came while a prompt was still untaken: the end of a
    *  turn the CLI ran on its own, most likely, with the prompt's turn about
    *  to start. Held for a moment (finishTurn), and folded into that turn
@@ -956,6 +981,7 @@ class ProjectSession implements ChannelSession {
     fork = false,
   ) {
     this.lastSessionId = resume;
+    this.resumed = resume;
     this.secretFill = extras?.fillSecrets;
     this.toolBarrier = extras?.beforeTools;
     this.agents = new AgentBook(project.id, events, () =>
@@ -1029,8 +1055,10 @@ class ProjectSession implements ChannelSession {
     visibleEventId?: string,
   ): void {
     if (silent && visibleEventId) this.pendingUserEvents.push(visibleEventId);
+    let eventId = silent ? visibleEventId : undefined;
     if (!silent) {
       const id = randomUUID();
+      eventId = id;
       // the SDK echoes the prompt back with its chain uuid; this queue
       // pairs that echo with the transcript event it belongs to
       this.pendingUserEvents.push(id);
@@ -1046,7 +1074,10 @@ class ProjectSession implements ChannelSession {
     this.turnRunning = true;
     this.setStatus("working");
     this.interrupted = false;
-    this.untaken.push({ slash: text.trimStart().startsWith("/") });
+    this.untaken.push({
+      slash: text.trimStart().startsWith("/"),
+      prompt: { text, ...(images?.length ? { images } : {}), ...(eventId ? { eventId } : {}) },
+    });
     this.session.send(text, images?.length ? { images } : {});
   }
 
@@ -1302,9 +1333,10 @@ class ProjectSession implements ChannelSession {
       this.agents.settle();
       this.events.onBackground?.(this.project.id);
       // and any turn it was in: nothing is coming to end it now, and a
-      // chat left "working" wears its dragon for good
+      // chat left "working" wears its dragon for good — unless the turn
+      // went on in a fresh session, whose status the chat's now is
       this.turnRunning = false;
-      if (this.status === "working" || this.status === "permission") this.setStatus("idle");
+      if (!this.lost && (this.status === "working" || this.status === "permission")) this.setStatus("idle");
     }
   }
 
@@ -1706,6 +1738,25 @@ class ProjectSession implements ChannelSession {
         }
       }
     } else if (msg.type === "result") {
+      // A resume with nothing to resume fails before any turn begins, and
+      // every prompt after it would fail the same way: the prompts it was
+      // given go to a fresh session instead, briefed on the conversation,
+      // and the chat never sees the error.
+      const errors = "errors" in msg ? msg.errors.join("; ") : "";
+      if (
+        !this.began &&
+        this.resumed &&
+        this.untaken.length > 0 &&
+        this.events.onLostStart &&
+        LOST_START.test(errors)
+      ) {
+        this.lost = true;
+        const prompts = this.untaken.map((entry) => entry.prompt);
+        this.untaken.length = 0;
+        const lost = errors.includes("No message found") ? "point" : "session";
+        this.events.onLostStart(this.project.id, this.resumed, lost, prompts);
+        return;
+      }
       // only a session that began is one to come back to: adopting the id a
       // failed start reports left the chat resuming a session that isn't
       // there, every prompt after

@@ -47,6 +47,7 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 | `idle-reap-test` | tokens | an open chat keeps its process; leaving it closes it; the next prompt resumes |
 | `bridge-close-test` | tokens | bridge windows close a few seconds after the turn that opened them ends |
 | `md-image-test` | tokens | a picture a reply points at by path shows up |
+| `lost-session-test` | tokens (three short Haiku turns) | a chat whose Claude session is gone answers anyway: a resume that fails as it starts goes again to a fresh session briefed on the conversation, and a dead process can't bring the lost id back |
 | `svg-attachment-test` | tokens (one short Haiku turn) | an SVG attached to a prompt reaches the model as the composer's PNG of it, with the original's path; a picture nothing could draw goes as a file; the upload is served as a picture |
 | `rewind-test` | tokens | two Haiku turns on a scratch repo — a Write, then a shell edit and a commit — and a rewind of the second: file, commit, staging, transcript, composer, context gauge |
 | `fork-test` | tokens | fork end to end, one real turn |

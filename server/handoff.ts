@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { MemoryPart, TranscriptEvent } from "../shared/protocol.js";
 import { memoryLineText } from "./brief.js";
 import { sourceLabel } from "./catchupBrief.js";
-import { ownerProject } from "./channel.js";
+import { channelProject, ownerProject } from "./channel.js";
 import { buildCompaction, relevantBlock, type BriefContext } from "./compaction.js";
 import type { ServerContext } from "./context.js";
 import { branchFacts, gitLines, gitStateSync } from "./gitState.js";
@@ -10,6 +10,7 @@ import { warn } from "./log.js";
 import { allLines } from "./memoryLines.js";
 import { exchangesOf } from "./recall.js";
 import { claudeSessionGone, claudeSessionHas } from "./recent.js";
+import type { LostPrompt } from "./sessions.js";
 
 /**
  * What the app adds to a compaction brief that the transcript alone can't
@@ -101,6 +102,25 @@ export function checkResumable(ctx: ServerContext, channelId: string): void {
     ),
     "checkResumable",
   );
+  letGo(ctx, channelId, gone ? GONE : LOST_POINT);
+}
+
+const GONE =
+  "the Claude session this chat was on is gone, so this prompt starts a fresh one, briefed on the conversation";
+const LOST_POINT =
+  "the point this chat was rewound to isn't in its Claude session, so this prompt starts a fresh one, briefed on the conversation";
+
+/**
+ * Let go of the chat's Claude session: the next prompt starts a fresh one
+ * with a brief of the conversation, and the transcript says why.
+ *
+ * The process goes too. One that died holding the old id — a start that
+ * failed, a crash — stays in the manager's hands until something replaces
+ * it, and the next build resumes whatever it held before it asks the
+ * archive: the id cleared here would have come straight back.
+ */
+function letGo(ctx: ServerContext, channelId: string, why: string): void {
+  ctx.manager.dispose(channelId);
   ctx.archive.clearLastSessionId(channelId);
   if (!ctx.archive.hasPendingBrief(channelId)) {
     const built = buildCompaction(
@@ -112,14 +132,33 @@ export function checkResumable(ctx: ServerContext, channelId: string): void {
     );
     if (built) ctx.archive.setPendingBrief(channelId, built.brief);
   }
-  const event: TranscriptEvent = {
-    kind: "info",
-    id: randomUUID(),
-    text: gone
-      ? "the Claude session this chat was on is gone, so this prompt starts a fresh one, briefed on the conversation"
-      : "the point this chat was rewound to isn't in its Claude session, so this prompt starts a fresh one, briefed on the conversation",
-    ts: Date.now(),
-  };
+  const event: TranscriptEvent = { kind: "info", id: randomUUID(), text: why, ts: Date.now() };
   ctx.archive.append(channelId, event);
   ctx.clients.pushEvent(channelId, event);
+}
+
+/**
+ * A resume the check above let through failed anyway (SessionEvents.
+ * onLostStart): the session or its fork point wasn't there by the time the
+ * CLI looked, or the check couldn't tell. The prompts it was given go again,
+ * word for word, to a fresh session briefed on the conversation — the turn
+ * carries on as if it had started there, rather than ending in "No
+ * conversation found" with every prompt after it headed the same way.
+ */
+export function recoverLostStart(
+  ctx: ServerContext,
+  channelId: string,
+  sessionId: string,
+  lost: "session" | "point",
+  prompts: LostPrompt[],
+): void {
+  warn("sessions", new Error(`session ${sessionId} could not be resumed (${lost})`), "recoverLostStart");
+  letGo(ctx, channelId, lost === "point" ? LOST_POINT : GONE);
+  const project = channelProject(ctx, channelId);
+  if (!project) return;
+  const brief = ctx.archive.takePendingBrief(channelId) ?? "";
+  prompts.forEach((prompt, i) => {
+    const text = i === 0 ? withRelevance(ctx, channelId, brief, prompt.text) + prompt.text : prompt.text;
+    ctx.manager.send(project, text, prompt.images, undefined, true, prompt.eventId);
+  });
 }

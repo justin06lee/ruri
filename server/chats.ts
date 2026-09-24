@@ -12,6 +12,7 @@ import { COMPONENT_TOOLS, componentTools } from "./components.js";
 import type { ServerContext } from "./context.js";
 import { drainQueue, holdForTheWorld, maybeRetry } from "./dispatch.js";
 import { recordEvent, redacted } from "./events.js";
+import { recoverLostStart } from "./handoff.js";
 import { ensureLibrarySkill, libraryEndpoint } from "./handlers/components.js";
 import { cliEnv, skillDir } from "./library.js";
 import { HOME_ID, managerExtras } from "./manager.js";
@@ -156,6 +157,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       },
       onModels: ctx.models.report,
       onSessionId: (projectId, sessionId) => ctx.archive.setLastSessionId(projectId, sessionId),
+      onLostStart: (projectId, sessionId, lost, prompts) =>
+        recoverLostStart(ctx, projectId, sessionId, lost, prompts),
       onContext: (projectId, tokens, window) => {
         // the window is recorded first: contextWindow() reads it back, so a
         // harness that names its own is answered with that same number — and

@@ -88,7 +88,16 @@ function claudeProjectsRoot(): string {
 
 /** The folder the CLI keeps a project's transcripts in, by its guess. */
 function claudeProjectDir(projectPath: string): string {
-  return path.join(claudeProjectsRoot(), projectPath.replace(/[^A-Za-z0-9]/g, "-"));
+  // the CLI files a project under its real path: one reached through a
+  // symlink (~/Workspace → /Volumes/…, /tmp → /private/tmp) is kept under
+  // where the link leads, and the path as written finds nothing there
+  let real = projectPath;
+  try {
+    real = fs.realpathSync(projectPath);
+  } catch (err) {
+    if (!isMissing(err)) warn("recent", err, "claudeProjectDir");
+  }
+  return path.join(claudeProjectsRoot(), real.replace(/[^A-Za-z0-9]/g, "-"));
 }
 
 /**

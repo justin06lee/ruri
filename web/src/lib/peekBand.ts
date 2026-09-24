@@ -1,4 +1,4 @@
-import { PEEKS } from "../peek";
+import type { Theme } from "../theme";
 import { type Animate, EFFECTS, type HoverEffect, SPEED_MAX, SPEED_MIN } from "./effects";
 
 export * from "./effects";
@@ -19,7 +19,7 @@ export const MAX_PICTURES = 16;
 
 export interface BandPicture {
   id: string;
-  /** /peek/u<n>.png for the built-in heads, /uploads/<file> for the user's. */
+  /** /peek/<name>.webp for the built-in pictures, /uploads/<file> for the user's. */
   src: string;
   /** Shown instead while the pointer is on it — played from the start if
    *  it moves. */
@@ -40,6 +40,8 @@ export interface BandPicture {
   invert: boolean;
   /** Mirrored left to right. */
   flip: boolean;
+  /** Shown only on these themes — absent, it is on all of them. */
+  themes?: Theme[];
 }
 
 export interface Band {
@@ -47,30 +49,56 @@ export interface Band {
   pictures: BandPicture[];
 }
 
-/** The five hand-cut heads the band has always had, placed as the tuner
- *  left them — and, like before, still until something is set. */
-export function defaultBand(): Band {
+/** Every theme, in the order the editor lists them. */
+export const BAND_THEMES: readonly Theme[] = ["light", "dark", "ember"];
+
+/** Classes that take a picture off the themes it is not kept to —
+ *  styles.css hides `.not-<theme>` while that theme is on. */
+export function offThemes(picture: Pick<BandPicture, "themes">): string {
+  const on = picture.themes;
+  return on
+    ? BAND_THEMES.filter((theme) => !on.includes(theme))
+        .map((theme) => ` not-${theme}`)
+        .join("")
+    : "";
+}
+
+/** One of the built-in pictures, where the band a fresh install shows has
+ *  it: the whole band wide, its sky across the title bar. */
+function builtin(id: string, theme: Theme): BandPicture {
   return {
-    pictures: PEEKS.map((p) => ({
-      id: `u${p.n}`,
-      src: `/peek/u${p.n}.png`,
-      x: p.x,
-      drop: p.drop,
-      w: p.w,
-      effect: "none",
-      amount: EFFECTS.lift.amount,
-      speed: EFFECTS.lift.speed,
-      animate: "always",
-      invert: true,
-      flip: false,
-    })),
+    id,
+    src: `/peek/${id}.webp`,
+    x: -10,
+    drop: -24,
+    w: 276,
+    effect: "none",
+    amount: 0,
+    speed: EFFECTS.none.speed,
+    animate: "always",
+    invert: false,
+    flip: false,
+    themes: [theme],
   };
+}
+
+/** The band a fresh install shows: the one mountain path, as each theme
+ *  has it — by day on light, under the stars on dark, at sunset on ember. */
+export function defaultBand(): Band {
+  return { pictures: [builtin("day", "light"), builtin("night", "dark"), builtin("ember", "ember")] };
 }
 
 /* ── reading it back ─────────────────────────────────────────────── */
 
-/** Only pictures ruri serves itself: the built-in heads and uploads. */
-const SRC = /^\/(peek\/u\d+\.png|uploads\/[A-Za-z0-9._-]+)$/;
+/** Only pictures ruri serves itself: the built-in ones and uploads. */
+const SRC = /^\/(peek\/(day|night|ember)\.webp|uploads\/[A-Za-z0-9._-]+)$/;
+
+/** The themes a stored picture keeps to, or none to say every theme. */
+function readThemes(raw: unknown): Theme[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const themes = BAND_THEMES.filter((theme) => raw.includes(theme));
+  return themes.length > 0 && themes.length < BAND_THEMES.length ? themes : undefined;
+}
 
 const clamp = (value: unknown, min: number, max: number, fallback: number): number =>
   typeof value === "number" && Number.isFinite(value)
@@ -85,6 +113,7 @@ function readPicture(raw: unknown): BandPicture | null {
     typeof p["effect"] === "string" && p["effect"] in EFFECTS ? (p["effect"] as HoverEffect) : "none";
   const spec = EFFECTS[effect];
   const animate: Animate = p["animate"] === "hover" || p["animate"] === "still" ? p["animate"] : "always";
+  const themes = readThemes(p["themes"]);
   return {
     id: typeof p["id"] === "string" && p["id"] ? p["id"].slice(0, 40) : newId(),
     src: p["src"],
@@ -101,6 +130,7 @@ function readPicture(raw: unknown): BandPicture | null {
     animate,
     invert: p["invert"] === true,
     flip: p["flip"] === true,
+    ...(themes ? { themes } : {}),
   };
 }
 

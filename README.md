@@ -52,7 +52,7 @@ bun run desktop   # the desktop app unpackaged (built UI + Electron)
 - **Turn memory, a feature tracker, an ideas board, the vault** (secrets the model can use but never read) **and a skills page.**
 - **Shells in the composer** on a real pty, a tab row per project; **rapid fire** for assembly-line prompting across sessions.
 - **Questions never go to a hole** — every harness's question and form elicitation shares one card.
-- **A manga look** on warm paper, three themes on a clock, the dragon gauges for context and account limits, the peek band in the title bar (the hand-cut heads, or any pictures and GIFs you give it, each with its own hover), a hero face per project (the twelve Ruris or your own, one always or drawn at random, framed and dressed as you like), a music player in the sidebar, and an art tuner.
+- **A manga look** on warm paper, three themes on a clock, the dragon gauges for context and account limits, the peek band in the title bar (a mountain path by day on light, under the stars on dark and at sunset on ember — or any pictures and GIFs you give it, each with its own hover and themes), a hero face per project (the twelve Ruris or your own, one always or drawn at random, framed and dressed as you like), and a music player in the sidebar.
 - **Settings → Permissions** shows every macOS grant as macOS actually holds it.
 
 The long form, one bullet per capability: [docs/features.md](docs/features.md).

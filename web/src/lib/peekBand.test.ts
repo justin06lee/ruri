@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PEEKS } from "../peek";
-import { defaultBand, EFFECTS, MAX_PICTURES, parseBand, type BandPicture } from "./peekBand";
+import { defaultBand, EFFECTS, MAX_PICTURES, offThemes, parseBand, type BandPicture } from "./peekBand";
 
 const picture = (over: Partial<BandPicture> = {}): BandPicture => ({
   id: "a",
@@ -20,13 +19,19 @@ const picture = (over: Partial<BandPicture> = {}): BandPicture => ({
 const stored = (pictures: unknown[]) => JSON.stringify({ pictures });
 
 describe("parseBand", () => {
-  test("nothing stored is the five heads, placed as the tuner left them, still", () => {
+  test("nothing stored is the mountain path, one picture for each theme, still", () => {
     const band = parseBand(null);
     expect(band).toEqual(defaultBand());
-    expect(band.pictures.map((p) => [p.src, p.x, p.w, p.drop])).toEqual(
-      PEEKS.map((p) => [`/peek/u${p.n}.png`, p.x, p.w, p.drop]),
-    );
-    expect(band.pictures.every((p) => p.effect === "none" && !p.hoverSrc)).toBe(true);
+    expect(band.pictures.map((p) => [p.src, p.themes])).toEqual([
+      ["/peek/day.webp", ["light"]],
+      ["/peek/night.webp", ["dark"]],
+      ["/peek/ember.webp", ["ember"]],
+    ]);
+    expect(band.pictures.every((p) => p.effect === "none" && !p.hoverSrc && !p.invert)).toBe(true);
+  });
+
+  test("the default reads back as itself, themes and all", () => {
+    expect(parseBand(stored(defaultBand().pictures))).toEqual(defaultBand());
   });
 
   test("something unreadable is the default too", () => {
@@ -43,7 +48,7 @@ describe("parseBand", () => {
       picture(),
       picture({
         id: "b",
-        src: "/peek/u2.png",
+        src: "/peek/night.webp",
         hoverSrc: "/uploads/x.gif",
         effect: "wiggle",
         amount: 12,
@@ -51,9 +56,23 @@ describe("parseBand", () => {
         animate: "hover",
         invert: true,
         flip: true,
+        themes: ["dark", "ember"],
       }),
     ];
     expect(parseBand(stored(kept)).pictures).toEqual(kept);
+  });
+
+  test("the heads the band used to come with are gone from a band that kept them", () => {
+    const band = parseBand(stored([picture({ id: "u1", src: "/peek/u1.png" }), picture({ id: "mine" })]));
+    expect(band.pictures.map((p) => p.id)).toEqual(["mine"]);
+  });
+
+  test("themes read back checked: unknown ones dropped, none or all of them meaning every theme", () => {
+    const read = (themes: unknown) => parseBand(stored([{ ...picture(), themes }])).pictures[0]?.themes;
+    expect(read(["ember", "sepia", "light"])).toEqual(["light", "ember"]);
+    expect(read([])).toBeUndefined();
+    expect(read(["light", "dark", "ember"])).toBeUndefined();
+    expect(read("dark")).toBeUndefined();
   });
 
   test("a picture from anywhere but ruri itself is dropped", () => {
@@ -85,5 +104,16 @@ describe("parseBand", () => {
   test("no more than the band holds", () => {
     const many = Array.from({ length: MAX_PICTURES + 5 }, (_, i) => picture({ id: `p${i}` }));
     expect(parseBand(stored(many)).pictures).toHaveLength(MAX_PICTURES);
+  });
+});
+
+describe("offThemes", () => {
+  test("a picture on every theme is hidden on none", () => {
+    expect(offThemes(picture())).toBe("");
+  });
+
+  test("a picture kept to some themes is hidden on the rest", () => {
+    expect(offThemes(picture({ themes: ["dark"] }))).toBe(" not-light not-ember");
+    expect(offThemes(picture({ themes: ["light", "ember"] }))).toBe(" not-dark");
   });
 });

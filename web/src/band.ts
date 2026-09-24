@@ -8,11 +8,11 @@ export * from "./lib/peekBand";
  * The peek band — the strip of pictures across the top of the sidebar —
  * as the user has set it up in Settings.
  *
- * It used to be five hand-cut heads placed in the tuner and baked into the
- * build (peek.ts). Those five are still what a fresh install shows, but the
- * band is the user's now: any pictures, any number up to MAX_PICTURES,
- * each placed by dragging it, each with its own hover — a motion, a second
- * picture to swap in, a GIF that plays only while the pointer is on it.
+ * A fresh install shows the one mountain path, a picture for each theme
+ * (web/public/peek), but the band is the user's: any pictures, any number
+ * up to MAX_PICTURES, each placed by dragging it, each with its own hover —
+ * a motion, a second picture to swap in, a GIF that plays only while the
+ * pointer is on it — and each on every theme or only some.
  * What a band is lives in lib/peekBand.ts; this is the window's copy of it.
  *
  * Kept as one preference (server/prefs.ts) holding a small JSON list; the
@@ -72,8 +72,8 @@ export function setBand(next: Band): void {
   saveTimer = setTimeout(() => setPref(KEY, JSON.stringify(kept)), 400);
 }
 
-/** Back to the five heads — by forgetting the preference, which is what
- *  "default" means for one. */
+/** Back to the band a fresh install shows — by forgetting the preference,
+ *  which is what "default" means for one. */
 export function resetBand(): void {
   getBand();
   clearTimeout(saveTimer);

@@ -1,5 +1,5 @@
 import { memo, useState, type HTMLAttributes } from "react";
-import { type BandPicture, useBand } from "../band";
+import { type BandPicture, offThemes, useBand } from "../band";
 import { useShown } from "../pictures";
 import { send } from "../store";
 
@@ -45,7 +45,7 @@ export const BandPic = memo(function BandPic({
   return (
     <div
       {...rest}
-      className={`band-pic fx-host fx-${picture.effect}${hot ? " hot" : ""}${picture.invert ? " invert" : ""} ${className}`}
+      className={`band-pic fx-host fx-${picture.effect}${hot ? " hot" : ""}${picture.invert ? " invert" : ""}${offThemes(picture)} ${className}`}
       style={
         {
           left: picture.x,

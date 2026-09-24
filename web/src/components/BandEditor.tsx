@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
   BAND_H,
+  BAND_THEMES,
   BAND_W,
   EFFECTS,
   getBand,
   MAX_PICTURES,
   newId,
+  offThemes,
   resetBand,
   setBand,
   SPEED_MAX,
@@ -16,6 +18,7 @@ import {
   type HoverEffect,
 } from "../band";
 import { loadPicture, pictureUrl, storePicture, usePicture } from "../pictures";
+import type { Theme } from "../theme";
 import { useConfirm } from "./Confirm";
 import { Dropdown } from "./Dropdown";
 import { BandPic } from "./PeekBand";
@@ -29,7 +32,8 @@ import { NumField, Row } from "./SettingsRows";
  * what hangs below it (the real one clips that away): drag a picture to
  * place it, scroll over one to size it, arrow keys to nudge the one
  * picked. Hovering one here does what it will do there. Every change is on
- * the sidebar the moment it is made (band.ts keeps it a beat later).
+ * the sidebar the moment it is made (band.ts keeps it a beat later). A
+ * picture kept to some themes is on the stage only while one of those is.
  */
 
 const SCALE = 2;
@@ -40,6 +44,8 @@ const EFFECT_OPTIONS = (Object.keys(EFFECTS) as HoverEffect[]).map((value) => ({
   value,
   label: EFFECTS[value].label,
 }));
+
+const THEME_LABEL: Record<Theme, string> = { light: "Light", dark: "Dark", ember: "Ember" };
 
 const ANIMATE: Array<{ value: Animate; label: string; title: string }> = [
   {
@@ -59,6 +65,24 @@ const ANIMATE: Array<{ value: Animate; label: string; title: string }> = [
  *  render it started in). */
 function update(id: string, patch: Partial<BandPicture>): void {
   setBand({ pictures: getBand().pictures.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
+}
+
+/** Turn one theme on or off for a picture — never the last one, a picture
+ *  on no theme at all being one to remove instead. All three is stored as
+ *  no list, the way a picture that has never been kept to any is. */
+function toggleTheme(picture: BandPicture, theme: Theme): void {
+  const on = picture.themes ?? BAND_THEMES;
+  const next = on.includes(theme)
+    ? on.filter((t) => t !== theme)
+    : BAND_THEMES.filter((t) => t === theme || on.includes(t));
+  if (next.length === 0) return;
+  setBand({
+    pictures: getBand().pictures.map((p) => {
+      if (p.id !== picture.id) return p;
+      const { themes: _was, ...rest } = p;
+      return next.length === BAND_THEMES.length ? rest : { ...rest, themes: next };
+    }),
+  });
 }
 
 /** A picture small enough to pick from a strip, held still if it moves. */
@@ -84,7 +108,7 @@ function Ghost({ picture }: { picture: BandPicture }) {
   const art = usePicture(picture.src);
   return (
     <div
-      className={`band-pic${picture.invert ? " invert" : ""}`}
+      className={`band-pic${picture.invert ? " invert" : ""}${offThemes(picture)}`}
       style={{ left: picture.x, top: picture.drop, width: picture.w }}
     >
       <div className="band-art fx-art">
@@ -268,8 +292,8 @@ export function BandEditor() {
 
   const restore = async () => {
     const yes = await confirm({
-      title: "Put the original heads back?",
-      body: "The band goes back to the five hand-cut heads, placed as they came. Your pictures leave the band.",
+      title: "Put the default band back?",
+      body: "The band goes back to the mountain path — by day on light, at night on dark, at sunset on ember. Your pictures leave the band.",
       ok: "Restore",
     });
     if (!yes) return;
@@ -367,7 +391,7 @@ export function BandEditor() {
           {adding > 0 ? "adding…" : `${pictures.length} of ${MAX_PICTURES}`}
         </span>
         <button className="ghost bandedit-restore" onClick={() => void restore()}>
-          Restore the originals
+          Restore the default
         </button>
       </div>
       {problem && <p className="settings-note bandedit-problem">{problem}</p>}
@@ -498,6 +522,33 @@ export function BandEditor() {
               </div>
             </Row>
           )}
+
+          <Row label="Themes">
+            <div className="seg">
+              {BAND_THEMES.map((theme) => {
+                const on = !selected.themes || selected.themes.includes(theme);
+                const last = on && (selected.themes?.length ?? BAND_THEMES.length) === 1;
+                return (
+                  <button
+                    key={theme}
+                    className={`seg-option ${on ? "active" : ""}`}
+                    aria-disabled={last}
+                    title={
+                      last
+                        ? "Its only theme — remove the picture instead"
+                        : `${on ? "Take it off" : "Show it on"} the ${theme} theme`
+                    }
+                    onClick={() => toggleTheme(selected, theme)}
+                  >
+                    {THEME_LABEL[theme]}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="settings-note">
+              {selected.themes ? "only on these — the stage shows the theme you're on" : "on every theme"}
+            </span>
+          </Row>
 
           <Row label="Dark themes">
             <button

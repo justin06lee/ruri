@@ -402,6 +402,13 @@ html:not([data-asleep]) .desktop .sidebar-header {
   transform: scaleX(-1);
 }
 
+/* a picture kept to some themes is not there on the others */
+[data-theme="light"] .band-pic.not-light,
+[data-theme="dark"] .band-pic.not-dark,
+[data-theme="ember"] .band-pic.not-ember {
+  display: none;
+}
+
 /* line art swaps ink and paper with the theme; a picture set not to keeps
    its own colours */
 [data-theme="dark"] .band-pic.invert {

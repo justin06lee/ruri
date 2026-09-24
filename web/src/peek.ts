@@ -1,37 +1,8 @@
 /**
- * Where the art sits — placed by hand in the tuner (`make tuner`), saved
- * back here by it, and read by the app: the hero faces' framing, and the
- * peek band a fresh install shows (lib/peekBand.ts defaultBand — the band
- * itself is the user's to change in Settings).
- *
- * This file is data, not decisions: every number in it was set by dragging
- * the thing itself. The tuner rewrites it wholesale, so keep the shape and
- * put commentary here in the header rather than beside the values.
+ * How the built-in hero faces sit in their frames — numbers first set by
+ * dragging each face into place. The face's editor starts a built-in face
+ * from here, and puts it back here on reset.
  */
-
-/** One peeking head in the titlebar band. */
-export interface Peek {
-  /** Which cut-out: /peek/u{n}.png. */
-  n: number;
-  /** Left edge, px from the band's left. */
-  x: number;
-  /** Rendered width, px — height follows the aspect ratio. */
-  w: number;
-  /** How far down the band it starts, px. */
-  drop: number;
-  /** How far it rises when the cursor is over it, px (negative = up).
-   *  The tuner's to set and preview. The app's band takes its hovers from
-   *  Settings instead, where Lift starts at a strength of its own. */
-  lift: number;
-}
-
-export const PEEKS: Peek[] = [
-  { n: 1, x: 1, w: 65, drop: 4, lift: -18 },
-  { n: 2, x: 56, w: 63, drop: 18, lift: -22 },
-  { n: 3, x: 89, w: 78, drop: 20, lift: -24 },
-  { n: 4, x: 138, w: 89, drop: 17, lift: -22 },
-  { n: 5, x: 210, w: 88, drop: 4, lift: -20 },
-];
 
 /**
  * How a hero face sits inside its circle. The picture is fitted whole inside

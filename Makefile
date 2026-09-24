@@ -23,7 +23,7 @@ TCC_SERVICES := Accessibility ScreenCapture AppleEvents SystemPolicyAllFiles \
 # ruri was never running.
 RUNNING = ps -Ao pid=,comm= | awk '$$2 ~ /\/MacOS\/$(APP)$$/ {print $$1}'
 
-.PHONY: all build install update launch stop icon tuner identity reset-permissions sweep-superseded tidy
+.PHONY: all build install update launch stop icon identity reset-permissions sweep-superseded tidy
 
 all: build reset-permissions install tidy launch
 
@@ -134,8 +134,3 @@ stop:
 icon:
 	sh scripts/make-icon.sh
 
-# The art tuner: place the titlebar heads and frame the hero faces by hand.
-# Saving writes web/src/peek.ts, which is what the app reads.
-tuner:
-	@(sleep 2 && open http://localhost:5173/tuner.html) &
-	bun run dev:web

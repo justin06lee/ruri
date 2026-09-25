@@ -663,6 +663,18 @@ export class SessionArchive {
     return this.load(projectId).contextAt?.[turnId];
   }
 
+  /** Each model's window as these channels' turns last reported it — the
+   *  larger, where two chats on one model disagree. What a relaunch knows
+   *  of a model before any chat has run a turn on it this time. */
+  reportedWindows(projectIds: Iterable<string>): Map<string, number> {
+    const windows = new Map<string, number>();
+    for (const id of projectIds) {
+      const { contextWindow: window, contextWindowModel: model } = this.load(id);
+      if (window && model && window > (windows.get(model) ?? 0)) windows.set(model, window);
+    }
+    return windows;
+  }
+
   /** The window a harness last reported for this channel — only when the
    *  channel still runs the model that reported it. */
   contextWindowOf(projectId: string, model: string): number | undefined {

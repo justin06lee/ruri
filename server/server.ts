@@ -184,6 +184,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     if (ctx.store.foldListedModels(new Set(ids))) announceRoles(ctx, ctx.store.modelRoles());
   };
   ctx.models.probeModels();
+  // each model's window as the chats' turns last reported it, so a relaunch
+  // measures a chat switched onto a model against the window that model
+  // really has, not a guess, before any turn on it has run this time
+  for (const [model, window] of ctx.archive.reportedWindows(ctx.store.sessionIds())) {
+    if (!ctx.models.windows.has(model)) ctx.models.windows.set(model, window);
+  }
 
   ctx.usage.pushUsage(true);
 

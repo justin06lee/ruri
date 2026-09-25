@@ -70,7 +70,8 @@
     "crew-live-test": "tsx scripts/crew-live.ts",
     "provider-test": "tsx scripts/provider-session.ts",
     "rewind-compaction-test": "tsx scripts/rewind-compaction.ts",
-    "talk-test": "tsx scripts/talk.ts"
+    "talk-test": "tsx scripts/talk.ts",
+    "talk-replies-test": "tsx scripts/talk-replies.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.245",

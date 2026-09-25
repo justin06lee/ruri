@@ -423,6 +423,75 @@ export function buildCompaction(
   return { brief, entries, ...(digest ? { digest: { text: digest.text.trim(), through: end } } : {}) };
 }
 
+const CATCH_UP_INTRO =
+  'This conversation went on without you for a while: the user switched to another model, and it carried on there. The numbered exchanges below are what happened while you were away, oldest first, picking up right after the last one you took part in — "user" is their prompt, "you replied" is what was answered (by the other model, but it was this conversation\'s answer, and it is yours to stand behind now). Treat them as your own memory; the user assumes you know all of it.\n' +
+  'Each ends with "full:" and a file path holding its complete prompt, response, tool activity, and preserved attachment paths. Whenever what is here is not detailed enough to answer or act on, read that file with your file tools instead of guessing. The files may have changed under you meanwhile — look before you edit.\n';
+
+/**
+ * What a session missed while the chat ran on other harnesses: every
+ * exchange after `since` (the last it holds, by its prompt's event id), the
+ * last few at length and any before them as notes, each with its full
+ * record's path. Where a compaction brief retells the whole conversation to
+ * a fresh session, this is for one that already holds most of it — a Claude
+ * session the chat is switching back to after a run on Codex — and tells it
+ * only the part it wasn't there for. Null when there is nothing it missed.
+ * `events` is the whole conversation up to the prompt going out, so the
+ * records are numbered as the compaction brief numbers them.
+ */
+export function buildCatchUp(
+  channelId: string,
+  events: TranscriptEvent[],
+  summaries: Record<string, TurnSummary>,
+  since: string,
+  context: BriefContext = {},
+): string | null {
+  const turns = groupTurns(events, context.projectName);
+  const at = turns.findIndex((turn) => turn.turnId === since);
+  const first = at + 1;
+  if (at === -1 || first >= turns.length) return null;
+  const files = writeTurnFiles(channelId, turns);
+  // a long absence lists its latest exchanges; the rest are in their files
+  const listedFrom = Math.max(first, turns.length - BRIEF_LISTED);
+  const recentFrom = Math.max(listedFrom, turns.length - BRIEF_RECENT);
+  const lines: string[] = [];
+  const recent: string[] = [];
+  for (let i = listedFrom; i < turns.length; i++) {
+    const turn = turns[i]!;
+    if (i < recentFrom) {
+      const { user, reply } = notesOf(turn, summaries);
+      lines.push(`${i + 1}. user: ${user}\n   you: ${reply}\n   full: ${files[i]!}`);
+      continue;
+    }
+    const rank = turns.length - 1 - i;
+    recent.push(
+      atLength(turn, i + 1, files[i]!, RECENT_USER_CHARS[rank] ?? 2000, RECENT_REPLY_CHARS[rank] ?? 1500),
+    );
+  }
+  const skipped =
+    listedFrom > first
+      ? `Exchanges ${first + 1}–${listedFrom} happened too, and aren't listed here; their full records are files ${String(first + 1).padStart(3, "0")}.md to ${String(listedFrom).padStart(3, "0")}.md in ${path.dirname(files[0]!)}.\n\n`
+      : "";
+  const state: string[] = [];
+  for (const line of context.git ?? []) state.push(`- ${line}`);
+  const touched = changed(turns.slice(first));
+  if (touched) state.push(`- Files changed while you were away, with the edit tools: ${touched}`);
+  const stateBlock = state.length ? `<state>\n${state.join("\n")}\n</state>\n\n` : "";
+  const listed = lines.length ? `${lines.join("\n")}\n` : "";
+  const recentBlock = recent.length
+    ? `${listed ? "\n" : ""}<recent>\n${recent.join("\n\n")}\n</recent>\n`
+    : "";
+  return (
+    "<while-you-were-away>\n" +
+    CATCH_UP_INTRO +
+    "\n" +
+    stateBlock +
+    skipped +
+    listed +
+    recentBlock +
+    "</while-you-were-away>\n\n"
+  );
+}
+
 /** How many exchanges the prompt's pick brings in at length, at most. */
 const RELEVANT_EXCHANGES = 2;
 const RELEVANT_LINES = 4;

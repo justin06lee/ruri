@@ -64,14 +64,22 @@ export interface SessionEvents {
   /** A question card's tool call stopped waiting; the card is still up. */
   onQuestionLate(requestId: string): void;
   onModels(models: ModelChoice[]): void;
-  /** The live Claude session id changed (used to resume across restarts). */
+  /** The live session's id, as its harness reported it for the turn it is
+   *  starting (used to resume across restarts). Claude's are bare; every
+   *  other harness's are "<provider>:<id>". */
   onSessionId(projectId: string, sessionId: string): void;
-  /** A resumed Claude session failed to start before any turn began: the
-   *  CLI has no conversation by that id, or no message at the rewind point
-   *  it was to fork from. `prompts` were sent to it and none was taken up —
-   *  the server lets the session go and sends them to a fresh one. Unset,
-   *  the failure is the turn's error, as it always was. `lost` says which
-   *  was missing. */
+  /** A turn ended on `sessionId` — its result came — and `eventId` is the
+   *  prompt it ran for: that session now holds the conversation through
+   *  there, whatever brief rode in with it included (archive.ts,
+   *  HarnessSession). Only for a turn the session really started. */
+  onSeen?(projectId: string, sessionId: string, eventId: string): void;
+  /** A resumed session failed to start before any turn began: the harness
+   *  has no conversation by that id (Claude's "No conversation found",
+   *  Codex's "no rollout found", an ACP agent that answered with a new
+   *  session instead), or no message at the rewind point it was to fork
+   *  from. `prompts` were sent to it and none was taken up — the server lets
+   *  the session go and sends them to a fresh one. Unset, the failure is the
+   *  turn's error, as it always was. `lost` says which was missing. */
   onLostStart?(projectId: string, sessionId: string, lost: "session" | "point", prompts: LostPrompt[]): void;
   /** Context-window occupancy after the session's latest API call, with the
    *  model's own window when the harness reports one (Codex does). */
@@ -81,10 +89,11 @@ export interface SessionEvents {
    *  stream carries no counts), `tokens` the exact cumulative output-token
    *  count the moment an API call finishes and reports one. */
   onProgress(projectId: string, progress: { chars?: number; tokens?: number }): void;
-  /** A turn's SDK chain uuid landed: the prompt's own uuid ("user", the
+  /** A turn's chain id landed: the prompt's own uuid ("user", the
    *  file-rewind target) or the turn's latest entry ("last", the fork
-   *  point for rewinding past it). Claude sessions only. */
-  onChain(projectId: string, eventId: string, kind: "user" | "last", uuid: string): void;
+   *  point for rewinding past it) — in `harness`'s own record ("claude",
+   *  or a provider that forks at its turn ids). */
+  onChain(projectId: string, eventId: string, kind: "user" | "last", uuid: string, harness?: string): void;
   /** An event already sent, sent again changed — a subagent's card moving
    *  along. Replaces it where it is; never adds it. Omitted = onEvent. */
   onEventUpdate?(projectId: string, event: TranscriptEvent): void;
@@ -108,6 +117,20 @@ export interface LostPrompt {
 /** What the CLI says when a resume has nothing to resume: the session's file
  *  is gone, or the message a rewind forks at isn't in it. */
 const LOST_START = /No conversation found with session ID|No message found with message\.uuid/;
+
+/** What another harness says when the session it was asked to resume isn't
+ *  there — Codex: "no rollout found for thread id …". Anything else a
+ *  resume fails with is given a second try before it is believed. */
+const LOST_RESUME =
+  /no rollout found|(?:session|thread|conversation)[^.]{0,40}not found|no such (?:session|thread)/i;
+
+/** A provider's resume (or fork) that failed before its harness said a
+ *  word, and not for a reason a fresh session would fail for too. */
+class LostResume extends Error {
+  constructor(cause: unknown) {
+    super(errorMessage(cause), { cause });
+  }
+}
 
 /** Extra per-project session config (the Home agent's MCP tools live here). */
 export interface SessionExtras {
@@ -163,6 +186,9 @@ interface ChannelSession {
   status: ProjectStatus;
   lastSessionId: string | undefined;
   dead: boolean;
+  /** A turn has started in this process — so the id it reports is one that
+   *  exists, and a result is the end of a turn it really ran. */
+  began: boolean;
   /** silent = no user transcript event (split sub-prompts ride under the
    *  original prompt the user already sees). */
   send(
@@ -895,7 +921,7 @@ class ProjectSession implements ChannelSession {
    *  results carry is one that exists. A start that fails before any turn
    *  (a resume of a session or a message Claude can't find) still reports
    *  an id: the fork it would have made, which was never written. */
-  private began = false;
+  began = false;
   /** The session id this process was started to resume, if any. */
   private readonly resumed: string | undefined;
   /** Its start failed for a session that isn't there, and the prompts went
@@ -1662,9 +1688,9 @@ class ProjectSession implements ChannelSession {
         if (!toolResult && (msg as { isReplay?: boolean }).isReplay === true) this.untaken.shift();
         if (!toolResult && !synthetic && this.pendingUserEvents.length > 0) {
           this.turnEventId = this.pendingUserEvents.shift()!;
-          this.events.onChain(this.project.id, this.turnEventId, "user", uuid);
+          this.events.onChain(this.project.id, this.turnEventId, "user", uuid, "claude");
         }
-        if (this.turnEventId) this.events.onChain(this.project.id, this.turnEventId, "last", uuid);
+        if (this.turnEventId) this.events.onChain(this.project.id, this.turnEventId, "last", uuid, "claude");
       }
       // An agent's tool_result is its report — and, for one the turn waited
       // on, its end. One left in the background answered "started" here;
@@ -1694,7 +1720,7 @@ class ProjectSession implements ChannelSession {
       if (msg.error === "rate_limit" || msg.error === "billing_error") this.limited = true;
       const chainUuid = (msg as { uuid?: string }).uuid;
       if (chainUuid && this.turnEventId) {
-        this.events.onChain(this.project.id, this.turnEventId, "last", chainUuid);
+        this.events.onChain(this.project.id, this.turnEventId, "last", chainUuid, "claude");
       }
       // Each main-loop API call's usage tells us how full the context window
       // is right now: everything sent (fresh + cached) plus what came back.
@@ -1980,6 +2006,7 @@ class ProviderTurnSession implements ChannelSession {
   /** Prefixed "<provider>:<session>", so a Claude resume can never eat it. */
   lastSessionId: string | undefined;
   dead = false;
+  began = false;
 
   private model: string | undefined;
   private effort: string;
@@ -2065,6 +2092,7 @@ class ProviderTurnSession implements ChannelSession {
         signal: this.abort.signal,
       })) {
         if (event.type === "session") {
+          this.began = true;
           this.lastSessionId = `${this.providerId}:${event.sessionId}`;
           this.events.onSessionId(this.project.id, this.lastSessionId);
         } else if (event.type === "text") {
@@ -2516,7 +2544,12 @@ class ProviderAgentSession implements ChannelSession {
   /** Prefixed "<provider>:<session>", so a Claude resume can never eat it. */
   lastSessionId: string | undefined;
   dead = false;
+  began = false;
 
+  /** The session this process was opened to resume (native id), and whether
+   *  it was to fork it — a fork answers with a new id by design, a resume
+   *  never should. */
+  private readonly asked: { id: string; fork: boolean } | undefined;
   private session: ProviderSession;
   /** How it was opened — opened again when its process dies starting. */
   private openOptions: ProviderSessionOptions;
@@ -2579,6 +2612,9 @@ class ProviderAgentSession implements ChannelSession {
       permissions: { decide: (req, signal) => this.decide(req, signal) },
       input: { respond: (req, signal) => this.requestInput(req, signal) },
     };
+    this.asked = nativeResume
+      ? { id: nativeResume, fork: this.openOptions.forkAt !== undefined || this.openOptions.fork === true }
+      : undefined;
     this.session = provider.openSession(this.openOptions);
   }
 
@@ -2660,12 +2696,28 @@ class ProviderAgentSession implements ChannelSession {
           continue;
         }
         if (event.type === "session") {
+          // Asked to resume one session and handed another: an ACP agent
+          // that can't resume — or can't find what it was asked for — opens
+          // a new session without a word, and the prompt is already going
+          // to a model that has never heard of the conversation. That is a
+          // lost session like any other, and goes the same way.
+          if (
+            !this.began &&
+            this.asked &&
+            !this.asked.fork &&
+            event.sessionId !== this.asked.id &&
+            this.events.onLostStart
+          ) {
+            this.lose("session", { text, ...(images ? { images } : {}), ...(eventId ? { eventId } : {}) });
+            return;
+          }
+          this.began = true;
           this.lastSessionId = `${this.providerId}:${event.sessionId}`;
           this.events.onSessionId(this.project.id, this.lastSessionId);
         } else if (event.type === "turn") {
           if (turnEventId) {
-            if (eventId) this.events.onChain(this.project.id, turnEventId, "user", event.id);
-            this.events.onChain(this.project.id, turnEventId, "last", event.id);
+            if (eventId) this.events.onChain(this.project.id, turnEventId, "user", event.id, this.providerId);
+            this.events.onChain(this.project.id, turnEventId, "last", event.id, this.providerId);
           }
         } else if (event.type === "text") {
           const piece = spaced(acc, event.text);
@@ -2725,11 +2777,24 @@ class ProviderAgentSession implements ChannelSession {
         }
       }
     } catch (err) {
+      // The session it was to resume isn't there (or the point it was to
+      // fork at): the prompt goes again to a fresh one, briefed on the
+      // conversation, and the chat never sees the error.
+      if (err instanceof LostResume && this.events.onLostStart && !this.dead && !this.halted) {
+        this.lose(this.asked?.fork ? "point" : "session", {
+          text,
+          ...(images ? { images } : {}),
+          ...(eventId ? { eventId } : {}),
+        });
+        return;
+      }
       // A failed transport cannot be reused for recovery. The manager
       // rebuilds it on the next send with the last persisted conversation ID.
       this.dead = true;
       void this.session.close();
-      if (err instanceof AuthRequiredError) {
+      if (err instanceof LostResume) {
+        error = err.message;
+      } else if (err instanceof AuthRequiredError) {
         error = err.message;
       } else if (err instanceof ProviderNotInstalledError) {
         error = err.message;
@@ -2789,8 +2854,32 @@ class ProviderAgentSession implements ChannelSession {
         return;
       } catch (err) {
         const wait = START_RETRY_MS[attempt];
-        if (heard || wait === undefined || this.dead || this.halted || !startFailed(err)) throw err;
-        warn("sessions", err, `${this.providerId} died starting; again in ${wait}ms`);
+        // A resume refused before the harness said anything, for a reason
+        // that is neither the process dying nor the harness being signed
+        // out or missing: the session (or the fork point) isn't there. Said
+        // outright ("no rollout found"), that is believed at once; anything
+        // vaguer (OpenCode's "Internal error") gets one more try first, so
+        // a hiccup does not cost the chat its session.
+        const refused =
+          !heard &&
+          !this.began &&
+          this.asked !== undefined &&
+          !this.dead &&
+          !this.halted &&
+          !startFailed(err) &&
+          !(err instanceof AuthRequiredError) &&
+          !(err instanceof ProviderNotInstalledError);
+        if (refused && (LOST_RESUME.test(errorMessage(err)) || attempt >= 1)) throw new LostResume(err);
+        if (heard || wait === undefined || this.dead || this.halted || !(startFailed(err) || refused)) {
+          throw err;
+        }
+        warn(
+          "sessions",
+          err,
+          refused
+            ? `${this.providerId} would not resume its session; once more in ${wait}ms`
+            : `${this.providerId} died starting; again in ${wait}ms`,
+        );
         void this.session.close();
         await new Promise((resolve) => setTimeout(resolve, wait));
         if (this.dead || this.halted) throw err;
@@ -2804,6 +2893,27 @@ class ProviderAgentSession implements ChannelSession {
         this.session = this.provider.openSession(this.openOptions);
       }
     }
+  }
+
+  /**
+   * This process's start found nothing to resume: it goes, and the prompt
+   * it was given — with any waiting behind it — goes to the server to send
+   * again, to a fresh session briefed on the conversation
+   * (SessionEvents.onLostStart). Nothing it says after this is the chat's.
+   */
+  private lose(lost: "session" | "point", prompt: LostPrompt): void {
+    const prompts = [prompt, ...this.backlog.map((entry) => ({ ...entry }))];
+    this.backlog.length = 0;
+    this.dead = true;
+    this.running = false;
+    this.rejectPending();
+    void this.session.close();
+    warn(
+      "sessions",
+      new Error(`${this.providerId} could not resume ${this.asked?.id ?? "its session"} (${lost})`),
+      "lose",
+    );
+    this.events.onLostStart!(this.project.id, `${this.providerId}:${this.asked?.id ?? ""}`, lost, prompts);
   }
 
   /** What this turn left in the window, for the context dragon. */
@@ -3118,6 +3228,11 @@ function providerSessionId(session: ChannelSession): string | undefined {
   return undefined;
 }
 
+/** The harness a live session runs on: its provider, or "claude". */
+function harnessOf(session: ChannelSession): string {
+  return providerSessionId(session) ?? "claude";
+}
+
 /**
  * When a chat's agent process closes.
  *
@@ -3174,24 +3289,28 @@ export class SessionManager {
   /** Whether a channel is open only in windows that have gone to sleep:
    *  held, but on the short lease rather than the long one. */
   private dozing: (projectId: string) => boolean = () => false;
+  /** The newest prompt (its transcript event id) each live session was sent
+   *  — what a turn that ends on it has been through (SessionEvents.onSeen). */
+  private readonly sentEvents = new WeakMap<ChannelSession, string>();
 
   constructor(
     events: SessionEvents,
-    /** Where to find the resumable session id for a project (the archive). */
-    private readonly resumeFor: (projectId: string) => string | undefined = () => undefined,
+    /** Where to find the resumable session id for a project on a harness
+     *  ("claude", "codex", …) — the archive keeps one per harness, so a
+     *  switch back finds the session it left. */
+    private readonly resumeFor: (projectId: string, harness: string) => string | undefined = () => undefined,
     /** Per-project session extras (the Home agent's MCP tools and prompt). */
     private readonly extrasFor: (project: Project) => SessionExtras | undefined = () => undefined,
     /** Non-Claude harness support; omitted = Claude-only. */
     private readonly providers?: ProviderHooks,
-    /** A pending rewind's fork point, claimed whenever a session builds
-     *  (the archive's take-once resumeAt) — and only a point in the session
-     *  being resumed comes back. */
+    /** A pending rewind's fork point for the session being resumed — only a
+     *  point in that session comes back, and it stays pending until the
+     *  fork is made (the archive's resumeAtFor). */
     private readonly resumeAtFor: (
       projectId: string,
       resumeId: string | undefined,
     ) => string | undefined = () => undefined,
-    /** A pending tip fork, claimed whenever a session builds; true only for
-     *  the session being resumed. */
+    /** A pending tip fork: true only for the session being resumed. */
     private readonly forkFor: (projectId: string, resumeId: string | undefined) => boolean = () => false,
   ) {
     this.events = {
@@ -3236,13 +3355,29 @@ export class SessionManager {
     }
   }
 
-  /** What a channel has working in the background, turn or no turn. */
   /** Whether the channel has a process up that a prompt would go to as it
-   *  is — nothing to resume, so nothing to check before it goes. */
-  live(projectId: string): boolean {
+   *  is — nothing to resume, so nothing to check before it goes. With a
+   *  harness, only a process on that harness counts: one on another is
+   *  about to give way to a build that resumes. */
+  live(projectId: string, harness?: string): boolean {
     const session = this.sessions.get(projectId);
-    return session !== undefined && !session.dead;
+    if (session === undefined || session.dead) return false;
+    return harness === undefined || harnessOf(session) === harness;
   }
+
+  /**
+   * The harness a prompt sent to this channel now would run on: the one
+   * whose turn is running, while one is — a switch never lands under a turn
+   * (setModel defers it, and acquire leaves a running session be) — and
+   * otherwise the one the chat's model routes to.
+   */
+  harnessFor(project: Project): string {
+    const session = this.sessions.get(project.id);
+    if (session && !session.dead && session.status !== "idle") return harnessOf(session);
+    return this.routeOf(project.model).providerId ?? "claude";
+  }
+
+  /** What a channel has working in the background, turn or no turn. */
 
   backgroundWork(projectId: string): BackgroundWork {
     const session = this.sessions.get(projectId);
@@ -3353,7 +3488,9 @@ export class SessionManager {
     silent?: boolean,
     visibleEventId?: string,
   ): void {
-    this.acquire(project).send(text, images, attachments, silent, visibleEventId);
+    const session = this.acquire(project);
+    if (visibleEventId) this.sentEvents.set(session, visibleEventId);
+    session.send(text, images, attachments, silent, visibleEventId);
   }
 
   /** Restore the project's files to a user message's checkpoint, starting
@@ -3362,36 +3499,67 @@ export class SessionManager {
     return this.acquire(project).rewindFiles(uuid);
   }
 
-  /** The live session for a channel, built (with resume) when missing. */
+  /**
+   * A turn ended on a live session: the prompt it was last sent is now in
+   * that session's own record, and so is everything before it. Said only
+   * for a session that really started a turn — a start that failed before
+   * any (a harness signed out, a resume that found nothing) reports the id
+   * it was asked to resume, and has not seen the prompt at all.
+   */
+  private turnEnded(projectId: string, session: ChannelSession): void {
+    const sessionId = session.lastSessionId;
+    const eventId = this.sentEvents.get(session);
+    if (!session.began || !sessionId || !eventId) return;
+    this.events.onSeen?.(projectId, sessionId, eventId);
+  }
+
+  /**
+   * The live session for a channel, built (with resume) when missing.
+   *
+   * A chat keeps a session on each harness it has run on, and a build
+   * resumes the one on the harness it is building for — asked of the
+   * archive every time, never taken from a process that has died. A dead
+   * process's own idea of its id used to win over the archive's, which is
+   * how an id the server had just let go of (a lost session, a switch of
+   * harness) came straight back.
+   */
   private acquire(project: Project): ChannelSession {
     const route = this.routeOf(project.model);
+    const harness = route.providerId ?? "claude";
     let session = this.sessions.get(project.id);
-    // The model moved to a different harness: retire the live session. The
-    // transcript and archive are per-channel and survive; only warm state goes.
-    if (session && !session.dead) {
-      const providerOf = providerSessionId(session);
-      const mismatch = route.providerId ? providerOf !== route.providerId : providerOf !== undefined;
-      if (mismatch) {
-        session.dispose();
-        session = undefined;
-        this.sessions.delete(project.id);
-      }
+    // The model moved to a different harness: retire the live session — but
+    // never one in the middle of a turn. That turn is the harness's to
+    // finish, and a prompt that reaches here while it runs goes to it; the
+    // switch lands once it is over (setModel waits for idle). The transcript
+    // and every harness's session survive either way; only warm state goes.
+    if (session && !session.dead && harnessOf(session) !== harness && session.status === "idle") {
+      session.dispose();
+      session = undefined;
+      this.sessions.delete(project.id);
     }
     if (!session || session.dead) {
-      const resume = session?.lastSessionId ?? this.resumeFor(project.id);
-      // A pending fork point is claimed by whatever builds next, resuming or
-      // not, so none can outlive the session it was set in and be handed
-      // to a later one.
+      const resume = this.resumeFor(project.id, harness);
+      // a fork point or tip fork waiting in the session being resumed
       const resumeAt = this.resumeAtFor(project.id, resume);
       const forkAtTip = this.forkFor(project.id, resume);
+      let built: ChannelSession | undefined;
+      // each session hears its own results: the end of a turn it ran is
+      // what moves on what its harness's session holds (turnEnded)
+      const events: SessionEvents = {
+        ...this.events,
+        onEvent: (projectId, event) => {
+          this.events.onEvent(projectId, event);
+          if (event.kind === "result" && built) this.turnEnded(projectId, built);
+        },
+      };
       if (route.providerId && this.providers) {
         const provider = this.providers.create(route.providerId, project.path, project.id);
         // the agentic path (Codex app-server, ACP) is the harness verbatim;
         // run()-per-turn stays as the fallback for anything without it
-        session = isSessionProvider(provider)
+        built = isSessionProvider(provider)
           ? new ProviderAgentSession(
               project,
-              this.events,
+              events,
               route.providerId,
               provider,
               route.model,
@@ -3402,7 +3570,7 @@ export class SessionManager {
             )
           : new ProviderTurnSession(
               project,
-              this.events,
+              events,
               route.providerId,
               provider,
               route.model,
@@ -3412,15 +3580,16 @@ export class SessionManager {
       } else {
         // provider-prefixed resume ids never feed a Claude session
         const claudeResume = resume && !resume.includes(":") ? resume : undefined;
-        session = new ProjectSession(
+        built = new ProjectSession(
           { ...project, ...(route.model !== undefined ? { model: route.model } : {}) },
-          this.events,
+          events,
           claudeResume,
           claudeResume ? resumeAt : undefined,
           this.extrasFor(project),
           claudeResume ? forkAtTip : false,
         );
       }
+      session = built;
       this.sessions.set(project.id, session);
       // timed from the start: a session built for a rewind and never sent
       // to would otherwise never report idle, and never be closed

@@ -37,11 +37,54 @@ import { isMissing, warn } from "./log.js";
  *  model was asked for and gave nothing usable — asked, so not asked again. */
 export type TurnSummary = TurnNote;
 
+/**
+ * The harness a session id belongs to. Claude's are bare uuids; every other
+ * harness's are kept as "<provider>:<its own id>" (server/sessions.ts), so
+ * the prefix says whose it is.
+ */
+export function harnessOfSession(sessionId: string): string {
+  const colon = sessionId.indexOf(":");
+  return colon === -1 ? "claude" : sessionId.slice(0, colon);
+}
+
+/**
+ * A chat's session on one harness.
+ *
+ * A chat can move between harnesses as often as its model does — Claude,
+ * then Codex for a turn, then OpenCode, then back — and each harness keeps
+ * a conversation of its own that only it can resume. So the chat keeps one
+ * of these per harness it has run on, and a switch back picks up the
+ * session that harness already had rather than starting it over; what
+ * happened on the others while it was away goes to it as a catch-up
+ * (server/handoff.ts).
+ *
+ * What a session holds is told by two exchanges, each named by its prompt's
+ * event id. `seen` is the newest it is known to hold: a turn it ran on it
+ * ended, so the prompt and whatever brief rode with it are in its own
+ * record. `sent` is the newest that went to it at all, taken up or not. The
+ * catch-up counts from `seen`, so a turn that never finished is told again
+ * rather than assumed (telling a session twice costs a few tokens; telling
+ * it nothing costs the conversation); a rewind counts from `sent`, so a
+ * session that may hold an exchange the rewind took out is let go of.
+ */
+export interface HarnessSession {
+  /** Unset while a fresh session has been sent its first prompt but has not
+   *  said what it is called — a start that may yet fail. */
+  session?: string;
+  seen?: string;
+  sent?: string;
+}
+
 interface ArchiveData {
   events: TranscriptEvent[];
   /** Turn summaries keyed by the turn's opening user-event id. */
   summaries: Record<string, TurnSummary>;
+  /** The session the chat last ran on, whichever harness it is — the one
+   *  of `harnesses` that is current. */
   lastSessionId?: string;
+  /** The chat's session on each harness it has run on, keyed by harness
+   *  ("claude", "codex", "opencode", …) — see HarnessSession. */
+  harnesses?: Record<string, HarnessSession>;
   /** Every CLI session id this channel has ever run on (compaction and
    *  rewind move it along; the old ones stay ruri's). What keeps a chat
    *  ruri made from being offered back to it as somebody else's. */
@@ -55,8 +98,10 @@ interface ArchiveData {
   digest?: Digest;
   /** SDK chain uuids per turn (keyed by the opening user-event id): the
    *  prompt's own uuid (`user` — the file-rewind target) and the turn's
-   *  latest chain uuid (`last` — the fork point when rewinding PAST it). */
-  chain?: Record<string, { user?: string; last?: string }>;
+   *  latest chain uuid (`last` — the fork point when rewinding PAST it) —
+   *  and the harness whose ids they are, since a chat that moved between
+   *  harnesses has a chain in each and a fork point is only good in its own. */
+  chain?: Record<string, ChainEntry>;
   /** A rewind's fork point: the next Claude session resumes truncated at
    *  `uuid` — a message in `session`'s transcript, and in no other. The
    *  session it belongs to is part of it: a bare uuid outlived the session
@@ -84,6 +129,14 @@ interface ArchiveData {
    *  and switched back must not go on measuring Claude against Codex's
    *  window, which is what pinned the context dragon full. */
   contextWindowModel?: string;
+}
+
+/** One turn's place in its harness's own record (ArchiveData.chain). An entry
+ *  from before they said which harness is taken to be anyone's. */
+export interface ChainEntry {
+  user?: string;
+  last?: string;
+  harness?: string;
 }
 
 /** A turn's notes as the wire carries them: only the halves with words in. */
@@ -136,6 +189,22 @@ function outline(events: TranscriptEvent[]): EarlierItem[] {
   }
   if (open) open.reply = excerpt(unmarked(reply), REPLY_EXCERPT);
   return items;
+}
+
+/** A stored per-harness map, kept only where it has the shape it should. */
+function readHarnesses(raw: unknown): Record<string, HarnessSession> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, HarnessSession> = {};
+  for (const [harness, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== "object") continue;
+    const { session, seen, sent } = value as Record<string, unknown>;
+    out[harness] = {
+      ...(typeof session === "string" ? { session } : {}),
+      ...(typeof seen === "string" ? { seen } : {}),
+      ...(typeof sent === "string" ? { sent } : {}),
+    };
+  }
+  return out;
 }
 
 function archiveDir(): string {
@@ -294,6 +363,21 @@ export class SessionArchive {
           ? { contextWindow: raw.contextWindow, contextWindowModel: raw.contextWindowModel }
           : {}),
       };
+      const harnesses = readHarnesses(raw.harnesses);
+      if (harnesses) entry.harnesses = harnesses;
+      else if (entry.lastSessionId) {
+        // From before a chat kept a session per harness: the one it was on
+        // is the one it has, and it has everything the transcript does —
+        // it ran every turn since the chat last moved harness, and a move
+        // then started it over with nothing, which is the bug this fixes.
+        const newest = entry.events.findLast((event) => event.kind === "user")?.id;
+        entry.harnesses = {
+          [harnessOfSession(entry.lastSessionId)]: {
+            session: entry.lastSessionId,
+            ...(newest ? { seen: newest, sent: newest } : {}),
+          },
+        };
+      }
     } catch (err) {
       if (!isMissing(err)) warn("archive", err, "load");
       entry = { events: [], summaries: {} };
@@ -686,13 +770,132 @@ export class SessionArchive {
     return this.load(projectId).lastSessionId;
   }
 
+  /**
+   * A session reported its id: it is the chat's current session, and its
+   * harness's. A new id on a harness — a fork a rewind asked for, a fresh
+   * start — carries what the old one held (a fork holds it all; a fresh
+   * start's entry was dropped before it began, so there is nothing to
+   * carry), and settles the fork point or tip fork that was waiting for
+   * it: that fork has now been made.
+   *
+   * Written at once when anything changed, rather than on the debounce: the
+   * id is how the conversation is found again, and a quit or a crash in the
+   * second after a session starts used to leave the chat on disk with the
+   * brief its first prompt carried already spent and no session to show
+   * for it.
+   */
   setLastSessionId(projectId: string, sessionId: string): void {
     const entry = this.load(projectId);
     this.owners = undefined;
+    const harness = harnessOfSession(sessionId);
+    const had = entry.harnesses?.[harness];
+    const changed = entry.lastSessionId !== sessionId || had?.session !== sessionId;
     entry.lastSessionId = sessionId;
+    entry.harnesses = { ...entry.harnesses, [harness]: { ...had, session: sessionId } };
+    if (had?.session !== undefined && had.session !== sessionId) {
+      if (entry.resumeAt?.session === had.session) delete entry.resumeAt;
+      if (entry.forkNext === had.session) delete entry.forkNext;
+    }
     entry.sessionIds ??= [];
     if (!entry.sessionIds.includes(sessionId)) entry.sessionIds = [...entry.sessionIds.slice(-59), sessionId];
+    if (changed) this.flushNow(projectId);
+    else this.scheduleWrite(projectId);
+  }
+
+  /** The chat's session on a harness, and what it holds. */
+  harnessSession(projectId: string, harness: string): Readonly<HarnessSession> | undefined {
+    return this.load(projectId).harnesses?.[harness];
+  }
+
+  /** Every harness the chat has a session on. */
+  harnessSessions(projectId: string): Readonly<Record<string, HarnessSession>> {
+    return this.load(projectId).harnesses ?? {};
+  }
+
+  /** The session a build on this harness resumes, if the chat has one. */
+  sessionOn(projectId: string, harness: string): string | undefined {
+    return this.load(projectId).harnesses?.[harness]?.session;
+  }
+
+  /** A prompt (its event id) is going to the chat's session on a harness —
+   *  a fresh one, when the chat has none there yet. The exchange is marked
+   *  as that harness's in the chain, which is how a rewind later tells
+   *  which harness ran what. */
+  noteSent(projectId: string, harness: string, eventId: string): void {
+    const entry = this.load(projectId);
+    entry.harnesses = { ...entry.harnesses, [harness]: { ...entry.harnesses?.[harness], sent: eventId } };
+    entry.chain ??= {};
+    const at = (entry.chain[eventId] ??= {});
+    if (at.harness !== harness) {
+      delete at.user;
+      delete at.last;
+      at.harness = harness;
+    }
     this.scheduleWrite(projectId);
+  }
+
+  /**
+   * After a rewind: the session on `harness` holds the conversation through
+   * `seen` and no further (a fork taken back to there). Unset: it holds
+   * nothing that can be placed, and is told everything next time.
+   */
+  rewoundTo(projectId: string, harness: string, seen: string | undefined): void {
+    const entry = this.load(projectId);
+    const had = entry.harnesses?.[harness];
+    if (!had) return;
+    const { seen: _seen, sent: _sent, ...rest } = had;
+    entry.harnesses = { ...entry.harnesses, [harness]: { ...rest, ...(seen ? { seen, sent: seen } : {}) } };
+    this.flushNow(projectId);
+  }
+
+  /** A turn on `sessionId` ended, the prompt `eventId` in it: that session
+   *  holds the conversation through there. A session the chat has since
+   *  let go of (or never had) has no say. */
+  noteSeen(projectId: string, sessionId: string, eventId: string): void {
+    const entry = this.load(projectId);
+    const harness = harnessOfSession(sessionId);
+    const had = entry.harnesses?.[harness];
+    if (had?.session !== sessionId) return;
+    if (had.seen === eventId && had.sent !== undefined) return;
+    entry.harnesses = { ...entry.harnesses, [harness]: { ...had, seen: eventId, sent: had.sent ?? eventId } };
+    this.scheduleWrite(projectId);
+  }
+
+  /**
+   * A session that holds exactly the conversation as it stands, through
+   * `seen` — a fork's copy of its source, an imported chat's own session.
+   */
+  adoptSession(projectId: string, sessionId: string, seen: string | undefined): void {
+    this.setLastSessionId(projectId, sessionId);
+    const entry = this.load(projectId);
+    const harness = harnessOfSession(sessionId);
+    entry.harnesses = {
+      ...entry.harnesses,
+      [harness]: { session: sessionId, ...(seen ? { seen, sent: seen } : {}) },
+    };
+    this.flushNow(projectId);
+  }
+
+  /**
+   * Let go of the chat's session on one harness: the next prompt there
+   * starts afresh, briefed. A fork point or tip fork waiting in that session
+   * goes with it, and the chat's current session too when it was that one.
+   * The others are untouched — a Claude session that has gone missing says
+   * nothing about the chat's Codex thread.
+   */
+  dropHarness(projectId: string, harness: string): void {
+    const entry = this.load(projectId);
+    const had = entry.harnesses?.[harness];
+    if (entry.harnesses) {
+      const { [harness]: _gone, ...rest } = entry.harnesses;
+      entry.harnesses = rest;
+    }
+    const mine = (id: string | undefined) =>
+      id !== undefined && (harnessOfSession(id) === harness || id === had?.session);
+    if (mine(entry.lastSessionId)) delete entry.lastSessionId;
+    if (mine(entry.resumeAt?.session)) delete entry.resumeAt;
+    if (mine(entry.forkNext)) delete entry.forkNext;
+    this.flushNow(projectId);
   }
 
   /** Every CLI session id these channels have run on, present or past. */
@@ -726,64 +929,74 @@ export class SessionArchive {
     return this.owners.get(sessionId);
   }
 
-  /** Forget the resumable session id — the next send starts a fresh one,
-   *  and a fork point pending in the old one goes with it. */
+  /** Forget every resumable session, on every harness — the next send
+   *  starts a fresh one wherever it goes (a /compact), and a fork point
+   *  pending in the old ones goes with them. */
   clearLastSessionId(projectId: string): void {
     const entry = this.load(projectId);
     delete entry.lastSessionId;
+    delete entry.harnesses;
     delete entry.resumeAt;
     delete entry.forkNext;
-    this.scheduleWrite(projectId);
+    this.flushNow(projectId);
   }
 
-  /** Record a turn's SDK chain uuid (see ArchiveData.chain). */
-  setChain(projectId: string, eventId: string, kind: "user" | "last", uuid: string): void {
+  /** Record a turn's SDK chain uuid (see ArchiveData.chain), and whose. */
+  setChain(projectId: string, eventId: string, kind: "user" | "last", uuid: string, harness?: string): void {
     const entry = this.load(projectId);
     entry.chain ??= {};
-    (entry.chain[eventId] ??= {})[kind] = uuid;
+    const at = (entry.chain[eventId] ??= {});
+    // a turn's ids are one harness's: a prompt that went again elsewhere
+    // (a lost session's resend) starts its entry over
+    if (harness && at.harness && at.harness !== harness) {
+      delete at.user;
+      delete at.last;
+    }
+    at[kind] = uuid;
+    if (harness) at.harness = harness;
     this.scheduleWrite(projectId);
   }
 
-  chain(projectId: string): Record<string, { user?: string; last?: string }> {
+  chain(projectId: string): Record<string, ChainEntry> {
     return this.load(projectId).chain ?? {};
   }
 
   /** A rewind's fork point: `uuid`, in `session`'s transcript. */
   setResumeAt(projectId: string, session: string, uuid: string): void {
     this.load(projectId).resumeAt = { session, uuid };
-    this.scheduleWrite(projectId);
+    this.flushNow(projectId);
   }
 
   /**
-   * Claim the pending rewind fork point for a session about to resume
-   * `resumeId`. Taken whatever happens — a point is good for one build —
-   * and handed over only when it is that session's: a point in any other
-   * session's transcript is one Claude can't find.
+   * The pending rewind fork point for a session about to resume `resumeId`
+   * — handed over only when it is that session's: a point in any other
+   * session's transcript is one its harness can't find.
+   *
+   * It stays where it is until the fork has been made. It used to be taken
+   * the moment a session was built, whatever came of the build — so a build
+   * on another harness (the chat switched model after the rewind), or a
+   * start that a quit or a crash cut off before the fork was written, spent
+   * it, and the next build resumed the old session at its tip: every
+   * exchange the rewind took out, back in the model's memory. Now the fork's
+   * own new session id settles it (setLastSessionId), and letting go of its
+   * session takes it too (dropHarness, clearLastSessionId).
    */
-  takeResumeAt(projectId: string, resumeId: string | undefined): string | undefined {
-    const entry = this.load(projectId);
-    const at = entry.resumeAt;
-    if (at === undefined) return undefined;
-    delete entry.resumeAt;
-    this.scheduleWrite(projectId);
-    return resumeId !== undefined && at.session === resumeId ? at.uuid : undefined;
+  resumeAtFor(projectId: string, resumeId: string | undefined): string | undefined {
+    const at = this.load(projectId).resumeAt;
+    return at !== undefined && resumeId !== undefined && at.session === resumeId ? at.uuid : undefined;
   }
 
   /** The next session forks `session` at its tip. */
   setForkNext(projectId: string, session: string): void {
     this.load(projectId).forkNext = session;
-    this.scheduleWrite(projectId);
+    this.flushNow(projectId);
   }
 
-  /** Claim the pending tip fork for a session about to resume `resumeId`
-   *  — taken either way, true only when it is that session's. */
-  takeForkNext(projectId: string, resumeId: string | undefined): boolean {
-    const entry = this.load(projectId);
-    const session = entry.forkNext;
-    if (session === undefined) return false;
-    delete entry.forkNext;
-    this.scheduleWrite(projectId);
-    return resumeId !== undefined && session === resumeId;
+  /** Whether a session about to resume `resumeId` is to fork it at its tip
+   *  — kept, like resumeAtFor's point, until that fork has been made. */
+  forkNextFor(projectId: string, resumeId: string | undefined): boolean {
+    const session = this.load(projectId).forkNext;
+    return session !== undefined && resumeId !== undefined && session === resumeId;
   }
 
   /**
@@ -798,7 +1011,7 @@ export class SessionArchive {
     from: {
       events: TranscriptEvent[];
       summaries: Record<string, TurnSummary>;
-      chain: Record<string, { user?: string; last?: string }>;
+      chain: Record<string, ChainEntry>;
       contextTokens?: number;
       contextAt?: Record<string, number>;
       contextWindow?: number;
@@ -834,7 +1047,7 @@ export class SessionArchive {
     try {
       this.writeHistory(projectId, []);
     } catch (err) {
-      warn("archive", err, "takeForkNext");
+      warn("archive", err, "seed");
       // nothing there to clear
     }
     if (this.fold(projectId, entry)) this.flushNow(projectId);

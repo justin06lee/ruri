@@ -365,9 +365,14 @@ async function main(): Promise<void> {
     const deadline = new Promise<void>((resolve) => setTimeout(resolve, QUIT_TIMEOUT_MS).unref?.());
     void Promise.race([teardown, deadline]).then(() => app.quit());
   });
-  process.on("SIGINT", () => {
-    void running.close().finally(() => app.quit());
-  });
+  // a signal to stop is a quit like Cmd+Q: SIGTERM (a plain `kill`, a
+  // supervisor) used to end the process on the spot, and with it whatever
+  // the archive had not yet written
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      void running.close().finally(() => app.quit());
+    });
+  }
 }
 
 // A GUI app has no terminal to die into: what nobody caught is logged and

@@ -120,6 +120,9 @@ export interface RuriServer {
    */
   portFallback?: { wanted: number; reason: string };
   close(): Promise<void>;
+  /** Write every transcript and archive change still on its debounce, now
+   *  and on this thread — for a process about to go without a close(). */
+  flush(): void;
 }
 
 /** One window's socket. */

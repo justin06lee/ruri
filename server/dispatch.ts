@@ -14,7 +14,7 @@ import { mentionBlock, mentionedIn } from "./components.js";
 import type { ServerContext } from "./context.js";
 import { recordEvent } from "./events.js";
 import { pushComponents } from "./handlers/components.js";
-import { briefContext, checkResumable, withRelevance } from "./handoff.js";
+import { briefContext, catchUp, checkResumable } from "./handoff.js";
 import { errorMessage, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
 import { backfillNotes } from "./notes.js";
@@ -89,22 +89,22 @@ export function dispatch(
   // a session to resume that Claude no longer has is let go of first, for
   // a brief — which this prompt then carries
   checkResumable(ctx, channelId);
-  // the first prompt after a compaction carries the brief, invisibly —
-  // with what of the conversation bears on this prompt at more length
-  const brief = withRelevance(ctx, channelId, ctx.archive.takePendingBrief(channelId) ?? "", text);
   if (silent) {
     // a split sub-prompt: files are already stored, no new user event
+    const visible = ctx.archive.events(channelId).findLast((event) => event.kind === "user")?.id;
+    const { brief, harness } = catchUp(ctx, channelId, text, visible);
+    if (visible) ctx.archive.noteSent(channelId, harness, visible);
     const payload = modelPayload(text, uploads);
-    ctx.manager.send(
-      project,
-      brief + payload.text + named,
-      payload.images,
-      undefined,
-      true,
-      ctx.archive.events(channelId).findLast((event) => event.kind === "user")?.id,
-    );
+    ctx.manager.send(project, brief + payload.text + named, payload.images, undefined, true, visible);
     return;
   }
+  // Whatever the session this goes to doesn't hold rides in ahead of it,
+  // invisibly: the whole conversation for a fresh one (after a compaction,
+  // on a harness the chat has not run on), the exchanges it missed for one
+  // the chat is coming back to — with what of the conversation bears on
+  // this prompt at more length. Decided before the prompt joins the
+  // transcript, so it is never told about itself.
+  const { brief, harness } = catchUp(ctx, channelId, text);
   // What the model reads and what the user wrote are two strings: the
   // compaction brief is the model's memory, and a file's marker becomes
   // its path where the model reads it. So the transcript event is written
@@ -125,6 +125,7 @@ export function dispatch(
     ? (from.answer ? answerPrompt : letterPrompt)(from, ctx.talk.handleOf(from.agent), processed.text)
     : processed.text;
   if (from && !from.answer) ctx.talk.mark(from.letter, "working");
+  ctx.archive.noteSent(channelId, harness, userEvent.id);
   ctx.manager.send(project, brief + said + named, processed.images, undefined, true, userEvent.id);
 }
 
@@ -275,7 +276,13 @@ export function maybeRetry(ctx: ServerContext, channelId: string, event: Transcr
       return;
     }
     try {
-      ctx.manager.send(project, RETRY_NUDGE, undefined, undefined, true);
+      // the chat may have moved to another harness while it waited: then
+      // the nudge goes to a session that was not there for the dropped
+      // turn, and is told about it first
+      const { brief, harness } = catchUp(ctx, channelId, RETRY_NUDGE);
+      const last = ctx.archive.events(channelId).findLast((event) => event.kind === "user")?.id;
+      if (brief && last) ctx.archive.noteSent(channelId, harness, last);
+      ctx.manager.send(project, brief + RETRY_NUDGE, undefined, undefined, true);
     } catch (err) {
       warn("server", err, "retry nudge");
       ctx.retries.delete(channelId);

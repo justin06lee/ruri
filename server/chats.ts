@@ -158,6 +158,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       },
       onModels: ctx.models.report,
       onSessionId: (projectId, sessionId) => ctx.archive.setLastSessionId(projectId, sessionId),
+      // what a harness's session holds moves on only as its turns end
+      onSeen: (projectId, sessionId, eventId) => ctx.archive.noteSeen(projectId, sessionId, eventId),
       onLostStart: (projectId, sessionId, lost, prompts) =>
         recoverLostStart(ctx, projectId, sessionId, lost, prompts),
       onContext: (projectId, tokens, window) => {
@@ -173,9 +175,12 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         ctx.turns.contexts.set(projectId, context);
         ctx.clients.broadcast({ type: "context", projectId, context });
       },
-      onChain: (projectId, eventId, kind, uuid) => ctx.archive.setChain(projectId, eventId, kind, uuid),
+      onChain: (projectId, eventId, kind, uuid, harness) =>
+        ctx.archive.setChain(projectId, eventId, kind, uuid, harness),
     },
-    (projectId) => ctx.archive.lastSessionId(projectId),
+    // the chat's session on the harness being built for — each harness it
+    // has run on keeps its own, so a switch back resumes where it left off
+    (projectId, harness) => ctx.archive.sessionOn(projectId, harness),
     (project) => {
       if (project.id === HOME_ID) {
         return tagged(
@@ -249,8 +254,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         }),
       canFork: (id) => ctx.models.registry.canForkSession(id),
     },
-    (projectId, resumeId) => ctx.archive.takeResumeAt(projectId, resumeId),
-    (projectId, resumeId) => ctx.archive.takeForkNext(projectId, resumeId),
+    (projectId, resumeId) => ctx.archive.resumeAtFor(projectId, resumeId),
+    (projectId, resumeId) => ctx.archive.forkNextFor(projectId, resumeId),
   );
   // an unset model is whatever Settings crowned, read live
   manager.useDefaultModel(() => ctx.store.defaultModel());

@@ -207,11 +207,20 @@ export function letterPrompt(from: LetterFrom, handle: string, text: string): st
  *  are the answer — so the work waits for the prompt that follows
  *  (resumePrompt). */
 const CUT_IN_LINE =
-  "It interrupted you: the turn you were running was stopped so you would read this now. Deal with this and only this now — you will be sent back to what you were doing straight after, so don't pick that up again in this turn.";
+  "It interrupted you: ruri stopped the turn you were running so you would read this now — the user did not, and a tool call of yours that shows as rejected or interrupted was not refused. Deal with this and only this now — you will be sent back to what you were doing straight after, so don't pick that up again in this turn.";
 
-/** ruri's own prompt after a message cut in: back to the work it stopped. */
-export function resumePrompt(who: string): string {
-  return `↩ Back to what you were doing: ${who}'s message interrupted you, and you've dealt with it. Carry on exactly where you left off — whatever the user asked of you before still stands. Anything that was cut off when you were stopped (a command, a wait, a check) needs starting again.`;
+/**
+ * ruri's own prompt after a message cut in: back to the work it stopped.
+ * `running` is the tool call the stop cut off, as the transcript shows it
+ * ("Bash: for i in …") — named, because the harness hands the model that
+ * call back as "rejected", which a model reads as the user saying no and
+ * leaves alone unless it is told otherwise.
+ */
+export function resumePrompt(who: string, running?: string): string {
+  const cut = running
+    ? ` When you were stopped you were running ${running.length > 200 ? `${running.slice(0, 199)}…` : running} — start that again first.`
+    : "";
+  return `↩ Back to what you were doing: ${who}'s message interrupted you, and you've dealt with it. Carry on exactly where you left off — whatever the user asked of you before still stands. It was ruri that stopped you, not the user: a tool call that came back rejected or interrupted was not refused, so run it again.${cut}`;
 }
 
 /** An answer coming back to the chat that asked, for its model. */

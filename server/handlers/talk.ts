@@ -188,6 +188,15 @@ function interruptible(ctx: ServerContext, chat: string): boolean {
   return !from || from.answer === true || from.reply === "none";
 }
 
+/** The tool call a stop of the running turn cuts off — the last the turn
+ *  started, as its chip reads ("Bash: npm test") — if it started any. */
+function cutOff(ctx: ServerContext, chat: string): string | undefined {
+  const events = ctx.archive.events(chat);
+  const start = events.findLastIndex((event) => event.kind === "user");
+  const tool = events.slice(start + 1).findLast((event) => event.kind === "tool");
+  return tool?.kind === "tool" ? `${tool.name}: ${tool.summary}` : undefined;
+}
+
 /**
  * Into a chat's line. A chat at work is interrupted for it: its turn is
  * stopped and this goes first, ahead of anything the user has queued, and
@@ -221,7 +230,7 @@ function deliver(
       : [
           {
             id: randomUUID(),
-            text: resumePrompt(seatName(from.project, from.title)),
+            text: resumePrompt(seatName(from.project, from.title), cutOff(ctx, chat)),
             uploads: [],
             silent: false,
             resume: true,

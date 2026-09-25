@@ -564,6 +564,20 @@ describe("a message cuts in on a chat at work", () => {
     expect(resumePrompt("api · Backend")).toContain("Carry on exactly where you left off");
   });
 
+  test("the way back names the command the stop cut off, and says ruri stopped it", async () => {
+    const { ctx, statuses, events } = world();
+    statuses["b"] = "working";
+    events["b"] = [
+      { kind: "user", id: "u1", text: "watch the training run", ts: 1 },
+      { kind: "tool", id: "t1", name: "Bash", summary: "ssh tenet 'journalctl -u una.service -f'", ts: 2 },
+    ];
+    await sendLetter(ctx, "a", { to: "Backend", message: "status?", reply: "later" });
+    const back = ctx.queues.entries.get("b")!.find((entry) => entry.resume)!;
+    expect(back.text).toContain("Bash: ssh tenet 'journalctl -u una.service -f'");
+    expect(back.text).toContain("not the user");
+    expect(resumePrompt("x")).not.toContain("When you were stopped");
+  });
+
   test("several that come at once go in the order they came, and the chat is sent back once", async () => {
     const { ctx, statuses } = world();
     statuses["b"] = "working";

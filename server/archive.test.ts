@@ -170,16 +170,29 @@ describe("the history file", () => {
 });
 
 describe("a rewind's fork point, tied to its session", () => {
-  test("it is handed over only to the session it was set in, and taken either way", () => {
+  test("it is handed over only to the session it was set in", () => {
     const archive = new SessionArchive();
     archive.setLastSessionId("c", "S1");
     archive.setResumeAt("c", "S1", "u9");
-    // a build resuming some other session takes it, and gets nothing
-    expect(archive.takeResumeAt("c", "S2")).toBeUndefined();
-    expect(archive.takeResumeAt("c", "S1")).toBeUndefined();
+    // a build resuming some other session gets nothing — and leaves it
+    expect(archive.resumeAtFor("c", "S2")).toBeUndefined();
+    expect(archive.resumeAtFor("c", undefined)).toBeUndefined();
+    expect(archive.resumeAtFor("c", "S1")).toBe("u9");
+  });
+
+  test("it waits for its fork: a build that never forked leaves it for the next", () => {
+    const archive = new SessionArchive();
+    archive.setLastSessionId("c", "S1");
     archive.setResumeAt("c", "S1", "u9");
-    expect(archive.takeResumeAt("c", "S1")).toBe("u9");
-    expect(archive.takeResumeAt("c", "S1")).toBeUndefined();
+    // built, and cut off before the fork was written (a quit, a crash) —
+    // or built on another harness after a switch — and built again
+    expect(archive.resumeAtFor("c", "S1")).toBe("u9");
+    archive.setLastSessionId("c", "codex:t1");
+    expect(archive.resumeAtFor("c", "S1")).toBe("u9");
+    // the fork is made: its own new id settles the point
+    archive.setLastSessionId("c", "S2");
+    expect(archive.resumeAtFor("c", "S1")).toBeUndefined();
+    expect(archive.resumePoint("c")).toBeUndefined();
   });
 
   test("a compaction's move to a fresh session takes the pending point and tip fork with it", () => {
@@ -189,16 +202,20 @@ describe("a rewind's fork point, tied to its session", () => {
     archive.setForkNext("c", "S1");
     archive.clearLastSessionId("c");
     expect(archive.resumePoint("c")).toBeUndefined();
-    expect(archive.takeResumeAt("c", "S1")).toBeUndefined();
-    expect(archive.takeForkNext("c", "S1")).toBe(false);
+    expect(archive.resumeAtFor("c", "S1")).toBeUndefined();
+    expect(archive.forkNextFor("c", "S1")).toBe(false);
+    expect(archive.harnessSessions("c")).toEqual({});
   });
 
-  test("a tip fork is the session's it was set in", () => {
+  test("a tip fork is the session's it was set in, and waits for its fork too", () => {
     const archive = new SessionArchive();
+    archive.setLastSessionId("c", "S1");
     archive.setForkNext("c", "S1");
-    expect(archive.takeForkNext("c", "S2")).toBe(false);
-    archive.setForkNext("c", "S1");
-    expect(archive.takeForkNext("c", "S1")).toBe(true);
+    expect(archive.forkNextFor("c", "S2")).toBe(false);
+    expect(archive.forkNextFor("c", "S1")).toBe(true);
+    expect(archive.forkNextFor("c", "S1")).toBe(true);
+    archive.setLastSessionId("c", "S3");
+    expect(archive.forkNextFor("c", "S1")).toBe(false);
   });
 
   test("a point survives a restart, and one from before points named their session doesn't", () => {
@@ -212,6 +229,127 @@ describe("a rewind's fork point, tied to its session", () => {
     fs.writeFileSync(file, JSON.stringify({ ...raw, resumeAt: "860dc3e1", forkNext: true }));
     const again = new SessionArchive();
     expect(again.resumePoint("c")).toBeUndefined();
-    expect(again.takeForkNext("c", "S1")).toBe(false);
+    expect(again.forkNextFor("c", "S1")).toBe(false);
+  });
+});
+
+describe("a session per harness", () => {
+  const onDisk = (): Record<string, unknown> =>
+    JSON.parse(fs.readFileSync(path.join(dir, "sessions", "c.json"), "utf8")) as Record<string, unknown>;
+
+  test("each harness keeps its own; the chat is on whichever reported last", () => {
+    const archive = new SessionArchive();
+    archive.setLastSessionId("c", "S1");
+    archive.setLastSessionId("c", "codex:t1");
+    archive.setLastSessionId("c", "opencode:ses_1");
+    expect(archive.sessionOn("c", "claude")).toBe("S1");
+    expect(archive.sessionOn("c", "codex")).toBe("codex:t1");
+    expect(archive.sessionOn("c", "opencode")).toBe("opencode:ses_1");
+    expect(archive.lastSessionId("c")).toBe("opencode:ses_1");
+    // switching back reports the same id again: nothing is lost on the way
+    archive.setLastSessionId("c", "S1");
+    expect(archive.sessionOn("c", "codex")).toBe("codex:t1");
+    expect(archive.ownedSessionIds(["c"])).toEqual(new Set(["S1", "codex:t1", "opencode:ses_1"]));
+  });
+
+  test("what a session holds moves on only when a turn on it ends", () => {
+    const archive = new SessionArchive();
+    archive.append("c", user("p1"));
+    archive.noteSent("c", "claude", "p1");
+    // sent to a fresh start that has not said its id: no session yet
+    expect(archive.harnessSession("c", "claude")).toEqual({ sent: "p1" });
+    archive.setLastSessionId("c", "S1");
+    expect(archive.harnessSession("c", "claude")).toEqual({ session: "S1", sent: "p1" });
+    archive.noteSeen("c", "S1", "p1");
+    expect(archive.harnessSession("c", "claude")).toEqual({ session: "S1", sent: "p1", seen: "p1" });
+    // a turn on a session the chat no longer has says nothing
+    archive.noteSeen("c", "S0", "p9");
+    expect(archive.harnessSession("c", "claude")?.seen).toBe("p1");
+  });
+
+  test("a new id on a harness — a fork — carries what the old one held", () => {
+    const archive = new SessionArchive();
+    archive.setLastSessionId("c", "S1");
+    archive.noteSent("c", "claude", "p1");
+    archive.noteSeen("c", "S1", "p1");
+    archive.setLastSessionId("c", "S2");
+    expect(archive.harnessSession("c", "claude")).toEqual({ session: "S2", sent: "p1", seen: "p1" });
+  });
+
+  test("letting go of one harness's session leaves the others", () => {
+    const archive = new SessionArchive();
+    archive.setLastSessionId("c", "S1");
+    archive.setLastSessionId("c", "codex:t1");
+    archive.setResumeAt("c", "codex:t1", "turn-3");
+    archive.dropHarness("c", "codex");
+    expect(archive.sessionOn("c", "codex")).toBeUndefined();
+    expect(archive.lastSessionId("c")).toBeUndefined();
+    expect(archive.resumePoint("c")).toBeUndefined();
+    expect(archive.sessionOn("c", "claude")).toBe("S1");
+    // the ids stay on the chat's record: they are still ruri's
+    expect(archive.ownedSessionIds(["c"]).has("codex:t1")).toBe(true);
+  });
+
+  test("a rewind puts what a session holds back to where the fork goes", () => {
+    const archive = new SessionArchive();
+    archive.setLastSessionId("c", "S1");
+    archive.noteSent("c", "claude", "p3");
+    archive.noteSeen("c", "S1", "p3");
+    archive.rewoundTo("c", "claude", "p1");
+    expect(archive.harnessSession("c", "claude")).toEqual({ session: "S1", seen: "p1", sent: "p1" });
+    archive.rewoundTo("c", "claude", undefined);
+    expect(archive.harnessSession("c", "claude")).toEqual({ session: "S1" });
+  });
+
+  test("a prompt marks its exchange as the harness's it went to", () => {
+    const archive = new SessionArchive();
+    archive.noteSent("c", "claude", "p1");
+    archive.setChain("c", "p1", "last", "uuid-1", "claude");
+    expect(archive.chain("c")["p1"]).toEqual({ harness: "claude", last: "uuid-1" });
+    // sent again elsewhere (a lost session's resend on another harness):
+    // the other harness's ids are no good there
+    archive.noteSent("c", "codex", "p1");
+    expect(archive.chain("c")["p1"]).toEqual({ harness: "codex" });
+  });
+
+  test("a session's id is on disk the moment it changes, not a second later", () => {
+    const archive = new SessionArchive();
+    archive.append("c", user("p1"));
+    archive.setLastSessionId("c", "S1");
+    // no flush asked for: a crash now must still find the chat's session
+    expect(onDisk()["lastSessionId"]).toBe("S1");
+    expect(onDisk()["harnesses"]).toEqual({ claude: { session: "S1" } });
+    archive.setLastSessionId("c", "codex:t1");
+    expect((onDisk()["harnesses"] as Record<string, unknown>)["codex"]).toEqual({ session: "codex:t1" });
+    archive.dropHarness("c", "codex");
+    expect((onDisk()["harnesses"] as Record<string, unknown>)["codex"]).toBeUndefined();
+  });
+
+  test("a chat from before sessions per harness: the one it was on holds everything", () => {
+    fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "sessions", "c.json"),
+      JSON.stringify({
+        events: [user("p1"), reply("r1"), user("p2")],
+        summaries: {},
+        lastSessionId: "codex:t9",
+      }),
+    );
+    const archive = new SessionArchive();
+    expect(archive.harnessSession("c", "codex")).toEqual({ session: "codex:t9", seen: "p2", sent: "p2" });
+    expect(archive.harnessSession("c", "claude")).toBeUndefined();
+  });
+
+  test("the per-harness sessions survive a restart", () => {
+    const archive = new SessionArchive();
+    archive.setLastSessionId("c", "S1");
+    archive.noteSent("c", "claude", "p1");
+    archive.noteSeen("c", "S1", "p1");
+    archive.setLastSessionId("c", "codex:t1");
+    archive.flushAll();
+    const again = new SessionArchive();
+    expect(again.harnessSession("c", "claude")).toEqual({ session: "S1", sent: "p1", seen: "p1" });
+    expect(again.sessionOn("c", "codex")).toBe("codex:t1");
+    expect(again.lastSessionId("c")).toBe("codex:t1");
   });
 });

@@ -94,7 +94,10 @@ fs.writeFileSync(
   JSON.stringify({
     events,
     summaries: {},
-    // the first exchange's last chain entry: where the conversation forks
+    // the Claude session the chat is on, and the first exchange's last
+    // chain entry in it: where the conversation forks. (With no session
+    // there is nothing to fork, and the rewind restarts from a brief.)
+    lastSessionId: "5e55107e-0000-4000-8000-000000000001",
     chain: { u1: { last: "chain-after-u1" } },
     contextTokens: 50_000,
     contextAt: { u1: 12_000, u2: 30_000, u3: 50_000 },
@@ -150,6 +153,19 @@ const seen: ServerMessage[] = [];
 ws.on("message", (raw) => seen.push(JSON.parse(String(raw)) as ServerMessage));
 const send = (message: ClientMessage) => ws.send(JSON.stringify(message));
 const settle = () => new Promise((r) => setTimeout(r, 1500));
+/** A rewind's answer: the prompt back in the composer (or the refusal), and
+ *  a moment for the notice behind it — not a fixed wait, which a server
+ *  still probing its harnesses as it starts can overrun. */
+const rewound = async () => {
+  const start = Date.now();
+  while (
+    Date.now() - start < 30_000 &&
+    !seen.some((m) => m.type === "compose" || (m.type === "error" && m.message.startsWith("rewind failed")))
+  ) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  await new Promise((r) => setTimeout(r, 300));
+};
 await settle();
 seen.length = 0;
 
@@ -166,7 +182,7 @@ const find = <T extends ServerMessage["type"]>(type: T) =>
 
 // ── rewind to the second prompt ─────────────────────────────────────────
 send({ type: "rewind", projectId: CHANNEL, eventId: "u2" });
-await settle();
+await rewound();
 
 check(
   !find("error").some((m) => m.message.startsWith("rewind failed")),
@@ -207,7 +223,7 @@ check(notice.includes("master back 1 commit"), "the notice says the branch went 
 // ── and then to the very first: nothing kept, a fresh start ────────────
 seen.length = 0;
 send({ type: "rewind", projectId: CHANNEL, eventId: "u1" });
-await settle();
+await rewound();
 check(read("app.txt") === "v0\n", "rewound to the start, the file is as it began", read("app.txt"));
 const empty = find("context").findLast((m) => m.projectId === CHANNEL)?.context;
 check(empty?.tokens === 0, "with nothing kept, the gauge is empty", empty);

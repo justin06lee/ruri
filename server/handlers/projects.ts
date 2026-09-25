@@ -4,6 +4,7 @@
  * the same moves as the Home agent makes them through its tools.
  */
 import { removeLibrarySkill } from "../library.js";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { WebSocket } from "ws";
@@ -13,7 +14,8 @@ import { rebuildMemory } from "../memory.js";
 import { addLine, dayOf, findLine, replaceLine } from "../memoryLines.js";
 import { buildCompaction, removeTurnFiles } from "../compaction.js";
 import type { ServerContext } from "../context.js";
-import { titleSession } from "../dispatch.js";
+import { busy } from "../channel.js";
+import { dispatch, titleSession } from "../dispatch.js";
 import { findProjects } from "../finder.js";
 import { errorMessage } from "../log.js";
 import { HOME_ID, type ManagerHost } from "../manager.js";
@@ -86,10 +88,20 @@ export function createManagerHost(ctx: ServerContext): ManagerHost {
         ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
       }
       if (kickoffPrompt && sessionId) {
-        ctx.manager.send({ ...project, id: sessionId }, kickoffPrompt);
-        // a session Home starts is named like one the user starts: from its
-        // first prompt, now, not once the turn happens to finish
-        titleSession(ctx, sessionId, kickoffPrompt);
+        // Through the same door as a prompt typed into the chat: on the
+        // chat's own model, behind its queue when it is busy, told whatever
+        // the session it lands in has missed — a project already open may
+        // hand this to a chat with a long history on another harness. (It
+        // used to go straight to a session on the project's model, over the
+        // chat's own pick and past everything it had.) A session Home starts
+        // is named like one the user starts: from this prompt, now.
+        if (busy(ctx, sessionId)) {
+          const queue = ctx.queues.entries.get(sessionId) ?? [];
+          queue.push({ id: randomUUID(), text: kickoffPrompt, uploads: [], silent: false });
+          ctx.queues.entries.set(sessionId, queue);
+          ctx.queues.broadcastQueue(sessionId);
+          titleSession(ctx, sessionId, kickoffPrompt);
+        } else dispatch(ctx, sessionId, kickoffPrompt, []);
       }
       return `${opened ? "opened" : "already open"}: ${project.name} (${project.path})${
         named ? ` — a project of that name is open, so ${dir} was not opened as another` : ""
@@ -293,8 +305,12 @@ export const projectHandlers = {
     const providerId = ctx.models.registry.parse(project.model).providerId;
     const sameHarness =
       imported.provider === "claude" ? providerId === undefined : providerId === imported.provider;
-    if (sameHarness) ctx.archive.setLastSessionId(fresh.id, imported.resume);
-    else {
+    // the imported session is the chat's on its own harness either way: a
+    // project on another harness starts there from a brief of it, and a
+    // switch to the imported one's harness resumes the real thing
+    const newest = imported.events.findLast((e) => e.kind === "user")?.id;
+    ctx.archive.adoptSession(fresh.id, imported.resume, newest);
+    if (!sameHarness) {
       const built = buildCompaction(fresh.id, imported.events, {});
       if (built) ctx.archive.setPendingBrief(fresh.id, built.brief);
     }

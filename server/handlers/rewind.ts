@@ -134,47 +134,56 @@ export const rewindHandlers = {
         // at that boundary: it holds nothing to fork at, and the brief is
         // the only honest way back.
         const compactedSince = events.some((e, i) => i > idx && e.kind === "compaction");
-        const providerId = ctx.models.registry.parse(project.model).providerId;
-        const claude = providerId === undefined;
+        // the harness the chat is on now, and its session there: that is
+        // the conversation a rewind takes back (a chat that has moved
+        // between harnesses has one on each — see below for the others)
+        const harness = ctx.manager.harnessFor(project);
+        const claude = harness === "claude";
+        const sessionId = ctx.archive.sessionOn(channelId, harness);
 
         // Where the conversation can resume. From the chain map when a turn
-        // recorded it — the scan stops at a compaction, where a different
-        // session began — and on Claude from the session's own transcript,
-        // which is where it comes from nowadays (the SDK stopped echoing
-        // prompts, so the chain is usually empty).
+        // recorded it — only this harness's turns, whose ids its own record
+        // knows; the scan stops at a compaction, where a different session
+        // began — and on Claude from the session's own transcript, which is
+        // where it comes from nowadays (the SDK stopped echoing prompts, so
+        // the chain is usually empty).
         const chain = ctx.archive.chain(channelId);
+        const ours = (id: string) => (chain[id]?.harness ?? harness) === harness;
         let resumeAt: string | undefined;
         let userUuid: string | undefined;
         let contextBefore: number | undefined;
         let chained: string | undefined;
+        /** The exchange whose chain point that is — the last the fork holds. */
+        let chainedFrom: string | undefined;
         if (!compactedSince) {
           for (let i = idx - 1; i >= 0; i--) {
             const ev = events[i]!;
             if (ev.kind === "compaction") break;
-            if (ev.kind === "user" && chain[ev.id]?.last) {
+            if (ev.kind === "user" && chain[ev.id]?.last && ours(ev.id)) {
               chained = chain[ev.id]!.last;
+              chainedFrom = ev.id;
               break;
             }
           }
           if (claude) {
             // `ordinal` picks between prompts sent with identical text
-            const sessionId = ctx.archive.lastSessionId(channelId);
             const ordinal = kept.filter(
               (e) => e.kind === "user" && e.text.trim() === target.text.trim(),
             ).length;
             const found = sessionId ? await promptChain(project, sessionId, target.text, ordinal) : undefined;
-            userUuid = found?.user ?? chain[eventId]?.user;
+            userUuid = found?.user ?? (ours(eventId) ? chain[eventId]?.user : undefined);
             // the session's own transcript first: it can only name a point in
             // that session, where the chain map (which records no session)
             // can name one in a session the chat has since left
             resumeAt = found?.before ?? chained;
+            if (found?.before) chainedFrom = undefined;
             contextBefore = found?.contextBefore;
           } else resumeAt = chained;
         }
-        const canFork = !compactedSince && (claude || ctx.models.registry.canForkSession(providerId));
+        const canFork = !compactedSince && (claude || ctx.models.registry.canForkSession(harness));
         const mode: "fork" | "fresh" | "brief" = !keptHasContext
           ? "fresh"
-          : canFork && resumeAt
+          : canFork && resumeAt && sessionId
             ? "fork"
             : "brief";
 
@@ -192,9 +201,32 @@ export const rewindHandlers = {
         );
 
         ctx.manager.dispose(channelId);
-        const resumed = ctx.archive.lastSessionId(channelId);
-        if (mode === "fork" && resumed) ctx.archive.setResumeAt(channelId, resumed, resumeAt!);
-        else ctx.archive.clearLastSessionId(channelId);
+        // Every harness's session, made to hold what is kept and no more.
+        // This harness's forks back to the kept exchange where it can — it
+        // then holds the conversation through the last kept exchange it ran
+        // itself, and is caught up on any kept ones that ran elsewhere — and
+        // is let go of where it can't. Another harness's session is kept
+        // only if nothing the rewind takes out ever went to it; one that may
+        // hold a discarded exchange is let go of, and starts afresh from a
+        // brief when the chat goes back to it.
+        const keptPrompts = new Set(kept.flatMap((e) => (e.kind === "user" ? [e.id] : [])));
+        if (mode === "fresh") ctx.archive.clearLastSessionId(channelId);
+        else {
+          if (mode === "fork") {
+            ctx.archive.setResumeAt(channelId, sessionId!, resumeAt!);
+            // a point from the chain map is the end of that exchange; one
+            // from Claude's own record is just before the rewound prompt,
+            // so the fork holds every kept exchange that went to Claude
+            const tagged = kept.some((e) => e.kind === "user" && chain[e.id]?.harness !== undefined);
+            const ranHere = kept.findLast((e) => e.kind === "user" && chain[e.id]?.harness === harness);
+            ctx.archive.rewoundTo(channelId, harness, chainedFrom ?? (tagged ? ranHere?.id : lastKept?.id));
+          } else ctx.archive.dropHarness(channelId, harness);
+          for (const [other, held] of Object.entries(ctx.archive.harnessSessions(channelId))) {
+            if (other === harness) continue;
+            const newest = held.sent ?? held.seen;
+            if (newest === undefined || !keptPrompts.has(newest)) ctx.archive.dropHarness(channelId, other);
+          }
+        }
         const removed = ctx.archive.truncateFrom(channelId, eventId);
         if (removed.length > 0) {
           ctx.clients.broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
@@ -308,17 +340,28 @@ export const rewindHandlers = {
             ? { contextWindow: source.contextWindow, contextWindowModel: source.contextWindowModel }
             : {}),
         });
-        const providerId = ctx.models.registry.parse(project.model).providerId;
-        const claude = providerId === undefined;
-        const nativeFork = claude || ctx.models.registry.canForkSession(providerId);
-        const sessionId = ctx.archive.lastSessionId(channelId);
+        // the session forked is the one on the harness the chat is on now
+        const harness = ctx.manager.harnessFor(project);
+        const claude = harness === "claude";
+        const nativeFork = claude || ctx.models.registry.canForkSession(harness);
+        const sessionId = ctx.archive.sessionOn(channelId, harness);
+        const chain = ctx.archive.chain(channelId);
+        const ours = (id: string) => (chain[id]?.harness ?? harness) === harness;
+        // the newest kept exchange that went to this harness: what its
+        // session holds, up to the branch point (an untagged chain is from
+        // before the chat kept a session per harness, when it had only one)
+        const tagged = kept.some((e) => e.kind === "user" && chain[e.id]?.harness !== undefined);
+        const ranHere = tagged
+          ? kept.findLast((e) => e.kind === "user" && chain[e.id]?.harness === harness)?.id
+          : target.id;
         let forked = false;
         if (nativeFork && sessionId && !compactedSince) {
           // the branch point: the last chain entry of this exchange. From
           // the chain map when a turn recorded it, else from the CLI's
           // own transcript as the entry before the next prompt — and a
           // fork at the latest exchange needs no point at all.
-          let at = ctx.archive.chain(channelId)[target.id]?.last;
+          let at = ours(target.id) ? chain[target.id]?.last : undefined;
+          let holds = at ? target.id : ranHere;
           if (!at && next && claude) {
             const ordinal = events.filter(
               (e, i) => i < events.indexOf(next) && e.kind === "user" && e.text.trim() === next.text.trim(),
@@ -326,7 +369,12 @@ export const rewindHandlers = {
             at = (await promptChain(project, sessionId, next.text, ordinal))?.before;
           }
           if (at || !next) {
-            ctx.archive.setLastSessionId(fresh.id, sessionId);
+            // a fork at the tip holds all its source does
+            if (!at) {
+              const seen = ctx.archive.harnessSession(channelId, harness)?.seen;
+              if (seen && kept.some((e) => e.id === seen)) holds = seen;
+            }
+            ctx.archive.adoptSession(fresh.id, sessionId, holds);
             if (at) ctx.archive.setResumeAt(fresh.id, sessionId, at);
             else ctx.archive.setForkNext(fresh.id, sessionId);
             forked = true;

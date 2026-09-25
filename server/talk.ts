@@ -197,7 +197,30 @@ export function letterPrompt(from: LetterFrom, handle: string, text: string): st
     text,
     "</ruri:message>",
     `This came from another agent working in ruri — ${who} — not from the user. ${REPLY_LINE[from.reply]} To message it yourself later, use message_agent with to "${handle}".`,
+    ...(from.cutIn ? [CUT_IN_LINE] : []),
   ].join("\n");
+}
+
+/** What a model interrupted by a message or an answer is told: the turn it
+ *  was running was stopped for this, and it will be sent back to it. This
+ *  turn is the message's alone — for one wanting an answer, its last words
+ *  are the answer — so the work waits for the prompt that follows
+ *  (resumePrompt). */
+const CUT_IN_LINE =
+  "It interrupted you: ruri stopped the turn you were running so you would read this now — the user did not, and a tool call of yours that shows as rejected or interrupted was not refused. Deal with this and only this now — you will be sent back to what you were doing straight after, so don't pick that up again in this turn.";
+
+/**
+ * ruri's own prompt after a message cut in: back to the work it stopped.
+ * `running` is the tool call the stop cut off, as the transcript shows it
+ * ("Bash: for i in …") — named, because the harness hands the model that
+ * call back as "rejected", which a model reads as the user saying no and
+ * leaves alone unless it is told otherwise.
+ */
+export function resumePrompt(who: string, running?: string): string {
+  const cut = running
+    ? ` When you were stopped you were running ${running.length > 200 ? `${running.slice(0, 199)}…` : running} — start that again first.`
+    : "";
+  return `↩ Back to what you were doing: ${who}'s message interrupted you, and you've dealt with it. Carry on exactly where you left off — whatever the user asked of you before still stands. It was ruri that stopped you, not the user: a tool call that came back rejected or interrupted was not refused, so run it again.${cut}`;
 }
 
 /** An answer coming back to the chat that asked, for its model. */
@@ -208,6 +231,7 @@ export function answerPrompt(from: LetterFrom, handle: string, text: string): st
     text,
     "</ruri:answer>",
     `That is ${who}'s answer to the message you sent it.`,
+    ...(from.cutIn ? [CUT_IN_LINE] : []),
   ].join("\n");
 }
 
@@ -389,6 +413,16 @@ export class TalkBook {
     letter.status = status;
     if (note) letter.note = note;
     this.onChange();
+  }
+
+  /** Whether a chat is waiting on an answer to a message it sent: a call
+   *  holding for one, or a turn that sent with "wait" and hasn't ended —
+   *  between two of its slices, or with the answer already in its line for
+   *  the next ask to collect. */
+  awaiting(chat: string): boolean {
+    return [...this.pending.values()].some(
+      (p) => p.from === chat && (p.waiters.size > 0 || (p.reply === "wait" && !p.released)),
+    );
   }
 
   /** Whether `from` is waiting — directly, or through the chats it waits

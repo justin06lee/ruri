@@ -24,6 +24,7 @@ import { SendQueues } from "./queue.js";
 import {
   defaultPolicy,
   letterPrompt,
+  resumePrompt,
   MAX_DEPTH,
   mayMessage,
   parsePolicy,
@@ -186,7 +187,11 @@ function world(
     },
   ];
   const said: ServerMessage[] = [];
-  const statuses: Record<string, string> = { a: "working", b: "working", c: "working" };
+  // every chat busy — at a card, where a message waits in its line; the
+  // cut-in cases set a chat "working" to have one stopped for it
+  const statuses: Record<string, string> = { a: "permission", b: "permission", c: "permission" };
+  /** The chats whose running turn was stopped, in order. */
+  const interrupted: string[] = [];
   const broadcast = (message: ServerMessage) => said.push(message);
   const ctx = {
     store: {
@@ -206,14 +211,18 @@ function world(
     permissions: new Map<string, PermissionRequest>(),
     clients: { broadcast },
     queues: new SendQueues(broadcast),
-    manager: { statuses: () => statuses },
+    manager: { statuses: () => statuses, interrupt: (id: string) => interrupted.push(id) },
     archive: { events: (id: string) => events[id] ?? [] },
     turns: { work: new Map() },
-    retries: { has: () => false },
+    retries: { has: () => false, cancelRetry: () => {} },
   } as unknown as ServerContext;
   // a message landing in a chat, as dispatch would put it there: in its
   // archive, and the book told it has gone in
   const arrive = (chat: string) => {
+    // as drainQueue sends one: a cut-in waiting on its stop is spent, and
+    // the line behind it moves again
+    if (ctx.queues.cutIn.has(chat)) ctx.queues.releaseQueue(chat);
+    ctx.queues.cutIn.delete(chat);
     const entry = ctx.queues.entries.get(chat)?.shift();
     if (!entry) throw new Error(`nothing queued for ${chat}`);
     if (ctx.queues.entries.get(chat)?.length === 0) ctx.queues.entries.delete(chat);
@@ -239,7 +248,7 @@ function world(
     speak(chat, text);
     talkTurnEnded(ctx, chat, { kind: "result", id: "r", ok: true, ts: 3, ...result });
   };
-  return { ctx, said, events, statuses, arrive, speak, answer };
+  return { ctx, said, events, statuses, interrupted, arrive, speak, answer };
 }
 
 describe("a message", () => {
@@ -515,6 +524,107 @@ describe("an answer always comes back — unless none was asked for", () => {
     const sent = await sendLetter(ctx, "a", { to: "Backend", message: "q", reply: "later" });
     expect((await waitAnswer(ctx, "c", sent.letter!)).text).toContain("not one this chat sent");
     expect((await waitAnswer(ctx, "a", "nope")).text).toContain("No message of yours");
+  });
+});
+
+describe("a message cuts in on a chat at work", () => {
+  test("it stops the running turn and goes first, then the chat is sent back to its work, then the user's queue", async () => {
+    const { ctx, statuses, interrupted } = world();
+    statuses["b"] = "working";
+    ctx.queues.entries.set("b", [
+      { id: "mine", text: "the user's own next step", uploads: [], silent: false },
+    ]);
+    const sent = await sendLetter(ctx, "a", { to: "Backend", message: "is the API up?", reply: "later" });
+    expect(interrupted).toEqual(["b"]);
+    expect(sent.text).toContain("stopped what it was doing to read it");
+    const line = ctx.queues.entries.get("b")!;
+    expect(line.map((entry) => entry.text)).toEqual([
+      "is the API up?",
+      resumePrompt("web · Frontend"),
+      "the user's own next step",
+    ]);
+    expect(line[0]!.from).toMatchObject({ agent: "a", cutIn: true });
+    expect(line[1]).toMatchObject({ resume: true });
+    expect(ctx.queues.cutIn.has("b")).toBe(true);
+  });
+
+  test("the model reading it deals with it alone, and the prompt after takes it back", () => {
+    const from = {
+      agent: "a",
+      project: "api",
+      title: "Backend",
+      letter: "l",
+      reply: "later",
+      depth: 1,
+    } as const;
+    expect(letterPrompt(from, "abcd1234", "hi")).not.toContain("interrupted you");
+    const cut = letterPrompt({ ...from, cutIn: true }, "abcd1234", "hi");
+    expect(cut).toContain("interrupted you");
+    expect(cut).toContain("sent back to what you were doing");
+    expect(resumePrompt("api · Backend")).toContain("Carry on exactly where you left off");
+  });
+
+  test("the way back names the command the stop cut off, and says ruri stopped it", async () => {
+    const { ctx, statuses, events } = world();
+    statuses["b"] = "working";
+    events["b"] = [
+      { kind: "user", id: "u1", text: "watch the training run", ts: 1 },
+      { kind: "tool", id: "t1", name: "Bash", summary: "ssh tenet 'journalctl -u una.service -f'", ts: 2 },
+    ];
+    await sendLetter(ctx, "a", { to: "Backend", message: "status?", reply: "later" });
+    const back = ctx.queues.entries.get("b")!.find((entry) => entry.resume)!;
+    expect(back.text).toContain("Bash: ssh tenet 'journalctl -u una.service -f'");
+    expect(back.text).toContain("not the user");
+    expect(resumePrompt("x")).not.toContain("When you were stopped");
+  });
+
+  test("several that come at once go in the order they came, and the chat is sent back once", async () => {
+    const { ctx, statuses } = world();
+    statuses["b"] = "working";
+    await sendLetter(ctx, "a", { to: "Backend", message: "first", reply: "later" });
+    await sendLetter(ctx, "c", { to: "Backend", message: "second", reply: "later" });
+    expect(ctx.queues.entries.get("b")!.map((entry) => entry.text)).toEqual([
+      "first",
+      "second",
+      resumePrompt("web · Frontend"),
+    ]);
+  });
+
+  test("a turn answering another agent that waits on it is not cut short — and what waits goes before the way back", async () => {
+    const { ctx, statuses, arrive, interrupted } = world();
+    statuses["b"] = "working";
+    await sendLetter(ctx, "c", { to: "Backend", message: "what changed?", reply: "later" });
+    arrive("b");
+    interrupted.length = 0;
+    await sendLetter(ctx, "a", { to: "Backend", message: "me too", reply: "later" });
+    expect(interrupted).toEqual([]);
+    const line = ctx.queues.entries.get("b")!;
+    expect(line.map((entry) => entry.text)).toEqual(["me too", resumePrompt("api · Docs")]);
+    expect(line[0]!.from?.cutIn).toBeUndefined();
+  });
+
+  test("a turn doing a job handed over with no answer wanted gives way", async () => {
+    const { ctx, statuses, arrive, interrupted } = world();
+    statuses["b"] = "working";
+    await sendLetter(ctx, "c", { to: "Backend", message: "fix the flaky test", reply: "none" });
+    arrive("b");
+    interrupted.length = 0;
+    await sendLetter(ctx, "a", { to: "Backend", message: "quick question", reply: "later" });
+    expect(interrupted).toEqual(["b"]);
+  });
+
+  test("a chat waiting on the user at a card, or on an answer of its own, is left to it", async () => {
+    const { ctx, statuses, interrupted } = world();
+    await sendLetter(ctx, "a", { to: "Backend", message: "at the card", reply: "later" });
+    expect(interrupted).toEqual([]);
+
+    // c sends with "wait"; its slice runs out, but its turn is still on it
+    statuses["c"] = "working";
+    await sendLetter(ctx, "c", { to: "Frontend", message: "tell me when", reply: "wait" }, { waitMs: 5 });
+    interrupted.length = 0;
+    await sendLetter(ctx, "b", { to: "Docs", message: "a word", reply: "later" });
+    expect(interrupted).toEqual([]);
+    expect(ctx.queues.entries.get("c")!.at(-1)!.from?.cutIn).toBeUndefined();
   });
 });
 

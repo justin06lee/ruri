@@ -588,6 +588,9 @@ export interface LetterFrom {
   answer?: boolean;
   /** How many agents deep this has gone since the user last spoke. */
   depth: number;
+  /** It stopped the turn the chat was running to be read — so the model is
+   *  told to take up what it was doing again once it has dealt with this. */
+  cutIn?: boolean;
 }
 
 /** Who one agent may message: anyone, only the chats and projects listed

@@ -40,6 +40,7 @@
     "md-image-test": "tsx scripts/md-image.ts",
     "svg-attachment-test": "tsx scripts/svg-attachment.ts",
     "lost-session-test": "tsx scripts/lost-session.ts",
+    "session-stress-test": "tsx scripts/session-stress.ts",
     "acp-start-test": "tsx scripts/acp-start.ts",
     "model-window-test": "tsx scripts/model-window.ts",
     "retry-test": "tsx scripts/retry.ts",

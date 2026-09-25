@@ -302,6 +302,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       resolve({
         port,
         ...(fallback ? { portFallback: fallback } : {}),
+        flush: () => {
+          archive.flushAll();
+          agentLogs.flushAll();
+          crew.flushAll();
+          ledger.flush();
+        },
         close: () =>
           new Promise<void>((done) => {
             clearInterval(usageTimer);

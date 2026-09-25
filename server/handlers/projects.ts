@@ -21,11 +21,14 @@ import { errorMessage } from "../log.js";
 import { HOME_ID, type ManagerHost } from "../manager.js";
 import { expandPath } from "../projects.js";
 import { importRecent, listRecent } from "../recent.js";
+import { talkChatsClosed } from "./talk.js";
 import type { Handlers } from "./types.js";
 
 /** Tear down one project and everything its sessions accumulated. */
 function closeProjectById(ctx: ServerContext, projectId: string): void {
   const closing = ctx.store.get(projectId);
+  // messages between agents to and from its chats end with them
+  talkChatsClosed(ctx, closing?.sessions.map((s) => s.id) ?? []);
   for (const sessionId of closing?.sessions.map((s) => s.id) ?? []) {
     if (closing?.path) void ctx.checkpoints.forgetChannel(closing, sessionId).catch(() => undefined);
     ctx.manager.dispose(sessionId);
@@ -231,6 +234,7 @@ export const projectHandlers = {
   },
   remove_session: (ctx, _ws, msg) => {
     const owner = ctx.store.findSession(msg.sessionId)?.project;
+    talkChatsClosed(ctx, [msg.sessionId]);
     if (owner?.path) void ctx.checkpoints.forgetChannel(owner, msg.sessionId).catch(() => undefined);
     ctx.manager.dispose(msg.sessionId);
     ctx.archive.remove(msg.sessionId);

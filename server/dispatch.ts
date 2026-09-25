@@ -124,9 +124,12 @@ export function dispatch(
   const said = from
     ? (from.answer ? answerPrompt : letterPrompt)(from, ctx.talk.handleOf(from.agent), processed.text)
     : processed.text;
-  if (from && !from.answer) ctx.talk.mark(from.letter, "working");
   ctx.archive.noteSent(channelId, harness, userEvent.id);
   ctx.manager.send(project, brief + said + named, processed.images, undefined, true, userEvent.id);
+  // a message the other chat has now started on — or an answer now in the
+  // sender's hands, which is that letter done with. Only once it has gone:
+  // one that fails to go goes back in line, and stays in the book
+  if (from) ctx.talk.arrived(from);
 }
 
 /**

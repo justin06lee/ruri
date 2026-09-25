@@ -3,8 +3,9 @@
  * words and the book are server/talk.ts): who a chat may message, a
  * message sent — held to the user's rules, asked about outside bypass
  * mode, delivered into the other chat's line — and the answer taken from
- * that chat's turn when it ends and carried back. Plus the talk page's
- * two messages.
+ * that chat's turn when it ends and carried back: to the call waiting on
+ * it, or, with none waiting, to the sender's chat as a message. Plus the
+ * letters a relaunch finds in flight, and the talk page's two messages.
  */
 import { randomUUID } from "node:crypto";
 import {
@@ -23,10 +24,12 @@ import type { ServerContext } from "../context.js";
 import { dispatch } from "../dispatch.js";
 import {
   clipAnswer,
+  httpWaitMs,
   MAX_DEPTH,
   mayMessage,
   seatName,
   WAIT_MS,
+  type Ending,
   type Pending,
   type TalkHost,
 } from "../talk.js";
@@ -178,19 +181,66 @@ function deliver(ctx: ServerContext, chat: string, text: string, from: LetterFro
   return "working";
 }
 
+/** What a call waiting on an answer hands back: the words the model
+ *  reads, and — over HTTP — the letter they are about, and whether they
+ *  are its answer (or its end) rather than "not yet". */
+export interface TalkResult {
+  text: string;
+  letter?: string;
+  answered?: boolean;
+}
+
+/** How a call waits. */
+export interface WaitOptions {
+  /** Which way the model called — its tool, or POST /talk — for the
+   *  words it is told to wait again with. */
+  via?: "tool" | "http";
+  /** How long this one call may hold (WAIT_MS for a tool call). */
+  waitMs?: number;
+  /** The call going away: the tool call cancelled, the curl cut off. */
+  signal?: AbortSignal;
+}
+
+/** How to wait again, in the words of the way the model called. */
+function waitAgain(via: WaitOptions["via"], letter: string): string {
+  return via === "http"
+    ? `run {"do": "wait", "letter": "${letter}"}`
+    : `call wait_for_answer with letter "${letter}"`;
+}
+
+function whoIs(ctx: ServerContext, chat: string): string {
+  const found = ctx.store.findSession(chat);
+  return found ? seatName(found.project.name, found.session.title ?? "") : "that agent";
+}
+
+/** The message as the other chat receives it: whose, and what it wants back. */
+function letterFrom(letter: Pending): LetterFrom {
+  return {
+    agent: letter.from,
+    project: letter.sender?.project ?? "",
+    title: letter.sender?.title ?? "",
+    letter: letter.id,
+    // nobody holds a call on a released wait any more: its answer comes
+    // back as a message, and the other chat is told as much
+    reply: letter.reply === "wait" && letter.released ? "later" : letter.reply,
+    depth: letter.depth,
+  };
+}
+
 /** One message from a chat's model: held to the rules, asked about,
  *  delivered, and — when it waits — answered. */
 export async function sendLetter(
   ctx: ServerContext,
   channelId: string,
   args: { to: string; message: string; reply?: TalkReply },
-): Promise<string> {
+  opts: WaitOptions = {},
+): Promise<TalkResult> {
   const me = ctx.store.findSession(channelId);
-  if (!me) return "Only a chat in a project can message other agents.";
+  if (!me) return { text: "Only a chat in a project can message other agents." };
   const text = args.message.trim();
-  if (!text) return "The message is empty: say something.";
+  if (!text) return { text: "The message is empty: say something." };
   const found = findSeat(ctx, args.to, channelId);
-  if (typeof found === "string") return found;
+  if (typeof found === "string") return { text: found };
   const target = found.session.id;
   const toName = nameOf(found);
   const reply = args.reply ?? "wait";
@@ -206,16 +256,22 @@ export async function sendLetter(
     )
   ) {
     book.note({ ...base, status: "refused", note: "off limits by the talk settings" });
-    return `The user has not let you message ${toName}: their talk settings say who you may message. list_agents shows who you can.`;
+    return {
+      text: `The user has not let you message ${toName}: their talk settings say who you may message. list_agents shows who you can.`,
+    };
   }
   const depth = depthOf(ctx, channelId) + 1;
   if (depth > MAX_DEPTH) {
     book.note({ ...base, status: "refused", note: `${MAX_DEPTH} agents deep` });
-    return `This has gone ${MAX_DEPTH} agents deep since the user last spoke. Stop passing it on: finish your turn with what you have.`;
+    return {
+      text: `This has gone ${MAX_DEPTH} agents deep since the user last spoke. Stop passing it on: finish your turn with what you have.`,
+    };
   }
   if (reply === "wait" && book.waitsOn(target, channelId)) {
     book.note({ ...base, status: "refused", note: "it is waiting on this chat" });
-    return `${toName} is waiting on your answer right now, so waiting on it in turn would hold you both for good. Answer it by finishing your turn (your last message goes back to it), or send this with reply "later".`;
+    return {
+      text: `${toName} is waiting on your answer right now, so waiting on it in turn would hold you both for good. Answer it by finishing your turn (your last message goes back to it), or send this with reply "later".`,
+    };
   }
 
   // outside bypass mode, every message waits on the user
@@ -231,71 +287,185 @@ export async function sendLetter(
     });
     if (!allowed) {
       book.mark(id, "denied");
-      return `The user did not let that message go to ${toName}.`;
+      return { text: `The user did not let that message go to ${toName}.` };
     }
     if (!ctx.store.findSession(target)) {
       book.mark(id, "failed", "closed before it went");
-      return `${toName} was closed before the message could go.`;
+      return { text: `${toName} was closed before the message could go.` };
     }
   }
 
-  const from: LetterFrom = {
-    agent: channelId,
-    project: me.project.name,
-    title: me.session.title ?? "",
-    letter: id,
+  // in the book, and on disk, before it goes: whatever happens next —
+  // this call cut off, the turn stopped, ruri quitting — it is accounted for
+  const pending: Pending = {
+    id,
+    from: channelId,
+    to: target,
     reply,
     depth,
+    text,
+    ts: base.ts,
+    sender: { project: me.project.name, title: me.session.title ?? "" },
+    stage: "queued",
+    waiters: new Set(),
   };
-  const pending: Pending = { id, from: channelId, to: target, reply, depth };
-  book.pending.set(id, pending);
-  const where = deliver(ctx, target, text, from);
+  book.keep(pending);
+  const where = deliver(ctx, target, text, letterFrom(pending));
   book.note({ ...base, status: where });
   const queued = where === "queued" ? ", queued behind what it is doing" : "";
-  if (reply === "none") return `Sent to ${toName}${queued}. No answer was asked for.`;
+  if (reply === "none")
+    return {
+      text: `Sent to ${toName}${queued}. You asked for no answer: it has been told nobody is waiting on it, and nothing will come back.`,
+      letter: id,
+    };
   if (reply === "later")
-    return `Sent to ${toName}${queued}. Its answer will come to this chat as a message when it has finished — carry on meanwhile.`;
-  return new Promise<string>((resolve) => {
-    pending.resolve = resolve;
-    pending.timer = setTimeout(() => {
-      if (!pending.resolve) return;
-      pending.resolve = undefined;
-      pending.reply = "later";
-      resolve(
-        `No answer from ${toName} after twenty minutes: it is still at it. Its answer will come to this chat as a message when it has finished — carry on meanwhile.`,
-      );
-    }, WAIT_MS);
-    pending.timer.unref?.();
+    return {
+      text: `Sent to ${toName}${queued}. Its answer will come to this chat as a message when it has finished — carry on meanwhile. (To wait on it after all, ${waitAgain(opts.via, id)}.)`,
+      letter: id,
+      answered: false,
+    };
+  return waitOn(ctx, pending, opts);
+}
+
+/** Wait on the answer to a message this chat sent, by its letter id. */
+export async function waitAnswer(
+  ctx: ServerContext,
+  channelId: string,
+  letterId: string,
+  opts: WaitOptions = {},
+): Promise<TalkResult> {
+  const id = letterId.trim();
+  const pending = ctx.talk.pending.get(id);
+  if (!pending) {
+    // over with: said where its answer went, and that there is no more to wait for
+    const where = ctx.talk.whereIs(id);
+    return where
+      ? { text: where, letter: id, answered: true }
+      : {
+          text: `No message of yours is in flight as "${letterId}": check the letter id message_agent gave you.`,
+          letter: id,
+        };
+  }
+  if (pending.from !== channelId)
+    return { text: `The message "${letterId}" is not one this chat sent.`, letter: id };
+  if (pending.reply === "none")
+    return {
+      text: `You asked for no answer to that message, so none is coming: the other agent was told nobody is waiting on it.`,
+      letter: id,
+      answered: false,
+    };
+  return waitOn(ctx, pending, opts);
+}
+
+/** Hold this call until the letter's answer lands, or the slice runs out,
+ *  or the call goes away — in which case an answer landing later finds no
+ *  one holding, and goes to the sender's chat as a message (settle). */
+function waitOn(ctx: ServerContext, pending: Pending, opts: WaitOptions): Promise<TalkResult> {
+  if (pending.ending) return Promise.resolve(collect(ctx, pending));
+  const { signal } = opts;
+  const id = pending.id;
+  return new Promise<TalkResult>((resolve) => {
+    // whichever comes first — the answer, the slice's end, the call going
+    // away — ends the wait, and the others find it gone
+    const timer = setTimeout(
+      () => finish({ text: notYet(ctx, pending, opts.via), letter: id, answered: false }),
+      opts.waitMs ?? WAIT_MS,
+    );
+    timer.unref?.();
+    const finish = (result: TalkResult) => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", gone);
+      if (!pending.waiters.delete(waiter)) return;
+      resolve(result);
+    };
+    const waiter = (outcome: { text: string; answered: boolean }) =>
+      finish({ text: outcome.text, letter: id, answered: outcome.answered });
+    const gone = () => finish({ text: "Stopped waiting.", letter: id, answered: false });
+    pending.waiters.add(waiter);
+    if (signal?.aborted) gone();
+    else signal?.addEventListener("abort", gone, { once: true });
   });
 }
 
-/** A message's end: answered, failed, or taken out of the line. The
- *  sender hears it the way it asked to — in its waiting call, or in its
- *  chat — or not at all. */
-function settle(
-  ctx: ServerContext,
-  pending: Pending,
-  outcome: "answered" | "failed" | "dropped",
-  text: string,
-): void {
+/** A slice run out with no answer: where the message has got to, and how
+ *  to go on waiting. */
+function notYet(ctx: ServerContext, pending: Pending, via: WaitOptions["via"]): string {
+  const who = whoIs(ctx, pending.to);
+  const state =
+    pending.stage === "working"
+      ? doing(ctx, pending.to) === "waiting on the user"
+        ? "is on your message, waiting on its user"
+        : "is still working on your message"
+      : "has yet to start on your message — it is busy with something else first";
+  return `No answer yet: ${who} ${state}. To keep waiting, ${waitAgain(via, pending.id)} — as often as it takes. Or carry on with something else: if your turn ends first, its answer comes to this chat as a message when it is ready.`;
+}
+
+/** Where the answer went, for a wait that comes back after a call has it. */
+const HANDED =
+  "That message has been answered, and its answer was handed to an earlier wait: look back for it.";
+
+/** What a wait is handed when the message has ended. */
+function handed(ctx: ServerContext, pending: Pending, ending: Ending): string {
+  return ending.outcome === "answered"
+    ? `${whoIs(ctx, pending.to)} answered:\n\n${clipAnswer(ending.text)}`
+    : ending.text;
+}
+
+/** An answer that landed with nobody holding for it, collected by a wait
+ *  that came back for it: it leaves the sender's line, where it was
+ *  waiting to go in as a message, and goes to the wait instead. */
+function collect(ctx: ServerContext, pending: Pending): TalkResult {
+  const queue = ctx.queues.entries.get(pending.from);
+  const at = queue?.findIndex((entry) => entry.from?.answer && entry.from.letter === pending.id) ?? -1;
+  if (queue && at >= 0) {
+    queue.splice(at, 1);
+    if (queue.length === 0) {
+      ctx.queues.entries.delete(pending.from);
+      ctx.queues.held.delete(pending.from);
+    }
+    ctx.queues.broadcastQueue(pending.from);
+  }
+  ctx.talk.forget(pending.id, HANDED);
+  return { text: handed(ctx, pending, pending.ending!), letter: pending.id, answered: true };
+}
+
+/** A message's end: answered, failed, or taken out of the line. A call
+ *  holding for it gets it; with none holding it goes to the sender's chat
+ *  as a message (sendBack) — unless the sender asked for nothing back. */
+function settle(ctx: ServerContext, pending: Pending, outcome: Ending["outcome"], text: string): void {
   const book = ctx.talk;
-  book.pending.delete(pending.id);
-  clearTimeout(pending.timer);
   book.mark(pending.id, outcome, outcome === "answered" ? undefined : text);
-  const found = ctx.store.findSession(pending.to);
-  const who = found ? seatName(found.project.name, found.session.title ?? "") : "that agent";
-  const said = outcome === "answered" ? clipAnswer(text) : text;
-  if (pending.resolve) {
-    const resolve = pending.resolve;
-    pending.resolve = undefined;
-    resolve(outcome === "answered" ? `${who} answered:\n\n${said}` : said);
+  const ending: Ending = { outcome, text };
+  if (pending.waiters.size > 0) {
+    const said = handed(ctx, pending, ending);
+    for (const waiter of [...pending.waiters]) waiter({ text: said, answered: true });
+    book.forget(pending.id, HANDED);
     return;
   }
-  if (pending.reply !== "later" || !ctx.store.findSession(pending.from) || !found) return;
-  deliver(ctx, pending.from, said, {
+  if (pending.reply === "none") {
+    book.forget(pending.id, "You asked for no answer to that message, so none is coming.");
+    return;
+  }
+  pending.ending = ending;
+  book.keep(pending);
+  sendBack(ctx, pending);
+}
+
+/** An ended message into its sender's chat, as a message of its own:
+ *  now when the chat is free, else in its line — where a wait coming back
+ *  for it still collects it. It leaves the book when it goes in
+ *  (TalkBook.arrived), not before, so a relaunch in between loses nothing. */
+function sendBack(ctx: ServerContext, pending: Pending): void {
+  const ending = pending.ending;
+  if (!ending || pending.reply === "none" || !ctx.store.findSession(pending.from)) {
+    ctx.talk.forget(pending.id, "That message has ended, with nobody left to hand its answer to.");
+    return;
+  }
+  const found = ctx.store.findSession(pending.to);
+  deliver(ctx, pending.from, ending.outcome === "answered" ? clipAnswer(ending.text) : ending.text, {
     agent: pending.to,
-    project: found.project.name,
-    title: found.session.title ?? "",
+    project: found?.project.name ?? "a closed project",
+    title: found?.session.title ?? "",
     letter: pending.id,
     reply: "none",
     answer: true,
@@ -303,18 +473,22 @@ function settle(
   });
 }
 
-/** The last thing a chat said after a prompt. */
-function lastSaid(events: TranscriptEvent[], promptId: string): string {
+/** What a chat said after a prompt: its last word, or — `all` — every
+ *  word, for a turn that never finished. Empty when it said nothing. */
+function saidAfter(events: TranscriptEvent[], promptId: string, all = false): string {
   const at = events.findIndex((event) => event.id === promptId);
-  const said = events.slice(at + 1).findLast((event) => event.kind === "assistant");
-  return said?.kind === "assistant" && said.text.trim() ? said.text.trim() : "(it finished without a word)";
+  const said = events
+    .slice(at + 1)
+    .flatMap((event) => (event.kind === "assistant" && event.text.trim() ? [event.text.trim()] : []));
+  return all ? said.join("\n\n") : (said.at(-1) ?? "");
 }
 
 /**
  * A chat's turn ended. If a message started it, that message is answered
  * — or failed, or waits on the retry already on its way. And whatever the
- * chat itself was waiting on or asking about is over with its turn: the
- * tool call that was waiting has gone, so the answer stays where it lands.
+ * chat itself was waiting on is released with its turn: a call still
+ * holding for an answer (a curl the harness left running) is let go, and
+ * the answer, when it comes, comes to the chat as a message.
  */
 export function talkTurnEnded(
   ctx: ServerContext,
@@ -327,12 +501,18 @@ export function talkTurnEnded(
   const prompt = events.findLast((e) => e.kind === "user");
   const from = prompt?.kind === "user" ? prompt.from : undefined;
   const letter = from && !from.answer ? book.pending.get(from.letter) : undefined;
-  if (prompt && letter && letter.to === channelId) {
-    const found = ctx.store.findSession(channelId);
-    const who = found ? seatName(found.project.name, found.session.title ?? "") : "that agent";
-    if (event.stopped)
-      settle(ctx, letter, "failed", `The user stopped ${who}'s turn on your message before it answered.`);
-    else if (event.ok) settle(ctx, letter, "answered", lastSaid(events, prompt.id));
+  if (prompt && letter && letter.to === channelId && !letter.ending) {
+    const who = whoIs(ctx, channelId);
+    if (event.stopped) {
+      const said = saidAfter(events, prompt.id, true);
+      settle(
+        ctx,
+        letter,
+        "failed",
+        `The user stopped ${who}'s turn on your message before it answered.${said ? ` What it had said by then:\n\n${clipAnswer(said)}` : ""}`,
+      );
+    } else if (event.ok)
+      settle(ctx, letter, "answered", saidAfter(events, prompt.id) || "(it finished without a word)");
     else if (!ctx.retries.has(channelId))
       settle(
         ctx,
@@ -341,30 +521,128 @@ export function talkTurnEnded(
         `${who}'s turn on your message failed: ${event.error ?? "no reason given"}.`,
       );
   }
+  let released = false;
   for (const pending of book.pending.values()) {
-    if (pending.from !== channelId || !pending.resolve) continue;
-    clearTimeout(pending.timer);
-    pending.resolve = undefined;
-    pending.reply = "none";
+    if (pending.from !== channelId) continue;
+    for (const waiter of [...pending.waiters])
+      waiter({
+        text: "Your turn ended before the answer came: it will come to this chat as a message when it is ready.",
+        answered: false,
+      });
+    if (!pending.released) {
+      pending.released = true;
+      released = true;
+    }
   }
+  if (released) book.saveLetters();
   for (const [requestId, ask] of book.asks) if (ask.from === channelId) answerTalk(ctx, requestId, false);
 }
 
-/** A message taken out of a chat's queue by the user before it went. */
+/** A message — or an answer — taken out of a chat's queue by the user
+ *  before it went. A message's sender hears so; an answer the user takes
+ *  out of its own chat's line is theirs to throw away. */
 export function talkDropped(ctx: ServerContext, from: LetterFrom | undefined): void {
-  if (!from || from.answer) return;
+  if (!from) return;
   const pending = ctx.talk.pending.get(from.letter);
   if (!pending) return;
-  const found = ctx.store.findSession(pending.to);
-  const who = found ? seatName(found.project.name, found.session.title ?? "") : "that agent";
-  settle(ctx, pending, "dropped", `The user took your message out of ${who}'s queue before it was read.`);
+  if (from.answer) {
+    ctx.talk.forget(
+      pending.id,
+      "The user took that message's answer out of this chat's queue before it went in.",
+    );
+    return;
+  }
+  settle(
+    ctx,
+    pending,
+    "dropped",
+    `The user took your message out of ${whoIs(ctx, pending.to)}'s queue before it was read.`,
+  );
+}
+
+/**
+ * Chats closing — one, or a whole project's. What they had sent is no
+ * one's to answer to any more; what they had yet to answer is over, and
+ * each sender hears so, in its waiting call or its chat. Called before
+ * the chats leave the store, so they still have names to be told by.
+ */
+export function talkChatsClosed(ctx: ServerContext, chats: string[]): void {
+  const book = ctx.talk;
+  const closing = new Set(chats);
+  for (const pending of [...book.pending.values()]) {
+    if (!closing.has(pending.from)) continue;
+    for (const waiter of [...pending.waiters]) waiter({ text: "This chat was closed.", answered: false });
+    book.forget(pending.id, "The chat that sent that message was closed.");
+  }
+  for (const pending of [...book.pending.values()]) {
+    if (!closing.has(pending.to) || pending.ending) continue;
+    settle(ctx, pending, "failed", `${whoIs(ctx, pending.to)} was closed before it answered your message.`);
+  }
+}
+
+/**
+ * The letters left in flight when ruri last stopped. None is waited on
+ * any more — whatever turn was holding for it went with the process — so
+ * each goes on as if its sender had moved on: an answer that had landed
+ * goes to its sender's chat; a message still in the other chat's line
+ * (the queue is not kept, the letter is) goes into it again; and one the
+ * other chat was working on when ruri stopped is reported to its sender
+ * with whatever that turn had said — unless the turn had in fact finished,
+ * when that is its answer.
+ */
+export function restoreTalk(ctx: ServerContext): void {
+  const book = ctx.talk;
+  for (const letter of book.loadLetters()) {
+    const receiver = ctx.store.findSession(letter.to);
+    const who = whoIs(ctx, letter.to);
+    book.note({
+      id: letter.id,
+      from: letter.from,
+      to: letter.to,
+      reply: letter.reply,
+      text: letter.text,
+      ts: letter.ts,
+      status: letter.ending?.outcome ?? letter.stage,
+    });
+    if (letter.ending) sendBack(ctx, letter);
+    else if (!receiver) settle(ctx, letter, "failed", `${who} was closed before it answered your message.`);
+    else if (letter.stage === "queued") deliver(ctx, letter.to, letter.text, letterFrom(letter));
+    else {
+      const events = ctx.archive.events(letter.to);
+      const prompt = events.findLast((e) => e.kind === "user" && e.from?.letter === letter.id);
+      const result = prompt
+        ? events.slice(events.indexOf(prompt) + 1).find((e) => e.kind === "result")
+        : undefined;
+      if (prompt && result?.kind === "result" && result.ok)
+        settle(ctx, letter, "answered", saidAfter(events, prompt.id) || "(it finished without a word)");
+      else {
+        const said = prompt ? saidAfter(events, prompt.id, true) : "";
+        settle(
+          ctx,
+          letter,
+          "failed",
+          `ruri was restarted while ${who} was working on your message, so that turn never finished.${said ? ` What it had said by then:\n\n${clipAnswer(said)}` : ""}`,
+        );
+      }
+    }
+  }
+}
+
+/** How long one HTTP call waits on an answer for this chat: by the harness
+ *  it runs on, whose shell cuts off a command that blocks too long. */
+export function httpWaitFor(ctx: ServerContext, channelId: string): number {
+  const model = channelProject(ctx, channelId)?.model || ctx.store.defaultModel();
+  return httpWaitMs(ctx.models.registry.parse(model).providerId);
 }
 
 /** The tools' way into all of this. */
 export function talkHost(ctx: ServerContext): TalkHost {
   return {
     list: (channelId) => listSeats(ctx, channelId),
-    send: (channelId, args) => sendLetter(ctx, channelId, args),
+    send: async (channelId, args, signal) =>
+      (await sendLetter(ctx, channelId, args, { via: "tool", ...(signal ? { signal } : {}) })).text,
+    wait: async (channelId, letter, signal) =>
+      (await waitAnswer(ctx, channelId, letter, { via: "tool", ...(signal ? { signal } : {}) })).text,
   };
 }
 

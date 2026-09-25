@@ -20,7 +20,7 @@ import { HOME_ID, managerExtras } from "./manager.js";
 import { talkHost, talkTurnEnded } from "./handlers/talk.js";
 import { ParagraphGate } from "./paragraphs.js";
 import { SessionManager, type SessionExtras } from "./sessions.js";
-import { TALK_TOOLS, talkHttpBriefing, talkToolBriefing, talkTools } from "./talk.js";
+import { httpWaitMs, TALK_TOOLS, talkHttpBriefing, talkToolBriefing, talkTools } from "./talk.js";
 import { contextWindow, pushContexts, pushWork } from "./turns.js";
 
 /**
@@ -185,7 +185,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       }
       // the same words wherever the session runs: Claude takes them as an
       // append to its own preset, everything else as its whole system prompt
-      const claude = !ctx.models.registry.parse(project.model || ctx.store.defaultModel()).providerId;
+      const harness = ctx.models.registry.parse(project.model || ctx.store.defaultModel()).providerId;
+      const claude = !harness;
       // the bridge reaches Claude as tools and everything else as one HTTP
       // endpoint on this server — whose port is only known once it listens,
       // which is long before any session is made
@@ -206,10 +207,11 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         // else registers from the shell with `ruri register`
         naming: claude ? "tool" : "",
         bridge,
-        // the other agents open in ruri: tools, or the same over HTTP
+        // the other agents open in ruri: tools, or the same over HTTP —
+        // told how long one call waits on this harness
         talk: claude
           ? talkToolBriefing()
-          : talkHttpBriefing(`http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`),
+          : talkHttpBriefing(`http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`, httpWaitMs(harness)),
         stack: owner ? stackBriefing(ctx.briefs.get(owner.id)) : "",
       });
       return tagged(project.id, {

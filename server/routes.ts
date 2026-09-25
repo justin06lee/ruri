@@ -13,7 +13,7 @@ import { bridgeDir, runBridge } from "./bridge.js";
 import { ownerProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import { libraryHost } from "./handlers/components.js";
-import { listSeats, sendLetter } from "./handlers/talk.js";
+import { httpWaitFor, listSeats, sendLetter, waitAnswer } from "./handlers/talk.js";
 import { runLibrary } from "./library.js";
 import { MEMORY_HELP, runMemoryCommand } from "./memoryCli.js";
 import { errorMessage, isMissing, warn } from "./log.js";
@@ -135,10 +135,15 @@ async function serveBridgeCall(
 
 /**
  * POST /talk/<channelId> — talking to the other agents, for a harness that
- * cannot hold ruri's tools (server/talk.ts): {"do": "list"}, or
- * {"do": "send", "to", "message", "reply"}, answered {"ok", "text"}. As
- * with the bridge, the chat's id is the right to speak as that chat; the
- * handles list_agents hands out name the others without being theirs.
+ * cannot hold ruri's tools (server/talk.ts): {"do": "list"},
+ * {"do": "send", "to", "message", "reply"} or {"do": "wait", "letter"},
+ * answered {"ok", "text"} — and, about a message, its "letter" id and
+ * whether "answered". A wait is held no longer than this chat's harness
+ * lets a shell command block (httpWaitFor), and one whose curl goes away
+ * before it is answered lets go of its answer, which then goes to the
+ * chat. As with the bridge, the chat's id is the right to speak as that
+ * chat; the handles list_agents hands out name the others without being
+ * theirs.
  */
 async function serveTalkCall(
   ctx: ServerContext,
@@ -146,15 +151,22 @@ async function serveTalkCall(
   res: http.ServerResponse,
 ): Promise<void> {
   const reply = (status: number, body: Record<string, unknown>): void => {
+    if (res.destroyed) return;
     res.writeHead(status, { "content-type": "application/json" });
     res.end(JSON.stringify(body));
   };
+  // the caller gone before its answer — a harness's command timeout, a
+  // stopped turn: the wait lets go, and nothing is written to nobody
+  const gone = new AbortController();
+  res.on("close", () => {
+    if (!res.writableFinished) gone.abort();
+  });
   const id = (req.url ?? "").slice("/talk/".length).split("?")[0] ?? "";
   if (!id || !ctx.store.sessionIds().includes(id)) {
     reply(404, { ok: false, error: "no such chat" });
     return;
   }
-  let body: { do?: unknown; to?: unknown; message?: unknown; reply?: unknown };
+  let body: { do?: unknown; to?: unknown; message?: unknown; reply?: unknown; letter?: unknown };
   try {
     body = JSON.parse(await readBody(req, 256 * 1024)) as typeof body;
   } catch (err) {
@@ -165,17 +177,24 @@ async function serveTalkCall(
     reply(200, { ok: true, text: listSeats(ctx, id) });
     return;
   }
+  const waiting = { via: "http" as const, waitMs: httpWaitFor(ctx, id), signal: gone.signal };
+  if (body?.do === "wait" && typeof body.letter === "string") {
+    reply(200, { ok: true, ...(await waitAnswer(ctx, id, body.letter, waiting)) });
+    return;
+  }
   if (body?.do !== "send" || typeof body.to !== "string" || typeof body.message !== "string") {
     reply(400, {
       ok: false,
-      error: 'send {"do": "list"} or {"do": "send", "to": "<handle>", "message": "..."}',
+      error:
+        'send {"do": "list"}, {"do": "send", "to": "<handle>", "message": "..."} or {"do": "wait", "letter": "<id>"}',
     });
     return;
   }
-  const mode = body.reply === "wait" || body.reply === "none" ? body.reply : "later";
+  // the answer comes back by default, the same as from the tool
+  const mode = body.reply === "later" || body.reply === "none" ? body.reply : "wait";
   reply(200, {
     ok: true,
-    text: await sendLetter(ctx, id, { to: body.to, message: body.message, reply: mode }),
+    ...(await sendLetter(ctx, id, { to: body.to, message: body.message, reply: mode }, waiting)),
   });
 }
 

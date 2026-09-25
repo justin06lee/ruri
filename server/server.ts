@@ -29,7 +29,7 @@ import { createComponentHost } from "./handlers/components.js";
 import { createCrewManager } from "./handlers/crew.js";
 import { createManagerHost } from "./handlers/projects.js";
 import { announceRoles } from "./handlers/settings.js";
-import { pushTalk } from "./handlers/talk.js";
+import { pushTalk, restoreTalk } from "./handlers/talk.js";
 import { HomeLog } from "./homelog.js";
 import { IdeaStore } from "./ideas.js";
 import { LedgerStore } from "./ledger.js";
@@ -298,6 +298,13 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         writeTextAtomic(tokenFile, options.token, 0o600);
       } catch (err) {
         warn("server", err, "writing the token file");
+      }
+      // the letters between agents left in flight when ruri last stopped
+      // go on — now that a session built for one is told the right port
+      try {
+        restoreTalk(ctx);
+      } catch (err) {
+        warn("talk", err, "restoring the letters in flight");
       }
       resolve({
         port,

@@ -376,6 +376,16 @@ export class ProjectStore {
     this.save();
   }
 
+  /** One chat's own model, and nothing else: the project's default and its
+   *  other chats stay as they are — for a chat another agent started on a
+   *  model of its choosing (server/handlers/talk.ts startChat). */
+  setSessionModel(sessionId: string, model: string): void {
+    const found = this.findSession(sessionId);
+    if (!found) return;
+    found.session.model = model;
+    this.save();
+  }
+
   /** What a chat runs on: its own picks over the project's defaults. */
   effectiveSettings(sessionId: string): Required<SessionSettings> | undefined {
     const found = this.findSession(sessionId);

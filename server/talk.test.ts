@@ -15,6 +15,7 @@ import {
   listSeats,
   restoreTalk,
   sendLetter,
+  startChat,
   talkChatsClosed,
   talkDropped,
   talkTurnEnded,
@@ -196,6 +197,22 @@ function world(
   const ctx = {
     store: {
       list: () => projects,
+      workspaceDir: () => "/tmp",
+      findByQuery: (q: string) =>
+        projects.find((p) => p.id === q || p.path === q || p.name.toLowerCase() === q.toLowerCase()),
+      findByPath: (dir: string) => projects.find((p) => p.path === dir),
+      // a new chat is as busy as the rest, so what is sent to it waits in its line
+      newSession: (projectId: string) => {
+        const session = { id: `new-${projects.flatMap((p) => p.sessions).length}` };
+        projects.find((p) => p.id === projectId)?.sessions.push(session);
+        statuses[session.id] = "permission";
+        return session;
+      },
+      setSessionModel: (id: string, model: string) => {
+        const session = projects.flatMap((p) => p.sessions).find((s) => s.id === id) as
+          { model?: string } | undefined;
+        if (session) session.model = model;
+      },
       sessionIds: () => projects.flatMap((p) => p.sessions.map((s) => s.id)),
       defaultModel: () => "sonnet",
       findSession: (id: string) => {
@@ -213,7 +230,13 @@ function world(
     queues: new SendQueues(broadcast),
     manager: { statuses: () => statuses, interrupt: (id: string) => interrupted.push(id) },
     archive: { events: (id: string) => events[id] ?? [] },
-    turns: { work: new Map() },
+    turns: { work: new Map(), progress: new Map() },
+    models: {
+      allModels: () => [
+        { value: "haiku", displayName: "Haiku 4.5" },
+        { value: "codex:gpt-6-astra", displayName: "GPT-6-Astra", provider: "codex" },
+      ],
+    },
     retries: { has: () => false, cancelRetry: () => {} },
   } as unknown as ServerContext;
   // a message landing in a chat, as dispatch would put it there: in its
@@ -248,7 +271,7 @@ function world(
     speak(chat, text);
     talkTurnEnded(ctx, chat, { kind: "result", id: "r", ok: true, ts: 3, ...result });
   };
-  return { ctx, said, events, statuses, interrupted, arrive, speak, answer };
+  return { ctx, said, events, statuses, interrupted, projects, arrive, speak, answer };
 }
 
 describe("a message", () => {
@@ -625,6 +648,104 @@ describe("a message cuts in on a chat at work", () => {
     await sendLetter(ctx, "b", { to: "Docs", message: "a word", reply: "later" });
     expect(interrupted).toEqual([]);
     expect(ctx.queues.entries.get("c")!.at(-1)!.from?.cutIn).toBeUndefined();
+  });
+});
+
+describe("an agent deciding who to disturb, and starting chats of its own", () => {
+  test("the list says what each chat is doing: for how long, on what, running what, and what is queued", () => {
+    const { ctx, statuses, events } = world();
+    statuses["b"] = "working";
+    events["b"] = [
+      { kind: "user", id: "u1", text: "watch the training run until DPO starts", ts: 1 },
+      { kind: "tool", id: "t1", name: "Bash", summary: "ssh tenet 'journalctl -u una.service'", ts: 2 },
+    ];
+    (ctx.turns.progress as Map<string, { startedAt: number }>).set("b", {
+      startedAt: Date.now() - 185 * 60_000,
+    });
+    ctx.queues.entries.set("b", [{ id: "q1", text: "next", uploads: [], silent: false }]);
+    const listed = listSeats(ctx, "a");
+    expect(listed).toContain('working for 3h 05m — on "watch the training run until DPO starts"');
+    expect(listed).toContain("running Bash: ssh tenet");
+    expect(listed).toContain("1 queued behind it");
+    expect(listed).toContain("waiting on the user to answer a card");
+    expect(listed).toContain("start_chat");
+  });
+
+  test('"queue" never stops a chat at work, and says so', async () => {
+    const { ctx, statuses, interrupted } = world();
+    statuses["b"] = "working";
+    const sent = await sendLetter(ctx, "a", {
+      to: "Backend",
+      message: "later is fine",
+      reply: "later",
+      delivery: "queue",
+    });
+    expect(interrupted).toEqual([]);
+    expect(sent.text).toContain("queued behind what it is doing, as you asked");
+    expect(ctx.queues.entries.get("b")![0]!.from?.cutIn).toBeUndefined();
+  });
+
+  test("a chat that can't be interrupted says why", async () => {
+    const { ctx } = world();
+    const sent = await sendLetter(ctx, "a", { to: "Backend", message: "now please", reply: "later" });
+    expect(sent.text).toContain("it could not be interrupted: it is waiting on the user");
+  });
+
+  test("start_chat opens a new chat in an open project, on the model asked for, and sends it the message", async () => {
+    const { ctx, projects } = world();
+    const api = projects.find((p) => p.name === "api")!;
+    const sent = await startChat(ctx, "a", {
+      project: "api",
+      message: "where is the auth middleware?",
+      model: "Haiku 4.5",
+      reply: "later",
+    });
+    const fresh = api.sessions.at(-1)! as { id: string; model?: string };
+    expect(api.sessions).toHaveLength(3);
+    expect(fresh.model).toBe("haiku");
+    expect((api as { model?: string }).model).toBeUndefined();
+    expect(sent.text).toContain("Started a new chat in api on Haiku 4.5");
+    expect(sent.text).toContain(ctx.talk.handleOf(fresh.id));
+    expect(ctx.queues.entries.get(fresh.id)![0]).toMatchObject({
+      text: "where is the auth middleware?",
+      from: { agent: "a" },
+    });
+  });
+
+  test("start_chat refuses what it can't do, and starts nothing", async () => {
+    const { ctx, projects } = world();
+    const count = () => projects.flatMap((p) => p.sessions).length;
+    expect((await startChat(ctx, "a", { project: "nowhere", message: "hi" })).text).toContain(
+      'No project called "nowhere" is open',
+    );
+    expect((await startChat(ctx, "a", { project: "/no/such/folder", message: "hi" })).text).toContain(
+      "There is no folder at /no/such/folder",
+    );
+    expect((await startChat(ctx, "a", { project: "api", message: "hi", model: "gpt-99" })).text).toContain(
+      'No model "gpt-99"',
+    );
+    expect((await startChat(ctx, "a", { project: "api", message: "  " })).text).toContain("empty");
+    ctx.talk.setPolicy({ everyone: { to: "nobody", projects: [], chats: [] }, projects: {}, chats: {} });
+    expect((await startChat(ctx, "a", { project: "api", message: "hi" })).text).toContain(
+      "has not let you start chats in api",
+    );
+    ctx.talk.setPolicy(defaultPolicy());
+    expect(count()).toBe(3);
+  });
+
+  test("outside bypass mode one card asks for the chat and its message, and a no starts nothing", async () => {
+    const { ctx, said, projects } = world({ a: "default" });
+    const going = startChat(ctx, "a", { project: "api", message: "a question", model: "GPT-6-Astra" });
+    const card = said.find((m) => m.type === "permission_request");
+    expect(card?.type === "permission_request" && card.request.input).toMatchObject({
+      project: "api",
+      text: "a question",
+      fresh: { model: "GPT-6-Astra" },
+    });
+    answerTalk(ctx, card?.type === "permission_request" ? card.request.requestId : "", false);
+    expect((await going).text).toContain("did not let you start a chat in api");
+    expect(projects.flatMap((p) => p.sessions)).toHaveLength(3);
+    expect(said.filter((m) => m.type === "permission_request")).toHaveLength(1);
   });
 });
 

@@ -39,6 +39,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type {
   LetterFrom,
+  TalkDelivery,
   TalkLetter,
   TalkPolicy,
   TalkReply,
@@ -54,6 +55,7 @@ export const TALK_TOOLS = [
   "mcp__ruri__list_agents",
   "mcp__ruri__message_agent",
   "mcp__ruri__wait_for_answer",
+  "mcp__ruri__start_chat",
 ];
 
 /**
@@ -527,9 +529,11 @@ export interface TalkHost {
    *  it was holding lets go, and the answer goes to the chat instead. */
   send(
     channelId: string,
-    args: { to: string; message: string; reply?: TalkReply },
+    args: { to: string; message: string; reply?: TalkReply; delivery?: TalkDelivery },
     signal?: AbortSignal,
   ): Promise<string>;
+  /** Start a new chat in a project and send it a first message. */
+  start(channelId: string, args: StartArgs, signal?: AbortSignal): Promise<string>;
   /** Wait on the answer to a message this chat sent, by its letter id. */
   wait(channelId: string, letter: string, signal?: AbortSignal): Promise<string>;
 }
@@ -540,6 +544,19 @@ function signalOf(extra: unknown): AbortSignal | undefined {
   return signal instanceof AbortSignal ? signal : undefined;
 }
 
+/** What a new chat is started with (start_chat, {"do": "new"}). */
+export interface StartArgs {
+  /** An open project's name, or a folder's path (opened if it isn't). */
+  project: string;
+  message: string;
+  /** A model from the catalog, by id or name; the project's own if unset. */
+  model?: string;
+  reply?: TalkReply;
+}
+
+const DELIVERY_DOC =
+  'How it reaches a chat that is busy. "interrupt" (the default) stops the turn it is running so it reads this now; it is sent back to that work straight after. "queue" waits in its line until the turn it is on is done — for when list_agents shows it deep in something and your message can wait. A chat answering another agent, waiting on an answer of its own, or waiting on the user is never interrupted: it gets the message when that is over.';
+
 const REPLY_DOC =
   'What you get back. By default ("wait") this call waits until that agent has finished the turn your message starts, and returns its answer — its last message. If that takes long, the call returns first with a letter id: call wait_for_answer with it to keep waiting. "later": return at once and keep working; the answer arrives in this chat as a message of its own when it is ready. "none": only when you want the other agent to just do the work in the background and need nothing back — it is told nobody is waiting, and nothing comes back. Unless you say "none", the answer always comes back: if a wait is cut short, stopped or given up, it arrives in this chat as a message instead.';
 
@@ -548,13 +565,13 @@ export function talkTools(host: TalkHost, channelId: string) {
   return [
     tool(
       "list_agents",
-      "List the other agents open in ruri that you may message — the chats in this project and in every other open project — with each one's handle, what it is working on, and whether it is busy. The user decides who you may message.",
+      "List the other agents open in ruri that you may message — the chats in this project and in every other open project — with each one's handle, its model, and what it is doing right now: idle, or working (for how long, on what, the tool it is running, how many prompts are queued behind it), answering another agent, waiting on an answer, or waiting on the user. Use it to decide whether a message is worth interrupting a chat for. The user decides who you may message.",
       {},
       async () => ({ content: [{ type: "text", text: host.list(channelId) }] }),
     ),
     tool(
       "message_agent",
-      'Send a message to another agent open in ruri — a chat in this project or in another one — and get its answer back. It arrives in that chat as a prompt marked as yours, and waits behind whatever it is doing. Use it to ask what another agent knows or has done, to hand it something to do in its project, or to tell it something it needs. By default you wait for the answer; say reply "none" only when the other agent should just do the work in the background and you need nothing back. Outside bypass mode the user is asked first, on a card.',
+      'Send a message to another agent open in ruri — a chat in this project or in another one — and get its answer back. It arrives in that chat as a prompt marked as yours. A chat at work is interrupted for it by default (delivery "queue" waits instead). Use it to ask what another agent knows or has done, to hand it something to do in its project, or to tell it something it needs. By default you wait for the answer; say reply "none" only when the other agent should just do the work in the background and you need nothing back. Outside bypass mode the user is asked first, on a card.',
       {
         to: z.string().describe("The agent's handle from list_agents (or its project and chat name)"),
         message: z
@@ -563,6 +580,7 @@ export function talkTools(host: TalkHost, channelId: string) {
             "What to say. It reads this cold: say who you are working for and what you need, and include anything it cannot know.",
           ),
         reply: z.enum(["wait", "later", "none"]).optional().describe(REPLY_DOC),
+        delivery: z.enum(["interrupt", "queue"]).optional().describe(DELIVERY_DOC),
       },
       async (args, extra) => ({
         content: [
@@ -573,6 +591,45 @@ export function talkTools(host: TalkHost, channelId: string) {
               {
                 to: args.to,
                 message: args.message,
+                ...(args.reply ? { reply: args.reply } : {}),
+                ...(args.delivery ? { delivery: args.delivery } : {}),
+              },
+              signalOf(extra),
+            ),
+          },
+        ],
+      }),
+    ),
+    tool(
+      "start_chat",
+      "Start a new chat in a project and send it a first message — to ask a fresh agent about that codebase, or hand it a job, without taking up a chat that is busy. The chat opens in the sidebar like one the user started, works in that project's folder with its own tools, and answers the way message_agent does (reply \"wait\" by default). Any project open in ruri (list_agents lists them), or a folder path, which is opened as a project if it isn't. Outside bypass mode the user is asked first, on a card.",
+      {
+        project: z
+          .string()
+          .describe("An open project's name (as list_agents shows it), or a folder path to open"),
+        message: z
+          .string()
+          .describe(
+            "The first thing the new chat reads. It starts knowing nothing of you: say who you are working for, what you need, and anything it cannot find in its folder.",
+          ),
+        model: z
+          .string()
+          .optional()
+          .describe(
+            'A model for it, by name or id ("Haiku 4.5", "codex:gpt-6-astra"); the project\'s own by default',
+          ),
+        reply: z.enum(["wait", "later", "none"]).optional().describe(REPLY_DOC),
+      },
+      async (args, extra) => ({
+        content: [
+          {
+            type: "text",
+            text: await host.start(
+              channelId,
+              {
+                project: args.project,
+                message: args.message,
+                ...(args.model ? { model: args.model } : {}),
                 ...(args.reply ? { reply: args.reply } : {}),
               },
               signalOf(extra),
@@ -596,7 +653,8 @@ export function talkTools(host: TalkHost, channelId: string) {
 export function talkToolBriefing(): string {
   return [
     "<ruri:talk>",
-    "Other agents are working in ruri too — other chats in this project and in the user's other open projects — and you can talk to them. mcp__ruri__list_agents shows who you may message; mcp__ruri__message_agent sends one a message and brings back its answer.",
+    "Other agents are working in ruri too — other chats in this project and in the user's other open projects — and you can talk to them. mcp__ruri__list_agents shows who you may message and what each is doing right now; mcp__ruri__message_agent sends one a message and brings back its answer; mcp__ruri__start_chat opens a new chat in any project (or a folder) and asks it something — a fresh agent to ask about a codebase, or to hand a job.",
+    'A message interrupts a chat at work by default — it stops, reads yours, and goes back to what it was doing. When list_agents shows it deep in something your message can wait for, send it with delivery "queue".',
     'The answer comes back unless you ask for none: by default message_agent waits for it (a long job returns first with a letter id — mcp__ruri__wait_for_answer keeps waiting); reply "later" keeps you working and brings the answer to this chat as a message; reply "none" is only for work the other agent should just get on with in the background, with nothing sent back.',
     "For the chats in ruri use these tools, not ListAgents or SendMessage: those reach Claude sessions on this machine behind ruri's back — a message waits on another user's approval there, and no answer comes back through ruri.",
     "Reach for it when another agent holds what you need — how its side of an API works, what it just changed, a job that belongs in its project — rather than guessing or doing its work for it. A message arriving from another agent shows up as <ruri:message>: answer it by ending your turn with what it needs.",
@@ -615,8 +673,11 @@ export function talkHttpBriefing(endpoint: string, waitMs = HTTP_WAIT_DEFAULT_MS
     "<ruri:talk>",
     `Other agents are working in ruri too — other chats in this project and in the user's other open projects — and you can talk to them, by POSTing JSON to ${endpoint}. Each call answers {"ok": true, "text": "...", ...}; read "text".`,
     '  {"do": "list"} — who you may message, each with a handle',
-    '  {"do": "send", "to": "<handle>", "message": "...", "reply": "wait"} — send one a message',
+    '  {"do": "list"} also says what each is doing right now — idle, or working (for how long, on what), answering another agent, waiting on the user',
+    '  {"do": "send", "to": "<handle>", "message": "...", "reply": "wait", "delivery": "interrupt"} — send one a message',
+    '  {"do": "new", "project": "<open project name, or a folder path>", "message": "...", "model": "<optional>", "reply": "wait"} — start a new chat in a project and send it a first message: a fresh agent to ask about that codebase, or to hand a job',
     '  {"do": "wait", "letter": "<id>"} — keep waiting on the answer to a message you sent',
+    '"delivery": "interrupt" (the default) stops the turn a busy chat is running so it reads yours now, and sends it back to that work after; "queue" waits in its line instead — for when it is deep in something your message can wait for.',
     call('{"do":"list"}'),
     `"reply" is what you get back. "wait" (the default) waits for the answer — the other agent's last message when it has finished the turn your message starts. One call waits at most ${slice} seconds: if the answer is not in by then it returns "answered": false with the message's "letter" id, and you run {"do": "wait", "letter": "<id>"} — again and again, as long as it takes — to keep waiting. Let every call run ${allow} seconds before your shell gives up on it (set the command's timeout, or yield time, to at least ${allow * 1000} ms), and read what it prints.`,
     `"later": the call returns at once and you keep working; the answer arrives in this chat as a message when it is ready. "none": only when you want the other agent to just do the work in the background and need nothing back — it is told nobody is waiting, and nothing comes back.`,

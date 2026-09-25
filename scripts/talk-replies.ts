@@ -19,6 +19,12 @@
  *   6. A relaunch mid-wait: the letter is in south's line when the server
  *      goes; the next server sends it on, and the answer arrives in the
  *      north chat as a message.
+ *   9. Claude starts a new chat in west (start_chat) and asks it for the
+ *      name; a chat is added to west, and the name comes back.
+ *  10. Claude sends to west, busy, with delivery "queue": west's turn is not
+ *      stopped, the message goes in once it is over, and the answer comes
+ *      back.
+ *  11. Codex starts a new chat in west over HTTP ({"do": "new"}).
  *   8. A message to a chat at work cuts in: a west chat (bypass, no cards)
  *      is running a ninety-second loop of short sleeps (Claude Code's Bash
  *      refuses a long leading `sleep`); a north chat's message stops that turn and
@@ -65,6 +71,9 @@ const CODEX_WAIT = "c-replies-codex-wait";
 const CODEX_LATER = "c-replies-codex-later";
 const OPENCODE_CHAT = "c-replies-opencode";
 const CLAUDE_CUT = "c-replies-cut";
+const CLAUDE_START = "c-replies-start";
+const CLAUDE_QUEUE = "c-replies-queue";
+const CODEX_START = "c-replies-codex-start";
 /** TALK_REPLIES_CASES=2,8 runs only those cases (3 is Codex's two). */
 const CASES = new Set((process.env["TALK_REPLIES_CASES"] ?? "").split(",").filter(Boolean));
 const runs = (n: number) => CASES.size === 0 || CASES.has(String(n));
@@ -77,6 +86,9 @@ const NORTH = [
   CODEX_LATER,
   OPENCODE_CHAT,
   CLAUDE_CUT,
+  CLAUDE_START,
+  CLAUDE_QUEUE,
+  CODEX_START,
 ];
 const SOUTH = "c-replies-south";
 const WEST = "c-replies-west";
@@ -103,6 +115,9 @@ fs.writeFileSync(
             model: "opencode:opencode/muse-spark-1.3-contributor-free",
           },
           { id: CLAUDE_CUT, title: "Cuts in", model: "haiku" },
+          { id: CLAUDE_START, title: "Starts a chat", model: "haiku" },
+          { id: CLAUDE_QUEUE, title: "Queues", model: "haiku" },
+          { id: CODEX_START, title: "Codex starts a chat", model: "codex:gpt-5.6-luna" },
         ],
       },
       {
@@ -111,6 +126,8 @@ fs.writeFileSync(
         path: westDir,
         // no cards: west is kept busy by a command actually running
         permissionMode: "bypassPermissions",
+        // the chats agents start here run on Haiku too
+        model: "haiku",
         sessions: [{ id: WEST, title: "West", model: "haiku" }],
       },
       {
@@ -547,7 +564,7 @@ if (runs(8)) {
   const at = Date.now();
   await turn(
     CLAUDE_CUT,
-    'Another agent open in ruri, in the project called west, keeps the name of its mascot in MASCOT.txt in its folder, which you cannot read. Use mcp__ruri__list_agents to find the west chat, then mcp__ruri__message_agent to ask it to read MASCOT.txt and reply with just the name — with reply "wait". Then tell me the name.',
+    'Another agent open in ruri, in the project called west, keeps the name of its mascot in MASCOT.txt in its folder, which you cannot read. Use mcp__ruri__list_agents to find the west chat, then mcp__ruri__message_agent to ask it to read MASCOT.txt and reply with just the name — with reply "wait" and delivery "interrupt": it is busy, but this can\'t wait. Then tell me the name.',
     240_000,
   );
   const took = Date.now() - at;
@@ -571,6 +588,92 @@ if (runs(8)) {
     .slice(westSince + letterAt + 1)
     .some((e) => e.kind === "tool" && e.summary.includes("sleep 2"));
   check("…and west picks its command back up afterwards", resumed, compact(WEST, westSince));
+}
+
+/* ── 9. Claude starts a new chat in west and asks it ─────────────────── */
+
+const westChats = () => {
+  const kept = JSON.parse(fs.readFileSync(path.join(configDir, "projects.json"), "utf8")) as {
+    projects: Array<{ id: string; sessions: Array<{ id: string; model?: string }> }>;
+  };
+  return kept.projects.find((p) => p.id === "p-replies-west")?.sessions ?? [];
+};
+
+if (runs(9)) {
+  await until("west idle", () => !busy(WEST), 300_000);
+  const before = westChats().length;
+  const since = mark(CLAUDE_START);
+  await turn(
+    CLAUDE_START,
+    'Use mcp__ruri__start_chat to start a new chat in the project called west, asking it to read MASCOT.txt in its folder and reply with just the name — with reply "wait". Then tell me the name.',
+    300_000,
+  );
+  check("start_chat: a new chat is added to west", westChats().length === before + 1, westChats());
+  check(
+    "…and the answer comes back into the call",
+    said(CLAUDE_START, since).toLowerCase().includes(WORD),
+    said(CLAUDE_START, since),
+  );
+}
+
+/* ── 10. Claude queues behind west's work instead of interrupting it ──── */
+
+if (runs(10)) {
+  await until("west idle", () => !busy(WEST), 300_000);
+  const westSince = mark(WEST);
+  send({
+    type: "send",
+    projectId: WEST,
+    text: "Run this shell command with the Bash tool, in the foreground (not in the background), and wait for it to finish: for i in $(seq 1 20); do sleep 2; done; echo slept\nThen reply with just: slept",
+  });
+  await until(
+    "west's loop running",
+    () =>
+      busy(WEST) &&
+      (events[WEST] ?? []).slice(westSince).some((e) => e.kind === "tool" && e.summary.includes("sleep 2")),
+    120_000,
+  );
+  const since = mark(CLAUDE_QUEUE);
+  await turn(
+    CLAUDE_QUEUE,
+    'Use mcp__ruri__list_agents, then mcp__ruri__message_agent to ask the west chat to read MASCOT.txt and reply with just the name — with reply "wait" and delivery "queue", since it is busy and this can wait for it. Then tell me the name.',
+    300_000,
+  );
+  const after = (events[WEST] ?? []).slice(westSince);
+  const letterAt = after.findIndex((e) => e.kind === "user" && e.from?.agent === CLAUDE_QUEUE);
+  check(
+    'delivery "queue": west\'s turn is not stopped, and the message goes in after it',
+    letterAt > 0 &&
+      !after.slice(0, letterAt).some((e) => e.kind === "result" && e.stopped) &&
+      after.slice(0, letterAt).some((e) => e.kind === "result") &&
+      after[letterAt]?.kind === "user" &&
+      !after[letterAt].from?.cutIn,
+    compact(WEST, westSince),
+  );
+  check(
+    "…and the answer comes back",
+    said(CLAUDE_QUEUE, since).toLowerCase().includes(WORD),
+    said(CLAUDE_QUEUE, since),
+  );
+}
+
+/* ── 11. Codex starts a new chat in west over HTTP ───────────────────── */
+
+if (CODEX && runs(11)) {
+  await until("west idle", () => !busy(WEST), 300_000);
+  const before = westChats().length;
+  const since = mark(CODEX_START);
+  await turn(
+    CODEX_START,
+    'Use the ruri talk endpoint from your instructions (curl) to start a new chat in the project called west ({"do": "new"}), asking it to read MASCOT.txt in its folder and reply with just the name — with "reply": "wait". Wait for its answer, however many times you have to wait again, then tell me the name.',
+    400_000,
+  );
+  check('Codex, {"do": "new"}: a new chat is added to west', westChats().length === before + 1, westChats());
+  check(
+    "…and the answer comes back",
+    said(CODEX_START, since).toLowerCase().includes(WORD) || cameBack(CODEX_START, since),
+    said(CODEX_START, since),
+  );
 }
 
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);

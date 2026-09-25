@@ -5,9 +5,12 @@
  * mode, delivered into the other chat's line — and the answer taken from
  * that chat's turn when it ends and carried back: to the call waiting on
  * it, or, with none waiting, to the sender's chat as a message. Plus the
- * letters a relaunch finds in flight, and the talk page's two messages.
+ * letters a relaunch finds in flight, and the talk page's two messages —
+ * and a new chat an agent starts in a project to send a first message to.
  */
 import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   DEFAULT_PERMISSION_MODE,
   type LetterFrom,
@@ -16,6 +19,7 @@ import {
   type ServerMessage,
   type SessionInfo,
   type TalkAsk,
+  type TalkDelivery,
   type TalkReply,
   type TranscriptEvent,
 } from "../../shared/protocol.js";
@@ -32,9 +36,12 @@ import {
   WAIT_MS,
   type Ending,
   type Pending,
+  type StartArgs,
   type TalkHost,
 } from "../talk.js";
+import { expandPath } from "../projects.js";
 import type { QueueEntry } from "../queue.js";
+import { createManagerHost } from "./projects.js";
 import type { Handlers } from "./types.js";
 
 interface Found {
@@ -94,12 +101,51 @@ function depthOf(ctx: ServerContext, channelId: string): number {
 }
 
 /** What a chat is doing, in a word or two. */
-function doing(ctx: ServerContext, chat: string): string {
+/** How long, in the fewest words: "40s", "12m", "3h 05m". */
+function span(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+}
+
+/** Words on one line, cut to fit. */
+function clip(text: string, max: number): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
+/**
+ * What a chat is doing right now, for an agent deciding whether a message
+ * is worth interrupting it for: idle, or working — for how long, on what
+ * (the prompt, or whose message it is answering), the tool it is running —
+ * waiting on an answer of its own, waiting on the user; and how many
+ * prompts are queued behind it.
+ */
+export function doing(ctx: ServerContext, chat: string): string {
   const status = ctx.manager.statuses()[chat];
-  if (status === "working") return "working";
-  if (status === "permission") return "waiting on the user";
-  if (ctx.turns.work.has(chat)) return "its agents are working";
-  return "idle";
+  const queued = ctx.queues.pending(chat);
+  const behind = queued > 0 ? ` · ${queued} queued behind it` : "";
+  if (status === "permission") return `waiting on the user to answer a card${behind}`;
+  if (status !== "working") {
+    return `${ctx.turns.work.has(chat) ? "idle, with agents of its own still working" : "idle"}${behind}`;
+  }
+  const events = ctx.archive.events(chat);
+  const start = events.findLastIndex((event) => event.kind === "user");
+  const prompt = events[start];
+  const tool = events.slice(start + 1).findLast((event) => event.kind === "tool");
+  const since = ctx.turns.progress.get(chat)?.startedAt;
+  const parts = [`working${since ? ` for ${span(Date.now() - since)}` : ""}`];
+  if (prompt?.kind === "user") {
+    const from = prompt.from;
+    if (from && !from.answer) {
+      const who = seatName(from.project, from.title);
+      parts.push(from.reply === "none" ? `on a job for ${who}` : `answering ${who}`);
+    } else parts.push(`on "${clip(prompt.text, 90)}"`);
+  }
+  if (tool?.kind === "tool") parts.push(`running ${tool.name}: ${clip(tool.summary, 70)}`);
+  if (ctx.talk.awaiting(chat)) parts.push("waiting on an answer from another agent");
+  return `${parts.join(" — ")}${behind}`;
 }
 
 /** Who a chat may message, as its model reads it. */
@@ -121,10 +167,11 @@ export function listSeats(ctx: ServerContext, channelId: string): string {
       ? `There is no one you may message right now: ${offLimits}`
       : "There is no one to message: no other chats are open in ruri.";
   }
-  const lines: string[] = ["Agents you may message — handle, chat, what it is doing, model:"];
+  const lines: string[] = ["Agents you may message — handle, chat, model, what it is doing right now:"];
   for (const project of ctx.store.list()) {
     const here = open.filter((seat) => seat.project.id === project.id);
-    if (here.length === 0) continue;
+    const reachable = mayMessage(policy, from, { chat: "", project: project.id });
+    if (here.length === 0 && !reachable) continue;
     lines.push(
       "",
       `${project.name}${project.id === me.project.id ? " (your project)" : ""} — ${project.path}`,
@@ -132,10 +179,15 @@ export function listSeats(ctx: ServerContext, channelId: string): string {
     for (const seat of here) {
       const model = channelProject(ctx, seat.session.id)?.model || ctx.store.defaultModel();
       lines.push(
-        `  ${ctx.talk.handleOf(seat.session.id)}  ${seat.session.title || "untitled chat"} — ${doing(ctx, seat.session.id)} · ${model}`,
+        `  ${ctx.talk.handleOf(seat.session.id)}  ${seat.session.title || "untitled chat"} · ${model} — ${doing(ctx, seat.session.id)}`,
       );
     }
+    if (here.length === 0) lines.push("  (no other chats open here)");
   }
+  lines.push(
+    "",
+    'A message interrupts a chat that is working unless you send it with delivery "queue". start_chat (or {"do": "new"}) opens a new chat in any of these projects — or in a folder, by its path — and asks it something.',
+  );
   if (offLimits) lines.push("", offLimits);
   return lines.join("\n");
 }
@@ -181,11 +233,20 @@ export function answerTalk(ctx: ServerContext, requestId: string, allow: boolean
  * on — gives way.
  */
 function interruptible(ctx: ServerContext, chat: string): boolean {
-  if (ctx.manager.statuses()[chat] === "permission") return false;
-  if (ctx.talk.awaiting(chat)) return false;
+  return uninterruptible(ctx, chat) === undefined;
+}
+
+/** Why the turn a chat is running can't be stopped for a message, in the
+ *  sender's words — or nothing, when it can. */
+function uninterruptible(ctx: ServerContext, chat: string): string | undefined {
+  if (ctx.manager.statuses()[chat] === "permission") return "it is waiting on the user";
+  if (ctx.talk.awaiting(chat)) return "it is waiting on an answer of its own";
   const turn = ctx.archive.events(chat).findLast((event) => event.kind === "user");
   const from = turn?.kind === "user" ? turn.from : undefined;
-  return !from || from.answer === true || from.reply === "none";
+  if (from && !from.answer && from.reply !== "none") {
+    return `it is answering ${seatName(from.project, from.title)}, who is waiting on it`;
+  }
+  return undefined;
 }
 
 /** The tool call a stop of the running turn cuts off — the last the turn
@@ -212,10 +273,15 @@ function deliver(
   chat: string,
   text: string,
   from: LetterFrom,
+  delivery: TalkDelivery = "interrupt",
 ): "queued" | "working" | "cut in" {
   // a chat already stopping for something that cut in takes this straight
-  // behind it rather than behind the user's queue
-  if (ctx.queues.cutIn.has(chat) || (running(ctx, chat) && interruptible(ctx, chat))) {
+  // behind it rather than behind the user's queue; a sender who asked to
+  // queue is never let past the turn it is on
+  const cut =
+    delivery === "interrupt" &&
+    (ctx.queues.cutIn.has(chat) || (running(ctx, chat) && interruptible(ctx, chat)));
+  if (cut) {
     const letter: QueueEntry = {
       id: randomUUID(),
       text,
@@ -309,7 +375,15 @@ function letterFrom(letter: Pending): LetterFrom {
 export async function sendLetter(
   ctx: ServerContext,
   channelId: string,
-  args: { to: string; message: string; reply?: TalkReply },
+  args: {
+    to: string;
+    message: string;
+    reply?: TalkReply;
+    delivery?: TalkDelivery;
+    /** The user has already let this one go — on start_chat's card, for
+     *  the chat it started for it. */
+    approved?: boolean;
+  },
   opts: WaitOptions = {},
 ): Promise<TalkResult> {
   const me = ctx.store.findSession(channelId);
@@ -353,7 +427,7 @@ export async function sendLetter(
 
   // outside bypass mode, every message waits on the user
   const mode = channelProject(ctx, channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
-  if (mode !== "bypassPermissions") {
+  if (mode !== "bypassPermissions" && !args.approved) {
     book.note({ ...base, status: "asking" });
     const allowed = await askUser(ctx, channelId, {
       to: target,
@@ -387,16 +461,22 @@ export async function sendLetter(
     waiters: new Set(),
   };
   book.keep(pending);
-  const where = deliver(ctx, target, text, letterFrom(pending));
+  const delivery = args.delivery ?? "interrupt";
+  const busyWith = running(ctx, target) ? uninterruptible(ctx, target) : undefined;
+  const where = deliver(ctx, target, text, letterFrom(pending), delivery);
   // a cut-in waits at the head of the line for the turn it stopped to end:
   // queued, for the moment it takes, and working from when it goes
   book.note({ ...base, status: where === "cut in" ? "queued" : where });
   const queued =
-    where === "queued"
-      ? ", queued behind what it is doing"
-      : where === "cut in"
-        ? ", which has stopped what it was doing to read it"
-        : "";
+    where === "cut in"
+      ? ", which has stopped what it was doing to read it"
+      : where !== "queued"
+        ? ""
+        : delivery === "queue"
+          ? ", queued behind what it is doing, as you asked"
+          : busyWith
+            ? `, queued behind what it is doing — it could not be interrupted: ${busyWith}`
+            : ", queued behind what it is doing";
   if (reply === "none")
     return {
       text: `Sent to ${toName}${queued}. You asked for no answer: it has been told nobody is waiting on it, and nothing will come back.`,
@@ -409,6 +489,109 @@ export async function sendLetter(
       answered: false,
     };
   return waitOn(ctx, pending, opts);
+}
+
+/** A model from the catalog, by its id or its name — or why not. */
+function modelFor(ctx: ServerContext, asked: string): { value: string; name: string } | string {
+  const want = asked.trim().toLowerCase();
+  const models = ctx.models.allModels();
+  const hit =
+    models.find((m) => m.value.toLowerCase() === want) ??
+    models.find((m) => m.displayName.toLowerCase() === want) ??
+    models.find(
+      (m) => m.value.toLowerCase().endsWith(`:${want}`) || m.value.toLowerCase().endsWith(`/${want}`),
+    );
+  if (hit) return { value: hit.value, name: hit.displayName };
+  const some = models.slice(0, 16).map((m) => `${m.displayName} (${m.value})`);
+  return `No model "${asked}" in ruri's catalog. Some that are: ${some.join(", ")}.`;
+}
+
+/**
+ * An agent starts a new chat in a project and sends it a first message
+ * (start_chat, {"do": "new"}) — a fresh agent to ask about that codebase,
+ * or to hand a job, without taking up a chat that is busy.
+ *
+ * The project is one open in ruri, by its name, or a folder by its path,
+ * which is opened as a project the way Home opens one (and whose first
+ * chat, new with it, is the one used). The user's rules hold as for any
+ * message — a project not open yet is reachable only by a sender allowed
+ * to message anyone — and outside bypass mode one card asks for both, the
+ * chat and what it is sent. A model named is that chat's own; the project's
+ * default and its other chats don't move. Then the message goes the way any
+ * other does (sendLetter), and its answer comes back the same way.
+ */
+export async function startChat(
+  ctx: ServerContext,
+  channelId: string,
+  args: StartArgs,
+  opts: WaitOptions = {},
+): Promise<TalkResult> {
+  const me = ctx.store.findSession(channelId);
+  if (!me) return { text: "Only a chat in a project can start other chats." };
+  const text = args.message.trim();
+  if (!text) return { text: "The message is empty: say what the new chat should do." };
+  const query = args.project.trim();
+  const open = ctx.store.findByQuery(query);
+  const dir = open ? open.path : expandPath(query, ctx.store.workspaceDir());
+  if (!open) {
+    if (!/[/~]/.test(query)) {
+      return {
+        text: `No project called "${query}" is open in ruri. list_agents shows the open ones; to open a folder, give its path.`,
+      };
+    }
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory())
+      return { text: `There is no folder at ${dir}.` };
+  }
+  const where = open ? open.name : `${path.basename(dir)} (${dir})`;
+  if (
+    !mayMessage(
+      ctx.talk.policy(),
+      { chat: channelId, project: me.project.id },
+      { chat: "", project: open?.id ?? "" },
+    )
+  ) {
+    return {
+      text: `The user has not let you start chats in ${where}: their talk settings say who you may message. list_agents shows where you can.`,
+    };
+  }
+  const model = args.model?.trim() ? modelFor(ctx, args.model) : undefined;
+  if (typeof model === "string") return { text: model };
+  const reply = args.reply ?? "wait";
+
+  // outside bypass mode, one card for the chat and its first message
+  const mode = channelProject(ctx, channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
+  if (mode !== "bypassPermissions") {
+    const allowed = await askUser(ctx, channelId, {
+      to: "",
+      project: open ? open.name : `${path.basename(dir)} — ${dir}, not open yet`,
+      title: "",
+      text,
+      reply,
+      fresh: model ? { model: model.name } : {},
+    });
+    if (!allowed) return { text: `The user did not let you start a chat in ${where}.` };
+  }
+
+  // the project — opened now when it wasn't, its first chat new with it
+  let project = ctx.store.findByQuery(open?.id ?? dir);
+  let session: SessionInfo | undefined;
+  if (!project) {
+    const said = createManagerHost(ctx).openProject({ path: dir });
+    project = ctx.store.findByPath(dir);
+    if (!project) return { text: `Couldn't open ${dir}: ${said}` };
+    if (said.startsWith("opened")) session = project.sessions[0];
+  }
+  session ??= ctx.store.newSession(project.id);
+  if (!session) return { text: `Couldn't start a chat in ${project.name}.` };
+  if (model) ctx.store.setSessionModel(session.id, model.value);
+  ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+
+  const handle = ctx.talk.handleOf(session.id);
+  const sent = await sendLetter(ctx, channelId, { to: handle, message: text, reply, approved: true }, opts);
+  return {
+    ...sent,
+    text: `Started a new chat in ${project.name}${model ? ` on ${model.name}` : ""} — handle ${handle}, for messaging it again. ${sent.text}`,
+  };
 }
 
 /** Wait on the answer to a message this chat sent, by its letter id. */
@@ -730,6 +913,8 @@ export function talkHost(ctx: ServerContext): TalkHost {
       (await sendLetter(ctx, channelId, args, { via: "tool", ...(signal ? { signal } : {}) })).text,
     wait: async (channelId, letter, signal) =>
       (await waitAnswer(ctx, channelId, letter, { via: "tool", ...(signal ? { signal } : {}) })).text,
+    start: async (channelId, args, signal) =>
+      (await startChat(ctx, channelId, args, { via: "tool", ...(signal ? { signal } : {}) })).text,
   };
 }
 

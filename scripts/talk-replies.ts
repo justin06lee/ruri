@@ -19,6 +19,11 @@
  *   6. A relaunch mid-wait: the letter is in south's line when the server
  *      goes; the next server sends it on, and the answer arrives in the
  *      north chat as a message.
+ *   8. A message to a chat at work cuts in: a west chat (bypass, no cards)
+ *      is running a ninety-second loop of short sleeps (Claude Code's Bash
+ *      refuses a long leading `sleep`); a north chat's message stops that turn and
+ *      goes in at once, its answer is back long before the sleep would
+ *      have ended, and west takes its command up again afterwards.
  * TALK_REPLIES_OPENCODE=1 adds OpenCode's free model waiting over HTTP
  * past a ninety-second slice; TALK_REPLIES_SKIP_CODEX=1 leaves Codex out.
  *
@@ -45,8 +50,10 @@ const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-replies-config-"))
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-replies-data-"));
 const northDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-replies-north-"));
 const southDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-replies-south-"));
+const westDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-replies-west-"));
 const WORD = "periwinkle";
 fs.writeFileSync(path.join(southDir, "MASCOT.txt"), `${WORD}\n`);
+fs.writeFileSync(path.join(westDir, "MASCOT.txt"), `${WORD}\n`);
 
 // a chat of its own for every case: a model asked twice for the same word
 // answers from memory the second time
@@ -57,6 +64,10 @@ const CLAUDE_RELAUNCH = "c-replies-relaunch";
 const CODEX_WAIT = "c-replies-codex-wait";
 const CODEX_LATER = "c-replies-codex-later";
 const OPENCODE_CHAT = "c-replies-opencode";
+const CLAUDE_CUT = "c-replies-cut";
+/** TALK_REPLIES_CASES=2,8 runs only those cases (3 is Codex's two). */
+const CASES = new Set((process.env["TALK_REPLIES_CASES"] ?? "").split(",").filter(Boolean));
+const runs = (n: number) => CASES.size === 0 || CASES.has(String(n));
 const NORTH = [
   CLAUDE_WAIT,
   CLAUDE_STOP,
@@ -65,8 +76,10 @@ const NORTH = [
   CODEX_WAIT,
   CODEX_LATER,
   OPENCODE_CHAT,
+  CLAUDE_CUT,
 ];
 const SOUTH = "c-replies-south";
+const WEST = "c-replies-west";
 fs.mkdirSync(path.join(configDir, "sessions"), { recursive: true });
 fs.writeFileSync(
   path.join(configDir, "projects.json"),
@@ -89,7 +102,16 @@ fs.writeFileSync(
             title: "OpenCode",
             model: "opencode:opencode/muse-spark-1.3-contributor-free",
           },
+          { id: CLAUDE_CUT, title: "Cuts in", model: "haiku" },
         ],
+      },
+      {
+        id: "p-replies-west",
+        name: "west",
+        path: westDir,
+        // no cards: west is kept busy by a command actually running
+        permissionMode: "bypassPermissions",
+        sessions: [{ id: WEST, title: "West", model: "haiku" }],
       },
       {
         id: "p-replies-south",
@@ -150,9 +172,9 @@ async function cleanup(code: number): Promise<never> {
   await stopServer();
   // a CLI still shutting down writes a last line into its transcript folder
   await sleep(3_000);
-  for (const dir of [northDir, southDir])
+  for (const dir of [northDir, southDir, westDir])
     for (const claude of claudeDirsOf(dir)) fs.rmSync(claude, { recursive: true, force: true });
-  for (const dir of [configDir, dataDir, northDir, southDir])
+  for (const dir of [configDir, dataDir, northDir, southDir, westDir])
     fs.rmSync(dir, { recursive: true, force: true });
   process.exit(code);
 }
@@ -205,7 +227,7 @@ async function open(): Promise<WebSocket> {
   sock.send(
     JSON.stringify({
       type: "view",
-      channels: [...NORTH, SOUTH],
+      channels: [...NORTH, SOUTH, WEST],
       live: true,
     } satisfies ClientMessage),
   );
@@ -247,6 +269,19 @@ const answersIn = (chat: string, since = 0) =>
   (events[chat] ?? []).slice(since).filter((e) => e.kind === "user" && e.from?.answer);
 const letterFrom = (chat: string, since: number) => letters.find((l) => l.from === chat && l.ts >= since);
 const mark = (chat: string) => (events[chat] ?? []).length;
+/** A chat's events since `since`, one short line each — for a failure's detail. */
+const compact = (chat: string, since: number) =>
+  (events[chat] ?? [])
+    .slice(since)
+    .map((e) =>
+      e.kind === "user"
+        ? `user${e.from ? ` from ${e.from.agent}${e.from.cutIn ? " (cut in)" : ""}` : ""}: ${e.text.slice(0, 60)}`
+        : e.kind === "tool"
+          ? `tool ${e.name}: ${e.summary.slice(0, 60)}`
+          : e.kind === "result"
+            ? `result ${e.ok ? "ok" : "failed"}${e.stopped ? " stopped" : ""} ${e.durationMs ?? "?"}ms`
+            : `${e.kind}: ${"text" in e ? String(e.text).slice(0, 60) : ""}`,
+    );
 
 /** A turn in `chat`, sent and seen through to its end. */
 async function turn(chat: string, text: string, ms = 300_000): Promise<void> {
@@ -289,7 +324,7 @@ await turn(
 
 /* ── 1. Claude waits, and the answer comes back into the call ─────── */
 
-{
+if (runs(1)) {
   const since = mark(CLAUDE_WAIT);
   await turn(CLAUDE_WAIT, askTool("wait", "Then tell me the name."));
   check(
@@ -306,7 +341,7 @@ await turn(
 
 /* ── 2. Claude waits, and is stopped: the answer still comes back ──── */
 
-{
+if (runs(2)) {
   const release = await keepSouthBusy();
   const since = mark(CLAUDE_STOP);
   const at = Date.now();
@@ -329,7 +364,7 @@ await turn(
 
 /* ── 3, 4. Codex over HTTP: wait across slices, and later ──────────── */
 
-if (CODEX) {
+if (CODEX && runs(3)) {
   const release = await keepSouthBusy();
   const since = mark(CODEX_WAIT);
   const turns = results(CODEX_WAIT);
@@ -378,7 +413,7 @@ if (CODEX) {
 
 /* ── 5. Claude asks for none: the work is done, nothing comes back ─── */
 
-{
+if (runs(5)) {
   await until("south idle", () => !busy(SOUTH), 300_000);
   const since = mark(CLAUDE_NONE);
   const southSince = mark(SOUTH);
@@ -409,7 +444,7 @@ if (CODEX) {
 
 /* ── 7. OpenCode waits over HTTP past a ninety-second slice ────────── */
 
-if (OPENCODE) {
+if (OPENCODE && runs(7)) {
   const release = await keepSouthBusy();
   const since = mark(OPENCODE_CHAT);
   const at = Date.now();
@@ -445,7 +480,7 @@ if (OPENCODE) {
 
 /* ── 6. A relaunch while a letter waits in south's line ────────────── */
 
-{
+if (runs(6)) {
   const release = await keepSouthBusy();
   void release;
   const since = mark(CLAUDE_RELAUNCH);
@@ -482,6 +517,60 @@ if (OPENCODE) {
     events[CLAUDE_RELAUNCH]?.slice(since),
   );
   await until("north's turn on it", () => !busy(CLAUDE_RELAUNCH), 120_000);
+}
+
+/* ── 8. A message cuts in on a chat running a long command ─────────── */
+
+if (runs(8)) {
+  await turn(
+    WEST,
+    "Other agents working in ruri will message you, asking for the name of this project's mascot (it is in MASCOT.txt). Tell them the name. For now just reply: ok",
+  );
+  const westSince = mark(WEST);
+  send({
+    type: "send",
+    projectId: WEST,
+    text: "Run this shell command with the Bash tool, in the foreground (not in the background), and wait for it to finish: for i in $(seq 1 45); do sleep 2; done; echo slept\nThen reply with just: slept",
+  });
+  await until(
+    "west's sleep running",
+    () =>
+      busy(WEST) &&
+      (events[WEST] ?? []).slice(westSince).some((e) => e.kind === "tool" && e.summary.includes("sleep 2")),
+    120_000,
+  );
+  // well into it, and still at it — a command the tool refused would have
+  // ended the turn by now
+  await sleep(10_000);
+  check("west is at work on its command when the message goes", busy(WEST), compact(WEST, westSince));
+  const since = mark(CLAUDE_CUT);
+  const at = Date.now();
+  await turn(
+    CLAUDE_CUT,
+    'Another agent open in ruri, in the project called west, keeps the name of its mascot in MASCOT.txt in its folder, which you cannot read. Use mcp__ruri__list_agents to find the west chat, then mcp__ruri__message_agent to ask it to read MASCOT.txt and reply with just the name — with reply "wait". Then tell me the name.',
+    240_000,
+  );
+  const took = Date.now() - at;
+  const after = (events[WEST] ?? []).slice(westSince);
+  const letterAt = after.findIndex((e) => e.kind === "user" && e.from?.agent === CLAUDE_CUT);
+  check(
+    "a message to a chat mid-command stops its turn and goes in at once",
+    letterAt > 0 &&
+      after.slice(0, letterAt).some((e) => e.kind === "result" && e.stopped) &&
+      after[letterAt]?.kind === "user" &&
+      after[letterAt].from?.cutIn === true,
+    compact(WEST, westSince),
+  );
+  check(
+    `…and the answer comes back before the command would have ended (${Math.round(took / 1000)}s)`,
+    said(CLAUDE_CUT, since).toLowerCase().includes(WORD) && took < 85_000,
+    said(CLAUDE_CUT, since),
+  );
+  await until("west back on its own work", () => !busy(WEST), 240_000);
+  const resumed = (events[WEST] ?? [])
+    .slice(westSince + letterAt + 1)
+    .some((e) => e.kind === "tool" && e.summary.includes("sleep 2"));
+  check("…and west picks its command back up afterwards", resumed, compact(WEST, westSince));
 }
 
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);

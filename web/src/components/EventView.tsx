@@ -210,6 +210,8 @@ export const EventView = memo(function EventView({
                 {event.from.project}
                 {event.from.title ? ` · ${event.from.title}` : ""}
               </b>
+              {/* it stopped the turn that was running to be read now */}
+              {event.from.cutIn && " · cut in"}
             </div>
           )}
           {onRewind && (

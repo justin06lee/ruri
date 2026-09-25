@@ -421,11 +421,22 @@ export function cutIn(
   split: boolean,
 ): boolean {
   if (!running(ctx, channelId)) return false;
-  stopTurn(ctx, channelId);
-  const { entries } = promptEntries(ctx, channelId, text, uploads, split);
+  cutInWith(ctx, channelId, promptEntries(ctx, channelId, text, uploads, split).entries);
+  return true;
+}
+
+/** The same cut-in, for entries made elsewhere — another agent's message
+ *  (server/handlers/talk.ts), which carries who it is from. The caller has
+ *  checked that a turn is running. */
+export function cutInWith(ctx: ServerContext, channelId: string, entries: QueueEntry[]): void {
+  // one already cutting in has stopped the turn, or is stopping it
+  if (running(ctx, channelId)) stopTurn(ctx, channelId);
   const queue = ctx.queues.entries.get(channelId) ?? [];
-  const front = queue.findIndex((entry) => !entry.silent);
-  queue.splice(front === -1 ? queue.length : front, 0, ...entries);
+  // at the head of the line, behind whatever cut in before it (and the
+  // silent ones, which were always first) — but ahead of the prompt that
+  // takes the chat back to its work, which follows every cut-in
+  const front = queue.findIndex((entry) => !entry.silent && (!entry.cut || entry.resume === true));
+  queue.splice(front === -1 ? queue.length : front, 0, ...entries.map((entry) => ({ ...entry, cut: true })));
   ctx.queues.entries.set(channelId, queue);
   ctx.queues.cutIn.add(channelId);
   ctx.queues.broadcastQueue(channelId);
@@ -435,7 +446,6 @@ export function cutIn(
     if (ctx.queues.cutIn.has(channelId) && !running(ctx, channelId)) drainQueue(ctx, channelId);
   }, CUT_IN_WAIT_MS);
   timer.unref?.();
-  return true;
 }
 
 /**

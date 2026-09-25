@@ -21,18 +21,20 @@ import {
 } from "../../shared/protocol.js";
 import { channelProject, running } from "../channel.js";
 import type { ServerContext } from "../context.js";
-import { dispatch } from "../dispatch.js";
+import { cutInWith, dispatch } from "../dispatch.js";
 import {
   clipAnswer,
   httpWaitMs,
   MAX_DEPTH,
   mayMessage,
+  resumePrompt,
   seatName,
   WAIT_MS,
   type Ending,
   type Pending,
   type TalkHost,
 } from "../talk.js";
+import type { QueueEntry } from "../queue.js";
 import type { Handlers } from "./types.js";
 
 interface Found {
@@ -167,12 +169,78 @@ export function answerTalk(ctx: ServerContext, requestId: string, allow: boolean
   return true;
 }
 
-/** Into a chat's line: now if it is free, else behind what it is doing
- *  and whatever the user has queued ahead of it. */
-function deliver(ctx: ServerContext, chat: string, text: string, from: LetterFrom): "queued" | "working" {
+/**
+ * Whether the turn a chat is running may be stopped for a message. Not when
+ * it is another agent's message being answered for someone who wants the
+ * answer — stopping it would end that answer half-said; not while it waits
+ * on an answer of its own (TalkBook.awaiting), which stopping would break
+ * off — and with every message now cutting in, that answer is on its way;
+ * and not while it waits on the user at a card, where the user is already
+ * in the middle of it. Anything else — the user's own work, a job another
+ * agent handed over with no answer wanted, an answer this chat is acting
+ * on — gives way.
+ */
+function interruptible(ctx: ServerContext, chat: string): boolean {
+  if (ctx.manager.statuses()[chat] === "permission") return false;
+  if (ctx.talk.awaiting(chat)) return false;
+  const turn = ctx.archive.events(chat).findLast((event) => event.kind === "user");
+  const from = turn?.kind === "user" ? turn.from : undefined;
+  return !from || from.answer === true || from.reply === "none";
+}
+
+/**
+ * Into a chat's line. A chat at work is interrupted for it: its turn is
+ * stopped and this goes first, ahead of anything the user has queued, and
+ * the model is told to take up what it was doing again once it has dealt
+ * with it (talk.ts CUT_IN_LINE) — a message left in a queue behind a
+ * three-hour turn is a message nobody reads for three hours. Where the turn
+ * can't be cut short (interruptible), it waits behind it instead; so does
+ * one reaching an idle chat whose queue is standing by (after a stop, or
+ * held for the network or a limit), which keeps its place in that line.
+ */
+function deliver(
+  ctx: ServerContext,
+  chat: string,
+  text: string,
+  from: LetterFrom,
+): "queued" | "working" | "cut in" {
+  // a chat already stopping for something that cut in takes this straight
+  // behind it rather than behind the user's queue
+  if (ctx.queues.cutIn.has(chat) || (running(ctx, chat) && interruptible(ctx, chat))) {
+    const letter: QueueEntry = {
+      id: randomUUID(),
+      text,
+      uploads: [],
+      silent: false,
+      from: { ...from, cutIn: true },
+    };
+    // and behind it, once however many cut in, the prompt that sends the
+    // chat back to the work they stopped
+    const back: QueueEntry[] = ctx.queues.entries.get(chat)?.some((entry) => entry.resume)
+      ? []
+      : [
+          {
+            id: randomUUID(),
+            text: resumePrompt(seatName(from.project, from.title)),
+            uploads: [],
+            silent: false,
+            resume: true,
+          },
+        ];
+    cutInWith(ctx, chat, [letter, ...back]);
+    return "cut in";
+  }
   if (running(ctx, chat) || ctx.queues.pending(chat) > 0) {
     const queue = ctx.queues.entries.get(chat) ?? [];
-    queue.push({ id: randomUUID(), text, uploads: [], silent: false, from });
+    // a chat on its way back to work a message stopped hears this first
+    const back = queue.findIndex((entry) => entry.resume);
+    queue.splice(back === -1 ? queue.length : back, 0, {
+      id: randomUUID(),
+      text,
+      uploads: [],
+      silent: false,
+      from,
+    });
     ctx.queues.entries.set(chat, queue);
     ctx.queues.broadcastQueue(chat);
     return "queued";
@@ -311,8 +379,15 @@ export async function sendLetter(
   };
   book.keep(pending);
   const where = deliver(ctx, target, text, letterFrom(pending));
-  book.note({ ...base, status: where });
-  const queued = where === "queued" ? ", queued behind what it is doing" : "";
+  // a cut-in waits at the head of the line for the turn it stopped to end:
+  // queued, for the moment it takes, and working from when it goes
+  book.note({ ...base, status: where === "cut in" ? "queued" : where });
+  const queued =
+    where === "queued"
+      ? ", queued behind what it is doing"
+      : where === "cut in"
+        ? ", which has stopped what it was doing to read it"
+        : "";
   if (reply === "none")
     return {
       text: `Sent to ${toName}${queued}. You asked for no answer: it has been told nobody is waiting on it, and nothing will come back.`,
@@ -462,6 +537,9 @@ function sendBack(ctx: ServerContext, pending: Pending): void {
     return;
   }
   const found = ctx.store.findSession(pending.to);
+  // a sender still in the turn waiting on this — between two of its
+  // slices, about to ask again — is not stopped for it (interruptible): it
+  // waits in the line, where that next ask collects it
   deliver(ctx, pending.from, ending.outcome === "answered" ? clipAnswer(ending.text) : ending.text, {
     agent: pending.to,
     project: found?.project.name ?? "a closed project",

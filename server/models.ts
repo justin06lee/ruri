@@ -40,6 +40,11 @@ export class Models {
       .then(({ claude, harnesses }) => {
         for (const m of claude) this.claudeNames.set(m.value, m.displayName);
         if (this.claudeModels.length === 0 && claude.length > 0) this.claudeModels = claude;
+        // A live session's list can land first — the probe waits on every
+        // harness, and a slow or failing one holds it for seconds — and it
+        // names its models as bare families ("Opus"). Now that the catalog
+        // says which version each alias is, those names take it.
+        else this.claudeModels = this.claudeModels.map((m) => this.named(m));
         if (claude.length > 0) this.onClaude?.(claude.map((m) => m.value));
         this.providerModels = harnesses;
         if (this.allModels().length > 0) this.broadcast({ type: "models", models: this.allModels() });
@@ -48,6 +53,12 @@ export class Models {
         this.probing = false;
       });
   };
+
+  /** A model under the name the startup catalog gave it, where it gave one. */
+  private named(model: ModelChoice): ModelChoice {
+    const known = this.claudeNames.get(model.value);
+    return known && known !== model.displayName ? { ...model, displayName: known } : model;
+  }
 
   /** A live Claude session's own list (SessionEvents.onModels). */
   report = (list: ModelChoice[]): void => {

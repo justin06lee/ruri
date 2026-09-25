@@ -215,3 +215,17 @@ describe("a rewind's fork point, tied to its session", () => {
     expect(again.takeForkNext("c", "S1")).toBe(false);
   });
 });
+
+describe("the windows chats' turns reported", () => {
+  test("each model's, the larger where two chats disagree, and none for a chat on another model now", () => {
+    const archive = new SessionArchive();
+    archive.setContextTokens("a", 48_000, 1_000_000, "opus");
+    archive.setContextTokens("b", 90_000, 200_000, "opus");
+    archive.setContextTokens("c", 70_000, 258_400, "codex:gpt-6-astra");
+    // switched off the model that measured it: the reading no longer counts
+    archive.setContextTokens("d", 30_000, 200_000, "haiku");
+    archive.setContextTokens("d", 30_000, undefined, "sonnet");
+    const windows = archive.reportedWindows(["a", "b", "c", "d", "never-seen"]);
+    expect(Object.fromEntries(windows)).toEqual({ opus: 1_000_000, "codex:gpt-6-astra": 258_400 });
+  });
+});

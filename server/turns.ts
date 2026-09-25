@@ -96,14 +96,28 @@ export class Turns {
  * The context window a channel's model gets. The size its harness named for
  * this channel wins (Claude's CLI and Codex both report it with a turn) —
  * but only for the model that named it; then the size any chat's turn has
- * reported for that model since launch (a fork, a new chat); and only with
- * neither, a guess: Claude's two sizes, 1M with the [1m] flag.
+ * reported for that model (this run, or the last one's, which server.ts
+ * reads back from the archive at launch); and only with neither, a guess
+ * (windowFor).
  */
 export function contextWindow(ctx: ServerContext, channelId: string): number {
   const model = channelProject(ctx, channelId)?.model || ctx.store.defaultModel();
   const reported = ctx.archive.contextWindowOf(channelId, model) ?? ctx.models.windows.get(model);
+  const tokens = ctx.turns.contexts.get(channelId)?.tokens ?? ctx.archive.contextTokens(channelId) ?? 0;
+  return windowFor(model, reported, tokens);
+}
+
+/**
+ * A window reported for the model, or a guess at it: Claude's two sizes, 1M
+ * with the [1m] flag — and 1M whenever the chat already holds more than the
+ * smaller one could, since a context can't be bigger than its window. The
+ * plain models have the million-token window now too, and guessing 200k for
+ * a 374k chat just switched onto one drew its gauge full.
+ */
+export function windowFor(model: string, reported: number | undefined, tokens: number): number {
   if (reported) return reported;
-  return model.includes("[1m]") ? 1_000_000 : 200_000;
+  const guess = model.includes("[1m]") ? 1_000_000 : 200_000;
+  return tokens > guess ? 1_000_000 : guess;
 }
 
 /**

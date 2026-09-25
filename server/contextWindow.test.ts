@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mainWindow } from "./sessions.js";
+import { windowFor } from "./turns.js";
 
 /**
  * The window a Claude chat's gauge measures against comes from the CLI's own
@@ -29,5 +30,22 @@ describe("mainWindow", () => {
     expect(mainWindow(undefined, "claude-opus-5-5")).toBeUndefined();
     expect(mainWindow({ "claude-opus-5-5": {} }, "claude-opus-5-5")).toBeUndefined();
     expect(mainWindow({ "claude-opus-5-5": { contextWindow: 0 } }, "claude-opus-5-5")).toBeUndefined();
+  });
+});
+
+describe("windowFor", () => {
+  test("a reported window wins", () => {
+    expect(windowFor("opus", 1_000_000, 374_000)).toBe(1_000_000);
+    expect(windowFor("haiku", 200_000, 12_000)).toBe(200_000);
+  });
+
+  test("with none, Claude's two sizes by the [1m] flag", () => {
+    expect(windowFor("sonnet", undefined, 40_000)).toBe(200_000);
+    expect(windowFor("opus[1m]", undefined, 40_000)).toBe(1_000_000);
+  });
+
+  test("a chat already past the smaller window can only be on the larger", () => {
+    // a 374k chat switched onto plain Opus before any turn on it: not full
+    expect(windowFor("opus", undefined, 374_000)).toBe(1_000_000);
   });
 });

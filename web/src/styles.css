@@ -1992,20 +1992,41 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
+/* The textbox sits as far under the title as the title sits under the
+   marks: about 46px of paper each way, measured on the ink — the marks'
+   lowest line to the title's lowercase, and the title's baseline to the
+   box. The two margins here are that second 46 less what the line box
+   leaves under its baseline. Kept off the dragons' heads: they stand
+   beside the box and rise past its top, so a long title wraps within the
+   box's width. */
 .hero-title {
+  max-width: min(680px, calc(100% - 302px));
   font-size: 34px;
   font-weight: 750;
   letter-spacing: 0.01em;
-  margin-bottom: 4px;
+  text-align: center;
+  overflow-wrap: anywhere;
+  margin-bottom: 12px;
 }
 
 .hero-composer {
   width: 100%;
-  margin-top: 8px;
+  margin-top: 18px;
 }
 
 .hero-composer .composer {
   padding: 0;
+}
+
+/* The dragons stand taller than the textbox, and in the composer's row the
+   tallest thing sets the row's height — so here, with the title above, the
+   box was pushed a dragon's head further down than the marks are from the
+   title. Zero height: the row is the box's height, and the dragons still
+   stand on its baseline, rising past its top into the space beside the
+   title. */
+.hero-composer .dragons {
+  height: 0;
+  align-self: flex-end;
 }
 
 .home-icon {

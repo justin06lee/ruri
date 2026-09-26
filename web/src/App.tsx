@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChatPane } from "./components/ChatPane";
 import { Settings } from "./components/Settings";
-import { useRapidFire } from "./components/RapidFire";
+import { RapidWaiting, useRapidFire } from "./components/RapidFire";
 import { ProjectsPage } from "./components/HomeBoard";
 import { Sidebar } from "./components/Sidebar";
 import { Switcher } from "./components/Switcher";
@@ -159,6 +159,8 @@ export function App() {
         <main className="chat projects-pane">
           <ProjectsPage />
         </main>
+      ) : rapid.on && !showing ? (
+        <RapidWaiting rapid={rapid} />
       ) : (
         <ChatPane key={showing ?? "active"} {...(showing ? { channelId: showing } : {})} rapid={rapid} />
       )}

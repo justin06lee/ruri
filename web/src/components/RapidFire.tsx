@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { STAR_PATH } from "../icons";
-import { lineOf } from "../lib/rapid";
+import type { Project } from "../../../shared/protocol";
+import { type Line, lineOf, nextAfter, repick } from "../lib/rapid";
 import { getPref, setPref } from "../prefs";
 import { useRuri } from "../store";
 
@@ -14,23 +14,23 @@ import { useRuri } from "../store";
  * A send is not a cut. The prompt lands and sits there long enough to read,
  * the card eases out, and then the next project announces itself — its name,
  * big, for as long as it takes to register — before its chat rises into
- * place. Two seconds of theatre that answer the only question a line like
- * this ever raises: which one am I looking at now?
+ * place. A second and a half of theatre that answers the only question a
+ * line like this ever raises: which one am I looking at now?
  *
  * Who is in the line at all is lib/rapid.ts: every open project, or only the
- * starred ones (the star on the plate, remembered across launches), and a
- * hidden project in neither.
+ * starred ones (the all | starred switch on the plate, remembered across
+ * launches), and a hidden project in neither.
  */
 
 /** Whether the line was narrowed to the starred projects, last time. */
 const STARRED_PREF = "ruri-rapid-starred";
 
 /** How long the sent prompt stays on screen before the card leaves. */
-const HOLD_MS = 700;
+const HOLD_MS = 450;
 /** The card easing out. Long enough to read as a movement, not a cut. */
-const FADE_MS = 420;
-/** The name card: in, held, and out again. */
-const INTRO_MS = 1150;
+const FADE_MS = 260;
+/** The name card: in, held, and out again (styles.css, rapid-name). */
+const INTRO_MS = 700;
 
 export interface RapidFire {
   on: boolean;
@@ -50,15 +50,15 @@ export interface RapidFire {
   advance: (reason?: "sent" | "skip") => void;
 }
 
-/** The line as the sidebar reads it, and who in it could take a prompt. */
-function line(starredOnly: boolean): { ids: string[]; ready: string[] } {
+/** The line as it stands this moment — for the hand-off's timers, which run
+ *  after the render that set them and have to see what has changed since. */
+function lineNow(starredOnly: boolean): Line {
   const { projects, statuses } = useRuri.getState();
   return lineOf(projects, statuses, starredOnly);
 }
 
 /** Who a session belongs to, for the card that announces it. */
-function whose(sessionId: string): { name: string; title?: string } {
-  const { projects } = useRuri.getState();
+function whose(projects: Project[], sessionId: string): { name: string; title?: string } {
   for (const project of projects) {
     const session = project.sessions.find((s) => s.id === sessionId);
     if (session) return { name: project.name, ...(session.title ? { title: session.title } : {}) };
@@ -66,36 +66,14 @@ function whose(sessionId: string): { name: string; title?: string } {
   return { name: "…" };
 }
 
-/** The next session ready for a prompt, going round from `from`. */
-function nextAfter(from: string | undefined, starredOnly: boolean): string | undefined {
-  const { ids, ready } = line(starredOnly);
-  if (ready.length === 0) return undefined;
-  const at = from ? ids.indexOf(from) : -1;
-  if (at === -1) return ready[0];
-  for (let step = 1; step <= ids.length; step++) {
-    const candidate = ids[(at + step) % ids.length]!;
-    if (ready.includes(candidate)) return candidate;
-  }
-  return undefined;
-}
-
-/** Where the pick should be, given where it is: unchanged while that
- *  session can still take a prompt. */
-function repick(current: string | undefined, starredOnly: boolean): string | undefined {
-  const { ids, ready } = line(starredOnly);
-  if (current && ready.includes(current)) return current;
-  // entering the line from a session that could take a prompt starts there
-  const activeId = useRuri.getState().activeId;
-  const next =
-    current === undefined && activeId && ready.includes(activeId)
-      ? activeId
-      : nextAfter(current, starredOnly);
-  // Nobody else waiting: stay on this one and watch it finish — but only
-  // while it is still in the line. Narrowed to the starred, hidden away or
-  // closed, it is not ours to hand back, and holding it would go on
-  // offering the composer a session the line no longer holds.
-  return next ?? (current && ids.includes(current) ? current : undefined);
-}
+/**
+ * A hand-off, one step at a time: the card holding where it is, the card
+ * easing out, the next project's name over the pane. Each step is state, and
+ * one effect waits it out — so whatever starts a hand-off (a click, a send,
+ * the render noticing the chat on screen has started a turn) only has to set
+ * the first step.
+ */
+type Handoff = { step: "hold"; ms: number } | { step: "fade" } | { step: "intro" };
 
 export function useRapidFire(): RapidFire {
   const on = useRuri((s) => s.rapid);
@@ -107,50 +85,76 @@ export function useRapidFire(): RapidFire {
     holdStarred(want);
     setPref(STARRED_PREF, want ? "1" : "0");
   };
-  // subscribed only to render again when the line changes: `line()` reads
-  // them from the store itself
-  useRuri((s) => s.projects);
-  useRuri((s) => s.statuses);
+  // The line, worked out from what is subscribed to here and nothing read
+  // off the store behind it: the React Compiler caches a value by the
+  // inputs it can see, and a line read through getState() was cached by
+  // `starred` alone — the count and the skip button froze at whatever the
+  // line was when the app first drew, before the projects had arrived.
+  const projects = useRuri((s) => s.projects);
+  const statuses = useRuri((s) => s.statuses);
+  const activeId = useRuri((s) => s.activeId);
+  const { ids, ready } = lineOf(projects, statuses, starred);
   const [current, setCurrent] = useState<string | undefined>(undefined);
-  /** A hand-off is under way: the card is holding, then fading. Nothing else
-   *  may move the pick until it lands — least of all the turn the sent prompt
-   *  just started, which would cut the hold short. */
-  const [handing, setHanding] = useState(false);
-  const [leaving, setLeaving] = useState(false);
-  const [intro, setIntro] = useState<{ name: string; title?: string } | null>(null);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  /** The hand-off under way. Nothing else may move the pick until it lands —
+   *  least of all the turn the sent prompt just started, which would cut the
+   *  hold short. */
+  const [handoff, setHandoff] = useState<Handoff | null>(null);
 
-  const clearTimers = () => {
-    for (const timer of timers.current) clearTimeout(timer);
-    timers.current = [];
-  };
-  useEffect(() => clearTimers, []);
-
-  // Leaving the line drops the pick, so coming back starts fresh — the
-  // state as the render notices, the timers (not state) after it.
+  // Leaving the line drops the pick and any hand-off, so coming back starts
+  // fresh; the hand-off's timer goes with its effect.
   const [wasOn, setWasOn] = useState(on);
   if (wasOn !== on) {
     setWasOn(on);
     if (!on) {
-      setHanding(false);
-      setLeaving(false);
-      setIntro(null);
+      setHandoff(null);
       setCurrent(undefined);
     }
   }
-  useEffect(() => {
-    if (!on) clearTimers();
-  }, [on]);
 
   // The pick: whoever is ready. It only moves on its own when this one can no
   // longer take a prompt — it started a turn, or it's gone. When everybody's
   // working there's nowhere to go, so the card stays and you watch it finish.
-  // Worked out as the render happens — projects and statuses are subscribed
-  // above, so every change to the line comes through here.
-  if (on && !handing) {
-    const next = repick(current, starred);
-    if (next !== current) setCurrent(next);
+  // Worked out as the render happens, off the line above. Entering the line,
+  // or a line that has emptied, takes the pick at once; moving on from a
+  // session that is on screen goes the way a send does — an answered
+  // permission card or a queued prompt going out used to cut straight to the
+  // next project, with nothing to say it had changed.
+  if (on && !handoff) {
+    const next = repick({ ids, ready }, current, activeId);
+    if (current !== undefined && next !== undefined && next !== current) {
+      setHandoff({ step: "hold", ms: HOLD_MS });
+    } else if (next !== current) {
+      setCurrent(next);
+    }
   }
+
+  // Each step of a hand-off, waited out. The line is read when a step ends
+  // rather than when the hand-off began: the turn the prompt just started
+  // has changed who is waiting.
+  useEffect(() => {
+    if (!handoff) return;
+    const wait = handoff.step === "hold" ? handoff.ms : handoff.step === "fade" ? FADE_MS : INTRO_MS;
+    const timer = setTimeout(() => {
+      if (handoff.step === "intro") {
+        setHandoff(null);
+        return;
+      }
+      const next = nextAfter(lineNow(starred), current);
+      if (!next) {
+        // nobody else waiting — stay on this one instead of fading out and
+        // straight back in to the same session
+        setHandoff(null);
+      } else if (handoff.step === "hold") {
+        setHandoff({ step: "fade" });
+      } else {
+        // the swap happens behind the name card, so the incoming chat is
+        // never seen half-built — it rises when the name has gone
+        setCurrent(next);
+        setHandoff({ step: "intro" });
+      }
+    }, wait);
+    return () => clearTimeout(timer);
+  }, [handoff, current, starred]);
 
   // Being shown counts as read.
   useEffect(() => {
@@ -160,47 +164,10 @@ export function useRapidFire(): RapidFire {
     }
   }, [current]);
 
-  const { ids, ready } = line(starred);
-
   const advance = (reason: "sent" | "skip" = "skip") => {
-    if (handing) return;
-    setHanding(true);
+    if (handoff) return;
     // a sent prompt is worth seeing land — the card holds, then leaves
-    const hold = reason === "sent" ? HOLD_MS : 0;
-    timers.current.push(
-      setTimeout(() => {
-        // the line is read here rather than at the click: the turn the prompt
-        // just started has changed who is waiting
-        if (!nextAfter(current, starred)) {
-          // nobody else waiting — stay on this one instead of fading out and
-          // straight back in to the same session
-          setHanding(false);
-          return;
-        }
-        setLeaving(true);
-        timers.current.push(
-          setTimeout(() => {
-            const next = nextAfter(current, starred);
-            if (!next) {
-              setLeaving(false);
-              setHanding(false);
-              return;
-            }
-            // the swap happens behind the name card, so the incoming chat is
-            // never seen half-built — it rises when the name has gone
-            setCurrent(next);
-            setIntro(whose(next));
-            timers.current.push(
-              setTimeout(() => {
-                setIntro(null);
-                setLeaving(false);
-                setHanding(false);
-              }, INTRO_MS),
-            );
-          }, FADE_MS),
-        );
-      }, hold),
-    );
+    setHandoff({ step: "hold", ms: reason === "sent" ? HOLD_MS : 0 });
   };
 
   return {
@@ -210,8 +177,8 @@ export function useRapidFire(): RapidFire {
     working: ids.length - ready.length,
     starred,
     setStarred,
-    leaving,
-    intro,
+    leaving: handoff?.step === "fade" || handoff?.step === "intro",
+    intro: handoff?.step === "intro" && current ? whose(projects, current) : null,
     advance,
   };
 }
@@ -223,8 +190,9 @@ export function useRapidFire(): RapidFire {
  * the dragons beside it stand taller than it does and anything laid out in
  * flow ends up level with their heads instead.
  *
- * `floating` is the docked composer; the hero's composer has no dragons and
- * takes it in flow.
+ * `floating` is the docked composer; the hero's composer stands its dragons
+ * out of flow (styles.css, .hero-composer .dragons), so it takes the bar in
+ * flow, straight above the box.
  */
 export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boolean }) {
   const setRapid = useRuri((s) => s.setRapid);
@@ -234,19 +202,21 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
      centred between the dragons rather than filling the pane, so its right
      edge is wherever those work out to — a fixed padding here lands next to
      it, never on it. Measured from the real thing, and kept in step: the
-     dragons change height, the box grows with a long prompt. */
+     dragons change height, the box grows with a long prompt. Measured off
+     the bar's own edge, not the pane's: in the hero the bar is only as wide
+     as the hero, and an inset taken from the pane put the plate a margin's
+     width short of the box. */
   useLayoutEffect(() => {
     const bar = barRef.current;
-    const pane = bar?.closest("main");
-    const box = pane?.querySelector(".composer-box");
-    if (!bar || !pane || !box) return;
+    const box = bar?.closest("main")?.querySelector(".composer-box");
+    if (!bar || !box) return;
     const align = () => {
-      const inset = Math.round(pane.getBoundingClientRect().right - box.getBoundingClientRect().right);
-      bar.style.setProperty("--rapid-inset", `${inset}px`);
+      const inset = Math.round(bar.getBoundingClientRect().right - box.getBoundingClientRect().right);
+      bar.style.setProperty("--rapid-inset", `${Math.max(0, inset)}px`);
     };
     align();
     const observer = new ResizeObserver(align);
-    observer.observe(pane);
+    observer.observe(bar);
     observer.observe(box);
     return () => observer.disconnect();
   }, [floating]);
@@ -264,27 +234,27 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
               working" reads as a stall rather than an empty line */}
           {empty ? " · nothing starred" : ` · ${rapid.ready} ready · ${rapid.working} working`}
         </span>
-        <button
-          className={`rapid-star ${rapid.starred ? "on" : ""}`}
-          title={
-            rapid.starred
-              ? "Starred projects only — click for every open project"
-              : "Every open project — click for the starred ones only"
-          }
-          aria-pressed={rapid.starred}
-          onClick={() => rapid.setStarred(!rapid.starred)}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill={rapid.starred ? "currentColor" : "none"}
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinejoin="round"
-            aria-hidden
+        {/* Which projects the line goes round — a choice between two, said
+            in words. It was a lone star, and a star beside the chat you are
+            looking at reads as "star this one", which it never did. */}
+        <div className="rapid-scope" role="group" aria-label="Which projects rapid fire goes round">
+          <button
+            className={rapid.starred ? "" : "on"}
+            aria-pressed={!rapid.starred}
+            title="Go round every open project"
+            onClick={() => rapid.setStarred(false)}
           >
-            <path d={STAR_PATH} />
-          </svg>
-        </button>
+            all
+          </button>
+          <button
+            className={rapid.starred ? "on" : ""}
+            aria-pressed={rapid.starred}
+            title="Go round the starred projects only"
+            onClick={() => rapid.setStarred(true)}
+          >
+            starred
+          </button>
+        </div>
         {rapid.ready > 1 && (
           <button
             className="rapid-skip"
@@ -319,5 +289,29 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The line with nobody to hand you: nothing starred, nothing open, or every
+ * session in it mid-turn as you arrive. It used to show the app's own active
+ * chat — Home, as often as not — under the line's controls, so a prompt
+ * typed there went somewhere the line had never picked. The first session
+ * to come free is picked up from here on its own.
+ */
+export function RapidWaiting({ rapid }: { rapid: RapidFire }) {
+  const inLine = rapid.ready + rapid.working;
+  const [title, note] =
+    inLine === 0 && rapid.starred
+      ? ["Nothing starred", "Star a project in the sidebar, or go round every open project."]
+      : inLine === 0
+        ? ["Nothing open", "Open a project and its sessions join the line."]
+        : ["Everyone's working", "The first session to finish comes up here."];
+  return (
+    <main className="chat rapid-page rapid-waiting">
+      <div className="rapid-waiting-title">{title}</div>
+      <div className="rapid-waiting-note">{note}</div>
+      <RapidBar rapid={rapid} />
+    </main>
   );
 }

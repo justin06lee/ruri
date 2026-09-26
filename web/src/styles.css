@@ -3808,7 +3808,8 @@ input[type="range"]::-webkit-slider-thumb {
    a time, with the line's controls riding in its header */
 
 /* the hand-off: the card that took your prompt fades out and up, the next
-   one rises into its place. 260ms each way, which is what the line waits. */
+   one rises into its place. The way out is FADE_MS in RapidFire.tsx, which
+   is what the line waits before it swaps. */
 @keyframes rapid-in {
   from {
     opacity: 0;
@@ -3826,11 +3827,11 @@ input[type="range"]::-webkit-slider-thumb {
 /* The card enters after the name has gone, so it takes its time; it leaves
    on an ease-in, which reads as being pulled away rather than blinking. */
 .chat.rapid-page {
-  animation: rapid-in 380ms cubic-bezier(0.16, 0.84, 0.36, 1);
+  animation: rapid-in 300ms cubic-bezier(0.16, 0.84, 0.36, 1);
 }
 
 .chat.rapid-page.rapid-leaving {
-  animation: rapid-out 420ms cubic-bezier(0.5, 0, 0.75, 0) forwards;
+  animation: rapid-out 260ms cubic-bezier(0.5, 0, 0.75, 0) forwards;
   pointer-events: none;
 }
 
@@ -3880,13 +3881,14 @@ input[type="range"]::-webkit-slider-thumb {
   letter-spacing: -0.02em;
   line-height: 1.05;
   max-width: 82%;
-  animation: rapid-name 1150ms ease-out forwards;
+  /* INTRO_MS in RapidFire.tsx: the card comes down when this ends */
+  animation: rapid-name 700ms ease-out forwards;
 }
 
 .rapid-intro-title {
   font-size: 15px;
   color: var(--ink-faint);
-  animation: rapid-name 1150ms ease-out 60ms forwards;
+  animation: rapid-name 660ms ease-out 40ms forwards;
   opacity: 0;
 }
 
@@ -3963,31 +3965,78 @@ input[type="range"]::-webkit-slider-thumb {
   height: 12px;
 }
 
-/* the line's own star: filled, it is the starred projects only — the same
-   star the sidebar puts on a project, saying the same thing about it */
-.rapid-star {
-  display: flex;
+/* Which projects the line goes round: all of them, or the starred — two
+   words in a small inked switch, the home tabs' shape at the plate's size.
+   A filter on the line, so it reads as one; the star it replaced read as
+   starring the chat underneath it. */
+.rapid-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border: 1.5px solid var(--hairline);
+  border-radius: 999px;
+  background-color: var(--paper);
+  background-image: var(--tone);
+  background-size: 6px 6px;
+}
+
+.rapid-scope button {
+  padding: 1px 9px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--ink-faint);
+  transition:
+    background 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.rapid-scope button:hover {
+  color: var(--ink);
+  background: var(--paper-dim);
+}
+
+.rapid-scope button.on,
+.rapid-scope button.on:hover {
+  color: var(--paper);
+  background: var(--ink);
+}
+
+.rapid-scope button:active {
+  transform: none;
+}
+
+/* the line with nobody to hand you (RapidWaiting): what is going on, and
+   the line's controls under it, in the middle of the pane */
+.chat.rapid-waiting {
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  background: none;
+  gap: 6px;
+  padding-bottom: 6vh;
+  text-align: center;
+  user-select: none;
+}
+
+.rapid-waiting-title {
+  font-size: 34px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.rapid-waiting-note {
+  font-size: var(--fs-md);
   color: var(--ink-faint);
-  transition: color var(--lighten);
 }
 
-.rapid-star svg {
-  width: 13px;
-  height: 13px;
-}
-
-.rapid-star:hover,
-.rapid-star.on {
-  color: var(--ink);
-  background: none;
-  transform: none;
+.rapid-waiting .rapid-bar {
+  justify-content: center;
+  width: auto;
+  margin-top: 22px;
+  padding: 0;
 }
 
 /* ── the naming card ──────────────────────────────────────────────── */

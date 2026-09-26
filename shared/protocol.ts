@@ -572,6 +572,10 @@ export interface SecretMeta {
  *  answer, to have it come to its chat when it is ready, or nothing. */
 export type TalkReply = "wait" | "later" | "none";
 
+/** How a message reaches a chat at work: stopping the turn it is running
+ *  to be read now (the default), or waiting in its line behind it. */
+export type TalkDelivery = "interrupt" | "queue";
+
 /** Where a prompt came from when another agent sent it: on the user event
  *  it arrived as, so the chat can say whose it is. */
 export interface LetterFrom {
@@ -637,12 +641,15 @@ export interface TalkLetter {
 
 /** What an agent asks to send, on the card that asks the user. */
 export interface TalkAsk {
-  /** The chat it is for. */
+  /** The chat it is for — "" when it is for a chat not yet started. */
   to: string;
   project: string;
   title: string;
   text: string;
   reply: TalkReply;
+  /** The agent is asking to start a new chat in `project` for this, on
+   *  `model` when it named one. */
+  fresh?: { model?: string };
 }
 
 export interface ComponentProposal {

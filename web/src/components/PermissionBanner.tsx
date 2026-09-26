@@ -100,11 +100,20 @@ function MessageCard({ request }: { request: PermissionRequest }) {
           <Icon d={toolIcon(request.toolName)} />
           message
         </span>
-        wants to message{" "}
-        <b>
-          {ask.project}
-          {ask.title ? ` · ${ask.title}` : ""}
-        </b>
+        {ask.fresh ? (
+          <>
+            wants to start a new chat in <b>{ask.project}</b>
+            {ask.fresh.model ? ` on ${ask.fresh.model}` : ""} and send it
+          </>
+        ) : (
+          <>
+            wants to message{" "}
+            <b>
+              {ask.project}
+              {ask.title ? ` · ${ask.title}` : ""}
+            </b>
+          </>
+        )}
       </div>
       <div className="permission-plan scroll-gate">
         <Markdown text={ask.text} />

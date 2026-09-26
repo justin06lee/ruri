@@ -39,3 +39,36 @@ export function lineOf(
   );
   return { ids, ready: ids.filter((id) => (statuses[id] ?? "idle") !== "working") };
 }
+
+/**
+ * The next session ready for a prompt, going round the line from `from` —
+ * never `from` itself: a hand-off that comes back to the session it left
+ * would fade the chat out and straight back in, and the prompt just sent
+ * there can still read as ready for the moment before its turn is reported.
+ * From outside the line (entering it, or a session that has left), the
+ * first one ready.
+ */
+export function nextAfter(line: Line, from: string | undefined): string | undefined {
+  if (line.ready.length === 0) return undefined;
+  const at = from ? line.ids.indexOf(from) : -1;
+  if (at === -1) return line.ready[0];
+  for (let step = 1; step < line.ids.length; step++) {
+    const candidate = line.ids[(at + step) % line.ids.length]!;
+    if (line.ready.includes(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Where the line's pick should be, given where it is: unchanged while that
+ * session can still take a prompt. Entering the line from a session that
+ * could take one starts there. Nobody else waiting, it stays on this one to
+ * watch it finish — but only while it is still in the line: narrowed to the
+ * starred, hidden away or closed, it is not the line's to hand back.
+ */
+export function repick(line: Line, current: string | undefined, activeId: string | null): string | undefined {
+  if (current && line.ready.includes(current)) return current;
+  const next =
+    current === undefined && activeId && line.ready.includes(activeId) ? activeId : nextAfter(line, current);
+  return next ?? (current && line.ids.includes(current) ? current : undefined);
+}

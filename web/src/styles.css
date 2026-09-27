@@ -1512,9 +1512,11 @@ input[type="range"]::-webkit-slider-thumb {
     color 120ms ease-out;
 }
 
+/* the word that is off stays as it is under the pointer: the pill is what
+   says which page is up, and a second shade on the other word read as a
+   second thing picked (the global button:hover would paint one) */
 .home-tab:hover {
-  color: var(--ink);
-  background: var(--paper-dim);
+  background: transparent;
 }
 
 .home-tab.on,

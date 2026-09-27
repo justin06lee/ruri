@@ -1,4 +1,13 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   HOME_ID,
   type BackgroundWork,
@@ -325,6 +334,15 @@ function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) => void 
  *  .home-track transition in styles.css. */
 const SLIDE_MS = 380;
 
+/** A field Tab belongs to: it moves between answers there, or completes
+ *  in a shell. The composer's own box is not one — it has nothing to tab
+ *  to, and it is where the caret sits whenever Home is up. */
+function tabOwnedBy(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.matches(".composer-field textarea")) return false;
+  return el.isContentEditable || el.matches("input, textarea, select");
+}
+
 /**
  * Home: its two pages side by side on one track, under the strip that
  * picks between them — the agent's chat on the left, the statistics on the
@@ -353,11 +371,44 @@ export function HomeDeck({
     const timer = setTimeout(() => setLeaving(null), SLIDE_MS + 60);
     return () => clearTimeout(timer);
   }, [leaving, tab]);
-  const go = (next: HomeTab) => {
-    if (next === tab) return;
-    setLeaving(tab);
-    onTab(next);
-  };
+  const go = useCallback(
+    (next: HomeTab) => {
+      if (next === tab) return;
+      setLeaving(tab);
+      onTab(next);
+    },
+    [tab, onTab],
+  );
+  // Tab flips between the two pages, whenever nothing else wants the key: a
+  // menu that completes on Tab (the composer's commands) has already taken
+  // it by the time it gets here, and a field or a card standing over the
+  // page keeps it. It used to flip between Home and the projects page; the
+  // strip's own two pages are the pair it is closest to.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (tabOwnedBy(document.activeElement)) return;
+      if (document.querySelector('.viewer-overlay, .confirm-overlay, [role="dialog"]')) return;
+      e.preventDefault();
+      if (tab === "chat") {
+        // the chat's page goes inert behind the statistics; nothing typed
+        // should be left landing in it
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        go("stats");
+        return;
+      }
+      go("chat");
+      // and the caret back in its box, so a thought left there on the way
+      // over carries on where it was — once the page is up
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          document.querySelector<HTMLTextAreaElement>(".home-deck .composer-field textarea")?.focus(),
+        ),
+      );
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tab, go]);
   const up = (page: HomeTab) => tab === page || leaving === page;
   return (
     <div className="home-deck">

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Regenerate the app icon from build/icon.svg (macOS only): build/icon.png
-# at 1024x1024, then build/icon.icns from it. The SVG is the thinking
-# indicator's dragon (web/src/components/Thinking.tsx) on a paper tile.
+# at 1024x1024, then build/icon.icns from it. The SVG is ruri's three
+# diamonds on a paper tile, written by scripts/draw-icon.ts (`make icon`
+# runs both).
 set -eu
 cd "$(dirname "$0")/.."
 

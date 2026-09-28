@@ -55,6 +55,7 @@ import { overlay, reuse } from "./lib/transcript";
 import { pictureStored } from "./pictures";
 import { hydratePrefs } from "./prefs";
 import { isAwake, subscribeAwake } from "./lib/awake";
+import { Held } from "./lib/held";
 import { fileToBase64 } from "./lib/files";
 
 export interface Draft {
@@ -720,9 +721,9 @@ function sendView(): void {
   const message: ClientMessage = {
     type: "view",
     channels: [...onScreen.keys()],
-    // always live: a window that cannot be seen still keeps its state
-    // current (lib/awake.ts freezes only what moves)
-    live: true,
+    // a window nobody is looking at is sent nothing of its chats, and
+    // caught up on them as it wakes (receive, below, holds the rest)
+    live: isAwake(),
     ...(boardsUp > 0 ? { board: true } : {}),
     ...(metersUp > 0 ? { meters: true } : {}),
     // not what is on screen but whether anyone is in front of it: what
@@ -794,10 +795,35 @@ export function watchMeters(): () => void {
   };
 }
 
-/** Every message applies as it arrives, asleep or awake: only what moves
- *  is frozen while nobody can see the window (lib/awake.ts). */
+/* ── asleep: nothing applies ─────────────────────────────────────── */
+
+/** What came while nobody was looking (lib/held.ts): held unread, so the
+ *  page does no work at all, and applied as the window wakes. */
+const held = new Held();
+
+/** Waking: everything held, applied at once — one task, so one render. The
+ *  chats on screen are caught up by the server, once the view says live. */
+function applyHeld(): void {
+  const messages = held.take();
+  // too much went by: a fresh connection, and its snapshot, instead
+  if (messages === "overflow") {
+    ws?.close();
+    return;
+  }
+  for (const msg of messages) apply(msg);
+  // an agent's log left open heard nothing while the window slept
+  const panel = useRuri.getState().agentPanel;
+  const key = panel?.keys.at(-1);
+  if (panel && key) refreshAgentLog(panel.projectId, key);
+}
+
+subscribeAwake(() => {
+  if (isAwake()) applyHeld();
+});
+
 function receive(msg: ServerMessage): void {
-  apply(msg);
+  if (isAwake()) apply(msg);
+  else held.hold(msg);
 }
 
 /** Histories asked for and not yet arrived. */

@@ -14,7 +14,8 @@ import {
 } from "./brief.js";
 import { sessionBriefing } from "./briefing.js";
 import { placeUnowned } from "./catchup.js";
-import { foldLayers } from "./events.js";
+import { adoptFiles, foldLayers } from "./events.js";
+import { forgetReads } from "./sheetEdits.js";
 import { setCompletionClient } from "./smallmodel.js";
 import type { ServerContext } from "./context.js";
 import { runMemoryCommand } from "./memoryCli.js";
@@ -242,8 +243,8 @@ describe("ruri layer", () => {
     for (const asked of ["bridge", "Bridge", "brid"]) {
       const out = (await run("layer", asked))!;
       expect(out.ok).toBe(true);
-      expect(out.text).toContain("# demo — Bridge");
-      expect(out.text).toContain("(also at .ruri/layers/bridge.md)");
+      expect(out.text).toContain("demo — Bridge (bridge): its sheet, every line numbered");
+      expect(out.text).toContain("The sheet alone is at .ruri/layers/bridge.md");
     }
     expect((await run("layer", "runtime"))!.text).toContain("no code of its own");
     const missing = (await run("layer", "database"))!;
@@ -309,6 +310,91 @@ describe("a turn folds into the layers it changed", () => {
     } finally {
       setCompletionClient(null);
     }
+  });
+});
+
+describe("a turn's sheets are the session's first", () => {
+  test("a layer whose sheet the turn's own session kept isn't folded over it", async () => {
+    const CHAT = "c0ffee11-2222-3333-4444-555566667777";
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-layers-kept-"));
+    for (const rel of ["server/bridge.ts", "server/cdp.ts"]) {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), "x");
+    }
+    const session = { id: CHAT, title: "Bridge work" };
+    const project = { id: "p", name: "demo", path: dir, sessions: [session] };
+    const briefs = new BriefStore();
+    briefs.write("p", { description: "d", features: [], layers: stack }, true);
+    briefs.writeLayer("p", "bridge", bridgeSheet);
+    const asked: string[] = [];
+    setCompletionClient({
+      messages: {
+        create: async ({ messages }: { messages: Array<{ content: string }> }) => {
+          asked.push(messages[0]!.content);
+          return { content: [{ type: "text", text: JSON.stringify(bridgeSheet) }] };
+        },
+      },
+    } as unknown as Yagami);
+    try {
+      const ctx = {
+        store: {
+          findSession: (id: string) => (id === CHAT ? { project, session } : undefined),
+          get: (id: string) => (id === "p" ? project : undefined),
+        },
+        archive: { events: (): TranscriptEvent[] => [], summaries: () => ({}), turnIds: () => [] },
+        briefs,
+        clients: { broadcast: () => {} },
+      } as unknown as ServerContext;
+      forgetReads(CHAT);
+      const started = Date.now();
+      await runMemoryCommand(ctx, CHAT, ["layer", "bridge"]);
+      expect(
+        (await runMemoryCommand(ctx, CHAT, ["layer", "bridge", "add", "rules", "clicks go over CDP"]))!.ok,
+      ).toBe(true);
+      foldLayers(ctx, "p", [
+        { text: "[a] clicks now go over CDP", files: ["server/cdp.ts"], chat: CHAT, started },
+      ]);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(asked).toHaveLength(0);
+      // a turn of a chat that left it is folded as ever
+      foldLayers(ctx, "p", [{ text: "[b] more clicks", files: ["server/cdp.ts"], chat: "another", started }]);
+      for (let i = 0; i < 50 && asked.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+      expect(asked).toHaveLength(1);
+    } finally {
+      setCompletionClient(null);
+    }
+  });
+});
+
+describe("a new file finds its layer", () => {
+  test("beside the layer holding its folder; left alone where none does; let go when gone", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-layers-adopt-"));
+    for (const rel of ["lib/a.ts", "lib/b.ts", "lib/c.ts", "lib/d.ts", "other/x.ts"]) {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), "x");
+    }
+    const layers: StackLayer[] = [
+      { name: "Core", what: "the core", slug: "core", paths: ["lib/a.ts", "lib/b.ts"] },
+      { name: "Edge", what: "the edge", slug: "edge", paths: ["lib/c.ts", "lib/gone.ts"] },
+    ];
+    const briefs = new BriefStore();
+    briefs.write("p", { description: "d", features: [], layers }, true);
+    briefs.writeLayer("p", "core", bridgeSheet);
+    const stamp = briefs.get("p").stamp;
+    const project = { id: "p", name: "demo", path: dir, sessions: [] };
+    const ctx = {
+      store: { get: (id: string) => (id === "p" ? project : undefined) },
+      archive: { events: (): TranscriptEvent[] => [], summaries: () => ({}), turnIds: () => [] },
+      briefs,
+      clients: { broadcast: () => {} },
+    } as unknown as ServerContext;
+    adoptFiles(ctx, "p", dir, ["lib/d.ts", "other/x.ts", "lib/gone.ts"]);
+    const after = briefs.get("p");
+    expect(after.layers!.find((l) => l.slug === "core")!.paths).toEqual(["lib/a.ts", "lib/b.ts", "lib/d.ts"]);
+    expect(after.layers!.find((l) => l.slug === "edge")!.paths).toEqual(["lib/c.ts"]);
+    expect(layerOfFile(after.layers!, "other/x.ts")).toBeUndefined();
+    // nobody reads a file placed beside its neighbours as an edit of the index
+    expect(after.stamp).toEqual(stamp);
   });
 });
 

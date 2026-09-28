@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type {
   LayerSection,
   LayerSheet,
+  MemoryLine,
+  MemoryPart,
   ProjectSheet,
   SheetSection,
+  SheetStamp,
   StackLayer,
   SystemFlow,
 } from "../../../shared/protocol";
@@ -26,14 +29,17 @@ import { send, useRuri } from "../store";
  *
  * It is `.ruri/architecture.md` and `.ruri/layers/` in the project, drawn
  * for a person rather than written for a model. The small model writes it
- * from a read of the repo and folds it forward as turns finish, a turn only
- * into the layers whose files it changed (server/brief.ts); this page is
- * where the user corrects it: any line can be struck or rewritten.
+ * from a read of the repo; the sessions that work in a layer keep its sheet
+ * true as they go (server/sheetEdits.ts — each only what it has read), and
+ * the small model folds in what they leave; this page is where the user
+ * corrects it: any line can be struck or rewritten. Each sheet says who
+ * changed it last.
  *
- * The shape only. Where the work stands — the running log of what was
- * decided, tried, and left open — was drawn here too, and was the wrong
- * thing to put beside the stack: a page of dated, one-chat details that
- * buried the part worth reading.
+ * The shape, and what sessions learned in each layer — which is what a
+ * session gets with the layer's sheet. Where the work stands across the
+ * project (catchup.md) was drawn here once, and was the wrong thing to put
+ * beside the stack: a page of dated, one-chat details that buried the part
+ * worth reading.
  */
 
 /** "path — what it is", split so the path can be set as a path. */
@@ -181,6 +187,27 @@ function Section({
   );
 }
 
+/* ── who changed it ─────────────────────────────────────────────────── */
+
+/** Who a stamp says last changed a sheet, and when — "kept by the
+ *  "Backend" chat 5m ago". */
+function useStampText(stamp: SheetStamp | undefined): string | undefined {
+  const title = useRuri((s) =>
+    stamp?.chat ? s.projects.flatMap((p) => p.sessions).find((x) => x.id === stamp.chat)?.title : undefined,
+  );
+  if (!stamp) return undefined;
+  const when = since(stamp.at);
+  if (stamp.by === "repo") return `read from the repo ${when}`;
+  if (stamp.by === "model") return `folded in by the small model ${when}`;
+  if (stamp.by === "user") return `corrected by you ${when}`;
+  return `kept by ${title ? `the “${title}” chat` : "a chat"} ${when}`;
+}
+
+function Stamp({ stamp }: { stamp: SheetStamp | undefined }) {
+  const text = useStampText(stamp);
+  return text ? <span className="arch-stamp">{text}</span> : null;
+}
+
 /* ── the shape ──────────────────────────────────────────────────────── */
 
 /** What a layer owns, as its bar shows it: folders and a count (its sheet
@@ -244,7 +271,14 @@ function Stack({ projectId, sheet }: { projectId: string; sheet: ProjectSheet })
               >
                 {body}
               </button>
-              {shown && <LayerPanel projectId={projectId} slug={layer.slug} sheet={layerSheet} />}
+              {shown && (
+                <LayerPanel
+                  projectId={projectId}
+                  slug={layer.slug}
+                  sheet={layerSheet}
+                  notes={notesOf(sheet, layer.slug)}
+                />
+              )}
             </div>
           );
         })}
@@ -414,13 +448,73 @@ function Summary({ text, onSave }: { text: string; onSave(text: string): void })
   );
 }
 
+const NOTE_LABEL: Record<MemoryPart, string> = {
+  now: "now",
+  decisions: "decision",
+  worked: "worked",
+  failed: "didn't work",
+  gotchas: "trap",
+  open: "still open",
+};
+
+/** What sessions learned working in one layer — read with its sheet. A
+ *  line struck here is gone from the memory. */
+function LayerNotes({
+  projectId,
+  notes,
+}: {
+  projectId: string;
+  notes: Array<{ part: MemoryPart; line: MemoryLine }>;
+}) {
+  return (
+    <ul className="arch-list arch-notes">
+      {notes.map(({ part, line }) => (
+        <li key={line.id} className="arch-line">
+          <span className="arch-note-kind">{NOTE_LABEL[part]}</span> {line.text}
+          {line.why && <span className="arch-note-why"> — {line.why}</span>}
+          <span className="arch-actions">
+            <Tool
+              icon="strike"
+              title="Strike this line — it no longer holds"
+              onClick={() =>
+                send({ type: "memory_line", projectId, part, lineId: line.id, action: "remove" })
+              }
+            />
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** A layer's own lines in the memory, every part. */
+function notesOf(sheet: ProjectSheet, slug: string): Array<{ part: MemoryPart; line: MemoryLine }> {
+  const memory = sheet.memory;
+  if (!memory) return [];
+  const parts: MemoryPart[] = ["decisions", "worked", "failed", "gotchas", "open"];
+  return parts.flatMap((part) =>
+    memory[part].filter((line) => line.layer === slug).map((line) => ({ part, line })),
+  );
+}
+
 /**
  * One layer's own sheet, under its bar: what it is, where to change what
  * inside it, how work moves through it, its key files, its traps, what it
- * talks to — exactly what `.ruri/layers/<slug>.md` gives a session. Every
- * line is the user's to rewrite or strike.
+ * talks to, and what sessions learned working there — exactly what
+ * `ruri layer <slug>` gives a session. Every line is the user's to rewrite
+ * or strike.
  */
-function LayerPanel({ projectId, slug, sheet }: { projectId: string; slug: string; sheet: LayerSheet }) {
+function LayerPanel({
+  projectId,
+  slug,
+  sheet,
+  notes,
+}: {
+  projectId: string;
+  slug: string;
+  sheet: LayerSheet;
+  notes: Array<{ part: MemoryPart; line: MemoryLine }>;
+}) {
   const map = sheet.map.map((place) => `${place.name} — ${place.files.join(", ")}`);
   return (
     <div className="arch-layer-sheet">
@@ -458,8 +552,22 @@ function LayerPanel({ projectId, slug, sheet }: { projectId: string; slug: strin
           <SheetLines onLine={layerLine(projectId, slug, "edges")} lines={sheet.edges} pairs />
         </Part>
       )}
+      {notes.length > 0 && (
+        <Part title="From the sessions that worked here">
+          <LayerNotes projectId={projectId} notes={notes} />
+        </Part>
+      )}
       <div className="arch-layer-file">
         <code>.ruri/layers/{slug}.md</code> · <code>ruri layer {slug}</code>
+        {sheet.stamp ? (
+          <>
+            {" · "}
+            <Stamp stamp={sheet.stamp} />
+          </>
+        ) : sheet.updated ? (
+          // a sheet from before stamps says only when
+          <span className="arch-stamp"> · changed {since(sheet.updated)}</span>
+        ) : null}
       </div>
     </div>
   );
@@ -554,8 +662,14 @@ export function Architecture({ projectId }: { projectId: string }) {
               <Stack projectId={projectId} sheet={sheet} />
               {layered && (
                 <div className="arch-stack-note">
-                  Every session here is shown this stack, and reads the sheet of the layer it is about to work
-                  in — open one to see what it gets.
+                  Every session here is shown this stack, reads the sheet of the layer it is about to work in,
+                  and keeps it true to what its work changed — open one to see what it gets.
+                  {sheet.stamp && (
+                    <>
+                      {" "}
+                      The index was last <Stamp stamp={sheet.stamp} />.
+                    </>
+                  )}
                 </div>
               )}
             </Section>
@@ -594,8 +708,10 @@ export function Architecture({ projectId }: { projectId: string }) {
 
         <div className="board-foot">
           Written into the project as <code>.ruri/architecture.md</code>, with each layer&apos;s sheet in{" "}
-          <code>.ruri/layers/</code>. It folds in what each chat&apos;s turns change as they finish — a turn
-          only into the layers whose files it changed. Hover a line to rewrite or strike it.
+          <code>.ruri/layers/</code>. A session that has read a sheet puts right what its work changed there (
+          <code>ruri layer &lt;handle&gt;</code>, <code>ruri architecture</code>); what it leaves, the small
+          model folds in as its turns finish — a turn only into the layers whose files it changed. Hover a
+          line to rewrite or strike it.
         </div>
       </div>
     </section>

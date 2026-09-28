@@ -405,6 +405,7 @@ export function installCommand(projectDir: string, deps: string[]): string {
 
 /** Flags that take a value; every other flag is a switch. */
 const VALUED = new Set([
+  "layer",
   "why",
   "dir",
   "name",

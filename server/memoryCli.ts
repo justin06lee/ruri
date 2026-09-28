@@ -1,11 +1,13 @@
+import * as path from "node:path";
 import type { MemoryPart, StackLayer } from "../shared/protocol.js";
-import { layerFile, layerText, memoryLineText } from "./brief.js";
-import { chatByPrefix, exchangeRef, pushSheet, sourceLabel } from "./catchupBrief.js";
+import { layerOfFile, memoryLineText } from "./brief.js";
+import { chatByPrefix, dominantLayer, exchangeRef, pushSheet, sourceLabel } from "./catchupBrief.js";
 import { ownerProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import { branchFacts, gitLines, gitState } from "./gitState.js";
 import { parseArgs, slugify } from "./library.js";
 import { addLine, allLines, dayOf, findLine, lineText, memoryEmpty, replaceLine } from "./memoryLines.js";
+import { isEdit, runIndexCommand, runLayerCommand } from "./sheetEdits.js";
 import {
   exchangeLine,
   exchangesOf,
@@ -23,11 +25,14 @@ import {
  * `ruri note` is how the agent that did the work writes down what it
  * learned — the decision and its reason, the approach that failed and
  * why — first-hand, where the small model gathering from the chats can
- * only guess at a reason from outside. `ruri recall` searches every
- * exchange in the project, across its chats, and prints one whole; the
- * ref after each memory line is what it takes. `ruri state` is git and
- * this chat's changes, live. `ruri layer` is the stack, and one layer's
- * own sheet — what a session reads before working in that layer.
+ * only guess at a reason from outside; a line about one layer is filed
+ * with it (`--layer`, or the layer this turn's changes are in). `ruri
+ * recall` searches every exchange in the project, across its chats, and
+ * prints one whole; the ref after each memory line is what it takes.
+ * `ruri state` is git and this chat's changes, live. `ruri layer` is the
+ * stack, and one layer's own sheet — what a session reads before working
+ * in that layer, and then keeps true (server/sheetEdits.ts); `ruri
+ * architecture` is the index, read and kept the same way.
  */
 
 export interface MemoryAnswer {
@@ -67,24 +72,39 @@ export const MEMORY_COMMANDS = new Set([
   "layer",
   "layers",
   "stack",
+  "architecture",
+  "arch",
 ]);
 
 export const MEMORY_HELP = `and this project's memory — .ruri/catchup.md, which every session reads first:
 
-  ruri note <kind> "<what>" [--why "<why>"]
+  ruri note <kind> "<what>" [--why "<why>"] [--layer <slug>|project]
                                      write down what the next session will need: kind is decision,
-                                     failed, worked, trap or open. What you learned, not what you built
+                                     failed, worked, trap or open. What you learned, not what you built.
+                                     A line about one layer is read with its sheet; without --layer it
+                                     goes to the layer this turn's changes are in, if they are in one
   ruri memory                        the memory as it stands, each line with its id and where it came from
   ruri forget <id>                   take out a line that is wrong, or done (not one of the user's)
   ruri state                         git, and what this chat has changed — live
   ruri recall <words>                search every exchange in this project, across its chats
   ruri recall show <ref>             one exchange whole; a ref is what follows a memory line: 7a3637b4#16
 
-and its architecture — the stack every session is shown, and a sheet for each layer:
+and its architecture — the stack every session is shown, and a sheet for each layer. Read one this
+way and you can edit it in this chat, as long as nobody else changes it first — keep it true to what
+your work changed:
 
   ruri layer                         the stack, top to bottom, each layer with its handle
-  ruri layer <slug>                  one layer's sheet: where to change what in it, how it works, its
-                                     key files, its traps — read it before you work in that layer`;
+  ruri layer <slug>                  one layer's sheet, every line numbered: where to change what in it,
+                                     how it works, its key files, its traps, what git says changed in it
+                                     lately, what sessions learned there — read it before you work there
+  ruri layer <slug> add <section> "<line>"      sections: summary, map, flows, files, rules, edges
+  ruri layer <slug> set <section> <n> "<line>"  (set summary "<text>" takes no number)
+  ruri layer <slug> drop <section> <n>
+  ruri layer <slug> own|disown <path>…          the files and folders it owns
+  ruri architecture                  the index (.ruri/architecture.md), every line numbered, and the
+                                     files no layer owns yet
+  ruri architecture add|set|drop <section> …    sections: description, stack, flows, where, run,
+                                     conventions, features`;
 
 const TITLES: Record<MemoryPart, string> = {
   now: "Where it stands",
@@ -109,15 +129,46 @@ function projectExchanges(ctx: ServerContext, projectId: string): Array<Exchange
   );
 }
 
-/** A chat's changed files, most recent first. */
+/**
+ * A chat's changed files, most recent first: what each finished turn
+ * changed as its checkpoints tell it, and — for the turn still running, and
+ * turns from before those were kept — what its edit tools changed.
+ */
 function changedFiles(ctx: ServerContext, channelId: string, projectName: string): string[] {
   const seen: string[] = [];
-  for (const event of [...ctx.archive.allEvents(channelId)].reverse()) {
-    if (event.kind !== "tool" || !event.diff?.path) continue;
-    const file = projectRelative(event.diff.path, projectName);
+  const summaries = ctx.archive.summaries(channelId);
+  const add = (file: string) => {
     if (!seen.includes(file)) seen.push(file);
+  };
+  let turn: string[] = [];
+  // newest first: a turn's edit-tool files, then — at its prompt — its
+  // checkpoint's, which include them
+  for (const event of [...ctx.archive.allEvents(channelId)].reverse()) {
+    if (event.kind === "tool" && event.diff?.path) turn.push(projectRelative(event.diff.path, projectName));
+    if (event.kind !== "user") continue;
+    const kept = summaries[event.id]?.files;
+    for (const file of kept ?? turn) add(file);
+    turn = [];
   }
   return seen;
+}
+
+/** The files the turn now running has changed so far, project-relative. */
+async function turnSoFar(
+  ctx: ServerContext,
+  channelId: string,
+  project: { name: string; path: string },
+): Promise<string[]> {
+  const events = ctx.archive.events(channelId);
+  const at = events.findLastIndex((e) => e.kind === "user");
+  if (at === -1) return [];
+  const edited = events
+    .slice(at)
+    .flatMap((e) => (e.kind === "tool" && e.diff?.path ? [projectRelative(e.diff.path, project.name)] : []));
+  const since = await Promise.resolve()
+    .then(() => ctx.checkpoints.changedSince(project, channelId, events[at]!.id))
+    .catch(() => undefined);
+  return [...new Set([...edited.filter((f) => !path.isAbsolute(f)), ...(since ?? [])])];
 }
 
 function memoryText(ctx: ServerContext, projectId: string, git: string[]): string {
@@ -135,7 +186,9 @@ function memoryText(ctx: ServerContext, projectId: string, git: string[]): strin
     out.push(`${TITLES[part]}:`);
     for (const line of lines) {
       const ref = line.source ? sourceLabel(ctx, line.source)?.ref : undefined;
-      out.push(`  ${line.id}  ${memoryLineText(line, ref ? { refs: { [line.id]: ref } } : {})}`);
+      out.push(
+        `  ${line.id}  ${line.layer ? `[${line.layer}] ` : ""}${memoryLineText(line, ref ? { refs: { [line.id]: ref } } : {})}`,
+      );
     }
     out.push("");
   }
@@ -175,18 +228,41 @@ export async function runMemoryCommand(
         return no("ruri note: one line — say it in under forty words, and put the reason in --why");
       }
       const turn = ctx.archive.events(channelId).findLast((e) => e.kind === "user")?.id;
+      const layers = ctx.briefs.get(projectId).layers ?? [];
+      const named = args.flags.get("layer")?.at(-1)?.trim();
+      let layer: string | undefined;
+      let guessed = false;
+      if (named && named.toLowerCase() !== "project") {
+        const found = findLayer(layers, named);
+        if (!found?.slug) {
+          return no(
+            `no layer "${named}" — the stack is ${layers.map((l) => l.slug ?? slugify(l.name)).join(", ") || "empty"}; --layer project files it across the project`,
+          );
+        }
+        layer = found.slug;
+      } else if (!named && layers.length) {
+        // left off: the layer this turn's changes are in, when they are in one
+        layer = dominantLayer(layers, await turnSoFar(ctx, channelId, project));
+        guessed = !!layer;
+      }
       const { memory, line } = addLine(ctx.briefs.get(projectId).memory, part, {
         text,
         ...(why ? { why } : {}),
         date: dayOf(),
         by: "agent",
         ...(turn ? { source: { chat: channelId, turn } } : {}),
+        ...(layer ? { layer } : {}),
       });
       ctx.briefs.remember(projectId, memory);
       pushSheet(ctx, projectId);
       const missingWhy = !why && (part === "decisions" || part === "failed");
+      const where = layer
+        ? ` with the ${layer} layer${guessed ? ` (where this turn's changes are — if it holds across the project, ruri forget ${line.id} and note it again with --layer project)` : ""}`
+        : layers.length
+          ? " across the project"
+          : "";
       return yes(
-        `noted under "${TITLES[part]}" as ${line.id}: ${lineText(line)}` +
+        `noted under "${TITLES[part]}"${where} as ${line.id}: ${lineText(line)}` +
           (missingWhy
             ? `\n(a ${kind} without its reason is half useful — ruri forget ${line.id} and note it again with --why)`
             : ""),
@@ -225,7 +301,10 @@ export async function runMemoryCommand(
           `${project.name} has no stack on file yet — the user can have it read from the repo on the architecture page`,
         );
       }
-      const wanted = args.words.slice(1).join(" ").trim();
+      // `ruri layer <slug> add|set|drop|own|disown …` edits; anything else
+      // after `ruri layer` names the layer, a word or several
+      const editing = isEdit(args.words[2]);
+      const wanted = (editing ? args.words.slice(1, 2) : args.words.slice(1)).join(" ").trim();
       if (!wanted) {
         const out = [`${project.name} — the stack, top to bottom`, ""];
         layers.forEach((layer, i) => {
@@ -243,28 +322,33 @@ export async function runMemoryCommand(
           `no layer "${wanted}" — the stack is ${layers.map((l) => l.slug ?? slugify(l.name)).join(", ")}`,
         );
       }
-      const sheet = layer.slug ? brief.layerSheets?.[layer.slug] : undefined;
-      if (!sheet) {
-        return yes(
-          `${layer.name} has no sheet of its own${layer.paths?.length ? ` — it owns ${layer.paths.join(", ")}` : " — it has no code of its own"}.${layer.what ? ` ${layer.what}.` : ""}`,
-        );
-      }
-      return yes(
-        `${layerText(project.name, layer, sheet, project.path)}\n(also at ${layerFile(layer.slug!)})`,
-      );
+      return runLayerCommand(ctx, channelId, project, layer, editing ? args.words.slice(2) : []);
     }
+
+    case "architecture":
+    case "arch":
+      return runIndexCommand(ctx, channelId, project, args);
 
     case "state": {
       const state = await gitState(project.path);
       const out = [`${project.name} — now`, ""];
       if (state) out.push(...gitLines(state).map((l) => `- ${l}`));
       else out.push("- not a git repository (or git isn't answering)");
-      const files = changedFiles(ctx, channelId, project.name);
+      const files = [
+        ...new Set([
+          ...(await turnSoFar(ctx, channelId, project)),
+          ...changedFiles(ctx, channelId, project.name),
+        ]),
+      ];
       if (files.length) {
         out.push(
           "",
-          `This chat has changed (by its edit tools, newest first — shell edits don't show): ${files.slice(0, 25).join(", ")}${files.length > 25 ? `, and ${files.length - 25} more` : ""}`,
+          `This chat has changed, newest first: ${files.slice(0, 25).join(", ")}${files.length > 25 ? `, and ${files.length - 25} more` : ""}`,
         );
+        const layers = ctx.briefs.get(projectId).layers ?? [];
+        const touched = [...new Set(files.flatMap((f) => layerOfFile(layers, f)?.slug ?? []))];
+        if (touched.length)
+          out.push(`In the layers: ${touched.join(", ")} — \`ruri layer <handle>\` for each one's sheet.`);
       }
       const open = ctx.briefs.get(projectId).memory?.open ?? [];
       if (open.length) {

@@ -18,7 +18,7 @@
  */
 import type { ProjectMemory } from "../shared/protocol.js";
 import { assembleTurns, endsIntact, foldMemory, smallModelEnabled } from "./smallmodel.js";
-import { exchangeRef, pushSheet, resolveRef } from "./catchupBrief.js";
+import { exchangeRef, memoryStack, pushSheet, resolveRef } from "./catchupBrief.js";
 import { dayOf, MEMORY_PARTS, rebase } from "./memoryLines.js";
 import type { ServerContext } from "./context.js";
 import { warn } from "./log.js";
@@ -121,8 +121,13 @@ export async function rebuildMemory(ctx: ServerContext, projectId: string): Prom
       return;
     }
     const before = keptThroughRewrite(ctx.briefs.get(projectId).memory);
-    const folded = await foldMemory(project.name, before, material, day(Date.now()), (ref) =>
-      resolveRef(ctx, projectId, ref),
+    const folded = await foldMemory(
+      project.name,
+      before,
+      material,
+      day(Date.now()),
+      (ref) => resolveRef(ctx, projectId, ref),
+      memoryStack(ctx, projectId),
     );
     const memory = folded && rebase(folded, before, keptThroughRewrite(ctx.briefs.get(projectId).memory));
     if (!memory) {

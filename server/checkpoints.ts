@@ -223,6 +223,17 @@ export interface Checkpoints {
   rewind(project: { path: string }, channelId: string, eventIds: string[]): Promise<RewindReport>;
   /** Whether a prompt has a checkpoint at all. */
   has(project: { path: string }, channelId: string, eventId: string): Promise<boolean>;
+  /**
+   * What a finished turn changed in the project: every file that differs
+   * between its two captures, relative to the project — shell edits, moves,
+   * commits and merges as much as the edit tools' work. Undefined when the
+   * turn has no pair of captures (not a git repository, a turn from before
+   * they were taken).
+   */
+  turnFiles(project: { path: string }, channelId: string, eventId: string): Promise<string[] | undefined>;
+  /** The same for a turn still running: what differs between its opening
+   *  capture and the tree as it stands now. */
+  changedSince(project: { path: string }, channelId: string, eventId: string): Promise<string[] | undefined>;
   /** Drop the checkpoints of prompts that are no longer in the transcript. */
   forget(project: { path: string }, channelId: string, eventIds: string[]): Promise<void>;
   /** Drop every checkpoint a channel owns, and its index file. */
@@ -367,6 +378,22 @@ export function createCheckpoints(): Checkpoints {
     return out;
   }
 
+  /** A repository's paths as the project names them: relative to the
+   *  project's own folder, which may sit below the repository's root —
+   *  anything outside it isn't the project's. */
+  function withinProject(top: string, projectDir: string, files: string[]): string[] {
+    let prefix: string;
+    try {
+      prefix = path.relative(fs.realpathSync(top), fs.realpathSync(projectDir));
+    } catch {
+      prefix = path.relative(top, projectDir);
+    }
+    if (!prefix) return files;
+    if (prefix.startsWith("..")) return [];
+    const under = `${prefix.split(path.sep).join("/")}/`;
+    return files.filter((file) => file.startsWith(under)).map((file) => file.slice(under.length));
+  }
+
   /** Every file in a tree, by path. */
   async function entries(top: string, tree: string): Promise<Map<string, Entry>> {
     const listed = await git(["ls-tree", "-r", "-z", "--full-tree", tree], top);
@@ -476,6 +503,34 @@ export function createCheckpoints(): Checkpoints {
 
     async idle(channelId) {
       await lanes.get(channelId);
+    },
+
+    async turnFiles(project, channelId, eventId) {
+      return queue(channelId, async () => {
+        const top = await root(project.path);
+        if (!top) return undefined;
+        const from = await resolve(top, refFor(channelId, eventId));
+        const to = await resolve(top, doneRefFor(channelId, eventId));
+        if (!from || !to) return undefined;
+        const paths = (await changes(top, from, to)).map((change) => change.path);
+        return withinProject(top, project.path, paths);
+      });
+    },
+
+    async changedSince(project, channelId, eventId) {
+      return queue(channelId, async () => {
+        const top = await root(project.path);
+        if (!top) return undefined;
+        const from = await resolve(top, refFor(channelId, eventId));
+        if (!from) return undefined;
+        // the tree as it stands, written down the way a capture is — through
+        // the channel's own index, so it costs what a capture costs — and
+        // left to nothing: no ref points at it, and git collects it
+        const now = await commitTree(top, channelId, `ruri probe ${eventId}`);
+        if (!now) return undefined;
+        const paths = (await changes(top, from, now)).map((change) => change.path);
+        return withinProject(top, project.path, paths);
+      });
     },
 
     async restore(project, channelId, eventId) {

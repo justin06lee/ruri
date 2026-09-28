@@ -40,15 +40,21 @@ interface ArchivedTurn {
   attachments: Attachment[];
   assistant: string[];
   tools: string[];
-  /** Files its tools changed, as the transcript's diffs name them. */
+  /** Files it changed, project-relative: as its checkpoints tell it when
+   *  they were kept (`summaries`), else as its edit tools' diffs name them. */
   files: string[];
   ts: number;
 }
 
 /** Group the flat event stream into prompt→result turns; compaction marks
  *  and pre-prompt stragglers don't make turns. `projectName` turns the
- *  diffs' "<project>/<path>" back into paths relative to the project. */
-function groupTurns(events: TranscriptEvent[], projectName?: string): ArchivedTurn[] {
+ *  diffs' "<project>/<path>" back into paths relative to the project;
+ *  `summaries` carry what each turn's checkpoints say it changed. */
+function groupTurns(
+  events: TranscriptEvent[],
+  projectName?: string,
+  summaries: Record<string, TurnSummary> = {},
+): ArchivedTurn[] {
   const turns: ArchivedTurn[] = [];
   let open: ArchivedTurn | null = null;
   for (const event of events) {
@@ -74,6 +80,10 @@ function groupTurns(events: TranscriptEvent[], projectName?: string): ArchivedTu
     } else if (event.kind === "compaction") {
       open = null;
     }
+  }
+  for (const turn of turns) {
+    const kept = summaries[turn.turnId]?.files;
+    if (kept) turn.files = [...new Set([...kept, ...turn.files.filter((f) => !f.startsWith("/"))])];
   }
   return turns;
 }
@@ -270,15 +280,21 @@ export class DigestFolder {
 }
 
 const BRIEF_INTRO =
-  'You are a fresh session continuing a conversation that was compacted. The numbered exchanges below are that conversation, oldest first: "user:" is their prompt, "you:" is your reply. Treat them as your own memory — the user assumes you know all of it.\n' +
-  "It opens with <state>: where things stand, read from git and the transcript's own record as the conversation was compacted — facts, not recollection; where a note disagrees with it, the state is right. The last exchanges (<recent>) come at length, with the user's words exactly as they wrote them; older ones are compressed to notes.\n" +
+  'You are a fresh session continuing a conversation that was compacted. The numbered exchanges below are that conversation, oldest first: "user wrote:" is their prompt, in their own words, "you:" is your reply. Treat them as your own memory — the user assumes you know all of it.\n' +
+  "It opens with <state>: where things stand, read from git and ruri's checkpoints as the conversation was compacted — facts, not recollection; where a note disagrees with it, the state is right. Every prompt of the user's is here word for word (a very long one cut in its middle); your replies are compressed to notes, except the last few (<recent>), which come at length.\n" +
   'Each exchange ends with "full:" and a file path holding its complete prompt, response, tool activity, and preserved attachment paths. Whenever a note alone is not detailed enough to answer or act on, read that file with your file tools instead of guessing. If it names an image path, open it with your image-viewing tool to inspect the actual pixels.\n';
+
+const LAYERS_INTRO =
+  "After it, <layers>: the parts of the project this conversation worked in, and what sessions learned working there.\n";
 
 const DIGEST_INTRO =
   "The oldest exchanges come first, condensed together into one memory (<condensed>); the ones after it are listed one by one.\n";
 
 /** How many of the last exchanges the brief gives at length. */
 export const BRIEF_RECENT = 3;
+/** How much of an older prompt the brief gives — all of it, but for the
+ *  rare pasted log, which is cut in its middle. */
+const LISTED_USER_CHARS = 3000;
 /** How much of each: the very last the most. */
 const RECENT_USER_CHARS = [4000, 2000, 2000];
 const RECENT_REPLY_CHARS = [3000, 1500, 1500];
@@ -290,6 +306,10 @@ export interface BriefContext {
   facts?: (text: string) => string;
   /** The project's name, which the transcript's paths start with. */
   projectName?: string;
+  /** The layers a set of files is in, as the brief's <layers> block says
+   *  it — what they are, how to read each, and what sessions learned there.
+   *  Absent, or nothing back, for a project without layer sheets. */
+  layers?: (files: string[]) => string;
 }
 
 /** A text cut to `max`, from the middle: the opening kept, and the close —
@@ -318,6 +338,12 @@ function changed(turns: ArchivedTurn[], max = 25): string {
   const ranked = [...counts].sort((a, b) => b[1] - a[1]);
   const shown = ranked.slice(0, max).map(([file, n]) => (n > 1 ? `${file} (in ${n})` : file));
   return ranked.length > max ? `${shown.join(", ")}, and ${ranked.length - max} more` : shown.join(", ");
+}
+
+/** An older exchange in the list: the user's words as they wrote them,
+ *  the reply as its note. */
+function listed(turn: ArchivedTurn, n: number, reply: string, file: string): string {
+  return `${n}. user wrote:\n${quoted(cut(turn.user, LISTED_USER_CHARS))}\n   you: ${reply}\n   full: ${file}`;
 }
 
 /** An exchange at length: the user's words as they wrote them, the close of
@@ -357,7 +383,7 @@ export function buildCompaction(
   digest?: Digest,
   context: BriefContext = {},
 ): { brief: string; entries: CompactionEntry[]; digest?: CompactionDigest } | null {
-  const turns = groupTurns(events, context.projectName);
+  const turns = groupTurns(events, context.projectName, summaries);
   if (turns.length === 0) return null;
   const files = writeTurnFiles(channelId, turns);
   const end = digestEnd(
@@ -373,7 +399,7 @@ export function buildCompaction(
     const { user, reply } = notesOf(turn, summaries);
     entries.push({ user, reply, n: i + 1 });
     if (i < recentFrom) {
-      lines.push(`${i + 1}. user: ${user}\n   you: ${reply}\n   full: ${files[i]!}`);
+      lines.push(listed(turn, i + 1, reply, files[i]!));
       return;
     }
     const rank = turns.length - 1 - i;
@@ -386,9 +412,7 @@ export function buildCompaction(
   for (const line of context.git ?? []) state.push(`- ${line}`);
   const touched = changed(turns);
   if (touched) {
-    state.push(
-      `- Files this conversation changed with its edit tools (shell edits don't show), those more exchanges worked on first: ${touched}`,
-    );
+    state.push(`- Files this conversation changed, those more exchanges worked on first: ${touched}`);
   }
   const last = entries.at(-1);
   const next = last ? offered(last.reply) : undefined;
@@ -397,6 +421,8 @@ export function buildCompaction(
     state.push(`- Your last reply offered to do next: ${next}${fact ? ` ${fact}` : ""}`);
   }
   const stateBlock = state.length ? `<state>\n${state.join("\n")}\n</state>\n\n` : "";
+  const worked = context.layers?.(turns.flatMap((turn) => turn.files)) ?? "";
+  const layersBlock = worked ? `<layers>\n${worked}\n</layers>\n\n` : "";
 
   const condensed = digest
     ? "<condensed>\n" +
@@ -406,18 +432,20 @@ export function buildCompaction(
       digest.text.trim() +
       "\n</condensed>\n\n"
     : "";
-  const listed = lines.length ? `${lines.join("\n")}\n` : "";
+  const listedBlock = lines.length ? `${lines.join("\n")}\n` : "";
   const recentBlock = recent.length
-    ? `${listed ? "\n" : ""}<recent>\n${recent.join("\n\n")}\n</recent>\n`
+    ? `${listedBlock ? "\n" : ""}<recent>\n${recent.join("\n\n")}\n</recent>\n`
     : "";
   const brief =
     "<compacted-history>\n" +
     BRIEF_INTRO +
+    (layersBlock ? LAYERS_INTRO : "") +
     (digest ? DIGEST_INTRO : "") +
     "\n" +
     stateBlock +
+    layersBlock +
     condensed +
-    listed +
+    listedBlock +
     recentBlock +
     "</compacted-history>\n\n";
   return { brief, entries, ...(digest ? { digest: { text: digest.text.trim(), through: end } } : {}) };
@@ -445,7 +473,7 @@ export function buildCatchUp(
   since: string,
   context: BriefContext = {},
 ): string | null {
-  const turns = groupTurns(events, context.projectName);
+  const turns = groupTurns(events, context.projectName, summaries);
   const at = turns.findIndex((turn) => turn.turnId === since);
   const first = at + 1;
   if (at === -1 || first >= turns.length) return null;
@@ -458,8 +486,7 @@ export function buildCatchUp(
   for (let i = listedFrom; i < turns.length; i++) {
     const turn = turns[i]!;
     if (i < recentFrom) {
-      const { user, reply } = notesOf(turn, summaries);
-      lines.push(`${i + 1}. user: ${user}\n   you: ${reply}\n   full: ${files[i]!}`);
+      lines.push(listed(turn, i + 1, notesOf(turn, summaries).reply, files[i]!));
       continue;
     }
     const rank = turns.length - 1 - i;
@@ -474,11 +501,11 @@ export function buildCatchUp(
   const state: string[] = [];
   for (const line of context.git ?? []) state.push(`- ${line}`);
   const touched = changed(turns.slice(first));
-  if (touched) state.push(`- Files changed while you were away, with the edit tools: ${touched}`);
+  if (touched) state.push(`- Files changed while you were away: ${touched}`);
   const stateBlock = state.length ? `<state>\n${state.join("\n")}\n</state>\n\n` : "";
-  const listed = lines.length ? `${lines.join("\n")}\n` : "";
+  const listedBlock = lines.length ? `${lines.join("\n")}\n` : "";
   const recentBlock = recent.length
-    ? `${listed ? "\n" : ""}<recent>\n${recent.join("\n\n")}\n</recent>\n`
+    ? `${listedBlock ? "\n" : ""}<recent>\n${recent.join("\n\n")}\n</recent>\n`
     : "";
   return (
     "<while-you-were-away>\n" +
@@ -486,7 +513,7 @@ export function buildCatchUp(
     "\n" +
     stateBlock +
     skipped +
-    listed +
+    listedBlock +
     recentBlock +
     "</while-you-were-away>\n\n"
   );

@@ -4,14 +4,15 @@
  * from a read of the repo (server/brief.ts keeps it, server/catchup.ts
  * reads the repo, server/memory.ts reads the chats).
  */
-import type { MemorySource, ServerMessage, SheetGit, SourceLabel } from "../shared/protocol.js";
-import { layered, slugLayers, writeBriefFiles, type SheetExtras } from "./brief.js";
+import type { MemorySource, ServerMessage, SheetGit, SourceLabel, StackLayer } from "../shared/protocol.js";
+import { excerpt } from "../shared/protocol.js";
+import { layered, layerOfFile, slugLayers, writeBriefFiles, type SheetExtras } from "./brief.js";
 import { buildCatchup, buildLayerSheets, placeUnowned, splitBigLayers } from "./catchup.js";
 import type { ServerContext } from "./context.js";
 import { branchFacts, commitsSince, gitLines, gitState, headSync, sheetGit } from "./gitState.js";
 import { warn } from "./log.js";
 import { allLines } from "./memoryLines.js";
-import { smallModelEnabled } from "./smallmodel.js";
+import { smallModelEnabled, type MemoryStack } from "./smallmodel.js";
 
 /* ── where a line came from ────────────────────────────────────────── */
 
@@ -48,6 +49,115 @@ export function resolveRef(ctx: ServerContext, projectId: string, ref: string): 
   if (!chat) return undefined;
   const turn = ctx.archive.turnIds(chat)[Number(match[2]) - 1];
   return turn ? { chat, turn } : undefined;
+}
+
+/* ── the chats at work ──────────────────────────────────────────────── */
+
+/** How far back a chat still counts as at work, and how many are named. */
+const AT_WORK_MS = 24 * 60 * 60_000;
+const AT_WORK_MAX = 8;
+/** How many of a chat's last exchanges say which layers it is in. */
+const AT_WORK_TURNS = 5;
+
+/** A time as "3h ago". */
+function ago(ts: number, now = Date.now()): string {
+  const minutes = Math.max(0, Math.round((now - ts) / 60_000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.round(minutes / 60)}h ago`;
+}
+
+/** Whether a chat has a turn in flight — asked of the manager, which a
+ *  test's stand-in context may not have. */
+function workingNow(ctx: ServerContext, channelId: string): boolean {
+  try {
+    const status = ctx.manager.statuses()[channelId];
+    return status === "working" || status === "permission";
+  } catch {
+    return false;
+  }
+}
+
+/** The layer most of a set of files is in — most meaning three in five of
+ *  those any layer owns — or none, when they are spread across several. */
+export function dominantLayer(layers: StackLayer[], files: string[]): string | undefined {
+  const counts = new Map<string, number>();
+  let owned = 0;
+  for (const file of files) {
+    const slug = layerOfFile(layers, file)?.slug;
+    if (!slug) continue;
+    owned += 1;
+    counts.set(slug, (counts.get(slug) ?? 0) + 1);
+  }
+  const best = [...counts].sort((a, b) => b[1] - a[1])[0];
+  return best && best[1] >= owned * 0.6 ? best[0] : undefined;
+}
+
+/** The stack as the memory's fold is told it, and the layer an exchange
+ *  worked in — so what the model learns from one lands with its layer.
+ *  Undefined for a project without layer sheets. */
+export function memoryStack(ctx: ServerContext, projectId: string): MemoryStack | undefined {
+  const brief = ctx.briefs.get(projectId);
+  if (!layered(brief)) return undefined;
+  const layers = (brief.layers ?? []).filter((l) => l.slug && brief.layerSheets?.[l.slug]);
+  return {
+    text: layers.map((l) => `${l.slug} — ${l.name}: ${l.what}`).join("\n"),
+    fold: {
+      slugs: new Set(layers.map((l) => l.slug!)),
+      of: (source) => dominantLayer(layers, ctx.archive.summaries(source.chat)[source.turn]?.files ?? []),
+    },
+  };
+}
+
+/** The layers a chat's last exchanges changed files in, the busiest first. */
+export function chatLayers(
+  ctx: ServerContext,
+  projectId: string,
+  channelId: string,
+  turns = AT_WORK_TURNS,
+): string[] {
+  const layers = ctx.briefs.get(projectId).layers ?? [];
+  if (!layers.length) return [];
+  const summaries = ctx.archive.summaries(channelId);
+  const counts = new Map<string, number>();
+  for (const turn of ctx.archive.turnIds(channelId).slice(-turns)) {
+    for (const file of summaries[turn]?.files ?? []) {
+      const slug = layerOfFile(layers, file)?.slug;
+      if (slug) counts.set(slug, (counts.get(slug) ?? 0) + 1);
+    }
+  }
+  return [...counts].sort((a, b) => b[1] - a[1]).map(([slug]) => slug);
+}
+
+/**
+ * The project's chats at work in the last day, a line each, the latest
+ * first: its name and ref, whether a turn is running now, what it was last
+ * asked (the prompt's recall note), and the layers its last turns changed —
+ * so a session starting beside them knows what else is moving.
+ */
+export function chatLines(ctx: ServerContext, projectId: string, now = Date.now()): string[] {
+  const project = ctx.store.get(projectId);
+  if (!project) return [];
+  const chats = project.sessions.flatMap((session) => {
+    const events = ctx.archive.events(session.id);
+    const last = events.at(-1)?.ts;
+    if (!last || now - last > AT_WORK_MS) return [];
+    const asked = events.findLast((event) => event.kind === "user");
+    const note = asked ? ctx.archive.summaries(session.id)[asked.id]?.user?.trim() : undefined;
+    const on = asked ? note || excerpt(asked.kind === "user" ? asked.text : "", 140) : "";
+    const layers = chatLayers(ctx, projectId, session.id).slice(0, 3);
+    const state = workingNow(ctx, session.id) ? "working now" : `last at work ${ago(last, now)}`;
+    const line = [
+      `"${session.title || "untitled"}" (${session.id.slice(0, 8)}) — ${state}`,
+      ...(on ? [`on: ${on}`] : []),
+      ...(layers.length ? [`in: ${layers.join(", ")}`] : []),
+    ].join(" · ");
+    return [{ last, line }];
+  });
+  return chats
+    .sort((a, b) => b.last - a.last)
+    .slice(0, AT_WORK_MAX)
+    .map((chat) => chat.line);
 }
 
 /* ── the sheet, written and shown ──────────────────────────────────── */
@@ -88,12 +198,14 @@ async function sheetExtras(
       if (fact) facts[line.id] = fact;
     }
   }
+  const chats = chatLines(ctx, projectId);
   return {
     extra: {
       refs,
       facts,
       ...(state ? { git: gitLines(state), asOf: clock(Date.now()) } : {}),
       ...(sinceRead !== undefined ? { sinceRead } : {}),
+      ...(chats.length ? { chats } : {}),
     },
     sources,
     ...(state ? { git: sheetGit(state, sinceRead) } : {}),
@@ -189,7 +301,7 @@ export async function rebuildCatchup(ctx: ServerContext, projectId: string): Pro
       index.layerSheets ?? {},
       known,
       (slug, sheet) => {
-        ctx.briefs.writeLayer(projectId, slug, sheet);
+        ctx.briefs.writeLayer(projectId, slug, sheet, { by: "repo" });
         pushSheet(ctx, projectId);
       },
       (note) => catchupNote(ctx, projectId, true, note),

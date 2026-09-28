@@ -362,6 +362,20 @@ export interface LayerSheet {
   edges: string[];
   /** When it was last written or folded. */
   updated?: number;
+  /** Who wrote it last, and when — what the page says under it. */
+  stamp?: SheetStamp;
+}
+
+/**
+ * Who last changed a sheet (the index, or one layer's): a read of the repo,
+ * the small model folding finished turns into it, a session that worked
+ * there and put right what its work changed (`ruri layer <slug> set …`), or
+ * the user on the page. `chat` is the session's chat, when it was one.
+ */
+export interface SheetStamp {
+  at: number;
+  by: "repo" | "model" | "agent" | "user";
+  chat?: string;
 }
 
 /**
@@ -385,6 +399,16 @@ export function ownsSummary(paths: string[]): string {
 
 /** A layer sheet's lists the user may correct line by line. */
 export type LayerSection = "map" | "files" | "rules" | "edges";
+
+/** Every part of a layer's sheet a session may edit once it has read it
+ *  (`ruri layer <slug> add|set|drop <section> …`) — its lists, its summary,
+ *  its flows, and the paths the layer owns. */
+export type LayerEditSection = LayerSection | "summary" | "flows" | "owns";
+
+/** Every part of the index a session may edit once it has read it
+ *  (`ruri architecture add|set|drop <section> …`). */
+export type IndexEditSection =
+  "description" | "stack" | "flows" | "where" | "run" | "conventions" | "features";
 
 /** One path through a project — how a request, an action or data moves —
  *  as the parts it passes through, in order. */
@@ -419,6 +443,10 @@ export interface MemoryLine {
   source?: MemorySource;
   /** Kept exactly as it is, whatever later work says — the user's call. */
   pinned?: boolean;
+  /** The layer it is about, by its slug: it is read with that layer's sheet
+   *  (`ruri layer <slug>`) rather than by every session in catchup.md.
+   *  Absent: it holds across the project. */
+  layer?: string;
 }
 
 /**
@@ -507,6 +535,8 @@ export interface ProjectSheet {
   shots: Attachment[];
   /** When the shape last changed. */
   updated?: number;
+  /** Who last changed the index, and when. */
+  stamp?: SheetStamp;
   /** When the repo was last read whole for it. */
   built?: number;
   /** The commit the repo stood at when it was read. */

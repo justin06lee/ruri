@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Project, SubagentState, TranscriptEvent } from "../../../shared/protocol";
+import { isAwake } from "../lib/awake";
 import { markFor } from "../lib/marks";
 import { roughName } from "../lib/models";
 import { Markdown } from "../markdown";
@@ -247,7 +248,10 @@ function AgentView({
       refreshAgentLog(channelId, agentKey);
       return;
     }
-    const timer = setInterval(() => refreshAgentLog(channelId, agentKey), SCRIPT_REFRESH_MS);
+    // not while nobody is looking: the window wakes asking for it anyway
+    const timer = setInterval(() => {
+      if (isAwake()) refreshAgentLog(channelId, agentKey);
+    }, SCRIPT_REFRESH_MS);
     return () => clearInterval(timer);
   }, [script, running, channelId, agentKey]);
   // its report, when it said more than its last message did

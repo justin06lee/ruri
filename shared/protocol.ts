@@ -1454,8 +1454,10 @@ export type ClientMessage =
    *  chats in `channels` get their conversation live (a reply's paragraphs,
    *  tool calls, agents at work, the turn's counter); every other chat gets
    *  its status and its finished turns, and catches up when it is opened.
-   *  `live` false (a window nobody can see: behind another app, minimised,
-   *  hidden) pauses even those. `board`: Home's
+   *  `live` false (a window nobody is looking at: another app in front,
+   *  minimised, hidden) pauses even those — nothing of any chat is sent to
+   *  it, and each is caught up on what it missed when `live` comes back
+   *  true. `board`: Home's
    *  projects page is up, which shows every chat's last few lines. The chats
    *  in `channels` also keep their agent process warm between turns; a chat
    *  nobody has open closes its process the moment its work is done.

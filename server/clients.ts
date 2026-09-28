@@ -24,9 +24,15 @@ export interface ClientView {
   /** The statistics page is up: it wants the resource meters running. */
   meters: boolean;
   /** Anyone is looking: the window on screen and the one in use
-   *  (web/src/lib/awake.ts). A sleeping window still takes everything its
-   *  chats do — only what costs the machine to hold is let go of. */
+   *  (web/src/lib/awake.ts) — what decides how long its chats' processes
+   *  are worth keeping warm. */
   awake: boolean;
+  /** Its chats are sent to it as they happen. A window nobody is looking at
+   *  says false, and is sent none of them — not a reply's paragraphs, not
+   *  the turn's counter — so it has nothing to draw; every chat it holds is
+   *  put aside where it stood (`seen`), and caught up on what it missed the
+   *  moment the window says true again. */
+  live: boolean;
   /** Each chat that left the screen, and where it stood as it went. Back
    *  unchanged, it needs nothing; a few events on, it is sent those; and
    *  rewritten or long gone, it is sent whole again. */
@@ -147,7 +153,7 @@ export class Clients {
     for (const client of this.sockets) {
       if (!writable(client)) continue;
       const view = this.views.get(client);
-      if (view && !(view.channels.has(channelId) || (board && view.board))) continue;
+      if (view && !(view.live && (view.channels.has(channelId) || (board && view.board)))) continue;
       payload ??= JSON.stringify(message);
       client.send(payload);
     }
@@ -177,12 +183,23 @@ export class Clients {
 
   /** One transcript event out: to the windows showing its chat and the
    *  projects page — and a turn's end to every window, which is how a chat
-   *  not on screen gets its "finished" pip. */
+   *  not on screen gets its "finished" pip. Not to a sleeping window with
+   *  the chat open, though: it is caught up on the whole turn as it wakes,
+   *  and a turn's end held there ahead of the turn would land first. */
   pushEvent = (channelId: string, event: TranscriptEvent): void => {
     this.touch(channelId);
     this.remember(channelId, event);
-    if (event.kind === "result") this.broadcast({ type: "event", projectId: channelId, event });
-    else this.toViewers(channelId, { type: "event", projectId: channelId, event }, true);
+    if (event.kind !== "result") {
+      this.toViewers(channelId, { type: "event", projectId: channelId, event }, true);
+      return;
+    }
+    const payload = JSON.stringify({ type: "event", projectId: channelId, event } satisfies ServerMessage);
+    for (const client of this.sockets) {
+      if (!writable(client)) continue;
+      const view = this.views.get(client);
+      if (view && !view.live && view.channels.has(channelId)) continue;
+      client.send(payload);
+    }
   };
 
   /** Keep this event against a window coming back for it. */

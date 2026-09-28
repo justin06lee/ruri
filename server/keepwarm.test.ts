@@ -22,6 +22,7 @@ function window(clients: Clients, channels: string[], awake: boolean): ClientCon
     board: false,
     meters: false,
     awake,
+    live: awake,
     seen: new Map(),
   } satisfies ClientView);
   return ws;

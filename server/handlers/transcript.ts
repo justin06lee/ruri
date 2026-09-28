@@ -37,17 +37,20 @@ export const transcriptHandlers = {
       board: false,
       meters: false,
       awake: true,
+      live: true,
       seen: new Map(),
     };
     const before = view.channels;
     const hadBoard = view.board;
     const wasAwake = view.awake;
+    const wasLive = view.live;
     view.channels = new Set(msg.channels.filter((id) => known.has(id)));
     view.board = msg.board === true;
     const wantedMeters = view.meters;
     view.meters = msg.meters === true;
-    // a client that does not say is taken to be awake
+    // a client that does not say is taken to be awake, and live
     view.awake = msg.awake !== false;
+    view.live = msg.live !== false;
     ctx.clients.views.set(ws, view);
     // the meters run while any window has the statistics page up *and*
     // someone is looking at it, and not one moment longer: each sample is a
@@ -61,11 +64,17 @@ export const transcriptHandlers = {
       if (latest) ws.send(JSON.stringify({ type: "resources", resources: latest } satisfies ServerMessage));
     }
     const now = view.channels;
-    for (const id of before) if (!now.has(id)) view.seen.set(id, ctx.clients.mark(id));
-    for (const id of now) if (!before.has(id)) catchUp(ctx, ws, view, id);
-    // the projects page coming up: every chat's tail as it now stands,
-    // since the ones not on screen stopped hearing about their work
-    if (view.board && !hadBoard) {
+    // What is actually being sent: the chats on screen, while the window is
+    // live. Going to sleep puts every one of them aside where it stands, as
+    // leaving it would; waking catches each up on what it missed.
+    const sentBefore = wasLive ? before : new Set<string>();
+    const sentNow = view.live ? now : new Set<string>();
+    for (const id of sentBefore) if (!sentNow.has(id)) view.seen.set(id, ctx.clients.mark(id));
+    for (const id of sentNow) if (!sentBefore.has(id)) catchUp(ctx, ws, view, id);
+    // the projects page coming up, or waking with it up: every chat's tail
+    // as it now stands, since the ones not on screen stopped hearing about
+    // their work
+    if (view.board && view.live && !(hadBoard && wasLive)) {
       const others = [...known].filter((id) => !now.has(id));
       ws.send(
         JSON.stringify({

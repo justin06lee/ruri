@@ -2,11 +2,13 @@
  * Whether anyone can see ruri — the window on screen and the one in use —
  * and which elements are actually in view.
  *
- * Asleep (behind another app, minimised, hidden, on another Space) nothing
- * on the window moves: the clocks stop where they stand (beat.ts, spin.ts)
- * and any entrance caught halfway pauses, to finish on waking. State goes
- * on changing underneath — transcripts, statuses, gauges all apply as they
- * arrive — only the animation is frozen.
+ * Asleep (another app in front, minimised, hidden, on another Space)
+ * nothing on the window changes: the clocks stop where they stand (beat.ts,
+ * spin.ts), any entrance caught halfway pauses, to finish on waking, and
+ * nothing the server says is applied — it stops sending the chats, and what
+ * little else comes is held unread (store.ts, receive) until the window
+ * wakes and takes it in one render. The only work left running is the
+ * agents'.
  *
  * `watchSeen` is the same idea one element at a time: a mover scrolled out
  * of view or inside a hidden pane is not worth a step either.

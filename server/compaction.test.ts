@@ -63,18 +63,23 @@ describe("the compaction brief", () => {
       facts: (text) => (text.includes("feat/ledger") ? "[git: feat/ledger is not merged yet]" : ""),
     })!;
     const brief = built.brief;
-    expect(brief.indexOf("<state>")).toBeLessThan(brief.indexOf("1. user:"));
+    expect(brief.indexOf("<state>")).toBeLessThan(brief.indexOf("1. user wrote:"));
     expect(brief).toContain("- Branch: on master (abc1234)");
     expect(brief).toContain(
-      "- Files this conversation changed with its edit tools (shell edits don't show), those more exchanges worked on first: server/ledger.ts (in 5), src/components/PeekBand.tsx",
+      "- Files this conversation changed, those more exchanges worked on first: server/ledger.ts (in 5), src/components/PeekBand.tsx",
     );
     expect(brief).toContain(
       "- Your last reply offered to do next: 1. merge feat/ledger 2. cut a release [git: feat/ledger is not merged yet]",
     );
-    // the older exchanges as notes, the last BRIEF_RECENT at length, verbatim
-    expect(brief).toContain("1. user: the peek band hover is blocked");
-    expect(brief).toContain(`${6 - BRIEF_RECENT}. user: step ${6 - BRIEF_RECENT}`);
-    expect(brief).not.toContain("6. user: ledger step 6");
+    // every prompt in the user's own words; the older replies as notes, the
+    // last BRIEF_RECENT at length
+    expect(brief).toContain(
+      '1. user wrote:\n"""\nthe peek band hover is blocked by the drag region, fix it\n"""\n   you: Moved the hover',
+    );
+    expect(brief).toContain(
+      `${6 - BRIEF_RECENT}. user wrote:\n"""\nstep ${6 - BRIEF_RECENT}: tidy the ledger totals\n"""`,
+    );
+    expect(brief).not.toContain("ledger step 6\n");
     expect(brief).toContain('<recent>\n4. user wrote:\n"""\nstep 4: tidy the ledger totals\n"""');
     expect(brief).toContain('6. user wrote:\n"""\nstep 6: tidy the ledger totals\n"""');
     expect(brief).toContain("   changed: server/ledger.ts");
@@ -87,7 +92,47 @@ describe("the compaction brief", () => {
     const brief = buildCompaction("chat-2", conversation(2), {})!.brief;
     expect(brief).not.toContain("1. user: the peek band");
     expect(brief).toContain("1. user wrote:");
-    expect(brief).toContain("<state>\n- Files this conversation changed with its edit tools");
+    expect(brief).toContain("<state>\n- Files this conversation changed, those more");
+  });
+
+  test("a prompt pasted long is cut in its middle, and nothing else is", () => {
+    const long = `${"a".repeat(2000)} MIDDLE ${"z".repeat(2000)}`;
+    const events = [user(long), reply("read it"), ...conversation(4)];
+    const brief = buildCompaction("chat-long", events, {})!.brief;
+    expect(brief).toContain(`1. user wrote:\n"""\n${"a".repeat(1000)}`);
+    expect(brief).toContain("[…]");
+    expect(brief).not.toContain("MIDDLE");
+    expect(brief).toContain(
+      '2. user wrote:\n"""\nthe peek band hover is blocked by the drag region, fix it\n"""',
+    );
+  });
+
+  test("what a turn's checkpoints say it changed counts, shell edits included, and names its layers", () => {
+    const events = conversation(2);
+    const first = events.find((e) => e.kind === "user")!;
+    let asked: string[] = [];
+    const brief = buildCompaction(
+      "chat-4",
+      events,
+      { [first.id]: { files: ["web/src/components/PeekBand.tsx", "web/src/styles.css"] } },
+      undefined,
+      {
+        layers: (files) => {
+          asked = files;
+          return "This conversation worked in these layers of the stack: appearance (2 files).";
+        },
+      },
+    )!.brief;
+    expect(brief).toContain("web/src/styles.css");
+    expect(asked).toContain("web/src/styles.css");
+    expect(brief).toContain(
+      "<layers>\nThis conversation worked in these layers of the stack: appearance (2 files).\n</layers>",
+    );
+    expect(brief.indexOf("</state>")).toBeLessThan(brief.indexOf("<layers>\n"));
+    // nothing to say, no block
+    expect(buildCompaction("chat-5", events, {}, undefined, { layers: () => "" })!.brief).not.toContain(
+      "<layers>",
+    );
   });
 
   test("the next prompt brings the exchanges and memory lines it shares words with", () => {

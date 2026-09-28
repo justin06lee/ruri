@@ -64,20 +64,21 @@ export function sessionBriefing(input: {
       "<ruri:catchup>",
       ...(exists(catchup)
         ? [
-            `If you don't already know ${input.projectName} — a fresh session, a harness that has just taken over, work you have no memory of — read ${catchup} first: what git says right now, what was decided and why, what worked, what was tried and failed and why, the traps, and what is still open, gathered from every chat in this project. Don't redo a settled decision or retry a failed approach without a new reason.`,
+            `If you don't already know ${input.projectName} — a fresh session, a harness that has just taken over, work you have no memory of — read ${catchup} first: what git says right now, which chats are at work, what was decided and why, what worked, what was tried and failed and why, the traps, and what is still open, across the project. Don't redo a settled decision or retry a failed approach without a new reason.`,
             ...(input.stack
               ? [
-                  `${input.projectName}'s stack, top to bottom. Each layer with a handle in brackets has a sheet of its own — where to change what inside it, how it works, its key files, its traps — at ${path.join(input.projectDir, ".ruri", "layers")}/<handle>.md (\`ruri layer <handle>\` prints it). Before you work in a layer, read its sheet; read only the ones your work is in, and don't guess at a layer you haven't read.`,
+                  `${input.projectName}'s stack, top to bottom. Each layer with a handle in brackets has a sheet of its own. Before you work in a layer, run \`ruri layer <handle>\`: its sheet — where to change what inside it, how it works, its key files, its traps — with every line numbered, what git says changed in it lately, and what sessions learned working there (the sheet alone is ${path.join(input.projectDir, ".ruri", "layers")}/<handle>.md). Read only the layers your work is in, and don't guess at a layer you haven't read.`,
                   input.stack,
-                  `How the layers connect, where things are, how to run it and the rules it lives by are in ${architecture}.`,
+                  `How the layers connect, where things are, how to run it and the rules it lives by are in ${architecture} (\`ruri architecture\` prints it numbered, with the files no layer owns yet).`,
+                  "Keep them true as you work — you are the one who knows what changed. When your work changes what a sheet says (a file added, moved or gone; a responsibility that moved; a new trap; a flow rerouted; a new way to run it), put it right before you finish: `ruri layer <handle> add|set|drop <section> …`, `ruri layer <handle> own <path>` for a new file, `ruri architecture add|set|drop <section> …` for the index. You can only edit what you have read in this session, as it stands now; `ruri help` has the details.",
                 ]
               : [
                   `The project's shape — where to change what, the stack from top to bottom, how the parts connect, where things are, how to run it, the rules it lives by — is in ${architecture}.`,
                 ]),
-            "These are kept current by ruri as turns finish: much cheaper than reading the code to find out, and much more reliable than guessing. Each memory line ends with the exchange it came from; check one with `ruri recall show <ref>` before you lean on it. Don't read them if you already have the context. Don't edit them.",
+            "These are kept current as turns finish: much cheaper than reading the code to find out, and much more reliable than guessing. Each memory line ends with the exchange it came from; check one with `ruri recall show <ref>` before you lean on it. Don't read them if you already have the context. Don't edit the files themselves.",
           ]
         : []),
-      'When your work settles something a later session will need — a decision and its reason, an approach that failed and why, a trap, something left open — write it down from your shell: `ruri note decision "<what>" --why "<why>"` (or failed, worked, trap, open). One line each, only what the code won\'t tell the next session; not a log of what you built.',
+      `When your work settles something a later session will need — a decision and its reason, an approach that failed and why, a trap, something left open — write it down from your shell: \`ruri note decision "<what>" --why "<why>"\` (or failed, worked, trap, open)${input.stack ? ", with `--layer <handle>` when it is about one layer and `--layer project` when it holds everywhere" : ""}. One line each, only what the code won't tell the next session; not a log of what you built.`,
       "`ruri recall <words>` searches every earlier exchange in this project, across its chats, and `ruri recall show <ref>` prints one whole; `ruri state` is git and this chat's changes, live.",
       "</ruri:catchup>",
     ].join("\n"),

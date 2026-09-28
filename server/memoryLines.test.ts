@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import type { MemoryLine, ProjectMemory } from "../shared/protocol.js";
-import { addLine, applyFold, dayOf, emptyMemory, MEMORY_CAPS, readMemory, rebase } from "./memoryLines.js";
+import {
+  addLine,
+  applyFold,
+  dayOf,
+  emptyMemory,
+  LAYER_CAPS,
+  layerCounts,
+  linesOf,
+  MEMORY_CAPS,
+  readMemory,
+  rebase,
+} from "./memoryLines.js";
 
 const line = (id: string, text: string, extra: Partial<MemoryLine> = {}): MemoryLine => ({
   id,
@@ -119,6 +130,58 @@ describe("memory lines", () => {
     expect(memory.open.some((l) => l.id === "o000")).toBe(true);
     expect(memory.open.some((l) => l.id === "o001")).toBe(false);
     expect(memory.open.at(-1)).toEqual(added);
+  });
+
+  test("each layer keeps its own lines within a layer's cap, beside the project's", () => {
+    let memory = memoryOf({ decisions: [line("d000", "across the project", { date: "2026-01-01" })] });
+    for (let i = 0; i <= LAYER_CAPS.decisions; i++) {
+      memory = addLine(memory, "decisions", {
+        text: `ui ${i}`,
+        by: "model",
+        date: `2026-09-${String(10 + i)}`,
+        layer: "ui",
+      }).memory;
+    }
+    const ui = linesOf(memory, "ui").decisions;
+    expect(ui.length).toBe(LAYER_CAPS.decisions);
+    expect(ui.some((l) => l.text === "ui 0")).toBe(false);
+    expect(linesOf(memory).decisions.map((l) => l.id)).toEqual(["d000"]);
+    expect(layerCounts(memory).get("ui")).toBe(LAYER_CAPS.decisions);
+    // where the work stands is never one layer's
+    expect(addLine(memory, "now", { text: "n", by: "agent", layer: "ui" }).line.layer).toBeUndefined();
+  });
+
+  test("a fold files lines under the layer named, or their exchange's — never moves the user's", () => {
+    const current = memoryOf({
+      decisions: [
+        line("d001", "an agent's, filed nowhere yet", { by: "agent" }),
+        line("d002", "the user's", { by: "user", pinned: true }),
+        line("d003", "the model's, in ui", { layer: "ui" }),
+      ],
+    });
+    const next = applyFold(
+      current,
+      {
+        decisions: [
+          { id: "d001", layer: "bridge" },
+          { id: "d002", layer: "bridge" },
+          { id: "d003" },
+          { text: "learned in a ui exchange", from: "abcd1234#2" },
+          { text: "holds everywhere", from: "abcd1234#2", layer: "project" },
+          { text: "a layer that isn't", layer: "nowhere" },
+        ],
+      },
+      "2026-09-27",
+      (ref) => (ref === "abcd1234#2" ? { chat: "abcd1234", turn: "u2" } : undefined),
+      { slugs: new Set(["ui", "bridge"]), of: (source) => (source.turn === "u2" ? "ui" : undefined) },
+    );
+    const byText = (text: string) => next.decisions.find((l) => l.text === text)!;
+    expect(byText("an agent's, filed nowhere yet").layer).toBe("bridge");
+    expect(byText("the user's").layer).toBeUndefined();
+    expect(byText("the model's, in ui").layer).toBe("ui");
+    expect(byText("learned in a ui exchange").layer).toBe("ui");
+    expect(byText("holds everywhere").layer).toBeUndefined();
+    expect(byText("a layer that isn't").layer).toBeUndefined();
   });
 
   test("what changed while a fold was out wins over the fold", () => {

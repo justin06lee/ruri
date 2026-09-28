@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { MemoryPart, TranscriptEvent } from "../shared/protocol.js";
+import { layerNotes, layerOfFile, layered } from "./brief.js";
 import { memoryLineText } from "./brief.js";
 import { sourceLabel } from "./catchupBrief.js";
+import { forgetReads } from "./sheetEdits.js";
 import { harnessOfSession } from "./archive.js";
 import { channelProject, ownerProject } from "./channel.js";
 import { buildCatchUp, buildCompaction, relevantBlock, type BriefContext } from "./compaction.js";
@@ -21,6 +23,49 @@ import type { LostPrompt } from "./sessions.js";
  * bears on that prompt.
  */
 
+/** How many layers the brief names, and how many of them bring the lines
+ *  sessions learned there, at most how many each. */
+const BRIEF_LAYERS = 3;
+const BRIEF_LAYER_NOTES = 2;
+const BRIEF_NOTES_EACH = 8;
+
+/**
+ * The layers a conversation worked in, as its brief's <layers> block: the
+ * busiest first, each with its handle, and the lines sessions learned in
+ * the busiest ones — so the fresh session knows which sheets are its to
+ * read (and, read again, to keep) without being told the whole project.
+ */
+export function layersBlock(ctx: ServerContext, projectId: string, files: string[]): string {
+  const brief = ctx.briefs.get(projectId);
+  if (!layered(brief)) return "";
+  const counts = new Map<string, number>();
+  for (const file of new Set(files)) {
+    const slug = layerOfFile(brief.layers ?? [], file)?.slug;
+    if (slug && brief.layerSheets?.[slug]) counts.set(slug, (counts.get(slug) ?? 0) + 1);
+  }
+  const busiest = [...counts].sort((a, b) => b[1] - a[1]).slice(0, BRIEF_LAYERS);
+  if (!busiest.length) return "";
+  const named = busiest.map(([slug, n]) => {
+    const layer = brief.layers!.find((l) => l.slug === slug)!;
+    return `${slug} (${layer.name}, ${n} file${n === 1 ? "" : "s"})`;
+  });
+  const out = [
+    `This conversation worked in these layers of the stack: ${named.join(", ")}. Before you change one of them again, read its sheet — \`ruri layer <handle>\`: where to change what in it, what git says changed there lately, and what sessions learned there. Reading it is also what lets you put the sheet right when your work changes it; what you read before this compaction doesn't count.`,
+  ];
+  const refs: Record<string, string> = {};
+  for (const { line } of brief.memory ? allLines(brief.memory) : []) {
+    const ref = line.source ? sourceLabel(ctx, line.source)?.ref : undefined;
+    if (ref) refs[line.id] = ref;
+  }
+  const notes = busiest.slice(0, BRIEF_LAYER_NOTES).flatMap(([slug]) =>
+    layerNotes(brief, slug, { refs })
+      .slice(0, BRIEF_NOTES_EACH)
+      .map((l) => `- ${slug} · ${l}`),
+  );
+  if (notes.length) out.push("What sessions learned working in them:", ...notes);
+  return out.join("\n");
+}
+
 /** Git's account, read now. Blocking, and meant to be: the brief must be
  *  whole before the next prompt can take it, and git answers in
  *  milliseconds. */
@@ -28,7 +73,9 @@ export function briefContext(ctx: ServerContext, channelId: string): BriefContex
   const project = ownerProject(ctx, channelId);
   const state = project ? gitStateSync(project.path) : undefined;
   return {
-    ...(project ? { projectName: project.name } : {}),
+    ...(project
+      ? { projectName: project.name, layers: (files: string[]) => layersBlock(ctx, project.id, files) }
+      : {}),
     ...(state ? { git: gitLines(state), facts: (text: string) => branchFacts(text, state) } : {}),
   };
 }
@@ -62,7 +109,7 @@ export function withRelevance(ctx: ServerContext, channelId: string, brief: stri
           .map(({ part, line }) => {
             const ref = line.source ? sourceLabel(ctx, line.source)?.ref : undefined;
             return {
-              label: LABEL[part],
+              label: line.layer ? `${LABEL[part]} (${line.layer})` : LABEL[part],
               text: memoryLineText(line, ref ? { refs: { [line.id]: ref } } : {}),
             };
           })
@@ -173,6 +220,8 @@ export function catchUp(
   const waiting = ctx.archive.takePendingBrief(channelId);
   const had = ctx.archive.harnessSession(channelId, harness);
   if (!had?.session) {
+    // a fresh session holds none of the sheets the last one read
+    forgetReads(channelId);
     const brief = waiting ?? wholeBrief(ctx, channelId, current);
     return { harness, brief: withRelevance(ctx, channelId, brief, prompt) };
   }

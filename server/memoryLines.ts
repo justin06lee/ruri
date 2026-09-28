@@ -17,7 +17,8 @@ import type { MemoryLine, MemoryPart, MemorySource, ProjectMemory } from "../sha
 
 export const MEMORY_PARTS: MemoryPart[] = ["now", "decisions", "worked", "failed", "gotchas", "open"];
 
-/** How many lines each part keeps. */
+/** How many lines each part keeps across the project — what catchup.md
+ *  holds, and every session reads. */
 export const MEMORY_CAPS: Record<MemoryPart, number> = {
   now: 4,
   decisions: 12,
@@ -26,6 +27,23 @@ export const MEMORY_CAPS: Record<MemoryPart, number> = {
   gotchas: 10,
   open: 8,
 };
+
+/** How many each layer keeps of its own, beside those — read only with
+ *  that layer's sheet, by a session about to work there. Where the work
+ *  stands is the project's, never one layer's. */
+export const LAYER_CAPS: Record<MemoryPart, number> = {
+  now: 0,
+  decisions: 6,
+  worked: 4,
+  failed: 5,
+  gotchas: 6,
+  open: 5,
+};
+
+/** A part's cap for the lines of one layer, or of the whole project. */
+function capOf(part: MemoryPart, layer: string | undefined): number {
+  return layer ? LAYER_CAPS[part] : MEMORY_CAPS[part];
+}
 
 /** The calendar day in the user's own time — the date a person would
  *  write, not UTC's, which is already tomorrow on a US evening. */
@@ -108,6 +126,7 @@ function fromObject(
       ? { source: { chat: source.chat, turn: source.turn } }
       : {}),
     ...(value["pinned"] === true ? { pinned: true } : {}),
+    ...(part !== "now" && str(value["layer"]) ? { layer: str(value["layer"])! } : {}),
   };
 }
 
@@ -135,22 +154,62 @@ export function readMemory(value: unknown): ProjectMemory | undefined {
   return memory;
 }
 
-/** A part brought within its cap: pinned lines always stay, the rest in the
- *  order given until the part is full. */
-function capped(lines: MemoryLine[], cap: number): MemoryLine[] {
-  const pinned = lines.filter((line) => line.pinned).length;
-  let room = Math.max(0, cap - pinned);
-  return lines.filter((line) => line.pinned || room-- > 0);
+/** A part brought within its caps — the project's lines within the
+ *  project's, each layer's within a layer's: pinned lines always stay, the
+ *  rest in the order given until their share is full. */
+function capped(part: MemoryPart, lines: MemoryLine[]): MemoryLine[] {
+  const room = new Map<string, number>();
+  const left = (line: MemoryLine) => room.get(line.layer ?? "") ?? capOf(part, line.layer);
+  for (const line of lines) if (line.pinned) room.set(line.layer ?? "", left(line) - 1);
+  return lines.filter((line) => {
+    if (line.pinned) return true;
+    const n = left(line);
+    room.set(line.layer ?? "", n - 1);
+    return n > 0;
+  });
 }
 
 /** One entry of a part as the model returns it: a line kept by `id` alone,
  *  one of its own reworded (`id` and `text`), or a new one, with the
- *  exchange it came from (`from`, a ref like 7a3637b4#16). */
+ *  exchange it came from (`from`, a ref like 7a3637b4#16). `layer` files it
+ *  under a layer by slug, or "project" across the project. */
 export interface FoldEntry {
   id?: string;
   text?: string;
   why?: string;
   from?: string;
+  layer?: string;
+}
+
+/** What a fold knows of the stack: the layers' slugs, and the layer an
+ *  exchange worked in (from the files it changed) — where a new line the
+ *  model filed nowhere goes. */
+export interface FoldLayers {
+  slugs: Set<string>;
+  of?: (source: MemorySource) => string | undefined;
+}
+
+/** A line's layer after a fold: the one the model named, "project" for
+ *  none, or — named neither — the one it had, or its exchange's. */
+function foldedLayer(
+  part: MemoryPart,
+  entry: FoldEntry,
+  had: string | undefined,
+  source: MemorySource | undefined,
+  layers: FoldLayers | undefined,
+): string | undefined {
+  if (part === "now" || !layers) return undefined;
+  const named = entry.layer?.trim();
+  if (named === "project") return undefined;
+  if (named && layers.slugs.has(named)) return named;
+  if (had && layers.slugs.has(had)) return had;
+  return source && !had ? layers.of?.(source) : undefined;
+}
+
+/** A line with its layer set, or taken off. */
+function filed(line: MemoryLine, layer: string | undefined): MemoryLine {
+  const { layer: _was, ...rest } = line;
+  return layer ? { ...rest, layer } : rest;
 }
 
 /**
@@ -164,6 +223,7 @@ export function applyFold(
   proposed: Partial<Record<MemoryPart, FoldEntry[]>>,
   today: string,
   resolve: (ref: string) => MemorySource | undefined,
+  layers?: FoldLayers,
 ): ProjectMemory {
   const taken = lineIds(current);
   const stored = new Map(allLines(current).map(({ line }) => [line.id, line]));
@@ -176,18 +236,23 @@ export function applyFold(
         if (used.has(kept.id)) continue;
         used.add(kept.id);
         const text = entry.text?.trim();
+        // the user's lines stay where the user put them; the model may file
+        // its own and the agents' under the layer they are about
+        const mine = kept.by !== "user" && !kept.pinned;
+        const line = mine ? filed(kept, foldedLayer(part, entry, kept.layer, undefined, layers)) : kept;
         // only the model's own lines are the model's to reword
         if (text && kept.by === "model" && !kept.pinned) {
           const why = entry.why?.trim() || kept.why;
-          const { why: _why, ...rest } = kept;
+          const { why: _why, ...rest } = line;
           next[part].push({ ...rest, text, ...(why ? { why } : {}) });
-        } else next[part].push(kept);
+        } else next[part].push(line);
         continue;
       }
       const text = entry.text?.trim();
       if (!text) continue;
       const why = entry.why?.trim();
       const source = entry.from ? resolve(entry.from.trim()) : undefined;
+      const layer = foldedLayer(part, entry, undefined, source, layers);
       next[part].push({
         id: newLineId(part, taken),
         text,
@@ -195,12 +260,13 @@ export function applyFold(
         date: today,
         by: "model",
         ...(source ? { source } : {}),
+        ...(layer ? { layer } : {}),
       });
     }
   }
   for (const part of MEMORY_PARTS) {
     const missing = current[part].filter((line) => line.pinned && !used.has(line.id));
-    next[part] = capped([...missing, ...next[part]], MEMORY_CAPS[part]);
+    next[part] = capped(part, [...missing, ...next[part]]);
   }
   return next;
 }
@@ -216,12 +282,17 @@ export function addLine(
   input: Omit<MemoryLine, "id">,
 ): { memory: ProjectMemory; line: MemoryLine } {
   const base = memory ?? emptyMemory();
-  const line: MemoryLine = { ...input, id: newLineId(part, lineIds(base)) };
+  const line: MemoryLine = filed(
+    { ...input, id: newLineId(part, lineIds(base)) },
+    part === "now" ? undefined : input.layer,
+  );
+  // a line makes room among its own: the project's, or its layer's
+  const same = (l: MemoryLine) => (l.layer ?? "") === (line.layer ?? "");
   let lines = [...base[part], line];
-  while (lines.length > MEMORY_CAPS[part]) {
+  while (lines.filter(same).length > capOf(part, line.layer)) {
     const oldest = (by: MemoryLine["by"]) =>
       lines
-        .filter((l) => l.by === by && !l.pinned && l !== line)
+        .filter((l) => same(l) && l.by === by && !l.pinned && l !== line)
         .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""))[0];
     const out = oldest("model") ?? oldest("agent");
     if (!out) break;
@@ -253,6 +324,25 @@ export function replaceLine(memory: ProjectMemory, id: string, next: MemoryLine 
 /** A line as one line of text: what, and why. */
 export function lineText(line: MemoryLine): string {
   return line.why ? `${line.text} — ${line.why}` : line.text;
+}
+
+/** The lines that hold across the project (`layer` absent), or those of one
+ *  layer — every part, the empty ones included. */
+export function linesOf(memory: ProjectMemory | undefined, layer?: string): ProjectMemory {
+  const out = emptyMemory();
+  if (!memory) return out;
+  for (const part of MEMORY_PARTS) out[part] = memory[part].filter((line) => line.layer === layer);
+  return out;
+}
+
+/** How many lines each layer has of its own, by slug. */
+export function layerCounts(memory: ProjectMemory | undefined): Map<string, number> {
+  const counts = new Map<string, number>();
+  if (!memory) return counts;
+  for (const { line } of allLines(memory)) {
+    if (line.layer) counts.set(line.layer, (counts.get(line.layer) ?? 0) + 1);
+  }
+  return counts;
 }
 
 /**

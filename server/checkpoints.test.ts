@@ -3,7 +3,10 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { TranscriptEvent } from "../shared/protocol.js";
 import { createCheckpoints } from "./checkpoints.js";
+import type { ServerContext } from "./context.js";
+import { settleTurnFiles } from "./events.js";
 
 let config: string;
 let repo: string;
@@ -50,6 +53,62 @@ describe("checkpoints against a real repository", () => {
     expect(read("a.txt")).toBe("one");
     expect(read("b.txt")).toBe("untracked but not ignored");
     expect(fs.existsSync(path.join(repo, "c.txt"))).toBe(false);
+  });
+
+  test("what a turn changed is every file between its two captures — shell edits, new and gone files", async () => {
+    const ckpt = createCheckpoints();
+    write("b.txt", "there before");
+    expect(await ckpt.capture(project(), "chan", "e1")).toBe(true);
+    write("a.txt", "changed by a shell");
+    fs.mkdirSync(path.join(repo, "sub"), { recursive: true });
+    write("sub/new.ts", "made by a generator");
+    fs.rmSync(path.join(repo, "b.txt"));
+    // while the turn runs, it reads against the tree as it stands
+    expect((await ckpt.changedSince(project(), "chan", "e1"))?.sort()).toEqual([
+      "a.txt",
+      "b.txt",
+      "sub/new.ts",
+    ]);
+    expect(await ckpt.settle(project(), "chan", "e1")).toBe(true);
+    write("a.txt", "changed after the turn");
+    expect((await ckpt.turnFiles(project(), "chan", "e1"))?.sort()).toEqual(["a.txt", "b.txt", "sub/new.ts"]);
+    // a project in a folder of the repository sees its own files, from its folder
+    expect(await ckpt.turnFiles({ path: path.join(repo, "sub") }, "chan", "e1")).toEqual(["new.ts"]);
+    // a turn with no captures has nothing to say
+    expect(await ckpt.turnFiles(project(), "chan", "never")).toBeUndefined();
+  });
+
+  test("a finished turn's files wait for its closing capture, and leave out another chat's edits", async () => {
+    const ckpt = createCheckpoints();
+    const now = Date.now();
+    const theirs: TranscriptEvent = {
+      kind: "tool",
+      id: "t2",
+      name: "Edit",
+      summary: "b.txt",
+      diff: { path: "demo/b.txt", added: 1, removed: 0, hunks: [] },
+      ts: now,
+    } as TranscriptEvent;
+    const project = { id: "p", name: "demo", path: repo, sessions: [{ id: "mine" }, { id: "theirs" }] };
+    const kept: Record<string, string[]> = {};
+    const ctx = {
+      store: { findSession: (id: string) => (id === "mine" ? { project, session: { id } } : undefined) },
+      archive: {
+        events: (id: string) => (id === "theirs" ? [theirs] : []),
+        setTurnFiles: (_chat: string, turn: string, files: string[]) => (kept[turn] = files),
+      },
+      checkpoints: ckpt,
+    } as unknown as ServerContext;
+    await ckpt.capture(project, "mine", "e1");
+    write("a.txt", "the turn, through a shell");
+    write("b.txt", "the other chat, meanwhile");
+    write("c.txt", "the turn, with its edit tool");
+    // the order a turn ends in (server/chats.ts): the tracker first, then
+    // the closing capture, in the same breath
+    const files = settleTurnFiles(ctx, "mine", { turnId: "e1", files: ["demo/c.txt"], started: now - 1000 });
+    void ckpt.settle(project, "mine", "e1");
+    expect((await files).sort()).toEqual(["a.txt", "c.txt"]);
+    expect(kept["e1"]?.sort()).toEqual(["a.txt", "c.txt"]);
   });
 
   test("the user's repository is untouched: branch, log, staging area", async () => {

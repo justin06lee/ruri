@@ -11,7 +11,7 @@ import type {
   SystemFlow,
   TranscriptEvent,
 } from "../shared/protocol.js";
-import { applyFold, emptyMemory, MEMORY_PARTS, type FoldEntry } from "./memoryLines.js";
+import { applyFold, emptyMemory, MEMORY_PARTS, type FoldEntry, type FoldLayers } from "./memoryLines.js";
 import { configPath } from "./configDir.js";
 import { errorMessage, warn } from "./log.js";
 
@@ -389,9 +389,11 @@ function lines(value: unknown, max: number): string[] {
 /**
  * The stack as the model gave it. Each layer's paths are the folders and
  * files it owns — kept only where they are really in the project (when the
- * project is known), so a changed file can find its layer.
+ * project is known), so a changed file can find its layer. The caps are
+ * against a runaway answer, not a trim: a path cut here is a file no layer
+ * owns, and a layer cut here takes its sheet with it.
  */
-function parseLayers(value: unknown, projectDir?: string, max = 12): Layer[] {
+function parseLayers(value: unknown, projectDir?: string, max = 24): Layer[] {
   if (!Array.isArray(value)) return [];
   const real = (rel: string) => {
     if (!projectDir) return true;
@@ -409,7 +411,7 @@ function parseLayers(value: unknown, projectDir?: string, max = 12): Layer[] {
       const what = typeof layer.what === "string" ? layer.what.trim() : "";
       const where = typeof layer.where === "string" ? layer.where.trim() : "";
       const slug = typeof layer.slug === "string" ? layer.slug.trim() : "";
-      const paths = lines(layer.paths, 24)
+      const paths = lines(layer.paths, 600)
         .map((p) => p.replace(/^\.\//, ""))
         .filter(real);
       return name
@@ -499,17 +501,16 @@ Reply as JSON and nothing else: {"description": "...", "features": [...], "layer
 const INDEX_SYSTEM = `You keep the index of a software project's architecture: what it is, what it can do, the stack it is built as (each layer has a detailed sheet of its own, kept elsewhere), how the layers connect, and where things are.
 It exists so a model with no context can read it in seconds, see the whole project, and pick the one layer it needs to read about. Every token has to earn its place.
 
-You are given the index as it stands and what just happened in the project — one or more exchanges, oldest first, separated by ---. Return the index, updated.
+You are given the index as it stands and what just happened in the project — one or more exchanges, oldest first, separated by ---. Return the index, updated. Its LAYERS are there so you know the stack; they are not yours to change (the sessions that work in them keep them, and the user).
 
 RULES
 - DESCRIPTION: one or two sentences. What the project is, who it's for, the problem it solves. Only rewrite it when the project has genuinely become something else.
 - FEATURES: one line each, no more than about 10 words. A capability, not a changelog entry. Merge relentlessly; adding to something listed edits that line. A fix, a refactor, a polish pass: nothing to add. Never drop a feature that is still there. At most 16, the defining ones first.
-- LAYERS: the stack, top (what a person touches) to bottom (runtime, engines, OS), each {"name", "slug", "what", "paths"}. Keep every layer's slug exactly as given. "paths" are the folders (ending in /) and files the layer owns. Change the layers only when the work clearly changed the stack: a new part big enough to be its own layer (give it a new slug and its paths), a layer that is gone, files that moved to another layer. Otherwise return them unchanged.
 - FLOWS: the paths ACROSS layers that matter most, each {"name", "steps"}. Change one only when the work clearly rerouted it. At most 4.
 - LAYOUT: "path — what it is for" lines for the directories and key files that matter. Add a line when the work created an important new part; drop one that no longer exists. At most 16.
 - Never invent anything the exchanges don't show. If nothing structural happened, return the index unchanged.
 
-Reply as JSON and nothing else: {"description": "...", "features": [...], "layers": [{"name": "...", "slug": "...", "what": "...", "paths": ["..."]}], "flows": [{"name": "...", "steps": ["...", "..."]}], "layout": [...]}`;
+Reply as JSON and nothing else: {"description": "...", "features": [...], "flows": [{"name": "...", "steps": ["...", "..."]}], "layout": [...]}`;
 
 /**
  * Fold what just happened into the project's shape — the whole sheet for
@@ -525,7 +526,16 @@ export async function updateShape(
   layered = false,
 ): Promise<ShapeUpdate | null> {
   if (!smallModelEnabled()) return null;
-  const standing = layered ? { ...current, map: undefined } : current;
+  // a layered index's stack is shown, not handed over: what a layer owns is
+  // kept by the sessions working there, the user and a read of the repo —
+  // never by a fold that sees only what the replies said
+  const standing = layered
+    ? {
+        ...current,
+        map: undefined,
+        layers: current.layers.map(({ name, slug, what }) => ({ name, slug, what })),
+      }
+    : current;
   const prompt =
     `PROJECT NAME: ${project}\n\n` +
     `${layered ? "INDEX" : "SHEET"} AS IT STANDS:\n${JSON.stringify(standing, null, 1)}\n\n` +
@@ -535,7 +545,7 @@ export async function updateShape(
     if (!parsed || typeof parsed["description"] !== "string" || !Array.isArray(parsed["features"]))
       return null;
     // a part the model left out is kept as it was, not emptied
-    const layers = parseLayers(parsed["layers"], projectDir);
+    const layers = layered ? current.layers : parseLayers(parsed["layers"], projectDir);
     const flows = parseFlows(parsed["flows"]);
     const layout = lines(parsed["layout"], 16);
     const map = layered ? current.map : parseMap(parsed["map"], projectDir);
@@ -795,13 +805,19 @@ Every line of the memory has an id and says who wrote it ("by"). Return each par
 - A line you leave out is dropped. Listing a line's id under another part moves it there.
 Lines by "agent" were written by the session that did the work, and lines by "user" by the user: never reword either. Keep them — or drop an agent's line, only when the exchanges resolved or reversed it.
 
+LAYERS
+When a STACK is given, the project is cut into layers, each by its slug, and every line but "now" belongs either to one layer or to the whole project:
+- "layer": "<slug>" — about working in that layer: a trap in its code, a decision about how it works, what failed there, what is open in it. Only sessions about to work in that layer read it, with the layer's own sheet.
+- "layer": "project" — holds wherever a session works: how to build, test or ship, rules for every session, the user's standing preferences, what spans several layers. Every session reads these, so keep them few.
+Give "layer" on every line you add. Give it on a line you keep only to move it (lines by "user" stay where they are).
+
 PARTS
 - "now": 1–4 plain strings. Where the work stands at the end of these exchanges: what is in progress, what was just finished, what comes next. Rewrite it each time.
-- "decisions": choices about how the project works or is built, with the reason in "why" — {"text": "Each project keeps its own component library", "why": "the user wants projects kept apart"}. Only a reason the exchanges give; with none, say what it was chosen over, or leave "why" out. At most 12.
-- "worked": approaches, techniques and fixes that proved out here and are worth repeating, with where. At most 8.
-- "failed": what was tried and did NOT work, with the cause in "why" — so nobody tries it again. A bug that got fixed is not a failure. At most 10.
-- "gotchas": traps, constraints and standing rules — quirks that break things silently, what the user insists on or forbids. At most 10.
-- "open": asked for and not done, put off, or known broken — only what is still open. At most 8.
+- "decisions": choices about how the project works or is built, with the reason in "why" — {"text": "Each project keeps its own component library", "why": "the user wants projects kept apart"}. Only a reason the exchanges give; with none, say what it was chosen over, or leave "why" out. At most 12 for the project, 6 a layer.
+- "worked": approaches, techniques and fixes that proved out here and are worth repeating, with where. At most 8 for the project, 4 a layer.
+- "failed": what was tried and did NOT work, with the cause in "why" — so nobody tries it again. A bug that got fixed is not a failure. At most 10 for the project, 5 a layer.
+- "gotchas": traps, constraints and standing rules — quirks that break things silently, what the user insists on or forbids. At most 10 for the project, 6 a layer.
+- "open": asked for and not done, put off, or known broken — only what is still open. At most 8 for the project, 5 a layer.
 
 RULES
 - Not a changelog. A feature that was simply built belongs nowhere here unless a decision, a lesson or a trap came with it. Nothing about this memory itself.
@@ -811,11 +827,11 @@ RULES
 - Only what the exchanges show. Never invent a reason, a result or a rule — a missing "why" is better than a made-up one.
 - "text" under about 20 words, "why" under about 15. No dates: ruri keeps those.
 
-Reply as JSON and nothing else: {"now": ["..."], "decisions": [...], "worked": [...], "failed": [...], "gotchas": [...], "open": [...]}`;
+Reply as JSON and nothing else: {"now": ["..."], "decisions": [{"text": "...", "why": "...", "from": "...", "layer": "..."}, {"id": "..."}], "worked": [...], "failed": [...], "gotchas": [...], "open": [...]}`;
 
 /** The memory as the model is shown it: every line by its id, with who
  *  wrote it — and not when or where, which are ruri's to keep. */
-function memoryForModel(memory: ProjectMemory): string {
+function memoryForModel(memory: ProjectMemory, layered = false): string {
   const shown = Object.fromEntries(
     MEMORY_PARTS.map((part) => [
       part,
@@ -826,6 +842,7 @@ function memoryForModel(memory: ProjectMemory): string {
             text: line.text,
             ...(line.why ? { why: line.why } : {}),
             by: line.pinned && line.by === "model" ? "user" : line.by,
+            ...(layered ? { layer: line.layer ?? "project" } : {}),
           })),
     ]),
   );
@@ -845,6 +862,7 @@ function entriesOf(value: unknown): FoldEntry[] {
     const text = pick("text");
     const why = pick("why");
     const from = pick("from");
+    const layer = pick("layer");
     return id || text
       ? [
           {
@@ -852,18 +870,27 @@ function entriesOf(value: unknown): FoldEntry[] {
             ...(text ? { text } : {}),
             ...(why ? { why } : {}),
             ...(from ? { from } : {}),
+            ...(layer ? { layer } : {}),
           },
         ]
       : [];
   });
 }
 
+/** The stack as the memory's fold is told it: a line a layer, by slug —
+ *  and what lets a new line find its layer. */
+export interface MemoryStack {
+  text: string;
+  fold: FoldLayers;
+}
+
 /**
  * Fold what happened into a project's working memory — a few finished
  * turns, or (from server/memory.ts) a whole project's history at once.
- * `resolve` turns an exchange's ref back into the chat and prompt it names.
- * Null when the layer is off or the model gave something unusable: the
- * memory then stays exactly as it was.
+ * `resolve` turns an exchange's ref back into the chat and prompt it names;
+ * `stack` files each line under the layer it is about. Null when the layer
+ * is off or the model gave something unusable: the memory then stays
+ * exactly as it was.
  */
 export async function foldMemory(
   project: string,
@@ -871,12 +898,14 @@ export async function foldMemory(
   happened: string,
   today: string,
   resolve: (ref: string) => MemorySource | undefined = () => undefined,
+  stack?: MemoryStack,
 ): Promise<ProjectMemory | null> {
   if (!smallModelEnabled() || !happened.trim()) return null;
   const current = memory ?? emptyMemory();
   const prompt =
     `PROJECT NAME: ${project}\nTODAY: ${today}\n\n` +
-    `MEMORY AS IT STANDS:\n${memoryForModel(current)}\n\n` +
+    (stack ? `STACK:\n${stack.text}\n\n` : "") +
+    `MEMORY AS IT STANDS:\n${memoryForModel(current, !!stack)}\n\n` +
     `WHAT HAPPENED:\n${happened.slice(-40_000)}`;
   try {
     const parsed = objectIn(await complete(MEMORY_SYSTEM, prompt, 2400));
@@ -886,7 +915,7 @@ export async function foldMemory(
     ) as Record<MemoryPart, FoldEntry[]>;
     // an answer with nothing in it at all is a model that didn't do the job
     if (MEMORY_PARTS.every((part) => proposed[part].length === 0)) return null;
-    return applyFold(current, proposed, today, resolve);
+    return applyFold(current, proposed, today, resolve, stack?.fold);
   } catch (err) {
     warn("smallmodel", err, "foldMemory");
     return null;

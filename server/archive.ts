@@ -34,8 +34,11 @@ import { isMissing, warn } from "./log.js";
 
 /** A turn's recall notes: the prompt's and the reply's, each written by the
  *  small model the moment its half exists. An empty string is a half the
- *  model was asked for and gave nothing usable — asked, so not asked again. */
-export type TurnSummary = TurnNote;
+ *  model was asked for and gave nothing usable — asked, so not asked again.
+ *  `files` is what the turn changed in the project, project-relative, as its
+ *  two checkpoints tell it (server/events.ts turnFiles) — shell edits,
+ *  commits and merges included, which the transcript's diffs never see. */
+export type TurnSummary = TurnNote & { files?: string[] };
 
 /**
  * The harness a session id belongs to. Claude's are bare uuids; every other
@@ -700,9 +703,16 @@ export class SessionArchive {
     return this.load(projectId).summaries;
   }
 
-  setSummary(projectId: string, turnId: string, part: keyof TurnSummary, note: string): void {
+  setSummary(projectId: string, turnId: string, part: keyof TurnNote, note: string): void {
     const entry = this.load(projectId);
     (entry.summaries[turnId] ??= {})[part] = note;
+    this.scheduleWrite(projectId);
+  }
+
+  /** What a finished turn changed in the project, kept beside its notes. */
+  setTurnFiles(projectId: string, turnId: string, files: string[]): void {
+    const entry = this.load(projectId);
+    (entry.summaries[turnId] ??= {}).files = files;
     this.scheduleWrite(projectId);
   }
 

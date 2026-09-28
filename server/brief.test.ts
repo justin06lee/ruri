@@ -156,6 +156,47 @@ describe("the sheet", () => {
     );
   });
 
+  test("catchup.md keeps what holds across the project; a layer's lines go with its sheet", () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-brief-layered-"));
+    fs.writeFileSync(path.join(project, "main.ts"), "x");
+    const layered = {
+      description: "A desktop app.",
+      features: [],
+      shots: [],
+      layers: [{ name: "Bridge", what: "hidden browser", slug: "bridge", paths: ["server/bridge.ts"] }],
+      layerSheets: {
+        bridge: { summary: "Drives a browser.", map: [], flows: [], files: [], rules: [], edges: [] },
+      },
+      memory: {
+        ...memory,
+        gotchas: [
+          ...memory.gotchas,
+          {
+            id: "g002",
+            text: "CDP targets die on sleep",
+            by: "agent" as const,
+            layer: "bridge",
+            date: "2026-09-27",
+          },
+        ],
+      },
+    };
+    const extra = { chats: ['"Bridge work" (c0ffee11) — working now · on: fix the click · in: bridge'] };
+    const text = catchupText("ruri", layered, extra);
+    expect(text).toContain("`make update` quits the app");
+    expect(text).not.toContain("CDP targets die on sleep");
+    expect(text).toContain("## Kept with their layers");
+    expect(text).toContain("- bridge (Bridge) — 1 line");
+    expect(text).toContain("The chats at work in the last day");
+    expect(text).toContain('- "Bridge work" (c0ffee11) — working now · on: fix the click · in: bridge');
+    expect(text).toContain("--layer <handle>");
+    writeBriefFiles(project, "ruri", layered, extra);
+    const sheet = fs.readFileSync(path.join(project, ".ruri", "layers", "bridge.md"), "utf8");
+    expect(sheet).toContain("## From the sessions that worked here");
+    expect(sheet).toContain("- trap: CDP targets die on sleep (2026-09-27 · by an agent)");
+    expect(sheet).toContain("`ruri layer bridge add|set|drop <section> …`");
+  });
+
   test("both files land in the project's .ruri/, and an empty sheet takes them away", () => {
     const project = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-brief-project-"));
     fs.writeFileSync(path.join(project, "main.go"), "package main\n");

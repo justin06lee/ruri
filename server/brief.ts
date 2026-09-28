@@ -9,16 +9,18 @@ import type {
   LayerSection,
   LayerSheet,
   MemoryLine,
+  MemoryPart,
   ProjectMemory,
   ProjectSheet,
   SheetSection,
+  SheetStamp,
   StackLayer,
   SystemFlow,
 } from "../shared/protocol.js";
 import { ownsSummary } from "../shared/protocol.js";
 import { slugify, uniqueSlug } from "./library.js";
 import { isMissing, warn } from "./log.js";
-import { lineText, memoryEmpty, readMemory } from "./memoryLines.js";
+import { allLines, layerCounts, lineText, linesOf, memoryEmpty, readMemory } from "./memoryLines.js";
 
 /**
  * What ruri knows about a project as a whole, for the model that has never
@@ -58,7 +60,10 @@ import { lineText, memoryEmpty, readMemory } from "./memoryLines.js";
  * to. A session reads the sheet of the layer it is about to work in and
  * none of the others. A project grows by gaining layers, not by any one
  * sheet growing, and a turn only folds into the sheets of the layers whose
- * files it changed (server/events.ts).
+ * files it changed (server/events.ts). The sessions that work in a layer
+ * keep its sheet true themselves — each only what it has read, as it stands
+ * (server/sheetEdits.ts) — and what one learned working there is kept with
+ * the layer, so catchup.md holds only what applies across the project.
  *
  * They are written into each project, and the session is told the files
  * are there; nothing costs context until something reads them. The
@@ -121,7 +126,9 @@ export function slugLayers(layers: StackLayer[], before: StackLayer[] = []): Sta
       before.find(
         (b) => b.paths?.length && layer.paths?.length && b.paths.join("|") === layer.paths.join("|"),
       );
-    const paths = layer.paths?.length ? layer.paths : same?.paths;
+    // a layer that arrives saying nothing of its paths keeps the ones it
+    // had; one that says it owns none (a session let them all go) owns none
+    const paths = layer.paths !== undefined ? layer.paths : same?.paths;
     const slug = uniqueSlug(slugify(layer.slug || same?.slug || layer.name), taken);
     taken.push(slug);
     return { ...layer, slug, ...(paths?.length ? { paths } : {}) };
@@ -163,7 +170,18 @@ function layerSheetOf(value: unknown): LayerSheet | undefined {
     rules: list(raw.rules) ?? [],
     edges: list(raw.edges) ?? [],
     ...(typeof raw.updated === "number" ? { updated: raw.updated } : {}),
+    ...(stampOf(raw.stamp) ? { stamp: stampOf(raw.stamp)! } : {}),
   };
+}
+
+/** A stored stamp, if it is one. */
+function stampOf(value: unknown): SheetStamp | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Partial<SheetStamp>;
+  const by = raw.by;
+  if (typeof raw.at !== "number" || !(by === "repo" || by === "model" || by === "agent" || by === "user"))
+    return undefined;
+  return { at: raw.at, by, ...(typeof raw.chat === "string" ? { chat: raw.chat } : {}) };
 }
 
 function layerSheetsOf(value: unknown): Record<string, LayerSheet> | undefined {
@@ -211,7 +229,7 @@ export function mapLine(place: ConceptPlace): string {
   return `${place.name} — ${place.files.join(", ")}`;
 }
 
-function parseMapLine(line: string): ConceptPlace | undefined {
+export function parseMapLine(line: string): ConceptPlace | undefined {
   const at = line.indexOf(" — ") > 0 ? line.indexOf(" — ") : line.indexOf(" - ");
   if (at <= 0) return undefined;
   const name = line.slice(0, at).trim();
@@ -251,6 +269,7 @@ export class BriefStore {
           ...(layerSheets ? { layerSheets } : {}),
           ...(memory ? { memory } : {}),
           ...(typeof brief.builtAt === "string" ? { builtAt: brief.builtAt } : {}),
+          ...(stampOf(brief.stamp) ? { stamp: stampOf(brief.stamp)! } : {}),
           shots: Array.isArray(brief.shots) ? brief.shots : [],
           ...number("updated"),
           ...number("built"),
@@ -281,13 +300,29 @@ export class BriefStore {
   /** Replace the shape; the memory and the pinned screenshots stay as they
    *  are. A fold sets what finished work can change; a whole build sets it
    *  all, stamps when the repo was read, and retires an older sheet's
-   *  one-line stack for its layers. */
-  write(projectId: string, next: BriefWrite, built = false): ProjectBrief {
+   *  one-line stack for its layers. `stamp` says who wrote it — a read of
+   *  the repo when it is a whole build, the small model otherwise; null
+   *  leaves the stamp as it was, for a change nobody reads as an edit (a
+   *  new file placed beside its neighbours). */
+  write(
+    projectId: string,
+    next: BriefWrite,
+    built = false,
+    stamp?: Omit<SheetStamp, "at"> | null,
+  ): ProjectBrief {
     const { stack: _stack, ...kept } = this.get(projectId);
+    const was = this.get(projectId).stamp;
     const merged: ProjectBrief = {
       ...(built && next.layers?.length ? kept : this.get(projectId)),
       ...next,
       updated: Date.now(),
+      ...(stamp === null
+        ? was
+          ? { stamp: was }
+          : {}
+        : {
+            stamp: { at: Date.now(), ...(stamp ?? { by: built ? ("repo" as const) : ("model" as const) }) },
+          }),
       ...(built ? { built: Date.now() } : {}),
     };
     // every layer has a handle, and a sheet goes when its layer does
@@ -309,13 +344,22 @@ export class BriefStore {
     return brief;
   }
 
-  /** One layer's sheet, written whole or folded forward. */
-  writeLayer(projectId: string, slug: string, sheet: LayerSheet): ProjectBrief {
+  /** One layer's sheet, written whole, folded forward, or edited by a
+   *  session that read it — `stamp` says which (a fold, when it doesn't). */
+  writeLayer(
+    projectId: string,
+    slug: string,
+    sheet: LayerSheet,
+    stamp: Omit<SheetStamp, "at"> = { by: "model" },
+  ): ProjectBrief {
     const brief = this.get(projectId);
     if (!brief.layers?.some((l) => l.slug === slug)) return brief;
     const next: ProjectBrief = {
       ...brief,
-      layerSheets: { ...brief.layerSheets, [slug]: { ...sheet, updated: Date.now() } },
+      layerSheets: {
+        ...brief.layerSheets,
+        [slug]: { ...sheet, updated: Date.now(), stamp: { at: Date.now(), ...stamp } },
+      },
       updated: Date.now(),
     };
     this.briefs.set(projectId, next);
@@ -359,6 +403,7 @@ export class BriefStore {
       else items[index] = text.trim();
       next = { ...sheet, [section]: items };
     }
+    next = { ...next, updated: Date.now(), stamp: { at: Date.now(), by: "user" } };
     const out: ProjectBrief = { ...brief, layerSheets: { ...brief.layerSheets, [slug]: next } };
     this.briefs.set(projectId, out);
     this.save();
@@ -404,6 +449,7 @@ export class BriefStore {
       else lines[index] = text.trim();
       next = { ...brief, [section]: lines };
     }
+    next = { ...next, stamp: { at: Date.now(), by: "user" } };
     this.briefs.set(projectId, next);
     this.save();
     return next;
@@ -470,6 +516,9 @@ export interface SheetExtras {
   asOf?: string;
   /** Commits since the repo was read for the shape. */
   sinceRead?: number;
+  /** The chats at work in the project lately, a line each (catchupBrief.ts
+   *  chatLines): what each is on, and in which layers. */
+  chats?: string[];
 }
 
 /** Files a map entry names that are still in the project. */
@@ -530,7 +579,7 @@ export function architectureText(
     indexed
       ? "The shape of this project, for a model that has never seen it: the stack it is built as, top to bottom, how the parts connect, where things are, how to run it. This is the index. Each layer has a sheet of its own in `.ruri/layers/` — where to change what inside it, how it works, its key files, its traps — so read the one for the layer you are about to work in (`ruri layer <slug>` prints it), and leave the rest. Where the work stands — git, decisions, what worked and what didn't, what's open — is in catchup.md beside this file."
       : "The shape of this project, for a model that has never seen it: where to change what, the stack it is built as, how the parts connect, where things are, how to run it. Where the work stands — git, decisions, what worked and what didn't, what's open — is in catchup.md beside this file.",
-    "ruri writes this file; don't edit it by hand — the user corrects it on the architecture page.",
+    "Don't edit this file: ruri writes it. `ruri architecture` prints it with every line numbered, and once you have read it that way you can put right what your work changed — `ruri architecture add|set|drop <section> …`. The user corrects it on the architecture page.",
     "",
   ];
   if (brief.builtAt) {
@@ -578,13 +627,15 @@ export function layerText(
   layer: StackLayer,
   sheet: LayerSheet,
   projectDir?: string,
+  notes: string[] = [],
 ): string {
   const owns = ownsText(layer, true);
+  const handle = layer.slug ?? slugify(layer.name);
   const lines = [
     `# ${projectName} — ${layer.name}`,
     "",
     `One layer of ${projectName}'s stack${owns ? `, owning \`${owns}\`` : ""}. The whole stack, and how the layers connect, is in \`.ruri/architecture.md\`.`,
-    "ruri writes this file; don't edit it by hand — the user corrects it on the architecture page. Where it and the code disagree, the code is right.",
+    `Don't edit this file: ruri writes it. \`ruri layer ${handle}\` prints it with every line numbered and what git says changed in this layer lately; once you have read it that way, put right what your work changed — \`ruri layer ${handle} add|set|drop <section> …\`. Where it and the code disagree, the code is right.`,
     "",
   ];
   if (sheet.summary) lines.push(sheet.summary, "");
@@ -602,7 +653,24 @@ export function layerText(
   section(lines, "Key files", sheet.files);
   section(lines, "Rules and traps", sheet.rules);
   section(lines, "What it talks to", sheet.edges);
+  section(lines, "From the sessions that worked here", notes);
   return lines.join("\n");
+}
+
+const PART_LABEL: Record<MemoryPart, string> = {
+  now: "now",
+  decisions: "decision",
+  worked: "worked",
+  failed: "didn't work",
+  gotchas: "trap",
+  open: "still open",
+};
+
+/** One layer's memory lines, as its sheet lists them: what kind each is,
+ *  what it says, and when, where and by whom. */
+export function layerNotes(brief: ProjectBrief, slug: string, extra: SheetExtras = {}): string[] {
+  const memory = linesOf(brief.memory, slug);
+  return allLines(memory).map(({ part, line }) => `${PART_LABEL[part]}: ${memoryLineText(line, extra)}`);
 }
 
 /**
@@ -637,20 +705,28 @@ export function memoryLineText(line: MemoryLine, extra: SheetExtras = {}): strin
   return `${lineText(line)}${fact ? ` ${fact}` : ""}${tail ? ` (${tail})` : ""}`;
 }
 
-/** The working memory as the model reads it. */
+/**
+ * The working memory as the model reads it — the part that holds across
+ * the project: git's account, the chats at work, where things stand, and
+ * the decisions, lessons, traps and open items that aren't one layer's.
+ * What was learned working in one layer is kept with that layer's sheet
+ * (`ruri layer <slug>`), so a session reads it when its work is there and
+ * not otherwise; the file says which layers have some.
+ */
 export function catchupText(name: string, brief: ProjectBrief, extra: SheetExtras = {}): string {
+  const indexed = layered(brief);
   const lines = [
     `# ${name} — catch-up`,
     "",
-    "Where the work on this project stands, for a model picking it up cold: what git says, what was decided and why, what worked, what was tried and failed and why, the traps, and what's still open — gathered from every chat in this project as its turns finish. Read it before you start, and don't redo a settled decision or retry what already failed without a new reason. The project's shape (where to change what, the stack, how to run it) is in architecture.md beside this file.",
+    `Where the work on this project stands, for a model picking it up cold: what git says, which chats are at work, what was decided and why, what worked, what was tried and failed and why, the traps, and what's still open — gathered from every chat in this project as its turns finish. Read it before you start, and don't redo a settled decision or retry what already failed without a new reason. The project's shape (the stack, how to run it) is in architecture.md beside this file${indexed ? "; what was learned working in one layer is kept with that layer's sheet, and `ruri layer <handle>` prints both" : ""}.`,
     "Each line ends with the day it was learned and the exchange it came from: `7a3637b4#16` is exchange 16 of one of this project's chats, and `ruri recall show 7a3637b4#16` prints it whole — check a line there before you lean on it. Lines by the user are the user's own word; lines by an agent were written by the session that did the work; the rest were gathered by a small model and can be wrong.",
-    'When your work settles something the next session will need — a decision and why, an approach that failed and why, a trap, something left open — add it: `ruri note decision "<what>" --why "<why>"` (or failed, worked, trap, open).',
-    "ruri writes this file; don't edit it by hand — the user corrects it on the architecture page.",
+    `When your work settles something the next session will need — a decision and why, an approach that failed and why, a trap, something left open — add it: \`ruri note decision "<what>" --why "<why>"\` (or failed, worked, trap, open)${indexed ? ", with `--layer <handle>` when it is about one layer" : ""}.`,
+    "Don't edit this file: ruri writes it. The user corrects it on the architecture page.",
     "",
   ];
   if (brief.description) lines.push(brief.description, "");
-  const memory = brief.memory;
-  if (extra.git?.length || memory?.now.length) {
+  const memory = linesOf(brief.memory);
+  if (extra.git?.length || extra.chats?.length || memory.now.length) {
     lines.push("## Where it stands", "");
     if (extra.git?.length) {
       lines.push(
@@ -660,40 +736,71 @@ export function catchupText(name: string, brief: ProjectBrief, extra: SheetExtra
         "",
       );
     }
-    if (memory?.now.length) {
-      if (extra.git?.length) lines.push("From the chats:", "");
+    if (extra.chats?.length) {
+      lines.push(
+        "The chats at work in the last day, the latest first — another may be changing the files you are about to:",
+        "",
+        ...extra.chats.map((line) => `- ${line}`),
+        "",
+      );
+    }
+    if (memory.now.length) {
+      if (extra.git?.length || extra.chats?.length) lines.push("From the chats:", "");
       for (const line of memory.now) lines.push(`- ${memoryLineText(line, extra)}`);
       lines.push("");
     }
   }
-  if (memoryEmpty(memory)) {
+  const kept = [...layerCounts(brief.memory)].flatMap(([slug, n]) => {
+    const layer = brief.layers?.find((l) => l.slug === slug);
+    return layer ? [`${slug} (${layer.name}) — ${n} line${n === 1 ? "" : "s"}`] : [];
+  });
+  if (memoryEmpty(memory) && kept.length === 0) {
     lines.push("Nothing has been gathered from the work yet.", "");
     return lines.join("\n");
   }
-  const part = (title: string, items: MemoryLine[] | undefined) =>
+  const part = (title: string, items: MemoryLine[]) =>
     section(
       lines,
       title,
-      items?.map((line) => memoryLineText(line, extra)),
+      items.map((line) => memoryLineText(line, extra)),
     );
-  part("Decisions, and why", memory!.decisions);
-  part("What worked", memory!.worked);
-  part("What didn't, and why", memory!.failed);
-  part("Gotchas and rules", memory!.gotchas);
-  part("Still open", memory!.open);
+  part("Decisions, and why", memory.decisions);
+  part("What worked", memory.worked);
+  part("What didn't, and why", memory.failed);
+  part("Gotchas and rules", memory.gotchas);
+  part("Still open", memory.open);
+  if (kept.length) {
+    lines.push(
+      "## Kept with their layers",
+      "",
+      "What was learned working in one layer is read with that layer's sheet — `ruri layer <handle>`. These layers have some:",
+      "",
+      ...kept.map((line) => `- ${line}`),
+      "",
+    );
+  }
   return lines.join("\n");
 }
 
 /** Each layer's sheet into `.ruri/layers/`, and nothing else left there —
  *  a layer that went takes its file with it. */
-function writeLayerFiles(dir: string, name: string, brief: ProjectBrief, projectDir: string): void {
+function writeLayerFiles(
+  dir: string,
+  name: string,
+  brief: ProjectBrief,
+  projectDir: string,
+  extra: SheetExtras,
+): void {
   const folder = path.join(dir, "layers");
   const written = new Set<string>();
   for (const layer of brief.layers ?? []) {
     const sheet = layer.slug ? brief.layerSheets?.[layer.slug] : undefined;
     if (!layer.slug || !sheet) continue;
     fs.mkdirSync(folder, { recursive: true });
-    fs.writeFileSync(path.join(folder, `${layer.slug}.md`), layerText(name, layer, sheet, projectDir));
+    fs.writeFileSync(
+      path.join(folder, `${layer.slug}.md`),
+      layerText(name, layer, sheet, projectDir, layerNotes(brief, layer.slug, extra)),
+    );
     written.add(`${layer.slug}.md`);
   }
   let there: string[];
@@ -735,7 +842,7 @@ export function writeBriefFiles(
     }
     fs.writeFileSync(path.join(dir, "architecture.md"), architectureText(name, brief, extra, projectDir));
     fs.writeFileSync(path.join(dir, "catchup.md"), catchupText(name, brief, extra));
-    writeLayerFiles(dir, name, brief, projectDir);
+    writeLayerFiles(dir, name, brief, projectDir, extra);
   } catch (err) {
     warn("brief", err, "writeBriefFiles");
     // a read-only project directory is not worth failing a turn over

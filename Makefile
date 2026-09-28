@@ -132,5 +132,6 @@ stop:
 	@p=$$($(RUNNING)); [ -n "$$p" ] && kill $$p >/dev/null 2>&1 || true
 
 icon:
+	bun scripts/draw-icon.ts
 	sh scripts/make-icon.sh
 

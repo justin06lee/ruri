@@ -199,10 +199,11 @@ export function rollUp(
  * The agents, out of the candidates: the ones that belong to a chat.
  *
  * An agent is a conversation running. Everything else under ruri — the
- * probes that ask each installed harness what models it has, the shells
- * behind the terminal tabs, a `git` or an `esbuild` — is machinery, and
- * machinery belongs in ruri's own figure, not in a list of chats. It is
- * still counted; it is just not called something it is not.
+ * small model writing titles and notes, the probes that ask each installed
+ * harness what models it has, the shells behind the terminal tabs, a `git`
+ * or an `esbuild` — is machinery, and machinery belongs in ruri's own
+ * figure, not in a list of chats. It is still counted; it is just not
+ * called something it is not.
  */
 export function partition(
   candidates: AgentProcess[],

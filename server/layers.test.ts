@@ -20,7 +20,6 @@ import { setCompletionClient } from "./smallmodel.js";
 import type { ServerContext } from "./context.js";
 import { runMemoryCommand } from "./memoryCli.js";
 import type { SecretStore } from "./secrets.js";
-import type { Yagami } from "@justin06lee/yagami";
 
 let saved: string | undefined;
 beforeAll(() => {
@@ -266,23 +265,19 @@ describe("a turn folds into the layers it changed", () => {
     briefs.writeLayer("p", "bridge", bridgeSheet);
     briefs.writeLayer("p", "ui", { ...bridgeSheet, summary: "the UI", map: [] });
     const asked: string[] = [];
-    setCompletionClient({
-      messages: {
-        create: async ({ messages }: { messages: Array<{ content: string }> }) => {
-          const prompt = messages[0]!.content;
-          asked.push(prompt);
-          const reply = {
-            ...bridgeSheet,
-            // a file the turn changed is mapped; one nobody has is dropped
-            map: [
-              { name: "screenshots", files: ["server/bridge.ts"] },
-              { name: "clicks", files: ["server/cdp.ts", "server/invented.ts"] },
-            ],
-          };
-          return { content: [{ type: "text", text: JSON.stringify(reply) }] };
-        },
-      },
-    } as unknown as Yagami);
+    setCompletionClient(async ({ messages }) => {
+      const prompt = String(messages[0]!.content);
+      asked.push(prompt);
+      const reply = {
+        ...bridgeSheet,
+        // a file the turn changed is mapped; one nobody has is dropped
+        map: [
+          { name: "screenshots", files: ["server/bridge.ts"] },
+          { name: "clicks", files: ["server/cdp.ts", "server/invented.ts"] },
+        ],
+      };
+      return JSON.stringify(reply);
+    });
     try {
       const ctx = {
         store: { get: (id: string) => (id === "p" ? project : undefined) },
@@ -327,14 +322,10 @@ describe("a turn's sheets are the session's first", () => {
     briefs.write("p", { description: "d", features: [], layers: stack }, true);
     briefs.writeLayer("p", "bridge", bridgeSheet);
     const asked: string[] = [];
-    setCompletionClient({
-      messages: {
-        create: async ({ messages }: { messages: Array<{ content: string }> }) => {
-          asked.push(messages[0]!.content);
-          return { content: [{ type: "text", text: JSON.stringify(bridgeSheet) }] };
-        },
-      },
-    } as unknown as Yagami);
+    setCompletionClient(async ({ messages }) => {
+      asked.push(String(messages[0]!.content));
+      return JSON.stringify(bridgeSheet);
+    });
     try {
       const ctx = {
         store: {
@@ -419,16 +410,12 @@ describe("every file has a layer", () => {
       { name: "Talk", what: "", paths: ["server/relay.ts"] },
     ]);
     let asked = "";
-    setCompletionClient({
-      messages: {
-        create: async ({ messages }: { messages: Array<{ content: string }> }) => {
-          asked = messages[0]!.content;
-          // talk placed by the model; queue left out; a stray marked none
-          const reply = { files: { "server/talk.ts": "talk", "notes.ts": "none" } };
-          return { content: [{ type: "text", text: JSON.stringify(reply) }] };
-        },
-      },
-    } as unknown as Yagami);
+    setCompletionClient(async ({ messages }) => {
+      asked = String(messages[0]!.content);
+      // talk placed by the model; queue left out; a stray marked none
+      const reply = { files: { "server/talk.ts": "talk", "notes.ts": "none" } };
+      return JSON.stringify(reply);
+    });
     try {
       const out = await placeUnowned(
         { id: "p", name: "demo", path: dir, sessions: [] } as never,

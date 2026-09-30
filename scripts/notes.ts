@@ -3,7 +3,9 @@
  * the outline a chat folds its history into (server/archive.ts): a model
  * out of quota hands the call to the other harness's cheap one and rests;
  * a plain failure gets its second go first; with every model down the
- * failure comes back to the caller; turns assemble knowing whether their
+ * failure comes back to the caller; a model that never answers is aborted
+ * at its deadline and rests, and one that ignores the abort still loses
+ * the call a few seconds on; turns assemble knowing whether their
  * reply is whole; the outline carries each exchange's cut prompt, its last
  * reply and its size, with the marks between, and is kept until the
  * history changes; notes go on the wire as their two halves, empty ones
@@ -34,6 +36,7 @@ const check = (name: string, ok: boolean, detail?: unknown) => {
 };
 
 const LUNA = "codex:gpt-5.6-luna";
+const OPENCODE = "opencode:opencode/muse-spark-1.3-contributor-free";
 const SOURCE = "hey so the header flickers when I scroll, and could the logo be a bit smaller";
 const NOTE = "header flickers on scroll; shrink logo";
 
@@ -41,17 +44,34 @@ const NOTE = "header flickers on scroll; shrink logo";
  *  answers the rest, recording every model it was asked. */
 function scripted(down: Record<string, string>): { client: Client; calls: string[] } {
   const calls: string[] = [];
-  const client = {
-    messages: {
-      create: async (request: { model: string }) => {
-        calls.push(request.model);
-        const error = down[request.model];
-        if (error) throw new Error(error);
-        return { content: [{ type: "text", text: NOTE }] };
-      },
-    },
-  } as unknown as Client;
+  const client: Client = async ({ model = "" }) => {
+    calls.push(model);
+    const error = down[model];
+    if (error) throw new Error(error);
+    return NOTE;
+  };
   return { client, calls };
+}
+
+/** A completer that never answers `model` — OpenCode retrying a rate limit
+ *  where nobody can see — and answers the rest. `stops` says whether it
+ *  ends its turn when aborted; `stopped` counts the ones that did. */
+function stalling(model: string, stops: boolean): { client: Client; calls: string[]; stopped: () => number } {
+  const calls: string[] = [];
+  let stopped = 0;
+  const client: Client = ({ model: asked = "" }, signal) => {
+    calls.push(asked);
+    if (asked !== model) return Promise.resolve(NOTE);
+    return new Promise((resolve) => {
+      if (!stops) return;
+      signal.addEventListener("abort", () => {
+        stopped += 1;
+        // an aborted yagami stream just ends, with the nothing it had
+        resolve("");
+      });
+    });
+  };
+  return { client, calls, stopped: () => stopped };
 }
 
 const LIMIT = "codex: You've hit your usage limit. Upgrade to Pro or try again at 9:52 PM.";
@@ -100,6 +120,41 @@ const LIMIT = "codex: You've hit your usage limit. Upgrade to Pro or try again a
   );
   check("with both down the failure comes back", outcome.includes("rate limit"), outcome);
   setCompletionClient(null);
+}
+
+/* a model that never answers is stopped at its deadline, rests, and hands over */
+{
+  process.env["RURI_SMALL_DEADLINE_MS"] = "300";
+  setSmallModel(OPENCODE);
+  const { client, calls, stopped } = stalling(OPENCODE, true);
+  setCompletionClient(client);
+  const started = Date.now();
+  const note = await summarizePrompt(SOURCE);
+  check(
+    "a stalled model is aborted once, not given a second go, and Haiku answers",
+    note === NOTE && calls.join() === `${OPENCODE},haiku` && stopped() === 1 && Date.now() - started < 2_000,
+    { calls, stopped: stopped(), ms: Date.now() - started },
+  );
+  calls.length = 0;
+  await summarizePrompt(SOURCE);
+  check("the stalled model rests: the next call skips it", calls.join() === "haiku", calls);
+}
+
+/* a harness that ignores the abort still loses the call, a few seconds on */
+{
+  const { client, calls } = stalling(OPENCODE, false);
+  setCompletionClient(client);
+  const started = Date.now();
+  const note = await summarizePrompt(SOURCE);
+  const ms = Date.now() - started;
+  check(
+    "an unstoppable stall hands over after the grace, not never",
+    note === NOTE && calls.join() === `${OPENCODE},haiku` && ms >= 5_000 && ms < 8_000,
+    { calls, ms },
+  );
+  setCompletionClient(null);
+  setSmallModel(undefined);
+  delete process.env["RURI_SMALL_DEADLINE_MS"];
 }
 
 const ts = Date.now();

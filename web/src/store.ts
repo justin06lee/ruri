@@ -472,6 +472,8 @@ interface RuriState {
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
   canPermissions: boolean;
+  /** The server's OS (process.platform), "" before the first hello. */
+  platform: string;
   /** The macOS grants as last read (Settings asks), or null before that. */
   grants: { items: PermissionState[]; rows: TccRow[] } | null;
   /** Latest native-picker result, tagged with what the pick was for. */
@@ -575,6 +577,7 @@ export const useRuri = create<RuriState>((set) => ({
   integrationNote: null,
   canPickFolder: false,
   canPermissions: false,
+  platform: "",
   grants: null,
   picked: null,
   lastError: null,
@@ -1039,6 +1042,7 @@ function apply(msg: ServerMessage): void {
         ),
         canPickFolder: msg.canPickFolder,
         canPermissions: msg.canPermissions,
+        platform: msg.platform,
         bridges: msg.bridges,
         workspaceDir: msg.workspaceDir,
         musicDir: msg.musicDir,

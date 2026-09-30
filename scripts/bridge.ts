@@ -11,11 +11,20 @@
  *   tier 1: web_open → web_click by text → web_wait_for text → web_type
  *           into the input → web_screenshot → web_logs → web_close
  *   tier 2: app_launch TextEdit (open -g) → app_ui_tree → app_ui typing
- *           into the document → app_screenshot → app_quit
+ *           into the document → app_screenshot → app_quit — on Linux a
+ *           small GTK window of the test's own instead of TextEdit,
+ *           driven over AT-SPI (desktop/linuxApps.ts)
  *
  * The tier-2 pass needs macOS to have granted Accessibility and Screen
  * Recording to whatever is responsible for this process; when it hasn't,
- * that pass is skipped with a line saying so rather than failed.
+ * that pass is skipped with a line saying so rather than failed. On Linux
+ * it needs an X11 display, xdotool and python3's GTK and AT-SPI bindings.
+ *
+ * Electron runs here unpackaged, so on a Linux that keeps unprivileged
+ * user namespaces to programs with an AppArmor profile (Ubuntu 24.04 and
+ * later) its sandbox cannot start, and it runs with --no-sandbox: the
+ * installed app has its profile (the Makefile's sandbox), this copy does
+ * not, and it only ever loads the test's own pages.
  *
  *   bun run bridge-test
  */
@@ -31,6 +40,8 @@ import type { BridgeState, ClientMessage, ServerMessage } from "../shared/protoc
 const root = path.resolve(import.meta.dirname, "..");
 const PORT = Number(process.env["RURI_PORT"] ?? 7793);
 const CDP_PORT = Number(process.env["RURI_CDP_PORT"] ?? 9343);
+const LINUX = process.platform === "linux";
+const NO_SANDBOX = LINUX ? ["--no-sandbox"] : [];
 const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-bridge-config-"));
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-bridge-user-"));
 const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-bridge-project-"));
@@ -75,7 +86,7 @@ const SITE = `http://127.0.0.1:${typeof siteAddress === "object" && siteAddress 
 
 const child = spawn(
   path.join(root, "node_modules", ".bin", "electron"),
-  [root, `--remote-debugging-port=${CDP_PORT}`],
+  [root, `--remote-debugging-port=${CDP_PORT}`, ...NO_SANDBOX],
   {
     cwd: root,
     env: {
@@ -309,8 +320,98 @@ await sleep(400);
   }
 }
 
+/** A GTK window of the test's own, for the native pass on Linux: a text
+ *  field, a button and the label it flips. */
+const GTK_FIXTURE = `#!/usr/bin/env python3
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
+win = Gtk.Window(title="Bridge note")
+box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+entry = Gtk.Entry()
+entry.set_text("Hello.")
+label = Gtk.Label(label="Untouched")
+button = Gtk.Button(label="Flip")
+button.connect("clicked", lambda b: label.set_text("Flipped"))
+for w in (entry, button, label):
+    box.pack_start(w, False, False, 0)
+win.add(box)
+win.set_default_size(420, 160)
+win.connect("destroy", Gtk.main_quit)
+win.show_all()
+Gtk.main()
+`;
+
 console.log("[tier 2] a native app");
-{
+if (LINUX) {
+  const fixture = path.join(projectDir, "bridge-note.py");
+  fs.writeFileSync(fixture, GTK_FIXTURE, { mode: 0o755 });
+  const launched = await call("app_launch", { app: fixture });
+  if (!launched.ok) {
+    check("app_launch a GTK app", false, launched.error);
+  } else {
+    const handle = /"handle":"([^"]+)"/.exec(launched.text ?? "")?.[1];
+    check(
+      "app_launch answers with a native handle",
+      /"kind":"native"/.test(launched.text ?? "") && handle !== undefined,
+      launched.text,
+    );
+    const listed = await call("app_list");
+    check(
+      "app_list shows it",
+      listed.ok && new RegExp(`${handle}: native bridge-note`).test(listed.text ?? ""),
+      listed.text,
+    );
+    await sleep(800);
+    const tree = await call("app_ui_tree", { handle, depth: 6 });
+    check(
+      "app_ui_tree walks the window",
+      tree.ok &&
+        /frame "Bridge note"/.test(tree.text ?? "") &&
+        /push button "Flip"/.test(tree.text ?? "") &&
+        /text .*= Hello\./.test(tree.text ?? ""),
+      tree.error ?? tree.text?.slice(0, 600),
+    );
+    const typed = await call("app_ui", {
+      handle,
+      script: 'set_text(find(role="text"), "Typed through the bridge.")',
+    });
+    check("app_ui sets the field's text", typed.ok, typed.error);
+    const read = await call("app_ui", { handle, script: 'print(text(find(role="text")))' });
+    check(
+      "app_ui reads it back",
+      read.ok && /Typed through the bridge/.test(read.text ?? ""),
+      read.error ?? read.text,
+    );
+    const flipped = await call("app_ui", {
+      handle,
+      script:
+        'click(find("Flip", "push button"))\nprint(text(find(role="label")) or name(find(role="label")))',
+    });
+    check(
+      "app_ui clicks a button",
+      flipped.ok && /Flipped/.test(flipped.text ?? ""),
+      flipped.error ?? flipped.text,
+    );
+    const missing = await call("app_ui", { handle, script: 'click(find("No such button"))' });
+    check(
+      "a script's error comes back readably",
+      !missing.ok && /no .*No such button/.test(missing.error ?? ""),
+      missing.error,
+    );
+    const shot = await call("app_screenshot", { handle });
+    check(
+      "app_screenshot photographs the window",
+      shot.ok && isPng(shot.image) && /Bridge note/.test(shot.text ?? ""),
+      shot.error ?? shot.text,
+    );
+    const quit = await call("app_quit", { handle });
+    check("app_quit", quit.ok && /quit/.test(quit.text ?? ""), quit.error ?? quit.text);
+    await sleep(1500);
+    const gone = await call("app_list");
+    check("app_list is empty after quit", gone.ok && /nothing launched/.test(gone.text ?? ""), gone.text);
+  }
+} else {
   const doc = path.join(projectDir, "bridge-note.txt");
   fs.writeFileSync(doc, "Hello.\n");
   const launched = await call("app_launch", { app: "TextEdit", args: [doc] });
@@ -392,7 +493,7 @@ app.on("window-all-closed", () => app.quit());
   );
   const launched = await call("app_launch", {
     command: path.join(root, "node_modules", ".bin", "electron"),
-    args: [mainFile],
+    args: [...NO_SANDBOX, mainFile],
     cwd: projectDir,
   });
   if (!launched.ok) {

@@ -1773,6 +1773,8 @@ export type ServerMessage =
       canPickFolder: boolean;
       /** Whether the host can read and ask for macOS grants (the desktop app). */
       canPermissions: boolean;
+      /** The server's OS (process.platform): "darwin", "linux". */
+      platform: string;
       /** The workspace root the Home agent manages (where projects live). */
       workspaceDir: string;
       /** Where the music player's playlists live. */

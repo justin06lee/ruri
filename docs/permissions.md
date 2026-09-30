@@ -42,3 +42,13 @@ The designated requirement — the bundle id and the certificate's hash — is w
 ## The ad-hoc fallback
 
 Without the identity (a machine where `make identity` was never run, or its prompt refused), the build is ad-hoc-signed and the old dance still happens, narrower than before: `make reset-permissions` quits System Settings (it caches the table, and an open pane hides the reset) and runs `tccutil reset <service> com.justin06lee.ruri` for exactly the nine services above — never `All`, never another bundle id — and the first launch of the new build asks for each grant again (`askAgainIfNewBuild`, which checks the bundle's signature with `codesign -dv` and does nothing for a build signed with the identity). Dev runs and test harnesses are not builds and are left alone.
+
+## Linux
+
+Linux keeps no per-app privacy grants: ruri and every session it runs can reach whatever your account can, so there is no list to read or ask for, and Settings → Permissions says so. What stands in for the grants is a handful of things the desktop has to have:
+
+- **The sandbox profile.** Ubuntu 24.04 and later let no program create an unprivileged user namespace unless an AppArmor profile allows it (`kernel.apparmor_restrict_unprivileged_userns = 1`), and Chromium's sandbox is built on one — without the profile Electron stops at launch. `make` installs `/etc/apparmor.d/ruri` once, with `sudo`, for ruri's own path (`~/.local/opt/ruri/ruri`, and the superseded copies a running ruri may still start helpers from), and leaves it alone while it says the same (`make sandbox`). It is the profile electron-builder's `.deb` would install; it grants `userns` and nothing else. An unpackaged Electron (`bun run desktop`, the test scripts) has no profile and runs with `--no-sandbox`.
+- **An X11 session for native apps.** The bridge finds, photographs and drives other apps' windows through the X server (`xdotool`, `wmctrl`, ImageMagick's `import`) and reads their controls over the accessibility bus, AT-SPI (`python3-gi`, speaking AT-SPI's D-Bus protocol directly — libatspi's own list of apps leaves GTK 4 ones out, and the registry's leaves GTK 3 ones out — on the display's bus, named on its root window, and the session's). On Wayland no app may see another's windows; the native tools say so, and web pages and Electron apps still work.
+- **Apps on the accessibility bus.** GTK apps always are. Qt and Chromium apps only when asked, so ruri launches them with `QT_ACCESSIBILITY=1` and `ACCESSIBILITY_ENABLED=1`; one started outside ruri may need `gsettings set org.gnome.desktop.interface toolkit-accessibility true` and a restart.
+
+`make` apt-installs whichever of those tools is missing (`make linux-deps`), with `sudo`, and names them where there is no apt.

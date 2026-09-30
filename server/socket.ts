@@ -90,6 +90,7 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
       ),
       canPickFolder: ctx.options.pickFolder !== undefined,
       canPermissions: ctx.options.permissions !== undefined,
+      platform: process.platform,
       workspaceDir: ctx.store.workspaceDir(),
       musicDir: ctx.musicRoot(),
       home: ctx.store.homeSettings(),

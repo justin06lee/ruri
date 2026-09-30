@@ -892,6 +892,7 @@ const STATUS_WORD: Record<PermissionState["status"], string> = {
  */
 function Grants() {
   const can = useRuri((s) => s.canPermissions);
+  const platform = useRuri((s) => s.platform);
   const grants = useRuri((s) => s.grants);
   const [asking, setAsking] = useState<PermissionId | "all" | null>(null);
   useEffect(() => {
@@ -907,6 +908,15 @@ function Grants() {
     setAsking(id ?? "all");
     send({ type: "permissions_request", ...(id ? { id } : {}) });
   };
+  if (platform === "linux")
+    return (
+      <p className="settings-note">
+        Linux keeps no per-app privacy grants: ruri and its sessions can reach whatever your account can, and
+        there is nothing here to ask for. The bridge reads native apps' controls over the desktop's
+        accessibility bus (AT-SPI) and photographs their windows off the X server — on a Wayland session it
+        can drive web pages and Electron apps, not native windows.
+      </p>
+    );
   if (!can) return <p className="settings-note">Available in the desktop app.</p>;
   return (
     <div className="grants">

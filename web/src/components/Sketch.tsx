@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HOME_ID } from "../../../shared/protocol";
 import { attachFile, replaceAttachmentFile, useRuri } from "../store";
+import { MOD } from "../lib/keys";
 
 /**
  * The sketch pad: draw a thing to show the model, or draw on a picture to
@@ -698,7 +699,7 @@ export function Sketch({
         <button
           type="button"
           className="icon-button"
-          title="Undo (⌘Z)"
+          title={`Undo (${MOD}Z)`}
           disabled={history.length === 0}
           onClick={undo}
         >

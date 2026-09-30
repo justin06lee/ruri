@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { onTerminal, send, useRuri } from "../store";
+import { MAC } from "../lib/keys";
 
 /**
  * The composer's other mode: real shells in the project's directory, in the
@@ -182,14 +183,21 @@ export function TerminalPanel({ channelId }: { channelId: string }) {
   // swallow them on their way past.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "t") {
+      // ⌘T and ⌘1–9 on a Mac; off it, Ctrl+T and Ctrl+digits are the
+      // shell's own, so it is Ctrl+Shift+T and Alt+1–9, as GNOME Terminal has them
+      const tab = MAC
+        ? e.metaKey && !e.ctrlKey && !e.altKey
+        : e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey;
+      const nthKey = MAC ? tab : e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+      if (!tab && !nthKey) return;
+      if (tab && e.key.toLowerCase() === "t") {
         e.preventDefault();
         send({ type: "terminal_new", projectId: channelId });
         return;
       }
-      const nth = Number(e.key);
-      if (!Number.isInteger(nth) || nth < 1 || nth > 9) return;
+      // by the key's place, not what it types: Alt+digit types a symbol on some layouts
+      const nth = Number(/^Digit(\d)$/.exec(e.code)?.[1] ?? e.key);
+      if (!nthKey || !Number.isInteger(nth) || nth < 1 || nth > 9) return;
       const target = openRef.current[nth - 1];
       if (!target) return;
       e.preventDefault();

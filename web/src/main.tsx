@@ -11,6 +11,8 @@ initTheme();
 // and keep it in step, for a schedule that turns the page while you work
 startThemeClock();
 if (navigator.userAgent.includes("Electron")) document.body.classList.add("desktop");
+// a Linux desktop keeps its own title bar, so there are no traffic lights to clear
+if (navigator.userAgent.includes("Linux")) document.body.classList.add("linux");
 // a press that starts on a button ends on it, however far the button moves
 installPressGuard();
 // a capped box in the chat scrolls once you are in it, not as a flick goes past

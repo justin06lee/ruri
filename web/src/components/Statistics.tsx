@@ -197,7 +197,7 @@ const Agents = memo(function Agents() {
         </div>
         <div
           className="meter-tile"
-          title="ruri itself: the server, its window, the shells behind the terminal tabs, and the probes that ask each harness what models it has"
+          title="ruri itself: the server, its window, the shells behind the terminal tabs, the small model writing titles and notes, and the probes that ask each harness what models it has"
         >
           <span className="stat-label">ruri</span>
           <span className="stat-cost">{bytes(app.rss)}</span>
@@ -231,7 +231,8 @@ const Agents = memo(function Agents() {
         <div className="stats-empty">
           No chat has a harness running. A chat closes its process when you leave it, and the next prompt
           picks the conversation back up where it was. Everything else ruri runs — the shells behind the
-          terminal tabs, the probes that ask each harness what models it has — is counted under ruri.
+          terminal tabs, the small model writing titles and notes, the probes that ask each harness what
+          models it has — is counted under ruri.
         </div>
       ) : (
         <div className="stats-table agents-table">

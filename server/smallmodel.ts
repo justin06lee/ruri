@@ -1,4 +1,4 @@
-import { findExecutable, Yagami } from "@justin06lee/yagami";
+import { findExecutable, Yagami, type MessagesRequest } from "@justin06lee/yagami";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
@@ -27,7 +27,11 @@ import { errorMessage, warn } from "./log.js";
  * disables the whole layer.
  */
 
+/** One small-model request: its text answer, given up on when `signal` fires. */
+export type Completer = (request: MessagesRequest, signal: AbortSignal) => Promise<string>;
+
 let client: Yagami | null = null;
+let completer: Completer | null = null;
 let configured: string | undefined;
 
 export function smallModelEnabled(): boolean {
@@ -78,15 +82,40 @@ function fallbackFor(primary: string): string {
 const resting = new Map<string, number>();
 const REST_MS = 10 * 60_000;
 
+/**
+ * How long a call may take before it is given up on: a minute for the CLI
+ * to start and read, and time on top to write the answer — a title is forty
+ * tokens, a prompt split up to eight thousand.
+ *
+ * Not every harness says when it is spent. OpenCode meets a rate limit by
+ * retrying, and a free model's limit holds for hours, so its prompt never
+ * returns. With no deadline, two such calls kept two `opencode acp`
+ * processes — and the MCP servers each starts — alive for as long as ruri
+ * ran, and held both places in line with them: no note, title, split or
+ * fold ran after. RURI_SMALL_DEADLINE_MS overrides it (the notes test).
+ */
+function deadlineMs(maxTokens: number): number {
+  return Number(process.env["RURI_SMALL_DEADLINE_MS"]) || 60_000 + maxTokens * 20;
+}
+
+/** Once told to stop, how long a harness has to end its turn before the
+ *  call stops waiting on it. */
+const STOP_GRACE_MS = 5_000;
+
+/** A call that ran out of time. Most likely a spent model retrying where
+ *  nobody can see, so it rests rather than getting a second go. */
+class Stalled extends Error {}
+
 /** A failure that asking again soon will only repeat. */
 function exhausted(error: unknown): boolean {
+  if (error instanceof Stalled) return true;
   const text = errorMessage(error);
   return /usage limit|rate.?limit|quota|credits|\b429\b/i.test(text);
 }
 
-/** Swap the completions client — the notes test drives a scripted one. */
-export function setCompletionClient(next: Yagami | null): void {
-  client = next;
+/** Swap the completer — the notes and layers tests drive scripted ones. */
+export function setCompletionClient(next: Completer | null): void {
+  completer = next;
   resting.clear();
 }
 
@@ -141,6 +170,62 @@ function makeClient(): Yagami {
 }
 
 /**
+ * A request through yagami, streamed: `messages.create` takes no signal and
+ * the stream does. Aborting it ends the harness's turn and closes its
+ * process — an ACP agent is told to cancel, then shut; Codex and Claude
+ * are killed.
+ */
+const streamed: Completer = async (request, signal) => {
+  client ??= makeClient();
+  const { events } = client.engine.stream(request, { signal });
+  let text = "";
+  for await (const { event, data } of events) {
+    if (event === "error") {
+      throw new Error((data as { error?: { message?: string } }).error?.message ?? "stream error");
+    }
+    const delta =
+      event === "content_block_delta"
+        ? (data as { delta?: { type?: string; text?: string } }).delta
+        : undefined;
+    if (delta?.type === "text_delta") text += delta.text ?? "";
+  }
+  return text.trim();
+};
+
+/**
+ * One request, with a deadline. At the deadline the call is aborted, and it
+ * fails then whether or not the harness goes quietly — a harness that
+ * ignores the abort is given a few seconds, not its place in line.
+ */
+async function ask(request: MessagesRequest, maxTokens: number): Promise<string> {
+  const limit = deadlineMs(maxTokens);
+  const stalled = new Stalled(`${request.model} did not answer within ${Math.round(limit / 1000)}s`);
+  const stop = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      stop.abort();
+      timer = setTimeout(() => reject(stalled), STOP_GRACE_MS);
+    }, limit);
+  });
+  const answer = (completer ?? streamed)(request, stop.signal).then(
+    (text) => {
+      // an aborted stream just ends, with whatever it had so far
+      if (stop.signal.aborted) throw stalled;
+      return text;
+    },
+    (error: unknown) => {
+      throw stop.signal.aborted ? stalled : error;
+    },
+  );
+  try {
+    return await Promise.race([answer, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * How many small-model calls run at once, across every chat. Each is a
  * CLI process of a couple of hundred megabytes for several seconds, and
  * they come in bursts — a prompt's note and its tracker split together,
@@ -167,19 +252,12 @@ function complete(system: string, prompt: string, maxTokens: number): Promise<st
 }
 
 async function completeNow(system: string, prompt: string, maxTokens: number): Promise<string> {
-  client ??= makeClient();
-  const ask = async (id: string) => {
-    const response = await client!.messages.create({
-      model: id,
-      max_tokens: maxTokens,
-      system: GUARD + system,
-      messages: [{ role: "user", content: `<data>\n${prompt}\n</data>` }],
-    });
-    return (response.content ?? [])
-      .map((block) => (block.type === "text" && typeof block.text === "string" ? block.text : ""))
-      .join("")
-      .trim();
-  };
+  const request = (id: string): MessagesRequest => ({
+    model: id,
+    max_tokens: maxTokens,
+    system: GUARD + system,
+    messages: [{ role: "user", content: `<data>\n${prompt}\n</data>` }],
+  });
   const primary = model();
   const order = [primary, fallbackFor(primary)];
   const now = Date.now();
@@ -187,11 +265,11 @@ async function completeNow(system: string, prompt: string, maxTokens: number): P
   let failure: unknown;
   for (const id of ready.length > 0 ? ready : order) {
     // two goes each: a cold CLI, a turn spent on nothing — the second
-    // answer is nearly always there. Not after a usage limit, which the
-    // next few hours would only repeat.
+    // answer is nearly always there. Not after a usage limit or a stall,
+    // which the next few hours would only repeat.
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const text = await ask(id);
+        const text = await ask(request(id), maxTokens);
         resting.delete(id);
         return text;
       } catch (error) {

@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { app as electronApp, desktopCapturer, screen, systemPreferences } from "electron";
 import { CdpSocket, PageDriver, findPageTarget, freePort, sleep } from "../server/cdp.js";
 import { projectEnv } from "../server/shots.js";
+import * as linux from "./linuxApps.js";
 
 /**
  * Desktop apps, launched and driven for a session without the user
@@ -32,7 +33,13 @@ import { projectEnv } from "../server/shots.js";
  * run): Automation → System Events, for any of the AppleScript; Accessibility,
  * for the UI tree and UI scripting; Screen Recording, for native window
  * pictures. Each of those failing is turned into a sentence that says so.
+ *
+ * All of that is macOS. On Linux, native apps are desktop/linuxApps.ts —
+ * the X server and the accessibility bus in place of the window server and
+ * System Events — and each export below hands over to it there.
  */
+
+const LINUX = process.platform === "linux";
 
 export interface AppHandle {
   handle: string;
@@ -45,6 +52,8 @@ export interface AppHandle {
   /** The app was already running when the session asked for it, so it is
    *  the user's: quitting is polite and never a signal. */
   preexisting: boolean;
+  /** Linux: the X window it opened with (desktop/linuxApps.ts). */
+  window?: number;
   /** Electron only. */
   driver?: PageDriver;
   socket?: CdpSocket;
@@ -221,6 +230,11 @@ async function bringForward(name: string): Promise<void> {
 
 /** Open a `.app` in the background. */
 export async function launchNative(app: string, files: string[] = []): Promise<AppHandle> {
+  if (LINUX) {
+    const launched = await linux.launchNative(app, files);
+    nextHandle += 1;
+    return { handle: `app-${nextHandle}`, ...launched };
+  }
   const appPath = await resolveApp(app);
   const name = await bundleName(appPath);
   const preexisting = (await pidOfBundle(appPath)) !== undefined;
@@ -248,7 +262,8 @@ export async function launchNative(app: string, files: string[] = []): Promise<A
  */
 export async function launchElectron(command: string, args: string[], cwd?: string): Promise<AppHandle> {
   const port = await freePort();
-  const before = await frontmostName();
+  const before = LINUX ? undefined : await frontmostName();
+  const beforeWindow = LINUX ? await linux.activeWindow() : undefined;
   let child: ChildProcess;
   try {
     child = spawn(command, [...args, `--remote-debugging-port=${port}`], {
@@ -279,7 +294,8 @@ export async function launchElectron(command: string, args: string[], cwd?: stri
   // a window that just appeared is very likely in front now; put the
   // user's app back, and ruri itself if that was the one
   await sleep(400);
-  const after = await frontmostName();
+  if (LINUX) await linux.restoreFocus(beforeWindow);
+  const after = LINUX ? undefined : await frontmostName();
   if (before && after && after !== before) {
     if (before === electronApp.name || before === "Electron") electronApp.focus({ steal: true });
     else await bringForward(before);
@@ -328,6 +344,7 @@ export async function quit(app: AppHandle, immediate = false): Promise<string> {
     if (app.child && (immediate || (app.pid && alive(app.pid)))) stop(app.child);
     return "closed";
   }
+  if (LINUX) return linux.quit(app, immediate);
   if (!immediate) {
     try {
       // the app's own quit, which saves what it autosaves; a save sheet
@@ -360,6 +377,7 @@ export async function quit(app: AppHandle, immediate = false): Promise<string> {
 /* ── the front of an app, for the user ──────────────────────────── */
 
 export async function activate(app: AppHandle): Promise<void> {
+  if (LINUX) return linux.activate(app);
   try {
     await applescript(
       [
@@ -471,6 +489,7 @@ return out
 
 /** The front window's controls, as lines, to a depth. */
 export async function uiTree(app: AppHandle, depth = 4): Promise<string> {
+  if (LINUX) return linux.uiTree(app, depth);
   requireAccessibility("reading the UI tree");
   let text: string;
   try {
@@ -491,6 +510,7 @@ export async function uiTree(app: AppHandle, depth = 4): Promise<string> {
 
 /** Run a fragment inside `tell process`. */
 export async function uiScript(app: AppHandle, script: string): Promise<string> {
+  if (LINUX) return linux.uiScript(app, script);
   requireAccessibility("UI scripting");
   const source = [
     'tell application "System Events"',
@@ -509,6 +529,7 @@ export async function uiScript(app: AppHandle, script: string): Promise<string> 
 
 /** The front window's title, when Accessibility lets us ask. */
 export async function windowTitle(app: AppHandle): Promise<string | undefined> {
+  if (LINUX) return linux.windowTitle(app);
   try {
     const title = await applescript(
       `tell application "System Events" to get name of window 1 of ${processRef(app)}`,
@@ -565,6 +586,7 @@ function requireScreenRecording(): void {
  * window by id straight off the window server.
  */
 export async function captureNative(app: AppHandle): Promise<{ png: Buffer; title: string }> {
+  if (LINUX) return linux.captureNative(app);
   requireScreenRecording();
   const windows = (await windowsOf(app.pid)).filter((w) => w.bounds.Width >= 8 && w.bounds.Height >= 8);
   const win = windows[0];

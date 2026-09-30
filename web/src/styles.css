@@ -316,6 +316,10 @@ textarea::placeholder {
   -webkit-app-region: drag;
 }
 
+.desktop.linux .sidebar-header {
+  padding-left: 0;
+}
+
 .desktop .chat-header {
   -webkit-app-region: drag;
 }

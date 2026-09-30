@@ -42,6 +42,7 @@ export function installFixture(): void {
   useRuri.setState({
     connected: true,
     canPermissions: true,
+    platform: "darwin",
     grants: {
       items: [
         {

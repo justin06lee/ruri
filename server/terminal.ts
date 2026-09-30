@@ -12,7 +12,8 @@ import { Scrollback } from "./scrollback.js";
  *
  * Each one runs on a pty, so the shell prints its prompt, colors work, and
  * anything that asks whether it is talking to a terminal gets the right
- * answer. The pty comes from `expect`, which macOS ships: it allocates one,
+ * answer. The pty comes from `expect`, which macOS ships (on Linux it is a
+ * package, which `make` installs — the Makefile's linux-deps): it allocates one,
  * runs the login shell on it, and proxies bytes both ways — which is exactly
  * what a native pty binding would do, without a native binding to build,
  * rebuild per Electron ABI, and unpack from the asar. `script` can't stand

@@ -28,6 +28,7 @@
  * a meter nobody reads should not be a process ruri spawns twice a second.
  */
 import { execFile } from "node:child_process";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentProcess, Resources, ServerMessage } from "../shared/protocol.js";
@@ -226,12 +227,19 @@ export function partition(
 /**
  * The chat a process was started for, out of its own environment.
  *
- * `ps -E` prints a process's environment, for processes this user owns.
+ * `ps -E` prints a process's environment, for processes this user owns
+ * (Linux's ps has no -E; there it is /proc/<pid>/environ, the same thing).
  * That environment also holds the vault's values (server/secrets.ts), so
  * only the one variable is ever read out of it and the rest is dropped
  * where it stands — never logged, never kept, never passed on.
  */
 function channelFromEnv(pid: number): Promise<string | undefined> {
+  if (process.platform === "linux") {
+    return fs.promises.readFile(`/proc/${pid}/environ`, "utf8").then(
+      (env) => /(?:^|\0)RURI_CHANNEL=([^\0]+)/.exec(env)?.[1],
+      () => undefined,
+    );
+  }
   return new Promise((resolve) => {
     execFile(
       "/bin/ps",

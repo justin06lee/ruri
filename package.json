@@ -21,7 +21,7 @@
     "test:scripts": "bun scripts/run-tests.ts",
     "build:web": "vite build",
     "build:main": "bun scripts/build-main.ts",
-    "build:app": "electron-builder --mac",
+    "build:app": "electron-builder",
     "build": "bun run build:web && bun run build:main && bun run build:app",
     "smoke": "tsx scripts/smoke.ts",
     "auth-test": "tsx scripts/auth.ts",
@@ -149,6 +149,14 @@
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "notarize": false
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ],
+      "executableName": "ruri",
+      "category": "Development",
+      "icon": "build/icon.png"
     }
   }
 }

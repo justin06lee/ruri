@@ -17,7 +17,8 @@ import { isMissing, warn } from "./log.js";
  * newest is, and — for the ones left to update themselves, which is all
  * of them unless you say otherwise — brings the ones behind up to date,
  * the way each was installed: its own updater when it has one (`claude
- * update`, `opencode upgrade`), bun or npm for a global package, brew for
+ * update`, `opencode upgrade`, `codex update` for Codex's standalone
+ * install — the one its install script puts on Linux), bun or npm for a global package, brew for
  * a formula. Anything installed some other way is reported, not touched.
  *
  * Nothing is replaced under a running turn: a harness with a chat
@@ -37,6 +38,7 @@ export type Channel = HarnessInfo["channel"];
 const PUBLISHED: Record<string, string> = {
   claude: "@anthropic-ai/claude-code",
   opencode: "opencode-ai",
+  codex: "@openai/codex",
 };
 
 /** Where a binary came from, read off its real path — pure, so it can be
@@ -45,6 +47,7 @@ export function channelOf(realPath: string): { channel: Channel; pkg?: string } 
   const p = realPath.replace(/\\/g, "/");
   if (/\/\.local\/share\/claude\//.test(p)) return { channel: "self", pkg: PUBLISHED["claude"]! };
   if (/\/\.opencode\/bin\//.test(p)) return { channel: "self", pkg: PUBLISHED["opencode"]! };
+  if (/\/\.codex\/packages\/standalone\//.test(p)) return { channel: "self", pkg: PUBLISHED["codex"]! };
   const mod = /\/node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(p);
   if (mod) return { channel: /\/\.bun\//.test(p) ? "bun" : "npm", pkg: mod[1]! };
   const cellar = /\/Cellar\/([^/]+)\//.exec(p);
@@ -63,6 +66,9 @@ export function versionFromPath(channel: Channel, realPath: string, pkg?: string
   const p = realPath.replace(/\\/g, "/");
   const claude = /\/\.local\/share\/claude\/versions\/([^/]+)$/.exec(p);
   if (claude) return SEMVER.exec(claude[1]!)?.[1];
+  const codex = /\/\.codex\/packages\/standalone\/releases\/([^/]+)\//.exec(p);
+  // releases/<version>-<target triple>
+  if (codex) return SEMVER.exec(codex[1]!.replace(/-(?:aarch64|x86_64|arm64|amd64)-.*$/, ""))?.[1];
   if ((channel === "npm" || channel === "bun") && pkg) {
     const root = p.slice(0, p.indexOf(`/node_modules/${pkg}/`) + `/node_modules/${pkg}`.length);
     try {

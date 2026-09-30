@@ -14,17 +14,22 @@ import type { WindowDragPhase } from "../shared/protocol.js";
 
 const execFileAsync = promisify(execFile);
 
+/** macOS, as against Linux: the only two ruri is built for. */
+const MAC = process.platform === "darwin";
+
 /**
- * GUI-launched macOS apps get a minimal PATH (/usr/bin:/bin:...), which would
- * break both finding the `claude` CLI and every Bash/git/npm invocation inside
+ * GUI-launched apps get a minimal PATH — macOS's is /usr/bin:/bin:..., and a
+ * Linux desktop's is whatever the session started with, which leaves out
+ * what only .bashrc adds (bun's, OpenCode's) — and that would break both
+ * finding the harness CLIs and every Bash/git/npm invocation inside
  * sessions. Recover the user's real PATH from their login shell, with common
  * install dirs appended as a safety net. Async, so it overlaps Electron's
  * own start-up instead of holding it for however long the rc files take.
  */
 async function fixPath(): Promise<void> {
-  if (process.platform !== "darwin") return;
+  if (process.platform === "win32") return;
   try {
-    const shellBin = process.env["SHELL"] ?? "/bin/zsh";
+    const shellBin = process.env["SHELL"] ?? (MAC ? "/bin/zsh" : "/bin/bash");
     // -ilc, not -lc: PATH is commonly set in .zshrc/.bashrc, which only an
     // interactive shell reads; a login shell alone would miss it
     const { stdout } = await execFileAsync(shellBin, ["-ilc", 'printf "__RURI__%s__RURI__" "$PATH"'], {
@@ -145,8 +150,9 @@ function windowDrag(phase: WindowDragPhase): void {
     return;
   }
   // a double-click does what one on a title bar does, by the Mac's own
-  // setting for it (Desktop & Dock → "Double-click a window's title bar")
-  const action = systemPreferences.getUserDefault("AppleActionOnDoubleClick", "string");
+  // setting for it (Desktop & Dock → "Double-click a window's title bar");
+  // elsewhere it fills the screen, as a title bar's does by default
+  const action = MAC ? systemPreferences.getUserDefault("AppleActionOnDoubleClick", "string") : "Maximize";
   if (action === "Minimize") {
     win.minimize();
     return;
@@ -174,7 +180,10 @@ function createWindow(port: number, token: string): BrowserWindow {
     minWidth: 880,
     minHeight: 560,
     backgroundColor: "#f6f1e6",
-    titleBarStyle: "hiddenInset",
+    // the peek band is the title bar on macOS, under the traffic lights; a
+    // Linux desktop keeps its own title bar (a frameless window there has
+    // no buttons to close it by, nor the desktop's own look)
+    ...(MAC ? { titleBarStyle: "hiddenInset" as const } : {}),
     title: "ruri",
     webPreferences: {
       contextIsolation: true,
@@ -221,6 +230,9 @@ function createWindow(port: number, token: string): BrowserWindow {
     .filter(Boolean)
     .join("&");
   void win.loadURL(`http://127.0.0.1:${port}/?${query}`);
+  // the menu is for its shortcuts (Ctrl+Q, copy and paste, zoom); a bar of
+  // File and Edit across the top of the page is not how ruri looks
+  if (!MAC) win.setMenuBarVisibility(false);
   appWindow = win;
 
   const screenshot = process.env["RURI_SCREENSHOT"];
@@ -240,7 +252,8 @@ function createWindow(port: number, token: string): BrowserWindow {
 function buildMenu(): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
-      { role: "appMenu" },
+      // the app menu is the Mac's; elsewhere Quit lives in File
+      { role: MAC ? "appMenu" : "fileMenu" },
       { role: "editMenu" },
       { role: "viewMenu" },
       { role: "windowMenu" },
@@ -253,6 +266,10 @@ async function main(): Promise<void> {
   // (and caches) from colliding with an installed ruri.app that's running.
   const userData = process.env["RURI_USER_DATA"];
   if (userData) app.setPath("userData", userData);
+  // Chromium's own on-disk state (storage, caches, the bridge's logins)
+  // goes to userData, which on Linux is ~/.config/ruri — ruri's own config
+  // dir. It gets a folder of its own there instead of spreading through it.
+  else if (!MAC) app.setPath("userData", path.join(app.getPath("appData"), "ruri", "chromium"));
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;
@@ -305,14 +322,15 @@ async function main(): Promise<void> {
     },
     capture: captureTargets,
     bridge,
-    permissions,
+    // macOS's grants; Linux has none to read or ask for (Settings says so)
+    ...(MAC ? { permissions } : {}),
     windowDrag,
   });
 
   createWindow(running.port, token);
   // a fresh build is a stranger to macOS: it asks for its grants again,
   // dialog by dialog, once the window is up (desktop/permissions.ts)
-  setTimeout(() => void askAgainIfNewBuild().catch(() => {}), 1500);
+  if (MAC) setTimeout(() => void askAgainIfNewBuild().catch(() => {}), 1500);
 
   // A GUI app's stdout goes nowhere anyone will look, and a window on an
   // unexpected origin is indistinguishable from a ruri that has lost its
@@ -339,16 +357,18 @@ async function main(): Promise<void> {
       if (win.isMinimized()) win.restore();
       win.show();
       win.focus();
-    }
+    } else createWindow(running.port, token);
   });
 
   // macOS: closing the window keeps the app (and its warm sessions) alive;
   // the Dock icon reopens it. Cmd+Q actually quits and tears sessions down.
+  // Linux has nothing to reopen a windowless app from, so closing the
+  // window is the quit there, teardown and all.
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(running.port, token);
   });
   app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") app.quit();
+    if (!MAC) app.quit();
   });
   // Quit waits for the teardown: nothing a session launched outlives ruri,
   // and the archive writes transcripts and drafts on a debounce that

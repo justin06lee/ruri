@@ -31,6 +31,7 @@ import { SessionControls } from "./SessionControls";
 import type { SketchBackground } from "./Sketch";
 import { Icon } from "./chat/Icon";
 import { NO_QUEUED } from "./chat/empty";
+import { MAC, MOD } from "../lib/keys";
 
 /* The shell panel brings xterm with it — a quarter of the app's JavaScript,
    for a mode most sessions never turn on. It arrives when the `>_` button is
@@ -777,7 +778,7 @@ export function Composer({
                   className={`send ${holding ? "holding" : ""}`}
                   title={
                     cutting
-                      ? "Queue it behind the running turn (Enter) — ⌘-click, ⌘Enter or hold Enter to stop the turn and send this instead"
+                      ? `Queue it behind the running turn (Enter) — ${MOD}click, ${MOD}Enter or hold Enter to stop the turn and send this instead`
                       : "Send (Enter)"
                   }
                   onClick={(e) => void submit("send", cutting && (e.metaKey || e.ctrlKey))}
@@ -798,11 +799,11 @@ export function Composer({
       </div>
       <div className="composer-hint">
         {shell
-          ? "Shells in this project — ⌘T for another, ⌘1–9 to switch · they keep running while you're away"
+          ? `Shells in this project — ${MAC ? "⌘T" : "Ctrl+Shift+T"} for another, ${MAC ? "⌘" : "Alt+"}1–9 to switch · they keep running while you're away`
           : editing
             ? "Enter puts the rewrite back in line · the prompts behind it go on without it meanwhile"
             : cutting
-              ? "Enter queues it behind the running turn · hold Enter or ⌘Enter to stop the turn and send this instead"
+              ? `Enter queues it behind the running turn · hold Enter or ${MOD}Enter to stop the turn and send this instead`
               : compact
                 ? "Enter to send · Shift+Enter for a new line · drop files to attach"
                 : "Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach · scissors to split a long prompt"}

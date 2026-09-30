@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HOME_ID } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 import { score } from "../lib/fuzzy";
+import { commandKey } from "../lib/keys";
 
 /**
  * The switcher: tap the right Option key (or ⌘K) and a search stands over
@@ -145,7 +146,7 @@ export function Switcher() {
   };
 
   // The right Option key, tapped: down, then up, with no other key between.
-  // ⌘K as well, since hands know it.
+  // ⌘K as well (Ctrl+K off the Mac), since hands know it.
   useEffect(() => {
     let armed = false;
     const onDown = (e: KeyboardEvent) => {
@@ -154,7 +155,7 @@ export function Switcher() {
         return;
       }
       armed = false;
-      if (e.key.toLowerCase() === "k" && e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey) {
+      if (e.key.toLowerCase() === "k" && commandKey(e) && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         toggle();
       }

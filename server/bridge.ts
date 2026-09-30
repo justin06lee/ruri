@@ -57,6 +57,18 @@ const logArgs = {
 
 /** Every tool's arguments, as zod shapes — the MCP server and the HTTP
  *  endpoint both check against these. */
+/**
+ * Native apps are driven through what the OS offers: System Events and
+ * AppleScript on macOS, the accessibility bus (AT-SPI) from Python on
+ * Linux (desktop/linuxApps.ts). The tools say which, so a model writes
+ * the one that will run.
+ */
+const LINUX = process.platform === "linux";
+
+/** app_ui's helpers on Linux, as the model is told them. */
+const LINUX_UI =
+  'Python 3 run against the app over AT-SPI, with `app` (the application), `window` (its first window) and helpers: find(name=None, role=None, within=None, nth=0) and find_all(...) by the name and role app_ui_tree shows, click(el) (its press/click/activate action), set_text(el, value), text(el), menu("File", "Save"), children(el); print what you want back';
+
 const BRIDGE_SHAPES = {
   web_open: {
     url: z.string().describe("http(s) URL, or a path to a local HTML file"),
@@ -98,7 +110,9 @@ const BRIDGE_SHAPES = {
       .string()
       .optional()
       .describe(
-        'A macOS app by name or path ("TextEdit", "/Applications/Foo.app") — opened in the background',
+        LINUX
+          ? 'A desktop app by the name the app grid shows, its .desktop id, or a command ("Text Editor", "org.gnome.Calculator", "gedit") — opened without taking the focus'
+          : 'A macOS app by name or path ("TextEdit", "/Applications/Foo.app") — opened in the background',
       ),
     command: z
       .string()
@@ -153,7 +167,9 @@ const BRIDGE_SHAPES = {
     script: z
       .string()
       .describe(
-        'AppleScript run inside `tell application "System Events" to tell process "<app>"` — e.g. `click button "OK" of window 1`, `set value of text area 1 of scroll area 1 of window 1 to "hello"`, `click menu item "Save" of menu "File" of menu bar 1`. These go through the Accessibility API, so the app need not be in front.',
+        LINUX
+          ? `${LINUX_UI} — e.g. \`click(find("OK", "push button"))\`, \`set_text(find(role="text"), "hello")\`, \`print(text(find(role="label", nth=2)))\`. These go through the accessibility bus, so the app need not be in front.`
+          : 'AppleScript run inside `tell application "System Events" to tell process "<app>"` — e.g. `click button "OK" of window 1`, `set value of text area 1 of scroll area 1 of window 1 to "hello"`, `click menu item "Save" of menu "File" of menu bar 1`. These go through the Accessibility API, so the app need not be in front.',
       ),
   },
   app_list: {},
@@ -197,7 +213,10 @@ const DESCRIPTIONS: Record<BridgeTool, string> = {
   web_close:
     "Close this session's hidden browser window now. ruri also closes it, and quits anything you launched, a few seconds after your turn ends unless the user has taken it over.",
   app_launch:
-    "Launch a macOS app in the background (by name or path), or run a command that starts a dev-built Electron app and attach to it over the DevTools protocol. The user's focus stays where it is. Answers with a handle and its kind: 'electron' handles take app_click/app_type/app_press/app_scroll/app_eval/app_wait_for/app_logs/app_screenshot; 'native' handles take app_ui_tree, app_ui and app_screenshot.",
+    (LINUX
+      ? "Launch a desktop app without taking the focus (by the name the app grid shows, its .desktop id, or a command)"
+      : "Launch a macOS app in the background (by name or path)") +
+    ", or run a command that starts a dev-built Electron app and attach to it over the DevTools protocol. The user's focus stays where it is. Answers with a handle and its kind: 'electron' handles take app_click/app_type/app_press/app_scroll/app_eval/app_wait_for/app_logs/app_screenshot; 'native' handles take app_ui_tree, app_ui and app_screenshot.",
   app_click:
     "Click in a launched Electron app's page: by selector, by the words on it, or at coordinates. Answers with a screenshot.",
   app_type:
@@ -208,11 +227,13 @@ const DESCRIPTIONS: Record<BridgeTool, string> = {
   app_wait_for: "Wait for a selector, text, URL or network idle in a launched Electron app's page.",
   app_logs: "Console and network logs from a launched Electron app's page.",
   app_screenshot:
-    "Photograph a launched app's window — even behind other windows. Electron apps: the page (optionally one element or the whole document). Native apps: the front window, through Screen Recording.",
+    "Photograph a launched app's window — even behind other windows. Electron apps: the page (optionally one element or the whole document). Native apps: the front window, " +
+    (LINUX ? "off the X server." : "through Screen Recording."),
   app_ui_tree:
     "A native app's front window as the Accessibility API sees it: every control with its role, name, value, position and size, to a depth. Read this before writing an app_ui script.",
-  app_ui:
-    'Run an AppleScript fragment inside `tell process "<app>"` (System Events) against a native app: click buttons, set text fields, pick menu items — all through Accessibility, without bringing the app forward. Answers with the script\'s result.',
+  app_ui: LINUX
+    ? "Run Python against a native app over the accessibility bus (AT-SPI): click buttons, set text fields, pick menu items, without bringing the app forward. Answers with what the script prints."
+    : 'Run an AppleScript fragment inside `tell process "<app>"` (System Events) against a native app: click buttons, set text fields, pick menu items — all through Accessibility, without bringing the app forward. Answers with the script\'s result.',
   app_list: "The apps this session has launched and still holds.",
   app_quit: "Quit a launched app (gracefully, then by force after a grace period).",
 };
@@ -321,7 +342,7 @@ export function bridgeTools(host: BridgeHost | undefined, ctx: BridgeContext) {
 export function bridgeToolBriefing(): string {
   return [
     "<ruri:bridge>",
-    "You can see and drive what you build without interrupting the user: the mcp__bridge__* tools. web_open loads a page (a dev server, a file) in a window ruri keeps hidden; web_click, web_type, web_press and web_scroll drive it with real input; web_wait_for, web_eval and web_logs read it; web_screenshot photographs it, and every driving tool returns a picture of the result. app_launch starts a macOS app or a dev-built Electron app in the background: Electron ones take app_click/app_type/app_press/app_eval/app_screenshot, native ones take app_ui_tree, app_ui (AppleScript UI scripting) and app_screenshot; app_quit and web_close when done.",
+    `You can see and drive what you build without interrupting the user: the mcp__bridge__* tools. web_open loads a page (a dev server, a file) in a window ruri keeps hidden; web_click, web_type, web_press and web_scroll drive it with real input; web_wait_for, web_eval and web_logs read it; web_screenshot photographs it, and every driving tool returns a picture of the result. app_launch starts a ${LINUX ? "desktop" : "macOS"} app or a dev-built Electron app in the background: Electron ones take app_click/app_type/app_press/app_eval/app_screenshot, native ones take app_ui_tree, app_ui (${LINUX ? "Python over AT-SPI" : "AppleScript UI scripting"}) and app_screenshot; app_quit and web_close when done.`,
     "After building or changing anything visible: open it, drive it, look at the screenshot, fix what is wrong, and only then report. The user sees a small live preview and can take the window over; it never appears in front of them otherwise. Everything you open or launch is closed a few seconds after your turn ends, unless the user has taken it over, so open it again in a later turn rather than expecting it to still be there.",
     "</ruri:bridge>",
   ].join("\n");
@@ -334,7 +355,7 @@ export function bridgeHttpBriefing(endpoint: string): string {
     `You can see and drive what you build without interrupting the user. POST JSON to ${endpoint} as {"tool": "<name>", "args": {...}}; it answers {"ok": true, "text": "...", "image": "<png path>"} or {"ok": false, "error": "..."}. Read the image path to look at it. For example:`,
     `  curl -s -X POST ${endpoint} -H 'content-type: application/json' -d '{"tool":"web_open","args":{"url":"http://localhost:5173"}}'`,
     "Web (a page in a window ruri keeps hidden): web_open {url} · web_click {selector | text | x,y} · web_type {text, selector?} · web_press {key} · web_scroll {selector?, dx?, dy?} · web_wait_for {selector | text | url | idle} · web_eval {js} · web_logs {kind} · web_screenshot {selector?, full?} · web_where · web_close.",
-    "Apps (launched in the background): app_launch {app | command, args?, cwd?} → {handle, kind} · Electron: app_click / app_type / app_press / app_scroll / app_eval / app_wait_for / app_logs / app_screenshot {handle, …} · native: app_ui_tree {handle}, app_ui {handle, script} (AppleScript inside `tell process`), app_screenshot {handle} · app_list · app_quit {handle}.",
+    `Apps (launched in the background): app_launch {app | command, args?, cwd?} → {handle, kind} · Electron: app_click / app_type / app_press / app_scroll / app_eval / app_wait_for / app_logs / app_screenshot {handle, …} · native: app_ui_tree {handle}, app_ui {handle, script} (${LINUX ? "Python over AT-SPI: find, click, set_text, text, menu" : "AppleScript inside `tell process`"}), app_screenshot {handle} · app_list · app_quit {handle}.`,
     "After building or changing anything visible: open it, drive it, look at the picture, fix what is wrong, and only then report. Everything you open or launch is closed a few seconds after your turn ends, unless the user has taken it over, so open it again in a later turn rather than expecting it to still be there. Keep the endpoint to yourself.",
     "</ruri:bridge>",
   ].join("\n");

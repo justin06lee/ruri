@@ -8,4 +8,4 @@ What ruri does not do, in no particular order. (Effort controls and tool results
 - Git status in the sidebar
 - Worktree support for parallel agents in one repo
 - Notifications
-- Windows and Linux packaging
+- Windows packaging (Linux is `make`, see the README)

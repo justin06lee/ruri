@@ -25,6 +25,9 @@ describe("how a harness was installed, from where it lives", () => {
       channel: "brew",
       pkg: "goose",
     });
+    expect(
+      channelOf("/home/a/.codex/packages/standalone/releases/0.159.2-aarch64-unknown-linux-musl/bin/codex"),
+    ).toEqual({ channel: "self", pkg: "@openai/codex" });
     expect(channelOf("/usr/local/bin/some-agent")).toEqual({ channel: "other" });
   });
 });
@@ -33,6 +36,12 @@ describe("its version, without running it", () => {
   test("claude's versions dir, brew's cellar", () => {
     expect(versionFromPath("self", "/Users/a/.local/share/claude/versions/2.1.278")).toBe("2.1.278");
     expect(versionFromPath("brew", "/opt/homebrew/Cellar/goose/3.28.0/bin/goose", "goose")).toBe("3.28.0");
+    expect(
+      versionFromPath(
+        "self",
+        "/home/a/.codex/packages/standalone/releases/0.159.2-aarch64-unknown-linux-musl/bin/codex",
+      ),
+    ).toBe("0.159.2");
   });
 
   test("a global package's own package.json", () => {

@@ -61,3 +61,28 @@ await build({
   },
   logLevel: "info",
 });
+
+/**
+ * Nothing but ASCII in what was written. V8 keeps a script's source for as
+ * long as the script lives, at a byte a character only if every character
+ * is ASCII: a "—" in one regular expression kept the whole server bundle at
+ * two bytes each, 2.3 MB more of the server's heap. esbuild escapes what is
+ * in strings but leaves regular expressions as they were written; there,
+ * as in a string, \uXXXX is the same character. Where one follows a
+ * backslash, or a file uses String.raw (whose text an escape would change),
+ * the build stops rather than guess.
+ */
+for (const file of ["dist-electron/main.mjs", "dist-electron/server.mjs"]) {
+  const text = fs.readFileSync(file, "utf8");
+  if (!/[\u0080-\uffff]/.test(text)) continue;
+  if (text.includes("String.raw"))
+    throw new Error(`${file} has non-ASCII text and String.raw: escape it in the source`);
+  const ascii = text.replace(/[\u0080-\uffff]/g, (char, at: number) => {
+    let slashes = 0;
+    while (text[at - 1 - slashes] === "\\") slashes += 1;
+    if (slashes % 2 === 1)
+      throw new Error(`${file}: an escaped non-ASCII character at ${at}: escape it in the source`);
+    return `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
+  });
+  fs.writeFileSync(file, ascii);
+}

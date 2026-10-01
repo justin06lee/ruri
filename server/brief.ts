@@ -79,7 +79,7 @@ export type BriefWrite = Pick<ProjectBrief, "description" | "features"> &
   Partial<
     Pick<
       ProjectBrief,
-      "layers" | "flows" | "run" | "layout" | "conventions" | "map" | "layerSheets" | "builtAt"
+      "layers" | "flows" | "run" | "layout" | "conventions" | "map" | "layerSheets" | "builtAt" | "readFiles"
     >
   >;
 
@@ -199,6 +199,19 @@ export function layered(brief: ProjectBrief): boolean {
   return Object.keys(brief.layerSheets ?? {}).length > 0;
 }
 
+/**
+ * Whether a project's stack owns its files — cut from a read of the repo,
+ * or kept by the sessions and the user since. Such a stack is the frame
+ * each layer's sheet is written into, one layer at a time as work reaches
+ * it (server/catchupBrief.ts), so a fold never redraws it; it only adds a
+ * layer for ground the work broke that no layer owns. A young project's
+ * stack, drawn by folds from what its turns did, owns nothing yet and is
+ * redrawn freely until the project is big enough to read.
+ */
+export function stacked(brief: ProjectBrief): boolean {
+  return (brief.layers ?? []).some((layer) => (layer.paths?.length ?? 0) > 0);
+}
+
 function flowsOf(value: unknown): SystemFlow[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value.filter(
@@ -254,7 +267,7 @@ export class BriefStore {
         const memory = readMemory(brief.memory);
         const map = mapOf(brief.map);
         const layerSheets = layerSheetsOf(brief.layerSheets);
-        const number = (key: "updated" | "built" | "remembered" | "recalled") =>
+        const number = (key: "updated" | "built" | "remembered" | "recalled" | "readFiles") =>
           typeof brief[key] === "number" ? { [key]: brief[key] } : {};
         this.briefs.set(projectId, {
           description: typeof brief.description === "string" ? brief.description : "",
@@ -275,6 +288,7 @@ export class BriefStore {
           ...number("built"),
           ...number("remembered"),
           ...number("recalled"),
+          ...number("readFiles"),
         });
       }
     } catch (err) {
@@ -566,12 +580,7 @@ export function stackLines(brief: ProjectBrief): string[] {
  * An older sheet, with no layer sheets yet: where to change what first,
  * because that is what a session with a task in hand needs, then the rest.
  */
-export function architectureText(
-  name: string,
-  brief: ProjectBrief,
-  extra: SheetExtras = {},
-  projectDir?: string,
-): string {
+export function architectureText(name: string, brief: ProjectBrief, projectDir?: string): string {
   const indexed = layered(brief);
   const lines = [
     `# ${name} — architecture`,
@@ -582,15 +591,12 @@ export function architectureText(
     "Don't edit this file: ruri writes it. `ruri architecture` prints it with every line numbered, and once you have read it that way you can put right what your work changed — `ruri architecture add|set|drop <section> …`. The user corrects it on the architecture page.",
     "",
   ];
+  // how far HEAD has moved since is catchup.md's to say: this file is
+  // committed with the project, and a line that changed with every commit
+  // would have it modified in every `git status`
   if (brief.builtAt) {
-    const since =
-      extra.sinceRead === undefined
-        ? ""
-        : extra.sinceRead === 0
-          ? ", which is still HEAD"
-          : `, ${extra.sinceRead} commit${extra.sinceRead === 1 ? "" : "s"} ago`;
     lines.push(
-      `Read from the repo at ${brief.builtAt}${since}; folded forward from finished turns since. Where it and the code disagree, the code is right.`,
+      `Read from the repo at ${brief.builtAt}; folded forward from finished turns since. Where it and the code disagree, the code is right.`,
       "",
     );
   }
@@ -635,7 +641,7 @@ export function layerText(
     `# ${projectName} — ${layer.name}`,
     "",
     `One layer of ${projectName}'s stack${owns ? `, owning \`${owns}\`` : ""}. The whole stack, and how the layers connect, is in \`.ruri/architecture.md\`.`,
-    `Don't edit this file: ruri writes it. \`ruri layer ${handle}\` prints it with every line numbered and what git says changed in this layer lately; once you have read it that way, put right what your work changed — \`ruri layer ${handle} add|set|drop <section> …\`. Where it and the code disagree, the code is right.`,
+    `Don't edit this file: ruri writes it. \`ruri layer ${handle}\` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — \`ruri layer ${handle} add|set|drop <section> …\`. Where it and the code disagree, the code is right.`,
     "",
   ];
   if (sheet.summary) lines.push(sheet.summary, "");
@@ -729,10 +735,21 @@ export function catchupText(name: string, brief: ProjectBrief, extra: SheetExtra
   if (extra.git?.length || extra.chats?.length || memory.now.length) {
     lines.push("## Where it stands", "");
     if (extra.git?.length) {
+      const read =
+        brief.builtAt && extra.sinceRead !== undefined
+          ? [
+              `- architecture.md was read from the repo at ${brief.builtAt}, ${
+                extra.sinceRead === 0
+                  ? "which is still HEAD"
+                  : `${extra.sinceRead} commit${extra.sinceRead === 1 ? "" : "s"} ago`
+              }`,
+            ]
+          : [];
       lines.push(
         `From git${extra.asOf ? ` at ${extra.asOf}` : ""} — \`ruri state\` has it live:`,
         "",
         ...extra.git.map((line) => `- ${line}`),
+        ...read,
         "",
       );
     }
@@ -782,25 +799,30 @@ export function catchupText(name: string, brief: ProjectBrief, extra: SheetExtra
   return lines.join("\n");
 }
 
+/** A file written only when what it says changed — the sheets are
+ *  rewritten after every turn, and most turns change nothing in them. */
+function writeIfChanged(file: string, text: string): void {
+  try {
+    if (fs.readFileSync(file, "utf8") === text) return;
+  } catch (err) {
+    if (!isMissing(err)) warn("brief", err, "writeIfChanged");
+  }
+  fs.writeFileSync(file, text);
+}
+
 /** Each layer's sheet into `.ruri/layers/`, and nothing else left there —
- *  a layer that went takes its file with it. */
-function writeLayerFiles(
-  dir: string,
-  name: string,
-  brief: ProjectBrief,
-  projectDir: string,
-  extra: SheetExtras,
-): void {
+ *  a layer that went takes its file with it. The file is the sheet alone:
+ *  it is committed with the project, and what sessions learned working in
+ *  the layer is the user's, from their chats — `ruri layer <handle>` adds
+ *  it when the sheet is read. */
+function writeLayerFiles(dir: string, name: string, brief: ProjectBrief, projectDir: string): void {
   const folder = path.join(dir, "layers");
   const written = new Set<string>();
   for (const layer of brief.layers ?? []) {
     const sheet = layer.slug ? brief.layerSheets?.[layer.slug] : undefined;
     if (!layer.slug || !sheet) continue;
     fs.mkdirSync(folder, { recursive: true });
-    fs.writeFileSync(
-      path.join(folder, `${layer.slug}.md`),
-      layerText(name, layer, sheet, projectDir, layerNotes(brief, layer.slug, extra)),
-    );
+    writeIfChanged(path.join(folder, `${layer.slug}.md`), layerText(name, layer, sheet, projectDir));
     written.add(`${layer.slug}.md`);
   }
   let there: string[];
@@ -837,14 +859,87 @@ export function writeBriefFiles(
     if (!dir) {
       fs.rmSync(path.join(projectDir, ".ruri", "layers"), { recursive: true, force: true });
       removeRuriFile(projectDir, "catchup.md");
+      removeRuriFile(projectDir, SHARED_SHEET);
       removeRuriFile(projectDir, "architecture.md");
       return;
     }
-    fs.writeFileSync(path.join(dir, "architecture.md"), architectureText(name, brief, extra, projectDir));
-    fs.writeFileSync(path.join(dir, "catchup.md"), catchupText(name, brief, extra));
-    writeLayerFiles(dir, name, brief, projectDir, extra);
+    writeIfChanged(path.join(dir, "architecture.md"), architectureText(name, brief, projectDir));
+    writeIfChanged(path.join(dir, SHARED_SHEET), sharedSheetText(brief));
+    writeIfChanged(path.join(dir, "catchup.md"), catchupText(name, brief, extra));
+    writeLayerFiles(dir, name, brief, projectDir);
   } catch (err) {
     warn("brief", err, "writeBriefFiles");
     // a read-only project directory is not worth failing a turn over
   }
+}
+
+/* ── the shape, shared through the repo ─────────────────────────────── */
+
+/**
+ * The shape as data, beside the markdown it is written out as:
+ * `.ruri/architecture.json`. The `.ruri/` folder is committed with the
+ * project (server/ruriDir.ts), so someone who clones it opens it in their
+ * own ruri with the stack, the layers' sheets and how to run it already
+ * there — taken in from this file (sharedSheet), not read from the repo
+ * again by a small model and written over in other words. Only the shape
+ * travels: the working memory comes from one person's chats, and the
+ * pinned screenshots live in their config.
+ */
+export const SHARED_SHEET = "architecture.json";
+
+function sharedSheetText(brief: ProjectBrief): string {
+  const sheets = Object.fromEntries(
+    Object.entries(brief.layerSheets ?? {}).map(([slug, sheet]) => {
+      const { updated: _updated, stamp: _stamp, ...kept } = sheet;
+      return [slug, kept];
+    }),
+  );
+  const shared = {
+    description: brief.description,
+    features: brief.features,
+    ...(brief.layers?.length ? { layers: brief.layers } : {}),
+    ...(brief.flows?.length ? { flows: brief.flows } : {}),
+    ...(brief.layout?.length ? { layout: brief.layout } : {}),
+    ...(brief.run?.length ? { run: brief.run } : {}),
+    ...(brief.conventions?.length ? { conventions: brief.conventions } : {}),
+    ...(brief.map?.length ? { map: brief.map } : {}),
+    ...(Object.keys(sheets).length ? { layerSheets: sheets } : {}),
+    ...(brief.builtAt ? { builtAt: brief.builtAt } : {}),
+  };
+  return `${JSON.stringify(shared, null, 2)}\n`;
+}
+
+/** The shape a clone of the project brought with it, if it brought one. */
+export function sharedSheet(projectDir: string): BriefWrite | undefined {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(fs.readFileSync(path.join(projectDir, ".ruri", SHARED_SHEET), "utf8")) as Record<
+      string,
+      unknown
+    >;
+  } catch (err) {
+    if (!isMissing(err)) warn("brief", err, "sharedSheet");
+    return undefined;
+  }
+  if (!raw || typeof raw !== "object" || typeof raw["description"] !== "string") return undefined;
+  const layers = layersOf(raw["layers"]);
+  const flows = flowsOf(raw["flows"]);
+  const map = mapOf(raw["map"]);
+  const layerSheets = layerSheetsOf(raw["layerSheets"]);
+  const lines = (key: string) => {
+    const value = list(raw[key]);
+    return value?.length ? { [key]: value } : {};
+  };
+  return {
+    description: raw["description"],
+    features: list(raw["features"]) ?? [],
+    ...(layers?.length ? { layers } : {}),
+    ...(flows?.length ? { flows } : {}),
+    ...lines("layout"),
+    ...lines("run"),
+    ...lines("conventions"),
+    ...(map?.length ? { map } : {}),
+    ...(layerSheets ? { layerSheets } : {}),
+    ...(typeof raw["builtAt"] === "string" ? { builtAt: raw["builtAt"] } : {}),
+  };
 }

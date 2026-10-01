@@ -3,15 +3,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import {
-  branchFacts,
-  commitsSince,
-  gitLines,
-  gitState,
-  gitStateSync,
-  headSync,
-  unmerged,
-} from "./gitState.js";
+import { branchFacts, commitsSince, gitLines, gitState, gitStateSync, head, unmerged } from "./gitState.js";
 
 function repo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-git-"));
@@ -76,8 +68,8 @@ describe("git's account", () => {
   });
 
   test("commits since a read of the repo, and nothing outside a repo", async () => {
-    const head = headSync(dir)!;
-    expect(await commitsSince(dir, head)).toBe(0);
+    const at = (await head(dir))!;
+    expect(await commitsSince(dir, at)).toBe(0);
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-nogit-"));
     expect(await gitState(outside)).toBeUndefined();
     expect(gitStateSync(outside)).toBeUndefined();

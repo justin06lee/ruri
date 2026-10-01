@@ -3,7 +3,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ProjectMemory, TranscriptEvent } from "../shared/protocol.js";
-import { architectureText, BriefStore, catchupText, writeBriefFiles } from "./brief.js";
+import {
+  architectureText,
+  BriefStore,
+  catchupText,
+  layerNotes,
+  sharedSheet,
+  writeBriefFiles,
+} from "./brief.js";
 import type { ServerContext } from "./context.js";
 import { memoryMaterial } from "./memory.js";
 
@@ -191,10 +198,64 @@ describe("the sheet", () => {
     expect(text).toContain('- "Bridge work" (c0ffee11) — working now · on: fix the click · in: bridge');
     expect(text).toContain("--layer <handle>");
     writeBriefFiles(project, "ruri", layered, extra);
+    // the layer's file is committed with the project: the sheet alone — what
+    // sessions learned there comes from this person's chats, and
+    // `ruri layer` prints it beside the sheet
     const sheet = fs.readFileSync(path.join(project, ".ruri", "layers", "bridge.md"), "utf8");
-    expect(sheet).toContain("## From the sessions that worked here");
-    expect(sheet).toContain("- trap: CDP targets die on sleep (2026-09-27 · by an agent)");
+    expect(sheet).not.toContain("CDP targets die on sleep");
+    expect(sheet).toContain("what sessions learned working here");
     expect(sheet).toContain("`ruri layer bridge add|set|drop <section> …`");
+    expect(layerNotes(layered, "bridge")).toContain(
+      "trap: CDP targets die on sleep (2026-09-27 · by an agent)",
+    );
+  });
+
+  test("the shape travels with the project as data a clone takes in; the memory and git stay home", () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-brief-shared-"));
+    fs.writeFileSync(path.join(project, "main.ts"), "x");
+    const sheet = {
+      description: "A desktop app.",
+      features: ["Chats per project"],
+      shots: [],
+      layers: [{ name: "Bridge", what: "hidden browser", slug: "bridge", paths: ["server/bridge.ts"] }],
+      layerSheets: {
+        bridge: {
+          summary: "Drives a browser.",
+          map: [],
+          flows: [],
+          files: [],
+          rules: ["CDP needs a target"],
+          edges: [],
+          updated: 5,
+          stamp: { at: 5, by: "repo" as const },
+        },
+      },
+      run: ["make dev"],
+      builtAt: "abc1234",
+      memory,
+    };
+    writeBriefFiles(project, "ruri", sheet, {
+      git: ["Branch: on master (abc1234)"],
+      asOf: "12:00",
+      sinceRead: 3,
+    });
+    const architecture = fs.readFileSync(path.join(project, ".ruri", "architecture.md"), "utf8");
+    // what moves with every commit is the catch-up's, which stays out of git
+    expect(architecture).toContain("Read from the repo at abc1234;");
+    expect(architecture).not.toContain("commits ago");
+    expect(fs.readFileSync(path.join(project, ".ruri", "catchup.md"), "utf8")).toContain(
+      "architecture.md was read from the repo at abc1234, 3 commits ago",
+    );
+    const json = fs.readFileSync(path.join(project, ".ruri", "architecture.json"), "utf8");
+    expect(json).not.toContain("make update");
+    expect(json).not.toContain('"stamp"');
+    const shared = sharedSheet(project)!;
+    expect(shared.description).toBe("A desktop app.");
+    expect(shared.layers?.[0]?.paths).toEqual(["server/bridge.ts"]);
+    expect(shared.layerSheets?.["bridge"]?.rules).toEqual(["CDP needs a target"]);
+    expect(shared.run).toEqual(["make dev"]);
+    expect(shared.builtAt).toBe("abc1234");
+    expect(sharedSheet(path.join(project, "nowhere"))).toBeUndefined();
   });
 
   test("both files land in the project's .ruri/, and an empty sheet takes them away", () => {

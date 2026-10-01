@@ -121,6 +121,7 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   catchup_rebuild: { type: "catchup_rebuild", projectId: "p" },
   memory_rebuild: { type: "memory_rebuild", projectId: "p" },
   sheet_get: { type: "sheet_get", projectId: "p" },
+  layer_sheet_write: { type: "layer_sheet_write", projectId: "p", slug: "ui" },
   memory_line: { type: "memory_line", projectId: "p", part: "decisions", lineId: "d1a2", action: "pin" },
   memory_write: { type: "memory_write", projectId: "p", part: "open", text: "ship it", why: "because" },
   sheet_line: {

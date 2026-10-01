@@ -5,17 +5,19 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { StackLayer, TranscriptEvent } from "../shared/protocol.js";
+import type { Project, StackLayer, TranscriptEvent } from "../shared/protocol.js";
 import {
+  dueRead,
   exchangeRef,
   memoryStack,
   pushSheet,
   rebuildCatchup,
   refreshSheet,
   resolveRef,
-  shapeless,
+  touchProject,
+  writeLayerSheets,
 } from "./catchupBrief.js";
-import { layered, layerOfFile } from "./brief.js";
+import { layerOfFile, stacked } from "./brief.js";
 import { editedSince, noteToolRead } from "./sheetEdits.js";
 import { writeIndexFile } from "./components.js";
 import { pushComponents } from "./handlers/components.js";
@@ -130,25 +132,9 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
   // the index is left to a session that kept it itself this turn
   const unkept = turns.filter((turn) => !keptItself(turn).index);
   const shapeHappened = unkept.map((turn) => turn.text).join("\n\n---\n\n");
-
-  // A sheet from before layer sheets is drawn whole from the repo once,
-  // rather than folded forward from a shape that has none.
-  if (shapeless(ctx, project.id) && current.description) void rebuildCatchup(ctx, project.id);
-  else {
-    foldLayers(ctx, project.id, turns);
-    if (shapeHappened)
-      updateShape(project.name, pickShape(current), shapeHappened, project.path, layered(current))
-        .then((next) => {
-          if (!next || JSON.stringify(next) === JSON.stringify(pickShape(current))) return;
-          // the user corrected the shape while the model wrote: theirs stands,
-          // and the next fold starts from it
-          if (JSON.stringify(pickShape(ctx.briefs.get(project.id))) !== JSON.stringify(pickShape(current)))
-            return;
-          ctx.briefs.write(project.id, next);
-          pushSheet(ctx, project.id);
-        })
-        .catch(() => {});
-  }
+  void foldShape(ctx, project, turns, shapeHappened).catch((err: unknown) =>
+    warn("events", err, "foldShape"),
+  );
 
   // A project with no memory yet reads its chats whole — what they hold
   // includes these turns — rather than starting from this batch alone.
@@ -177,6 +163,59 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
 }
 
 /**
+ * The turns into the project's shape, as the work grows it. A young
+ * project grown big enough to cut a stack from has its repo read once
+ * (catchupBrief.ts dueRead), rather than folded forward from a stack that
+ * owns nothing. Otherwise the layers the work reached fold it in — or get
+ * their first sheet — and the index takes in what changed, a project with
+ * a stack gaining a layer for ground the work broke that none owns.
+ */
+async function foldShape(
+  ctx: ServerContext,
+  project: Project,
+  turns: Gathered[],
+  shapeHappened: string,
+): Promise<void> {
+  if (await dueRead(ctx, project.id)) {
+    void rebuildCatchup(ctx, project.id, { sheets: "none" });
+    return;
+  }
+  foldLayers(ctx, project.id, turns);
+  if (!shapeHappened) return;
+  const current = ctx.briefs.get(project.id);
+  const frame = stacked(current);
+  const unowned = frame ? unownedFiles(current.layers ?? [], project.path, turns) : [];
+  const next = await updateShape(
+    project.name,
+    pickShape(current),
+    shapeHappened,
+    project.path,
+    frame,
+    unowned,
+  );
+  if (!next || JSON.stringify(next) === JSON.stringify(pickShape(current))) return;
+  // the user corrected the shape while the model wrote: theirs stands,
+  // and the next fold starts from it
+  if (JSON.stringify(pickShape(ctx.briefs.get(project.id))) !== JSON.stringify(pickShape(current))) return;
+  const had = new Set((current.layers ?? []).map((layer) => layer.slug));
+  const written = ctx.briefs.write(project.id, next);
+  pushSheet(ctx, project.id);
+  // a layer new to the stack holds what the turns just built: its sheet now
+  const added = (written.layers ?? []).flatMap((layer) =>
+    layer.slug && !had.has(layer.slug) && layer.paths?.length ? [layer.slug] : [],
+  );
+  if (frame && added.length) void writeLayerSheets(ctx, project.id, added);
+}
+
+/** The files the turns changed that are still there and no layer owns. */
+function unownedFiles(layers: StackLayer[], projectDir: string, turns: Gathered[]): string[] {
+  return [...new Set(turns.flatMap((turn) => turn.files))].filter(
+    (file) =>
+      layerCandidate(file) && !layerOfFile(layers, file) && fs.existsSync(path.join(projectDir, file)),
+  );
+}
+
+/**
  * The stack kept owning what the turns changed. A file no layer owns yet —
  * a new one, most often — goes to the layer holding two thirds or more of
  * the owned files in its own folder; one whose folder no layer has that
@@ -186,7 +225,7 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
  */
 export function adoptFiles(ctx: ServerContext, projectId: string, projectDir: string, files: string[]): void {
   const brief = ctx.briefs.get(projectId);
-  if (!layered(brief) || files.length === 0) return;
+  if (!stacked(brief) || files.length === 0) return;
   let layers = brief.layers ?? [];
   let changed = false;
   for (const file of new Set(files)) {
@@ -246,22 +285,24 @@ function keptItself(turn: Gathered): { index: boolean; layers: Set<string> } {
 /**
  * The turns into the sheets of the layers whose files they changed — each
  * layer given only the turns that touched it, and only the few layers most
- * worked on, since each is a small-model call. A turn that changed nothing
- * a layer owns folds into no layer at all, and a layer whose sheet the
- * turn's own session put right is left as that session left it.
+ * worked on, since each is a small-model call. A layer the work reached
+ * that has no sheet yet gets its first, read from its files as they now
+ * stand — which already holds what the turns did. A turn that changed
+ * nothing a layer owns folds into no layer at all, and a layer whose sheet
+ * the turn's own session put right is left as that session left it.
  */
 export function foldLayers(ctx: ServerContext, projectId: string, turns: Gathered[]): void {
   const project = ctx.store.get(projectId);
   const brief = ctx.briefs.get(projectId);
   const layers = brief.layers ?? [];
-  if (!project || !layered(brief)) return;
+  if (!project || !stacked(brief)) return;
   const touched = new Map<string, { layer: StackLayer; turns: Gathered[]; files: number }>();
   for (const turn of turns) {
     const seen = new Set<string>();
     const kept = keptItself(turn).layers;
     for (const file of turn.files) {
       const layer = layerOfFile(layers, file);
-      if (!layer?.slug || !brief.layerSheets?.[layer.slug] || kept.has(layer.slug)) continue;
+      if (!layer?.slug || kept.has(layer.slug)) continue;
       const entry = touched.get(layer.slug) ?? { layer, turns: [], files: 0 };
       entry.files += 1;
       if (!seen.has(layer.slug)) entry.turns.push(turn);
@@ -270,8 +311,11 @@ export function foldLayers(ctx: ServerContext, projectId: string, turns: Gathere
     }
   }
   const busiest = [...touched.entries()].sort((a, b) => b[1].files - a[1].files).slice(0, LAYER_FOLDS);
+  const unwritten = busiest.flatMap(([slug]) => (brief.layerSheets?.[slug] ? [] : [slug]));
+  if (unwritten.length) void writeLayerSheets(ctx, projectId, unwritten);
   for (const [slug, { layer, turns: its }] of busiest) {
-    const before = brief.layerSheets![slug]!;
+    const before = brief.layerSheets?.[slug];
+    if (!before) continue;
     foldLayerSheet(
       project.name,
       layer,
@@ -351,6 +395,13 @@ function othersEdits(
   return out;
 }
 
+/** A file a turn's own work may have changed: inside the project, and not
+ *  one of the sheets ruri itself writes into `.ruri/` — those are tracked
+ *  with the project, so its checkpoints see ruri's own rewrites too. */
+function turnsOwn(file: string): boolean {
+  return !file.startsWith("..") && !file.startsWith(".ruri/");
+}
+
 /**
  * What a finished turn changed in its project, project-relative: the
  * difference between its two checkpoints — shell edits, generators, moves,
@@ -367,7 +418,7 @@ export async function settleTurnFiles(
 ): Promise<string[]> {
   const owner = ctx.store.findSession(channelId)?.project;
   if (!owner) return [];
-  const edited = (turn.files ?? []).map((file) => relativeTo(owner, file)).filter((f) => !f.startsWith(".."));
+  const edited = (turn.files ?? []).map((file) => relativeTo(owner, file)).filter(turnsOwn);
   // the turn's closing checkpoint is asked for as the turn ends, in the same
   // breath as this — let it go first (server/chats.ts settleCheckpoint)
   await new Promise((resolve) => setImmediate(resolve));
@@ -376,7 +427,9 @@ export async function settleTurnFiles(
   if (snapped) {
     const theirs = othersEdits(ctx, owner, channelId, turn.started ?? 0, Date.now());
     const own = new Set(edited);
-    files = [...new Set([...edited, ...snapped.filter((f) => own.has(f) || !theirs.has(f))])];
+    files = [
+      ...new Set([...edited, ...snapped.filter((f) => turnsOwn(f) && (own.has(f) || !theirs.has(f)))]),
+    ];
   }
   ctx.archive.setTurnFiles(channelId, turn.turnId, files);
   return files;
@@ -455,6 +508,12 @@ export function recordEvent(ctx: ServerContext, projectId: string, raw: Transcri
   if (projectId === HOME_ID) ctx.homeLog.observe(event);
   ctx.clients.pushEvent(projectId, event);
   if (event.kind === "user") syncProjectFiles(ctx, projectId);
+  // a prompt is someone working in the project: one with no sheet yet is
+  // read now — nothing is read for projects nobody works in
+  if (event.kind === "user" && projectId !== HOME_ID) {
+    const owner = ctx.store.findSession(projectId)?.project;
+    if (owner) touchProject(ctx, owner.id);
+  }
   // every prompt gets its recall note AND its tracker split the moment
   // it's sent — neither waits on (or survives only with) a finished turn,
   // so interrupted turns and "continue" follow-ups can't lose requests.

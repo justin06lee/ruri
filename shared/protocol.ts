@@ -541,6 +541,10 @@ export interface ProjectSheet {
   built?: number;
   /** The commit the repo stood at when it was read. */
   builtAt?: string;
+  /** How many files a layer could own when the repo was last read — a
+   *  read that found too little to cut a stack from is not asked again
+   *  until the project has grown well past it. */
+  readFiles?: number;
   /** When the memory last changed. */
   remembered?: number;
   /** When the memory was last written from the chats' histories whole. */
@@ -1572,6 +1576,9 @@ export type ClientMessage =
   | { type: "memory_rebuild"; projectId: string }
   /** The architecture page wants a project's sheet — answered with `sheet`. */
   | { type: "sheet_get"; projectId: string }
+  /** The user opening a layer that has no sheet yet: read that layer and
+   *  write its sheet — answered with `catchup` as it goes, then `sheet`. */
+  | { type: "layer_sheet_write"; projectId: string; slug: string }
   /** The user correcting the memory on the page: pin a line so nothing
    *  rewrites it, unpin it, or strike it. */
   | {

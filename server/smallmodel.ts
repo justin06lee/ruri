@@ -91,6 +91,40 @@ export function setCompletionClient(next: Yagami | null): void {
 }
 
 /**
+ * What a one-turn completion has no use for: every tool (a model handed a
+ * shell reads files it was already given — `cat`, `rg`, `find` in an empty
+ * folder, a round trip each), the browser, apps and plugins, and Codex's
+ * own daemon. Set as config rather than `--disable`, which refuses a
+ * feature name the installed Codex doesn't know — and an update can retire
+ * one. Measured on one call: a quarter of the CPU, and 3k fewer tokens in.
+ */
+const LEAN_FEATURES = [
+  "shell_tool",
+  "unified_exec",
+  "shell_snapshot",
+  "apps",
+  "plugins",
+  "remote_plugin",
+  "browser_use",
+  "browser_use_external",
+  "in_app_browser",
+  "computer_use",
+  "code_mode_host",
+  "multi_agent",
+  "image_generation",
+  "view_image",
+  "hooks",
+  "goals",
+  "skill_search",
+  "tool_suggest",
+  "realtime_conversation",
+  "workspace_dependencies",
+  "worktrees",
+  "sleep_tool",
+  "daemon_auto_start",
+];
+
+/**
  * Codex for a one-line completion, without the user's config.toml.
  *
  * `codex exec` starts every MCP server the user's config names before it
@@ -114,10 +148,11 @@ export function quietCodex(): string | undefined {
   const script = [
     "#!/bin/sh",
     "# ruri's small model: codex without the user's config.toml, so none of",
-    "# its MCP servers start for a one-line completion (server/smallmodel.ts)",
+    "# its MCP servers start for a one-line completion, with no tools, low",
+    "# effort, and no session file left behind (server/smallmodel.ts)",
     'if [ "$1" = "exec" ]; then',
     "  shift",
-    `  exec ${JSON.stringify(real)} exec --ignore-user-config "$@"`,
+    `  exec ${JSON.stringify(real)} exec --ignore-user-config --ephemeral -c 'model_reasoning_effort="low"' ${LEAN_FEATURES.map((f) => `-c features.${f}=false`).join(" ")} "$@"`,
     "fi",
     `exec ${JSON.stringify(real)} "$@"`,
     "",
@@ -144,26 +179,61 @@ function makeClient(): Yagami {
  * How many small-model calls run at once, across every chat. Each is a
  * CLI process of a couple of hundred megabytes for several seconds, and
  * they come in bursts — a prompt's note and its tracker split together,
- * a reply's note as ten agents finish at once. Nothing waits on them but
- * a nicety (a note, a title, a checklist line), so they take turns.
+ * a reply's note as ten agents finish at once.
+ *
+ * Two lanes. "now" is what a person is waiting on — a chat's title, a
+ * prompt the scissors are cutting — and goes first. Everything else (the
+ * notes, the tracker, the sheets and the memory) is "background": it
+ * takes one of the slots at most, so a backlog of it never holds up a
+ * title, and never has two CLIs running for work nobody is waiting on.
  */
 const SMALL_AT_ONCE = Math.max(1, Number(process.env["RURI_SMALL_AT_ONCE"]) || 2);
+const BACKGROUND_AT_ONCE = 1;
+type Lane = "now" | "background";
 let running = 0;
-const waiting: Array<() => void> = [];
+let runningBackground = 0;
+const waitingNow: Array<() => void> = [];
+const waitingBackground: Array<() => void> = [];
 
-async function inLine<T>(work: () => Promise<T>): Promise<T> {
-  if (running >= SMALL_AT_ONCE) await new Promise<void>((resolve) => waiting.push(resolve));
-  running += 1;
+/** Start whatever waiting work there is room for, "now" first. */
+function pump(): void {
+  while (running < SMALL_AT_ONCE) {
+    const now = waitingNow.shift();
+    if (now) {
+      running += 1;
+      now();
+      continue;
+    }
+    if (runningBackground >= BACKGROUND_AT_ONCE) return;
+    const later = waitingBackground.shift();
+    if (!later) return;
+    running += 1;
+    runningBackground += 1;
+    later();
+  }
+}
+
+async function inLine<T>(lane: Lane, work: () => Promise<T>): Promise<T> {
+  await new Promise<void>((resolve) => {
+    (lane === "now" ? waitingNow : waitingBackground).push(resolve);
+    pump();
+  });
   try {
     return await work();
   } finally {
     running -= 1;
-    waiting.shift()?.();
+    if (lane === "background") runningBackground -= 1;
+    pump();
   }
 }
 
-function complete(system: string, prompt: string, maxTokens: number): Promise<string> {
-  return inLine(() => completeNow(system, prompt, maxTokens));
+function complete(
+  system: string,
+  prompt: string,
+  maxTokens: number,
+  lane: Lane = "background",
+): Promise<string> {
+  return inLine(lane, () => completeNow(system, prompt, maxTokens));
 }
 
 async function completeNow(system: string, prompt: string, maxTokens: number): Promise<string> {
@@ -508,9 +578,10 @@ RULES
 - FEATURES: one line each, no more than about 10 words. A capability, not a changelog entry. Merge relentlessly; adding to something listed edits that line. A fix, a refactor, a polish pass: nothing to add. Never drop a feature that is still there. At most 16, the defining ones first.
 - FLOWS: the paths ACROSS layers that matter most, each {"name", "steps"}. Change one only when the work clearly rerouted it. At most 4.
 - LAYOUT: "path — what it is for" lines for the directories and key files that matter. Add a line when the work created an important new part; drop one that no longer exists. At most 16.
+- NEW GROUND: when you are given UNOWNED FILES — files the work added that no layer owns yet — say where each goes. One that belongs to a layer already in the stack goes in "place", file to that layer's slug: most new files do. Only a genuinely new part of the stack — a new app, service, package or engine, not a new file in an old part — becomes a new layer in "newLayers", each {"name", "what", "paths"}, owning those files or the new folders they are in (a folder ends in /). Leave both out when there are no unowned files.
 - Never invent anything the exchanges don't show. If nothing structural happened, return the index unchanged.
 
-Reply as JSON and nothing else: {"description": "...", "features": [...], "flows": [{"name": "...", "steps": ["...", "..."]}], "layout": [...]}`;
+Reply as JSON and nothing else: {"description": "...", "features": [...], "flows": [{"name": "...", "steps": ["...", "..."]}], "layout": [...], "place": {"path/to/file": "layer-slug"}, "newLayers": [{"name": "...", "what": "...", "paths": ["..."]}]}`;
 
 /**
  * Fold what just happened into the project's shape — the whole sheet for
@@ -524,6 +595,7 @@ export async function updateShape(
   happened: string,
   projectDir?: string,
   layered = false,
+  unowned: string[] = [],
 ): Promise<ShapeUpdate | null> {
   if (!smallModelEnabled()) return null;
   // a layered index's stack is shown, not handed over: what a layer owns is
@@ -539,13 +611,16 @@ export async function updateShape(
   const prompt =
     `PROJECT NAME: ${project}\n\n` +
     `${layered ? "INDEX" : "SHEET"} AS IT STANDS:\n${JSON.stringify(standing, null, 1)}\n\n` +
+    (layered && unowned.length ? `UNOWNED FILES:\n${unowned.slice(0, UNOWNED_MAX).join("\n")}\n\n` : "") +
     `WHAT JUST HAPPENED:\n${happened.slice(-12_000)}`;
   try {
     const parsed = objectIn(await complete(layered ? INDEX_SYSTEM : SHAPE_SYSTEM, prompt, 1800));
     if (!parsed || typeof parsed["description"] !== "string" || !Array.isArray(parsed["features"]))
       return null;
     // a part the model left out is kept as it was, not emptied
-    const layers = layered ? current.layers : parseLayers(parsed["layers"], projectDir);
+    const layers = layered
+      ? grownStack(current.layers, parsed, unowned.slice(0, UNOWNED_MAX), projectDir)
+      : parseLayers(parsed["layers"], projectDir);
     const flows = parseFlows(parsed["flows"]);
     const layout = lines(parsed["layout"], 16);
     const map = layered ? current.map : parseMap(parsed["map"], projectDir);
@@ -562,6 +637,55 @@ export async function updateShape(
     // a sheet that can't be updated is better left alone
     return null;
   }
+}
+
+/** The most unowned files a fold is asked to place. */
+const UNOWNED_MAX = 60;
+/** The most layers a stack grows to by folds. */
+const STACK_MAX = 24;
+
+/** A file's folders, each as a layer would own it: "a/b/c.ts" → "a/", "a/b/". */
+function foldersOf(file: string): string[] {
+  const parts = file.split("/").slice(0, -1);
+  return parts.map((_, i) => `${parts.slice(0, i + 1).join("/")}/`);
+}
+
+/**
+ * The stack a fold may grow, and only there: each unowned file the model
+ * placed goes to the layer it named, and a new part of the stack becomes
+ * a new layer — owning only unowned files, or folders those are in, so it
+ * never takes a file from a layer that has it. New layers go below the
+ * last layer owning code, above the runtimes and engines under it all.
+ */
+function grownStack(
+  layers: Layer[],
+  parsed: Record<string, unknown>,
+  unowned: string[],
+  projectDir?: string,
+): Layer[] {
+  if (unowned.length === 0) return layers;
+  const left = new Set(unowned);
+  const folders = new Set(unowned.flatMap(foldersOf));
+  const raw = parsed["place"];
+  const place = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const placed = new Set<string>();
+  const out = layers.map((layer) => {
+    const mine = Object.entries(place).flatMap(([file, slug]) =>
+      slug === layer.slug && left.has(file) && !placed.has(file) ? [file] : [],
+    );
+    for (const file of mine) placed.add(file);
+    return mine.length ? { ...layer, paths: [...(layer.paths ?? []), ...mine] } : layer;
+  });
+  const room = Math.max(0, STACK_MAX - out.length);
+  const fresh = parseLayers(parsed["newLayers"], projectDir, room).flatMap((layer): Layer[] => {
+    const paths = (layer.paths ?? []).filter(
+      (p) => (left.has(p) && !placed.has(p)) || (p.endsWith("/") && folders.has(p)),
+    );
+    return paths.length ? [{ name: layer.name, what: layer.what, paths }] : [];
+  });
+  if (fresh.length === 0) return out;
+  const at = out.reduce((last, layer, i) => (layer.paths?.length ? i + 1 : last), 0);
+  return [...out.slice(0, at), ...fresh, ...out.slice(at)];
 }
 
 /** The sheet written whole from a read of the repo: the shape, plus what
@@ -996,7 +1120,7 @@ export async function sessionRoleTitle(turn: Turn): Promise<string> {
   const prompt =
     `FIRST PROMPT:\n${turn.user.slice(0, 3000)}` +
     (turn.assistant ? `\n\nRESPONSE (truncated):\n${turn.assistant.slice(0, 2000)}` : "");
-  const title = (await complete(ROLE_SYSTEM, prompt, 40)).replace(/["'.]/g, "").trim();
+  const title = (await complete(ROLE_SYSTEM, prompt, 40, "now")).replace(/["'.]/g, "").trim();
   return title.length > 0 && title.length <= 40 ? title : "";
 }
 
@@ -1011,7 +1135,7 @@ Output STRICT JSON: {"prompts": ["...", "..."]} in the original order.`;
 
 /** Split a long multi-request prompt into separate prompts (verbatim-ish). */
 export async function splitPrompt(text: string): Promise<string[]> {
-  const raw = await complete(SPLIT_SYSTEM, text.slice(0, 24000), 8000);
+  const raw = await complete(SPLIT_SYSTEM, text.slice(0, 24000), 8000, "now");
   try {
     const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "")) as {
       prompts?: unknown;

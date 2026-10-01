@@ -373,7 +373,8 @@ function layerMaterial(
  * what as the sheet knew it before it had layers (each entry goes to the
  * layer owning its first file), so nothing learned from work is lost in
  * the move. `onSheet` takes each sheet as it arrives, so the page fills
- * in layer by layer; `onNote` says which layer is being read.
+ * in layer by layer; `onNote` says which layer is being read. `only`
+ * limits it to the layers with those handles.
  */
 export async function buildLayerSheets(
   project: Project,
@@ -382,10 +383,11 @@ export async function buildLayerSheets(
   known: ConceptPlace[],
   onSheet: (slug: string, sheet: LayerSheet) => void,
   onNote: (note: string) => void,
+  only?: Set<string>,
 ): Promise<number> {
   const files = await layerCandidates(project.path);
   const work = layers.flatMap((layer) => {
-    if (!layer.slug) return [];
+    if (!layer.slug || (only && !only.has(layer.slug))) return [];
     const owned = files.filter((rel) => layerOfFile(layers, rel) === layer);
     if (owned.length === 0) return [];
     const mine = (place: ConceptPlace) => {
@@ -398,7 +400,7 @@ export async function buildLayerSheets(
   let done = 0;
   let written = 0;
   let next = 0;
-  onNote(`reading ${work.length} layers…`);
+  onNote(work.length === 1 ? `reading ${work[0]!.layer.name}…` : `reading ${work.length} layers…`);
   const workers = Array.from({ length: Math.min(2, work.length) }, async () => {
     for (;;) {
       const job = work[next++];

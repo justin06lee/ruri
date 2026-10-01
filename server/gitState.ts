@@ -149,9 +149,10 @@ export async function commitsSince(dir: string, sha: string): Promise<number | u
   }
 }
 
-export function headSync(dir: string): string | undefined {
+/** The commit HEAD is at, short — undefined outside a repo. */
+export async function head(dir: string): Promise<string | undefined> {
   try {
-    return runSync(dir, ["rev-parse", "--short", "HEAD"]).trim() || undefined;
+    return (await run(dir, ["rev-parse", "--short", "HEAD"])).trim() || undefined;
   } catch {
     return undefined;
   }

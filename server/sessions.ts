@@ -543,6 +543,9 @@ function agentCard(
   };
 }
 
+/** How often a running agent's card may go out (emitSoon). */
+const CARD_EVERY_MS = 500;
+
 /**
  * The subagents one session has started, by the spawning call's id: each
  * one's card — the chip in the chat, or in its parent agent's log when an
@@ -550,7 +553,7 @@ function agentCard(
  * goes out as the same card again, so the chip is always the agent as it
  * stands; what the agent does goes to its own log.
  */
-class AgentBook {
+export class AgentBook {
   private readonly cards = new Map<string, { event: ToolEvent; parent?: string; said?: string }>();
   /** Keys the chat has no card for (an agent's own agent, from an earlier
    *  process): looked for once, not on every word they say. */
@@ -658,6 +661,45 @@ class AgentBook {
     else (this.events.onEventUpdate ?? this.events.onEvent)(this.projectId, card.event);
   }
 
+  /** Cards whose newest progress is waiting to go out, and when each last went. */
+  private readonly due = new Map<string, NodeJS.Timeout>();
+  private readonly sent = new Map<string, number>();
+
+  /**
+   * A running agent's progress — what it is doing now, its tokens, its tool
+   * count — at most twice a second. Each update is an event through the
+   * archive, every window and the chat's whole transcript on screen, and
+   * an agent makes one per tool call: ten of them working sent dozens a
+   * second, for a line of text that changed. The newest goes out when its
+   * turn comes; a card that ends or moves to the background goes at once.
+   */
+  private emitSoon(key: string, card: { event: ToolEvent; parent?: string }, now: boolean): void {
+    const pending = this.due.get(key);
+    if (now) {
+      if (pending) clearTimeout(pending);
+      this.due.delete(key);
+      this.sent.set(key, Date.now());
+      this.emit(card);
+      return;
+    }
+    if (pending) return;
+    const wait = (this.sent.get(key) ?? 0) + CARD_EVERY_MS - Date.now();
+    if (wait <= 0) {
+      this.sent.set(key, Date.now());
+      this.emit(card);
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.due.delete(key);
+      const newest = this.cards.get(key);
+      if (!newest) return;
+      this.sent.set(key, Date.now());
+      this.emit(newest);
+    }, wait);
+    timer.unref?.();
+    this.due.set(key, timer);
+  }
+
   isBackground(key: string): boolean {
     return this.cards.get(key)?.event.agent?.background === true;
   }
@@ -699,7 +741,7 @@ class AgentBook {
     const changed = (Object.keys(next) as Array<keyof SubagentState>).some((k) => next[k] !== current[k]);
     if (!changed) return;
     card.event = { ...card.event, agent: next };
-    this.emit(card);
+    this.emitSoon(key, card, next.status !== current.status || next.background !== current.background);
     // one fewer agent at work (or one more gone to the background): the
     // session may be free to close, and the chat's work has changed
     if (

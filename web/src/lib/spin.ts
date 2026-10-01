@@ -10,17 +10,25 @@
  * while a star is in view (lib/awake.ts watchSeen) and the window is awake;
  * a star scrolled away holds still and snaps to the clock's angle when it
  * comes back. Not at all for someone who has asked for reduced motion.
+ *
+ * And not for ever: a star turns for a while when it arrives and whenever
+ * the window wakes, then holds still — a star standing there still says
+ * new, and a header that keeps a timer going all day for it does not.
  */
 import { isAwake, subscribeAwake, watchSeen } from "./awake";
 
 const FRAME_MS = 100;
 const TURN_MS = 5500;
 const STEP_DEG = (360 * FRAME_MS) / TURN_MS;
+/** How long the stars turn, from a star arriving or the window waking. */
+const SPIN_FOR_MS = 20_000;
 
 /** The stars in view — the only ones a step turns. */
 const seen = new Set<HTMLElement>();
 let angle = 0;
 let timer: number | undefined;
+/** Until when the stars may turn. */
+let until = 0;
 
 function reducedMotion(): boolean {
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -33,11 +41,13 @@ function turn(star: HTMLElement): void {
 function step(): void {
   angle = (angle + STEP_DEG) % 360;
   for (const star of seen) turn(star);
+  if (Date.now() >= until) settle();
 }
 
-/** Start or stop the clock to match: stars in view, window awake. */
+/** Start or stop the clock to match: stars in view, window awake, and
+ *  their while not yet up. */
 function settle(): void {
-  const wanted = seen.size > 0 && isAwake();
+  const wanted = seen.size > 0 && isAwake() && Date.now() < until;
   if (wanted && timer === undefined) timer = window.setInterval(step, FRAME_MS);
   else if (!wanted && timer !== undefined) {
     window.clearInterval(timer);
@@ -45,11 +55,15 @@ function settle(): void {
   }
 }
 
-subscribeAwake(settle);
+subscribeAwake(() => {
+  if (isAwake()) until = Date.now() + SPIN_FOR_MS;
+  settle();
+});
 
 /** A ref for anything that should turn with the stars. */
 export function spinStar(el: HTMLElement | null): void | (() => void) {
   if (!el || reducedMotion()) return;
+  until = Date.now() + SPIN_FOR_MS;
   turn(el);
   const unwatch = watchSeen(el, (inView) => {
     if (inView) {

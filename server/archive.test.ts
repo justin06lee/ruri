@@ -367,3 +367,29 @@ describe("the windows chats' turns reported", () => {
     expect(Object.fromEntries(windows)).toEqual({ opus: 1_000_000, "codex:gpt-6-astra": 258_400 });
   });
 });
+
+describe("the live file's text", () => {
+  test("is the chat as JSON, stitched from each event's text", async () => {
+    const { archiveText } = await import("./archive.js");
+    const events: TranscriptEvent[] = [user("u1", 'quotes " and \\ and\nnewlines'), reply("a1"), mark("m1")];
+    const entry = { events, summaries: { u1: { user: "note", reply: "done" } }, lastSessionId: "s1" };
+    expect(archiveText(entry)).toBe(JSON.stringify(entry));
+    expect(JSON.parse(archiveText({ events: [], summaries: {} }))).toEqual({ events: [], summaries: {} });
+    // an event changed is a new object, and its text is worked out afresh
+    const changed = { ...entry, events: [events[0]!, reply("a1", "a longer reply"), events[2]!] };
+    expect(archiveText(changed)).toBe(JSON.stringify(changed));
+  });
+
+  test("a turn streaming into a long chat is written without serialising the whole chat again", async () => {
+    const { archiveText } = await import("./archive.js");
+    const events = Array.from({ length: 4000 }, (_, i) => reply(`a${i}`, `paragraph ${i} `.repeat(40)));
+    const entry = { events, summaries: {} };
+    archiveText(entry);
+    const whole = performance.now();
+    for (let i = 0; i < 5; i++) JSON.stringify(entry);
+    const wholeMs = performance.now() - whole;
+    const stitched = performance.now();
+    for (let i = 0; i < 5; i++) archiveText({ ...entry, events: [...events, reply(`new${i}`)] });
+    expect(performance.now() - stitched).toBeLessThan(wholeMs);
+  });
+});

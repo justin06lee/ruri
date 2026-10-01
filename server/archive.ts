@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { writeJsonAtomic, writeTextAtomic, writeTextAtomicAsync } from "./atomic.js";
+import { writeTextAtomic, writeTextAtomicAsync } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import {
   excerpt,
@@ -78,7 +78,7 @@ export interface HarnessSession {
   sent?: string;
 }
 
-interface ArchiveData {
+export interface ArchiveData {
   events: TranscriptEvent[];
   /** Turn summaries keyed by the turn's opening user-event id. */
   summaries: Record<string, TurnSummary>;
@@ -237,6 +237,35 @@ const HISTORY_TRIM_TO = 0.75;
 function lastMark(events: TranscriptEvent[]): number {
   for (let i = events.length - 1; i >= 0; i--) if (events[i]!.kind === "compaction") return i;
   return -1;
+}
+
+/**
+ * Each event as JSON, kept for as long as the event is.
+ *
+ * A turn streaming in rewrote its chat's live file once a second, and
+ * serialising the whole chat to do it — a long chat is megabytes, tens of
+ * milliseconds a second of the main thread, which in the desktop app is
+ * also the window's: what made typing stutter while agents worked. Events
+ * are never changed in place (an update is a new object), so each one is
+ * turned into text once and the file is stitched together from the pieces.
+ */
+const eventJson = new WeakMap<TranscriptEvent, string>();
+
+function eventText(event: TranscriptEvent): string {
+  let text = eventJson.get(event);
+  if (text === undefined) {
+    text = JSON.stringify(event);
+    eventJson.set(event, text);
+  }
+  return text;
+}
+
+/** A live file's text: the same JSON `JSON.stringify(entry)` gives, from
+ *  each event's text as last worked out. */
+export function archiveText(entry: ArchiveData): string {
+  const { events, ...rest } = entry;
+  const tail = JSON.stringify(rest);
+  return `{"events":[${events.map(eventText).join(",")}]${tail === "{}" ? "" : `,${tail.slice(1)}`}`;
 }
 
 /**
@@ -570,7 +599,7 @@ export class SessionArchive {
       fs.rmSync(file, { force: true });
       return;
     }
-    writeTextAtomic(file, events.map((event) => JSON.stringify(event)).join("\n") + "\n");
+    writeTextAtomic(file, events.map(eventText).join("\n") + "\n");
   }
 
   /** Write the live file now, on this thread, rather than on the debounce:
@@ -591,7 +620,7 @@ export class SessionArchive {
     this.generations.set(projectId, (this.generations.get(projectId) ?? 0) + 1);
     this.inflight.delete(projectId);
     try {
-      writeJsonAtomic(path.join(archiveDir(), `${projectId}.json`), entry);
+      writeTextAtomic(path.join(archiveDir(), `${projectId}.json`), archiveText(entry));
     } catch (err) {
       warn("archive", err, "writeLive");
     }
@@ -626,7 +655,7 @@ export class SessionArchive {
       // of every file and of every write.
       await writeTextAtomicAsync(
         path.join(archiveDir(), `${projectId}.json`),
-        JSON.stringify(entry),
+        archiveText(entry),
         () => this.generations.get(projectId) !== generation,
       );
     } catch (err) {

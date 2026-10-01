@@ -784,7 +784,7 @@ export function watchBoard(): () => void {
  * Ask the server to read what the agents are costing this machine.
  *
  * It samples only while somebody is asking — the statistics page being up
- * is the whole reason a `ps` runs (server/resources.ts) — so this is held
+ * is the whole reason the machine is read at all (server/resources.ts) — so this is held
  * for exactly as long as the page is, and the last reading is dropped when
  * it goes, rather than left to go stale on the page behind it.
  */

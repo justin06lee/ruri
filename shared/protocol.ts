@@ -810,7 +810,7 @@ export interface Totals {
 /**
  * One agent process and everything it started, as the machine sees it.
  *
- * A harness and its MCP servers are one agent, not six rows: `rss` and
+ * A harness and its MCP servers are one agent, not six rows: `memory` and
  * `cpu` are the whole family's, and `helpers` says how many processes that
  * was besides the harness itself (server/resources.ts).
  */
@@ -820,8 +820,10 @@ export interface AgentProcess {
   channelId?: string;
   /** The program: "claude", "codex", "cursor-agent". */
   name: string;
-  /** Resident memory, in bytes. */
-  rss: number;
+  /** The memory it holds, in bytes: on Linux its proportional share (PSS),
+   *  so pages shared between processes are counted once across them; on
+   *  macOS its resident size. */
+  memory: number;
   /** Percent of one core. Over 100 on a process using more than one. */
   cpu: number;
   uptimeMs: number;
@@ -834,7 +836,7 @@ export interface Resources {
   at: number;
   agents: AgentProcess[];
   /** ruri itself: this process and its window. */
-  app: { rss: number; cpu: number; processes: number };
+  app: { memory: number; cpu: number; processes: number };
   host: { totalBytes: number; freeBytes: number; cores: number };
 }
 

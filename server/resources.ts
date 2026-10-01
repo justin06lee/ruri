@@ -8,10 +8,11 @@
  * know that was Activity Monitor and a guess at which `node` belonged to
  * which conversation.
  *
- * So ruri counts them itself. One `ps` gives every process on the machine;
- * the ones descended from this one are ruri's, and each direct child of it
- * is rolled up with everything it started — a harness and its MCP servers
- * are one agent, not six rows.
+ * So ruri counts them itself. One `ps` gives every process on the machine
+ * (on Linux, /proc does — see ProcReader for why); the ones descended from
+ * this one are ruri's, and each direct child of it is rolled up with
+ * everything it started — a harness and its MCP servers are one agent, not
+ * six rows.
  *
  * Which chat an agent belongs to is asked two ways. A resumed harness is
  * told on its command line which session to continue, and that id is one
@@ -34,6 +35,11 @@ import * as path from "node:path";
 import type { AgentProcess, Resources, ServerMessage } from "../shared/protocol.js";
 import { warn } from "./log.js";
 
+/** The machine's size, which does not change while it runs — `os.cpus()`
+ *  reads every core's details to be counted, so it is counted once. */
+const CORES = os.cpus().length;
+const TOTAL_BYTES = os.totalmem();
+
 /** How often the machine is asked, while anyone is looking. */
 const SAMPLE_MS = 2_000;
 
@@ -41,13 +47,14 @@ const SAMPLE_MS = 2_000;
  *  stale by the time it arrived, and another is due. */
 const SAMPLE_TIMEOUT_MS = 4_000;
 
-/** One row of `ps`, as read. */
+/** One process, as read. */
 export interface ProcessRow {
   pid: number;
   ppid: number;
-  /** Resident set size, in bytes. */
-  rss: number;
-  /** Percent of one core, as `ps` reports it. */
+  /** The memory it holds, in bytes — its proportional share on Linux,
+   *  its resident size on macOS. */
+  memory: number;
+  /** Percent of one core, over the last little while. */
   cpu: number;
   /** How long it has been running, in ms. */
   uptimeMs: number;
@@ -81,7 +88,7 @@ export function parsePs(text: string): ProcessRow[] {
       pid: Number(match[1]),
       ppid: Number(match[2]),
       // ps counts in kilobytes
-      rss: Number(match[3]) * 1024,
+      memory: Number(match[3]) * 1024,
       cpu: Number(match[4]),
       uptimeMs: elapsedMs(match[5]!),
       args: match[6]!,
@@ -168,14 +175,14 @@ export function rollUp(
 
   const root = rows.find((row) => row.pid === rootPid);
   const candidates: AgentProcess[] = [];
-  const app = { rss: root?.rss ?? 0, cpu: root?.cpu ?? 0, processes: root ? 1 : 0 };
+  const app = { memory: root?.memory ?? 0, cpu: root?.cpu ?? 0, processes: root ? 1 : 0 };
 
   for (const child of byParent.get(rootPid) ?? []) {
     const family = [child, ...subtree(child.pid)];
-    const rss = family.reduce((sum, row) => sum + row.rss, 0);
+    const memory = family.reduce((sum, row) => sum + row.memory, 0);
     const cpu = family.reduce((sum, row) => sum + row.cpu, 0);
     if (isAppHelper(child.args)) {
-      app.rss += rss;
+      app.memory += memory;
       app.cpu += cpu;
       app.processes += family.length;
       continue;
@@ -184,7 +191,7 @@ export function rollUp(
     candidates.push({
       pid: child.pid,
       name: processName(child.args),
-      rss,
+      memory,
       cpu: Math.round(cpu * 10) / 10,
       uptimeMs: child.uptimeMs,
       helpers: family.length - 1,
@@ -215,11 +222,11 @@ export function partition(
       agents.push(candidate);
       continue;
     }
-    mine.rss += candidate.rss;
+    mine.memory += candidate.memory;
     mine.cpu += candidate.cpu;
     mine.processes += candidate.helpers + 1;
   }
-  agents.sort((a, b) => b.rss - a.rss);
+  agents.sort((a, b) => b.memory - a.memory);
   mine.cpu = Math.round(mine.cpu * 10) / 10;
   return { agents, app: mine };
 }
@@ -276,6 +283,216 @@ function ps(): Promise<{ rows: ProcessRow[]; self: number | undefined }> {
   });
 }
 
+/** Clock ticks per second in /proc's counts. That is USER_HZ, which the
+ *  kernel's ABI fixes at 100 whatever HZ it was built with. */
+const USER_HZ = 100;
+
+/** How long the reader looks before its first answer: a CPU figure is the
+ *  difference between two readings, and the first has nothing before it. */
+const BASELINE_MS = 500;
+
+/** How long a process's memory is trusted. Reading it walks every mapping
+ *  the process has — 5 ms of the kernel's time for the window's, 7 for a
+ *  harness — so it is taken now and then, off the main thread, rather than
+ *  every reading. Memory moves slowly; CPU is what is read every time. */
+const MEMORY_MS = 10_000;
+
+/** What /proc/<pid>/stat says that a reading needs. */
+export interface ProcStat {
+  ppid: number;
+  /** CPU time it has spent, user and system, in ticks. */
+  ticks: number;
+  /** When it started, in ticks after boot. */
+  start: number;
+}
+
+/** A process as the last reading left it. */
+interface Seen extends ProcStat {
+  args: string;
+  memory: number;
+  /** When `memory` was read (epoch ms); 0 for never. */
+  memoryAt: number;
+}
+
+/** The fields of a /proc/<pid>/stat line this needs, or nothing for one it
+ *  cannot read. The command's name sits in parentheses and may hold spaces
+ *  and parentheses of its own, so everything is counted from the last ")". */
+export function parseStat(line: string): ProcStat | undefined {
+  const close = line.lastIndexOf(")");
+  if (close < 0) return undefined;
+  // field 3 (the state) first: ppid is field 4, utime 14, stime 15, and
+  // the start, in ticks after boot, 22
+  const fields = line.slice(close + 2).split(" ");
+  const ppid = Number(fields[1]);
+  const ticks = Number(fields[11]) + Number(fields[12]);
+  const start = Number(fields[19]);
+  if (!Number.isFinite(ppid) || !Number.isFinite(ticks) || !Number.isFinite(start)) return undefined;
+  return { ppid, ticks, start };
+}
+
+const statBuffer = Buffer.alloc(1024);
+
+/** One process's stat, read straight off a file descriptor: a whole scan
+ *  of the machine through readFileSync costs four times as much. */
+function readStat(pid: number): ProcStat | undefined {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(`/proc/${pid}/stat`, "r");
+    const length = fs.readSync(fd, statBuffer, 0, statBuffer.length, 0);
+    return parseStat(statBuffer.toString("latin1", 0, length));
+  } catch {
+    // gone between the listing and the read
+    return undefined;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/** A process's proportional share of memory, in bytes: each page it shares
+ *  counted as a fraction, so the shares of every process add up to what is
+ *  really held. */
+async function readMemory(pid: number): Promise<number | undefined> {
+  try {
+    const kb = /^Pss:\s+(\d+) kB/m.exec(
+      await fs.promises.readFile(`/proc/${pid}/smaps_rollup`, "latin1"),
+    )?.[1];
+    return kb === undefined ? undefined : Number(kb) * 1024;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Seconds since boot — the clock /proc's start times are on. */
+function uptime(): number {
+  return Number(fs.readFileSync("/proc/uptime", "latin1").split(" ")[0]);
+}
+
+/**
+ * ruri's processes on Linux, out of /proc — because `ps` there answers
+ * different questions from the ones this page asks.
+ *
+ * Its %CPU is a process's CPU time over its whole life, not what it is
+ * doing now (macOS's is an average over the last minute, which is what
+ * the page means). A window that had just launched read 379% for minutes
+ * after it had gone quiet. And its RSS counts every page a process can
+ * see, so Chromium's helpers — forked from one zygote and sharing most of
+ * themselves — were each counted whole: 922 MB for what was 312. Here CPU
+ * is the ticks each process spent between two readings, and memory its
+ * proportional share, which adds up to the truth.
+ *
+ * It is also cheaper. Forking this 40-thread process to run `ps` every two
+ * seconds cost more than anything the page measured. A reading here lists
+ * /proc and reads the stat of ruri's own processes and of any pid it has
+ * not met before; a pid that is not ruri's never becomes ruri's (an orphan
+ * is handed to init, not to us), so it is read once and then skipped until
+ * it is gone.
+ */
+export class ProcReader {
+  /** Pids known not to be ruri's. */
+  private readonly outside = new Set<number>();
+  /** Each of ruri's processes at the last reading. `start` tells a pid the
+   *  kernel has handed to someone new from the process that had it. */
+  private last = new Map<number, Seen>();
+  /** When the last reading was taken, in seconds since boot. */
+  private lastAt: number | undefined;
+  /** Moved by `reset`, so a reading in flight across one is dropped. */
+  private generation = 0;
+
+  /** Forget everything: the next reading takes its own baseline. A figure
+   *  measured across the hour nobody was looking is not "now". */
+  reset(): void {
+    this.generation += 1;
+    this.outside.clear();
+    this.last = new Map();
+    this.lastAt = undefined;
+  }
+
+  /** ruri's processes now — `rootPid` and everything under it — with CPU
+   *  since the last reading. Empty if a reset overtook it. */
+  async read(rootPid: number): Promise<ProcessRow[]> {
+    const generation = this.generation;
+    if (this.lastAt === undefined) {
+      const { at, tree } = this.scan(rootPid);
+      for (const [pid, stat] of tree) this.last.set(pid, { ...stat, args: "", memory: 0, memoryAt: 0 });
+      this.lastAt = at;
+      await new Promise((resolve) => setTimeout(resolve, BASELINE_MS));
+      if (generation !== this.generation) return [];
+    }
+    const since = this.lastAt;
+    const { at, tree } = this.scan(rootPid);
+    const now = Date.now();
+    const next = new Map<number, Seen>();
+    const rows = await Promise.all(
+      [...tree].map(async ([pid, stat]): Promise<ProcessRow> => {
+        const was = this.last.get(pid);
+        const same = was?.start === stat.start ? was : undefined;
+        // one that was not here last time has started since, so all the
+        // time it has spent was spent in this interval
+        const spent = (stat.ticks - (same?.ticks ?? 0)) / USER_HZ;
+        const kept = same && same.memoryAt > 0 && now - same.memoryAt < MEMORY_MS ? same : undefined;
+        const memory = kept ? kept.memory : ((await readMemory(pid)) ?? same?.memory ?? 0);
+        const args = same?.args || readArgs(pid);
+        next.set(pid, { ...stat, args, memory, memoryAt: kept ? kept.memoryAt : now });
+        return {
+          pid,
+          ppid: stat.ppid,
+          memory,
+          cpu: at > since ? (spent / (at - since)) * 100 : 0,
+          uptimeMs: Math.max(0, (at - stat.start / USER_HZ) * 1_000),
+          args,
+        };
+      }),
+    );
+    if (generation !== this.generation) return [];
+    this.last = next;
+    this.lastAt = at;
+    return rows;
+  }
+
+  /** Every process of ruri's that is running, by its stat. */
+  private scan(rootPid: number): { at: number; tree: Map<number, ProcStat> } {
+    const at = uptime();
+    const listed = new Set<number>();
+    const read = new Map<number, ProcStat>();
+    for (const name of fs.readdirSync("/proc")) {
+      const pid = Number(name);
+      if (!Number.isInteger(pid) || pid <= 0) continue;
+      listed.add(pid);
+      if (this.outside.has(pid)) continue;
+      const stat = readStat(pid);
+      if (stat) read.set(pid, stat);
+    }
+    // a pid that has gone may come back as anyone's
+    for (const pid of this.outside) if (!listed.has(pid)) this.outside.delete(pid);
+    const byParent = new Map<number, number[]>();
+    for (const [pid, stat] of read) {
+      const kin = byParent.get(stat.ppid);
+      if (kin) kin.push(pid);
+      else byParent.set(stat.ppid, [pid]);
+    }
+    const tree = new Map<number, ProcStat>();
+    const stack = [rootPid];
+    while (stack.length > 0) {
+      const pid = stack.pop()!;
+      const stat = read.get(pid);
+      if (!stat || tree.has(pid)) continue;
+      tree.set(pid, stat);
+      stack.push(...(byParent.get(pid) ?? []));
+    }
+    for (const pid of read.keys()) if (!tree.has(pid)) this.outside.add(pid);
+    return { at, tree };
+  }
+}
+
+/** A process's command line, as `ps` would print it. */
+function readArgs(pid: number): string {
+  try {
+    return fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").replace(/\0+$/, "").replace(/\0/g, " ");
+  } catch {
+    return "";
+  }
+}
+
 /**
  * The meters, running only while a window has the statistics page up.
  *
@@ -292,6 +509,8 @@ export class ResourceMeters {
    *  environment never changes, so this is asked once in its life; the
    *  map is pruned to the processes still running. */
   private readonly placed = new Map<number, string | null>();
+  /** Linux reads /proc rather than running `ps` (ProcReader says why). */
+  private readonly proc = process.platform === "linux" ? new ProcReader() : undefined;
 
   constructor(
     private readonly broadcast: (message: ServerMessage) => void,
@@ -312,6 +531,7 @@ export class ResourceMeters {
     } else {
       if (this.timer !== undefined) clearInterval(this.timer);
       this.timer = undefined;
+      this.proc?.reset();
     }
   }
 
@@ -354,8 +574,8 @@ export class ResourceMeters {
     if (this.sampling) return;
     this.sampling = true;
     try {
-      const { rows } = await ps();
-      if (rows.length === 0) return;
+      const rows = this.proc ? await this.proc.read(process.pid) : (await ps()).rows;
+      if (rows.length === 0 || this.timer === undefined) return;
       const { candidates, app: bare } = rollUp(rows, process.pid, this.ownerOf);
       await this.place(candidates);
       const { agents, app } = partition(candidates, bare);
@@ -363,7 +583,7 @@ export class ResourceMeters {
         at: Date.now(),
         agents,
         app,
-        host: { totalBytes: os.totalmem(), freeBytes: os.freemem(), cores: os.cpus().length },
+        host: { totalBytes: TOTAL_BYTES, freeBytes: os.freemem(), cores: CORES },
       };
       this.broadcast({ type: "resources", resources: this.last });
     } catch (err) {

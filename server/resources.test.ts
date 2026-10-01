@@ -204,6 +204,32 @@ describe("rolling a process tree up into agents", () => {
     expect(app.memory).toBe(610 * 1024 * 1024);
   });
 
+  test("under the desktop shell, the server's children are the agents and the server is the app", () => {
+    // the app (100) holds its window's helpers and the server (110), which
+    // started a harness with an MCP server under it, and a terminal's shell
+    const { candidates, app } = rollUp(
+      [
+        row(100, 1, 100, 1, "/opt/ruri/ruri"),
+        row(101, 100, 50, 0, "/opt/ruri/ruri --type=zygote"),
+        row(102, 101, 120, 2, "/opt/ruri/ruri --type=renderer"),
+        row(110, 100, 80, 3, "/opt/ruri/ruri --type=utility --utility-sub-type=node.mojom.NodeService"),
+        row(200, 110, 240, 7, "/bin/claude --resume=4c686435-2213-4f59-92ab-83e163488bfd"),
+        row(201, 200, 30, 1, "/usr/bin/node /opt/mcp/one.js"),
+        row(300, 110, 5, 0, "/usr/bin/expect -c spawn /bin/zsh -il"),
+      ],
+      100,
+      ownerOf,
+      110,
+    );
+    expect(candidates.map((c) => c.pid).sort()).toEqual([200, 300]);
+    expect(candidates.find((c) => c.pid === 200)?.memory).toBe(270 * 1024 * 1024);
+    expect(candidates.find((c) => c.pid === 200)?.channelId).toBe("chat-1");
+    // the app is itself, its helpers and the server — not the harness under it
+    expect(app.memory).toBe((100 + 50 + 120 + 80) * 1024 * 1024);
+    expect(app.processes).toBe(4);
+    expect(app.cpu).toBe(6);
+  });
+
   test("a chat is an agent however small it is", () => {
     const { agents } = sorted(
       [

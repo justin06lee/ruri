@@ -145,6 +145,11 @@ export function channelOf(
  * rows of their own. Chromium's own helpers never are: they are ruri's
  * window, and go straight into the app's figures.
  *
+ * Under the desktop shell the server is a process of its own, a child of
+ * the app (server/desktopServer.ts), and it is what starts the agents: then
+ * `serverPid` names it, the server itself is the app's weight, and its
+ * children are the candidates.
+ *
  * Which of the candidates is an *agent* is not decided here — that takes
  * asking each one which chat it belongs to, which is a second `ps`
  * (see `place`). What comes back is everything, for that to sort out.
@@ -153,6 +158,7 @@ export function rollUp(
   rows: ProcessRow[],
   rootPid: number,
   ownerOf: (sessionId: string) => string | undefined,
+  serverPid = rootPid,
 ): { candidates: AgentProcess[]; app: Resources["app"] } {
   const byParent = new Map<number, ProcessRow[]>();
   for (const row of rows) {
@@ -161,14 +167,15 @@ export function rollUp(
     else byParent.set(row.ppid, [row]);
   }
 
-  /** A process and everything under it, depth first. */
+  /** A process and everything under it, depth first — but not what the
+   *  server started, which is looked at in its own right below. */
   const subtree = (pid: number): ProcessRow[] => {
     const out: ProcessRow[] = [];
     const stack = [...(byParent.get(pid) ?? [])];
     while (stack.length > 0) {
       const row = stack.pop()!;
       out.push(row);
-      stack.push(...(byParent.get(row.pid) ?? []));
+      if (row.pid !== serverPid) stack.push(...(byParent.get(row.pid) ?? []));
     }
     return out;
   };
@@ -177,7 +184,17 @@ export function rollUp(
   const candidates: AgentProcess[] = [];
   const app = { memory: root?.memory ?? 0, cpu: root?.cpu ?? 0, processes: root ? 1 : 0 };
 
-  for (const child of byParent.get(rootPid) ?? []) {
+  const children = [
+    ...(byParent.get(rootPid) ?? []),
+    ...(serverPid !== rootPid ? (byParent.get(serverPid) ?? []) : []),
+  ];
+  for (const child of children) {
+    if (child.pid === serverPid) {
+      app.memory += child.memory;
+      app.cpu += child.cpu;
+      app.processes += 1;
+      continue;
+    }
     const family = [child, ...subtree(child.pid)];
     const memory = family.reduce((sum, row) => sum + row.memory, 0);
     const cpu = family.reduce((sum, row) => sum + row.cpu, 0);
@@ -519,6 +536,8 @@ export class ResourceMeters {
     /** The shells behind the terminal tabs — ruri's machinery, not agents
      *  (server/terminal.ts). */
     private readonly shellPids: () => number[] = () => [],
+    /** The app the server runs under, when it is not the app itself. */
+    private readonly appPid = process.pid,
   ) {}
 
   /** Whether anyone is looking; arms or disarms the sampler. */
@@ -574,9 +593,9 @@ export class ResourceMeters {
     if (this.sampling) return;
     this.sampling = true;
     try {
-      const rows = this.proc ? await this.proc.read(process.pid) : (await ps()).rows;
+      const rows = this.proc ? await this.proc.read(this.appPid) : (await ps()).rows;
       if (rows.length === 0 || this.timer === undefined) return;
-      const { candidates, app: bare } = rollUp(rows, process.pid, this.ownerOf);
+      const { candidates, app: bare } = rollUp(rows, this.appPid, this.ownerOf, process.pid);
       await this.place(candidates);
       const { agents, app } = partition(candidates, bare);
       this.last = {

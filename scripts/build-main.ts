@@ -1,9 +1,12 @@
 /**
- * Bundle the Electron main process (desktop/main.ts + server + yagami + Agent
- * SDK) into a single ESM file. Bundling everything means the packaged app
- * ships no node_modules at all — the only external runtime is Electron itself,
- * and the Claude engine is the user's own installed `claude` CLI, which yagami
- * resolves at runtime.
+ * Bundle the app's two processes into an ESM file each: the Electron main
+ * process (desktop/main.ts → main.mjs — the window, the bridge, the shell's
+ * services) and the server it forks into a process of its own
+ * (server/desktopServer.ts → server.mjs — the server, yagami and the Agent
+ * SDK; desktop/serverProcess.ts says why it is apart). Bundling everything
+ * means the packaged app ships no node_modules at all — the only external
+ * runtime is Electron itself, and the Claude engine is the user's own
+ * installed `claude` CLI, which yagami resolves at runtime.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -40,12 +43,13 @@ const alias = Object.fromEntries(
 );
 
 await build({
-  entryPoints: ["desktop/main.ts"],
+  entryPoints: { main: "desktop/main.ts", server: "server/desktopServer.ts" },
   bundle: true,
   platform: "node",
   format: "esm",
   target: "node20",
-  outfile: "dist-electron/main.mjs",
+  outdir: "dist-electron",
+  outExtension: { ".js": ".mjs" },
   external: ["electron"],
   alias,
   // half the bytes for the same program — this is a build artifact, and the

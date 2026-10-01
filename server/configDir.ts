@@ -14,3 +14,11 @@ export function configDir(): string {
 export function configPath(...parts: string[]): string {
   return path.join(configDir(), ...parts);
 }
+
+/** Where a bridge channel's pictures land: ~/.config/ruri/bridge/<channelId>/.
+ *  Here rather than with the bridge's tools (server/bridge.ts) because the
+ *  desktop shell writes them too, and importing the tools would bundle the
+ *  Agent SDK into its process for one path. */
+export function bridgeDir(channelId: string): string {
+  return configPath("bridge", path.basename(channelId));
+}

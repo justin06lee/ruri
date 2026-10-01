@@ -162,6 +162,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       clients.broadcast,
       (sessionId) => ctx.archive.channelOfSession(sessionId),
       () => ctx.terminals.pids(),
+      options.appPid,
     ),
     usage: new UsageGauges(clients.broadcast),
     bridge: new BridgeState(options.bridge, (channelId) => running(ctx, channelId), clients.broadcast),
@@ -256,7 +257,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // fallback below is ever reached — see server/port.ts.
   let claim: PortClaim = { outcome: "free" };
   if (options.reclaimPort && options.port !== 0) {
-    claim = await claimPort(options.port, host);
+    claim = await claimPort(options.port, host, options.appPid);
     if (claim.outcome === "reclaimed") {
       console.log(
         `ruri took port ${options.port} back from a server that outlived its app (pid ${claim.pid})`,

@@ -66,13 +66,17 @@ The long form, one bullet per capability: [docs/features.md](docs/features.md).
 
 ```
 ruri.app (Electron)
-  ├─ main process: startServer() in-process        ─┐
-  │    └─ yagami AgentSession → Agent SDK           ├─ one WebSocket + static UI
-  │       → your installed claude CLI               │  on one localhost port
-  └─ renderer: React + Vite + zustand (dist-web)   ─┘  (shared/protocol.ts)
+  ├─ main process: the window, the bridge, the shell's services
+  │    └─ server process (utilityProcess)           ─┐
+  │         startServer() — server/desktopServer.ts  ├─ one WebSocket + static UI
+  │         └─ yagami AgentSession → Agent SDK       │  on one localhost port
+  │            → your installed claude CLI           │  (shared/protocol.ts)
+  └─ renderer: React + Vite + zustand (dist-web)    ─┘
 ```
 
-One HTTP server on `127.0.0.1` carries everything: the built UI, uploads, music, the bridge's HTTP face, and the WebSocket. `shared/protocol.ts` is the single wire contract; `server/` is the backend (sessions, archive, compaction, the small-model layer, the Home agent, the bridge tools), `web/src/` the React UI, `desktop/` the Electron shell (window, permissions, hidden bridge windows, native apps — `linuxApps.ts` on Linux — screenshots). `scripts/build-main.ts` bundles main process, server, yagami and the Agent SDK into one file, so the packaged app ships no node_modules; the Claude engine is your installed `claude` binary, found on your login shell's PATH.
+The server runs in a process of its own, not in Electron's main process: that process's thread is the one every keystroke reaches the window through, and the server's work held them up. What the server needs of the shell — the bridge's windows, the folder picker, screenshots, macOS's grants, carrying the window — it asks for over the port between them (`server/hostLink.ts`, `desktop/serverProcess.ts`). A server that dies is started again; the window reconnects to it on the same port.
+
+One HTTP server on `127.0.0.1` carries everything: the built UI, uploads, music, the bridge's HTTP face, and the WebSocket. `shared/protocol.ts` is the single wire contract; `server/` is the backend (sessions, archive, compaction, the small-model layer, the Home agent, the bridge tools), `web/src/` the React UI, `desktop/` the Electron shell (window, permissions, hidden bridge windows, native apps — `linuxApps.ts` on Linux — screenshots). `scripts/build-main.ts` bundles the main process into one file and the server, yagami and the Agent SDK into another, so the packaged app ships no node_modules; the Claude engine is your installed `claude` binary, found on your login shell's PATH.
 
 All state lives under `~/.config/ruri` (`RURI_CONFIG_DIR` moves it); on Linux Chromium's own storage — the window's, and the bridge's per-project logins — sits in `~/.config/ruri/chromium`, where macOS keeps it in `~/Library/Application Support/ruri`. Each project gets a self-ignoring `.ruri/` folder for its catch-up, its architecture (the index and a sheet per layer) and its component library — once there is something in it: a folder that is still blank is left blank, so `create-next-app`, `bun create` and `git clone` run in it as they would anywhere.
 

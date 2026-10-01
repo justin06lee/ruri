@@ -309,7 +309,7 @@ export function createHttpServer(ctx: ServerContext): http.Server {
       res.writeHead(200, { "content-type": "application/json" });
       // the pid is how the next launch tells a ruri that outlived its app
       // from some other program on the port — see server/port.ts
-      res.end(JSON.stringify({ ok: true, service: "ruri", pid: process.pid }));
+      res.end(JSON.stringify({ ok: true, service: "ruri", pid: options.appPid ?? process.pid }));
       return;
     }
     if (req.url === "/music/playlists") {

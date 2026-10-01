@@ -5,11 +5,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { app, BrowserWindow, dialog, Menu, screen, session, shell, systemPreferences } from "electron";
-import { startServer } from "../server/server.js";
 import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
 import { askAgainIfNewBuild, permissions } from "./permissions.js";
-import { warn } from "../server/log.js";
+import { ServerProcess, type ServerUp } from "./serverProcess.js";
+import { errorMessage, warn } from "../server/log.js";
 import type { WindowDragPhase } from "../shared/protocol.js";
 
 const execFileAsync = promisify(execFile);
@@ -304,36 +304,64 @@ async function main(): Promise<void> {
   // the window's key to the server: a script that drives the app sets it
   // (scripts/lib/server.ts), a launch from the Dock gets a fresh one
   const token = process.env["RURI_TOKEN"] || randomBytes(32).toString("hex");
-  const running = await startServer({
-    token,
-    // A fixed port on purpose. The window is a page served from it, so the
-    // port is the origin, and the origin is what everything the window keeps
-    // for itself is filed under — a fresh port every launch meant every one
-    // of those preferences started empty. Only one ruri runs at a time (the
-    // single-instance lock above), so the port is ours by rights: if a ruri
-    // that outlived its app is sitting on it, it is retired for it rather
-    // than tiptoed around (reclaimPort, server/port.ts). Anything else on the
-    // port is left alone, and then the app still comes up on an ephemeral one
-    // — and says so, below.
-    port: Number(process.env["RURI_PORT"] ?? DESKTOP_PORT),
-    reclaimPort: true,
-    staticDir,
-    pickFolder: async () => {
-      const win = BrowserWindow.getAllWindows()[0];
-      const opts = {
-        title: "Add project",
-        buttonLabel: "Add",
-        properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">,
-      };
-      const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
-      return result.canceled ? null : (result.filePaths[0] ?? null);
+  // The server runs in a process of its own, not on this thread: this
+  // thread is the one every keystroke reaches the window through, and the
+  // server's work — histories read, archives written, git asked — held
+  // them up (server/hostLink.ts, desktop/serverProcess.ts). What it needs
+  // of the shell it asks for, and gets from the services below.
+  const server = new ServerProcess(
+    path.join(import.meta.dirname, "server.mjs"),
+    {
+      token,
+      // A fixed port on purpose. The window is a page served from it, so the
+      // port is the origin, and the origin is what everything the window keeps
+      // for itself is filed under — a fresh port every launch meant every one
+      // of those preferences started empty. Only one ruri runs at a time (the
+      // single-instance lock above), so the port is ours by rights: if a ruri
+      // that outlived its app is sitting on it, it is retired for it rather
+      // than tiptoed around (reclaimPort, server/port.ts). Anything else on the
+      // port is left alone, and then the app still comes up on an ephemeral one
+      // — and says so, below.
+      port: Number(process.env["RURI_PORT"] ?? DESKTOP_PORT),
+      reclaimPort: true,
+      staticDir,
     },
-    capture: captureTargets,
-    bridge,
-    // macOS's grants; Linux has none to read or ask for (Settings says so)
-    ...(MAC ? { permissions } : {}),
-    windowDrag,
-  });
+    {
+      pickFolder: async () => {
+        const win = BrowserWindow.getAllWindows()[0];
+        const opts = {
+          title: "Add project",
+          buttonLabel: "Add",
+          properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">,
+        };
+        const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+        return result.canceled ? null : (result.filePaths[0] ?? null);
+      },
+      capture: captureTargets,
+      bridge,
+      // macOS's grants; Linux has none to read or ask for (Settings says so)
+      ...(MAC ? { permissions } : {}),
+      windowDrag,
+    },
+  );
+  let running: ServerUp;
+  try {
+    running = await server.launch();
+  } catch (err) {
+    dialog.showErrorBox("ruri could not start", `Its server stopped as it started: ${errorMessage(err)}`);
+    app.quit();
+    return;
+  }
+  // a server started again after one died comes back on the same port, and
+  // the window's socket finds it there; only if something else has taken
+  // the port since does the window need a page from the new one
+  server.onRestart = (up) => {
+    if (up.port === running.port) return;
+    running = up;
+    const stale = appWindow;
+    createWindow(up.port, token);
+    stale?.destroy();
+  };
 
   createWindow(running.port, token);
   // a fresh build is a stranger to macOS: it asks for its grants again,
@@ -389,7 +417,7 @@ async function main(): Promise<void> {
     if (quitting) return;
     event.preventDefault();
     quitting = true;
-    const teardown = Promise.allSettled([bridge.closeAll(), running.close()]);
+    const teardown = Promise.allSettled([bridge.closeAll(), server.close()]);
     const deadline = new Promise<void>((resolve) => setTimeout(resolve, QUIT_TIMEOUT_MS).unref?.());
     void Promise.race([teardown, deadline]).then(() => app.quit());
   });
@@ -398,7 +426,7 @@ async function main(): Promise<void> {
   // the archive had not yet written
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
-      void running.close().finally(() => app.quit());
+      void server.close().finally(() => app.quit());
     });
   }
 }

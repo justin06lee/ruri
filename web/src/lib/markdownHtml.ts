@@ -7,7 +7,14 @@
  */
 import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
-import { Marked, type MarkedExtension, type TokenizerAndRendererExtension, type Tokens } from "marked";
+import {
+  Marked,
+  type MarkedExtension,
+  type Token,
+  type TokenizerAndRendererExtension,
+  type Tokens,
+  type TokensList,
+} from "marked";
 import { highlightNow, known, want, worthAWorker } from "./highlighter";
 import { HTTP_BASE } from "../store";
 
@@ -211,21 +218,16 @@ const REACHES_BACK = /^ {0,3}(\[[^\]\n]*\]:|<)/;
 interface Scan {
   /** How much of the text has been read. */
   at: number;
-  /** Just past the blank line that closed the last top-level fence — the
-   *  furthest point nothing later can change. */
-  boundary: number;
   /** The fence of the block being read, while inside one. */
   fence: string | undefined;
   /** The line before was blank (or there was none). */
   afterBlank: boolean;
-  /** A fence has just closed; a blank line now makes a boundary. */
-  justClosed: boolean;
   /** Something that reaches backwards was seen: no more caching. */
   plain: boolean;
 }
 
 function freshScan(): Scan {
-  return { at: 0, boundary: 0, fence: undefined, afterBlank: true, justClosed: false, plain: false };
+  return { at: 0, fence: undefined, afterBlank: true, plain: false };
 }
 
 /** Whether `line` closes `fence` — the same character, at least as many. */
@@ -235,13 +237,11 @@ function closes(line: string, fence: string): boolean {
 }
 
 /**
- * Read the complete lines of `text` that the scan has not seen yet.
+ * Read the complete lines of `text` that the scan has not seen yet, looking
+ * for markdown that reaches backwards (REACHES_BACK) outside a code fence.
  *
  * Only whole lines are read: the last one is still being written, so it is
- * left to be read again next time. What the scan is looking for is the end
- * of a fenced code block at the margin followed by a blank line — past that
- * point markdown has no construct left that can reach backwards, so
- * everything before it is finished and can be rendered once and kept.
+ * left to be read again next time.
  */
 function advance(scan: Scan, text: string): void {
   const end = text.lastIndexOf("\n") + 1;
@@ -252,15 +252,8 @@ function advance(scan: Scan, text: string): void {
     const next = stop + 1;
     const blank = BLANK.test(line);
     if (scan.fence !== undefined) {
-      if (closes(line, scan.fence)) {
-        scan.fence = undefined;
-        scan.justClosed = true;
-      }
-    } else if (scan.justClosed && blank) {
-      scan.boundary = next;
-      scan.justClosed = false;
+      if (closes(line, scan.fence)) scan.fence = undefined;
     } else {
-      scan.justClosed = false;
       const opening = scan.afterBlank ? OPENS.exec(line) : null;
       if (opening) scan.fence = opening[1]!;
       else if (REACHES_BACK.test(line)) {
@@ -275,65 +268,103 @@ function advance(scan: Scan, text: string): void {
   scan.at = end;
 }
 
+/** The finished blocks a step adds for good, and the tail still being written. */
+export interface StreamStep {
+  /** What was rendered before is gone — a rewind, an edit, or a reply that
+   *  has to be rendered whole — and `live` is the whole reply. */
+  reset: boolean;
+  /** Top-level blocks finished since the last step, each rendered once. */
+  add: string[];
+  /** The rest of the reply, rendered afresh every step. */
+  live: string;
+}
+
+/** Top-level tokens as sanitised HTML — one piece of a reply. */
+function tokensHtml(tokens: Token[], links: TokensList["links"]): string {
+  if (!DOMPurify.isSupported) return `<p>${escapeHtml(tokens.map((t) => t.raw).join(""))}</p>`;
+  const list = Object.assign([...tokens], { links }) as TokensList;
+  return DOMPurify.sanitize(marked.parser(list), { ADD_ATTR: ["target"] });
+}
+
 /**
- * A renderer for one reply as it is written, which does not render what it
- * has already rendered.
+ * A renderer for one reply as it is written, which renders each finished
+ * block of it once.
  *
  * The server lets a reply through a finished paragraph at a time
  * (server/paragraphs.ts), and every one of those used to re-parse the whole
- * reply, re-highlight every code block in it and sanitise the lot — so a
- * reply of n paragraphs cost n², and the code blocks near its start were
- * highlighted once for every paragraph that came after them.
+ * reply so far, sanitise the lot and hand it to the page as one string —
+ * which threw away every node of the reply and laid it all out again, a
+ * reply of n paragraphs costing n². On this machine that was most of what
+ * streaming cost.
  *
- * Here the finished part is rendered once. A closed fence at the margin
- * followed by a blank line is a point nothing later can reach back past, so
- * the HTML up to there is kept and only what has arrived since is rendered
- * and appended. Each piece is a whole number of top-level blocks, sanitised
- * on its own, so the result is the same HTML the whole-text render gives.
+ * Here only what has not been finished yet is read. Every top-level block
+ * but the last one in it is finished — a paragraph, a list, a table or a
+ * fence followed by another block cannot be changed by anything written
+ * after it — so each is rendered once and handed over to be kept (`add`),
+ * and only the last, still being written, is rendered again each step
+ * (`live`). Each piece is whole top-level blocks, sanitised on its own, so
+ * the pieces end to end are exactly the HTML the whole-text render gives.
  *
- * Text that stops extending what was rendered (a rewind, an edit) starts
- * the renderer over, and a reply holding something that reaches backwards
- * is rendered whole from that moment on.
+ * Markdown that reaches backwards — a link reference definition, which an
+ * earlier link may point at, and raw HTML — renders the whole reply from
+ * that moment on, and text that stops extending what was rendered starts
+ * the renderer over.
  */
-export function createStreamingMarkdown(): (text: string) => string {
-  /** The text already rendered into `html`. */
+export function createStreamingBlocks(): (text: string) => StreamStep {
+  /** The text already handed over as finished blocks. */
   let source = "";
-  let html = "";
   let scan = freshScan();
+  const whole = (text: string): StreamStep => ({ reset: true, add: [], live: markdownHtml(text) });
 
-  return (text: string): string => {
+  return (text: string): StreamStep => {
+    let reset = false;
     if (!text.startsWith(source)) {
       source = "";
-      html = "";
       scan = freshScan();
+      reset = true;
     }
-    if (scan.plain) return markdownHtml(text);
+    if (scan.plain) return whole(text);
     // A carriage return can still turn out to be half of a CRLF, and a byte
     // order mark at a boundary would be stripped from a piece though it sits
     // inside the whole. Neither is worth a special case.
     const tail = text.slice(source.length);
-    if (tail.includes("\r") || tail.includes("﻿")) {
+    if (tail.includes("\r") || tail.includes("\ufeff")) {
       scan.plain = true;
-      return markdownHtml(text);
+      return whole(text);
     }
     advance(scan, text);
-    if (scan.plain) {
-      // whatever reaches backwards may reach into what was kept
-      source = "";
-      html = "";
-      return markdownHtml(text);
+    if (scan.plain) return whole(text);
+    const tokens = marked.lexer(tail);
+    // the blocks must be the text, end to end, for a piece to be the text's
+    if (tokens.map((t) => t.raw).join("") !== tail) {
+      scan.plain = true;
+      return whole(text);
     }
-    if (scan.boundary > source.length) {
-      const piece = markdownHtml(text.slice(source.length, scan.boundary));
-      // a piece still waiting on a worker is not kept: keeping it would
-      // write the plain block back over the highlighting when the next
-      // paragraph arrives. It is rendered again below, and kept next time,
-      // by which point the highlighting is known.
-      if (!partial) {
-        html += piece;
-        source = text.slice(0, scan.boundary);
-      }
+    let last = tokens.length - 1;
+    while (last > 0 && tokens[last]!.type === "space") last -= 1;
+    const add: string[] = [];
+    let taken = 0;
+    for (let i = 0; i < last; i++) {
+      const token = tokens[i]!;
+      taken += token.raw.length;
+      if (token.type !== "space") add.push(tokensHtml([token], tokens.links));
     }
-    return html + markdownHtml(text.slice(source.length));
+    source += tail.slice(0, taken);
+    return { reset, add, live: tokensHtml(tokens.slice(last), tokens.links) };
+  };
+}
+
+/**
+ * The same, as one string: the reply's HTML so far, each finished block of
+ * it rendered once (createStreamingBlocks).
+ */
+export function createStreamingMarkdown(): (text: string) => string {
+  const step = createStreamingBlocks();
+  let kept = "";
+  return (text: string): string => {
+    const next = step(text);
+    if (next.reset) kept = "";
+    kept += next.add.join("");
+    return kept + next.live;
   };
 }

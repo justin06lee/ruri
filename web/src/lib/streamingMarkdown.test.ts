@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 
 // after the window exists, as markdownHtml.test.ts does: DOMPurify binds to
 // `window` as it loads, and without one its sanitize() hands back its input
-const { createStreamingMarkdown, markdownHtml } = await import("./markdownHtml");
+const { createStreamingBlocks, createStreamingMarkdown, markdownHtml } = await import("./markdownHtml");
 
 /** Every prefix of `text` that ends a line, then the whole thing — a reply
  *  arriving the way the server lets one through (server/paragraphs.ts). */
@@ -164,4 +164,68 @@ describe("createStreamingMarkdown", () => {
     // third is a floor this clears comfortably at two dozen code blocks
     expect(piecewise()).toBeLessThan(whole() / 3);
   });
+
+  test("prose with no fences at all agrees, through every kind of block", () => {
+    agreesAllTheWayThrough(
+      "Intro paragraph with `code` and **bold**.\n\nSecond paragraph\nwith a soft break.\n\n" +
+        "1. first\n2. second\n\n3. third, after a blank line: a loose list\n\n   still the third item\n\n" +
+        "Setext heading\n==============\n\n> a quote\nlazily continued\n\n> another quote\n\n" +
+        "| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n\n---\n\n    indented code\n\nlast words\n",
+    );
+  });
+
+  test("it keeps finished prose, and renders only the block still being written", () => {
+    const step = createStreamingBlocks();
+    const first = step("One.\n\nTwo.\n\n");
+    // a fresh renderer has nothing on the page to drop
+    expect(first.reset).toBe(false);
+    expect(first.add).toEqual([markdownHtml("One.\n")]);
+    expect(first.live).toBe(markdownHtml("Two.\n\n"));
+    const second = step("One.\n\nTwo.\n\nThree.\n\n");
+    expect(second.reset).toBe(false);
+    expect(second.add).toEqual([markdownHtml("Two.\n")]);
+    expect(second.live).toBe(markdownHtml("Three.\n\n"));
+    // a list may still grow, so it is not kept while it is the last block
+    const list = step("One.\n\nTwo.\n\nThree.\n\n- a\n\n");
+    expect(list.add).toEqual([markdownHtml("Three.\n")]);
+    const grown = step("One.\n\nTwo.\n\nThree.\n\n- a\n\n- b\n\n");
+    expect(grown.add).toEqual([]);
+    expect(grown.live).toBe(markdownHtml("- a\n\n- b\n\n"));
+  });
+
+  test("a rewind starts over; markdown that reaches back renders whole every time", () => {
+    const step = createStreamingBlocks();
+    step("One.\n\nTwo.\n\n");
+    const rewound = step("Other.\n\n");
+    expect(rewound.reset).toBe(true);
+    expect(rewound.live).toBe(markdownHtml("Other.\n\n"));
+    const def = step("Other.\n\nSee [x][d].\n\n[d]: https://example.com\n\n");
+    expect(def.reset).toBe(true);
+    expect(def.add).toEqual([]);
+    expect(def.live).toContain('href="https://example.com"');
+  });
+
+  test("a long prose reply is not re-parsed whole for every paragraph", () => {
+    const text = Array.from(
+      { length: 60 },
+      (_, i) => `Paragraph ${i} about **the retry** in \`store.ts\`, and why it waits a beat.`,
+    ).join("\n\n");
+    const arrival = text
+      .split("\n\n")
+      .map((_, index, parts) => `${parts.slice(0, index + 1).join("\n\n")}\n\n`);
+    const whole = () => {
+      const started = performance.now();
+      for (const so_far of arrival) markdownHtml(so_far);
+      return performance.now() - started;
+    };
+    const piecewise = () => {
+      const render = createStreamingBlocks();
+      const started = performance.now();
+      for (const so_far of arrival) render(so_far);
+      return performance.now() - started;
+    };
+    whole();
+    piecewise();
+    expect(piecewise()).toBeLessThan(whole() / 4);
+  }, 30_000);
 });

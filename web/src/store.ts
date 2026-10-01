@@ -956,6 +956,9 @@ export function connect(): void {
   // so the UI can be screenshotted deterministically without spending tokens.
   if (new URLSearchParams(location.search).has("fixture")) {
     void import("./fixture").then((m) => m.installFixture());
+    // and a door for the scripts that drive it to play the server's part —
+    // a reply streaming in, events arriving (scripts/perf.mjs)
+    (window as unknown as { __ruriReceive?: typeof receive }).__ruriReceive = receive;
     return;
   }
   const retry = () => {

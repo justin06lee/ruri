@@ -252,6 +252,23 @@ export function moveMarker(text: string, marker: Marker, to: number): { text: st
   return spaceMarkers(`${before}${lead}${word}${tail}${after}`, before.length + lead.length + word.length);
 }
 
+/**
+ * The text's true height in a box the browser sizes to its words
+ * (`field-sizing: content`), for the chip mirror to check itself against.
+ * A box under its cap is exactly as tall as its text — the browser made it
+ * so — and costs nothing to ask. Only one held at its cap, scrolling, has
+ * to be measured, the way `fitBox` does and for the same reasons, and its
+ * height is handed back to the stylesheet after.
+ */
+export function textHeight(area: HTMLTextAreaElement): number {
+  const cap = parseFloat(getComputedStyle(area).maxHeight);
+  if (!(area.offsetHeight >= cap - 1)) return area.clientHeight;
+  const height = fitBox(area, cap);
+  area.style.height = "";
+  fitted.delete(area);
+  return height;
+}
+
 /** How tall each textarea's text really is, as last fitted (see `fitBox`). */
 const fitted = new WeakMap<HTMLTextAreaElement, number>();
 

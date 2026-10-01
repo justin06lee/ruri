@@ -16,7 +16,6 @@ import { CommandMenu, commandPrefix } from "./CommandMenu";
 import { DragonGauges } from "./Dragon";
 import { MarkerMirror } from "./Markers";
 import {
-  fitBox,
   backspaceHits,
   findMarkers,
   holdMarkers,
@@ -386,20 +385,6 @@ export function Composer({
     });
   };
 
-  const autosize = useCallback(() => {
-    const area = areaRef.current;
-    if (!area) return;
-    // Reading scrollHeight forces the browser to lay the whole page out, and
-    // this runs on every mount — including the one a session switch causes,
-    // where the box is usually empty and the answer is always one row. So an
-    // empty box skips the measurement entirely and the switch skips a reflow.
-    if (!area.value) {
-      area.style.height = "";
-      return;
-    }
-    fitBox(area, 220);
-  }, []);
-
   // The draft changed from outside (a review's fix-it prompt, a rewound
   // prompt, a saved draft's files arriving after a launch): the map is the
   // source of truth — re-read it, attachments and marker numbering included.
@@ -501,33 +486,6 @@ export function Composer({
     onSent?.();
   };
 
-  // Fit the height after every committed text change — mount (restored
-  // drafts), typing, marker drops, seeds, and the post-send clear. A layout
-  // effect, so it measures the DOM *after* React writes the new value (a
-  // rAF here could fire first and measure the stale text, leaving a sent
-  // long prompt's height behind).
-  useLayoutEffect(() => autosize(), [autosize, text]);
-
-  // The box is fitted to its text, but the text's shape depends on the box:
-  // widen it and the same prompt needs fewer lines. Fitting on the prompt
-  // alone leaves the box as tall as it was before the window was resized —
-  // and a textarea taller than its own text reports *its* height as the
-  // text's, which is what the chip mirror measures itself against. That is
-  // how a resize with no keystroke after it used to take every chip off the
-  // prompt until the next one. So the box refits whenever the textarea is
-  // laid out again, and once the fonts have landed. Fitting is idempotent:
-  // the settled height is the one this writes, so the observer sees no new
-  // size and does not come round again.
-  useEffect(() => {
-    const area = areaRef.current;
-    if (!area) return;
-    const observer = new ResizeObserver(autosize);
-    observer.observe(area);
-    void document.fonts?.ready.then(autosize);
-    return () => observer.disconnect();
-    // a fresh textarea comes up each time the shell gives the box back
-  }, [shell, autosize]);
-
   /** The box as it was when the shell took its place: the caret, the
    *  scroll. The textarea is unmounted while the shell shows, and a fresh
    *  one comes up one row tall with the caret at the start — so on the
@@ -541,7 +499,6 @@ export function Composer({
   };
   useLayoutEffect(() => {
     if (shell) return;
-    autosize();
     const was = held.current;
     const area = areaRef.current;
     if (!was || !area) return;
@@ -550,7 +507,7 @@ export function Composer({
     area.setSelectionRange(was.start, was.end);
     area.scrollTop = was.top;
     caretRef.current = was.start;
-  }, [shell, autosize]);
+  }, [shell]);
 
   const viewingAtt = atts.find((a) => a.id === viewing);
 
@@ -680,7 +637,6 @@ export function Composer({
                 areaRef={areaRef}
                 text={text}
                 present={markerPresent}
-                refit={autosize}
                 onMove={(next) => {
                   setText(next.text);
                   placeCaret(next.caret);

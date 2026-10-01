@@ -678,7 +678,7 @@ function ChatView({
       </div>
       <div className="header-controls">
         <button
-          className={`icon-button ${agentsOpen ? "active" : ""}`}
+          className={`icon-button ${agentsOpen ? "active" : ""} ${agentsWorking > 0 ? "badged" : ""}`}
           title={
             agentsOpen
               ? "Back to the chat"
@@ -698,7 +698,7 @@ function ChatView({
           {agentsWorking > 0 && <span className="tracker-badge">{agentsWorking}</span>}
         </button>
         <button
-          className={`icon-button ${page === "talk" ? "active" : ""}`}
+          className={`icon-button ${page === "talk" ? "active" : ""} ${talking > 0 ? "badged" : ""}`}
           title={
             talking > 0
               ? `Talk — ${talking} ${talking === 1 ? "message" : "messages"} between this chat and other agents on the way; and who your agents may message`
@@ -742,7 +742,7 @@ function ChatView({
           )}
         </button>
         <button
-          className={`icon-button ${page === "ideas" ? "active" : ""}`}
+          className={`icon-button ${page === "ideas" ? "active" : ""} ${ideaCount > 0 ? "badged" : ""}`}
           title="Ideas — the board of things you want out of this project"
           onClick={() => setPage(page === "ideas" ? "chat" : "ideas")}
         >
@@ -750,7 +750,7 @@ function ChatView({
           {ideaCount > 0 && <span className="tracker-badge">{ideaCount}</span>}
         </button>
         <button
-          className={`icon-button tracker-toggle ${page === "tracker" ? "active" : ""}`}
+          className={`icon-button tracker-toggle ${page === "tracker" ? "active" : ""} ${openCount > 0 ? "badged" : ""}`}
           title={page === "tracker" ? "Back to the chat" : "Feature tracker — things to test by hand"}
           onClick={() => setPage(page === "tracker" ? "chat" : "tracker")}
         >
@@ -760,6 +760,16 @@ function ChatView({
       </div>
     </header>
   );
+
+  // Home's tab strip steps aside while a pad is open (styles.css)
+  const sketching = sketch !== null;
+  useEffect(() => {
+    if (!sketching) return;
+    document.documentElement.toggleAttribute("data-sketching", true);
+    return () => {
+      document.documentElement.toggleAttribute("data-sketching", false);
+    };
+  }, [sketching]);
 
   // What the chat shows — on Home, the chat's side of the deck.
   const view = (() => {

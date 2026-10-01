@@ -95,6 +95,7 @@ describe("the stack as an index", () => {
     expect(briefs.correctLayer("p", "bridge", "map", 0, "no dash here")).toBeNull();
 
     // a reload keeps it
+    briefs.flush();
     expect(new BriefStore().get("p").layerSheets?.["bridge"]?.summary).toBe("The bridge.");
 
     // the model's next index drops the bridge layer: its sheet goes with it

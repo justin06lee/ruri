@@ -228,11 +228,23 @@ export async function sheetMessage(ctx: ServerContext, projectId: string): Promi
   return { type: "sheet", projectId, sheet: ctx.briefs.get(projectId), sources, ...(git ? { git } : {}) };
 }
 
-/** The sheet as it now stands, into the project's two files and onto
- *  every window's architecture page. Git is asked first, so the sheet
- *  written is the one standing when the answer came — never an older one
- *  overtaking a newer. */
+/** Projects whose sheet is being pushed, and whether it changed again
+ *  meanwhile. */
+const pushing = new Map<string, boolean>();
+
+/** The sheet as it now stands, into the project's files and onto every
+ *  window's architecture page. Git is asked first, so the sheet written is
+ *  the one standing when the answer came — never an older one overtaking a
+ *  newer. One push at a time a project: each asks git six things and
+ *  rewrites the files, and a read of the repo changes the sheet a dozen
+ *  times in a row, so whatever changes while one is out is pushed once,
+ *  after it, as it then stands. */
 export function pushSheet(ctx: ServerContext, projectId: string): void {
+  if (pushing.has(projectId)) {
+    pushing.set(projectId, true);
+    return;
+  }
+  pushing.set(projectId, false);
   void (async () => {
     const { extra, sources, git } = await sheetExtras(ctx, projectId);
     const project = ctx.store.get(projectId);
@@ -240,7 +252,13 @@ export function pushSheet(ctx: ServerContext, projectId: string): void {
     const sheet = ctx.briefs.get(projectId);
     writeBriefFiles(project.path, project.name, sheet, extra);
     ctx.clients.broadcast({ type: "sheet", projectId, sheet, sources, ...(git ? { git } : {}) });
-  })().catch((err: unknown) => warn("brief", err, "pushSheet"));
+  })()
+    .catch((err: unknown) => warn("brief", err, "pushSheet"))
+    .finally(() => {
+      const again = pushing.get(projectId);
+      pushing.delete(projectId);
+      if (again) pushSheet(ctx, projectId);
+    });
 }
 
 const refreshing = new Map<string, NodeJS.Timeout>();

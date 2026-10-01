@@ -82,6 +82,8 @@ describe("the sheet", () => {
       true,
     );
     store.remember("p", memory, true);
+    // a change is written a moment later; a quit flushes it
+    store.flush();
     const again = new BriefStore().get("p");
     expect(again.layers?.[0]?.name).toBe("UI");
     expect(again.flows?.[0]?.steps).toEqual(["composer", "WebSocket", "server"]);

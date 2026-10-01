@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import { removeRuriFile, ruriDir } from "./ruriDir.js";
 import { storedFilePath } from "./uploads.js";
@@ -82,6 +83,9 @@ export type BriefWrite = Pick<ProjectBrief, "description" | "features"> &
       "layers" | "flows" | "run" | "layout" | "conventions" | "map" | "layerSheets" | "builtAt" | "readFiles"
     >
   >;
+
+/** How long a change to a sheet waits before the file is written. */
+const BRIEFS_WRITE_MS = 600;
 
 function briefsFile(): string {
   return configPath("briefs.json");
@@ -297,10 +301,36 @@ export class BriefStore {
     }
   }
 
+  private timer: NodeJS.Timeout | null = null;
+
+  /**
+   * Every sheet, in one file, a moment after a change. Each change used to
+   * write the whole file then and there, pretty-printed, on the main
+   * thread — a layer sheet arriving, a fold, a line corrected — and a read
+   * of the repo is a dozen changes in a row. Now a burst is one write, and
+   * it lands whole or not at all (atomic.ts). `flush` writes now: the
+   * server's close calls it, so a quit loses nothing.
+   */
   private save(): void {
+    if (this.timer) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.writeNow();
+    }, BRIEFS_WRITE_MS);
+    this.timer.unref?.();
+  }
+
+  flush(): void {
+    if (!this.timer) return;
+    clearTimeout(this.timer);
+    this.timer = null;
+    this.writeNow();
+  }
+
+  private writeNow(): void {
     try {
       fs.mkdirSync(path.dirname(briefsFile()), { recursive: true });
-      fs.writeFileSync(briefsFile(), JSON.stringify(Object.fromEntries(this.briefs), null, 2));
+      writeJsonAtomic(briefsFile(), Object.fromEntries(this.briefs));
     } catch (err) {
       warn("brief", err, "save");
       // best-effort persistence

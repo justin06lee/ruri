@@ -315,6 +315,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           agentLogs.flushAll();
           crew.flushAll();
           ledger.flush();
+          briefs.flush();
         },
         close: () =>
           new Promise<void>((done) => {
@@ -331,6 +332,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             agentLogs.flushAll();
             crew.flushAll();
             ledger.flush();
+            briefs.flush();
             try {
               fs.rmSync(tokenFile, { force: true });
             } catch (err) {

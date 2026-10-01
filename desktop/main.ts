@@ -285,8 +285,16 @@ async function main(): Promise<void> {
   // side; the server (which spawns CLIs off PATH) starts after both
   await Promise.all([fixPath(), app.whenReady()]);
   buildMenu();
-  // whatever the old, uncapped cache put by is let go of now
-  void session.defaultSession.clearCache().catch(() => {});
+  // whatever the old, uncapped cache put by is let go of — once. Clearing
+  // it at every launch threw away the bundle and the code V8 compiled from
+  // it, so every launch parsed and compiled the whole page again.
+  const capped = path.join(app.getPath("userData"), "cache-capped");
+  if (!fs.existsSync(capped)) {
+    void session.defaultSession
+      .clearCache()
+      .then(() => fs.writeFileSync(capped, ""))
+      .catch(() => {});
+  }
   prunePartitions(app.getPath("userData"));
 
   const staticDir = path.join(import.meta.dirname, "..", "dist-web");

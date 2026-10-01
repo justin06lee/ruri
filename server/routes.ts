@@ -59,7 +59,15 @@ function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.Ser
       res.end();
       return;
     }
-    res.writeHead(200, { "content-type": mimeOf(file, STATIC_MIME) });
+    res.writeHead(200, {
+      "content-type": mimeOf(file, STATIC_MIME),
+      // the build names every asset by its contents, so one never changes
+      // under its name: kept, the window's next launch takes the bundle
+      // from the cache and V8 the code it compiled from it last time,
+      // rather than parsing and compiling a megabyte of script again. The
+      // page that names them is asked for fresh every time.
+      "cache-control": rel.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+    });
     res.end(data);
   });
 }

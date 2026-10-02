@@ -3,22 +3,22 @@
 One layer of ruri's stack, owning `server/`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer server-services` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer server-services add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
-This layer supplies the server’s persistence and supporting services, including archives, project settings, checkpoints, integrations, usage, terminals, and project briefs. The server now runs in a separate Electron helper process and requests Electron-only operations through a message link to the main process. A newcomer should identify which service owns a record, whether it is shared through `.ruri/`, and which side of the process link owns an operation.
+This layer supplies the server’s persistence and supporting services, including archives, project settings, checkpoints, integrations, usage, terminals, and project briefs. The server runs in a separate Electron helper process and requests Electron-only operations through a message link to the main process. A newcomer should identify which service owns a record, whether it is shared through `.ruri/`, and which side of the process link owns an operation.
 
 ## Where to change what
 
-- **Server process startup and context:** server/desktopServer.ts, server/server.ts, server/context.ts, server/configDir.ts
-- **Electron host requests and bridge:** server/hostLink.ts, server/bridge.ts, server/routes.ts, server/hostLink.test.ts
+- **Server process startup and context:** server/desktopServer.ts, server/server.ts, server/context.ts, server/handlers/index.ts
+- **Electron host requests and bridge:** server/hostLink.ts, server/bridge.ts, server/routes.ts, server/handlers/host.ts
 - **Port ownership and process meters:** server/port.ts, server/resources.ts, server/resources.test.ts, server/usage.ts
-- **Session transcripts and history:** server/archive.ts
-- **File checkpoints and rewind:** server/checkpoints.ts
-- **Project and chat settings:** server/projects.ts, server/prefs.ts, server/handlers/projects.ts
+- **Session transcripts, checkpoints, and rewind:** server/archive.ts, server/checkpoints.ts
+- **Project and chat settings:** server/projects.ts, server/prefs.ts, server/handlers/projects.ts, server/handlers/projects.test.ts
 - **Project architecture and briefs:** server/brief.ts, server/ruriDir.ts, server/handoff.ts, server/layers.test.ts
 - **Project notes and catchup:** server/notes.ts, server/catchup.ts, server/catchupBrief.ts, server/notesBackfill.test.ts
-- **Small-model summaries and layer sheets:** server/smallmodel.ts
+- **Small-model summaries and layer sheets:** server/smallmodel.ts, server/smallmodel.test.ts, server/lazySheets.test.ts
 - **MCP servers and plugins:** server/integrations.ts
+- **Sharing and device invites:** server/sharing.ts, server/invite.ts, server/handlers/sharing.ts, server/invite.test.ts
 - **Window message delivery:** server/clients.ts, server/events.ts
-- **Terminal tabs and attachments:** server/terminal.ts, server/scrollback.ts, server/uploads.ts, server/shots.ts
+- **Terminal tabs and attachments:** server/terminal.ts, server/scrollback.ts, server/uploads.ts, server/handlers/pictures.test.ts
 
 ## How it works
 
@@ -36,7 +36,7 @@ This layer supplies the server’s persistence and supporting services, includin
 - server/checkpoints.ts — captures working trees and supports turn rewind through private Git refs
 - server/brief.ts — builds and writes project architecture and briefing files
 - server/ruriDir.ts — manages project files under `.ruri/`
-- server/port.ts — manages port ownership and reclaim using the app process ID
+- server/sharing.ts — provides server-side sharing support
 - server/resources.ts — samples current process CPU and memory for the Statistics page
 
 ## Rules and traps

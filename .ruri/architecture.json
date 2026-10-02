@@ -1618,7 +1618,7 @@
       ]
     },
     "server-services": {
-      "summary": "This layer supplies the server’s persistence and supporting services, including archives, project settings, checkpoints, integrations, usage, terminals, and project briefs. The server now runs in a separate Electron helper process and requests Electron-only operations through a message link to the main process. A newcomer should identify which service owns a record, whether it is shared through `.ruri/`, and which side of the process link owns an operation.",
+      "summary": "This layer supplies the server’s persistence and supporting services, including archives, project settings, checkpoints, integrations, usage, terminals, and project briefs. The server runs in a separate Electron helper process and requests Electron-only operations through a message link to the main process. A newcomer should identify which service owns a record, whether it is shared through `.ruri/`, and which side of the process link owns an operation.",
       "map": [
         {
           "name": "Server process startup and context",
@@ -1626,7 +1626,7 @@
             "server/desktopServer.ts",
             "server/server.ts",
             "server/context.ts",
-            "server/configDir.ts"
+            "server/handlers/index.ts"
           ]
         },
         {
@@ -1635,7 +1635,7 @@
             "server/hostLink.ts",
             "server/bridge.ts",
             "server/routes.ts",
-            "server/hostLink.test.ts"
+            "server/handlers/host.ts"
           ]
         },
         {
@@ -1648,14 +1648,9 @@
           ]
         },
         {
-          "name": "Session transcripts and history",
+          "name": "Session transcripts, checkpoints, and rewind",
           "files": [
-            "server/archive.ts"
-          ]
-        },
-        {
-          "name": "File checkpoints and rewind",
-          "files": [
+            "server/archive.ts",
             "server/checkpoints.ts"
           ]
         },
@@ -1664,7 +1659,8 @@
           "files": [
             "server/projects.ts",
             "server/prefs.ts",
-            "server/handlers/projects.ts"
+            "server/handlers/projects.ts",
+            "server/handlers/projects.test.ts"
           ]
         },
         {
@@ -1688,13 +1684,24 @@
         {
           "name": "Small-model summaries and layer sheets",
           "files": [
-            "server/smallmodel.ts"
+            "server/smallmodel.ts",
+            "server/smallmodel.test.ts",
+            "server/lazySheets.test.ts"
           ]
         },
         {
           "name": "MCP servers and plugins",
           "files": [
             "server/integrations.ts"
+          ]
+        },
+        {
+          "name": "Sharing and device invites",
+          "files": [
+            "server/sharing.ts",
+            "server/invite.ts",
+            "server/handlers/sharing.ts",
+            "server/invite.test.ts"
           ]
         },
         {
@@ -1710,7 +1717,7 @@
             "server/terminal.ts",
             "server/scrollback.ts",
             "server/uploads.ts",
-            "server/shots.ts"
+            "server/handlers/pictures.test.ts"
           ]
         }
       ],
@@ -1752,7 +1759,7 @@
         "server/checkpoints.ts — captures working trees and supports turn rewind through private Git refs",
         "server/brief.ts — builds and writes project architecture and briefing files",
         "server/ruriDir.ts — manages project files under `.ruri/`",
-        "server/port.ts — manages port ownership and reclaim using the app process ID",
+        "server/sharing.ts — provides server-side sharing support",
         "server/resources.ts — samples current process CPU and memory for the Statistics page"
       ],
       "rules": [

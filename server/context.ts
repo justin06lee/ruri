@@ -41,6 +41,7 @@ import type { ConnectionWatch } from "./blocked.js";
 import type { Retries } from "./retry.js";
 import type { SecretStore } from "./secrets.js";
 import type { SessionManager } from "./sessions.js";
+import type { Sharing } from "./sharing.js";
 import type { CaptureHost } from "./shots.js";
 import type { TurnTracker } from "./smallmodel.js";
 import type { Terminals } from "./terminal.js";
@@ -196,6 +197,9 @@ export interface ServerContext {
   crewManager: SessionManager;
   /** Keeps the coding CLIs on this machine current (server/updater.ts). */
   updater: HarnessUpdater;
+  /** Other devices using this computer: the door they come in by, and who
+   *  has been let in (server/sharing.ts). */
+  readonly sharing: Sharing;
 
   /* ── the live state, by what it is for ──────────────────────────── */
   readonly clients: Clients;

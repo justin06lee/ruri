@@ -43,6 +43,23 @@ export function installFixture(): void {
     connected: true,
     canPermissions: true,
     platform: "darwin",
+    sharing: {
+      on: true,
+      name: "tenet",
+      port: 7775,
+      addresses: ["192.168.1.253", "10.77.0.1", "100.101.12.40", "tenet", "tenet.local"],
+      devices: [
+        { id: "a1", name: "jetson", pairedAt: Date.now() - 3 * 86_400_000, online: true },
+        {
+          id: "b2",
+          name: "Huiyuns-MacBook-Air-3",
+          pairedAt: Date.now() - 9 * 86_400_000,
+          lastSeen: Date.now() - 2 * 3_600_000,
+          online: false,
+        },
+      ],
+    },
+    remoteDevice: null,
     grants: {
       items: [
         {

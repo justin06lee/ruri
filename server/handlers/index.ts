@@ -13,6 +13,7 @@ import { projectHandlers } from "./projects.js";
 import { promptHandlers } from "./prompts.js";
 import { rewindHandlers } from "./rewind.js";
 import { settingHandlers } from "./settings.js";
+import { sharingHandlers } from "./sharing.js";
 import { skillHandlers } from "./skills.js";
 import { talkHandlers } from "./talk.js";
 import { terminalHandlers } from "./terminal.js";
@@ -31,6 +32,7 @@ const HANDLERS: Handlers = {
   ...skillHandlers,
   ...settingHandlers,
   ...hostHandlers,
+  ...sharingHandlers,
   ...integrationHandlers,
   ...talkHandlers,
 };

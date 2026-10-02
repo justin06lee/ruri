@@ -16,7 +16,8 @@ function permissions(
   msg: Extract<ClientMessage, { type: "permissions_check" | "permissions_request" }>,
 ): void {
   const host = ctx.options.permissions;
-  if (!host) return;
+  // macOS's dialogs are for whoever is in front of this Mac
+  if (!host || ctx.clients.seats.has(ws)) return;
   const asked = msg.type === "permissions_request" ? host.request(msg.id) : host.check();
   void asked
     .then(async (items) => ({ items, rows: await host.rows() }))
@@ -31,7 +32,10 @@ function permissions(
 export const hostHandlers = {
   pick_folder: (ctx, ws, msg) => {
     const target = msg.target ?? "workspace";
-    void (ctx.options.pickFolder?.() ?? Promise.resolve(null)).then((path) => {
+    // the dialog would open on this computer's screen, not in front of a
+    // window on another device (server/sharing.ts)
+    const pick = ctx.clients.seats.has(ws) ? undefined : ctx.options.pickFolder;
+    void (pick?.() ?? Promise.resolve(null)).then((path) => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "folder_picked", path, target } satisfies ServerMessage));
       }
@@ -48,7 +52,8 @@ export const hostHandlers = {
   bridge_close: (ctx, _ws, msg) => {
     void ctx.options.bridge?.close(msg.projectId);
   },
-  window_drag: (ctx, _ws, msg) => {
-    ctx.options.windowDrag?.(msg.phase);
+  window_drag: (ctx, ws, msg) => {
+    // a window on another device is carried by its own shell
+    if (!ctx.clients.seats.has(ws)) ctx.options.windowDrag?.(msg.phase);
   },
 } satisfies Partial<Handlers>;

@@ -506,6 +506,8 @@ export const Sidebar = memo(function Sidebar() {
   const projects = useRuri((s) => s.projects);
   const connected = useRuri((s) => s.connected);
   const user = useRuri((s) => s.user);
+  // a window onto another computer says which, beside whose account it is
+  const onto = useRuri((s) => (s.remoteDevice !== null ? s.sharing?.name : undefined));
   const [expandedSet, setExpandedSet] = useState<Set<string>>(loadExpanded);
   // The fold at the bottom: hidden projects stay out of sight until it is
   // opened, and whether it is open is remembered like the folders are.
@@ -652,7 +654,10 @@ export const Sidebar = memo(function Sidebar() {
           <circle cx="12" cy="8" r="4" />
           <path d="M4 21c1.5-4 4.4-6 8-6s6.5 2 8 6" />
         </svg>
-        <span className="account-name">{user || "account"}</span>
+        <span className="account-name" title={onto ? `Chats run on ${onto} — Settings, Devices` : undefined}>
+          {user || "account"}
+          {onto && <span className="account-where"> on {onto}</span>}
+        </span>
         {!connected && <span className="conn off" title="Reconnecting…" />}
         <button
           className={`icon-button ${settingsOpen ? "active" : ""}`}

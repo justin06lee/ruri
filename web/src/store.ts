@@ -9,6 +9,7 @@ import {
   type BackgroundWork,
   type BridgeState,
   type HarnessInfo,
+  type SharingInfo,
   type IntegrationHarness,
   type Integrations,
   type TalkLetter,
@@ -474,6 +475,15 @@ interface RuriState {
   canPermissions: boolean;
   /** The server's OS (process.platform), "" before the first hello. */
   platform: string;
+  /** Whether other devices may use the computer this window is onto, and
+   *  who they are (server/sharing.ts). */
+  sharing: SharingInfo | null;
+  /** Set when this window is on another device than the server: which
+   *  device the server knows it as. */
+  remoteDevice: { id: string; name: string } | null;
+  /** The invite this window last asked for — its six words — until it
+   *  runs out. */
+  invite: { words: string[]; expires: number } | null;
   /** The macOS grants as last read (Settings asks), or null before that. */
   grants: { items: PermissionState[]; rows: TccRow[] } | null;
   /** Latest native-picker result, tagged with what the pick was for. */
@@ -584,6 +594,9 @@ export const useRuri = create<RuriState>((set) => ({
   canPickFolder: false,
   canPermissions: false,
   platform: "",
+  sharing: null,
+  remoteDevice: null,
+  invite: null,
   grants: null,
   picked: null,
   lastError: null,
@@ -628,7 +641,11 @@ export const useRuri = create<RuriState>((set) => ({
 // the ruri server itself (desktop app / production), the WebSocket lives on
 // the same origin.
 const DEV_PORT: string = (import.meta.env["RURI_PORT"] as string | undefined) || "7777";
-const WS_URL = import.meta.env.DEV ? `ws://${location.hostname}:${DEV_PORT}` : `ws://${location.host}`;
+// over TLS when the page came that way: a window onto another computer
+// (server/sharing.ts)
+const WS_URL = import.meta.env.DEV
+  ? `ws://${location.hostname}:${DEV_PORT}`
+  : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
 
 /** Base for the server's HTTP endpoints (music etc.) — empty when same-origin. */
 export const HTTP_BASE = import.meta.env.DEV ? `http://${location.hostname}:${DEV_PORT}` : "";
@@ -1065,6 +1082,8 @@ function apply(msg: ServerMessage): void {
         canPickFolder: msg.canPickFolder,
         canPermissions: msg.canPermissions,
         platform: msg.platform,
+        sharing: msg.sharing,
+        remoteDevice: msg.remoteDevice ?? null,
         bridges: msg.bridges,
         workspaceDir: msg.workspaceDir,
         musicDir: msg.musicDir,
@@ -1519,6 +1538,14 @@ function apply(msg: ServerMessage): void {
     }
     case "permissions": {
       setState({ grants: { items: msg.items, rows: msg.rows } });
+      break;
+    }
+    case "sharing": {
+      setState({ sharing: msg.sharing });
+      break;
+    }
+    case "sharing_invite": {
+      setState({ invite: { words: msg.words, expires: msg.expires } });
       break;
     }
     case "folder_picked": {

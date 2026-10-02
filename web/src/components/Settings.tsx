@@ -9,6 +9,7 @@ import type {
 import { send, useRuri } from "../store";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
+import { Devices } from "./Devices";
 import { GreetingEditor } from "./GreetingEditor";
 import { ModelIcon } from "./Marks";
 import { Integrations } from "./Integrations";
@@ -552,6 +553,8 @@ export function Settings({ onClose }: { onClose(): void }) {
   const workspaceDir = useRuri((s) => s.workspaceDir);
   const musicDir = useRuri((s) => s.musicDir);
   const canPickFolder = useRuri((s) => s.canPickFolder);
+  const remoteDevice = useRuri((s) => s.remoteDevice);
+  const computer = useRuri((s) => s.sharing?.name);
   const [theme, setTheme] = useState<Theme>(currentTheme);
   const [schedule, setSchedule] = useState<ThemeSchedule>(getSchedule);
   useEffect(() => {
@@ -598,7 +601,9 @@ export function Settings({ onClose }: { onClose(): void }) {
         <div className="board-inner settings-inner">
           <div className="board-head">
             <span className="board-title">Settings</span>
-            <span className="board-sub">this machine</span>
+            <span className="board-sub">
+              {remoteDevice !== null && computer ? `on ${computer}` : "this machine"}
+            </span>
             <button className="ghost" onClick={onClose}>
               Done
             </button>
@@ -692,7 +697,11 @@ export function Settings({ onClose }: { onClose(): void }) {
                   className="ghost"
                   disabled={!canPickFolder}
                   title={
-                    canPickFolder ? "Pick the folder your projects live in" : "Available in the desktop app"
+                    canPickFolder
+                      ? "Pick the folder your projects live in"
+                      : remoteDevice !== null
+                        ? `Change it on ${computer ?? "that computer"} itself`
+                        : "Available in the desktop app"
                   }
                   onClick={() => send({ type: "pick_folder", target: "workspace" })}
                 >
@@ -721,6 +730,11 @@ export function Settings({ onClose }: { onClose(): void }) {
                 </button>
               </div>
             </div>
+          </section>
+
+          <section className="settings-group">
+            <h2 className="settings-group-name">Devices</h2>
+            <Devices />
           </section>
 
           <section className="settings-group">

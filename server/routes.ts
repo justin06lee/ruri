@@ -279,11 +279,19 @@ async function serveLibraryCall(
   reply(answer.ok ? 200 : 400, help ? `${answer.text}\n\n${MEMORY_HELP}` : answer.text);
 }
 
-export function createHttpServer(ctx: ServerContext): http.Server {
+/**
+ * The routes, as one handler. `admitted` is for a request another door has
+ * already checked — sharing's (server/sharing.ts), which has seen a paired
+ * device's key — so the local window's origin and token rules are not
+ * asked of it a second time.
+ */
+export function createRequestHandler(
+  ctx: ServerContext,
+): (req: http.IncomingMessage, res: http.ServerResponse, admitted?: boolean) => void {
   const { options } = ctx;
-  return http.createServer((req, res) => {
+  return (req, res, admitted = false) => {
     const method = req.method ?? "GET";
-    if (method !== "GET" && method !== "HEAD") {
+    if (!admitted && method !== "GET" && method !== "HEAD") {
       // Anything that changes something needs the page's own origin (or
       // none) and the token. The exceptions are the bridge, talk and
       // library calls, whose session id is their capability — harnesses
@@ -345,11 +353,50 @@ export function createHttpServer(ctx: ServerContext): http.Server {
       ctx.readable.serveReadFile(req, res);
       return;
     }
+    // an invite's words, for `ruri --invite` on a computer nobody is
+    // sitting at — and, for a device signed in here over SSH, a key with no
+    // invite at all (server/sharing.ts pairDirect): this computer's own
+    // door only, token and all, never one come in through sharing
+    if (req.method === "POST" && (req.url === "/sharing/invite" || req.url === "/sharing/pair-local")) {
+      const answer = (made: Promise<unknown>) =>
+        made.then(
+          (value) => {
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify(value));
+          },
+          (err: unknown) => {
+            res.writeHead(500, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: errorMessage(err) }));
+          },
+        );
+      if (req.url === "/sharing/invite") {
+        void answer(ctx.sharing.invite());
+        return;
+      }
+      if (admitted) {
+        res.writeHead(403);
+        res.end();
+        return;
+      }
+      void readBody(req, 4096)
+        .then((text) => JSON.parse(text || "{}") as { name?: unknown })
+        .then((body) => answer(ctx.sharing.pairDirect(body.name)))
+        .catch((err: unknown) => {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: `bad request: ${errorMessage(err)}` }));
+        });
+      return;
+    }
     if (options.staticDir && (req.method === "GET" || req.method === "HEAD")) {
       serveStatic(options.staticDir, req, res);
       return;
     }
     res.writeHead(404);
     res.end();
-  });
+  };
+}
+
+export function createHttpServer(ctx: ServerContext): http.Server {
+  const handle = createRequestHandler(ctx);
+  return http.createServer((req, res) => handle(req, res));
 }

@@ -1245,6 +1245,36 @@ export interface TccRow {
   at: number;
 }
 
+/** A device let in to use this computer (server/sharing.ts). */
+export interface SharedDevice {
+  id: string;
+  /** What the device calls itself (its hostname), as it paired. */
+  name: string;
+  pairedAt: number;
+  /** When it last connected or left (epoch ms). */
+  lastSeen?: number;
+  /** A window of it is connected now. */
+  online: boolean;
+}
+
+/**
+ * Whether other devices may use this computer — run their chats here, on
+ * its processor and memory — and who has been let in (server/sharing.ts).
+ */
+export interface SharingInfo {
+  on: boolean;
+  /** This computer's name, as the others see it. */
+  name: string;
+  /** The port the others come in by. */
+  port: number;
+  /** Where the others can reach it: its address on every network it is on,
+   *  and its name. */
+  addresses: string[];
+  devices: SharedDevice[];
+  /** Why it could not be turned on, when it could not. */
+  error?: string;
+}
+
 /**
  * One coding CLI on this machine, as the updater sees it: how it was
  * installed (which is how it gets updated), what version it is and what
@@ -1732,6 +1762,12 @@ export type ClientMessage =
    *  which, while ruri is in use, sees the pointer instead of being part
    *  of the title bar's drag region. */
   | { type: "window_drag"; phase: WindowDragPhase }
+  /** Let other devices use this computer, or stop (server/sharing.ts). */
+  | { type: "sharing_set"; on: boolean }
+  /** An invite for one more device — sharing is turned on if it was off. */
+  | { type: "sharing_invite" }
+  /** Unpair a device: its key stops working and its windows are closed. */
+  | { type: "sharing_forget"; deviceId: string }
   /** The talk page opened: send who may message whom, and what has been
    *  said lately. Answered with `talk`. */
   | { type: "talk_get" }
@@ -1813,9 +1849,19 @@ export type ServerMessage =
       bridges: Record<string, BridgeState>;
       /** The agents the user started from each chat's agents page. */
       crew: Record<string, SubagentState[]>;
+      /** Whether other devices may use this computer, and who they are. */
+      sharing: SharingInfo;
+      /** Set when this window is on another device, come in through
+       *  sharing: which device this computer knows it as. */
+      remoteDevice?: { id: string; name: string };
     }
   | { type: "projects"; projects: Project[] }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
+  /** Sharing changed: turned on or off, a device paired, came or went. */
+  | { type: "sharing"; sharing: SharingInfo }
+  /** The invite a window asked for: six words that pair one device, once,
+   *  until `expires` (server/invite.ts). */
+  | { type: "sharing_invite"; words: string[]; expires: number }
   /** Where a store_picture is served from now — null if it could not be kept. */
   | { type: "picture_stored"; id: string; url: string | null }
   /** The grants, and the privacy database's rows behind them. */

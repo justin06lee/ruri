@@ -26,6 +26,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "perf": "bun scripts/perf.mjs",
     "auth-test": "tsx scripts/auth.ts",
+    "sharing-test": "tsx scripts/sharing.ts",
     "bridge-test": "tsx scripts/bridge.ts",
     "rewind-test": "tsx scripts/rewind.ts",
     "rewind-git-test": "bun scripts/rewind-git.ts",

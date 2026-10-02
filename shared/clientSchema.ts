@@ -381,6 +381,9 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("set_pref"), key: z.string().min(1).max(200), value: z.string().max(100_000) }),
   z.object({ type: z.literal("store_picture"), upload: attachmentUpload }),
   z.object({ type: z.literal("window_drag"), phase: z.enum(["start", "move", "end", "zoom"]) }),
+  z.object({ type: z.literal("sharing_set"), on: z.boolean() }),
+  z.object({ type: z.literal("sharing_invite") }),
+  z.object({ type: z.literal("sharing_forget"), deviceId: id }),
   z.object({ type: z.literal("talk_get") }),
   z.object({ type: z.literal("talk_set"), policy: talkPolicy }),
 ]);

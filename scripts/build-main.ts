@@ -63,6 +63,25 @@ await build({
 });
 
 /**
+ * The window's preload (desktop/preload.ts): CommonJS, on its own — a
+ * sandboxed preload is a script, not a module, and gets `require("electron")`
+ * and nothing more.
+ */
+await build({
+  entryPoints: { preload: "desktop/preload.ts" },
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  target: "node20",
+  outdir: "dist-electron",
+  outExtension: { ".js": ".cjs" },
+  external: ["electron"],
+  minify: true,
+  legalComments: "none",
+  logLevel: "info",
+});
+
+/**
  * Nothing but ASCII in what was written. V8 keeps a script's source for as
  * long as the script lives, at a byte a character only if every character
  * is ASCII: a "—" in one regular expression kept the whole server bundle at
@@ -72,7 +91,7 @@ await build({
  * backslash, or a file uses String.raw (whose text an escape would change),
  * the build stops rather than guess.
  */
-for (const file of ["dist-electron/main.mjs", "dist-electron/server.mjs"]) {
+for (const file of ["dist-electron/main.mjs", "dist-electron/server.mjs", "dist-electron/preload.cjs"]) {
   const text = fs.readFileSync(file, "utf8");
   if (!/[\u0080-\uffff]/.test(text)) continue;
   if (text.includes("String.raw"))

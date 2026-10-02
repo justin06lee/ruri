@@ -48,8 +48,9 @@ import { ResourceMeters } from "./resources.js";
 import { TerminalRelay } from "./relay.js";
 import { ConnectionWatch } from "./blocked.js";
 import { Retries } from "./retry.js";
-import { createHttpServer } from "./routes.js";
+import { createHttpServer, createRequestHandler } from "./routes.js";
 import { SecretStore } from "./secrets.js";
+import { Sharing } from "./sharing.js";
 import { digestHistory, setSmallModel } from "./smallmodel.js";
 import { createSocketServer } from "./socket.js";
 import { TalkBook } from "./talk.js";
@@ -169,6 +170,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     permissions: new Map<string, PermissionRequest>(),
     pendingComponents: new Map<string, PendingComponent>(),
     talk: new TalkBook(),
+    sharing: new Sharing(),
     sweeping: new Set<string>(),
     photographers: new Map<string, string>(),
     catchingUp: new Set<string>(),
@@ -246,6 +248,23 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
 
   const server = createHttpServer(ctx);
   const wss = createSocketServer(ctx, server);
+  // the door other devices come in by, open only if sharing was left on
+  // (server/sharing.ts): the same routes and the same socket behind it
+  const serve = createRequestHandler(ctx);
+  ctx.sharing.start({
+    serve: (req, res) => serve(req, res, true),
+    sockets: (door) =>
+      createSocketServer(ctx, door, {
+        refusal: (origin, req) => ctx.sharing.refusal(origin, req),
+        seat: (req) => ctx.sharing.deviceFor(req),
+      }),
+    closeDevice: (deviceId) => {
+      for (const ws of ctx.clients.sockets) {
+        if (ctx.clients.seats.get(ws)?.deviceId === deviceId) ws.close(4003, "unpaired");
+      }
+    },
+    changed: (sharing) => ctx.clients.broadcast({ type: "sharing", sharing }),
+  });
 
   const host = options.host ?? "127.0.0.1";
 
@@ -341,8 +360,16 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             }
             relay.stop();
             ctx.meters.stop();
+            void ctx.sharing.close();
             for (const client of ctx.clients.sockets) client.close();
-            wss.close(() => server.close(() => done()));
+            // and whatever is still open to it goes too: a window still on
+            // the page — one moving to another computer (desktop/main.ts)
+            // — holds a connection that close() would otherwise wait on
+            // for as long as the window stays
+            wss.close(() => {
+              server.closeAllConnections();
+              server.close(() => done());
+            });
           }),
       });
     });

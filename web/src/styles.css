@@ -9252,6 +9252,173 @@ button.stop:hover {
   margin: 0;
 }
 
+/* ── devices (Settings): this computer used from others ─────────────── */
+
+.devices {
+  display: flex;
+  flex-direction: column;
+}
+
+/* a long line of addresses wraps rather than running off; the port rides
+   at the end of it, quieter */
+.devices-where {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.devices-port {
+  color: var(--ink-faint);
+}
+
+.devices-invite {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.devices-code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.devices-code-row input {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+}
+
+/* the invite itself: one line, cut short on screen, whole on the clipboard */
+.devices-code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  padding: 5px 8px;
+  border: 1px dashed var(--edge);
+  border-radius: 6px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: copy;
+}
+
+/* the invite's six words: numbered, two rows of three, big enough to read
+   off another screen */
+.devices-words {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 14px;
+  margin: 0;
+  padding: 10px 14px;
+  list-style: none;
+  border: 1px dashed var(--edge);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: copy;
+}
+
+.devices-word-n {
+  display: inline-block;
+  width: 1.4em;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ink-faint);
+}
+
+/* one computer, and its setup when open beneath it */
+.devices-peer + .devices-peer .grant-row {
+  border-top-style: dashed;
+}
+
+.devices-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px 96px;
+  padding: 10px 12px;
+  border-left: 1.5px solid var(--hairline);
+}
+
+.devices-setup .vault-form input,
+.devices-setup select {
+  min-width: 0;
+}
+
+.devices-account {
+  flex: 0 0 120px !important;
+}
+
+.devices-at {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+}
+
+.devices-setup select {
+  font-size: var(--fs-md);
+  padding: 5px 8px;
+}
+
+/* what the far side said it was on, the step under way pulsing */
+.devices-steps {
+  margin: 2px 0;
+  padding-left: 18px;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+  line-height: 1.7;
+}
+
+.devices-steps li.now {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.devices-words-in {
+  margin-top: 4px;
+}
+
+.devices-error {
+  margin: 2px 0 6px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.devices-list {
+  margin: 4px 0 6px;
+}
+
+.devices-this {
+  margin-top: 10px;
+  border-top: 1.5px solid var(--hairline);
+  padding-top: 14px;
+}
+
+.device-status {
+  width: 72px;
+}
+
+.device-status.online {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+/* the account bar's "on tenet": whose computer the chats run on */
+.account-where {
+  font-weight: 500;
+  color: var(--ink-faint);
+}
+
 .grants-head .settings-note {
   align-self: center;
 }

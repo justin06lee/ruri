@@ -5,6 +5,7 @@
 import { WebSocket } from "ws";
 import type { ServerMessage, TranscriptEvent } from "../shared/protocol.js";
 import type { ClientConn, ServerContext } from "./context.js";
+import type { Seat } from "./sharing.js";
 
 /**
  * What each window has on screen (the `view` message).
@@ -84,6 +85,9 @@ export class Clients {
    *  (server/relay.ts). Set once, at startup. */
   onGone: ((ws: ClientConn) => void) | undefined;
   readonly views = new Map<ClientConn, ClientView>();
+  /** The windows on other devices, come in through sharing, and whose
+   *  each is (server/sharing.ts). This computer's own are not in here. */
+  readonly seats = new WeakMap<ClientConn, Seat>();
   /** Per channel, moved on by every change to its transcript. */
   readonly revisions = new Map<string, number>();
   /** Per channel, moved on only by a change that is not an addition — a

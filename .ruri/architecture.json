@@ -119,7 +119,9 @@
         "web/src/lib/peekBand.ts",
         "web/src/pictures.ts",
         "web/src/prefs.ts",
-        "web/src/theme.ts"
+        "web/src/theme.ts",
+        "web/src/components/Devices.tsx",
+        "web/src/lib/shell.ts"
       ]
     },
     {
@@ -160,7 +162,11 @@
         "server/dispatch.ts",
         "server/handlers/",
         "server/desktopServer.ts",
-        "server/hostLink.ts"
+        "server/hostLink.ts",
+        "server/sharing.ts",
+        "server/tlsCert.ts",
+        "server/invite.ts",
+        "server/words.ts"
       ]
     },
     {
@@ -230,7 +236,12 @@
       "paths": [
         "desktop/main.ts",
         "desktop/permissions.ts",
-        "desktop/serverProcess.ts"
+        "desktop/serverProcess.ts",
+        "desktop/remote.ts",
+        "desktop/preload.ts",
+        "desktop/offline.ts",
+        "desktop/peers.ts",
+        "desktop/sshSetup.ts"
       ]
     },
     {
@@ -320,7 +331,9 @@
     "bun run dev — run the server on port 7777 and UI on port 5173.",
     "bun run desktop — run the unpackaged desktop app.",
     "bun run typecheck — check server, web, and web test TypeScript.",
-    "bun test — run the Bun tests."
+    "bun test — run the Bun tests.",
+    "ruri --serve — run with no window (headless when there is no display), sharing on, printing six words; ruri --invite prints more, ruri --quit stops it.",
+    "bun run sharing-test — the sharing door: pairing, keys, origins, unpairing."
   ],
   "conventions": [
     "Use Bun for dependencies and package scripts.",
@@ -920,6 +933,13 @@
             "web/src/lib/audio.ts",
             "web/src/prefs.ts"
           ]
+        },
+        {
+          "name": "Devices: sharing this computer, its six-word invites and paired devices, and this device's other computers",
+          "files": [
+            "web/src/components/Devices.tsx",
+            "web/src/lib/shell.ts"
+          ]
         }
       ],
       "flows": [
@@ -1131,7 +1151,7 @@
       ]
     },
     "server-transport": {
-      "summary": "This layer starts the HTTP and WebSocket services on one port and routes client requests to domain handlers. A shared server context holds the live state and services those handlers use. Follow a message from the socket or HTTP route into its handler; prompt execution then continues through dispatch.",
+      "summary": "This layer starts the HTTP and WebSocket services on the local port — and, when sharing is on, a second TLS door other devices pair and come in through — and routes client requests to domain handlers. A shared server context holds the live state and services those handlers use. Follow a message from the socket or HTTP route into its handler; prompt execution then continues through dispatch.",
       "map": [
         {
           "name": "Server startup and its process under the app",
@@ -1201,15 +1221,20 @@
           ]
         },
         {
-          "name": "User started agents",
+          "name": "User started agents, tracker and ideas boards",
           "files": [
-            "server/handlers/crew.ts"
+            "server/handlers/crew.ts",
+            "server/handlers/boards.ts"
           ]
         },
         {
-          "name": "Tracker and ideas boards",
+          "name": "Sharing: other devices using this computer, pairing and invites",
           "files": [
-            "server/handlers/boards.ts"
+            "server/sharing.ts",
+            "server/invite.ts",
+            "server/tlsCert.ts",
+            "server/words.ts",
+            "server/handlers/sharing.ts"
           ]
         }
       ],
@@ -1219,13 +1244,13 @@
           "steps": [
             "the desktop shell forks server/desktopServer.ts (or server/index.ts runs standalone)",
             "server/server.ts assembles live state, managers, hosts, and timers",
-            "server/routes.ts and server/socket.ts serve HTTP and WebSocket traffic on one port"
+            "server/routes.ts and server/socket.ts serve HTTP and WebSocket traffic on the local port, and server/sharing.ts opens the TLS door for other devices when sharing is on"
           ]
         },
         {
           "name": "WebSocket message",
           "steps": [
-            "server/socket.ts checks origin and token at upgrade",
+            "server/socket.ts checks the upgrade at its door — the local window's origin and token, or at sharing's a paired device's key, marking that window in Clients.seats",
             "It sends a state snapshot on connection",
             "It validates each incoming message against the client schema",
             "server/handlers/index.ts hands the message to its domain handler"
@@ -1250,11 +1275,11 @@
         "server/handlers/projects.ts — handles project and session changes",
         "server/handlers/talk.ts — handles messages between agents",
         "server/handlers/components.ts — connects component library actions to the app",
-        "server/handlers/rewind.ts — handles rewind and fork requests"
+        "server/sharing.ts — the door other devices come in by: a TLS listener on every interface, the LAN beacon, word and SSH pairing (POST /pair/hello, /pair/prove; /sharing/pair-local on the local port), device keys kept as hashes; off unless turned on"
       ],
       "rules": [
-        "HTTP requests that change state must pass origin and token checks.",
-        "WebSocket upgrades require the page origin and token; incoming messages must pass schema validation before dispatch.",
+        "HTTP requests that change state, and WebSocket upgrades, must pass the origin and token checks; incoming messages must pass schema validation before dispatch.",
+        "Every request through the sharing door needs a paired device's key (header, ?token= or the ruri_device cookie), GETs included; /sharing/pair-local answers only on the local door; what is for someone at this screen (folder dialog, macOS grants, carrying the window) checks ctx.clients.seats and does nothing for a far window.",
         "The initial socket snapshot carries only a transcript tail; transcript_get supplies the rest.",
         "User started crew agents have their own session manager, separate from chat sessions.",
         "Integration changes take effect when a harness next starts; affected warm sessions retire as they become idle.",
@@ -1747,7 +1772,7 @@
       ]
     },
     "desktop-shell": {
-      "summary": "This layer starts the Electron desktop app, creates its window, and connects it to the server and desktop bridge. It also reads and requests platform permissions. A newcomer should account for the limited PATH of GUI-launched apps and, on macOS, permissions tied to the app’s code signature.",
+      "summary": "This layer starts the Electron desktop app, creates its window, and connects it to this computer's server — or, onto another computer, to that one's, with no server here at all. It finds the user's other computers, sets them up over SSH and pairs, and reads and requests platform permissions. A newcomer should account for the limited PATH of GUI-launched apps, a Linux host with no display, and on macOS permissions tied to the app's code signature.",
       "map": [
         {
           "name": "App startup and window lifecycle",
@@ -1773,6 +1798,34 @@
             "desktop/serverProcess.ts",
             "desktop/main.ts"
           ]
+        },
+        {
+          "name": "Using another computer: reaching it, pinning its certificate, the can't-reach page",
+          "files": [
+            "desktop/remote.ts",
+            "desktop/offline.ts",
+            "desktop/main.ts"
+          ]
+        },
+        {
+          "name": "Finding the user's computers and setting one up over SSH",
+          "files": [
+            "desktop/peers.ts",
+            "desktop/sshSetup.ts"
+          ]
+        },
+        {
+          "name": "What the page may ask the shell (window.ruriShell)",
+          "files": [
+            "desktop/preload.ts",
+            "desktop/main.ts"
+          ]
+        },
+        {
+          "name": "ruri --serve, --invite, --quit and the headless restart",
+          "files": [
+            "desktop/main.ts"
+          ]
         }
       ],
       "flows": [
@@ -1784,17 +1837,43 @@
             "the server answers ready with its port",
             "main.ts opens the window on it"
           ]
+        },
+        {
+          "name": "Onto another computer",
+          "steps": [
+            "remote.json names the host",
+            "no local server starts",
+            "remote.ts reach races its addresses under the pinned certificate",
+            "the window loads https://address:port/?token=key",
+            "a check every 15 s; two misses race the addresses again or show the can't-reach page"
+          ]
+        },
+        {
+          "name": "Set up over SSH",
+          "steps": [
+            "Settings asks ruri:setup",
+            "sshSetup.ts runs ssh … sh -s with the host script",
+            "the far side finds or builds ruri, starts it as a service, asks its local port for a pairing",
+            "remote.ts adopt pins it",
+            "the window leaves the local page, the local server stops, the window opens on the host"
+          ]
         }
       ],
       "files": [
         "desktop/main.ts — Electron entry point for the window, the desktop bridge, the shell's services and app lifecycle; it forks the server rather than running it",
         "desktop/permissions.ts — macOS permission checks, requests, and privacy database rows",
-        "desktop/serverProcess.ts — forks the server as a utility process, answers its calls for shell services, forwards bridge state, restarts it if it dies"
+        "desktop/serverProcess.ts — forks the server as a utility process, answers its calls for shell services, forwards bridge state, restarts it if it dies",
+        "desktop/remote.ts — paired computers (remote.json), certificate pinning, word pairing, reaching a host",
+        "desktop/peers.ts — the user's computers from makima's socket, Tailscale's CLI and a LAN broadcast, each probed for ruri",
+        "desktop/sshSetup.ts — the host script and the ssh run that sets a computer up and pairs, no code",
+        "desktop/preload.ts — window.ruriShell, bundled to CommonJS on its own"
       ],
       "rules": [
         "GUI-launched apps can lack CLI install directories in PATH; desktop/main.ts recovers the user's login-shell PATH so session commands can find their tools.",
         "macOS grants are tied to the app's code signature. A newly signed build can lose effective grants even while System Settings shows them enabled.",
-        "Permission state is read from the system rather than inferred from whether a request was made."
+        "Permission state is read from the system rather than inferred from whether a request was made.",
+        "A device onto another computer runs no server or harness of its own; switching stops every chat here, and the window leaves the local page first — server.close() waits on the window's open connection.",
+        "With no DISPLAY or WAYLAND_DISPLAY, main() re-execs itself with --ozone-platform=headless; Chromium picks its platform before appendSwitch could change it."
       ],
       "edges": [
         "Server transport — desktop/serverProcess.ts forks server/desktopServer.ts and talks to it through server/hostLink.ts messages",

@@ -1,6 +1,6 @@
 # ruri — Settings and personalization
 
-One layer of ruri's stack, owning `web/src/band.ts, web/src/components/BandEditor.tsx, web/src/components/GreetingEditor.tsx, web/src/components/Integrations.tsx, web/src/components/PeekBand.tsx, web/src/components/Player.tsx, web/src/components/Settings.tsx, web/src/components/SettingsRows.tsx, web/src/components/Skills.tsx, web/src/greetings.ts, web/src/lib/audio.ts, web/src/lib/effects.ts, web/src/lib/greetings.ts, web/src/lib/peekBand.ts, web/src/pictures.ts, web/src/prefs.ts, web/src/theme.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
+One layer of ruri's stack, owning `web/src/band.ts, web/src/components/BandEditor.tsx, web/src/components/GreetingEditor.tsx, web/src/components/Integrations.tsx, web/src/components/PeekBand.tsx, web/src/components/Player.tsx, web/src/components/Settings.tsx, web/src/components/SettingsRows.tsx, web/src/components/Skills.tsx, web/src/greetings.ts, web/src/lib/audio.ts, web/src/lib/effects.ts, web/src/lib/greetings.ts, web/src/lib/peekBand.ts, web/src/pictures.ts, web/src/prefs.ts, web/src/theme.ts, web/src/components/Devices.tsx, web/src/lib/shell.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer settings-personalization` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer settings-personalization add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
 This layer provides settings for models, integrations, skills, themes, greetings, pictures, and music. React editors use the client store for server-backed actions, while preference modules keep local copies for immediate rendering. The key distinction is that band and greeting definitions are validated separately from their live, editable state.
@@ -15,6 +15,7 @@ This layer provides settings for models, integrations, skills, themes, greetings
 - **Peek band display and picture motion:** web/src/components/PeekBand.tsx, web/src/pictures.ts, web/src/lib/effects.ts
 - **Greetings:** web/src/components/GreetingEditor.tsx, web/src/greetings.ts, web/src/lib/greetings.ts
 - **Music player:** web/src/components/Player.tsx, web/src/lib/audio.ts, web/src/prefs.ts
+- **Devices: sharing this computer, its six-word invites and paired devices, and this device's other computers:** web/src/components/Devices.tsx, web/src/lib/shell.ts
 
 ## How it works
 

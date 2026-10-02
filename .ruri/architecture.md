@@ -13,16 +13,16 @@ ruri is a macOS and Linux desktop workspace for people working with coding agent
 2. **Chat and prompting** — Displays transcripts and session controls, and lets users compose prompts with attachments, commands, and terminal input. (`web/src/components/, web/src/components/chat/, web/src/ +1 · 36 files`) → `.ruri/layers/chat-prompting.md`
 3. **Home and project pages** — Shows the home board, ideas, project architecture, component gallery, usage statistics, and feature tracker. (`web/src/components/, web/src/lib/ · 9 files`) → `.ruri/layers/home-project-pages.md`
 4. **Agent and bridge views** — Shows agent runs, agent messaging, and the pages or apps a session is driving through the bridge. (`web/src/components/, web/src/components/chat/ · 4 files`) → `.ruri/layers/agent-bridge-views.md`
-5. **Settings and personalization** — Edits integrations, skills, themes, greetings, pictures, and media preferences, and renders the personalized band and player. (`web/src/, web/src/components/, web/src/lib/ · 17 files`) → `.ruri/layers/settings-personalization.md`
+5. **Settings and personalization** — Edits integrations, skills, themes, greetings, pictures, and media preferences, and renders the personalized band and player. (`web/src/, web/src/components/, web/src/lib/ · 19 files`) → `.ruri/layers/settings-personalization.md`
 6. **Interface tooling: development and tests** — Configures the Vite development page and supplies fixture state and DOM setup for interface tests. (`./, web/src/, web/src/test/ · 2 files`) → `.ruri/layers/interface-tooling.md`
 7. **Client state** — The client store connects the interface to server messages and holds session state. (`web/src/store.ts`) → `.ruri/layers/client-state.md`
 8. **Shared protocol** — Shared TypeScript protocol and schemas define data exchanged across the app. (`shared/`) → `.ruri/layers/shared-protocol.md`
-9. **Server transport** — The server starts HTTP and socket services, routes requests, and dispatches actions. (`server/, server/handlers/ · 7 files`) → `.ruri/layers/server-transport.md`
+9. **Server transport** — The server starts HTTP and socket services, routes requests, and dispatches actions. (`server/, server/handlers/ · 11 files`) → `.ruri/layers/server-transport.md`
 10. **Sessions** — Session management connects chats, prompts, queues, providers, and agent events. (`server/ · 10 files`) → `.ruri/layers/sessions.md`
 11. **Project knowledge** — Project memory, architecture sheets, recall, and component records support sessions. (`server/ · 13 files`) → `.ruri/layers/project-knowledge.md`
 12. **Server services** — Remaining server modules handle persistence, settings, uploads, integrations, usage, and support work. (`server/`) → `.ruri/layers/server-services.md`
 13. **Bridge** — Server CDP and desktop bridge modules let sessions inspect and drive pages or apps. (`server/, desktop/ · 8 files`) → `.ruri/layers/bridge.md`
-14. **Desktop shell** — Electron runs the desktop window and handles platform permissions and app lifecycle. (`desktop/ · 3 files`) → `.ruri/layers/desktop-shell.md`
+14. **Desktop shell** — Electron runs the desktop window and handles platform permissions and app lifecycle. (`desktop/ · 8 files`) → `.ruri/layers/desktop-shell.md`
 15. **Build and checks** — Bun scripts, Make targets, and configuration build, install, format, and check the app. (`scripts/, ./ · 5 files`) → `.ruri/layers/build-and-checks.md`
 16. **Agent runtimes** — Installed Claude, Codex, OpenCode, Gemini, or ACP harnesses run the coding sessions.
 
@@ -59,6 +59,8 @@ ruri is a macOS and Linux desktop workspace for people working with coding agent
 - bun run desktop — run the unpackaged desktop app.
 - bun run typecheck — check server, web, and web test TypeScript.
 - bun test — run the Bun tests.
+- ruri --serve — run with no window (headless when there is no display), sharing on, printing six words; ruri --invite prints more, ruri --quit stops it.
+- bun run sharing-test — the sharing door: pairing, keys, origins, unpairing.
 
 ## Conventions
 

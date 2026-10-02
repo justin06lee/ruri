@@ -1,7 +1,18 @@
 import { memo, useState, type HTMLAttributes } from "react";
 import { type BandPicture, offThemes, useBand } from "../band";
 import { useShown } from "../pictures";
+import { ruriShell } from "../lib/shell";
 import { send } from "../store";
+import type { WindowDragPhase } from "../../../shared/protocol";
+
+/** Carry the window: the shell it is in does it, and asked directly — the
+ *  server may be on another computer, whose window it would carry
+ *  (desktop/preload.ts). A shell from before it could be asked goes the
+ *  old way, through the server. */
+function drag(phase: WindowDragPhase): void {
+  if (ruriShell?.windowDrag) ruriShell.windowDrag(phase);
+  else send({ type: "window_drag", phase });
+}
 
 /**
  * The peek band: the pictures across the top of the sidebar, as Settings
@@ -88,7 +99,7 @@ function letGo(): void {
   holder = null;
   cancelAnimationFrame(moveFrame);
   moveFrame = 0;
-  send({ type: "window_drag", phase: "end" });
+  drag("end");
 }
 
 /** What the band does with a press in the desktop app: carry the window,
@@ -107,14 +118,14 @@ const carry: HTMLAttributes<HTMLSpanElement> = {
       return;
     }
     holder = el;
-    send({ type: "window_drag", phase: "start" });
+    drag("start");
   },
   onPointerMove(e) {
     if (!holder?.hasPointerCapture(e.pointerId) || moveFrame) return;
     // one move a frame, however fast the pointer reports
     moveFrame = requestAnimationFrame(() => {
       moveFrame = 0;
-      send({ type: "window_drag", phase: "move" });
+      drag("move");
     });
   },
   onPointerUp(e) {
@@ -124,7 +135,7 @@ const carry: HTMLAttributes<HTMLSpanElement> = {
   onPointerCancel: letGo,
   onLostPointerCapture: letGo,
   onDoubleClick() {
-    send({ type: "window_drag", phase: "zoom" });
+    drag("zoom");
   },
 };
 

@@ -6,6 +6,7 @@
  * (server/handlers).
  */
 import type * as http from "node:http";
+import type * as https from "node:https";
 import * as os from "node:os";
 import { WebSocketServer } from "ws";
 import { clientMessageSchema, describeIssue } from "../shared/clientSchema.js";
@@ -15,23 +16,44 @@ import type { ServerContext } from "./context.js";
 import { handleMessage } from "./handlers/index.js";
 import { errorMessage, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
+import type { Seat } from "./sharing.js";
 import { contextWindow } from "./turns.js";
 
-export function createSocketServer(ctx: ServerContext, server: http.Server): WebSocketServer {
+/** Who a socket server lets in, and whose window each one is. */
+export interface SocketDoor {
+  /** 0 lets the upgrade through; anything else is the status it is
+   *  refused with. */
+  refusal(origin: string | undefined, req: http.IncomingMessage): number;
+  /** The device a window that came in here belongs to — none for this
+   *  computer's own. */
+  seat?(req: http.IncomingMessage): Seat | undefined;
+}
+
+/** The local window's door: the page's own origin and the token. */
+function localDoor(ctx: ServerContext): SocketDoor {
+  return {
+    refusal: (origin, req) => {
+      if (!originAllowed(origin, ctx.listeningPort, !ctx.options.staticDir)) return 403;
+      return tokenMatches(presentedToken(req), ctx.options.token) ? 0 : 401;
+    },
+  };
+}
+
+const REFUSED: Record<number, string> = { 401: "Unauthorized", 403: "Forbidden" };
+
+export function createSocketServer(
+  ctx: ServerContext,
+  server: http.Server | https.Server,
+  door: SocketDoor = localDoor(ctx),
+): WebSocketServer {
   const wss = new WebSocketServer({
     server,
     // the socket is the whole app: a page from anywhere else, or one
-    // without the token, is turned away at the upgrade
+    // without the key, is turned away at the upgrade
     verifyClient: ({ origin, req }, done) => {
-      if (!originAllowed(origin || undefined, ctx.listeningPort, !ctx.options.staticDir)) {
-        done(false, 403, "Forbidden");
-        return;
-      }
-      if (!tokenMatches(presentedToken(req), ctx.options.token)) {
-        done(false, 401, "Unauthorized");
-        return;
-      }
-      done(true);
+      const status = door.refusal(origin || undefined, req);
+      if (status) done(false, status, REFUSED[status] ?? "Refused");
+      else done(true);
     },
   });
 
@@ -46,8 +68,11 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
     console.error("ruri websocket server error:", error);
   });
 
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws, req) => {
     ctx.clients.sockets.add(ws);
+    // a window on another device, come in through sharing (server/sharing.ts)
+    const seat = door.seat?.(req);
+    if (seat) ctx.clients.seats.set(ws, seat);
     const projectIds = [...ctx.store.sessionIds(), HOME_ID];
     // the boards are the one thing keyed by project rather than by session
     const boardIds = ctx.store.list().map((p) => p.id);
@@ -88,8 +113,10 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
       catchups: Object.fromEntries(
         boardIds.map((id) => [id, ctx.briefs.get(id).built ? { built: ctx.briefs.get(id).built } : {}]),
       ),
-      canPickFolder: ctx.options.pickFolder !== undefined,
-      canPermissions: ctx.options.permissions !== undefined,
+      // this computer's folder dialog and macOS's grants are for someone
+      // in front of its screen, which a window on another device is not
+      canPickFolder: !seat && ctx.options.pickFolder !== undefined,
+      canPermissions: !seat && ctx.options.permissions !== undefined,
       platform: process.platform,
       workspaceDir: ctx.store.workspaceDir(),
       musicDir: ctx.musicRoot(),
@@ -104,8 +131,13 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
       composerDrafts: ctx.drafts.all(),
       bridges: ctx.options.bridge?.states() ?? {},
       crew: ctx.crew.all(projectIds),
+      sharing: ctx.sharing.info(),
+      ...(seat ? { remoteDevice: { id: seat.deviceId, name: seat.name } } : {}),
     };
     ws.send(JSON.stringify(snapshot));
+    // after the snapshot: the news that it is online goes to every window,
+    // this one too, and a window's first message is its snapshot
+    if (seat) ctx.sharing.arrived(seat.deviceId);
 
     ws.on("message", (raw) => {
       try {
@@ -132,6 +164,7 @@ export function createSocketServer(ctx: ServerContext, server: http.Server): Web
     });
     ws.on("close", () => {
       ctx.clients.sockets.delete(ws);
+      if (seat) ctx.sharing.left(seat.deviceId);
       ctx.clients.onGone?.(ws);
       const view = ctx.clients.views.get(ws);
       ctx.clients.views.delete(ws);

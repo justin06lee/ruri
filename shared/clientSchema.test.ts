@@ -206,6 +206,9 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   set_pref: { type: "set_pref", key: "ruri-theme", value: "dark" },
   store_picture: { type: "store_picture", upload },
   window_drag: { type: "window_drag", phase: "move" },
+  sharing_set: { type: "sharing_set", on: true },
+  sharing_invite: { type: "sharing_invite" },
+  sharing_forget: { type: "sharing_forget", deviceId: "a1b2c3" },
   talk_get: { type: "talk_get" },
   talk_set: {
     type: "talk_set",

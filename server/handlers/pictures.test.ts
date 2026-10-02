@@ -66,11 +66,16 @@ describe("store_picture", () => {
 });
 
 describe("window_drag", () => {
+  /** A server whose shell carries its window, and which windows are other devices'. */
+  const shellCtx = (phases: WindowDragPhase[], seats = new WeakMap<ClientConn, unknown>()) =>
+    ({
+      options: { windowDrag: (phase: WindowDragPhase) => phases.push(phase) },
+      clients: { seats },
+    }) as unknown as ServerContext;
+
   test("each phase goes to the shell", () => {
     const phases: WindowDragPhase[] = [];
-    const withShell = {
-      options: { windowDrag: (phase: WindowDragPhase) => phases.push(phase) },
-    } as unknown as ServerContext;
+    const withShell = shellCtx(phases);
     const { ws } = socket();
     for (const phase of ["start", "move", "move", "end", "zoom"] as const) {
       hostHandlers.window_drag(withShell, ws, { type: "window_drag", phase });
@@ -81,7 +86,22 @@ describe("window_drag", () => {
   test("with no shell (ruri headless) it does nothing", () => {
     const { ws } = socket();
     expect(() =>
-      hostHandlers.window_drag({ options: {} } as ServerContext, ws, { type: "window_drag", phase: "start" }),
+      hostHandlers.window_drag(
+        { options: {}, clients: { seats: new WeakMap() } } as unknown as ServerContext,
+        ws,
+        {
+          type: "window_drag",
+          phase: "start",
+        },
+      ),
     ).not.toThrow();
+  });
+
+  test("a window on another device does not carry this computer's", () => {
+    const phases: WindowDragPhase[] = [];
+    const { ws } = socket();
+    const seats = new WeakMap<ClientConn, unknown>([[ws, { deviceId: "d1", name: "jetson" }]]);
+    hostHandlers.window_drag(shellCtx(phases, seats), ws, { type: "window_drag", phase: "start" });
+    expect(phases).toEqual([]);
   });
 });

@@ -2,7 +2,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Yagami } from "@justin06lee/yagami";
 import { BriefStore } from "./brief.js";
 import { adoptShared, dueRead, touchProject } from "./catchupBrief.js";
 import type { ServerContext } from "./context.js";
@@ -34,28 +33,25 @@ function folder(files: string[]): string {
 /** A small model that answers each kind of call, and remembers what it was asked. */
 function model(): { asked: string[] } {
   const asked: string[] = [];
-  setCompletionClient({
-    messages: {
-      create: async ({ system }: { system: string }) => {
-        asked.push(system);
-        const reply = system.includes("from a read of its repository")
-          ? {
-              description: "A demo app.",
-              features: ["Does a thing"],
-              layers: [
-                { name: "UI", slug: "ui", what: "React", paths: ["web/"] },
-                { name: "Server", slug: "server", what: "Node", paths: ["server/"] },
-              ],
-              flows: [],
-              run: ["make dev"],
-              layout: [],
-              conventions: [],
-            }
-          : { summary: "A layer.", map: [], flows: [], files: [], rules: [], edges: [] };
-        return { content: [{ type: "text", text: JSON.stringify(reply) }] };
-      },
-    },
-  } as unknown as Yagami);
+  setCompletionClient(async ({ system }) => {
+    const said = String(system);
+    asked.push(said);
+    const reply = said.includes("from a read of its repository")
+      ? {
+          description: "A demo app.",
+          features: ["Does a thing"],
+          layers: [
+            { name: "UI", slug: "ui", what: "React", paths: ["web/"] },
+            { name: "Server", slug: "server", what: "Node", paths: ["server/"] },
+          ],
+          flows: [],
+          run: ["make dev"],
+          layout: [],
+          conventions: [],
+        }
+      : { summary: "A layer.", map: [], flows: [], files: [], rules: [], edges: [] };
+    return JSON.stringify(reply);
+  });
   return { asked };
 }
 
@@ -182,11 +178,7 @@ describe("a stack grows where the work broke new ground", () => {
   };
 
   function answering(reply: Record<string, unknown>): void {
-    setCompletionClient({
-      messages: {
-        create: async () => ({ content: [{ type: "text", text: JSON.stringify(reply) }] }),
-      },
-    } as unknown as Yagami);
+    setCompletionClient(async () => JSON.stringify(reply));
   }
 
   test("a new file goes to the layer the model names; a new part becomes a layer above the runtime", async () => {

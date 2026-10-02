@@ -72,7 +72,9 @@ describe("Home opens a project once", () => {
   test("so is one given an open project's display name", () => {
     host.openProject({ path: path.join(real, "toji.bak"), name: "toji" });
     expect(host.openProject({ path: path.join(real, "toji") })).toStartWith("already open: toji");
-    expect(host.openProject({ path: path.join(real, "umi"), name: "Toji" })).toStartWith("already open: toji");
+    expect(host.openProject({ path: path.join(real, "umi"), name: "Toji" })).toStartWith(
+      "already open: toji",
+    );
     expect(names()).toEqual(["toji"]);
   });
 

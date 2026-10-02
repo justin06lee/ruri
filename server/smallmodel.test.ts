@@ -3,7 +3,6 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Yagami } from "@justin06lee/yagami";
 import { quietCodex, sessionRoleTitle, setCompletionClient, summarizePrompt } from "./smallmodel.js";
 
 describe("the small model's codex", () => {
@@ -64,15 +63,11 @@ describe("the small model's queue", () => {
     // every call waits until let go, so what is running at once can be seen
     const started: string[] = [];
     const release: Array<() => void> = [];
-    setCompletionClient({
-      messages: {
-        create: async ({ messages }: { messages: Array<{ content: string }> }) => {
-          started.push(messages[0]!.content.includes("FIRST PROMPT") ? "title" : "note");
-          await new Promise<void>((resolve) => release.push(resolve));
-          return { content: [{ type: "text", text: "Fine" }] };
-        },
-      },
-    } as unknown as Yagami);
+    setCompletionClient(async ({ messages }) => {
+      started.push(String(messages[0]!.content).includes("FIRST PROMPT") ? "title" : "note");
+      await new Promise<void>((resolve) => release.push(resolve));
+      return "Fine";
+    });
     const tick = () => new Promise((r) => setTimeout(r, 10));
     const notes = [summarizePrompt("one"), summarizePrompt("two"), summarizePrompt("three")];
     await tick();

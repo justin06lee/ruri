@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Yagami } from "@justin06lee/yagami";
 import type { TranscriptEvent } from "../shared/protocol.js";
 import type { ServerContext } from "./context.js";
 import { backfillNotes, NoteBackfill } from "./notes.js";
@@ -13,9 +12,7 @@ import { setCompletionClient } from "./smallmodel.js";
 const saved = process.env["RURI_CONFIG_DIR"];
 beforeAll(() => {
   process.env["RURI_CONFIG_DIR"] = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-notes-"));
-  setCompletionClient({
-    messages: { create: async () => ({ content: [{ type: "text", text: "a note" }] }) },
-  } as unknown as Yagami);
+  setCompletionClient(async () => "a note");
 });
 afterAll(() => {
   setCompletionClient(null);

@@ -13,7 +13,7 @@ import { writeTextAtomic } from "./atomic.js";
 import { BridgeState } from "./bridgeState.js";
 import { BriefStore, writeBriefFiles } from "./brief.js";
 import { installCli, writeLibrarySkill } from "./library.js";
-import { briefless, rebuildCatchup } from "./catchupBrief.js";
+import { adoptShared } from "./catchupBrief.js";
 import { ownerProject, running } from "./channel.js";
 import { createChatManager } from "./chats.js";
 import { createCheckpoints } from "./checkpoints.js";
@@ -162,6 +162,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       clients.broadcast,
       (sessionId) => ctx.archive.channelOfSession(sessionId),
       () => ctx.terminals.pids(),
+      options.appPid,
     ),
     usage: new UsageGauges(clients.broadcast),
     bridge: new BridgeState(options.bridge, (channelId) => running(ctx, channelId), clients.broadcast),
@@ -222,15 +223,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // every window hears who may message whom, and each message as it moves
   ctx.talk.onChange = () => pushTalk(ctx);
 
-  // Projects that arrived before this existed: one at a time, in the
-  // background, so a launch with ten of them does not fire ten reads of the
-  // small model at once.
-  void (async () => {
-    for (const project of store.list()) {
-      if (!briefless(ctx, project.id)) continue;
-      await rebuildCatchup(ctx, project.id);
-    }
-  })();
+  // A project with no sheet of its own takes the one its clone brought,
+  // which costs a file read. Nothing is read from a repo here: that waits
+  // for someone to work in the project (catchupBrief.ts touchProject).
+  for (const project of store.list()) adoptShared(ctx, project.id);
 
   ctx.turnTracker = createTurnTracker(ctx);
 
@@ -261,7 +257,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // fallback below is ever reached — see server/port.ts.
   let claim: PortClaim = { outcome: "free" };
   if (options.reclaimPort && options.port !== 0) {
-    claim = await claimPort(options.port, host);
+    claim = await claimPort(options.port, host, options.appPid);
     if (claim.outcome === "reclaimed") {
       console.log(
         `ruri took port ${options.port} back from a server that outlived its app (pid ${claim.pid})`,
@@ -320,6 +316,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
           agentLogs.flushAll();
           crew.flushAll();
           ledger.flush();
+          briefs.flush();
         },
         close: () =>
           new Promise<void>((done) => {
@@ -336,6 +333,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             agentLogs.flushAll();
             crew.flushAll();
             ledger.flush();
+            briefs.flush();
             try {
               fs.rmSync(tokenFile, { force: true });
             } catch (err) {

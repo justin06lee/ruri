@@ -105,7 +105,7 @@ async function freed(port: number, host: string, budgetMs: number): Promise<bool
  * Never touches anything that isn't a ruri, and never the process it is
  * called from.
  */
-export async function claimPort(port: number, host: string): Promise<PortClaim> {
+export async function claimPort(port: number, host: string, appPid = process.pid): Promise<PortClaim> {
   if (!(await listening(port, host))) return { outcome: "free" };
 
   const holder = await identify(port, host);
@@ -114,7 +114,7 @@ export async function claimPort(port: number, host: string): Promise<PortClaim> 
   }
   // Can't happen — nothing of ours is bound yet — but a server that somehow
   // asked to displace itself should be told no rather than sent a signal.
-  if (holder.pid === process.pid) return { outcome: "free" };
+  if (holder.pid === process.pid || holder.pid === appPid) return { outcome: "free" };
 
   const pid = holder.pid;
   // Ask before telling: ruri writes transcripts and drafts on a debounce, and

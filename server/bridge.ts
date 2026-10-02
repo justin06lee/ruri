@@ -1,5 +1,3 @@
-import * as path from "node:path";
-import { configPath } from "./configDir.js";
 import { errorMessage } from "./log.js";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
@@ -30,10 +28,7 @@ import type { BridgeState } from "../shared/protocol.js";
  * the desktop shell's — see desktop/bridge.ts, passed in as the host.
  */
 
-/** Where a channel's pictures land: ~/.config/ruri/bridge/<channelId>/. */
-export function bridgeDir(channelId: string): string {
-  return configPath("bridge", path.basename(channelId));
-}
+export { bridgeDir } from "./configDir.js";
 
 /* ── the tools ──────────────────────────────────────────────────── */
 

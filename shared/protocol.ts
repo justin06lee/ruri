@@ -541,6 +541,10 @@ export interface ProjectSheet {
   built?: number;
   /** The commit the repo stood at when it was read. */
   builtAt?: string;
+  /** How many files a layer could own when the repo was last read — a
+   *  read that found too little to cut a stack from is not asked again
+   *  until the project has grown well past it. */
+  readFiles?: number;
   /** When the memory last changed. */
   remembered?: number;
   /** When the memory was last written from the chats' histories whole. */
@@ -806,7 +810,7 @@ export interface Totals {
 /**
  * One agent process and everything it started, as the machine sees it.
  *
- * A harness and its MCP servers are one agent, not six rows: `rss` and
+ * A harness and its MCP servers are one agent, not six rows: `memory` and
  * `cpu` are the whole family's, and `helpers` says how many processes that
  * was besides the harness itself (server/resources.ts).
  */
@@ -816,8 +820,10 @@ export interface AgentProcess {
   channelId?: string;
   /** The program: "claude", "codex", "cursor-agent". */
   name: string;
-  /** Resident memory, in bytes. */
-  rss: number;
+  /** The memory it holds, in bytes: on Linux its proportional share (PSS),
+   *  so pages shared between processes are counted once across them; on
+   *  macOS its resident size. */
+  memory: number;
   /** Percent of one core. Over 100 on a process using more than one. */
   cpu: number;
   uptimeMs: number;
@@ -830,7 +836,7 @@ export interface Resources {
   at: number;
   agents: AgentProcess[];
   /** ruri itself: this process and its window. */
-  app: { rss: number; cpu: number; processes: number };
+  app: { memory: number; cpu: number; processes: number };
   host: { totalBytes: number; freeBytes: number; cores: number };
 }
 
@@ -1572,6 +1578,9 @@ export type ClientMessage =
   | { type: "memory_rebuild"; projectId: string }
   /** The architecture page wants a project's sheet — answered with `sheet`. */
   | { type: "sheet_get"; projectId: string }
+  /** The user opening a layer that has no sheet yet: read that layer and
+   *  write its sheet — answered with `catchup` as it goes, then `sheet`. */
+  | { type: "layer_sheet_write"; projectId: string; slug: string }
   /** The user correcting the memory on the page: pin a line so nothing
    *  rewrites it, unpin it, or strike it. */
   | {

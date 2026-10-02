@@ -231,10 +231,13 @@ function layerLine(projectId: string, slug: string, section: LayerSection | "sum
 /**
  * The stack, top to bottom — the index every session is shown. A bar with
  * a sheet behind it opens it underneath: the layer's own architecture,
- * the part a session reads before working in it.
+ * the part a session reads before working in it. A layer that owns files
+ * but has no sheet yet — sheets are written as work reaches each layer —
+ * opens too, and asks for its sheet to be written now.
  */
 function Stack({ projectId, sheet }: { projectId: string; sheet: ProjectSheet }) {
   const [open, setOpen] = useState<string>();
+  const shape = useRuri((s) => s.catchups[projectId]);
   if (sheet.layers?.length) {
     return (
       <div className="arch-stack">
@@ -252,7 +255,7 @@ function Stack({ projectId, sheet }: { projectId: string; sheet: ProjectSheet })
               )}
             </>
           );
-          if (!layerSheet || !layer.slug) {
+          if (!layer.slug || (!layerSheet && !layer.paths?.length)) {
             return (
               <div key={`${layer.name}-${i}`} className="arch-layer">
                 {body}
@@ -260,25 +263,40 @@ function Stack({ projectId, sheet }: { projectId: string; sheet: ProjectSheet })
             );
           }
           const shown = open === layer.slug;
+          const slug = layer.slug;
           return (
             <div key={layer.slug} className={`arch-layer-wrap${shown ? " open" : ""}`}>
               <button
                 type="button"
                 className="arch-layer has-sheet"
                 aria-expanded={shown}
-                title={shown ? "Fold its sheet away" : "Open this layer's sheet"}
-                onClick={() => setOpen(shown ? undefined : layer.slug)}
+                title={
+                  shown
+                    ? "Fold its sheet away"
+                    : layerSheet
+                      ? "Open this layer's sheet"
+                      : "Read this layer and write its sheet"
+                }
+                onClick={() => {
+                  if (!shown && !layerSheet) send({ type: "layer_sheet_write", projectId, slug });
+                  setOpen(shown ? undefined : slug);
+                }}
               >
                 {body}
               </button>
-              {shown && (
-                <LayerPanel
-                  projectId={projectId}
-                  slug={layer.slug}
-                  sheet={layerSheet}
-                  notes={notesOf(sheet, layer.slug)}
-                />
-              )}
+              {shown &&
+                (layerSheet ? (
+                  <LayerPanel
+                    projectId={projectId}
+                    slug={slug}
+                    sheet={layerSheet}
+                    notes={notesOf(sheet, slug)}
+                  />
+                ) : (
+                  <div className="arch-layer-sheet">
+                    <div className="arch-empty">{shape?.note ?? "Reading this layer's files…"}</div>
+                  </div>
+                ))}
             </div>
           );
         })}

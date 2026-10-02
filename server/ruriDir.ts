@@ -7,10 +7,15 @@ import { errorCode, isMissing, warn } from "./log.js";
  * repository.
  *
  * It writes there — a catch-up, an architecture sheet, the component
- * library — because a file is the one interface every harness has. It has
- * no business showing up in their `git status` for it, so the folder
- * ignores itself: one `.gitignore` saying `*`, written once, and git never
- * mentions any of it again.
+ * library — because a file is the one interface every harness has. Most of
+ * it is the project's own and goes into git with it: the architecture, the
+ * layers' sheets and the library's index, so a teammate who clones the
+ * project opens it with the same shape already drawn (brief.ts
+ * sharedSheet). What stays out is one person's: the catch-up, gathered
+ * from their chats and rewritten after every turn with git's state of the
+ * moment, and the drop files a session writes for the app to pick up. The
+ * folder's own `.gitignore` says so; one written by an older ruri, which
+ * kept the whole folder out, is replaced.
  *
  * Nor has it any business in a folder that is still blank. A new project is
  * where `create-next-app`, `bun create vite` and `git clone` get run, and
@@ -57,7 +62,21 @@ const SCAFFOLD_SAFE = new Set([
 
 /** The files ruri keeps in `.ruri/` itself — the ones it may take away
  *  again. A drop file a model is halfway through writing is not one. */
-const OWN = [".gitignore", "catchup.md", "architecture.md", "components.md"];
+const OWN = [".gitignore", "catchup.md", "architecture.md", "architecture.json", "components.md"];
+
+/** What `.ruri/.gitignore` says. */
+const IGNORE = [
+  "# ruri's files. The architecture, the layers' sheets and the component",
+  "# index are the project's — commit them, and a clone opens with them.",
+  "# What stays out is one person's: the catch-up from their chats, and",
+  "# the files a session drops for the app to pick up.",
+  "catchup.md",
+  "*.jsonl",
+  "",
+].join("\n");
+
+/** What an older ruri wrote there: the whole folder kept out of git. */
+const IGNORE_ALL = "*\n";
 
 /**
  * Whether a project folder is still blank: nothing in it but ruri's own
@@ -89,7 +108,14 @@ export function ruriDir(projectDir: string): string | undefined {
   }
   fs.mkdirSync(dir, { recursive: true });
   const ignore = path.join(dir, ".gitignore");
-  if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, "*\n");
+  let there: string | undefined;
+  try {
+    there = fs.readFileSync(ignore, "utf8");
+  } catch (err) {
+    if (!isMissing(err)) warn("ruriDir", err, "ruriDir");
+  }
+  // one the user wrote is theirs; only ruri's own is brought up to date
+  if (there === undefined || there === IGNORE_ALL) fs.writeFileSync(ignore, IGNORE);
   return dir;
 }
 

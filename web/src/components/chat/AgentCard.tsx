@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, useRef } from "react";
 import { excerpt, unmarked, type SubagentState } from "../../../../shared/protocol";
 import { beat, useNow } from "../../lib/beat";
 import { openAgent, useRuri } from "../../store";
@@ -42,7 +42,8 @@ function span(ms: number): string {
  *  whether it was left working in the background. Its clock ticks only
  *  while it runs and ruri is in front. */
 export function AgentMeta({ agent }: { agent: SubagentState }) {
-  const now = useNow(1000, agent.status === "running");
+  const shown = useRef<HTMLSpanElement>(null);
+  const now = useNow(1000, agent.status === "running", shown);
   // the model by its own name, when the catalog knows it
   const model = useRuri((s) =>
     agent.model ? (s.models.find((m) => m.value === agent.model)?.displayName ?? agent.model) : undefined,
@@ -57,7 +58,11 @@ export function AgentMeta({ agent }: { agent: SubagentState }) {
   ]
     .filter(Boolean)
     .join(" · ");
-  return <span className="agent-card-meta">{line}</span>;
+  return (
+    <span className="agent-card-meta" ref={shown}>
+      {line}
+    </span>
+  );
 }
 
 export function AgentHead({ agent }: { agent: SubagentState }) {

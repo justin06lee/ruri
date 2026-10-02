@@ -249,6 +249,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("catchup_rebuild"), ...projectId }),
   z.object({ type: z.literal("memory_rebuild"), ...projectId }),
   z.object({ type: z.literal("sheet_get"), ...projectId }),
+  z.object({ type: z.literal("layer_sheet_write"), ...projectId, slug: z.string() }),
   z.object({
     type: z.literal("memory_line"),
     ...projectId,

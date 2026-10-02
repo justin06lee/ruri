@@ -6,13 +6,23 @@
  */
 import type { MemorySource, ServerMessage, SheetGit, SourceLabel, StackLayer } from "../shared/protocol.js";
 import { excerpt } from "../shared/protocol.js";
-import { layered, layerOfFile, slugLayers, writeBriefFiles, type SheetExtras } from "./brief.js";
+import {
+  layered,
+  layerOfFile,
+  sharedSheet,
+  slugLayers,
+  stacked,
+  writeBriefFiles,
+  type SheetExtras,
+} from "./brief.js";
 import { buildCatchup, buildLayerSheets, placeUnowned, splitBigLayers } from "./catchup.js";
 import type { ServerContext } from "./context.js";
-import { branchFacts, commitsSince, gitLines, gitState, headSync, sheetGit } from "./gitState.js";
+import { branchFacts, commitsSince, gitLines, gitState, head, sheetGit } from "./gitState.js";
 import { warn } from "./log.js";
 import { allLines } from "./memoryLines.js";
+import { blankProject } from "./ruriDir.js";
 import { smallModelEnabled, type MemoryStack } from "./smallmodel.js";
+import { layerCandidates } from "./sweep.js";
 
 /* ── where a line came from ────────────────────────────────────────── */
 
@@ -218,11 +228,23 @@ export async function sheetMessage(ctx: ServerContext, projectId: string): Promi
   return { type: "sheet", projectId, sheet: ctx.briefs.get(projectId), sources, ...(git ? { git } : {}) };
 }
 
-/** The sheet as it now stands, into the project's two files and onto
- *  every window's architecture page. Git is asked first, so the sheet
- *  written is the one standing when the answer came — never an older one
- *  overtaking a newer. */
+/** Projects whose sheet is being pushed, and whether it changed again
+ *  meanwhile. */
+const pushing = new Map<string, boolean>();
+
+/** The sheet as it now stands, into the project's files and onto every
+ *  window's architecture page. Git is asked first, so the sheet written is
+ *  the one standing when the answer came — never an older one overtaking a
+ *  newer. One push at a time a project: each asks git six things and
+ *  rewrites the files, and a read of the repo changes the sheet a dozen
+ *  times in a row, so whatever changes while one is out is pushed once,
+ *  after it, as it then stands. */
 export function pushSheet(ctx: ServerContext, projectId: string): void {
+  if (pushing.has(projectId)) {
+    pushing.set(projectId, true);
+    return;
+  }
+  pushing.set(projectId, false);
   void (async () => {
     const { extra, sources, git } = await sheetExtras(ctx, projectId);
     const project = ctx.store.get(projectId);
@@ -230,7 +252,13 @@ export function pushSheet(ctx: ServerContext, projectId: string): void {
     const sheet = ctx.briefs.get(projectId);
     writeBriefFiles(project.path, project.name, sheet, extra);
     ctx.clients.broadcast({ type: "sheet", projectId, sheet, sources, ...(git ? { git } : {}) });
-  })().catch((err: unknown) => warn("brief", err, "pushSheet"));
+  })()
+    .catch((err: unknown) => warn("brief", err, "pushSheet"))
+    .finally(() => {
+      const again = pushing.get(projectId);
+      pushing.delete(projectId);
+      if (again) pushSheet(ctx, projectId);
+    });
 }
 
 const refreshing = new Map<string, NodeJS.Timeout>();
@@ -248,12 +276,6 @@ export function refreshSheet(ctx: ServerContext, projectId: string): void {
   refreshing.set(projectId, timer);
 }
 
-/** The commit a read of the repo happened at. */
-export function headOf(ctx: ServerContext, projectId: string): string | undefined {
-  const project = ctx.store.get(projectId);
-  return project ? headSync(project.path) : undefined;
-}
-
 export function catchupNote(ctx: ServerContext, projectId: string, busy: boolean, note?: string): void {
   ctx.clients.broadcast({
     type: "catchup",
@@ -264,27 +286,71 @@ export function catchupNote(ctx: ServerContext, projectId: string, busy: boolean
   });
 }
 
+/* ── when the repo is read ─────────────────────────────────────────── */
+
 /**
- * Read the repo and write the project's whole shape: the index first (what
- * it is, the stack, the paths across it, how to run it), then each layer's
- * own sheet, one layer at a time. Runs by itself when a project arrives
- * without one — a project opened with a year of work in it is exactly the
- * one whose first session most needs to be told what it is — when one from
- * before layer sheets first folds a turn, and again whenever the user asks.
+ * Nothing is read for a project nobody is working in. Every read is a run
+ * of the small model — a CLI process of a couple of hundred megabytes for
+ * up to a minute, on somebody's subscription — and a project opened is not
+ * a project worked in: Home opening a whole workspace of them used to set
+ * off a read of each, then a sheet for every layer of each, a couple of
+ * hundred runs back to back for projects nobody had asked anything of.
+ *
+ * So a project is read when someone works in it — a prompt goes into one
+ * of its chats, or its architecture page opens (touchProject) — and only
+ * its index then: what it is, the stack, how to run it. Each layer's sheet
+ * is written when work reaches that layer (server/events.ts foldLayers) or
+ * the user opens it on the page (writeLayerSheets). A young project, too
+ * small to read, is drawn by its folds as the work fills it in, and read
+ * once it has grown enough to cut a stack from (dueRead).
  */
-export async function rebuildCatchup(ctx: ServerContext, projectId: string): Promise<void> {
+
+/** The fewest files a layer could own that are worth reading a stack
+ *  from — below it, the folds draw the sheet from what the turns did. */
+const READ_AT_FILES = 12;
+/** A read that came back with nothing is not tried again for this long. */
+const READ_RETRY_MS = 30 * 60_000;
+const readFailed = new Map<string, number>();
+
+function readRestingSince(projectId: string): boolean {
+  const failed = readFailed.get(projectId);
+  return failed !== undefined && Date.now() - failed < READ_RETRY_MS;
+}
+
+/**
+ * Read the repo and write the project's index: what it is, the stack and
+ * what each layer owns, the paths across it, how to run it. The index is
+ * kept the moment the model answers, before the stack is cut finer, so a
+ * quit halfway leaves a sheet rather than a project that reads its whole
+ * repo again at the next launch. `sheets: "all"` goes on to write every
+ * layer's sheet too — for the user asking for the whole thing afresh;
+ * otherwise each is written when work reaches its layer.
+ */
+export async function rebuildCatchup(
+  ctx: ServerContext,
+  projectId: string,
+  { sheets = "all" }: { sheets?: "all" | "none" } = {},
+): Promise<void> {
   const project = ctx.store.get(projectId);
   if (!project || ctx.catchingUp.has(projectId) || !smallModelEnabled()) return;
   ctx.catchingUp.add(projectId);
   catchupNote(ctx, projectId, true, "reading the repo…");
   try {
     const current = ctx.briefs.get(projectId);
-    const built = await buildCatchup(project, current);
+    const [built, at, files] = await Promise.all([
+      buildCatchup(project, current),
+      head(project.path),
+      layerCandidates(project.path),
+    ]);
     if (!built) {
+      readFailed.set(projectId, Date.now());
       catchupNote(ctx, projectId, false, "the sheet could not be written — try again");
       return;
     }
-    const at = headOf(ctx, projectId);
+    readFailed.delete(projectId);
+    const read = { ...(at ? { builtAt: at } : {}), readFiles: files.length };
+    ctx.briefs.write(projectId, { ...built, ...read }, true);
+    pushSheet(ctx, projectId);
     // where to change what, as the sheet knew it before it had layers: each
     // entry goes on to the layer that owns it rather than being lost
     const known = current.map ?? [];
@@ -293,8 +359,12 @@ export async function rebuildCatchup(ctx: ServerContext, projectId: string): Pro
     const say = (note: string) => catchupNote(ctx, projectId, true, note);
     const cut = slugLayers(await splitBigLayers(project, built.layers, say), current.layers);
     const layers = await placeUnowned(project, cut, say);
-    const index = ctx.briefs.write(projectId, { ...built, layers, ...(at ? { builtAt: at } : {}) }, true);
+    const index = ctx.briefs.write(projectId, { ...built, layers, ...read }, true);
     pushSheet(ctx, projectId);
+    if (sheets === "none") {
+      catchupNote(ctx, projectId, false, "written from the repo — each layer's sheet as work reaches it");
+      return;
+    }
     const written = await buildLayerSheets(
       project,
       index.layers ?? [],
@@ -315,6 +385,7 @@ export async function rebuildCatchup(ctx: ServerContext, projectId: string): Pro
         : "written from the repo",
     );
   } catch (err) {
+    readFailed.set(projectId, Date.now());
     warn("server", err, "rebuildCatchup");
     catchupNote(ctx, projectId, false, "the sheet could not be written — try again");
   } finally {
@@ -322,20 +393,109 @@ export async function rebuildCatchup(ctx: ServerContext, projectId: string): Pro
   }
 }
 
-/** Whether a project's shape predates layer sheets — one from an older
- *  ruri, due a read of the repo to cut its stack finer and write a sheet
- *  for each layer. */
-export function shapeless(ctx: ServerContext, projectId: string): boolean {
+/** Layers whose sheets are being written right now, as "project/slug". */
+const writingLayers = new Set<string>();
+
+/**
+ * Write the sheets of the given layers that don't have one yet — read
+ * from the files each owns as they stand now, so a layer the work just
+ * reached gets a sheet that already holds what the work did. One run of
+ * the small model a layer.
+ */
+export async function writeLayerSheets(
+  ctx: ServerContext,
+  projectId: string,
+  slugs: string[],
+): Promise<void> {
+  const project = ctx.store.get(projectId);
+  if (!project || !smallModelEnabled() || ctx.catchingUp.has(projectId)) return;
   const brief = ctx.briefs.get(projectId);
-  if (!brief.layers?.length) return true;
-  // read since layers had sheets and still without one (nothing the stack
-  // owns, or a model that wouldn't answer): that read counts — asking again
-  // on every fold would be a whole read of the repo every ten minutes
-  return !layered(brief) && (brief.built ?? 0) < LAYER_SHEETS_SINCE;
+  const layers = brief.layers ?? [];
+  const wanted = slugs.filter(
+    (slug) =>
+      layers.some((l) => l.slug === slug) &&
+      !brief.layerSheets?.[slug] &&
+      !writingLayers.has(`${projectId}/${slug}`),
+  );
+  if (wanted.length === 0) return;
+  for (const slug of wanted) writingLayers.add(`${projectId}/${slug}`);
+  try {
+    const written = await buildLayerSheets(
+      project,
+      layers,
+      brief.layerSheets ?? {},
+      brief.map ?? [],
+      (slug, sheet) => {
+        ctx.briefs.writeLayer(projectId, slug, sheet, { by: "repo" });
+        pushSheet(ctx, projectId);
+      },
+      (note) => catchupNote(ctx, projectId, true, note),
+      new Set(wanted),
+    );
+    catchupNote(
+      ctx,
+      projectId,
+      false,
+      written
+        ? `wrote ${written} layer sheet${written === 1 ? "" : "s"}`
+        : "the layer's sheet could not be written",
+    );
+  } catch (err) {
+    warn("server", err, "writeLayerSheets");
+    catchupNote(ctx, projectId, false, "the layer's sheet could not be written — try again");
+  } finally {
+    for (const slug of wanted) writingLayers.delete(`${projectId}/${slug}`);
+  }
 }
 
-/** When layers started having sheets of their own. */
-const LAYER_SHEETS_SINCE = Date.UTC(2026, 8, 24);
+/**
+ * The shape a clone of the project brought with it in `.ruri/`, taken in
+ * as this project's own — the stack, the layers' sheets and how to run it,
+ * as whoever committed it had them — rather than a read of the repo
+ * writing it over in other words. False when there was none, or the
+ * project already has a sheet of its own.
+ */
+export function adoptShared(ctx: ServerContext, projectId: string): boolean {
+  const project = ctx.store.get(projectId);
+  if (!project || !briefless(ctx, projectId)) return false;
+  const shared = sharedSheet(project.path);
+  if (!shared || (!shared.description && shared.features.length === 0)) return false;
+  ctx.briefs.write(projectId, shared, true, { by: "repo" });
+  pushSheet(ctx, projectId);
+  return true;
+}
+
+/**
+ * Someone is working in the project: a prompt went into one of its chats,
+ * or its architecture page opened. A project with no sheet yet takes the
+ * one its clone brought, or has its repo read for one — its index only.
+ * A blank project has nothing to read; its folds draw it as work fills it.
+ */
+export function touchProject(ctx: ServerContext, projectId: string): void {
+  const project = ctx.store.get(projectId);
+  if (!project || !briefless(ctx, projectId)) return;
+  if (adoptShared(ctx, projectId)) return;
+  if (!smallModelEnabled() || ctx.catchingUp.has(projectId) || readRestingSince(projectId)) return;
+  if (blankProject(project.path)) return;
+  void rebuildCatchup(ctx, projectId, { sheets: "none" });
+}
+
+/**
+ * Whether a young project — its sheet drawn by folds, its stack owning no
+ * files — has grown enough to have its repo read for a stack to cut its
+ * layers' sheets from: a dozen files a layer could own, and twice what the
+ * last read saw, so a read that found too little is not repeated on every
+ * fold until the project has really grown.
+ */
+export async function dueRead(ctx: ServerContext, projectId: string): Promise<boolean> {
+  const project = ctx.store.get(projectId);
+  const brief = ctx.briefs.get(projectId);
+  if (!project || !smallModelEnabled() || stacked(brief) || !brief.description) return false;
+  if (ctx.catchingUp.has(projectId) || readRestingSince(projectId) || blankProject(project.path))
+    return false;
+  const files = (await layerCandidates(project.path)).length;
+  return files >= Math.max(READ_AT_FILES, 2 * (brief.readFiles ?? 0));
+}
 
 /** Whether a project has a brief worth the name. */
 export function briefless(ctx: ServerContext, projectId: string): boolean {

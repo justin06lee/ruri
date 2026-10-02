@@ -3,13 +3,8 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { BrowserWindow, app as electronApp, nativeImage } from "electron";
 import type { BridgeState } from "../shared/protocol.js";
-import {
-  bridgeDir,
-  type BridgeCall,
-  type BridgeContext,
-  type BridgeHost,
-  type BridgeResult,
-} from "../server/bridge.js";
+import type { BridgeCall, BridgeContext, BridgeHost, BridgeResult } from "../server/bridge.js";
+import { bridgeDir } from "../server/configDir.js";
 import { PageDriver, sleep, stringify, type CdpLink } from "../server/cdp.js";
 import * as apps from "./apps.js";
 

@@ -328,6 +328,23 @@ function ChatView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
+  /**
+   * Follow the newest message, or stop following it. The scroller says so
+   * too (`data-pinned`), which turns the browser's scroll anchoring off
+   * while the view follows the bottom: the view is put back there after
+   * every change anyway, and the anchoring, finding the node it held on to
+   * replaced as a reply streams in, moved the scroll position in the middle
+   * of a layout — which stalls the page until the compositor has caught up,
+   * on every paragraph. Read back up the page, and the anchoring is back,
+   * holding what you read in place as older turns land above it.
+   */
+  const pin = useCallback((next: boolean) => {
+    pinnedRef.current = next;
+    scrollRef.current?.toggleAttribute("data-pinned", next);
+  }, []);
+  useLayoutEffect(() => {
+    scrollRef.current?.toggleAttribute("data-pinned", pinnedRef.current);
+  }, []);
 
   // The rest of the transcript, a chunk at a time, on frames the app has
   // nothing better to do with. It lands above what you're reading, which the
@@ -411,8 +428,8 @@ function ChatView({
       // This is what makes page-up work without the transcript having focus.
       const wentUp = el.scrollTop < lastTopRef.current - 2;
       lastTopRef.current = el.scrollTop;
-      if (nearBottom) pinnedRef.current = true;
-      else if (wentUp || Date.now() - gestureRef.current < GESTURE_MS) pinnedRef.current = false;
+      if (nearBottom) pin(true);
+      else if (wentUp || Date.now() - gestureRef.current < GESTURE_MS) pin(false);
       setShowJump(!nearBottom && !pinnedRef.current);
       // Reading back through the session pulls the older turns in as you go
       // — one batch per approach to the top, not one per frame spent near
@@ -567,15 +584,18 @@ function ChatView({
   );
   /** What was just opened, for the view to go to the top of once it's on screen. */
   const revealRef = useRef<{ turnId: string; half: Half } | null>(null);
-  const openHalf = useCallback((turnId: string, half: Half) => {
-    // reading back, not following: nothing may re-bottom the view now
-    pinnedRef.current = false;
-    revealRef.current = { turnId, half };
-    setOpens((prev) => ({
-      ...prev,
-      [turnId]: half === "both" ? { prompt: true, reply: true } : { ...prev[turnId], [half]: true },
-    }));
-  }, []);
+  const openHalf = useCallback(
+    (turnId: string, half: Half) => {
+      // reading back, not following: nothing may re-bottom the view now
+      pin(false);
+      revealRef.current = { turnId, half };
+      setOpens((prev) => ({
+        ...prev,
+        [turnId]: half === "both" ? { prompt: true, reply: true } : { ...prev[turnId], [half]: true },
+      }));
+    },
+    [pin],
+  );
   const foldExchange = useCallback(
     (turnId: string) => setOpens((prev) => ({ ...prev, [turnId]: { prompt: false, reply: false } })),
     [],
@@ -631,7 +651,7 @@ function ChatView({
     const target = turn.querySelector('[data-half="prompt"]') ? note : turn;
     const past = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - REVEAL_GAP;
     if (past >= 0) return;
-    pinnedRef.current = false;
+    pin(false);
     scroller.scrollTop += past;
   });
 
@@ -678,7 +698,7 @@ function ChatView({
       </div>
       <div className="header-controls">
         <button
-          className={`icon-button ${agentsOpen ? "active" : ""}`}
+          className={`icon-button ${agentsOpen ? "active" : ""} ${agentsWorking > 0 ? "badged" : ""}`}
           title={
             agentsOpen
               ? "Back to the chat"
@@ -698,7 +718,7 @@ function ChatView({
           {agentsWorking > 0 && <span className="tracker-badge">{agentsWorking}</span>}
         </button>
         <button
-          className={`icon-button ${page === "talk" ? "active" : ""}`}
+          className={`icon-button ${page === "talk" ? "active" : ""} ${talking > 0 ? "badged" : ""}`}
           title={
             talking > 0
               ? `Talk — ${talking} ${talking === 1 ? "message" : "messages"} between this chat and other agents on the way; and who your agents may message`
@@ -742,7 +762,7 @@ function ChatView({
           )}
         </button>
         <button
-          className={`icon-button ${page === "ideas" ? "active" : ""}`}
+          className={`icon-button ${page === "ideas" ? "active" : ""} ${ideaCount > 0 ? "badged" : ""}`}
           title="Ideas — the board of things you want out of this project"
           onClick={() => setPage(page === "ideas" ? "chat" : "ideas")}
         >
@@ -750,7 +770,7 @@ function ChatView({
           {ideaCount > 0 && <span className="tracker-badge">{ideaCount}</span>}
         </button>
         <button
-          className={`icon-button tracker-toggle ${page === "tracker" ? "active" : ""}`}
+          className={`icon-button tracker-toggle ${page === "tracker" ? "active" : ""} ${openCount > 0 ? "badged" : ""}`}
           title={page === "tracker" ? "Back to the chat" : "Feature tracker — things to test by hand"}
           onClick={() => setPage(page === "tracker" ? "chat" : "tracker")}
         >
@@ -760,6 +780,16 @@ function ChatView({
       </div>
     </header>
   );
+
+  // Home's tab strip steps aside while a pad is open (styles.css)
+  const sketching = sketch !== null;
+  useEffect(() => {
+    if (!sketching) return;
+    document.documentElement.toggleAttribute("data-sketching", true);
+    return () => {
+      document.documentElement.toggleAttribute("data-sketching", false);
+    };
+  }, [sketching]);
 
   // What the chat shows — on Home, the chat's side of the deck.
   const view = (() => {

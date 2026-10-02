@@ -52,12 +52,30 @@ export interface NoteJob {
 const NOTE_WORKERS = 3;
 
 /** The backfill's own state: the jobs waiting, and how the run is going. */
+/** How long a turn's notes are left to the live path before a pass looks. */
+const NOTE_GRACE_MS = 2 * 60_000;
+
 export class NoteBackfill {
   readonly jobs: NoteJob[] = [];
   /** Jobs queued or in flight, by channel:turn:part — never twice at once. */
   readonly keys = new Set<string>();
   workers = 0;
   misses = 0;
+}
+
+/**
+ * Chats found with every note in place, and how each stood then. Looking
+ * for missing notes reads a chat's whole history — its earlier file too,
+ * up to megabytes, on the main thread — and the hourly pass looked at
+ * every chat to find, nearly always, nothing. One already found whole is
+ * looked at again only once it has moved on.
+ */
+const whole = new Map<string, string>();
+
+/** Where a chat stands: its live events and its notes, as counted cheaply. */
+function standing(ctx: ServerContext, channelId: string): string {
+  const events = ctx.archive.events(channelId);
+  return `${events.length}:${events.at(-1)?.id ?? ""}:${Object.keys(ctx.archive.summaries(channelId)).length}`;
 }
 
 export function backfillNotes(
@@ -69,7 +87,15 @@ export function backfillNotes(
   const fresh: NoteJob[] = [];
   for (const channelId of channelIds) {
     if (channelId === HOME_ID) continue;
-    for (const { turn, part } of missingNotes(ctx, channelId)) {
+    const stands = standing(ctx, channelId);
+    if (whole.get(channelId) === stands) continue;
+    const missing = missingNotes(ctx, channelId);
+    // a turn younger than the live notes' grace may still be missing one
+    // that is on its way, so a chat is only taken as whole once it is older
+    const newest = ctx.archive.events(channelId).at(-1)?.ts ?? 0;
+    if (missing.length === 0 && newest < Date.now() - NOTE_GRACE_MS) whole.set(channelId, stands);
+    else whole.delete(channelId);
+    for (const { turn, part } of missing) {
       const key = `${channelId}:${turn.turnId}:${part}`;
       if (ctx.notes.keys.has(key)) {
         // already waiting: a chat on screen pulls its own to the front
@@ -128,7 +154,7 @@ export function missingNotes(
 ): Array<{ turn: Turn; part: "user" | "reply" }> {
   const notes = ctx.archive.summaries(channelId);
   // anything this young is still being noted live
-  const settled = Date.now() - 2 * 60_000;
+  const settled = Date.now() - NOTE_GRACE_MS;
   const jobs: Array<{ turn: Turn; part: "user" | "reply" }> = [];
   for (const { turn, ts, finished } of assembleTurns(ctx.archive.allEvents(channelId)).reverse()) {
     if (ts > settled) continue;

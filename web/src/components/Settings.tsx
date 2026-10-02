@@ -633,7 +633,7 @@ export function Settings({ onClose }: { onClose(): void }) {
               </div>
             </div>
 
-            <div className="settings-row">
+            <div className={`settings-row ${schedule.on ? "tall" : ""}`}>
               <span className="settings-label">By the clock</span>
               <div className="settings-value schedule">
                 <button

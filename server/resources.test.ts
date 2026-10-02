@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { channelOf, elapsedMs, parsePs, partition, processName, rollUp } from "./resources.js";
+import { spawn } from "node:child_process";
+import {
+  channelOf,
+  elapsedMs,
+  parsePs,
+  parseStat,
+  partition,
+  processName,
+  ProcReader,
+  rollUp,
+} from "./resources.js";
 
 describe("reading ps", () => {
   test("a line becomes its numbers, with the command kept whole", () => {
@@ -8,7 +18,7 @@ describe("reading ps", () => {
     expect(rows[0]).toEqual({
       pid: 501,
       ppid: 1,
-      rss: 239776 * 1024,
+      memory: 239776 * 1024,
       cpu: 7.6,
       uptimeMs: elapsedMs("05-08:43:55"),
       args: "/usr/bin/claude --resume=abc --model opus",
@@ -82,10 +92,10 @@ function sorted(
 }
 
 describe("rolling a process tree up into agents", () => {
-  const row = (pid: number, ppid: number, rssMb: number, cpu: number, args: string) => ({
+  const row = (pid: number, ppid: number, mb: number, cpu: number, args: string) => ({
     pid,
     ppid,
-    rss: rssMb * 1024 * 1024,
+    memory: mb * 1024 * 1024,
     cpu,
     uptimeMs: 60_000,
     args,
@@ -107,7 +117,7 @@ describe("rolling a process tree up into agents", () => {
     expect(agents).toHaveLength(1);
     expect(agents[0]!.name).toBe("claude");
     expect(agents[0]!.channelId).toBe("chat-1");
-    expect(agents[0]!.rss).toBe(290 * 1024 * 1024);
+    expect(agents[0]!.memory).toBe(290 * 1024 * 1024);
     expect(agents[0]!.cpu).toBe(8.2);
     expect(agents[0]!.helpers).toBe(2);
   });
@@ -125,7 +135,7 @@ describe("rolling a process tree up into agents", () => {
       { 200: "chat-1" },
     );
     expect(agents.map((a) => a.name)).toEqual(["claude"]);
-    expect(app.rss).toBe((80 + 150 + 60) * 1024 * 1024);
+    expect(app.memory).toBe((80 + 150 + 60) * 1024 * 1024);
     expect(app.cpu).toBe(5);
     expect(app.processes).toBe(3);
   });
@@ -153,7 +163,7 @@ describe("rolling a process tree up into agents", () => {
       { 200: "chat-9" },
     );
     expect(agents[0]!.channelId).toBe("chat-9");
-    expect(agents[0]!.rss).toBe(300 * 1024 * 1024);
+    expect(agents[0]!.memory).toBe(300 * 1024 * 1024);
   });
 
   test("ruri's own machinery is the app, not an agent", () => {
@@ -173,7 +183,7 @@ describe("rolling a process tree up into agents", () => {
     );
     expect(agents.map((a) => a.name)).toEqual(["claude"]);
     // the probe and the odd tool are counted, just not called chats
-    expect(app.rss).toBe((10 + 7 + 2 + 115) * 1024 * 1024);
+    expect(app.memory).toBe((10 + 7 + 2 + 115) * 1024 * 1024);
     expect(app.processes).toBe(4);
   });
 
@@ -191,7 +201,33 @@ describe("rolling a process tree up into agents", () => {
     );
     expect(agents).toEqual([]);
     expect(app.processes).toBe(3);
-    expect(app.rss).toBe(610 * 1024 * 1024);
+    expect(app.memory).toBe(610 * 1024 * 1024);
+  });
+
+  test("under the desktop shell, the server's children are the agents and the server is the app", () => {
+    // the app (100) holds its window's helpers and the server (110), which
+    // started a harness with an MCP server under it, and a terminal's shell
+    const { candidates, app } = rollUp(
+      [
+        row(100, 1, 100, 1, "/opt/ruri/ruri"),
+        row(101, 100, 50, 0, "/opt/ruri/ruri --type=zygote"),
+        row(102, 101, 120, 2, "/opt/ruri/ruri --type=renderer"),
+        row(110, 100, 80, 3, "/opt/ruri/ruri --type=utility --utility-sub-type=node.mojom.NodeService"),
+        row(200, 110, 240, 7, "/bin/claude --resume=4c686435-2213-4f59-92ab-83e163488bfd"),
+        row(201, 200, 30, 1, "/usr/bin/node /opt/mcp/one.js"),
+        row(300, 110, 5, 0, "/usr/bin/expect -c spawn /bin/zsh -il"),
+      ],
+      100,
+      ownerOf,
+      110,
+    );
+    expect(candidates.map((c) => c.pid).sort()).toEqual([200, 300]);
+    expect(candidates.find((c) => c.pid === 200)?.memory).toBe(270 * 1024 * 1024);
+    expect(candidates.find((c) => c.pid === 200)?.channelId).toBe("chat-1");
+    // the app is itself, its helpers and the server — not the harness under it
+    expect(app.memory).toBe((100 + 50 + 120 + 80) * 1024 * 1024);
+    expect(app.processes).toBe(4);
+    expect(app.cpu).toBe(6);
   });
 
   test("a chat is an agent however small it is", () => {
@@ -216,12 +252,83 @@ describe("rolling a process tree up into agents", () => {
       ownerOf,
     );
     expect(agents).toEqual([]);
-    expect(app.rss).toBe(310 * 1024 * 1024);
+    expect(app.memory).toBe(310 * 1024 * 1024);
   });
 
   test("nothing running is no agents, not a throw", () => {
     const { agents, app } = sorted([{ ...row(100, 1, 80, 1, "/ruri") }], 100, ownerOf);
     expect(agents).toEqual([]);
     expect(app.processes).toBe(1);
+  });
+});
+
+describe("reading /proc", () => {
+  test("a stat line becomes its parent, its CPU ticks and its start", () => {
+    const line =
+      "215846 (ruri) S 215770 215767 4768 0 -1 4194560 56001 0 12 0 1650 311 0 0 20 0 18 0 1189345 56237391872 71667 18446744073709551615";
+    expect(parseStat(line)).toEqual({ ppid: 215770, ticks: 1650 + 311, start: 1189345 });
+  });
+
+  test("a name with spaces and parentheses in it does not shift the fields", () => {
+    const line = "77 (Web Content (x)) R 1 77 77 0 -1 0 0 0 0 0 5 7 0 0 20 0 1 0 900 0 0";
+    expect(parseStat(line)).toEqual({ ppid: 1, ticks: 12, start: 900 });
+  });
+
+  test("something it cannot read is nothing", () => {
+    expect(parseStat("")).toBeUndefined();
+    expect(parseStat("12 (sh) S x y")).toBeUndefined();
+  });
+});
+
+describe.skipIf(process.platform !== "linux")("ruri's processes, out of /proc", () => {
+  const busy = (seconds: number) =>
+    spawn(
+      process.execPath,
+      [
+        "-e",
+        `const end = Date.now() + ${seconds * 1_000}; while (Date.now() < end); setTimeout(() => {}, 60_000);`,
+      ],
+      { stdio: "ignore" },
+    );
+
+  test("its own process and a child it started, with what they hold", async () => {
+    const child = spawn("sleep", ["30"], { stdio: "ignore" });
+    try {
+      const rows = await new ProcReader().read(process.pid);
+      const self = rows.find((row) => row.pid === process.pid);
+      const kid = rows.find((row) => row.pid === child.pid);
+      expect(self?.memory).toBeGreaterThan(1024 * 1024);
+      expect(kid?.ppid).toBe(process.pid);
+      expect(kid?.args).toBe("sleep 30");
+      // nothing that is not under it
+      expect(rows.some((row) => row.pid === 1)).toBe(false);
+    } finally {
+      child.kill();
+    }
+  });
+
+  test("CPU is what a process is doing now, not its life's average", async () => {
+    // busy for a second, then asleep: `ps` would go on calling it busy
+    const child = busy(1);
+    try {
+      const reader = new ProcReader();
+      const working = (await reader.read(process.pid)).find((row) => row.pid === child.pid);
+      expect(working?.cpu).toBeGreaterThan(40);
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await reader.read(process.pid);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const resting = (await reader.read(process.pid)).find((row) => row.pid === child.pid);
+      expect(resting?.cpu).toBeLessThan(5);
+    } finally {
+      child.kill();
+    }
+  });
+
+  test("a reset starts over from a fresh baseline", async () => {
+    const reader = new ProcReader();
+    await reader.read(process.pid);
+    reader.reset();
+    const rows = await reader.read(process.pid);
+    expect(rows.find((row) => row.pid === process.pid)).toBeDefined();
   });
 });

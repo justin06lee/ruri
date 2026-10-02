@@ -87,7 +87,7 @@ try {
   const arrived = await until(() => readings().length > 0, 15_000);
   check("a window asking gets readings", arrived);
   const first = readings().at(-1);
-  check("ruri's own weight is in them", (first?.app.rss ?? 0) > 0, { app: first?.app });
+  check("ruri's own weight is in them", (first?.app.memory ?? 0) > 0, { app: first?.app });
   check("and the machine's size", (first?.host.totalBytes ?? 0) > 0, { host: first?.host });
 
   /* ── 3. a chat with a harness running ─────────────────────────────── */
@@ -114,10 +114,10 @@ try {
   });
   if (agent) {
     console.log(
-      `     ${agent.name} · ${mb(agent.rss)} · ${agent.cpu}% cpu · ${agent.helpers} helpers · pid ${agent.pid}`,
+      `     ${agent.name} · ${mb(agent.memory)} · ${agent.cpu}% cpu · ${agent.helpers} helpers · pid ${agent.pid}`,
     );
     /* ── 4. it weighs what a harness weighs ─────────────────────────── */
-    check("it weighs what a harness weighs", agent.rss > 40 * 1024 * 1024, { rss: mb(agent.rss) });
+    check("it weighs what a harness weighs", agent.memory > 40 * 1024 * 1024, { memory: mb(agent.memory) });
     check("it is a real process", Number.isInteger(agent.pid) && agent.pid > 1, { pid: agent.pid });
     check(
       "and nothing of ruri's own is listed beside it",

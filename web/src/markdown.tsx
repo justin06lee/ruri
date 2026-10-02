@@ -1,7 +1,7 @@
-import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Attachment } from "../../shared/protocol";
 import { Viewer } from "./components/Attachments";
-import { createStreamingMarkdown, renderMarkdown } from "./lib/markdownHtml";
+import { createStreamingBlocks, renderMarkdown } from "./lib/markdownHtml";
 import { HTTP_BASE } from "./store";
 
 /** Clicked — a picture in a reply, or a prompt's chip: what the viewer is
@@ -106,31 +106,46 @@ export const Markdown = memo(function Markdown({
   );
 });
 
+/** Sanitised HTML as nodes, ready to go into the page. */
+function nodesOf(html: string): DocumentFragment {
+  const template = document.createElement("template");
+  // sanitised by DOMPurify (lib/markdownHtml.ts)
+  template.innerHTML = html;
+  return template.content;
+}
+
 /**
  * A reply as it is being written.
  *
  * The server lets a reply through a finished paragraph at a time
- * (server/paragraphs.ts), so this changes a few times per reply rather than
- * many times a second, and renders each version straight away. Half-finished
- * replies are never cached — they would push out the finished replies the
- * cache (lib/markdownHtml.ts) exists to keep — and the final text goes through `Markdown`
+ * (server/paragraphs.ts). Each used to re-render the whole reply and hand
+ * it to the page as one string, which threw every node of it away and laid
+ * the lot out again — on a long reply, most of what streaming cost. Now each
+ * finished block is rendered once (createStreamingBlocks) and put into the
+ * page once, and only the block still being written is replaced, so a new
+ * paragraph costs the parsing and the layout of that paragraph. React draws
+ * the box and never its contents; this effect does, before the transcript
+ * measures itself to follow the reply down (ChatPane). Half-finished
+ * replies are never cached, and the final text goes through `Markdown`
  * proper the moment the turn ends and the event replaces the draft.
- *
- * Each of those paragraphs used to re-render the whole reply so far. This
- * one renders only what has arrived since the last finished code block, and
- * keeps the HTML for everything before it (createStreamingMarkdown) — the
- * same HTML, for a fraction of the parsing, highlighting and sanitising.
- * The renderer belongs to this reply, so it goes when the reply does.
  */
 export function StreamingMarkdown({ text }: { text: string }) {
   // a lazy initialiser, so the reply gets one renderer for its whole life
-  const [render] = useState(createStreamingMarkdown);
-  // rendering the same text twice gives the same HTML and moves nothing on,
-  // so the memo is a saving rather than the thing that makes this correct
-  const html = useMemo(() => render(text), [render, text]);
+  const [render] = useState(createStreamingBlocks);
+  const box = useRef<HTMLDivElement>(null);
+  /** The nodes of the block still being written, replaced each step. */
+  const live = useRef<ChildNode[]>([]);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const step = render(text);
+    if (step.reset) el.replaceChildren();
+    else for (const node of live.current) node.remove();
+    for (const piece of step.add) el.append(nodesOf(piece));
+    const tail = nodesOf(step.live);
+    live.current = [...tail.childNodes];
+    el.append(tail);
+  }, [render, text]);
   const timers = useCopyTimers();
-  // sanitised by DOMPurify (lib/markdownHtml.ts)
-  return (
-    <div className="md" onClick={(e) => onClick(e, timers)} dangerouslySetInnerHTML={{ __html: html }} />
-  );
+  return <div ref={box} className="md" onClick={(e) => onClick(e, timers)} />;
 }

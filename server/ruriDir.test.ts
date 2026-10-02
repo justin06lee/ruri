@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -22,7 +23,14 @@ const ruri = () => path.join(project, ".ruri");
 describe("blankProject", () => {
   test("an empty folder, or one holding only what a scaffolder builds around, is blank", () => {
     expect(blankProject(project)).toBe(true);
-    for (const name of [".git/HEAD", ".gitignore", "LICENSE", ".DS_Store", ".claude/settings.json", "app.iml"]) {
+    for (const name of [
+      ".git/HEAD",
+      ".gitignore",
+      "LICENSE",
+      ".DS_Store",
+      ".claude/settings.json",
+      "app.iml",
+    ]) {
       touch(name);
     }
     expect(blankProject(project)).toBe(true);
@@ -57,10 +65,44 @@ describe("ruriDir", () => {
     expect(fs.existsSync(ruri())).toBe(false);
   });
 
-  test("a real project gets the folder, ignoring itself", () => {
+  test("a real project gets the folder: its shape goes into git, the catch-up stays out", () => {
     touch("package.json");
     expect(ruriDir(project)).toBe(ruri());
-    expect(fs.readFileSync(path.join(ruri(), ".gitignore"), "utf8")).toBe("*\n");
+    execFileSync("git", ["init", "-q"], { cwd: project });
+    for (const file of [
+      "architecture.md",
+      "architecture.json",
+      "components.md",
+      "layers/ui.md",
+      "catchup.md",
+      "open.jsonl",
+    ])
+      touch(`.ruri/${file}`);
+    const listed = execFileSync("git", ["ls-files", "--others", "--exclude-standard"], {
+      cwd: project,
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter((line) => line.startsWith(".ruri/"))
+      .sort();
+    expect(listed).toEqual([
+      ".ruri/.gitignore",
+      ".ruri/architecture.json",
+      ".ruri/architecture.md",
+      ".ruri/components.md",
+      ".ruri/layers/ui.md",
+    ]);
+  });
+
+  test("an older ruri's ignore-everything is brought up to date; the user's own is left alone", () => {
+    touch("package.json");
+    fs.mkdirSync(ruri());
+    fs.writeFileSync(path.join(ruri(), ".gitignore"), "*\n");
+    ruriDir(project);
+    expect(fs.readFileSync(path.join(ruri(), ".gitignore"), "utf8")).toContain("catchup.md");
+    fs.writeFileSync(path.join(ruri(), ".gitignore"), "*\n!architecture.md\n");
+    ruriDir(project);
+    expect(fs.readFileSync(path.join(ruri(), ".gitignore"), "utf8")).toBe("*\n!architecture.md\n");
   });
 
   test("a project whose folder is gone is not recreated", () => {

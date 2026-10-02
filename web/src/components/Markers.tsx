@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { findMarkers, moveMarker, fittedHeight, CHIP_BLEED, type Marker } from "../lib/markers";
+import { findMarkers, moveMarker, fittedHeight, textHeight, CHIP_BLEED, type Marker } from "../lib/markers";
 
 /**
  * The [image #1] markers and the /commands in the composer, as things
@@ -247,9 +247,9 @@ export function MarkerMirror({
     let tries = 0;
     const check = () => {
       frame = 0;
-      // against the text's true height as last fitted, never `scrollHeight`
-      // straight off the textarea — see `fitBox` for the lie it tells
-      if (Math.abs(inner.offsetHeight - (fittedHeight(area) ?? area.scrollHeight)) <= 2) {
+      // against the text's true height, never `scrollHeight` straight off
+      // the textarea — see `fitBox` for the lie it tells
+      if (Math.abs(inner.offsetHeight - (fittedHeight(area) ?? textHeight(area))) <= 2) {
         refitted = false;
         tries = 0;
         mirror.classList.remove("off");

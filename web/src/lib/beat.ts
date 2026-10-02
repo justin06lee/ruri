@@ -18,7 +18,7 @@
  * back it snaps to the clock's current step. Someone who has asked for
  * reduced motion never sees any of it move.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { isAwake, subscribeAwake, watchSeen } from "./awake";
 
 export { isAwake, subscribeAwake };
@@ -186,15 +186,19 @@ export function whileAwake(step: () => void, ms: number, rest?: () => void, el?:
  * The time, for a line that counts up (a turn's clock, an agent's, the
  * gauges' countdowns). It moves every `everyMs` while the window is awake
  * and stands still while it is not — a count nobody can see is a render for
- * nothing — then catches up the moment the window wakes. `on` false stops it.
+ * nothing — then catches up the moment the window wakes. `on` false stops
+ * it. Given the element it is shown in, it also stands still while that is
+ * out of view: a long chat holds a card for every agent it ran, and each
+ * running one used to tick every second wherever it was scrolled to.
  */
-export function useNow(everyMs: number, on = true): number {
+export function useNow(everyMs: number, on = true, shownIn?: RefObject<Element | null>): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!on) return;
     let timer: number | undefined;
+    let seen = true;
     const run = () => {
-      const want = isAwake();
+      const want = isAwake() && seen;
       if (want && timer === undefined) {
         setNow(Date.now());
         timer = window.setInterval(() => setNow(Date.now()), everyMs);
@@ -205,10 +209,18 @@ export function useNow(everyMs: number, on = true): number {
     };
     run();
     const off = subscribeAwake(run);
+    const el = shownIn?.current;
+    const unwatch = el
+      ? watchSeen(el, (inView) => {
+          seen = inView;
+          run();
+        })
+      : undefined;
     return () => {
       off();
+      unwatch?.();
       if (timer !== undefined) window.clearInterval(timer);
     };
-  }, [everyMs, on]);
+  }, [everyMs, on, shownIn]);
   return now;
 }

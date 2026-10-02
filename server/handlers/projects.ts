@@ -9,7 +9,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { WebSocket } from "ws";
 import { ideaDraftKey, type MemoryLine, type ServerMessage } from "../../shared/protocol.js";
-import { briefless, pushSheet, rebuildCatchup, sheetMessage } from "../catchupBrief.js";
+import {
+  adoptShared,
+  pushSheet,
+  rebuildCatchup,
+  sheetMessage,
+  touchProject,
+  writeLayerSheets,
+} from "../catchupBrief.js";
 import { rebuildMemory } from "../memory.js";
 import { addLine, dayOf, findLine, replaceLine } from "../memoryLines.js";
 import { buildCompaction, removeTurnFiles } from "../compaction.js";
@@ -81,8 +88,9 @@ export function createManagerHost(ctx: ServerContext): ManagerHost {
           return `failed: ${errorMessage(err)}`;
         }
         ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-        // a project new to ruri gets told what it is before anyone asks
-        if (briefless(ctx, project.id)) void rebuildCatchup(ctx, project.id);
+        // the sheet its clone brought, if any; its repo is read when someone
+        // works in it — Home opening a workspace of projects is not that
+        adoptShared(ctx, project.id);
       }
       let sessionId = project.sessions[0]?.id;
       // an emptied folder (all sessions closed) gets a fresh session on reopen
@@ -157,10 +165,13 @@ export const projectHandlers = {
     if (ctx.store.findByPath(msg.path)) return;
     const project = ctx.store.add(msg.name, msg.path, msg.folder);
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-    if (briefless(ctx, project.id)) void rebuildCatchup(ctx, project.id);
+    adoptShared(ctx, project.id);
   },
   catchup_rebuild: (ctx, _ws, msg) => {
     void rebuildCatchup(ctx, msg.projectId);
+  },
+  layer_sheet_write: (ctx, _ws, msg) => {
+    void writeLayerSheets(ctx, msg.projectId, [msg.slug]);
   },
   memory_rebuild: (ctx, _ws, msg) => {
     void rebuildMemory(ctx, msg.projectId);
@@ -168,6 +179,7 @@ export const projectHandlers = {
   /** The architecture page opening on a project. */
   sheet_get: (ctx, ws, msg) => {
     if (!ctx.store.get(msg.projectId)) return;
+    touchProject(ctx, msg.projectId);
     void sheetMessage(ctx, msg.projectId)
       .then((message) => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));

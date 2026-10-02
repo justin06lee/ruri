@@ -108,6 +108,15 @@ export interface StartServerOptions {
    * harnesses each have a port of their own and leave leftovers alone.
    */
   reclaimPort?: boolean;
+  /**
+   * The desktop shell's pid, when the server runs in a process of its own
+   * under it (server/desktopServer.ts). The app is that process and
+   * everything under it, so the meters count from there (server/resources.ts);
+   * and it is the ruri a newer launch asks to stop for the port — stopping
+   * only the server would have the shell start another (server/port.ts).
+   * Absent, the server is the app.
+   */
+  appPid?: number;
 }
 
 export interface RuriServer {

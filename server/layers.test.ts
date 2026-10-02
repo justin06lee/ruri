@@ -94,6 +94,7 @@ describe("the stack as an index", () => {
     expect(briefs.correctLayer("p", "bridge", "map", 0, "no dash here")).toBeNull();
 
     // a reload keeps it
+    briefs.flush();
     expect(new BriefStore().get("p").layerSheets?.["bridge"]?.summary).toBe("The bridge.");
 
     // the model's next index drops the bridge layer: its sheet goes with it
@@ -253,7 +254,7 @@ describe("ruri layer", () => {
 });
 
 describe("a turn folds into the layers it changed", () => {
-  test("only the touched layers are rewritten, each with only its own turns", async () => {
+  test("only the touched layers are rewritten, each with only its own turns; one without a sheet gets its first", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-layers-fold-"));
     for (const rel of ["server/bridge.ts", "server/cdp.ts", "server/sessions.ts", "web/src/App.tsx"]) {
       fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
@@ -283,20 +284,31 @@ describe("a turn folds into the layers it changed", () => {
         store: { get: (id: string) => (id === "p" ? project : undefined) },
         briefs,
         clients: { broadcast: () => {} },
+        catchingUp: new Set<string>(),
       } as unknown as ServerContext;
       foldLayers(ctx, "p", [
         { text: "[a] clicks now go over CDP", files: ["server/cdp.ts", "server/sessions.ts"] },
         { text: "[b] the backend queue", files: ["server/queue.ts"] },
       ]);
-      for (let i = 0; i < 50 && !briefs.get("p").layerSheets?.["bridge"]?.map[1]; i++) {
+      for (
+        let i = 0;
+        i < 100 &&
+        !(briefs.get("p").layerSheets?.["bridge"]?.map[1] && briefs.get("p").layerSheets?.["backend"]);
+        i++
+      ) {
         await new Promise((r) => setTimeout(r, 10));
       }
-      // the bridge was touched and has a sheet; the backend was touched but
-      // has none; the UI wasn't touched
-      expect(asked).toHaveLength(1);
-      expect(asked[0]).toContain("THE LAYER: Bridge");
-      expect(asked[0]).toContain("[a] clicks now go over CDP");
-      expect(asked[0]).not.toContain("[b] the backend queue");
+      // the bridge was touched and has a sheet: the turn folds into it; the
+      // backend was touched and has none: it gets its first, read from its
+      // files as they stand; the UI wasn't touched
+      expect(asked).toHaveLength(2);
+      const fold = asked.find((prompt) => prompt.includes("THE LAYER: Bridge"))!;
+      expect(fold).toContain("[a] clicks now go over CDP");
+      expect(fold).not.toContain("[b] the backend queue");
+      const first = asked.find((prompt) => prompt.includes("THE LAYER: Backend"))!;
+      expect(first).toContain("MATERIAL:");
+      expect(first).toContain("sessions.ts");
+      expect(briefs.get("p").layerSheets?.["backend"]).toBeDefined();
       expect(briefs.get("p").layerSheets!["bridge"]!.map).toEqual([
         { name: "screenshots", files: ["server/bridge.ts"] },
         { name: "clicks", files: ["server/cdp.ts"] },

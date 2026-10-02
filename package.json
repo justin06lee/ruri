@@ -24,6 +24,7 @@
     "build:app": "electron-builder",
     "build": "bun run build:web && bun run build:main && bun run build:app",
     "smoke": "tsx scripts/smoke.ts",
+    "perf": "bun scripts/perf.mjs",
     "auth-test": "tsx scripts/auth.ts",
     "bridge-test": "tsx scripts/bridge.ts",
     "rewind-test": "tsx scripts/rewind.ts",

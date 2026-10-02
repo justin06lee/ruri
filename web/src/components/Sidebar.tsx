@@ -353,7 +353,7 @@ function ProjectFolder({
   return (
     <div>
       <div
-        className={`folder-row project-folder ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${busy ? "busy" : ""}`}
+        className={`folder-row project-folder ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${busy ? "busy" : ""}`}
         onClick={onToggle}
         onDoubleClick={(e) => {
           e.preventDefault();

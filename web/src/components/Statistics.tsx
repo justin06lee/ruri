@@ -9,7 +9,7 @@
  *
  * The money comes off the ledger (server/ledger.ts), which is what makes
  * it true across rewinds, compactions and relaunches. The machine's side
- * comes off `ps`, sampled only while this page is up (server/resources.ts):
+ * comes off /proc (`ps` on macOS), sampled only while this page is up (server/resources.ts):
  * every chat that has been prompted holds a warm harness process of 150 to
  * 400 MB, and this is where you find out which ones, and how much.
  */
@@ -24,6 +24,23 @@ function bytes(n: number): string {
   if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(n >= 10 * 1024 ** 3 ? 0 : 1)} GB`;
   if (n >= 1024 ** 2) return `${Math.round(n / 1024 ** 2)} MB`;
   return `${Math.round(n / 1024)} kB`;
+}
+
+/**
+ * "38%", "0.4%" — CPU as a share of the whole machine. The meters count it
+ * the way ps and top do, in percent of one core, so a build across a 6-core
+ * machine read "226%"; divided by the cores, the whole machine is 100%.
+ */
+function cpuShare(cpu: number, cores: number): string {
+  const share = cpu / Math.max(1, cores);
+  const text = share.toFixed(share >= 10 ? 0 : 1);
+  return text === "0.0" ? "0%" : `${text}%`;
+}
+
+/** "2.3 of 6 cores" — the same figure in cores, for the hover. */
+function coresBusy(cpu: number, cores: number): string {
+  const busy = cpu / 100;
+  return `${busy.toFixed(busy >= 1 ? 1 : 2)} of ${cores} cores busy`;
 }
 
 /** "in 2h", "in 40m", "any moment" — when a window rolls over. */
@@ -170,12 +187,13 @@ const Agents = memo(function Agents() {
     return <div className="stats-empty">Reading this machine…</div>;
   }
   const { agents, app, host } = resources;
-  const agentBytes = agents.reduce((n, a) => n + a.rss, 0);
+  const agentBytes = agents.reduce((n, a) => n + a.memory, 0);
+  const agentCpu = agents.reduce((n, a) => n + a.cpu, 0);
   // what ruri is of this machine — the honest figure, and the one you act
   // on. macOS reports almost no memory "free" whatever is running, because
   // it keeps what it is not using as cache, so free memory is not a number
   // to put in front of anyone.
-  const share = host.totalBytes > 0 ? ((agentBytes + app.rss) / host.totalBytes) * 100 : 0;
+  const share = host.totalBytes > 0 ? ((agentBytes + app.memory) / host.totalBytes) * 100 : 0;
 
   return (
     <>
@@ -190,8 +208,8 @@ const Agents = memo(function Agents() {
             <span>
               <b>{agents.length}</b> {agents.length === 1 ? "agent" : "agents"}
             </span>
-            <span>
-              <b>{agents.reduce((n, a) => n + a.cpu, 0).toFixed(0)}%</b> cpu
+            <span title={coresBusy(agentCpu, host.cores)}>
+              <b>{cpuShare(agentCpu, host.cores)}</b> cpu
             </span>
           </span>
         </div>
@@ -200,25 +218,25 @@ const Agents = memo(function Agents() {
           title="ruri itself: the server, its window, the shells behind the terminal tabs, the small model writing titles and notes, and the probes that ask each harness what models it has"
         >
           <span className="stat-label">ruri</span>
-          <span className="stat-cost">{bytes(app.rss)}</span>
+          <span className="stat-cost">{bytes(app.memory)}</span>
           <span className="stat-sub">
             <span>
               <b>{app.processes}</b> proc
             </span>
-            <span>
-              <b>{app.cpu.toFixed(0)}%</b> cpu
+            <span title={coresBusy(app.cpu, host.cores)}>
+              <b>{cpuShare(app.cpu, host.cores)}</b> cpu
             </span>
           </span>
         </div>
         <div
           className="meter-tile"
-          title={`ruri and its agents hold ${bytes(agentBytes + app.rss)} of this machine's ${bytes(host.totalBytes)}`}
+          title={`ruri and its agents hold ${bytes(agentBytes + app.memory)} of this machine's ${bytes(host.totalBytes)}`}
         >
           <span className="stat-label">of this machine</span>
           <span className="stat-cost">{share.toFixed(share >= 10 ? 0 : 1)}%</span>
           <span className="stat-sub">
             <span>
-              <b>{bytes(agentBytes + app.rss)}</b> of
+              <b>{bytes(agentBytes + app.memory)}</b> of
             </span>
             <span>
               <b>{bytes(host.totalBytes)}</b>
@@ -262,13 +280,13 @@ const Agents = memo(function Agents() {
                   <span className="stats-name">
                     {lead}
                     <small>{sub}</small>
-                    <Share of={agent.rss} all={agents[0]!.rss} kind="mem" />
+                    <Share of={agent.memory} all={agents[0]!.memory} kind="mem" />
                   </span>
                   <span>
-                    <b>{bytes(agent.rss)}</b>
+                    <b>{bytes(agent.memory)}</b>
                     {agent.helpers > 0 && <small> +{agent.helpers}</small>}
                   </span>
-                  <span>{agent.cpu.toFixed(0)}%</span>
+                  <span title={coresBusy(agent.cpu, host.cores)}>{cpuShare(agent.cpu, host.cores)}</span>
                   <span>{upFor(agent.uptimeMs)}</span>
                   <span className="agent-pid">{agent.pid}</span>
                 </div>

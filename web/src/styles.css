@@ -787,13 +787,16 @@ html:not([data-asleep]) .desktop .sidebar-header {
   color: var(--ink);
 }
 
-/* starred folders always show their star */
-.project-folder:has(.star.on) .folder-actions {
+/* starred folders always show their star. A class, not :has(.star.on):
+   a :has() over a row is looked at again on every change inside it — the
+   dragon running beside a busy folder steps twice a second — and its
+   whole subtree restyled each time. */
+.project-folder.starred .folder-actions {
   display: flex;
 }
 
-.project-folder:has(.star.on):not(:hover) .add-session,
-.project-folder:has(.star.on):not(:hover) .remove {
+.project-folder.starred:not(:hover) .add-session,
+.project-folder.starred:not(:hover) .remove {
   display: none;
 }
 
@@ -1415,8 +1418,11 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* the sketch pad's toolbar is where the strip floats; the pad has its
-   own close, and the strip comes back with the chat */
-.home-deck:has(.sketch-page) .home-tabs {
+   own close, and the strip comes back with the chat. Marked on the root
+   while a pad is open (ChatPane) rather than found with
+   :has(.sketch-page): that had every keystroke in Home's composer restyle
+   the whole deck, 141 elements, to find out there was still no pad. */
+[data-sketching] .home-deck .home-tabs {
   display: none;
 }
 
@@ -1639,6 +1645,14 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
 }
 
+.projects-live .st-finished {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  font-weight: 700;
+}
+
 .stat-tile {
   display: flex;
   flex-direction: column;
@@ -1784,6 +1798,14 @@ input[type="range"]::-webkit-slider-thumb {
 .pcard.st-error .pcard-status {
   color: var(--ink);
   border-color: var(--ink-soft);
+}
+
+/* a turn finished on this card that nobody has opened: the sidebar's
+   diamond after the name, and an idle card says "finished" in ink */
+.pcard.fresh.st-idle .pcard-status {
+  color: var(--ink);
+  border-color: var(--ink);
+  font-weight: 700;
 }
 
 /* room for a session's three lines even when it has said nothing yet, so
@@ -2369,7 +2391,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* a row whose value grew into a block keeps its label at the top of it,
    rather than floating halfway down beside nothing */
-.settings-row:has(.schedule-times) {
+.settings-row.tall {
   align-items: flex-start;
 }
 
@@ -2872,7 +2894,7 @@ input[type="range"]::-webkit-slider-thumb {
    the 2px between them, so without this the ideas button's count sits on
    the tracker's icon and reads as the tracker's. The room is taken by the
    button carrying one, so the rest stay tight against each other. */
-.header-controls .icon-button:has(> .tracker-badge) {
+.header-controls .icon-button.badged {
   margin-right: 6px;
 }
 
@@ -3023,6 +3045,14 @@ input[type="range"]::-webkit-slider-thumb {
     transparent calc(100% - 18px)
   );
   mask-image: linear-gradient(to bottom, #000 calc(100% - var(--composer-h)), transparent calc(100% - 18px));
+}
+
+/* following the newest message, the view is put back on it after every
+   change (ChatPane's pin); the browser's own anchoring, moving the scroll
+   position mid-layout as a streaming reply replaces its last block, stalled
+   the page on every paragraph */
+.transcript[data-pinned] {
+  overflow-anchor: none;
 }
 
 /* the tail of the conversation clears the composer, so the newest message
@@ -3738,7 +3768,10 @@ input[type="range"]::-webkit-slider-thumb {
   transition: opacity var(--lighten);
 }
 
-.exchange-half:has(> .half-fold:hover) > :not(.half-fold) {
+/* the fold button comes first in its half, so what it would fold is
+   everything after it — no :has(), which a streaming reply would have
+   looked at again with every paragraph */
+.exchange-half > .half-fold:hover ~ * {
   opacity: 0.45;
 }
 
@@ -7723,6 +7756,11 @@ input[type="range"]::-webkit-slider-thumb {
   flex-shrink: 0;
 }
 
+/* The box is as tall as its words, up to the cap, and the browser sizes it
+   so in the layout it does anyway. Sizing it from script meant setting its
+   height to auto and reading scrollHeight on every keystroke — a style
+   recalc and a forced layout of the page each time, most of what a
+   keystroke cost. */
 .composer-box textarea {
   width: 100%;
   resize: none;
@@ -7731,6 +7769,7 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 3px 0;
   max-height: 220px;
   line-height: 1.5;
+  field-sizing: content;
 }
 
 /* ── the markers, as chips ────────────────────────────────────────── */
@@ -9453,7 +9492,7 @@ button.stop:hover {
   transform: none;
 }
 
-.project-folder:has(.star.on):not(:hover) .hide {
+.project-folder.starred:not(:hover) .hide {
   display: none;
 }
 

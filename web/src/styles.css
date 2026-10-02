@@ -1645,6 +1645,14 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
 }
 
+.projects-live .st-finished {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  font-weight: 700;
+}
+
 .stat-tile {
   display: flex;
   flex-direction: column;
@@ -1790,6 +1798,14 @@ input[type="range"]::-webkit-slider-thumb {
 .pcard.st-error .pcard-status {
   color: var(--ink);
   border-color: var(--ink-soft);
+}
+
+/* a turn finished on this card that nobody has opened: the sidebar's
+   diamond after the name, and an idle card says "finished" in ink */
+.pcard.fresh.st-idle .pcard-status {
+  color: var(--ink);
+  border-color: var(--ink);
+  font-weight: 700;
 }
 
 /* room for a session's three lines even when it has said nothing yet, so

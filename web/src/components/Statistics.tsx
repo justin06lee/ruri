@@ -26,6 +26,23 @@ function bytes(n: number): string {
   return `${Math.round(n / 1024)} kB`;
 }
 
+/**
+ * "38%", "0.4%" — CPU as a share of the whole machine. The meters count it
+ * the way ps and top do, in percent of one core, so a build across a 6-core
+ * machine read "226%"; divided by the cores, the whole machine is 100%.
+ */
+function cpuShare(cpu: number, cores: number): string {
+  const share = cpu / Math.max(1, cores);
+  const text = share.toFixed(share >= 10 ? 0 : 1);
+  return text === "0.0" ? "0%" : `${text}%`;
+}
+
+/** "2.3 of 6 cores" — the same figure in cores, for the hover. */
+function coresBusy(cpu: number, cores: number): string {
+  const busy = cpu / 100;
+  return `${busy.toFixed(busy >= 1 ? 1 : 2)} of ${cores} cores busy`;
+}
+
 /** "in 2h", "in 40m", "any moment" — when a window rolls over. */
 function backIn(at: number): string {
   const mins = Math.round((at - Date.now()) / 60_000);
@@ -171,6 +188,7 @@ const Agents = memo(function Agents() {
   }
   const { agents, app, host } = resources;
   const agentBytes = agents.reduce((n, a) => n + a.memory, 0);
+  const agentCpu = agents.reduce((n, a) => n + a.cpu, 0);
   // what ruri is of this machine — the honest figure, and the one you act
   // on. macOS reports almost no memory "free" whatever is running, because
   // it keeps what it is not using as cache, so free memory is not a number
@@ -190,8 +208,8 @@ const Agents = memo(function Agents() {
             <span>
               <b>{agents.length}</b> {agents.length === 1 ? "agent" : "agents"}
             </span>
-            <span>
-              <b>{agents.reduce((n, a) => n + a.cpu, 0).toFixed(0)}%</b> cpu
+            <span title={coresBusy(agentCpu, host.cores)}>
+              <b>{cpuShare(agentCpu, host.cores)}</b> cpu
             </span>
           </span>
         </div>
@@ -205,8 +223,8 @@ const Agents = memo(function Agents() {
             <span>
               <b>{app.processes}</b> proc
             </span>
-            <span>
-              <b>{app.cpu.toFixed(0)}%</b> cpu
+            <span title={coresBusy(app.cpu, host.cores)}>
+              <b>{cpuShare(app.cpu, host.cores)}</b> cpu
             </span>
           </span>
         </div>
@@ -267,7 +285,7 @@ const Agents = memo(function Agents() {
                     <b>{bytes(agent.memory)}</b>
                     {agent.helpers > 0 && <small> +{agent.helpers}</small>}
                   </span>
-                  <span>{agent.cpu.toFixed(0)}%</span>
+                  <span title={coresBusy(agent.cpu, host.cores)}>{cpuShare(agent.cpu, host.cores)}</span>
                   <span>{upFor(agent.uptimeMs)}</span>
                   <span className="agent-pid">{agent.pid}</span>
                 </div>

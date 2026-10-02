@@ -511,6 +511,12 @@ export function isBusy(s: Pick<RuriState, "statuses" | "work">, channelId: strin
   return status === "working" || status === "permission" || channelId in s.work;
 }
 
+/** The unread map with one chat's diamond taken off — the same map when it
+ *  had none, so nothing re-renders for it. */
+function seen(unread: Record<string, boolean>, id: string | null): Record<string, boolean> {
+  return id && unread[id] ? { ...unread, [id]: false } : unread;
+}
+
 export const useRuri = create<RuriState>((set) => ({
   connected: false,
   projects: [],
@@ -597,9 +603,22 @@ export const useRuri = create<RuriState>((set) => ({
       };
     }),
   setRapid: (on) => set({ rapid: on, projectsOpen: false }),
-  setProjectsOpen: (on) => set({ projectsOpen: on, rapid: false, settingsOpen: false }),
+  // closing either page puts the open chat back in front of you, and with
+  // it whatever finished there while the page stood over it (see "event")
+  setProjectsOpen: (on) =>
+    set((s) => ({
+      projectsOpen: on,
+      rapid: false,
+      settingsOpen: false,
+      unread: on ? s.unread : seen(s.unread, s.activeId),
+    })),
   closeSkillBody: () => set({ skillBody: null }),
-  setSettingsOpen: (on) => set({ settingsOpen: on, projectsOpen: false }),
+  setSettingsOpen: (on) =>
+    set((s) => ({
+      settingsOpen: on,
+      projectsOpen: false,
+      unread: on ? s.unread : seen(s.unread, s.activeId),
+    })),
   clearPicked: () => set({ picked: null }),
   dismissError: () => set({ lastError: null }),
 }));
@@ -1402,9 +1421,13 @@ function apply(msg: ServerMessage): void {
           transcripts: { ...s.transcripts, [msg.projectId]: transcript },
           drafts,
           // The diamond pip marks a FINISHED turn elsewhere — not every
-          // event that trickles in while a background session works.
+          // event that trickles in while a background session works. The
+          // open chat is elsewhere too while the projects page or settings
+          // has the pane: you went there to wait, and it is the projects
+          // page that should say this one is done.
           unread:
-            msg.projectId === s.activeId || msg.event.kind !== "result"
+            msg.event.kind !== "result" ||
+            (msg.projectId === s.activeId && !s.projectsOpen && !s.settingsOpen)
               ? s.unread
               : { ...s.unread, [msg.projectId]: true },
         };

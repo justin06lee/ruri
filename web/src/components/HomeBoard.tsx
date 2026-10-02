@@ -119,6 +119,8 @@ function backgroundLine(work: BackgroundWork): string {
 const SessionLines = memo(function SessionLines({ session, many }: { session: SessionInfo; many: boolean }) {
   const events = useRuri((s) => s.transcripts[session.id] ?? NO_EVENTS);
   const turnStatus = useRuri((s) => s.statuses[session.id] ?? "idle");
+  // the sidebar's diamond: a turn finished here and nobody has looked yet
+  const unread = useRuri((s) => s.unread[session.id] ?? false);
   const work = useRuri((s) => s.work[session.id]);
   // a turn over with its agents or scripts still going is still working
   const status = work && (turnStatus === "idle" || turnStatus === "error") ? "working" : turnStatus;
@@ -152,6 +154,7 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
         <span className="board-session-title">
           <span className={`dot ${status}`} aria-hidden />
           {session.title ?? "new session"}
+          {unread && <span className="unread-pip" title="Turn finished" />}
         </span>
       )}
       {lines.length === 0 ? (
@@ -179,17 +182,20 @@ const WORD: Record<Status, string> = {
 function ProjectCard({
   project,
   status,
+  fresh,
   sessions,
 }: {
   project: Project;
   status: Status;
+  /** A turn finished in one of its chats that nobody has opened since. */
+  fresh: boolean;
   /** The sessions it lists (see shownSessions). */
   sessions: SessionInfo[];
 }) {
   const setActive = useRuri((s) => s.setActive);
   const first = sessions[0];
   return (
-    <div className={`pcard st-${status}`}>
+    <div className={`pcard st-${status} ${fresh ? "fresh" : ""}`}>
       <div
         className="pcard-head"
         role={first ? "button" : undefined}
@@ -198,7 +204,8 @@ function ProjectCard({
       >
         <span className={`dot ${status}`} aria-hidden />
         <span className="pcard-name">{project.name}</span>
-        <span className="pcard-status">{WORD[status]}</span>
+        {fresh && <span className="unread-pip" title="A turn finished here since you last looked" />}
+        <span className="pcard-status">{status === "idle" && fresh ? "finished" : WORD[status]}</span>
       </div>
       {/* a project of twenty chats is not a card twenty chats tall */}
       <Capped max={4} className="pcard-body">
@@ -249,18 +256,24 @@ function statusOf(
 
 /**
  * The sessions a card lists. A live card lists the ones that make it live
- * — working, waiting on you, errored — and none of the chats that finished
- * hours ago beside them, which are a click away in the sidebar; an idle
- * card has nothing live to show, so it shows where each chat left off.
+ * — working, waiting on you, errored — and the ones that finished since you
+ * last looked, but none of the chats that finished hours ago beside them,
+ * which are a click away in the sidebar. A finished card lists what
+ * finished; an idle card has nothing new to show, so it shows where each
+ * chat left off.
  */
 function shownSessions(
   project: Project,
   status: Status,
+  fresh: boolean,
   statuses: Record<string, string>,
   work: Record<string, BackgroundWork>,
+  unread: Record<string, boolean>,
 ): SessionInfo[] {
-  if (status === "idle") return project.sessions;
-  return project.sessions.filter((session) => sessionStatus(session, statuses, work) !== "idle");
+  if (status === "idle" && !fresh) return project.sessions;
+  return project.sessions.filter(
+    (session) => unread[session.id] || sessionStatus(session, statuses, work) !== "idle",
+  );
 }
 
 /**
@@ -435,30 +448,43 @@ export function ProjectsPage() {
   const projects = useRuri(selectShown);
   const statuses = useRuri((s) => s.statuses);
   const work = useRuri((s) => s.work);
+  // the sidebar's diamonds: turns that finished since their chat was last open
+  const unread = useRuri((s) => s.unread);
   // while this is up, every chat's finished steps come here (and, as it
   // opens, every chat's last few lines as they now stand)
   useEffect(() => watchBoard(), []);
 
-  const { live, idle } = useMemo(() => {
+  // Three groups: what is still going, what finished that you have not
+  // looked at yet, and the rest. A finished project leaves its group as
+  // soon as the chat that finished is opened.
+  const { live, finished, idle, fresh } = useMemo(() => {
     const ranked = projects
       .map((project) => {
         const status = statusOf(project, statuses, work);
-        return { project, status, sessions: shownSessions(project, status, statuses, work) };
+        const fresh = project.sessions.some((session) => unread[session.id]);
+        return {
+          project,
+          status,
+          fresh,
+          sessions: shownSessions(project, status, fresh, statuses, work, unread),
+        };
       })
       .sort((a, b) => RANK[a.status] - RANK[b.status] || a.project.name.localeCompare(b.project.name));
     return {
       live: ranked.filter((x) => x.status !== "idle"),
-      idle: ranked.filter((x) => x.status === "idle"),
+      finished: ranked.filter((x) => x.status === "idle" && x.fresh),
+      idle: ranked.filter((x) => x.status === "idle" && !x.fresh),
+      fresh: ranked.filter((x) => x.fresh).length,
     };
-  }, [projects, statuses, work]);
+  }, [projects, statuses, work, unread]);
 
   const working = live.filter((x) => x.status === "working").length;
   const waiting = live.filter((x) => x.status === "permission").length;
   const errored = live.filter((x) => x.status === "error").length;
   const grid = (items: typeof live) => (
     <div className="projects-grid">
-      {items.map(({ project, status, sessions }) => (
-        <ProjectCard key={project.id} project={project} status={status} sessions={sessions} />
+      {items.map(({ project, status, fresh, sessions }) => (
+        <ProjectCard key={project.id} project={project} status={status} fresh={fresh} sessions={sessions} />
       ))}
     </div>
   );
@@ -485,7 +511,13 @@ export function ProjectsPage() {
                     {errored} {errored === 1 ? "error" : "errors"}
                   </span>
                 )}
-                {live.length === 0 && (
+                {fresh > 0 && (
+                  <span className="st-finished">
+                    <span className="unread-pip" aria-hidden />
+                    {fresh} finished
+                  </span>
+                )}
+                {live.length === 0 && fresh === 0 && (
                   <span className="st-idle">{projects.length === 0 ? "nothing open" : "all quiet"}</span>
                 )}
               </span>
@@ -504,9 +536,15 @@ export function ProjectsPage() {
               {grid(live)}
             </>
           )}
+          {finished.length > 0 && (
+            <>
+              <div className="projects-group">finished</div>
+              {grid(finished)}
+            </>
+          )}
           {idle.length > 0 && (
             <>
-              {live.length > 0 && <div className="projects-group">idle</div>}
+              {live.length + finished.length > 0 && <div className="projects-group">idle</div>}
               {grid(idle)}
             </>
           )}

@@ -5,62 +5,154 @@
  * server/dispatch.ts.
  */
 import { randomUUID } from "node:crypto";
-import type { AskQuestions } from "../../shared/protocol.js";
+import { WebSocket } from "ws";
+import type { AskQuestions, ServerMessage } from "../../shared/protocol.js";
 import { busy, channelProject, ownerProject, running } from "../channel.js";
 import { knownCommands, splitCommands } from "../commands.js";
-import { cutIn, dispatch, dispatchSplit, drainQueue, queueWithCommands, stopTurn } from "../dispatch.js";
+import type { ClientConn, ServerContext } from "../context.js";
+import {
+  cutIn,
+  dispatch,
+  dispatchSplit,
+  drainQueue,
+  holdsEvent,
+  queueWithCommands,
+  stopTurn,
+} from "../dispatch.js";
 import { combine, reslot, uncombine, type QueueEntry } from "../queue.js";
 import { storeAttachments, storeUpload } from "../uploads.js";
 import { followCrew } from "./crew.js";
 import { answerTalk, talkDropped } from "./talk.js";
 import type { Handler, Handlers } from "./types.js";
 
+type SentAs = Extract<ServerMessage, { type: "sent" }>["as"];
+
+/**
+ * Prompts taken by the window's own id, and where each went — newest
+ * last, the oldest let go past TAKEN_MAX. A window that loses its socket
+ * just after sending cannot know whether the prompt arrived, so it sends
+ * it again on reconnecting (web/src/store.ts, the outbox); this is how the
+ * second copy is answered rather than run. Kept for this run of the
+ * server: after a restart the transcript and the queue are what say a
+ * prompt has been taken (whereIs).
+ */
+const taken = new Map<string, SentAs>();
+const TAKEN_MAX = 2_000;
+
+/** Where a prompt the window named stands now: in the queue, or in the
+ *  transcript — each under the window's id. */
+function whereIs(ctx: ServerContext, channelId: string, clientId: string): SentAs | undefined {
+  if (ctx.queues.entries.get(channelId)?.some((entry) => entry.id === clientId)) return "queued";
+  if (holdsEvent(ctx, channelId, clientId)) return "event";
+  return undefined;
+}
+
+function answer(ws: ClientConn, channelId: string, clientId: string, as: SentAs): void {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "sent", projectId: channelId, clientId, as } satisfies ServerMessage));
+}
+
+/** A prompt this server has already taken: answered again with where it
+ *  is now, and true — the caller runs nothing. */
+function seenBefore(ctx: ServerContext, ws: ClientConn, channelId: string, clientId: string): boolean {
+  const was = taken.get(clientId);
+  const now = whereIs(ctx, channelId, clientId);
+  if (was === undefined && now === undefined) return false;
+  answer(ws, channelId, clientId, now ?? (was === "failed" ? "failed" : "other"));
+  return true;
+}
+
+/**
+ * Run a prompt the window named, then tell it where the prompt went.
+ *
+ * The answer waits a microtask: a prompt that only queued commands ahead
+ * of itself is sent on by drainQueue a microtask later, and the answer
+ * should say where it ended up, not where it stood for an instant. A
+ * prompt that threw on its way (a chat that has gone) is answered
+ * `failed`, so the window can hand its words back rather than show a
+ * prompt that was never sent.
+ */
+function taking(
+  ctx: ServerContext,
+  ws: ClientConn,
+  channelId: string,
+  clientId: string | undefined,
+  run: () => void,
+): void {
+  if (clientId === undefined) {
+    run();
+    return;
+  }
+  if (seenBefore(ctx, ws, channelId, clientId)) return;
+  const settle = (as: SentAs) => {
+    taken.set(clientId, as);
+    if (taken.size > TAKEN_MAX) taken.delete(taken.keys().next().value!);
+    answer(ws, channelId, clientId, as);
+  };
+  try {
+    run();
+  } catch (err) {
+    settle("failed");
+    throw err;
+  }
+  queueMicrotask(() => settle(whereIs(ctx, channelId, clientId) ?? "other"));
+}
+
 /** A prompt sent: now, or into the queue behind whatever is running. */
-const send: Handler<"send"> = (ctx, _ws, msg) => {
+const send: Handler<"send"> = (ctx, ws, msg) => {
   if (msg.text.trim().length === 0 && !msg.attachments?.length) return;
   const channelId = msg.projectId;
   const uploads = msg.attachments ?? [];
-  // the user is driving again: whatever ruri was about to try again
-  // for them, this prompt says it better
-  ctx.retries.cancelRetry(channelId);
-  // sent to cut in: the running turn stops and this goes in its place
-  if (msg.now && cutIn(ctx, channelId, msg.text, uploads, false)) return;
-  // A queue that has been standing by since a stopped turn: this
-  // prompt is the reason it stopped — a clarification, a correction —
-  // so it goes out now, ahead of the queue, and the queue falls in
-  // behind it and moves again the moment this turn is done.
-  const ahead = ctx.queues.releaseQueue(channelId) && !running(ctx, channelId);
-  if (queueWithCommands(ctx, channelId, msg.text, uploads, false, ahead)) return;
-  if (!ahead && busy(ctx, channelId)) {
-    // hold it app-side — nothing reaches the harness until the
-    // running turn (and everything queued before it) finishes
-    const queue = ctx.queues.entries.get(channelId) ?? [];
-    queue.push({
-      id: randomUUID(),
-      text: msg.text,
-      uploads,
-      silent: false,
-      ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
-    });
-    ctx.queues.entries.set(channelId, queue);
-    ctx.queues.broadcastQueue(channelId);
-    return;
-  }
-  dispatch(ctx, channelId, msg.text, uploads);
+  const clientId = msg.clientId;
+  taking(ctx, ws, channelId, clientId, () => {
+    // the user is driving again: whatever ruri was about to try again
+    // for them, this prompt says it better
+    ctx.retries.cancelRetry(channelId);
+    // sent to cut in: the running turn stops and this goes in its place
+    if (msg.now && cutIn(ctx, channelId, msg.text, uploads, false, clientId)) return;
+    // A queue that has been standing by since a stopped turn: this
+    // prompt is the reason it stopped — a clarification, a correction —
+    // so it goes out now, ahead of the queue, and the queue falls in
+    // behind it and moves again the moment this turn is done.
+    const ahead = ctx.queues.releaseQueue(channelId) && !running(ctx, channelId);
+    if (queueWithCommands(ctx, channelId, msg.text, uploads, false, ahead, clientId)) return;
+    if (!ahead && busy(ctx, channelId)) {
+      // hold it app-side — nothing reaches the harness until the
+      // running turn (and everything queued before it) finishes
+      const queue = ctx.queues.entries.get(channelId) ?? [];
+      queue.push({
+        id: clientId ?? randomUUID(),
+        text: msg.text,
+        uploads,
+        silent: false,
+        ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
+      });
+      ctx.queues.entries.set(channelId, queue);
+      ctx.queues.broadcastQueue(channelId);
+      return;
+    }
+    dispatch(ctx, channelId, msg.text, uploads, false, undefined, clientId);
+  });
 };
 
 export const promptHandlers = {
   send,
-  send_split: (ctx, _ws, msg) => {
+  send_split: (ctx, ws, msg) => {
     if (msg.text.trim().length === 0) return;
     const channelId = msg.projectId;
     const uploads = msg.attachments ?? [];
-    ctx.retries.cancelRetry(channelId);
-    if (!channelProject(ctx, channelId)) throw new Error("unknown session");
-    if (msg.now && cutIn(ctx, channelId, msg.text, uploads, true)) return;
-    const ahead = ctx.queues.releaseQueue(channelId) && !running(ctx, channelId);
-    if (queueWithCommands(ctx, channelId, msg.text, uploads, true, ahead)) return;
-    dispatchSplit(ctx, channelId, msg.text, uploads, ahead);
+    const clientId = msg.clientId;
+    taking(ctx, ws, channelId, clientId, () => {
+      ctx.retries.cancelRetry(channelId);
+      if (!channelProject(ctx, channelId)) throw new Error("unknown session");
+      if (msg.now && cutIn(ctx, channelId, msg.text, uploads, true, clientId)) return;
+      const ahead = ctx.queues.releaseQueue(channelId) && !running(ctx, channelId);
+      if (queueWithCommands(ctx, channelId, msg.text, uploads, true, ahead, clientId)) return;
+      dispatchSplit(ctx, channelId, msg.text, uploads, ahead, clientId);
+    });
+  },
+  ping: (_ctx, ws) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "pong" } satisfies ServerMessage));
   },
   queue_remove: (ctx, _ws, msg) => {
     const queue = ctx.queues.entries.get(msg.projectId);

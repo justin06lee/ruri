@@ -8,7 +8,7 @@ import {
 } from "../../../shared/protocol";
 import { markFor } from "../lib/marks";
 import { roughName } from "../lib/models";
-import { send, useRuri } from "../store";
+import { pickSetting, useRuri } from "../store";
 import { ComboDropdown, Dropdown } from "./Dropdown";
 import { ModelIcon } from "./Marks";
 
@@ -75,7 +75,7 @@ export function SessionControls({
   const selectedValue = selected?.value;
   useEffect(() => {
     if (!selectedValue || effortOptions.length === 0 || supportedEffort || !fallbackEffort) return;
-    send({ type: "set_effort", projectId: channelId, effort: fallbackEffort });
+    pickSetting(channelId, "effort", fallbackEffort);
   }, [selectedValue, pickedEffort, supportedEffort, fallbackEffort, effortOptions.length, channelId]);
   const modelOptions = models.map((m) => ({
     // the model's own name only — which harness serves it is the
@@ -84,11 +84,10 @@ export function SessionControls({
     label: m.displayName,
     icon: <ModelIcon pick={markFor(m.value, m)} />,
   }));
-  const pickModel = (model: string) => send({ type: "set_model", projectId: channelId, model });
+  const pickModel = (model: string) => pickSetting(channelId, "model", model);
   const effortValue = supportedEffort ? pickedEffort : (fallbackEffort ?? pickedEffort);
-  const pickEffort = (effort: string) => send({ type: "set_effort", projectId: channelId, effort });
-  const pickMode = (mode: string) =>
-    send({ type: "set_permission_mode", projectId: channelId, mode: mode as PermissionMode });
+  const pickEffort = (effort: string) => pickSetting(channelId, "effort", effort);
+  const pickMode = (mode: string) => pickSetting(channelId, "permissionMode", mode);
   if (compact) {
     return (
       <div className="composer-controls">

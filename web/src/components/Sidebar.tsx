@@ -5,7 +5,16 @@ import { PeekBand } from "./PeekBand";
 import { Player } from "./Player";
 import { getPref, setPref } from "../prefs";
 import { STAR_PATH } from "../icons";
-import { isBusy, send, useRuri } from "../store";
+import {
+  isBusy,
+  prefetchTranscript,
+  removeSession,
+  renameProject,
+  renameSession,
+  send,
+  toggleProject,
+  useRuri,
+} from "../store";
 import { DragonHead } from "./Thinking";
 
 function HomeRow() {
@@ -195,6 +204,10 @@ function RemoveIcon({ busy }: { busy: boolean }) {
   );
 }
 
+/** How long the pointer rests on a chat's row before its history is asked
+ *  for: long enough that sweeping across the sidebar asks for nothing. */
+const HOVER_MS = 90;
+
 function SessionRow({ session }: { session: SessionInfo }) {
   const activeId = useRuri((s) => s.activeId);
   const unread = useRuri((s) => s.unread[session.id] ?? false);
@@ -203,9 +216,11 @@ function SessionRow({ session }: { session: SessionInfo }) {
   const setActive = useRuri((s) => s.setActive);
   const [renaming, setRenaming] = useState(false);
   const { confirm: ask, card } = useConfirm();
+  const hover = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(hover.current), []);
   const rename = (title: string | null) => {
     setRenaming(false);
-    if (title) send({ type: "rename_session", sessionId: session.id, title });
+    if (title) renameSession(session.id, title);
   };
 
   return (
@@ -213,6 +228,15 @@ function SessionRow({ session }: { session: SessionInfo }) {
       className={`project-row session-row ${activeId === session.id ? "active" : ""} ${renaming ? "renaming" : ""}`}
       title={renaming ? undefined : `${session.title ?? "New session"} — double-click to rename`}
       onClick={() => setActive(session.id)}
+      // the chat's history asked for while the pointer rests on its row, or
+      // the moment it goes down on it — over a network that is most of the
+      // round trip done before the click lands (store.ts, prefetchTranscript)
+      onPointerEnter={() => {
+        clearTimeout(hover.current);
+        hover.current = setTimeout(() => prefetchTranscript(session.id), HOVER_MS);
+      }}
+      onPointerLeave={() => clearTimeout(hover.current)}
+      onPointerDown={() => prefetchTranscript(session.id)}
       onDoubleClick={(e) => {
         e.preventDefault();
         setRenaming(true);
@@ -237,7 +261,7 @@ function SessionRow({ session }: { session: SessionInfo }) {
               : "Its transcript is deleted; files are untouched.",
             ok: "Remove",
           }).then((yes) => {
-            if (yes) send({ type: "remove_session", sessionId: session.id });
+            if (yes) removeSession(session.id);
           });
         }}
       >
@@ -348,7 +372,7 @@ function ProjectFolder({
   const busy = collapsed && anyBusy;
   const rename = (name: string | null) => {
     setRenaming(false);
-    if (name) send({ type: "rename_project", projectId: project.id, name });
+    if (name) renameProject(project.id, name);
   };
   return (
     <div>
@@ -396,7 +420,7 @@ function ProjectFolder({
             title={project.starred ? "Unstar" : "Star"}
             onClick={(e) => {
               e.stopPropagation();
-              send({ type: "toggle_star", projectId: project.id });
+              toggleProject(project.id, "starred");
             }}
           >
             <svg
@@ -434,7 +458,7 @@ function ProjectFolder({
             title={project.hidden ? "Unhide project" : "Hide project (stays open)"}
             onClick={(e) => {
               e.stopPropagation();
-              send({ type: "toggle_hidden", projectId: project.id });
+              toggleProject(project.id, "hidden");
             }}
           >
             {project.hidden ? (

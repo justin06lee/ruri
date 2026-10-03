@@ -66,7 +66,7 @@ const RESUME_MAX = 200;
  * renderer that has crashed without the socket noticing — and going on
  * writing to it only grows this process's memory. It is closed instead, and
  * the window reconnects and is sent a whole fresh snapshot
- * (web/src/store.ts retries every 1.5s). Terminal output, which is what
+ * (web/src/store.ts tries again at once, then every few seconds). Terminal output, which is what
  * actually fills a socket, is paced long before this (server/relay.ts).
  */
 const ABANDON = 8 * 1024 * 1024;

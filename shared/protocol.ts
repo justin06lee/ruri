@@ -1412,9 +1412,36 @@ export type ClientMessage =
   | { type: "remove_project"; projectId: string }
   /** A prompt. `now`: cut in — the running turn is stopped and this goes
    *  out in its place the moment it has, ahead of anything queued (which
-   *  follows it); with nothing running it is simply sent. */
-  | { type: "send"; projectId: string; text: string; attachments?: AttachmentUpload[]; now?: true }
-  | { type: "send_split"; projectId: string; text: string; attachments?: AttachmentUpload[]; now?: true }
+   *  follows it); with nothing running it is simply sent.
+   *
+   *  `clientId`: the window's own name for it, a UUID. The prompt is on the
+   *  window's screen before it reaches here — its bubble, or its card in the
+   *  queue — under this id, and the server takes it as the id of what it
+   *  makes of the prompt (the user event, the queue entry), so the real one
+   *  lands exactly where the window's guess stood. It is also what makes a
+   *  prompt safe to send twice: one the server already has (a window that
+   *  lost its socket after sending, and sends again on reconnecting) is
+   *  answered again and not run again. Answered with `sent`. */
+  | {
+      type: "send";
+      projectId: string;
+      text: string;
+      attachments?: AttachmentUpload[];
+      now?: true;
+      clientId?: string;
+    }
+  | {
+      type: "send_split";
+      projectId: string;
+      text: string;
+      attachments?: AttachmentUpload[];
+      now?: true;
+      clientId?: string;
+    }
+  /** Is the server still there? Answered with `pong` — how a window onto
+   *  another computer finds out its socket died without saying so (a laptop
+   *  waking up on a different network), rather than typing into it. */
+  | { type: "ping" }
   /** Drop a prompt still waiting in the app-side queue. Editing one is this
    *  plus a compose: it leaves the queue and lands back in the composer. */
   | { type: "queue_remove"; projectId: string; itemId: string }
@@ -1485,7 +1512,14 @@ export type ClientMessage =
   /** A channel's whole transcript — the snapshot carries only the last
    *  TRANSCRIPT_TAIL events of each, and a chat asks for the rest when it
    *  opens. Answered with `transcript`, to the asker alone. */
-  | { type: "transcript_get"; projectId: string }
+  | {
+      type: "transcript_get";
+      projectId: string;
+      /** Asked ahead of the chat opening (the pointer is on its row): the
+       *  transcript and nothing else — the notes and digest an open chat
+       *  sets going wait for it actually to open. */
+      prefetch?: true;
+    }
   /** What this window has on screen — sent whenever it changes. Only the
    *  chats in `channels` get their conversation live (a reply's paragraphs,
    *  tool calls, agents at work, the turn's counter); every other chat gets
@@ -1989,4 +2023,14 @@ export type ServerMessage =
   /** Shell output. `replay` marks the scrollback a fresh attach gets. */
   | { type: "terminal_data"; projectId: string; termId: string; data: string; replay?: boolean }
   | { type: "terminal_exit"; projectId: string; termId: string; note: string }
+  /** A prompt with a `clientId` arrived, and where it went: into the
+   *  transcript as a user event (`event`), into the queue as an entry
+   *  (`queued`) — each under that id — or somewhere the window's guess has
+   *  no counterpart for (`other`: ruri's /compact, a prompt that was only
+   *  commands) — or nowhere, because it failed on its way (`failed`: the
+   *  window gives its words back). To the sender alone, after whatever the
+   *  prompt changed has gone out. */
+  | { type: "sent"; projectId: string; clientId: string; as: "event" | "queued" | "other" | "failed" }
+  /** The answer to `ping`. */
+  | { type: "pong" }
   | { type: "error"; message: string };

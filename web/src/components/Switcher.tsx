@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HOME_ID } from "../../../shared/protocol";
-import { send, useRuri } from "../store";
+import { prefetchTranscript, send, useRuri } from "../store";
 import { score } from "../lib/fuzzy";
 import { commandKey } from "../lib/keys";
 
@@ -119,6 +119,14 @@ export function Switcher() {
   }, [entries, query, activeId]);
 
   const picked = results[Math.min(cursor, Math.max(results.length - 1, 0))];
+  // the chat Enter would open is asked for while it is the one picked, so
+  // it opens whole (store.ts, prefetchTranscript)
+  const pickedChat = open && picked?.kind === "session" ? picked.id : undefined;
+  useEffect(() => {
+    if (!pickedChat) return;
+    const timer = setTimeout(() => prefetchTranscript(pickedChat), 120);
+    return () => clearTimeout(timer);
+  }, [pickedChat]);
   /** The rest of the best name, greyed after what has been typed. */
   const completion =
     picked && query && picked.name.toLowerCase().startsWith(query.toLowerCase())

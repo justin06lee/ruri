@@ -1,7 +1,7 @@
 import { HOME_ID, type PermissionRequest, type TalkAsk } from "../../../shared/protocol";
 import { harnessName } from "../lib/models";
 import { Markdown } from "../markdown";
-import { send, showError, useRuri } from "../store";
+import { answerCard, showError, useRuri } from "../store";
 import { Icon, toolIcon } from "./chat/Icon";
 import { NameCard } from "./NameCard";
 import { QuestionCard } from "./Questions";
@@ -50,7 +50,7 @@ export function PermissionBanner({ request }: { request: PermissionRequest }) {
     request.agent ? s.crew[request.projectId]?.find((a) => a.key === request.agent)?.description : undefined,
   );
   const respond = (allow: boolean, always = false) => {
-    if (!send({ type: "permission_response", requestId: request.requestId, allow, always })) {
+    if (!answerCard({ type: "permission_response", requestId: request.requestId, allow, always })) {
       showError("Not connected — the answer did not go through; try again once ruri is back.");
     }
   };
@@ -89,7 +89,7 @@ const REPLY_WORD: Record<TalkAsk["reply"], string> = {
 function MessageCard({ request }: { request: PermissionRequest }) {
   const ask = request.input as TalkAsk;
   const respond = (allow: boolean) => {
-    if (!send({ type: "permission_response", requestId: request.requestId, allow })) {
+    if (!answerCard({ type: "permission_response", requestId: request.requestId, allow })) {
       showError("Not connected — the answer did not go through; try again once ruri is back.");
     }
   };

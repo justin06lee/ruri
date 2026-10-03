@@ -18,6 +18,14 @@ export const transcriptHandlers = {
     const id = msg.projectId;
     if (id !== HOME_ID && !ctx.store.sessionIds().includes(id)) return;
     ws.send(JSON.stringify(transcriptOf(ctx, id)));
+    // Sent to a window not hearing this chat as it happens (asked ahead
+    // of opening it, the pointer on its row): it now holds the chat as it
+    // stands, and is caught up from here when the chat does come on screen
+    // (catchUp) — so what it fetched early never goes stale.
+    const view = ctx.clients.views.get(ws);
+    if (view && !(view.live && view.channels.has(id))) view.seen.set(id, ctx.clients.mark(id));
+    // asked ahead: the rest is for a chat someone has actually opened
+    if (msg.prefetch) return;
     // the chat on screen gets its missing notes before any other
     backfillNotes(ctx, [id], { first: true });
     // and its digest caught up, ahead of the compaction it may be near

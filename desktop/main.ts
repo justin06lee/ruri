@@ -77,6 +77,22 @@ const DESKTOP_PORT = 7776;
 
 /** How much Chromium may keep on disk per storage partition. */
 const CACHE_CAP_BYTES = 16 * 1024 * 1024;
+/** The same, for a window onto another computer: what it keeps is what it
+ *  does not fetch over the network again — the bundle and the code V8
+ *  compiled from it above all, which a few chats' worth of pictures would
+ *  otherwise push out of a cache this computer's own window keeps small. */
+const REMOTE_CACHE_CAP_BYTES = 256 * 1024 * 1024;
+
+/** Whether the window is onto another computer (remote.json names one) —
+ *  read before anything else, since Chromium takes its cache size once. */
+function onAnotherComputer(): boolean {
+  try {
+    const stored = JSON.parse(fs.readFileSync(configPath("remote.json"), "utf8")) as { use?: unknown };
+    return typeof stored.use === "string";
+  } catch {
+    return false;
+  }
+}
 
 /** How long a quit waits for the bridge and the server to close. */
 const QUIT_TIMEOUT_MS = 5_000;
@@ -423,7 +439,10 @@ async function main(): Promise<void> {
   // saves nothing; capping it small keeps Chromium's bookkeeping and no
   // more. The cap is per storage partition, so the bridge's windows (real
   // sites, where a cache does earn its keep) get the same modest one each.
-  app.commandLine.appendSwitch("disk-cache-size", String(CACHE_CAP_BYTES));
+  app.commandLine.appendSwitch(
+    "disk-cache-size",
+    String(onAnotherComputer() ? REMOTE_CACHE_CAP_BYTES : CACHE_CAP_BYTES),
+  );
   // drawing nowhere (main() started this process again headless): the
   // bridge's windows still render, off screen, without a GPU to do it
   if (HEADLESS) app.disableHardwareAcceleration();
@@ -594,7 +613,13 @@ async function main(): Promise<void> {
       // a choice made since this began is not undone by its answer
       if (away?.host.id !== host.id) return;
       away = { host, address };
-      present(remoteTarget(host, address), open);
+      remote.onto(host, address);
+      const target = remoteTarget(host, address);
+      // Found where the window already is: the page showing it reconnects
+      // by itself (web/src/store.ts), and loading it again would only throw
+      // away what it holds — the chat on screen, a prompt half-written, the
+      // code already compiled — for the very same page.
+      if (!appWindow || appWindow.isDestroyed() || shown?.url !== target.url) present(target, open);
       // Every quarter of a minute: is it still there? Two misses running
       // — a laptop gone from home to a café, the other computer asleep —
       // and every address it goes by is tried again, which either finds
@@ -610,8 +635,19 @@ async function main(): Promise<void> {
       watch = setTimeout(() => void check(), 15_000);
     } catch (err) {
       if (away?.host.id !== host.id) return;
-      away = { host, address: "" };
       const unpaired = err instanceof Unreachable && err.unpaired;
+      // The window has the computer's page up and it was working a moment
+      // ago: it stays. The page says it is reconnecting and catches up the
+      // moment the line is back, and swapping it for the can't-reach page
+      // would lose everything on it to an outage of a minute. Only a window
+      // that has nothing of the computer's on it yet — or a computer that no
+      // longer knows this device — gets the can't-reach page.
+      const onIt = away.address !== "" && shown?.url === remoteTarget(host, away.address).url;
+      if (onIt && !unpaired) {
+        watch = setTimeout(() => void goRemote(host), 5_000);
+        return;
+      }
+      away = { host, address: "" };
       present(
         {
           origin: "",

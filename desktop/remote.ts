@@ -40,7 +40,17 @@ export interface Host {
   /** The key it gave this device. */
   key: string;
   pairedAt: number;
+  /** The address the window was last onto it at. The page's origin is that
+   *  address, and the origin is what the window's cache, its storage and
+   *  the code V8 compiled are all filed under — so this one is kept to
+   *  whenever it answers, rather than whichever address happens to answer
+   *  first starting the page cold. */
+  last?: string;
 }
+
+/** How long the last address gets, past the first to answer, to answer
+ *  too and be the one used. */
+const STICKY_MS = 400;
 
 interface Stored {
   /** The computer the window is onto; absent, this one. */
@@ -96,6 +106,14 @@ export class Remote {
   use(id: string | undefined): void {
     if (id === undefined) delete this.stored.use;
     else this.stored.use = id;
+    this.save();
+  }
+
+  /** The window is onto `host` at `address` now — remembered for next
+   *  time (see Host.last). */
+  onto(host: Host, address: string): void {
+    if (host.last === address) return;
+    host.last = address;
     this.save();
   }
 
@@ -239,7 +257,19 @@ export class Remote {
    */
   async reach(host: Host): Promise<string> {
     try {
-      return await Promise.any(host.addresses.map((a) => this.hello(a, host).then(() => a)));
+      const tries = host.addresses.map((a) => this.hello(a, host).then(() => a));
+      const first = await Promise.any(tries);
+      const last = host.last ? host.addresses.indexOf(host.last) : -1;
+      if (last === -1 || first === host.last) return first;
+      // the address the window was on, if it answers a moment after
+      const late = await Promise.race([
+        tries[last]!.then(
+          () => true,
+          () => false,
+        ),
+        new Promise<false>((resolve) => setTimeout(() => resolve(false), STICKY_MS)),
+      ]);
+      return late ? host.last! : first;
     } catch (err) {
       const unpaired =
         err instanceof AggregateError && err.errors.some((e) => e instanceof Unreachable && e.unpaired);

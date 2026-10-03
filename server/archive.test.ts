@@ -385,11 +385,23 @@ describe("the live file's text", () => {
     const events = Array.from({ length: 4000 }, (_, i) => reply(`a${i}`, `paragraph ${i} `.repeat(40)));
     const entry = { events, summaries: {} };
     archiveText(entry);
-    const whole = performance.now();
-    for (let i = 0; i < 5; i++) JSON.stringify(entry);
-    const wholeMs = performance.now() - whole;
-    const stitched = performance.now();
-    for (let i = 0; i < 5; i++) archiveText({ ...entry, events: [...events, reply(`new${i}`)] });
-    expect(performance.now() - stitched).toBeLessThan(wholeMs);
+    // the best of a few rounds each: a timing taken while the rest of the
+    // suite runs alongside is noise, and one bad moment is not the answer
+    const best = (run: () => void): number => {
+      let fastest = Infinity;
+      for (let round = 0; round < 3; round++) {
+        const start = performance.now();
+        run();
+        fastest = Math.min(fastest, performance.now() - start);
+      }
+      return fastest;
+    };
+    const wholeMs = best(() => {
+      for (let i = 0; i < 5; i++) JSON.stringify(entry);
+    });
+    const stitchedMs = best(() => {
+      for (let i = 0; i < 5; i++) archiveText({ ...entry, events: [...events, reply(`new${i}`)] });
+    });
+    expect(stitchedMs).toBeLessThan(wholeMs);
   });
 });

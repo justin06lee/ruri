@@ -18,8 +18,8 @@ import { runLibrary } from "./library.js";
 import { MEMORY_HELP, runMemoryCommand } from "./memoryCli.js";
 import { errorMessage, isMissing, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
-import { mimeOf, STATIC_MIME } from "./mime.js";
 import { MUSIC_CORS, scan as scanMusic, serveTrack } from "./music.js";
+import { serveStatic } from "./staticFiles.js";
 import { serveUpload } from "./uploads.js";
 
 /** A request body, whole, or an error past `limit` bytes. */
@@ -38,37 +38,6 @@ function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
     });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
-  });
-}
-
-function serveStatic(staticDir: string, req: http.IncomingMessage, res: http.ServerResponse): void {
-  const url = (req.url ?? "/").split("?")[0] ?? "/";
-  const rel = url === "/" ? "index.html" : url.replace(/^\/+/, "");
-  const file = path.resolve(staticDir, rel);
-  if (
-    !file.startsWith(path.resolve(staticDir) + path.sep) &&
-    file !== path.resolve(staticDir, "index.html")
-  ) {
-    res.writeHead(403);
-    res.end();
-    return;
-  }
-  fs.readFile(file, (err, data) => {
-    if (err) {
-      res.writeHead(404);
-      res.end();
-      return;
-    }
-    res.writeHead(200, {
-      "content-type": mimeOf(file, STATIC_MIME),
-      // the build names every asset by its contents, so one never changes
-      // under its name: kept, the window's next launch takes the bundle
-      // from the cache and V8 the code it compiled from it last time,
-      // rather than parsing and compiling a megabyte of script again. The
-      // page that names them is asked for fresh every time.
-      "cache-control": rel.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache",
-    });
-    res.end(data);
   });
 }
 
@@ -330,7 +299,7 @@ export function createRequestHandler(
       return;
     }
     if (req.url?.startsWith("/uploads/")) {
-      serveUpload(req, res);
+      serveUpload(req, res, admitted);
       return;
     }
     if (req.url?.startsWith("/bridge/preview/")) {
@@ -388,7 +357,7 @@ export function createRequestHandler(
       return;
     }
     if (options.staticDir && (req.method === "GET" || req.method === "HEAD")) {
-      serveStatic(options.staticDir, req, res);
+      serveStatic(options.staticDir, req, res, admitted);
       return;
     }
     res.writeHead(404);

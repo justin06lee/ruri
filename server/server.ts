@@ -257,6 +257,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       createSocketServer(ctx, door, {
         refusal: (origin, req) => ctx.sharing.refusal(origin, req),
         seat: (req) => ctx.sharing.deviceFor(req),
+        compress: true,
       }),
     closeDevice: (deviceId) => {
       for (const ws of ctx.clients.sockets) {

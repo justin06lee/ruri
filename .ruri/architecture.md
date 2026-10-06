@@ -75,7 +75,7 @@ ruri is a macOS and Linux desktop workspace for people working with coding agent
 - Find projects and start sessions from the Home workspace agent.
 - Keep parallel project sessions warm and resume them after relaunch.
 - Choose installed agent harnesses, models, effort, and permissions per chat.
-- Discover computers, set up remote hosts over SSH, and pair with six words.
+- Discover computers, install ruri over SSH, and pair with six words.
 - Stream replies with tool results, diffs, previews, and permission cards.
 - Queue, edit, reorder, merge, or interrupt prompts during a turn.
 - Attach files and media, crop image regions, and sketch.

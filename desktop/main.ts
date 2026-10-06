@@ -675,7 +675,7 @@ async function main(): Promise<void> {
   ipcMain.handle("ruri:setup", async (event, raw: unknown) => {
     if (!fromWindow(event) || !raw || typeof raw !== "object")
       return { ok: false, error: "Not from this window." };
-    const ask = raw as { user?: unknown; address?: unknown; install?: unknown; password?: unknown };
+    const ask = raw as { user?: unknown; address?: unknown; password?: unknown };
     if (
       typeof ask.user !== "string" ||
       !ask.user.trim() ||
@@ -690,7 +690,6 @@ async function main(): Promise<void> {
         user: ask.user.trim(),
         address,
         device: computerName().replace(/[^\w .-]/g, ""),
-        install: ask.install === true,
         ...(typeof ask.password === "string" && ask.password ? { password: ask.password } : {}),
       },
       (step) => {

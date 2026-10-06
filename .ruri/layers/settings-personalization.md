@@ -15,7 +15,7 @@ This layer provides settings for models, integrations, skills, themes, greetings
 - **Peek band display and picture motion:** web/src/components/PeekBand.tsx, web/src/pictures.ts, web/src/lib/effects.ts
 - **Greetings:** web/src/components/GreetingEditor.tsx, web/src/greetings.ts, web/src/lib/greetings.ts
 - **Music player:** web/src/components/Player.tsx, web/src/lib/audio.ts, web/src/prefs.ts
-- **Devices: sharing this computer, its six-word invites and paired devices, and this device's other computers:** web/src/components/Devices.tsx, web/src/lib/shell.ts
+- **Devices: sharing, pairing, and remote setup that installs ruri when needed:** web/src/components/Devices.tsx, web/src/lib/shell.ts
 
 ## How it works
 

@@ -12,7 +12,7 @@ This layer starts the Electron desktop app, creates its window, and connects it 
 - **GUI launch PATH recovery:** desktop/main.ts
 - **Server process start, restart and quit:** desktop/serverProcess.ts, desktop/main.ts
 - **Using another computer: reaching it, pinning its certificate, the can't-reach page:** desktop/remote.ts, desktop/offline.ts, desktop/main.ts
-- **Finding the user's computers and setting one up over SSH:** desktop/peers.ts, desktop/sshSetup.ts
+- **Finding the user's computers and setting one up over SSH:** desktop/sshSetup.ts, desktop/main.ts, web/src/components/Devices.tsx, web/src/lib/shell.ts
 - **What the page may ask the shell (window.ruriShell):** desktop/preload.ts, desktop/main.ts
 - **ruri --serve, --invite, --quit and the headless restart:** desktop/main.ts
 
@@ -20,7 +20,7 @@ This layer starts the Electron desktop app, creates its window, and connects it 
 
 - **Launch:** main.ts fixes PATH and waits for Electron → serverProcess.ts forks server.mjs and sends it the port, token and static dir → the server answers ready with its port → main.ts opens the window on it
 - **Onto another computer:** remote.json names the host → no local server starts → remote.ts reach races its addresses under the pinned certificate → the window loads https://address:port/?token=key → a check every 15 s; two misses race the addresses again or show the can't-reach page
-- **Set up over SSH:** Settings asks ruri:setup → sshSetup.ts runs ssh … sh -s with the host script → the far side finds or builds ruri, starts it as a service, asks its local port for a pairing → remote.ts adopt pins it → the window leaves the local page, the local server stops, the window opens on the host
+- **Set up over SSH:** Settings asks ruri:setup → sshSetup.ts runs ssh … sh -s with the host script → the far side finds ruri or builds and installs it, starts it as a service, then asks its local port for a pairing → remote.ts adopt pins it → the window leaves the local page, the local server stops, the window opens on the host
 
 ## Key files
 
@@ -29,7 +29,7 @@ This layer starts the Electron desktop app, creates its window, and connects it 
 - desktop/serverProcess.ts — forks the server as a utility process, answers its calls for shell services, forwards bridge state, restarts it if it dies
 - desktop/remote.ts — paired computers (remote.json), certificate pinning, word pairing, reaching a host
 - desktop/peers.ts — the user's computers from makima's socket, Tailscale's CLI and a LAN broadcast, each probed for ruri
-- desktop/sshSetup.ts — the host script and the ssh run that sets a computer up and pairs, no code
+- desktop/sshSetup.ts — the host script and SSH run that install ruri when missing, start it, and pair
 - desktop/preload.ts — window.ruriShell, bundled to CommonJS on its own
 
 ## Rules and traps

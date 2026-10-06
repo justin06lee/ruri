@@ -358,9 +358,9 @@ function ThisDevice() {
 }
 
 /**
- * One computer, set up from here: signed in to over SSH, ruri started
- * there for good and this device paired — or, for one that can't be signed
- * in to, the six words it shows.
+ * One computer, set up from here: signed in to over SSH, ruri installed
+ * there if it has none, started for good and this device paired — or, for
+ * one that can't be signed in to, the six words it shows.
  */
 function SetUp({ peer, user }: { peer: Peer; user: string }) {
   const [account, setAccount] = useState(user);
@@ -373,7 +373,7 @@ function SetUp({ peer, user }: { peer: Peer; user: string }) {
   const [words, setWords] = useState("");
   const shell = ruriShell!;
 
-  const run = (install = false) => {
+  const run = () => {
     if (busy || !account.trim() || !address.trim()) return;
     setBusy(true);
     setOutcome(null);
@@ -383,7 +383,8 @@ function SetUp({ peer, user }: { peer: Peer; user: string }) {
       .setUp({
         user: account.trim(),
         address: address.trim(),
-        install,
+        // a shell older than this page installs only when told to
+        install: true,
         ...(needs === "password" && password ? { password } : {}),
       })
       .then((done) => {
@@ -419,8 +420,9 @@ function SetUp({ peer, user }: { peer: Peer; user: string }) {
   return (
     <div className="devices-setup">
       <p className="settings-note">
-        ruri signs in to {peer.name} over SSH, starts ruri there to keep running in the background, and pairs
-        this device — nothing to type but, if it asks, a password.
+        ruri signs in to {peer.name} over SSH, installs ruri there if it isn't (a few minutes: git, bun and
+        make needed there), starts it to keep running in the background, and pairs this device — nothing to
+        type but, if it asks, a password.
       </p>
       <div className="devices-code-row vault-form">
         <input
@@ -479,16 +481,6 @@ function SetUp({ peer, user }: { peer: Peer; user: string }) {
       )}
 
       {outcome && !outcome.ok && <p className="devices-error">{outcome.error}</p>}
-      {outcome && !outcome.ok && outcome.needs === "install" && (
-        <div className="devices-code-row">
-          <button className="ghost grant-ask" disabled={busy} onClick={() => run(true)}>
-            Install ruri there
-          </button>
-          <span className="settings-note">
-            Builds it from source on {peer.name} (git, bun and make needed there) — a few minutes.
-          </span>
-        </div>
-      )}
       {outcome?.ok && (
         <p className="settings-note">
           Paired with {outcome.name} — moving this window there…

@@ -2,10 +2,10 @@
  * Setting another computer up over SSH, with no invite: this device signs
  * in there the way the user would (their key, or a password typed once and
  * never kept), and a short script does the rest on the far side — finds
- * ruri, builds and installs it from source if it is not there and the user
- * said to, starts it in the background for good (a systemd user service, a
- * launchd agent), and asks it on its own local port, with its own token,
- * for a key for this device. The login is the proof, so the answer — the
+ * ruri, builds and installs it from source if it is not there, starts it
+ * in the background for good (a systemd user service, a launchd agent),
+ * and asks it on its own local port, with its own token, for a key for
+ * this device. The login is the proof, so the answer — the
  * key, and the fingerprint of the certificate to pin — is trusted as it
  * comes back over the signed-in channel (desktop/remote.ts adopt).
  *
@@ -28,8 +28,6 @@ export interface SetupTarget {
   address: string;
   /** What this device is called there. */
   device: string;
-  /** Build and install ruri there if it is missing. */
-  install?: boolean;
   /** A password, when a key won't do; never written anywhere. */
   password?: string;
 }
@@ -39,9 +37,8 @@ export type SetupOutcome =
   | { ok: true; pairing: Pairing; harnesses: string[] }
   | {
       ok: false;
-      /** What the user can do about it: give a password, or let ruri
-       *  install itself there. */
-      needs?: "password" | "install";
+      /** What the user can do about it: give a password. */
+      needs?: "password";
       error: string;
     };
 
@@ -49,10 +46,9 @@ export type SetupOutcome =
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
 /** The script that runs on the other computer, its values filled in. */
-export function hostScript(target: Pick<SetupTarget, "device" | "install">): string {
+export function hostScript(target: Pick<SetupTarget, "device">): string {
   return `
 DEVICE=${quote(target.device)}
-INSTALL=${target.install ? 1 : 0}
 SOURCE=${quote(SOURCE)}
 PORT="\${RURI_PORT:-7776}"
 CONF="\${RURI_CONFIG_DIR:-$HOME/.config/ruri}"
@@ -73,8 +69,8 @@ else
   [ -x "$HOME/.local/opt/ruri/ruri" ] && BIN="$HOME/.local/opt/ruri/ruri"
 fi
 
+# Setting a computer up is installing ruri there when it has none.
 if [ -z "$BIN" ] && ! alive; then
-  [ "$INSTALL" = 1 ] || fail not-installed "ruri isn't installed on $HOST."
   [ "$OS" = Linux ] || fail no-install "Install ruri on $HOST first — ruri builds itself over SSH only on Linux."
   for t in git bun make; do
     command -v $t >/dev/null 2>&1 || fail no-tools "Building ruri on $HOST needs $t, which isn't installed there."
@@ -228,12 +224,7 @@ export function setUpOverSsh(target: SetupTarget, onStep: (step: string) => void
         else if (line.startsWith("RURI-HARNESSES"))
           harnesses = line.slice(14).trim().split(/\s+/).filter(Boolean);
         else if (line.startsWith("RURI-ERROR ")) {
-          const [code = "", ...why] = line.slice(11).split(" ");
-          outcome = {
-            ok: false,
-            error: why.join(" "),
-            ...(code === "not-installed" ? { needs: "install" as const } : {}),
-          };
+          outcome = { ok: false, error: line.slice(11).split(" ").slice(1).join(" ") };
         } else if (line.startsWith("RURI-RESULT ")) {
           try {
             const pairing = JSON.parse(line.slice(12)) as Pairing;

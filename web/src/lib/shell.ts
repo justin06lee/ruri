@@ -33,9 +33,8 @@ export interface PairOutcome {
   ok: boolean;
   name?: string;
   error?: string;
-  /** What the user can do about a failure: give a password, or let ruri
-   *  install itself there. */
-  needs?: "password" | "install";
+  /** What the user can do about a failure: give a password. */
+  needs?: "password";
   /** The coding CLIs found on the computer set up. */
   harnesses?: string[];
 }
@@ -57,10 +56,12 @@ export interface RuriShell {
   state(): Promise<ShellState | null>;
   /** The user's other computers, looked for afresh. */
   peers(): Promise<Peer[]>;
-  /** Set a computer up over SSH and pair with it — then the window moves there. */
+  /** Set a computer up over SSH, installing ruri there if it has none, and
+   *  pair with it — then the window moves there. */
   setUp(target: {
     user: string;
     address: string;
+    /** For a shell older than the page, which installs only when told to. */
     install?: boolean;
     password?: string;
   }): Promise<PairOutcome>;

@@ -137,6 +137,7 @@ export type MemoryChange =
       layer?: string | null;
       source?: MemorySource;
       anchors?: MemoryAnchors;
+      quarantined?: boolean;
       reason: string;
       evidence?: string;
     }
@@ -452,6 +453,7 @@ export function applyChanges(
             layer,
             source: change.source,
             anchors: change.anchors,
+            quarantined: change.quarantined,
           },
           part === was.part ? was.rank : nextRank(state, part),
         );

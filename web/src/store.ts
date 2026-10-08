@@ -453,6 +453,8 @@ interface RuriState {
   /** Starred model ids — the composer picker shows only these. */
   starredModels: string[];
   smallModel: string;
+  /** The model that writes and checks the projects' memory. */
+  memoryModel: string;
   /** What an unset model means: the crowned default, else the built-in. */
   defaultModel: string;
   /** The local account name shown on the sidebar's account bar. */
@@ -583,6 +585,7 @@ export const useRuri = create<RuriState>((set) => ({
   home: {},
   starredModels: [],
   smallModel: "",
+  memoryModel: "",
   defaultModel: DEFAULT_MODEL,
   user: "",
   harnesses: [],
@@ -1090,6 +1093,7 @@ function apply(msg: ServerMessage): void {
         home: msg.home,
         starredModels: msg.starredModels,
         smallModel: msg.smallModel,
+        memoryModel: msg.memoryModel,
         defaultModel: msg.defaultModel,
         user: msg.user,
         harnesses: msg.harnesses ?? [],
@@ -1398,6 +1402,10 @@ function apply(msg: ServerMessage): void {
     }
     case "small_model": {
       setState({ smallModel: msg.model });
+      break;
+    }
+    case "memory_model": {
+      setState({ memoryModel: msg.model });
       break;
     }
     case "default_model": {

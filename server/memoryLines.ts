@@ -6,21 +6,13 @@ import type {
   MemorySource,
   ProjectMemory,
 } from "../shared/protocol.js";
-import type { MemoryChange } from "./memoryLog.js";
 
 /**
  * The working memory as lines that each know when they were learned, where
  * (the exchange — so a reader can check one before leaning on it), and who
- * wrote them.
- *
- * The memory used to be plain strings the small model rewrote whole on
- * every fold, and every rewrite was a chance to bend a line that was right:
- * a fix filed as a failure, a reason nobody gave. So now the model names
- * the lines it keeps by id and they come back exactly as stored; it may
- * reword only its own; an agent's lines (`ruri note`, from the session that
- * did the work) and the user's (from the page) it can keep or, for an
- * agent's, retire — never rephrase — and a pinned line stays whatever the
- * model does.
+ * wrote them: the parts, their caps, ids, and reading a memory stored by
+ * any ruri there has been. What may change a line, and how, is the log's
+ * to decide (server/memoryLog.ts).
  */
 
 export const MEMORY_PARTS: MemoryPart[] = ["now", "decisions", "worked", "failed", "gotchas", "open"];
@@ -47,11 +39,6 @@ export const LAYER_CAPS: Record<MemoryPart, number> = {
   gotchas: 6,
   open: 5,
 };
-
-/** A part's cap for the lines of one layer, or of the whole project. */
-function capOf(part: MemoryPart, layer: string | undefined): number {
-  return layer ? LAYER_CAPS[part] : MEMORY_CAPS[part];
-}
 
 /** The calendar day in the user's own time — the date a person would
  *  write, not UTC's, which is already tomorrow on a US evening. */
@@ -87,12 +74,6 @@ export function newLineId(part: MemoryPart, taken: Set<string>): string {
     taken.add(id);
     return id;
   }
-}
-
-export function lineIds(memory: ProjectMemory | undefined): Set<string> {
-  const ids = new Set<string>();
-  if (memory) for (const part of MEMORY_PARTS) for (const line of memory[part]) ids.add(line.id);
-  return ids;
 }
 
 /** Every line, with the part it is in. */
@@ -185,33 +166,6 @@ export function readMemory(value: unknown): ProjectMemory | undefined {
   return memory;
 }
 
-/** A part brought within its caps — the project's lines within the
- *  project's, each layer's within a layer's: pinned lines always stay, the
- *  rest in the order given until their share is full. */
-function capped(part: MemoryPart, lines: MemoryLine[]): MemoryLine[] {
-  const room = new Map<string, number>();
-  const left = (line: MemoryLine) => room.get(line.layer ?? "") ?? capOf(part, line.layer);
-  for (const line of lines) if (line.pinned) room.set(line.layer ?? "", left(line) - 1);
-  return lines.filter((line) => {
-    if (line.pinned) return true;
-    const n = left(line);
-    room.set(line.layer ?? "", n - 1);
-    return n > 0;
-  });
-}
-
-/** One entry of a part as the model returns it: a line kept by `id` alone,
- *  one of its own reworded (`id` and `text`), or a new one, with the
- *  exchange it came from (`from`, a ref like 7a3637b4#16). `layer` files it
- *  under a layer by slug, or "project" across the project. */
-export interface FoldEntry {
-  id?: string;
-  text?: string;
-  why?: string;
-  from?: string;
-  layer?: string;
-}
-
 /** What a fold knows of the stack: the layers' slugs, and the layer an
  *  exchange worked in (from the files it changed) — where a new line the
  *  model filed nowhere goes. */
@@ -220,136 +174,11 @@ export interface FoldLayers {
   of?: (source: MemorySource) => string | undefined;
 }
 
-/** A line's layer after a fold: the one the model named, "project" for
- *  none, or — named neither — the one it had, or its exchange's. */
-function foldedLayer(
-  part: MemoryPart,
-  entry: FoldEntry,
-  had: string | undefined,
-  source: MemorySource | undefined,
-  layers: FoldLayers | undefined,
-): string | undefined {
-  if (part === "now" || !layers) return undefined;
-  const named = entry.layer?.trim();
-  if (named === "project") return undefined;
-  if (named && layers.slugs.has(named)) return named;
-  if (had && layers.slugs.has(had)) return had;
-  return source && !had ? layers.of?.(source) : undefined;
-}
-
-/** A line with its layer set, or taken off. */
-function filed(line: MemoryLine, layer: string | undefined): MemoryLine {
-  const { layer: _was, ...rest } = line;
-  return layer ? { ...rest, layer } : rest;
-}
-
-/**
- * The memory after a fold: every part as the model listed it, with the
- * kept lines exactly as they were stored, new lines dated today and traced
- * to their exchange, and every pinned line back where it was if the model
- * left it out.
- */
-export function applyFold(
-  current: ProjectMemory,
-  proposed: Partial<Record<MemoryPart, FoldEntry[]>>,
-  today: string,
-  resolve: (ref: string) => MemorySource | undefined,
-  layers?: FoldLayers,
-): ProjectMemory {
-  const taken = lineIds(current);
-  const stored = new Map(allLines(current).map(({ line }) => [line.id, line]));
-  const used = new Set<string>();
-  const next = emptyMemory();
-  for (const part of MEMORY_PARTS) {
-    for (const entry of proposed[part] ?? []) {
-      const kept = entry.id ? stored.get(entry.id) : undefined;
-      if (kept) {
-        if (used.has(kept.id)) continue;
-        used.add(kept.id);
-        const text = entry.text?.trim();
-        // the user's lines stay where the user put them; the model may file
-        // its own and the agents' under the layer they are about
-        const mine = kept.by !== "user" && !kept.pinned;
-        const line = mine ? filed(kept, foldedLayer(part, entry, kept.layer, undefined, layers)) : kept;
-        // only the model's own lines are the model's to reword
-        if (text && kept.by === "model" && !kept.pinned) {
-          const why = entry.why?.trim() || kept.why;
-          const { why: _why, ...rest } = line;
-          next[part].push({ ...rest, text, ...(why ? { why } : {}) });
-        } else next[part].push(line);
-        continue;
-      }
-      const text = entry.text?.trim();
-      if (!text) continue;
-      const why = entry.why?.trim();
-      const source = entry.from ? resolve(entry.from.trim()) : undefined;
-      const layer = foldedLayer(part, entry, undefined, source, layers);
-      next[part].push({
-        id: newLineId(part, taken),
-        text,
-        ...(why ? { why } : {}),
-        date: today,
-        by: "model",
-        ...(source ? { source } : {}),
-        ...(layer ? { layer } : {}),
-      });
-    }
-  }
-  for (const part of MEMORY_PARTS) {
-    const missing = current[part].filter((line) => line.pinned && !used.has(line.id));
-    next[part] = capped(part, [...missing, ...next[part]]);
-  }
-  return next;
-}
-
-/**
- * A line added from outside a fold — an agent's `ruri note`, the user's own
- * on the page. When the part is full, the oldest of the model's lines makes
- * room (then the oldest agent's); the user's and pinned lines never do.
- */
-export function addLine(
-  memory: ProjectMemory | undefined,
-  part: MemoryPart,
-  input: Omit<MemoryLine, "id">,
-): { memory: ProjectMemory; line: MemoryLine } {
-  const base = memory ?? emptyMemory();
-  const line: MemoryLine = filed(
-    { ...input, id: newLineId(part, lineIds(base)) },
-    part === "now" ? undefined : input.layer,
-  );
-  // a line makes room among its own: the project's, or its layer's
-  const same = (l: MemoryLine) => (l.layer ?? "") === (line.layer ?? "");
-  let lines = [...base[part], line];
-  while (lines.filter(same).length > capOf(part, line.layer)) {
-    const oldest = (by: MemoryLine["by"]) =>
-      lines
-        .filter((l) => same(l) && l.by === by && !l.pinned && l !== line)
-        .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""))[0];
-    const out = oldest("model") ?? oldest("agent");
-    if (!out) break;
-    lines = lines.filter((l) => l !== out);
-  }
-  return { memory: { ...base, [part]: lines }, line };
-}
-
-/** Where a line is, by its id. */
-export function findLine(
-  memory: ProjectMemory | undefined,
-  id: string,
-): { part: MemoryPart; line: MemoryLine } | undefined {
-  if (!memory) return undefined;
-  const wanted = id.trim().toLowerCase();
-  return allLines(memory).find(({ line }) => line.id.toLowerCase() === wanted);
-}
-
-/** The memory with one line changed (or, given nothing, taken out). */
-export function replaceLine(memory: ProjectMemory, id: string, next: MemoryLine | undefined): ProjectMemory {
-  const out = { ...memory };
-  for (const part of MEMORY_PARTS) {
-    if (!memory[part].some((line) => line.id === id)) continue;
-    out[part] = memory[part].flatMap((line) => (line.id !== id ? [line] : next ? [next] : []));
-  }
-  return out;
+/** The stack as the memory's fold is told it: a line a layer, by slug —
+ *  and what lets a new line find its layer. */
+export interface MemoryStack {
+  text: string;
+  fold: FoldLayers;
 }
 
 /** A line as one line of text: what, and why. */
@@ -374,70 +203,4 @@ export function layerCounts(memory: ProjectMemory | undefined): Map<string, numb
     if (line.layer) counts.set(line.layer, (counts.get(line.layer) ?? 0) + 1);
   }
   return counts;
-}
-
-/**
- * A fold's answer, brought up to what happened while the model wrote it:
- * a fold takes seconds, and in them an agent may `ruri note` a line or the
- * user strike, pin or correct one. Those win — the fold is laid over the
- * memory it was given, and every change since is laid over that.
- */
-export function rebase(
-  folded: ProjectMemory,
-  before: ProjectMemory | undefined,
-  now: ProjectMemory | undefined,
-): ProjectMemory {
-  const was = new Map((before ? allLines(before) : []).map(({ line }) => [line.id, line]));
-  const is = new Map((now ? allLines(now) : []).map(({ part, line }) => [line.id, { part, line }]));
-  let out = folded;
-  for (const id of was.keys()) if (!is.has(id)) out = replaceLine(out, id, undefined);
-  const present = lineIds(out);
-  for (const [id, { part, line }] of is) {
-    const old = was.get(id);
-    if (!old) {
-      if (!present.has(id)) out = { ...out, [part]: [...out[part], line] };
-      continue;
-    }
-    if (JSON.stringify(old) === JSON.stringify(line)) continue;
-    // changed since the fold began — the user's or an agent's doing
-    out = present.has(id) ? replaceLine(out, id, line) : { ...out, [part]: [...out[part], line] };
-  }
-  return out;
-}
-
-/**
- * A whole memory the model wrote, as the changes it makes to the memory it
- * was given: its new lines added, the lines of its own it reworded or moved
- * edited. A line it left out is kept — leaving one out is no way to take
- * it out of a log.
- */
-export function foldChanges(before: ProjectMemory, after: ProjectMemory): MemoryChange[] {
-  const was = new Map(allLines(before).map(({ part, line }) => [line.id, { part, line }]));
-  const changes: MemoryChange[] = [];
-  for (const { part, line } of allLines(after)) {
-    const old = was.get(line.id);
-    if (!old) {
-      changes.push({
-        op: "add",
-        part,
-        text: line.text,
-        ...(line.why ? { why: line.why } : {}),
-        ...(line.layer ? { layer: line.layer } : {}),
-        ...(line.source ? { source: line.source } : {}),
-      });
-      continue;
-    }
-    if (old.line.by !== "model" || old.line.pinned) continue;
-    const moved = old.part !== part || (old.line.layer ?? "") !== (line.layer ?? "");
-    const reworded = old.line.text !== line.text || (old.line.why ?? "") !== (line.why ?? "");
-    if (!moved && !reworded) continue;
-    changes.push({
-      op: "edit",
-      line: line.id,
-      ...(reworded ? { text: line.text, why: line.why ?? null } : {}),
-      ...(old.part !== part ? { part } : {}),
-      ...(moved ? { layer: line.layer ?? null } : {}),
-    });
-  }
-  return changes;
 }

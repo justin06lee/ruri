@@ -9,7 +9,8 @@ import type { ServerMessage } from "../../shared/protocol.js";
 import type { ServerContext } from "../context.js";
 import { warn } from "../log.js";
 import { HOME_ID } from "../manager.js";
-import { setSmallModel } from "../smallmodel.js";
+import type { ModelRoles } from "../projects.js";
+import { setMemoryModel, setSmallModel } from "../smallmodel.js";
 import { republishContext } from "../turns.js";
 import { storeUpload } from "../uploads.js";
 import type { Handlers } from "./types.js";
@@ -17,13 +18,12 @@ import type { Handlers } from "./types.js";
 /** The roles changed: the small layer and every window hear the new set.
  *  A new default pins nothing live (the store already did), so the
  *  projects list goes out too — the pinned values are now on them. */
-export function announceRoles(
-  ctx: ServerContext,
-  roles: { starred: string[]; small: string | undefined; default: string | undefined },
-): void {
+export function announceRoles(ctx: ServerContext, roles: ModelRoles): void {
   setSmallModel(roles.small);
+  setMemoryModel(roles.memory);
   ctx.clients.broadcast({ type: "starred_models", models: roles.starred });
   ctx.clients.broadcast({ type: "small_model", model: roles.small ?? "" });
+  ctx.clients.broadcast({ type: "memory_model", model: roles.memory });
   ctx.clients.broadcast({ type: "default_model", model: ctx.store.defaultModel() });
   ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
   ctx.clients.broadcast({ type: "home_settings", home: ctx.store.homeSettings() });

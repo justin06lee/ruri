@@ -30,9 +30,13 @@ export function keepRecent<T extends { kind: string }>(events: T[], max: number)
  *  CLI feels like". */
 export const DEFAULT_MODEL = "claude-fable-5-1[1m]";
 
+/** The model that keeps the projects' memory until the user hands the
+ *  role to another (server/smallmodel.ts memoryModel). */
+export const DEFAULT_MEMORY_MODEL = "sonnet";
+
 /** The two roles a starred model can hold: the small-tasks model (notes,
  *  titles, splitting, the tracker) and the default new chats start on. */
-export type ModelRole = "small" | "default";
+export type ModelRole = "small" | "default" | "memory";
 
 /**
  * One live coding session inside a project. Transcripts, statuses,
@@ -1873,6 +1877,8 @@ export type ServerMessage =
       starredModels: string[];
       /** The double-starred small-tasks model ("" = the built-in default). */
       smallModel: string;
+      /** The model that writes and checks the projects' memory. */
+      memoryModel: string;
       /** The model new chats and projects start on: the triple-starred one,
        *  else DEFAULT_MODEL. Always a real id, never "". */
       defaultModel: string;
@@ -1952,6 +1958,7 @@ export type ServerMessage =
   | { type: "prefs"; prefs: Record<string, string> }
   | { type: "starred_models"; models: string[] }
   | { type: "small_model"; model: string }
+  | { type: "memory_model"; model: string }
   | { type: "default_model"; model: string }
   | { type: "integrations"; projectId?: string; integrations: Integrations }
   /** Who may message whom, and the latest messages between agents. */

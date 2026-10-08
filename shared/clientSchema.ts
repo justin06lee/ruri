@@ -55,7 +55,7 @@ const permissionId = z.enum([
 ]);
 const pickTarget = z.enum(["workspace", "music"]);
 const trackerStatus = z.enum(["open", "liked", "rejected"]);
-const modelRole = z.enum(["small", "default"]);
+const modelRole = z.enum(["small", "default", "memory"]);
 const skillScope = z.enum(["global", "project"]);
 
 const draftRegion = z.object({

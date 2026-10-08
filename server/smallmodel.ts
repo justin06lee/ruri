@@ -4,14 +4,11 @@ import * as path from "node:path";
 import type {
   ConceptPlace,
   LayerSheet,
-  MemoryPart,
-  MemorySource,
-  ProjectMemory,
   StackLayer,
   SystemFlow,
   TranscriptEvent,
 } from "../shared/protocol.js";
-import { applyFold, emptyMemory, MEMORY_PARTS, type FoldEntry, type FoldLayers } from "./memoryLines.js";
+import { DEFAULT_MEMORY_MODEL } from "../shared/protocol.js";
 import { configPath } from "./configDir.js";
 import { errorMessage, warn } from "./log.js";
 
@@ -33,6 +30,7 @@ export type Completer = (request: MessagesRequest, signal: AbortSignal) => Promi
 let client: Yagami | null = null;
 let completer: Completer | null = null;
 let configured: string | undefined;
+let memoryConfigured: string | undefined;
 
 export function smallModelEnabled(): boolean {
   return process.env["RURI_NO_MEMORY"] !== "1";
@@ -45,6 +43,31 @@ export function setSmallModel(model: string | undefined): void {
 
 function model(): string {
   return configured ?? process.env["RURI_SMALL_MODEL"] ?? "codex:gpt-5.6-luna";
+}
+
+/**
+ * The model that writes and checks the project's memory — folds, the
+ * verification of a line whose code moved, contradictions, duplicates.
+ * Not the small model: a free tiny model is fine for a one-line note, and
+ * wrong for deciding that a decision three sessions relied on no longer
+ * holds. The user hands the role to a model in Settings (its "memory"
+ * tag); RURI_MEMORY_MODEL overrides; Sonnet otherwise.
+ */
+export function setMemoryModel(next: string | undefined): void {
+  memoryConfigured = next || undefined;
+}
+
+export function memoryModel(): string {
+  return process.env["RURI_MEMORY_MODEL"] || memoryConfigured || DEFAULT_MEMORY_MODEL;
+}
+
+/** Who stands in when the memory model can't answer: the other harness's
+ *  capable model, then the small model — a weaker answer, checked by the
+ *  same rules, beats a memory nobody keeps while a subscription rests. */
+function memoryOrder(): string[] {
+  const first = memoryModel();
+  const claude = !first.includes(":") || first.startsWith("claude:");
+  return [...new Set([first, claude ? "codex:gpt-5.6-sol" : "sonnet", model()])];
 }
 
 /**
@@ -272,42 +295,46 @@ async function ask(request: MessagesRequest, maxTokens: number): Promise<string>
  * takes one of the slots at most, so a backlog of it never holds up a
  * title, and never has two CLIs running for work nobody is waiting on.
  */
-const SMALL_AT_ONCE = Math.max(1, Number(process.env["RURI_SMALL_AT_ONCE"]) || 2);
+const SMALL_AT_ONCE = Math.max(1, Number(process.env["RURI_SMALL_AT_ONCE"]) || 3);
 const BACKGROUND_AT_ONCE = 1;
-type Lane = "now" | "background";
+/** The memory's own lane: one call at a time, beside the background one,
+ *  so a fold that takes a capable model a minute never holds up a recall
+ *  note — and a backlog of notes never holds up the memory. */
+const MEMORY_AT_ONCE = 1;
+type Lane = "now" | "background" | "memory";
 let running = 0;
-let runningBackground = 0;
-const waitingNow: Array<() => void> = [];
-const waitingBackground: Array<() => void> = [];
+const runningIn: Record<Lane, number> = { now: 0, background: 0, memory: 0 };
+const waiting: Record<Lane, Array<() => void>> = { now: [], background: [], memory: [] };
+const LANE_CAP: Record<Lane, number> = {
+  now: Infinity,
+  background: BACKGROUND_AT_ONCE,
+  memory: MEMORY_AT_ONCE,
+};
 
 /** Start whatever waiting work there is room for, "now" first. */
 function pump(): void {
-  while (running < SMALL_AT_ONCE) {
-    const now = waitingNow.shift();
-    if (now) {
-      running += 1;
-      now();
-      continue;
-    }
-    if (runningBackground >= BACKGROUND_AT_ONCE) return;
-    const later = waitingBackground.shift();
-    if (!later) return;
+  for (;;) {
+    if (running >= SMALL_AT_ONCE) return;
+    const lane = (["now", "memory", "background"] as Lane[]).find(
+      (l) => waiting[l].length > 0 && runningIn[l] < LANE_CAP[l],
+    );
+    if (!lane) return;
     running += 1;
-    runningBackground += 1;
-    later();
+    runningIn[lane] += 1;
+    waiting[lane].shift()!();
   }
 }
 
 async function inLine<T>(lane: Lane, work: () => Promise<T>): Promise<T> {
   await new Promise<void>((resolve) => {
-    (lane === "now" ? waitingNow : waitingBackground).push(resolve);
+    waiting[lane].push(resolve);
     pump();
   });
   try {
     return await work();
   } finally {
     running -= 1;
-    if (lane === "background") runningBackground -= 1;
+    runningIn[lane] -= 1;
     pump();
   }
 }
@@ -321,7 +348,18 @@ function complete(
   return inLine(lane, () => completeNow(system, prompt, maxTokens));
 }
 
-async function completeNow(system: string, prompt: string, maxTokens: number): Promise<string> {
+/** One request to the memory model (or whoever stands in for it), on the
+ *  memory's lane. */
+export function completeMemory(system: string, prompt: string, maxTokens: number): Promise<string> {
+  return inLine("memory", () => completeNow(system, prompt, maxTokens, memoryOrder()));
+}
+
+async function completeNow(
+  system: string,
+  prompt: string,
+  maxTokens: number,
+  models?: string[],
+): Promise<string> {
   const request = (id: string): MessagesRequest => ({
     model: id,
     max_tokens: maxTokens,
@@ -329,7 +367,7 @@ async function completeNow(system: string, prompt: string, maxTokens: number): P
     messages: [{ role: "user", content: `<data>\n${prompt}\n</data>` }],
   });
   const primary = model();
-  const order = [primary, fallbackFor(primary)];
+  const order = models ?? [primary, fallbackFor(primary)];
   const now = Date.now();
   const ready = order.filter((id) => (resting.get(id) ?? 0) <= now);
   let failure: unknown;
@@ -619,7 +657,7 @@ function parseMap(value: unknown, projectDir?: string): ConceptPlace[] {
 }
 
 /** The JSON object in a model's reply, or nothing. */
-function objectIn(reply: string): Record<string, unknown> | undefined {
+export function objectIn(reply: string): Record<string, unknown> | undefined {
   const json = reply.slice(reply.indexOf("{"), reply.lastIndexOf("}") + 1);
   const parsed = JSON.parse(json) as unknown;
   return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
@@ -990,137 +1028,6 @@ export async function placeFiles(
   } catch (err) {
     warn("smallmodel", err, "placeFiles");
     return {};
-  }
-}
-
-/* ── the working memory: .ruri/catchup.md ──────────────────────────── */
-
-const MEMORY_SYSTEM = `You keep the working memory of a software project: what a coding agent picking the work up cold needs to know that the code itself won't tell it. Fresh sessions read it, other agents working in the same project at the same time read it, and the next harness to take over reads it — so that nobody redoes a settled decision, repeats an attempt that already failed, or trips the same trap twice.
-
-You are given the memory as it stands and what happened in the project — exchanges between the user and a coding agent, oldest first, each opening with its ref in brackets, like [7a3637b4#16 · 2026-09-22]. Return the memory, updated.
-
-HOW LINES COME BACK
-Every line of the memory has an id and says who wrote it ("by"). Return each part as a list of entries, in the order a newcomer should read them:
-- {"id": "d4k2"} keeps a line exactly as it is. Most lines, most of the time, come back like this — never retype a line you are keeping.
-- {"id": "d4k2", "text": "...", "why": "..."} rewords a line, when the exchanges refine or correct it. Only lines by "model".
-- {"text": "...", "why": "...", "from": "7a3637b4#16"} adds a line. "from" is the ref of the exchange that shows it — always give it.
-- A line you leave out is dropped. Listing a line's id under another part moves it there.
-Lines by "agent" were written by the session that did the work, and lines by "user" by the user: never reword either. Keep them — or drop an agent's line, only when the exchanges resolved or reversed it.
-
-LAYERS
-When a STACK is given, the project is cut into layers, each by its slug, and every line but "now" belongs either to one layer or to the whole project:
-- "layer": "<slug>" — about working in that layer: a trap in its code, a decision about how it works, what failed there, what is open in it. Only sessions about to work in that layer read it, with the layer's own sheet.
-- "layer": "project" — holds wherever a session works: how to build, test or ship, rules for every session, the user's standing preferences, what spans several layers. Every session reads these, so keep them few.
-Give "layer" on every line you add. Give it on a line you keep only to move it (lines by "user" stay where they are).
-
-PARTS
-- "now": 1–4 plain strings. Where the work stands at the end of these exchanges: what is in progress, what was just finished, what comes next. Rewrite it each time.
-- "decisions": choices about how the project works or is built, with the reason in "why" — {"text": "Each project keeps its own component library", "why": "the user wants projects kept apart"}. Only a reason the exchanges give; with none, say what it was chosen over, or leave "why" out. At most 12 for the project, 6 a layer.
-- "worked": approaches, techniques and fixes that proved out here and are worth repeating, with where. At most 8 for the project, 4 a layer.
-- "failed": what was tried and did NOT work, with the cause in "why" — so nobody tries it again. A bug that got fixed is not a failure. At most 10 for the project, 5 a layer.
-- "gotchas": traps, constraints and standing rules — quirks that break things silently, what the user insists on or forbids. At most 10 for the project, 6 a layer.
-- "open": asked for and not done, put off, or known broken — only what is still open. At most 8 for the project, 5 a layer.
-
-RULES
-- Not a changelog. A feature that was simply built belongs nowhere here unless a decision, a lesson or a trap came with it. Nothing about this memory itself.
-- One idea per line, each fact in ONE part only. A line that refines an older one replaces it.
-- Take out what the exchanges resolved: an open item that got done, a trap fixed for good, a decision reversed (the reversal is the new decision).
-- Keep names exact: files, commands, flags, settings, versions.
-- Only what the exchanges show. Never invent a reason, a result or a rule — a missing "why" is better than a made-up one.
-- "text" under about 20 words, "why" under about 15. No dates: ruri keeps those.
-
-Reply as JSON and nothing else: {"now": ["..."], "decisions": [{"text": "...", "why": "...", "from": "...", "layer": "..."}, {"id": "..."}], "worked": [...], "failed": [...], "gotchas": [...], "open": [...]}`;
-
-/** The memory as the model is shown it: every line by its id, with who
- *  wrote it — and not when or where, which are ruri's to keep. */
-function memoryForModel(memory: ProjectMemory, layered = false): string {
-  const shown = Object.fromEntries(
-    MEMORY_PARTS.map((part) => [
-      part,
-      part === "now"
-        ? memory.now.map((line) => line.text)
-        : memory[part].map((line) => ({
-            id: line.id,
-            text: line.text,
-            ...(line.why ? { why: line.why } : {}),
-            by: line.pinned && line.by === "model" ? "user" : line.by,
-            ...(layered ? { layer: line.layer ?? "project" } : {}),
-          })),
-    ]),
-  );
-  return JSON.stringify(shown, null, 1);
-}
-
-/** One part of the model's answer, as entries — a bare string is a new line. */
-function entriesOf(value: unknown): FoldEntry[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((raw): FoldEntry[] => {
-    if (typeof raw === "string") return raw.trim() ? [{ text: raw.trim() }] : [];
-    if (!raw || typeof raw !== "object") return [];
-    const entry = raw as Record<string, unknown>;
-    const pick = (key: string) =>
-      typeof entry[key] === "string" ? (entry[key] as string).trim() : undefined;
-    const id = pick("id");
-    const text = pick("text");
-    const why = pick("why");
-    const from = pick("from");
-    const layer = pick("layer");
-    return id || text
-      ? [
-          {
-            ...(id ? { id } : {}),
-            ...(text ? { text } : {}),
-            ...(why ? { why } : {}),
-            ...(from ? { from } : {}),
-            ...(layer ? { layer } : {}),
-          },
-        ]
-      : [];
-  });
-}
-
-/** The stack as the memory's fold is told it: a line a layer, by slug —
- *  and what lets a new line find its layer. */
-export interface MemoryStack {
-  text: string;
-  fold: FoldLayers;
-}
-
-/**
- * Fold what happened into a project's working memory — a few finished
- * turns, or (from server/memory.ts) a whole project's history at once.
- * `resolve` turns an exchange's ref back into the chat and prompt it names;
- * `stack` files each line under the layer it is about. Null when the layer
- * is off or the model gave something unusable: the memory then stays
- * exactly as it was.
- */
-export async function foldMemory(
-  project: string,
-  memory: ProjectMemory | undefined,
-  happened: string,
-  today: string,
-  resolve: (ref: string) => MemorySource | undefined = () => undefined,
-  stack?: MemoryStack,
-): Promise<ProjectMemory | null> {
-  if (!smallModelEnabled() || !happened.trim()) return null;
-  const current = memory ?? emptyMemory();
-  const prompt =
-    `PROJECT NAME: ${project}\nTODAY: ${today}\n\n` +
-    (stack ? `STACK:\n${stack.text}\n\n` : "") +
-    `MEMORY AS IT STANDS:\n${memoryForModel(current, !!stack)}\n\n` +
-    `WHAT HAPPENED:\n${happened.slice(-40_000)}`;
-  try {
-    const parsed = objectIn(await complete(MEMORY_SYSTEM, prompt, 2400));
-    if (!parsed) return null;
-    const proposed = Object.fromEntries(
-      MEMORY_PARTS.map((part) => [part, entriesOf(parsed[part])]),
-    ) as Record<MemoryPart, FoldEntry[]>;
-    // an answer with nothing in it at all is a model that didn't do the job
-    if (MEMORY_PARTS.every((part) => proposed[part].length === 0)) return null;
-    return applyFold(current, proposed, today, resolve, stack?.fold);
-  } catch (err) {
-    warn("smallmodel", err, "foldMemory");
-    return null;
   }
 }
 

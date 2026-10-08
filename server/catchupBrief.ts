@@ -21,7 +21,8 @@ import { branchFacts, commitsSince, gitLines, gitState, head, sheetGit } from ".
 import { warn } from "./log.js";
 import { allLines } from "./memoryLines.js";
 import { blankProject } from "./ruriDir.js";
-import { smallModelEnabled, type MemoryStack } from "./smallmodel.js";
+import type { MemoryStack } from "./memoryLines.js";
+import { smallModelEnabled } from "./smallmodel.js";
 import { layerCandidates } from "./sweep.js";
 
 /* ── where a line came from ────────────────────────────────────────── */

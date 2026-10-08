@@ -13,6 +13,7 @@ import { writeTextAtomic } from "./atomic.js";
 import { BridgeState } from "./bridgeState.js";
 import { BriefStore, writeBriefFiles } from "./brief.js";
 import { MemoryBook } from "./memoryLog.js";
+import { FoldQueue, resumeFolds } from "./memoryQueue.js";
 import { installCli, writeLibrarySkill } from "./library.js";
 import { adoptShared } from "./catchupBrief.js";
 import { ownerProject, running } from "./channel.js";
@@ -52,7 +53,7 @@ import { Retries } from "./retry.js";
 import { createHttpServer, createRequestHandler } from "./routes.js";
 import { SecretStore } from "./secrets.js";
 import { Sharing } from "./sharing.js";
-import { digestHistory, setSmallModel } from "./smallmodel.js";
+import { digestHistory, setMemoryModel, setSmallModel } from "./smallmodel.js";
 import { createSocketServer } from "./socket.js";
 import { TalkBook } from "./talk.js";
 import { Terminals } from "./terminal.js";
@@ -66,6 +67,7 @@ export type { RuriServer, StartServerOptions } from "./context.js";
 export async function startServer(options: StartServerOptions): Promise<RuriServer> {
   const store = new ProjectStore();
   setSmallModel(store.smallModel());
+  setMemoryModel(store.memoryModel());
 
   const archive = new SessionArchive();
   /** What each subagent did, apart from the chat that started it. */
@@ -137,6 +139,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     tracker,
     briefs,
     memory,
+    folds: new FoldQueue(),
     ledger,
     ideas,
     components,
@@ -229,6 +232,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   firstNotes.unref();
   const notesTimer = setInterval(allNotes, 60 * 60_000);
   notesTimer.unref();
+  // turns that were waiting to be folded into a memory when ruri stopped
+  resumeFolds(ctx);
   ctx.componentHost = createComponentHost(ctx);
   // every window hears who may message whom, and each message as it moves
   ctx.talk.onChange = () => pushTalk(ctx);

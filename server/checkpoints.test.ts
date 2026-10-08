@@ -78,6 +78,26 @@ describe("checkpoints against a real repository", () => {
     expect(await ckpt.turnFiles(project(), "chan", "never")).toBeUndefined();
   });
 
+  test("a turn's diff, for the memory's fold: the stat, then the source's hunks, within a budget", async () => {
+    const ckpt = createCheckpoints();
+    write("lib.ts", "export const LIFT = 9;\n");
+    write("bun.lock", "lock v1\n");
+    expect(await ckpt.capture(project(), "chan", "d1")).toBe(true);
+    write("lib.ts", "export const LIFT = 10;\n");
+    write("bun.lock", `${"lock line\n".repeat(400)}`);
+    fs.mkdirSync(path.join(repo, ".ruri"), { recursive: true });
+    write(".ruri/catchup.md", "ruri's own sheet");
+    expect(await ckpt.settle(project(), "chan", "d1")).toBe(true);
+    const diff = (await ckpt.turnDiff(project(), "chan", "d1", 1200))!;
+    expect(diff).toContain("lib.ts");
+    expect(diff).toContain("+export const LIFT = 10;");
+    expect(diff).not.toContain(".ruri/catchup.md");
+    // the source comes before the lockfile, and the budget holds
+    expect(diff.indexOf("+export const LIFT")).toBeLessThan(diff.lastIndexOf("lock line"));
+    expect(diff.length).toBeLessThan(1400);
+    expect(await ckpt.turnDiff(project(), "chan", "never", 1000)).toBeUndefined();
+  });
+
   test("a finished turn's files wait for its closing capture, and leave out another chat's edits", async () => {
     const ckpt = createCheckpoints();
     const now = Date.now();

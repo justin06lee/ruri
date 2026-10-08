@@ -174,7 +174,7 @@ export const projectHandlers = {
     void writeLayerSheets(ctx, msg.projectId, [msg.slug]);
   },
   memory_rebuild: (ctx, _ws, msg) => {
-    void rebuildMemory(ctx, msg.projectId);
+    rebuildMemory(ctx, msg.projectId);
   },
   /** The architecture page opening on a project. */
   sheet_get: (ctx, ws, msg) => {

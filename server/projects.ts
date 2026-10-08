@@ -7,6 +7,7 @@ import { configDir } from "./configDir.js";
 import { isMissing, warn } from "./log.js";
 import {
   DEFAULT_EFFORT,
+  DEFAULT_MEMORY_MODEL,
   DEFAULT_MODEL,
   DEFAULT_PERMISSION_MODE,
   type HomeSettings,
@@ -14,6 +15,14 @@ import {
   type Project,
   type SessionInfo,
 } from "../shared/protocol.js";
+
+/** Who holds each model role, and which models are starred. */
+export interface ModelRoles {
+  starred: string[];
+  small: string | undefined;
+  default: string | undefined;
+  memory: string;
+}
 
 /** The settings a chat carries for itself: what SessionInfo holds beyond
  *  its id and title. */
@@ -62,6 +71,8 @@ export class ProjectStore {
   private smallModelId: string | undefined = "codex:gpt-5.6-luna";
   /** The triple-starred model new chats start on; undefined = DEFAULT_MODEL. */
   private defaultModelId: string | undefined;
+  /** The model that keeps the memory; undefined = DEFAULT_MEMORY_MODEL. */
+  private memoryModelId: string | undefined;
 
   constructor() {
     try {
@@ -73,6 +84,7 @@ export class ProjectStore {
         starredModels?: string[];
         smallModel?: string;
         defaultModel?: string;
+        memoryModel?: string;
       };
       this.projects = (raw.projects ?? []).filter(
         (p) => typeof p?.id === "string" && typeof p?.name === "string" && typeof p?.path === "string",
@@ -93,6 +105,7 @@ export class ProjectStore {
       }
       if (typeof raw.smallModel === "string" && raw.smallModel) this.smallModelId = raw.smallModel;
       if (typeof raw.defaultModel === "string" && raw.defaultModel) this.defaultModelId = raw.defaultModel;
+      if (typeof raw.memoryModel === "string" && raw.memoryModel) this.memoryModelId = raw.memoryModel;
     } catch (err) {
       if (!isMissing(err)) warn("projects", err, "new ProjectStore");
       // first run
@@ -139,6 +152,11 @@ export class ProjectStore {
     return this.smallModelId;
   }
 
+  /** The model that keeps the memory: the user's pick, else Sonnet. */
+  memoryModel(): string {
+    return this.memoryModelId ?? DEFAULT_MEMORY_MODEL;
+  }
+
   /** What an unset model means: the crowned default, else the built-in. */
   defaultModel(): string {
     return this.defaultModelId ?? DEFAULT_MODEL;
@@ -164,8 +182,13 @@ export class ProjectStore {
   }
 
   /** The roles as they stand. */
-  modelRoles(): { starred: string[]; small: string | undefined; default: string | undefined } {
-    return { starred: this.starredModels(), small: this.smallModelId, default: this.defaultModelId };
+  modelRoles(): ModelRoles {
+    return {
+      starred: this.starredModels(),
+      small: this.smallModelId,
+      default: this.defaultModelId,
+      memory: this.memoryModel(),
+    };
   }
 
   /**
@@ -175,13 +198,11 @@ export class ProjectStore {
    * role, which took the tag off the page with nowhere left to drag it back
    * from; the tag goes to another model first.
    */
-  cycleModelStar(model: string): {
-    starred: string[];
-    small: string | undefined;
-    default: string | undefined;
-  } {
+  cycleModelStar(model: string): ModelRoles {
     if (this.starredModelIds.includes(model)) {
-      if (this.smallModelId === model || this.defaultModel() === model) return this.modelRoles();
+      if (this.smallModelId === model || this.defaultModel() === model || this.memoryModel() === model) {
+        return this.modelRoles();
+      }
       this.starredModelIds = this.starredModelIds.filter((m) => m !== model);
     } else {
       this.starredModelIds = [...this.starredModelIds, model];
@@ -208,15 +229,18 @@ export class ProjectStore {
     const starred = [...new Set(this.starredModelIds.map(fold))];
     const small = this.smallModelId && fold(this.smallModelId);
     const crowned = this.defaultModelId && fold(this.defaultModelId);
+    const keeper = this.memoryModelId && fold(this.memoryModelId);
     if (
       starred.join("\n") === this.starredModelIds.join("\n") &&
       small === this.smallModelId &&
-      crowned === this.defaultModelId
+      crowned === this.defaultModelId &&
+      keeper === this.memoryModelId
     ) {
       return false;
     }
     this.starredModelIds = starred;
     this.smallModelId = small;
+    this.memoryModelId = keeper;
     // not setDefaultModel: nothing riding the default needs pinning to the
     // old id, which is the same model
     this.defaultModelId = crowned;
@@ -226,12 +250,10 @@ export class ProjectStore {
 
   /** Hand a role to a model outright: starred if it wasn't, and the role's
    *  previous holder simply stops holding it. */
-  assignModelRole(
-    model: string,
-    role: ModelRole,
-  ): { starred: string[]; small: string | undefined; default: string | undefined } {
+  assignModelRole(model: string, role: ModelRole): ModelRoles {
     if (!this.starredModelIds.includes(model)) this.starredModelIds = [...this.starredModelIds, model];
     if (role === "small") this.smallModelId = model;
+    else if (role === "memory") this.memoryModelId = model;
     else this.setDefaultModel(model);
     this.save();
     return this.modelRoles();
@@ -437,6 +459,7 @@ export class ProjectStore {
           starredModels: this.starredModelIds,
           ...(this.smallModelId ? { smallModel: this.smallModelId } : {}),
           ...(this.defaultModelId ? { defaultModel: this.defaultModelId } : {}),
+          ...(this.memoryModelId ? { memoryModel: this.memoryModelId } : {}),
         },
         null,
         2,

@@ -29,6 +29,7 @@ import type { HomeLog } from "./homelog.js";
 import type { IdeaStore } from "./ideas.js";
 import type { LedgerStore } from "./ledger.js";
 import type { MemoryBook } from "./memoryLog.js";
+import type { FoldQueue } from "./memoryQueue.js";
 import type { ResourceMeters } from "./resources.js";
 import type { HarnessUpdater } from "./updater.js";
 import type { ManagerHost } from "./manager.js";
@@ -168,6 +169,9 @@ export interface ServerContext {
   /** The working memory's log: every change to a project's memory goes
    *  through it, and briefs.json shows what stands (server/memoryLog.ts). */
   readonly memory: MemoryBook;
+  /** Every finished turn, waiting to be folded into its project's memory
+   *  (server/memoryQueue.ts). */
+  readonly folds: FoldQueue;
   /** What every project has spent, by the day — the one count that
    *  survives rewinds, compactions and Home's nightly amnesia. */
   readonly ledger: LedgerStore;

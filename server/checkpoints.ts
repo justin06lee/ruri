@@ -56,6 +56,25 @@ function indexDir(): string {
   return configPath("checkpoints");
 }
 
+/** A change worth putting in front of a model: not ruri's own sheets, not
+ *  a picture, an archive or a build's output. */
+function readableChange(file: string): boolean {
+  if (file.startsWith(".ruri/")) return false;
+  return !/\.(png|jpe?g|gif|webp|ico|icns|pdf|zip|gz|tgz|woff2?|ttf|otf|mp[34]|wav|mov|wasm|lockb)$/i.test(
+    file,
+  );
+}
+
+/** Where a file comes in the diff a fold reads: source first, then docs
+ *  and config, lockfiles and generated output last. */
+function weight(file: string): number {
+  if (/(^|\/)(bun\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|go\.sum)$/.test(file))
+    return 3;
+  if (/(^|\/)(dist|build|out|target|vendor|node_modules)\//.test(file)) return 3;
+  if (/\.(md|txt|json|ya?ml|toml)$/i.test(file)) return 1;
+  return 0;
+}
+
 /** A capture that takes longer than this has met a repository ruri has no
  *  business holding up a prompt for. */
 const TIMEOUT_MS = 20_000;
@@ -231,6 +250,15 @@ export interface Checkpoints {
    * they were taken).
    */
   turnFiles(project: { path: string }, channelId: string, eventId: string): Promise<string[] | undefined>;
+  /** What a finished turn changed, as a diff a model can read: the stat of
+   *  every file, then the hunks, the source first, within `budget`
+   *  characters. Undefined without both checkpoints. */
+  turnDiff(
+    project: { path: string },
+    channelId: string,
+    eventId: string,
+    budget: number,
+  ): Promise<string | undefined>;
   /** The same for a turn still running: what differs between its opening
    *  capture and the tree as it stands now. */
   changedSince(project: { path: string }, channelId: string, eventId: string): Promise<string[] | undefined>;
@@ -394,6 +422,18 @@ export function createCheckpoints(): Checkpoints {
     return files.filter((file) => file.startsWith(under)).map((file) => file.slice(under.length));
   }
 
+  /** The project's folder within the repository, as a path prefix ("" at
+   *  the root). */
+  function projectPrefix(top: string, projectDir: string): string {
+    let prefix: string;
+    try {
+      prefix = path.relative(fs.realpathSync(top), fs.realpathSync(projectDir));
+    } catch {
+      prefix = path.relative(top, projectDir);
+    }
+    return prefix ? `${prefix.split(path.sep).join("/")}/` : "";
+  }
+
   /** Every file in a tree, by path. */
   async function entries(top: string, tree: string): Promise<Map<string, Entry>> {
     const listed = await git(["ls-tree", "-r", "-z", "--full-tree", tree], top);
@@ -514,6 +554,40 @@ export function createCheckpoints(): Checkpoints {
         if (!from || !to) return undefined;
         const paths = (await changes(top, from, to)).map((change) => change.path);
         return withinProject(top, project.path, paths);
+      });
+    },
+
+    async turnDiff(project, channelId, eventId, budget) {
+      return queue(channelId, async () => {
+        const top = await root(project.path);
+        if (!top) return undefined;
+        const from = await resolve(top, refFor(channelId, eventId));
+        const to = await resolve(top, doneRefFor(channelId, eventId));
+        if (!from || !to) return undefined;
+        const paths = withinProject(
+          top,
+          project.path,
+          (await changes(top, from, to)).map((change) => change.path),
+        ).filter(readableChange);
+        if (paths.length === 0) return "";
+        const prefix = projectPrefix(top, project.path);
+        const scoped = paths.map((file) => prefix + file);
+        const stat = await git(["diff", "--stat=120", "--no-color", from, to, "--", ...scoped], top);
+        const out = [stat.ok ? stat.out : ""];
+        let left = budget - out[0]!.length;
+        // the source first, then the rest — a lockfile's churn is the last
+        // thing worth reading
+        const order = [...scoped].sort((a, b) => weight(a) - weight(b));
+        for (const file of order) {
+          if (left < 200) break;
+          const hunk = await git(["diff", "-U2", "--no-color", from, to, "--", file], top);
+          if (!hunk.ok || !hunk.out) continue;
+          const text =
+            hunk.out.length > left ? `${hunk.out.slice(0, left - 40)}\n[… the rest cut]` : hunk.out;
+          out.push(text);
+          left -= text.length;
+        }
+        return out.filter(Boolean).join("\n\n");
       });
     },
 

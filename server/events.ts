@@ -9,11 +9,9 @@ import type { Project, StackLayer, TranscriptEvent } from "../shared/protocol.js
 import {
   dueRead,
   exchangeRef,
-  memoryStack,
   pushSheet,
   rebuildCatchup,
   refreshSheet,
-  resolveRef,
   touchProject,
   writeLayerSheets,
 } from "./catchupBrief.js";
@@ -24,9 +22,8 @@ import { pushComponents } from "./handlers/components.js";
 import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
 import { warn } from "./log.js";
-import { rebuildMemory } from "./memory.js";
-import { dayOf, foldChanges } from "./memoryLines.js";
-import { MemoryBook } from "./memoryLog.js";
+import { dayOf } from "./memoryLines.js";
+import { enqueueFold } from "./memoryQueue.js";
 import { projectRelative } from "./recall.js";
 import { layerCandidate } from "./sweep.js";
 import { noteSummary } from "./notes.js";
@@ -35,7 +32,6 @@ import {
   endsIntact,
   extractTrackerItems,
   foldLayerSheet,
-  foldMemory,
   sessionRoleTitle,
   smallModelEnabled,
   summarizePrompt,
@@ -116,7 +112,9 @@ export function foldBrief(
   held.timer.unref?.();
 }
 
-/** What a project's turns did since the last fold, into its sheet. */
+/** What a project's turns did since the last fold, into its shape — the
+ *  index and the layers' sheets. (The memory takes in every turn by its
+ *  own queue: server/memoryQueue.ts.) */
 function foldGathered(ctx: ServerContext, projectId: string): void {
   const held = gathering.get(projectId);
   const project = ctx.store.get(projectId);
@@ -128,39 +126,12 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
   delete held.timer;
   held.last = Date.now();
   if (turns.length === 0) return;
-  const happened = turns.map((turn) => turn.text).join("\n\n---\n\n");
-  const current = ctx.briefs.get(project.id);
   // the index is left to a session that kept it itself this turn
   const unkept = turns.filter((turn) => !keptItself(turn).index);
   const shapeHappened = unkept.map((turn) => turn.text).join("\n\n---\n\n");
   void foldShape(ctx, project, turns, shapeHappened).catch((err: unknown) =>
     warn("events", err, "foldShape"),
   );
-
-  // A project with no memory yet reads its chats whole — what they hold
-  // includes these turns — rather than starting from this batch alone.
-  if (!current.memory) {
-    void rebuildMemory(ctx, project.id);
-    return;
-  }
-  const before = current.memory;
-  foldMemory(
-    project.name,
-    before,
-    happened,
-    dayOf(),
-    (ref) => resolveRef(ctx, project.id, ref),
-    memoryStack(ctx, project.id),
-  )
-    .then((folded) => {
-      if (!folded) return;
-      const { events } = ctx.memory.apply(project.id, foldChanges(before, folded), {
-        by: "model",
-        fold: MemoryBook.foldId(),
-      });
-      if (events.length) pushSheet(ctx, project.id);
-    })
-    .catch(() => {});
 }
 
 /**
@@ -454,7 +425,11 @@ export function createTurnTracker(ctx: ServerContext): TurnTracker {
         }
         // a file it made finds its layer; one it removed is let go
         adoptFiles(ctx, owner.id, owner.path, files);
-        if (smallModelEnabled()) foldBrief(ctx, projectId, { ...turn, files });
+        if (smallModelEnabled()) {
+          foldBrief(ctx, projectId, { ...turn, files });
+          // into the memory, with every other finished turn
+          enqueueFold(ctx, owner.id, projectId, turn.turnId);
+        }
       })
       .catch((err: unknown) => warn("events", err, "settleTurnFiles"));
     if (!smallModelEnabled()) return;

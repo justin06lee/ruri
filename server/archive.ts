@@ -14,6 +14,7 @@ import {
 import { settleAgent } from "./agents.js";
 import type { Digest } from "./compaction.js";
 import { isMissing, warn } from "./log.js";
+import { removeTurnRecords } from "./turnRecords.js";
 
 /**
  * Per-project session archive: the single source of truth for transcripts,
@@ -132,6 +133,15 @@ export interface ArchiveData {
    *  and switched back must not go on measuring Claude against Codex's
    *  window, which is what pinned the context dragon full. */
   contextWindowModel?: string;
+  /** Each exchange's number in the chat, by its prompt's event id — what a
+   *  ref like 7a3637b4#16 and a turn record like 016.md name. Given once,
+   *  as the prompt joins the transcript, and never moved: the number used
+   *  to be the exchange's place in the transcript, so every exchange after
+   *  one the history's cap dropped answered to its neighbour's ref. */
+  seqs?: Record<string, number>;
+  /** The number the next exchange gets. A rewind leaves it where it is, so
+   *  an exchange taken back out is never mistaken for the one after it. */
+  nextSeq?: number;
 }
 
 /** One turn's place in its harness's own record (ArchiveData.chain). An entry
@@ -208,6 +218,17 @@ function readHarnesses(raw: unknown): Record<string, HarnessSession> | undefined
     };
   }
   return out;
+}
+
+/** Stored exchange numbers, kept only whole: a map without the counter
+ *  past it (or the other way round) is numbered again from the transcript. */
+function readSeqs(seqs: unknown, next: unknown): Pick<ArchiveData, "seqs" | "nextSeq"> {
+  if (!seqs || typeof seqs !== "object" || Array.isArray(seqs) || typeof next !== "number") return {};
+  const out: Record<string, number> = {};
+  for (const [id, n] of Object.entries(seqs as Record<string, unknown>)) {
+    if (typeof n === "number" && Number.isInteger(n) && n > 0 && n < next) out[id] = n;
+  }
+  return { seqs: out, nextSeq: next };
 }
 
 function archiveDir(): string {
@@ -328,6 +349,7 @@ export class SessionArchive {
     for (const event of dropped) {
       delete entry.summaries[event.id];
       if (entry.chain) delete entry.chain[event.id];
+      if (entry.seqs) delete entry.seqs[event.id];
     }
     return true;
   }
@@ -394,6 +416,7 @@ export class SessionArchive {
         ...(typeof raw.contextWindow === "number" && typeof raw.contextWindowModel === "string"
           ? { contextWindow: raw.contextWindow, contextWindowModel: raw.contextWindowModel }
           : {}),
+        ...readSeqs(raw.seqs, raw.nextSeq),
       };
       const harnesses = readHarnesses(raw.harnesses);
       if (harnesses) entry.harnesses = harnesses;
@@ -573,6 +596,8 @@ export class SessionArchive {
       return;
     }
     if (size <= this.historyMax) return;
+    // numbered before anything goes, so what is left keeps its numbers
+    this.numbered(projectId);
     const { events, bytes } = this.readHistory(projectId);
     const budget = this.historyMax * HISTORY_TRIM_TO;
     let used = 0;
@@ -589,6 +614,9 @@ export class SessionArchive {
     for (const event of events.slice(0, cut)) {
       delete entry.summaries[event.id];
       if (entry.chain) delete entry.chain[event.id];
+      // its number goes with it, and no later exchange takes it; its turn
+      // record stays on disk, still that exchange's (`ruri recall show`)
+      if (entry.seqs) delete entry.seqs[event.id];
     }
     this.writeHistory(projectId, events.slice(cut));
   }
@@ -678,6 +706,7 @@ export class SessionArchive {
     if (existing === undefined) {
       at.set(event.id, events.length);
       events.push(event);
+      if (event.kind === "user") this.number(projectId, event.id);
     } else events[existing] = event;
     this.trim(projectId, entry);
     // a compaction mark: everything before it moves to the history, and
@@ -721,6 +750,7 @@ export class SessionArchive {
     entry.events.splice(start, end - start);
     this.restack(projectId);
     delete entry.summaries[eventId];
+    this.unnumber(projectId, entry, removed);
     // the digest ended on this exchange: with it gone there is no telling
     // where the digest stops, so it is folded again from the start
     if (entry.digest?.through === eventId) delete entry.digest;
@@ -1055,9 +1085,13 @@ export class SessionArchive {
       contextAt?: Record<string, number>;
       contextWindow?: number;
       contextWindowModel?: string;
+      /** The numbers its exchanges went by, so a ref into the fork names
+       *  the same exchange as the ref into the chat it came from. */
+      seqs?: Map<string, number>;
     },
   ): void {
     const kept = new Set(from.events.map((e) => e.id));
+    const seqs = from.seqs ? [...from.seqs].filter(([id]) => kept.has(id)) : undefined;
     const entry: ArchiveData = {
       events: from.events.map((e) => ({ ...e })),
       summaries: Object.fromEntries(
@@ -1076,6 +1110,9 @@ export class SessionArchive {
         : {}),
       ...(from.contextWindow !== undefined && from.contextWindowModel !== undefined
         ? { contextWindow: from.contextWindow, contextWindowModel: from.contextWindowModel }
+        : {}),
+      ...(seqs
+        ? { seqs: Object.fromEntries(seqs), nextSeq: Math.max(0, ...seqs.map(([, n]) => n)) + 1 }
         : {}),
     };
     this.data.set(projectId, entry);
@@ -1131,6 +1168,7 @@ export class SessionArchive {
       if (entry.chain) delete entry.chain[id];
       if (entry.contextAt) delete entry.contextAt[id];
     }
+    this.unnumber(projectId, entry, removed);
     // rewound back past what the digest folded in: it remembers exchanges
     // that, as far as the conversation now goes, never happened
     if (entry.digest && removed.includes(entry.digest.through)) delete entry.digest;
@@ -1161,6 +1199,66 @@ export class SessionArchive {
     const earlier = this.earlier(projectId).flatMap((item) => (item.kind === "turn" ? [item.turnId] : []));
     const live = this.load(projectId).events.flatMap((event) => (event.kind === "user" ? [event.id] : []));
     return earlier.length > 0 ? [...earlier, ...live] : live;
+  }
+
+  /**
+   * The chat's exchange numbers, numbering it first if it never was — a
+   * chat from before the numbers were kept is numbered as its transcript
+   * stands, which is how every ref to it so far was counted, so the refs
+   * already written into memory lines and briefs go on naming the same
+   * exchanges.
+   */
+  private numbered(projectId: string): Required<Pick<ArchiveData, "seqs" | "nextSeq">> {
+    const entry = this.load(projectId);
+    if (!entry.seqs || entry.nextSeq === undefined) {
+      const ids = this.turnIds(projectId);
+      entry.seqs = Object.fromEntries(ids.map((id, i) => [id, i + 1]));
+      entry.nextSeq = ids.length + 1;
+      this.scheduleWrite(projectId);
+    }
+    return { seqs: entry.seqs, nextSeq: entry.nextSeq };
+  }
+
+  /** A prompt just joined the transcript: the next number is its own. */
+  private number(projectId: string, turnId: string): void {
+    const entry = this.load(projectId);
+    const had = entry.seqs !== undefined && entry.nextSeq !== undefined;
+    const { seqs } = this.numbered(projectId);
+    // numbered just now from the transcript, which already holds it
+    if (!had || seqs[turnId] !== undefined) return;
+    seqs[turnId] = entry.nextSeq!;
+    entry.nextSeq = entry.nextSeq! + 1;
+  }
+
+  /** Exchanges a rewind took out: their numbers, and their turn records. */
+  private unnumber(projectId: string, entry: ArchiveData, removed: string[]): void {
+    if (!entry.seqs) return;
+    const gone: number[] = [];
+    for (const id of removed) {
+      const n = entry.seqs[id];
+      if (n === undefined) continue;
+      gone.push(n);
+      delete entry.seqs[id];
+    }
+    if (gone.length) removeTurnRecords(projectId, gone);
+  }
+
+  /** An exchange's number in its chat, by its prompt's event id —
+   *  undefined once it is gone (a rewind, the history's cap). */
+  exchangeNo(projectId: string, turnId: string): number | undefined {
+    return this.numbered(projectId).seqs[turnId];
+  }
+
+  /** The prompt of the exchange numbered `n`, if it is still there. */
+  turnOfExchange(projectId: string, n: number): string | undefined {
+    const { seqs } = this.numbered(projectId);
+    for (const [id, at] of Object.entries(seqs)) if (at === n) return id;
+    return undefined;
+  }
+
+  /** Every exchange still in the chat, by its prompt's id, to its number. */
+  exchangeNumbers(projectId: string): Map<string, number> {
+    return new Map(Object.entries(this.numbered(projectId).seqs));
   }
 
   /** Whether a brief is waiting for the next prompt. */

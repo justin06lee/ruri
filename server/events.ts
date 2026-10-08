@@ -94,7 +94,7 @@ export function foldBrief(
   const held = gathering.get(project.id) ?? { turns: [], last: 0 };
   gathering.set(project.id, held);
   const chat = found.session.title ? ` (in the "${found.session.title}" chat)` : "";
-  const n = turn.turnId ? ctx.archive.turnIds(channelId).indexOf(turn.turnId) + 1 : 0;
+  const n = turn.turnId ? (ctx.archive.exchangeNo(channelId, turn.turnId) ?? 0) : 0;
   const tag = [n ? exchangeRef(channelId, n) : "", dayOf()].filter(Boolean).join(" · ");
   const changed = turn.files ?? [];
   const files = changed.length ? `\n\nFiles it changed: ${changed.slice(0, 30).join(", ")}` : "";

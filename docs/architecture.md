@@ -113,7 +113,7 @@ All app state sits under `~/.config/ruri` (move it wholesale with `RURI_CONFIG_D
 | `projects.json` | Projects and their sessions, workspace root, music dir, Home's model/mode, starred models, small-tasks model, default model |
 | `sessions/<sessionId>.json` | Transcript events since the newest compaction, per-turn recall notes, the chat's session on each harness and what each holds, pending compaction brief |
 | `history/<sessionId>.jsonl` | Every event before the newest compaction, one per line — capped at 16 MB, oldest exchanges dropped first |
-| `turns/<sessionId>/NNN.md` | Full per-exchange records and preserved attachment paths `/compact` leaves for the fresh session to Read |
+| `turns/<sessionId>/NNN.md` | Full per-exchange records and preserved attachment paths `/compact` leaves for the fresh session to Read. `NNN` is the exchange's own number in the chat (`SessionArchive.exchangeNo`), given as its prompt arrives and never moved — the same number a ref like `7a3637b4#16` names — so neither the history's cap nor a rewind renumbers a record; a rewind removes the records of the exchanges it took out |
 | `agents/<sessionId>/<key>.json` | What each subagent did — its brief, words and tools — for its card on the agents page; `@crew.json` beside them holds the agents you started yourself: their cards, and the session a follow-up resumes |
 | `tracker/<sessionId>.json` | Feature-tracker checklist |
 | `ideas/<projectId>.json` | The ideas board, each idea's pictures referenced from `uploads/` (the one being written waits in `drafts.json` under `idea:<projectId>`) |

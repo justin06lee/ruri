@@ -339,6 +339,7 @@ export const rewindHandlers = {
           ...(source.contextWindow !== undefined && source.contextWindowModel !== undefined
             ? { contextWindow: source.contextWindow, contextWindowModel: source.contextWindowModel }
             : {}),
+          seqs: ctx.archive.exchangeNumbers(channelId),
         });
         // the session forked is the one on the harness the chat is on now
         const harness = ctx.manager.harnessFor(project);

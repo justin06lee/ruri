@@ -23,6 +23,10 @@ const user = (text: string): TranscriptEvent =>
 const reply = (text: string): TranscriptEvent =>
   ({ kind: "assistant", id: `a${++n}`, text, ts: Date.now() }) as TranscriptEvent;
 
+/** Each prompt's number, by its place — as the archive numbers a chat. */
+const numbersOf = (events: TranscriptEvent[]) =>
+  new Map(events.filter((e) => e.kind === "user").map((e, i) => [e.id, i + 1]));
+
 let ctx: ServerContext;
 let briefs: BriefStore;
 beforeEach(() => {
@@ -46,6 +50,9 @@ beforeEach(() => {
       allEvents: () => events,
       summaries: () => ({}),
       turnIds: () => events.filter((e) => e.kind === "user").map((e) => e.id),
+      exchangeNumbers: () => numbersOf(events),
+      exchangeNo: (_chat: string, turn: string) => numbersOf(events).get(turn),
+      turnOfExchange: (_chat: string, n: number) => [...numbersOf(events)].find(([, at]) => at === n)?.[0],
     },
     briefs,
     clients: { broadcast: () => {} },

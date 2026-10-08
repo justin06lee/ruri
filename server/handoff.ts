@@ -76,6 +76,7 @@ export function briefContext(ctx: ServerContext, channelId: string): BriefContex
     ...(project
       ? { projectName: project.name, layers: (files: string[]) => layersBlock(ctx, project.id, files) }
       : {}),
+    numbers: ctx.archive.exchangeNumbers(channelId),
     ...(state ? { git: gitLines(state), facts: (text: string) => branchFacts(text, state) } : {}),
   };
 }
@@ -101,6 +102,7 @@ export function withRelevance(ctx: ServerContext, channelId: string, brief: stri
       ctx.archive.allEvents(channelId),
       ctx.archive.summaries(channelId),
       owner?.name,
+      ctx.archive.exchangeNumbers(channelId),
     );
     const memory = owner ? ctx.briefs.get(owner.id).memory : undefined;
     const lines = memory

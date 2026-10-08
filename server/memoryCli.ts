@@ -8,6 +8,7 @@ import { branchFacts, gitLines, gitState } from "./gitState.js";
 import { parseArgs, slugify } from "./library.js";
 import { addLine, allLines, dayOf, findLine, lineText, memoryEmpty, replaceLine } from "./memoryLines.js";
 import { isEdit, runIndexCommand, runLayerCommand } from "./sheetEdits.js";
+import { readTurnRecord } from "./turnRecords.js";
 import {
   exchangeLine,
   exchangesOf,
@@ -125,6 +126,7 @@ function projectExchanges(ctx: ServerContext, projectId: string): Array<Exchange
       ctx.archive.allEvents(session.id),
       ctx.archive.summaries(session.id),
       project.name,
+      ctx.archive.exchangeNumbers(session.id),
     ).map((ex) => ({ ...ex, title: session.title || "untitled" })),
   );
 }
@@ -375,12 +377,21 @@ export async function runMemoryCommand(
           ctx.archive.allEvents(chat),
           ctx.archive.summaries(chat),
           project.name,
+          ctx.archive.exchangeNumbers(chat),
         );
-        const ex = exchanges[n - 1];
-        if (!ex)
+        const ex = exchanges.find((e) => e.n === n);
+        if (!ex) {
+          // the history's cap dropped it, or a rewind took it: its turn
+          // record is what is left, when there is one
+          const record = readTurnRecord(chat, n);
+          if (record) return yes(`# ${exchangeRef(chat, n)} — from its turn record\n\n${record}`);
+          const top = exchanges.at(-1)?.n ?? 0;
           return no(
-            `that chat has ${exchanges.length} exchange${exchanges.length === 1 ? "" : "s"}, not ${n}`,
+            n > top
+              ? `that chat has ${top} exchange${top === 1 ? "" : "s"}, not ${n}`
+              : `exchange ${n} of that chat is gone — rewound away, or dropped from its history`,
           );
+        }
         const title = ctx.store.findSession(chat)?.session.title || "untitled";
         return yes(
           exchangeText(

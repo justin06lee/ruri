@@ -37,8 +37,8 @@ export function exchangeRef(chatId: string, n: number): string {
 export function sourceLabel(ctx: ServerContext, source: MemorySource): SourceLabel | undefined {
   const found = ctx.store.findSession(source.chat);
   if (!found) return undefined;
-  const n = ctx.archive.turnIds(source.chat).indexOf(source.turn) + 1;
-  if (n === 0) return undefined;
+  const n = ctx.archive.exchangeNo(source.chat, source.turn);
+  if (n === undefined) return undefined;
   return { ref: exchangeRef(source.chat, n), chat: found.session.title || "untitled", n };
 }
 
@@ -57,7 +57,7 @@ export function resolveRef(ctx: ServerContext, projectId: string, ref: string): 
   if (!match) return undefined;
   const chat = chatByPrefix(ctx, projectId, match[1]!);
   if (!chat) return undefined;
-  const turn = ctx.archive.turnIds(chat)[Number(match[2]) - 1];
+  const turn = ctx.archive.turnOfExchange(chat, Number(match[2]));
   return turn ? { chat, turn } : undefined;
 }
 

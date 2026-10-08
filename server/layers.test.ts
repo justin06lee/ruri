@@ -344,7 +344,14 @@ describe("a turn's sheets are the session's first", () => {
           findSession: (id: string) => (id === CHAT ? { project, session } : undefined),
           get: (id: string) => (id === "p" ? project : undefined),
         },
-        archive: { events: (): TranscriptEvent[] => [], summaries: () => ({}), turnIds: () => [] },
+        archive: {
+          events: (): TranscriptEvent[] => [],
+          summaries: () => ({}),
+          turnIds: () => [],
+          exchangeNo: () => undefined,
+          turnOfExchange: () => undefined,
+          exchangeNumbers: () => new Map(),
+        },
         briefs,
         clients: { broadcast: () => {} },
       } as unknown as ServerContext;
@@ -387,7 +394,14 @@ describe("a new file finds its layer", () => {
     const project = { id: "p", name: "demo", path: dir, sessions: [] };
     const ctx = {
       store: { get: (id: string) => (id === "p" ? project : undefined) },
-      archive: { events: (): TranscriptEvent[] => [], summaries: () => ({}), turnIds: () => [] },
+      archive: {
+        events: (): TranscriptEvent[] => [],
+        summaries: () => ({}),
+        turnIds: () => [],
+        exchangeNo: () => undefined,
+        turnOfExchange: () => undefined,
+        exchangeNumbers: () => new Map(),
+      },
       briefs,
       clients: { broadcast: () => {} },
     } as unknown as ServerContext;

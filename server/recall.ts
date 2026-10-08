@@ -36,20 +36,25 @@ export function projectRelative(file: string, projectName?: string): string {
   return projectName && file.startsWith(`${projectName}/`) ? file.slice(projectName.length + 1) : file;
 }
 
-/** A chat's exchanges, numbered as its history numbers them. */
+/** A chat's exchanges, each with its number in the chat — `numbers`
+ *  (SessionArchive.exchangeNumbers), or its place where none is given. */
 export function exchangesOf(
   chat: string,
   events: TranscriptEvent[],
   summaries: Record<string, TurnSummary>,
   projectName?: string,
+  numbers?: Map<string, number>,
 ): Exchange[] {
   const out: Exchange[] = [];
   let open: Exchange | null = null;
+  let last = 0;
   for (const event of events) {
     if (event.kind === "user") {
+      const n = numbers?.get(event.id) ?? last + 1;
+      last = Math.max(last, n);
       open = {
         chat,
-        n: out.length + 1,
+        n,
         turnId: event.id,
         ts: event.ts,
         user: event.text,

@@ -1,11 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { configPath } from "./configDir.js";
 import type { Attachment, CompactionDigest, CompactionEntry, TranscriptEvent } from "../shared/protocol.js";
 import type { TurnSummary } from "./archive.js";
 import { storedFilePath } from "./uploads.js";
 import { isMissing, warn } from "./log.js";
 import { projectRelative, rank, rankExchanges, type Exchange } from "./recall.js";
+import { turnRecordPath, turnsDir } from "./turnRecords.js";
 
 /**
  * ruri's own compaction, replacing the harness's built-in one. /compact
@@ -30,12 +30,11 @@ import { projectRelative, rank, rankExchanges, type Exchange } from "./recall.js
  * length (`relevantBlock`), the long-folded ones included.
  */
 
-function turnsDir(channelId: string): string {
-  return configPath("turns", channelId);
-}
-
 interface ArchivedTurn {
   turnId: string;
+  /** Its number in the chat (SessionArchive.exchangeNo): what the brief
+   *  lists it as, and its record's file name. */
+  n: number;
   user: string;
   attachments: Attachment[];
   assistant: string[];
@@ -49,18 +48,25 @@ interface ArchivedTurn {
 /** Group the flat event stream into prompt→result turns; compaction marks
  *  and pre-prompt stragglers don't make turns. `projectName` turns the
  *  diffs' "<project>/<path>" back into paths relative to the project;
- *  `summaries` carry what each turn's checkpoints say it changed. */
+ *  `summaries` carry what each turn's checkpoints say it changed;
+ *  `numbers` each exchange's number in the chat — without them, a turn is
+ *  numbered by its place. */
 function groupTurns(
   events: TranscriptEvent[],
   projectName?: string,
   summaries: Record<string, TurnSummary> = {},
+  numbers?: Map<string, number>,
 ): ArchivedTurn[] {
   const turns: ArchivedTurn[] = [];
   let open: ArchivedTurn | null = null;
+  let last = 0;
   for (const event of events) {
     if (event.kind === "user") {
+      const n = numbers?.get(event.id) ?? last + 1;
+      last = Math.max(last, n);
       open = {
         turnId: event.id,
+        n,
         user: event.text,
         attachments: event.attachments ?? [],
         assistant: [],
@@ -109,9 +115,9 @@ function attachmentLines(attachments: Attachment[]): string[] {
   ];
 }
 
-function turnFile(turn: ArchivedTurn, n: number): string {
+function turnFile(turn: ArchivedTurn): string {
   const parts = [
-    `# Exchange ${n} — ${new Date(turn.ts).toISOString()}`,
+    `# Exchange ${turn.n} — ${new Date(turn.ts).toISOString()}`,
     "",
     "## User",
     "",
@@ -128,21 +134,24 @@ function turnFile(turn: ArchivedTurn, n: number): string {
 function writeTurnFiles(channelId: string, turns: ArchivedTurn[]): string[] {
   const dir = turnsDir(channelId);
   fs.mkdirSync(dir, { recursive: true });
-  // records past the end are from exchanges that are gone (a rewind, the
-  // history's cap) — numbered as they were, and naming nothing now
+  // a record numbered past every exchange there is was left by a rewind
+  // from before rewinds took their records with them — it names nothing.
+  // One for an exchange the history's cap dropped stays: it is still that
+  // exchange, and the only whole record of it left.
+  const top = Math.max(0, ...turns.map((turn) => turn.n));
   try {
     for (const name of fs.readdirSync(dir)) {
-      if (/^\d+\.md$/.test(name) && Number.parseInt(name, 10) > turns.length)
+      if (/^\d+\.md$/.test(name) && Number.parseInt(name, 10) > top)
         fs.rmSync(path.join(dir, name), { force: true });
     }
   } catch (err) {
     if (!isMissing(err)) warn("compaction", err, "writeTurnFiles");
     // stale records only cost disk
   }
-  return turns.map((turn, i) => {
-    const file = path.join(dir, `${String(i + 1).padStart(3, "0")}.md`);
+  return turns.map((turn) => {
+    const file = turnRecordPath(channelId, turn.n);
     try {
-      fs.writeFileSync(file, turnFile(turn, i + 1));
+      fs.writeFileSync(file, turnFile(turn));
     } catch (err) {
       warn("compaction", err, "writeTurnFiles");
       // the notes still carry the gist; the hook just won't resolve
@@ -217,6 +226,7 @@ export function dueForDigest(turnIds: string[], digest: Digest | undefined): str
 /** What the folder reads and writes — the archive, in the app. */
 export interface DigestStore {
   turnIds(channelId: string): string[];
+  exchangeNumbers?(channelId: string): Map<string, number>;
   allEvents(channelId: string): TranscriptEvent[];
   summaries(channelId: string): Record<string, TurnSummary>;
   digest(channelId: string): Digest | undefined;
@@ -258,9 +268,12 @@ export class DigestFolder {
         if (due.length === 0) return;
         const wanted = new Set(due);
         const summaries = this.store.summaries(channelId);
-        const exchanges = groupTurns(this.store.allEvents(channelId)).flatMap((turn, i) =>
-          wanted.has(turn.turnId) ? [{ n: i + 1, ...notesOf(turn, summaries) }] : [],
-        );
+        const exchanges = groupTurns(
+          this.store.allEvents(channelId),
+          undefined,
+          summaries,
+          this.store.exchangeNumbers?.(channelId),
+        ).flatMap((turn) => (wanted.has(turn.turnId) ? [{ n: turn.n, ...notesOf(turn, summaries) }] : []));
         const text = await this.fold(digest?.text ?? "", exchanges);
         if (!text) return;
         const through = due[due.length - 1]!;
@@ -310,6 +323,9 @@ export interface BriefContext {
    *  it — what they are, how to read each, and what sessions learned there.
    *  Absent, or nothing back, for a project without layer sheets. */
   layers?: (files: string[]) => string;
+  /** Each exchange's number in the chat, by its prompt's id
+   *  (SessionArchive.exchangeNumbers) — what the brief lists it as. */
+  numbers?: Map<string, number>;
 }
 
 /** A text cut to `max`, from the middle: the opening kept, and the close —
@@ -342,20 +358,14 @@ function changed(turns: ArchivedTurn[], max = 25): string {
 
 /** An older exchange in the list: the user's words as they wrote them,
  *  the reply as its note. */
-function listed(turn: ArchivedTurn, n: number, reply: string, file: string): string {
-  return `${n}. user wrote:\n${quoted(cut(turn.user, LISTED_USER_CHARS))}\n   you: ${reply}\n   full: ${file}`;
+function listed(turn: ArchivedTurn, reply: string, file: string): string {
+  return `${turn.n}. user wrote:\n${quoted(cut(turn.user, LISTED_USER_CHARS))}\n   you: ${reply}\n   full: ${file}`;
 }
 
 /** An exchange at length: the user's words as they wrote them, the close of
  *  the reply, what it changed, and where the whole of it is. */
-function atLength(
-  turn: ArchivedTurn,
-  n: number,
-  file: string,
-  userChars: number,
-  replyChars: number,
-): string {
-  const lines = [`${n}. user wrote:`, quoted(cut(turn.user, userChars))];
+function atLength(turn: ArchivedTurn, file: string, userChars: number, replyChars: number): string {
+  const lines = [`${turn.n}. user wrote:`, quoted(cut(turn.user, userChars))];
   const reply = turn.assistant.join("\n\n").trim();
   lines.push(
     "   you replied (its close, where it's long):",
@@ -383,7 +393,7 @@ export function buildCompaction(
   digest?: Digest,
   context: BriefContext = {},
 ): { brief: string; entries: CompactionEntry[]; digest?: CompactionDigest } | null {
-  const turns = groupTurns(events, context.projectName, summaries);
+  const turns = groupTurns(events, context.projectName, summaries, context.numbers);
   if (turns.length === 0) return null;
   const files = writeTurnFiles(channelId, turns);
   const end = digestEnd(
@@ -397,15 +407,13 @@ export function buildCompaction(
   turns.slice(end).forEach((turn, k) => {
     const i = end + k;
     const { user, reply } = notesOf(turn, summaries);
-    entries.push({ user, reply, n: i + 1 });
+    entries.push({ user, reply, n: turn.n });
     if (i < recentFrom) {
-      lines.push(listed(turn, i + 1, reply, files[i]!));
+      lines.push(listed(turn, reply, files[i]!));
       return;
     }
     const rank = turns.length - 1 - i;
-    recent.push(
-      atLength(turn, i + 1, files[i]!, RECENT_USER_CHARS[rank] ?? 2000, RECENT_REPLY_CHARS[rank] ?? 1500),
-    );
+    recent.push(atLength(turn, files[i]!, RECENT_USER_CHARS[rank] ?? 2000, RECENT_REPLY_CHARS[rank] ?? 1500));
   });
 
   const state: string[] = [];
@@ -427,7 +435,7 @@ export function buildCompaction(
   const condensed = digest
     ? "<condensed>\n" +
       (end > 0
-        ? `Exchanges 1–${end}, condensed. Their full records are files 001.md to ${String(end).padStart(3, "0")}.md in ${path.dirname(files[0]!)} — read one whenever this memory is not detail enough.\n\n`
+        ? `Exchanges ${turns[0]!.n}–${turns[end - 1]!.n}, condensed. Their full records are files ${path.basename(files[0]!)} to ${path.basename(files[end - 1]!)} in ${path.dirname(files[0]!)} — read one whenever this memory is not detail enough.\n\n`
         : "The conversation's earliest exchanges, condensed (their full records are no longer kept).\n\n") +
       digest.text.trim() +
       "\n</condensed>\n\n"
@@ -473,7 +481,7 @@ export function buildCatchUp(
   since: string,
   context: BriefContext = {},
 ): string | null {
-  const turns = groupTurns(events, context.projectName, summaries);
+  const turns = groupTurns(events, context.projectName, summaries, context.numbers);
   const at = turns.findIndex((turn) => turn.turnId === since);
   const first = at + 1;
   if (at === -1 || first >= turns.length) return null;
@@ -486,17 +494,15 @@ export function buildCatchUp(
   for (let i = listedFrom; i < turns.length; i++) {
     const turn = turns[i]!;
     if (i < recentFrom) {
-      lines.push(listed(turn, i + 1, notesOf(turn, summaries).reply, files[i]!));
+      lines.push(listed(turn, notesOf(turn, summaries).reply, files[i]!));
       continue;
     }
     const rank = turns.length - 1 - i;
-    recent.push(
-      atLength(turn, i + 1, files[i]!, RECENT_USER_CHARS[rank] ?? 2000, RECENT_REPLY_CHARS[rank] ?? 1500),
-    );
+    recent.push(atLength(turn, files[i]!, RECENT_USER_CHARS[rank] ?? 2000, RECENT_REPLY_CHARS[rank] ?? 1500));
   }
   const skipped =
     listedFrom > first
-      ? `Exchanges ${first + 1}–${listedFrom} happened too, and aren't listed here; their full records are files ${String(first + 1).padStart(3, "0")}.md to ${String(listedFrom).padStart(3, "0")}.md in ${path.dirname(files[0]!)}.\n\n`
+      ? `Exchanges ${turns[first]!.n}–${turns[listedFrom - 1]!.n} happened too, and aren't listed here; their full records are files ${path.basename(files[first]!)} to ${path.basename(files[listedFrom - 1]!)} in ${path.dirname(files[0]!)}.\n\n`
       : "";
   const state: string[] = [];
   for (const line of context.git ?? []) state.push(`- ${line}`);
@@ -549,7 +555,6 @@ export function relevantBlock(
     .slice(0, RELEVANT_EXCHANGES);
   const lines = rank(memory, prompt, (line) => [[line.text, 1]], { limit: RELEVANT_LINES });
   if (picked.length === 0 && lines.length === 0) return "";
-  const dir = turnsDir(channelId);
   const parts = ["<relevant>"];
   if (picked.length) {
     parts.push(
@@ -558,7 +563,7 @@ export function relevantBlock(
       ...picked
         .sort((a, b) => a.item.n - b.item.n)
         .map(({ item }) => {
-          const file = path.join(dir, `${String(item.n).padStart(3, "0")}.md`);
+          const file = turnRecordPath(item.chat, item.n);
           const text = [`${item.n}. user wrote:`, quoted(cut(item.user, 1500))];
           text.push(
             "   you replied:",
@@ -604,7 +609,7 @@ export function refreshArchivedTurnFiles(channelId: string, events: () => Transc
   }
   for (const name of files) {
     const n = Number.parseInt(name, 10);
-    const turn = turns[n - 1];
+    const turn = turns.find((t) => t.n === n);
     if (!turn) continue;
     const expected = turn.attachments.flatMap((attachment) =>
       attachment.url ? [JSON.stringify(storedFilePath(attachment.url))] : [],
@@ -614,7 +619,7 @@ export function refreshArchivedTurnFiles(channelId: string, events: () => Transc
     try {
       const current = fs.readFileSync(file, "utf8");
       if (expected.every((attachmentPath) => current.includes(attachmentPath))) continue;
-      fs.writeFileSync(file, turnFile(turn, n));
+      fs.writeFileSync(file, turnFile(turn));
     } catch (err) {
       if (!isMissing(err)) warn("compaction", err, "refreshArchivedTurnFiles");
       // best-effort migration; a future /compact gets another chance

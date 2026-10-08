@@ -50,21 +50,23 @@ export function memoryMaterial(ctx: ServerContext, projectId: string): string {
     if (turns.length === 0) return [];
     const notes = ctx.archive.summaries(session.id);
     const digest = ctx.archive.digest(session.id);
+    const numbers = ctx.archive.exchangeNumbers(session.id);
     const recent = turns.slice(-EXCHANGES_PER_CHAT);
     const start = turns.length - recent.length;
+    const no = (turnId: string) => numbers.get(turnId) ?? 0;
     const parts = [
       `=== CHAT: ${session.title || "untitled"} (its exchanges' refs start ${session.id.slice(0, 8)}; last at work ${day(recent.at(-1)!.ts)}) ===`,
     ];
     if (digest?.text && start > 0) parts.push(`Its earlier exchanges, condensed:\n${digest.text.trim()}`);
     parts.push(
       "Its exchanges, oldest first:",
-      ...recent.map(({ turn, ts }, i) => {
+      ...recent.map(({ turn, ts }) => {
         const note = notes[turn.turnId];
-        return `[${exchangeRef(session.id, start + i + 1)} · ${day(ts)}] user: ${note?.user?.trim() || squash(turn.user)}\n   agent: ${note?.reply?.trim() || squash(turn.assistant)}`;
+        return `[${exchangeRef(session.id, no(turn.turnId))} · ${day(ts)}] user: ${note?.user?.trim() || squash(turn.user)}\n   agent: ${note?.reply?.trim() || squash(turn.assistant)}`;
       }),
     );
     const full = recent
-      .map((entry, i) => ({ ...entry, n: start + i + 1 }))
+      .map((entry) => ({ ...entry, n: no(entry.turn.turnId) }))
       .slice(-FULL_REPLIES)
       .filter(({ turn }) => turn.assistant.trim());
     if (full.length) {

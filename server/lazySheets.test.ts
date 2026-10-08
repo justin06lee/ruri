@@ -62,7 +62,14 @@ function context(dir: string): ServerContext {
     briefs: new BriefStore(),
     clients: { broadcast: () => {} },
     catchingUp: new Set<string>(),
-    archive: { events: () => [], summaries: () => ({}), turnIds: () => [] },
+    archive: {
+      events: () => [],
+      summaries: () => ({}),
+      turnIds: () => [],
+      exchangeNo: () => undefined,
+      turnOfExchange: () => undefined,
+      exchangeNumbers: () => new Map(),
+    },
   } as unknown as ServerContext;
 }
 

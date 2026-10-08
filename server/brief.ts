@@ -271,7 +271,7 @@ export class BriefStore {
         const memory = readMemory(brief.memory);
         const map = mapOf(brief.map);
         const layerSheets = layerSheetsOf(brief.layerSheets);
-        const number = (key: "updated" | "built" | "remembered" | "recalled" | "readFiles") =>
+        const number = (key: "updated" | "built" | "remembered" | "recalled" | "readFiles" | "memorySeq") =>
           typeof brief[key] === "number" ? { [key]: brief[key] } : {};
         this.briefs.set(projectId, {
           description: typeof brief.description === "string" ? brief.description : "",
@@ -293,6 +293,7 @@ export class BriefStore {
           ...number("remembered"),
           ...number("recalled"),
           ...number("readFiles"),
+          ...number("memorySeq"),
         });
       }
     } catch (err) {
@@ -454,14 +455,14 @@ export class BriefStore {
     return out;
   }
 
-  /** Replace the working memory. `recalled`: it was written from the
-   *  chats' histories whole, rather than folded forward from a turn. */
-  remember(projectId: string, memory: ProjectMemory, recalled = false): ProjectBrief {
+  /** Replace the working memory — the current lines of its log, as of the
+   *  log's event `seq` (server/memoryLog.ts keeps the log and calls this). */
+  remember(projectId: string, memory: ProjectMemory, seq?: number): ProjectBrief {
     const brief: ProjectBrief = {
       ...this.get(projectId),
       memory,
       remembered: Date.now(),
-      ...(recalled ? { recalled: Date.now() } : {}),
+      ...(seq !== undefined ? { memorySeq: seq } : {}),
     };
     this.briefs.set(projectId, brief);
     this.save();

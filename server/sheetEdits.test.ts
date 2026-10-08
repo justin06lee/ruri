@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { LayerSheet, StackLayer, TranscriptEvent } from "../shared/protocol.js";
 import { BriefStore } from "./brief.js";
+import { MemoryBook } from "./memoryLog.js";
 import type { ServerContext } from "./context.js";
 import { runMemoryCommand } from "./memoryCli.js";
 import { editedSince, forgetReads, noteToolRead } from "./sheetEdits.js";
@@ -82,6 +83,7 @@ beforeEach(() => {
     },
     checkpoints: { changedSince: async () => changed },
     briefs,
+    memory: new MemoryBook(briefs),
     clients: { broadcast: () => {} },
   } as unknown as ServerContext;
   forgetReads(ME);

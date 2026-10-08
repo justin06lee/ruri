@@ -25,7 +25,8 @@ import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
 import { warn } from "./log.js";
 import { rebuildMemory } from "./memory.js";
-import { dayOf, rebase } from "./memoryLines.js";
+import { dayOf, foldChanges } from "./memoryLines.js";
+import { MemoryBook } from "./memoryLog.js";
 import { projectRelative } from "./recall.js";
 import { layerCandidate } from "./sweep.js";
 import { noteSummary } from "./notes.js";
@@ -153,11 +154,11 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
   )
     .then((folded) => {
       if (!folded) return;
-      const live = ctx.briefs.get(project.id).memory;
-      const memory = rebase(folded, before, live);
-      if (JSON.stringify(memory) === JSON.stringify(live)) return;
-      ctx.briefs.remember(project.id, memory);
-      pushSheet(ctx, project.id);
+      const { events } = ctx.memory.apply(project.id, foldChanges(before, folded), {
+        by: "model",
+        fold: MemoryBook.foldId(),
+      });
+      if (events.length) pushSheet(ctx, project.id);
     })
     .catch(() => {});
 }

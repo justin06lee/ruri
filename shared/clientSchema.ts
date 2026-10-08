@@ -255,7 +255,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     ...projectId,
     part: memoryPart,
     lineId: id,
-    action: z.enum(["pin", "unpin", "remove"]),
+    action: z.enum(["pin", "unpin", "remove", "restore", "confirm"]),
   }),
   z.object({
     type: z.literal("memory_write"),

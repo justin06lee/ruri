@@ -1,4 +1,12 @@
-import type { MemoryLine, MemoryPart, MemorySource, ProjectMemory } from "../shared/protocol.js";
+import type {
+  MemoryAnchors,
+  MemoryCheck,
+  MemoryLine,
+  MemoryPart,
+  MemorySource,
+  ProjectMemory,
+} from "../shared/protocol.js";
+import type { MemoryChange } from "./memoryLog.js";
 
 /**
  * The working memory as lines that each know when they were learned, where
@@ -95,12 +103,23 @@ export function allLines(memory: ProjectMemory): Array<{ part: MemoryPart; line:
 const str = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
 
+/** The day an older line carried on its end in brackets — "… (2026-09-22)",
+ *  and as often "… (2026-09-22)." with the sentence's full stop after it,
+ *  which the first reader of these missed, leaving 38 lines undated with
+ *  the date still in their words. */
+const TRAILING_DAY = /\s*\((\d{4}-\d{2}-\d{2})\)[.;,]?\s*$/;
+
+/** A line's words with a trailing day taken off, and the day. */
+export function splitDay(raw: string): { text: string; date?: string } {
+  const dated = TRAILING_DAY.exec(raw);
+  return dated ? { text: raw.slice(0, dated.index).trim(), date: dated[1]! } : { text: raw.trim() };
+}
+
 /** A line from an older ruri, which kept each as a string with the date on
  *  the end in brackets. */
 function fromString(part: MemoryPart, raw: string, taken: Set<string>): MemoryLine {
-  const dated = /\s*\((\d{4}-\d{2}-\d{2})\)\s*$/.exec(raw);
-  const text = (dated ? raw.slice(0, dated.index) : raw).trim();
-  return { id: newLineId(part, taken), text, ...(dated ? { date: dated[1]! } : {}), by: "model" };
+  const { text, date } = splitDay(raw);
+  return { id: newLineId(part, taken), text, ...(date ? { date } : {}), by: "model" };
 }
 
 function fromObject(
@@ -108,14 +127,18 @@ function fromObject(
   value: Record<string, unknown>,
   taken: Set<string>,
 ): MemoryLine | undefined {
-  const text = str(value["text"]);
-  if (!text) return undefined;
+  const raw = str(value["text"]);
+  if (!raw) return undefined;
+  // a line brought over from the strings kept its day in its words
+  const split = str(value["date"]) ? { text: raw } : splitDay(raw);
+  const text = split.text || raw;
   const by = value["by"] === "agent" || value["by"] === "user" ? value["by"] : "model";
   const wanted = str(value["id"]);
   const id = wanted && !taken.has(wanted) ? (taken.add(wanted), wanted) : newLineId(part, taken);
   const source = value["source"] as Partial<MemorySource> | undefined;
   const why = str(value["why"]);
-  const date = str(value["date"]);
+  const date = str(value["date"]) ?? split.date;
+  const check = value["check"] as Partial<MemoryCheck> | undefined;
   return {
     id,
     text,
@@ -127,6 +150,14 @@ function fromObject(
       : {}),
     ...(value["pinned"] === true ? { pinned: true } : {}),
     ...(part !== "now" && str(value["layer"]) ? { layer: str(value["layer"])! } : {}),
+    ...(typeof value["validFrom"] === "number" ? { validFrom: value["validFrom"] } : {}),
+    ...(value["anchors"] && typeof value["anchors"] === "object"
+      ? { anchors: value["anchors"] as MemoryAnchors }
+      : {}),
+    ...(check && typeof check.reason === "string" && typeof check.since === "number"
+      ? { check: { reason: check.reason, since: check.since } }
+      : {}),
+    ...(value["quarantined"] === true ? { quarantined: true } : {}),
   };
 }
 
@@ -372,4 +403,41 @@ export function rebase(
     out = present.has(id) ? replaceLine(out, id, line) : { ...out, [part]: [...out[part], line] };
   }
   return out;
+}
+
+/**
+ * A whole memory the model wrote, as the changes it makes to the memory it
+ * was given: its new lines added, the lines of its own it reworded or moved
+ * edited. A line it left out is kept — leaving one out is no way to take
+ * it out of a log.
+ */
+export function foldChanges(before: ProjectMemory, after: ProjectMemory): MemoryChange[] {
+  const was = new Map(allLines(before).map(({ part, line }) => [line.id, { part, line }]));
+  const changes: MemoryChange[] = [];
+  for (const { part, line } of allLines(after)) {
+    const old = was.get(line.id);
+    if (!old) {
+      changes.push({
+        op: "add",
+        part,
+        text: line.text,
+        ...(line.why ? { why: line.why } : {}),
+        ...(line.layer ? { layer: line.layer } : {}),
+        ...(line.source ? { source: line.source } : {}),
+      });
+      continue;
+    }
+    if (old.line.by !== "model" || old.line.pinned) continue;
+    const moved = old.part !== part || (old.line.layer ?? "") !== (line.layer ?? "");
+    const reworded = old.line.text !== line.text || (old.line.why ?? "") !== (line.why ?? "");
+    if (!moved && !reworded) continue;
+    changes.push({
+      op: "edit",
+      line: line.id,
+      ...(reworded ? { text: line.text, why: line.why ?? null } : {}),
+      ...(old.part !== part ? { part } : {}),
+      ...(moved ? { layer: line.layer ?? null } : {}),
+    });
+  }
+  return changes;
 }

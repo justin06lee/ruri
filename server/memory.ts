@@ -19,7 +19,8 @@
 import type { ProjectMemory } from "../shared/protocol.js";
 import { assembleTurns, endsIntact, foldMemory, smallModelEnabled } from "./smallmodel.js";
 import { exchangeRef, memoryStack, pushSheet, resolveRef } from "./catchupBrief.js";
-import { dayOf, MEMORY_PARTS, rebase } from "./memoryLines.js";
+import { dayOf, foldChanges, MEMORY_PARTS } from "./memoryLines.js";
+import { MemoryBook } from "./memoryLog.js";
 import type { ServerContext } from "./context.js";
 import { warn } from "./log.js";
 
@@ -131,13 +132,15 @@ export async function rebuildMemory(ctx: ServerContext, projectId: string): Prom
       (ref) => resolveRef(ctx, projectId, ref),
       memoryStack(ctx, projectId),
     );
-    const memory = folded && rebase(folded, before, keptThroughRewrite(ctx.briefs.get(projectId).memory));
-    if (!memory) {
+    if (!folded) {
       recallNote(ctx, projectId, false, "the memory could not be written — try again");
       return;
     }
-    ctx.briefs.remember(projectId, memory, true);
-    pushSheet(ctx, projectId);
+    const { events } = ctx.memory.apply(projectId, foldChanges(before ?? folded, folded), {
+      by: "model",
+      fold: MemoryBook.foldId(),
+    });
+    if (events.length) pushSheet(ctx, projectId);
     recallNote(ctx, projectId, false, "written from the chats");
   } catch (err) {
     warn("memory", err, "rebuildMemory");

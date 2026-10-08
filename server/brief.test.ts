@@ -81,7 +81,7 @@ describe("the sheet", () => {
       },
       true,
     );
-    store.remember("p", memory, true);
+    store.remember("p", memory, 7);
     // a change is written a moment later; a quit flushes it
     store.flush();
     const again = new BriefStore().get("p");
@@ -89,7 +89,7 @@ describe("the sheet", () => {
     expect(again.flows?.[0]?.steps).toEqual(["composer", "WebSocket", "server"]);
     expect(again.memory).toEqual(memory);
     expect(typeof again.built).toBe("number");
-    expect(typeof again.recalled).toBe("number");
+    expect(again.memorySeq).toBe(7);
     // a fold of the shape leaves the memory alone, and the memory the shape
     store.write("p", { description: "Still a desktop app.", features: ["Parallel sessions"] });
     expect(store.get("p").memory).toEqual(memory);
@@ -313,6 +313,8 @@ describe("the memory's reading of the chats", () => {
         summaries: (id: string) =>
           id === "old" ? { [firstOld]: { user: "band hover", reply: "polling failed: battery" } } : {},
         digest: () => undefined,
+        exchangeNumbers: (id: string) =>
+          new Map((events[id] ?? []).filter((e) => e.kind === "user").map((e, i) => [e.id, i + 1])),
       },
     } as unknown as ServerContext;
     const text = memoryMaterial(ctx, "p");

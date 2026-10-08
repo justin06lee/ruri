@@ -447,6 +447,44 @@ export interface MemoryLine {
    *  (`ruri layer <slug>`) rather than by every session in catchup.md.
    *  Absent: it holds across the project. */
   layer?: string;
+  /** When it came to hold, in ms: when it was added, or when it replaced
+   *  the line it superseded. Its `date` is the same day, as a person says it. */
+  validFrom?: number;
+  /** What it rests on in the code, read when it was written or last
+   *  checked — so a change under it is noticed (server/grounding.ts). */
+  anchors?: MemoryAnchors;
+  /** Something it rests on changed since it was written: it may no longer
+   *  hold, and says so wherever it is shown, until it is checked again. */
+  check?: MemoryCheck;
+  /** Gathered from a turn that read web pages or an outside tool's output:
+   *  kept out of what sessions read until someone confirms it, since text
+   *  from outside can be written to plant a "memory". */
+  quarantined?: boolean;
+}
+
+/** Why a line may no longer hold, and since when (ms). */
+export interface MemoryCheck {
+  reason: string;
+  since: number;
+}
+
+/**
+ * What a memory line rests on, as found when it was written or last
+ * checked: the commit, and each thing it names that the code can confirm —
+ * a file, a symbol, a package's version, a branch, a word the project uses
+ * for itself, a value set in a file. A later check compares each with what
+ * is there now.
+ */
+export interface MemoryAnchors {
+  /** HEAD, short, when they were read. */
+  sha?: string;
+  at: number;
+  paths?: Array<{ path: string; exists: boolean }>;
+  symbols?: Array<{ name: string; found: boolean }>;
+  packages?: Array<{ name: string; spec?: string; file?: string }>;
+  branches?: Array<{ name: string; state: "unmerged" | "merged" | "gone" | "mainline" }>;
+  terms?: Array<{ term: string; present: boolean }>;
+  values?: Array<{ name: string; value: string; file?: string }>;
 }
 
 /**
@@ -547,6 +585,10 @@ export interface ProjectSheet {
   readFiles?: number;
   /** When the memory last changed. */
   remembered?: number;
+  /** The last event of the memory's log (server/memoryLog.ts) that `memory`
+   *  shows — how a launch tells a view left behind by a crash (behind the
+   *  log) from one an older ruri rewrote (no number at all). */
+  memorySeq?: number;
   /** When the memory was last written from the chats' histories whole. */
   recalled?: number;
 }
@@ -1612,13 +1654,14 @@ export type ClientMessage =
    *  write its sheet — answered with `catchup` as it goes, then `sheet`. */
   | { type: "layer_sheet_write"; projectId: string; slug: string }
   /** The user correcting the memory on the page: pin a line so nothing
-   *  rewrites it, unpin it, or strike it. */
+   *  rewrites it, unpin it, strike it, bring back one that left the memory,
+   *  or confirm one gathered from outside content. */
   | {
       type: "memory_line";
       projectId: string;
       part: MemoryPart;
       lineId: string;
-      action: "pin" | "unpin" | "remove";
+      action: "pin" | "unpin" | "remove" | "restore" | "confirm";
     }
   /** The user's own line: a correction of `lineId`, or a new one. The
    *  user's lines are pinned. */

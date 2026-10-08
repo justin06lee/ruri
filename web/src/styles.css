@@ -5189,6 +5189,17 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-faint);
 }
 
+/* what a check found on a line, said after it, quietly */
+.arch-notes .arch-note-check {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+/* a line from outside content, waiting for someone to confirm it */
+.arch-notes .arch-note-held {
+  opacity: 0.6;
+}
+
 .arch-layer-name {
   font-weight: 700;
 }

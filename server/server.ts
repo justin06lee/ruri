@@ -57,7 +57,8 @@ import { Retries } from "./retry.js";
 import { createHttpServer, createRequestHandler } from "./routes.js";
 import { SecretStore } from "./secrets.js";
 import { Sharing } from "./sharing.js";
-import { digestHistory, setMemoryModel, setSmallModel } from "./smallmodel.js";
+import { foldDigest } from "./digestFold.js";
+import { setMemoryModel, setSmallModel } from "./smallmodel.js";
 import { createSocketServer } from "./socket.js";
 import { TalkBook } from "./talk.js";
 import { Terminals } from "./terminal.js";
@@ -164,7 +165,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         clients.broadcast({ type: "terminal_exit", projectId, termId, note });
       },
     }),
-    digests: new DigestFolder(archive, digestHistory),
+    digests: new DigestFolder(archive, (digest, exchanges) => foldDigest(digest, exchanges)),
     clients,
     readable: new ReadableImages((channelId) => ownerProject(ctx, channelId)?.path),
     turns: new Turns(clients.toViewers),

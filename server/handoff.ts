@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { MemoryPart, TranscriptEvent } from "../shared/protocol.js";
 import { layerNotes, layerOfFile, layered } from "./brief.js";
 import { memoryLineText } from "./brief.js";
@@ -8,13 +10,14 @@ import { harnessOfSession } from "./archive.js";
 import { channelProject, ownerProject } from "./channel.js";
 import {
   BRIEF_RECENT,
+  buildAfterCompaction,
   buildCatchUp,
   buildCompaction,
   relevantBlock,
   type BriefContext,
 } from "./compaction.js";
 import type { ServerContext } from "./context.js";
-import { branchFacts, gitLines, gitStateSync } from "./gitState.js";
+import { branchFacts, gitLines, gitStateSync, type GitState } from "./gitState.js";
 import { warn } from "./log.js";
 import { allLines, lineText } from "./memoryLines.js";
 import type { MemoryEvent } from "./memoryLog.js";
@@ -23,6 +26,7 @@ import { cachedMeaning, candidatesOf } from "./projectSearch.js";
 import { BRIEF_FLOOR, hybrid } from "./retrieval.js";
 import { claudeSessionGone, claudeSessionHas } from "./recent.js";
 import type { LostPrompt } from "./sessions.js";
+import { restoreContext } from "./turns.js";
 
 /**
  * What the app adds to a compaction brief that the transcript alone can't
@@ -75,6 +79,31 @@ export function layersBlock(ctx: ServerContext, projectId: string, files: string
   return out.join("\n");
 }
 
+/**
+ * How each of these files stands now, as the brief says it beside the
+ * exchanges that changed it: "uncommitted", "new, uncommitted", "deleted"
+ * — or nothing, committed and unchanged since. From git's status, which
+ * the brief has read already, and the disk.
+ */
+function standingOf(dir: string, files: string[], state: GitState | undefined): Map<string, string> {
+  const dirty = new Map<string, string>();
+  for (const line of state?.dirty ?? []) {
+    const code = line.slice(0, 2);
+    const file = line.slice(3).replace(/^"|"$/g, "").split(" -> ").at(-1)!;
+    dirty.set(
+      file,
+      code.includes("?") ? "new, uncommitted" : code.includes("D") ? "deleted, uncommitted" : "uncommitted",
+    );
+  }
+  const out = new Map<string, string>();
+  for (const file of files) {
+    const known = dirty.get(file);
+    if (known) out.set(file, known);
+    else if (!fs.existsSync(path.join(dir, file))) out.set(file, "deleted");
+  }
+  return out;
+}
+
 /** Git's account, read now. Blocking, and meant to be: the brief must be
  *  whole before the next prompt can take it, and git answers in
  *  milliseconds. */
@@ -82,6 +111,7 @@ export function briefContext(ctx: ServerContext, channelId: string): BriefContex
   const project = ownerProject(ctx, channelId);
   const state = project ? gitStateSync(project.path) : undefined;
   return {
+    ...(project ? { standing: (files: string[]) => standingOf(project.path, files, state) } : {}),
     ...(project
       ? { projectName: project.name, layers: (files: string[]) => layersBlock(ctx, project.id, files) }
       : {}),
@@ -281,6 +311,53 @@ export function catchUp(
     harness,
     brief: missedBrief(ctx, channelId, had.seen, current) + memoryUpdate(ctx, channelId, harness),
   };
+}
+
+/* ── Claude's own compaction ───────────────────────────────────────── */
+
+/**
+ * What a session that Claude Code compacted on its own is handed as it
+ * starts again (SessionExtras.afterCompact). It no longer holds what it
+ * read — the summary does not keep a sheet word for word — so the sheets
+ * it read count as unread again, and it can't edit one on the strength of
+ * a read it no longer has. ruri's own /compact starts a fresh session and
+ * says the same; this is the compaction ruri didn't run.
+ */
+export function afterCompactBrief(ctx: ServerContext, channelId: string): string {
+  forgetReads(channelId);
+  try {
+    return buildAfterCompaction(
+      channelId,
+      ctx.archive.allEvents(channelId),
+      ctx.archive.summaries(channelId),
+      briefContext(ctx, channelId),
+    );
+  } catch (err) {
+    warn("compaction", err, "afterCompactBrief");
+    return "";
+  }
+}
+
+/** Claude Code compacted a chat on its own: the transcript says so, the
+ *  gauge reads what is left, and what the session read is unread. */
+export function noteSelfCompaction(
+  ctx: ServerContext,
+  channelId: string,
+  info: { trigger: "manual" | "auto"; preTokens?: number; postTokens?: number },
+): void {
+  forgetReads(channelId);
+  const k = (n: number) => `${Math.round(n / 1000)}k`;
+  const size =
+    info.preTokens && info.postTokens ? ` (${k(info.preTokens)} → ${k(info.postTokens)} tokens)` : "";
+  const event: TranscriptEvent = {
+    kind: "info",
+    id: randomUUID(),
+    text: `Claude compacted this conversation on its own${size}; ruri handed it back the repo's state, the layers and your last prompts word for word`,
+    ts: Date.now(),
+  };
+  ctx.archive.append(channelId, event);
+  ctx.clients.pushEvent(channelId, event);
+  if (info.postTokens) restoreContext(ctx, channelId, info.postTokens);
 }
 
 /* ── the memory, as it changes under a running session ─────────────── */

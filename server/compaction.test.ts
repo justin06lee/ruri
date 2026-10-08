@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { TranscriptEvent } from "../shared/protocol.js";
-import { BRIEF_RECENT, buildCompaction, relevantBlock } from "./compaction.js";
+import { BRIEF_RECENT, buildAfterCompaction, buildCompaction, relevantBlock } from "./compaction.js";
 import { exchangesOf } from "./recall.js";
 
 let saved: string | undefined;
@@ -66,7 +66,7 @@ describe("the compaction brief", () => {
     expect(brief.indexOf("<state>")).toBeLessThan(brief.indexOf("1. user wrote:"));
     expect(brief).toContain("- Branch: on master (abc1234)");
     expect(brief).toContain(
-      "- Files this conversation changed, those more exchanges worked on first: server/ledger.ts (in 5), src/components/PeekBand.tsx",
+      "- Files this conversation changed, those more exchanges worked on first (by the exchanges that changed them, and as they stand now): server/ledger.ts [2, 3 … 6]; src/components/PeekBand.tsx [1]",
     );
     expect(brief).toContain(
       "- Your last reply offered to do next: 1. merge feat/ledger 2. cut a release [git: feat/ledger is not merged yet]",
@@ -157,5 +157,61 @@ describe("the compaction brief", () => {
     expect(block).toContain("- didn't work: Polling the cursor for the peek band hover — cost battery");
     // nothing found, nothing added
     expect(relevantBlock("chat-3", { exchanges: [], lines: [] })).toBe("");
+  });
+});
+
+describe("a brief within its budget", () => {
+  test("each file it changed says how it stands now", () => {
+    const events = conversation(4);
+    const brief = buildCompaction("chat-7", events, {}, undefined, {
+      projectName: "web",
+      standing: (files) =>
+        new Map(
+          files.flatMap((f): Array<[string, string]> =>
+            f === "server/ledger.ts" ? [[f, "uncommitted"]] : [],
+          ),
+        ),
+    })!.brief;
+    expect(brief).toContain("server/ledger.ts [2, 3, 4] uncommitted; src/components/PeekBand.tsx [1]");
+  });
+
+  test("the state and the last exchanges always go; the oldest listed ones give way, named by their records", () => {
+    const events = conversation(60);
+    const whole = buildCompaction("chat-8", events, {})!.brief;
+    const tight = buildCompaction("chat-8", events, {}, undefined, { budget: 1200 })!.brief;
+    expect(tight.length).toBeLessThan(whole.length);
+    expect(tight.length).toBeLessThanOrEqual(1200 * 4 + 200);
+    expect(tight).toContain("<recent>");
+    expect(tight).toContain("60. user wrote:");
+    expect(tight).toMatch(
+      /Exchanges 1–\d+ aren't listed here, for room; their full records are files 001\.md to/,
+    );
+    // the newest listed ones are the ones kept
+    expect(tight).toContain("57. user wrote:");
+    expect(tight).not.toContain("\n1. user wrote:");
+  });
+});
+
+describe("after Claude compacted itself", () => {
+  test("the state, the layers and the last prompts word for word, the one in flight first", () => {
+    const events = conversation(8);
+    const text = buildAfterCompaction(
+      "chat-9",
+      events,
+      {},
+      {
+        git: ["Branch: on master (abc1234)"],
+        layers: () => "This conversation worked in these layers of the stack: ledger (1 file).",
+      },
+    );
+    expect(text).toStartWith("<ruri:after-compaction>");
+    expect(text).toContain("- Branch: on master (abc1234)");
+    expect(text).toContain("<layers>\nThis conversation worked in these layers");
+    expect(text).toContain(
+      '8. user wrote (the prompt you are working on now):\n"""\nstep 8: tidy the ledger totals\n"""',
+    );
+    expect(text.indexOf("8. user wrote")).toBeLessThan(text.indexOf("7. user wrote"));
+    expect(text).not.toContain("2. user wrote");
+    expect(text).toContain(path.join("turns", "chat-9"));
   });
 });

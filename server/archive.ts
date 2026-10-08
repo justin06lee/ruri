@@ -401,8 +401,20 @@ export class SessionArchive {
           ? { sessionIds: raw.sessionIds.filter((id) => typeof id === "string") }
           : {}),
         ...(typeof raw.pendingBrief === "string" ? { pendingBrief: raw.pendingBrief } : {}),
-        ...(raw.digest && typeof raw.digest.text === "string" && typeof raw.digest.through === "string"
-          ? { digest: { text: raw.digest.text, through: raw.digest.through } }
+        // a digest from before the sections kept only its text
+        ...(raw.digest && typeof raw.digest.through === "string"
+          ? {
+              digest: {
+                through: raw.digest.through,
+                ...(typeof raw.digest.text === "string" ? { text: raw.digest.text } : {}),
+                ...(raw.digest.sections && typeof raw.digest.sections === "object"
+                  ? { sections: raw.digest.sections }
+                  : {}),
+                ...(raw.digest.files && typeof raw.digest.files === "object"
+                  ? { files: raw.digest.files }
+                  : {}),
+              },
+            }
           : {}),
         ...(raw.chain && typeof raw.chain === "object" ? { chain: raw.chain } : {}),
         // an anchor from before they named their session is dropped: nothing

@@ -513,40 +513,6 @@ export function endsIntact(text: string, budget: number): string {
   return `${text.slice(0, head)}\n\n[…${text.length - budget} characters of the middle omitted…]\n\n${text.slice(-tail)}`;
 }
 
-const DIGEST_SYSTEM = `You keep the long-term memory of one long conversation between a user and a coding agent, so the agent can pick the work back up with only this memory and the most recent exchanges in front of it.
-
-You are given the memory as it stands (empty at first) and the next exchanges after it, oldest first, each as terse notes: "user:" what they asked for, "agent:" what came of it. Return the memory with those exchanges folded in.
-
-RULES
-- Keep what still matters later: what was built or shipped (keep version numbers, file, feature and command names); what was decided, WITH ITS REASON; what was tried and did not work, and why, so it is not tried again; the rules and preferences the user set for how to work; and whatever was asked for and is still unfinished or was put off.
-- Drop what later exchanges superseded, fixes that are simply done, and play-by-play. Merge repeats into one line.
-- Never invent anything; fold in only what the notes say.
-- Plain text: short lines, one fact each, under a few one-word headings ("Built:", "Decided:", "Failed:", "Rules:", "Open:"). No other markdown.
-- At most about 350 words. If it would run longer, merge harder and drop the least useful.
-- Your output is only ever the memory itself: never a remark about the task, never a question, never a refusal.`;
-
-/** An answer that talks about the job instead of doing it. */
-const DIGEST_REFUSAL =
-  /^(i (?:can'?t|cannot|need|don'?t)|sorry|please (?:provide|share)|there (?:is|are) no)/i;
-
-/**
- * Fold exchanges into a long conversation's condensed memory (the digest a
- * compaction brief opens with — server/compaction.ts). "" when the layer is
- * off or the model gave nothing usable: the digest then stays as it was, and
- * the exchanges stay listed until the next try.
- */
-export async function digestHistory(
-  memory: string,
-  exchanges: Array<{ n: number; user: string; reply: string }>,
-): Promise<string> {
-  if (!smallModelEnabled() || exchanges.length === 0) return "";
-  const prompt =
-    `MEMORY AS IT STANDS:\n${memory.trim() || "(empty)"}\n\n` +
-    `NEXT EXCHANGES:\n${exchanges.map((e) => `${e.n}. user: ${e.user}\n   agent: ${e.reply}`).join("\n")}`;
-  const text = (await complete(DIGEST_SYSTEM, prompt.slice(0, 24_000), 1200)).trim();
-  return text.length < 40 || DIGEST_REFUSAL.test(text) ? "" : text;
-}
-
 /* ── the project's shape: .ruri/architecture.md ─────────────────────── */
 
 type Layer = StackLayer;

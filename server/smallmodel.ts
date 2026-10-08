@@ -11,6 +11,7 @@ import type {
 import { DEFAULT_MEMORY_MODEL } from "../shared/protocol.js";
 import { configPath } from "./configDir.js";
 import { errorMessage, warn } from "./log.js";
+import { describeJob, placeholderJob, SECTION_MAX, SHEET_WORDS, withinBudget } from "./sheetBudget.js";
 
 /**
  * The "small model" behind turn summaries, session titles, prompt splitting,
@@ -837,11 +838,12 @@ ${material.slice(0, 60_000)}`;
 /* ── a layer's own sheet: .ruri/layers/<slug>.md ───────────────────── */
 
 const LAYER_SHEET_RULES = `- "summary": 2–4 sentences: what this layer does, how it is built, and the idea a newcomer must grasp before touching it.
-- "map": where to change what inside this layer — the things a session is most likely to be asked to change here (a feature, a screen, a mechanism), each {"name": what a person would call it, "files": the 1–4 files it lives in, most central first}. At most 12. This is the part a session with a task in hand reads first.
-- "flows": how work moves through this layer, each {"name", "steps"} with its parts in order, 3–8 steps. At most 3; an empty list when it has no path worth drawing.
-- "files": its key files, each "path — its job", at most 10, the most central first. E.g. "server/bridge.ts — the tools a session drives the hidden browser with".
-- "rules": the traps and rules of working in this layer — what breaks if you forget it, what must never be done here, the non-obvious invariant. Only what the material shows. At most 6; an empty list is fine.
-- "edges": the other layers it talks to and how, "layer name — how" (e.g. "Wire contract — every message it sends is typed in shared/protocol.ts"). At most 5.`;
+- "map": where to change what inside this layer — the things a session is most likely to be asked to change here (a feature, a screen, a mechanism), each {"name": what a person would call it, "files": the 1–4 files it lives in, most central first}. This is the part a session with a task in hand reads first.
+- "flows": how work moves through this layer, each {"name", "steps"} with its parts in order, 3–8 steps; an empty list when it has no path worth drawing.
+- "files": its key files, the most central first, each the path, " — ", and what that file does in a few words of your own, e.g. "server/bridge.ts — the tools a session drives the hidden browser with". Never the words "its job".
+- "rules": the traps and rules of working in this layer — what breaks if you forget it, what must never be done here, the non-obvious invariant. One rule a line, never two run together. Only what the material shows; an empty list is fine.
+- "edges": the other layers it talks to and how, "layer name — how" (e.g. "Wire contract — every message it sends is typed in shared/protocol.ts").
+No section has a fixed count: each takes the lines that earn their place, and the whole sheet stays under about ${SHEET_WORDS - 100} words, because a session reads all of it before it works.`;
 
 const LAYER_SYSTEM = `You write the architecture sheet for ONE layer of a software project, from a read of the files it owns. The project's whole stack is given so you know what lies around it.
 A session about to work in this layer reads this sheet — and only this sheet — to know where to go and what not to break. It has to be short and exact: every line earns its place. Say only what the material shows; never invent a file, a feature, or a rule. Every file you name must be one of the layer's files as listed.
@@ -866,20 +868,31 @@ RULES
 
 Reply as JSON and nothing else.`;
 
-/** A layer sheet as the model gave it, files checked against the project. */
+/** A layer sheet as the model gave it, files checked against the project,
+ *  within the sheet's budget of words (server/sheetBudget.ts). A key file
+ *  the model gave the format's own words for ("its job") says what the file
+ *  says it does, from its opening comment — or goes. */
 function parseLayerSheet(parsed: Record<string, unknown>, projectDir?: string): LayerSheet | null {
   const summary = typeof parsed["summary"] === "string" ? parsed["summary"].trim() : "";
-  const map = parseMap(parsed["map"], projectDir).slice(0, 12);
+  const map = parseMap(parsed["map"], projectDir);
   if (!summary && map.length === 0) return null;
-  return {
+  const files = lines(parsed["files"], SECTION_MAX).flatMap((raw) => {
+    // "path — what it is for: …" is the format echoed back, not a line
+    const line = raw.replace(/ — what it is for:\s*/i, " — ");
+    const at = line.indexOf(" — ");
+    if (at <= 0 || !placeholderJob(line.slice(at + 3))) return [line];
+    const file = line.slice(0, at).trim();
+    const job = projectDir ? describeJob(projectDir, file) : undefined;
+    return job ? [`${file} — ${job}`] : [];
+  });
+  return withinBudget({
     summary,
     map,
-    flows: parseFlows(parsed["flows"]).slice(0, 3),
-    // "path — what it is for: …" is the format echoed back, not a line
-    files: lines(parsed["files"], 10).map((line) => line.replace(/ — what it is for:\s*/i, " — ")),
-    rules: lines(parsed["rules"], 6),
-    edges: lines(parsed["edges"], 5),
-  };
+    flows: parseFlows(parsed["flows"]),
+    files,
+    rules: lines(parsed["rules"], SECTION_MAX),
+    edges: lines(parsed["edges"], SECTION_MAX),
+  });
 }
 
 /** Write one layer's sheet from a read of its files (see server/catchup.ts). */

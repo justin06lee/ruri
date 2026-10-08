@@ -22,8 +22,9 @@ import { warn } from "./log.js";
 import { allLines } from "./memoryLines.js";
 import { blankProject } from "./ruriDir.js";
 import type { MemoryStack } from "./memoryLines.js";
-import { smallModelEnabled } from "./smallmodel.js";
-import { layerCandidates } from "./sweep.js";
+import { describeJob, placeholderJob } from "./sheetBudget.js";
+import { objectIn, smallModelEnabled } from "./smallmodel.js";
+import { describeFile, layerCandidates } from "./sweep.js";
 
 /* ── where a line came from ────────────────────────────────────────── */
 
@@ -502,4 +503,76 @@ export async function dueRead(ctx: ServerContext, projectId: string): Promise<bo
 export function briefless(ctx: ServerContext, projectId: string): boolean {
   const brief = ctx.briefs.get(projectId);
   return !brief.description && brief.features.length === 0;
+}
+
+/* ── a sheet's lines that say nothing ─────────────────────────────── */
+
+const JOBS_SYSTEM = `You say what each source file of a project does, in a few words a newcomer can act on — "the chat pane: messages, the composer and the turn's progress", not "React component". You are given each file's path and its opening.
+
+Reply as JSON and nothing else: {"jobs": {"<path>": "<what it does, under 14 words>", ...}} — every path given.`;
+
+/**
+ * The key files a layer's sheet lists with no word on what they do — "its
+ * job", the format's own words, which an agent once wrote ten times into
+ * one sheet — given what each file says it does: its opening comment, or,
+ * for a file that opens with code, a line from the memory model reading
+ * its opening. A file nothing can be said of leaves the list. Answers how
+ * many lines were filled.
+ */
+export async function repairSheets(
+  ctx: ServerContext,
+  projectId: string,
+  ask?: (system: string, prompt: string, maxTokens: number) => Promise<string>,
+): Promise<number> {
+  const project = ctx.store.get(projectId);
+  if (!project) return 0;
+  let filled = 0;
+  for (const [slug, sheet] of Object.entries(ctx.briefs.get(projectId).layerSheets ?? {})) {
+    const holes = sheet.files.flatMap((line, i) => {
+      const at = line.indexOf(" — ");
+      const job = at > 0 ? line.slice(at + 3) : "";
+      return !job || placeholderJob(job) ? [{ i, file: (at > 0 ? line.slice(0, at) : line).trim() }] : [];
+    });
+    if (holes.length === 0) continue;
+    const jobs = new Map<string, string>();
+    for (const { file } of holes) {
+      const job = describeJob(project.path, file);
+      if (job) jobs.set(file, job);
+    }
+    const left = holes.filter(({ file }) => !jobs.has(file));
+    if (left.length && ask) {
+      const material = left
+        .flatMap(({ file }) => {
+          const head = describeFile(project.path, file, 1500)?.head;
+          return head ? [`=== ${file}\n${head}`] : [];
+        })
+        .join("\n\n");
+      try {
+        const parsed = material ? objectIn(await ask(JOBS_SYSTEM, material, 1200)) : undefined;
+        const said = parsed?.["jobs"];
+        if (said && typeof said === "object") {
+          for (const [file, job] of Object.entries(said as Record<string, unknown>)) {
+            if (typeof job === "string" && job.trim() && !placeholderJob(job))
+              jobs.set(file.trim(), job.trim());
+          }
+        }
+      } catch (err) {
+        warn("brief", err, "repairSheets");
+      }
+    }
+    const holed = new Map(holes.map((hole) => [hole.i, hole.file]));
+    const files = sheet.files.flatMap((line, i) => {
+      const file = holed.get(i);
+      if (file === undefined) return [line];
+      const job = jobs.get(file);
+      return job ? [`${file} — ${job}`] : [];
+    });
+    filled += holes.filter(({ file }) => jobs.has(file)).length;
+    // the user corrected the sheet meanwhile: theirs stands
+    if (ctx.briefs.get(projectId).layerSheets?.[slug] !== sheet) continue;
+    const { updated: _updated, stamp: _stamp, ...kept } = sheet;
+    ctx.briefs.writeLayer(projectId, slug, { ...kept, files }, { by: "model" });
+  }
+  if (filled) pushSheet(ctx, projectId);
+  return filled;
 }

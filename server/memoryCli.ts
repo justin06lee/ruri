@@ -7,7 +7,9 @@ import type { ServerContext } from "./context.js";
 import { branchFacts, gitLines, gitState } from "./gitState.js";
 import { parseArgs, slugify } from "./library.js";
 import { dayOf, lineText, memoryEmpty } from "./memoryLines.js";
-import type { LineRecord, MemoryEvent } from "./memoryLog.js";
+import { linesWith, type LineRecord, type MemoryEvent } from "./memoryLog.js";
+import { ASK_FROM, SAME_AT } from "./memoryFold.js";
+import { mostAlike } from "./similarity.js";
 import { checkMemory, withAnchors } from "./memoryCheck.js";
 import { isEdit, runIndexCommand, runLayerCommand } from "./sheetEdits.js";
 import { readTurnRecord } from "./turnRecords.js";
@@ -79,7 +81,10 @@ export const MEMORY_HELP = `and this project's memory — .ruri/catchup.md, whic
                                      write down what the next session will need: kind is decision,
                                      failed, worked, trap or open. What you learned, not what you built.
                                      A line about one layer is read with its sheet; without --layer it
-                                     goes to the layer this turn's changes are in, if they are in one
+                                     goes to the layer this turn's changes are in, if they are in one.
+                                     A line the memory already has is replaced by yours rather than
+                                     kept twice; one that might be is shown to you first —
+                                     --update <id> replaces that line, --new adds yours anyway
   ruri memory                        the memory as it stands, each line with its id and where it came from
   ruri forget <id> [--why "<why>"]   take out a line that is wrong, or done (not one of the user's); the
                                      log keeps it, with your reason
@@ -292,23 +297,71 @@ export async function runMemoryCommand(
         layer = dominantLayer(layers, await turnSoFar(ctx, channelId, project));
         guessed = !!layer;
       }
+      // a line the memory already has is said again, not added twice: one
+      // that plainly restates an agent's or the model's line takes its
+      // place; one that only might is put back to the agent to decide
+      const current = linesWith(ctx.memory.state(projectId)).filter((l) => !l.quarantined);
+      const target = args.flags.get("update")?.at(-1)?.trim();
+      let replace: LineRecord | undefined;
+      if (target) {
+        replace = current.find((l) => l.id.toLowerCase() === target.toLowerCase());
+        if (!replace)
+          return no(`ruri note --update ${target}: no current line ${target} — \`ruri memory\` lists them`);
+      } else if (!args.switches.has("new")) {
+        const [like] = mostAlike(`${text} ${why ?? ""}`, current, (l) => `${l.text} ${l.why ?? ""}`, {
+          limit: 1,
+          floor: ASK_FROM,
+        });
+        if (like && like.score >= SAME_AT && like.item.by !== "user" && !like.item.pinned)
+          replace = like.item;
+        else if (like) {
+          const owner =
+            like.item.by === "user" || like.item.pinned
+              ? "the user's"
+              : like.item.by === "agent"
+                ? "an agent's"
+                : "the model's";
+          return no(
+            `that may already be in the memory — ${like.item.id} (${like.item.part}, ${owner}): ${lineText(like.item)}\n` +
+              (like.item.by === "user" || like.item.pinned
+                ? "It is the user's line: if yours says something it doesn't, add it with --new."
+                : `If yours says the same thing better, replace it: ruri note ${kind} "${text}" --update ${like.item.id}. If it says something else, add it with --new.`),
+          );
+        }
+      }
+      const fields = {
+        text,
+        ...(why ? { why } : {}),
+        ...(turn ? { source: { chat: channelId, turn } } : {}),
+        ...(layer ? { layer } : {}),
+      };
       const result = ctx.memory.apply(
         projectId,
         await withAnchors(ctx, projectId, [
-          {
-            op: "add",
-            part,
-            text,
-            ...(why ? { why } : {}),
-            ...(turn ? { source: { chat: channelId, turn } } : {}),
-            ...(layer ? { layer } : {}),
-          },
+          replace
+            ? {
+                op: "supersede",
+                line: replace.id,
+                ...fields,
+                ...(replace.part !== part ? { part } : {}),
+                layer: layer ?? null,
+                reason: target
+                  ? "an agent's newer line, by its own say"
+                  : "said again by an agent, in its own words",
+                evidence: turn ? `${channelId.slice(0, 8)}'s turn` : "an agent's note",
+              }
+            : { op: "add", part, ...fields },
         ]),
         { by: "agent", chat: channelId },
       );
       const line = result.added[0];
       if (!line) return no(`ruri note: ${result.refused[0]?.reason ?? "the line could not be kept"}`);
       pushSheet(ctx, projectId);
+      if (replace) {
+        return yes(
+          `${replace.id} said that already (${lineText(replace)}) — it is ${line.id} now, in your words: ${lineText(line)}. The log keeps the old one (ruri memory log ${replace.id}).`,
+        );
+      }
       const missingWhy = !why && (part === "decisions" || part === "failed");
       const where = layer
         ? ` with the ${layer} layer${guessed ? ` (where this turn's changes are — if it holds across the project, ruri forget ${line.id} and note it again with --layer project)` : ""}`

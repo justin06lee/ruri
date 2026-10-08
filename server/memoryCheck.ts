@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MemoryAnchors } from "../shared/protocol.js";
 import { writeJsonAtomic } from "./atomic.js";
-import { pushSheet } from "./catchupBrief.js";
+import { pushSheet, repairSheets } from "./catchupBrief.js";
 import { configPath } from "./configDir.js";
 import type { ServerContext } from "./context.js";
 import { knownBranches } from "./gitState.js";
@@ -113,6 +113,9 @@ export interface CheckReport {
   checked: number;
   /** Lines taken out for not being project memory at all. */
   misfiled: number;
+  /** Key files in the layers' sheets given what they do, for the
+   *  placeholder they had. */
+  sheetJobs: number;
   stale: number;
   unchecked: number;
   baselined: number;
@@ -715,11 +718,12 @@ const timers = new Map<string, NodeJS.Timeout>();
 export async function checkMemory(
   ctx: ServerContext,
   projectId: string,
-  options: { verify?: boolean; ask?: Ask } = {},
+  options: { verify?: boolean; ask?: Ask; push?: boolean } = {},
 ): Promise<CheckReport | undefined> {
   const report: CheckReport = {
     checked: 0,
     misfiled: 0,
+    sheetJobs: 0,
     stale: 0,
     unchecked: 0,
     baselined: 0,
@@ -728,21 +732,24 @@ export async function checkMemory(
     conflicts: [],
   };
   if (running.has(projectId) || !ctx.store.get(projectId)) return undefined;
-  if (!ctx.memory.view(projectId)) return report;
   running.add(projectId);
   try {
+    const verifying = options.verify !== false && smallModelEnabled();
+    const ask = options.ask ?? completeMemory;
+    // the layers' sheets first: a key file listed with no word on what it does
+    report.sheetJobs = await repairSheets(ctx, projectId, verifying ? ask : undefined);
+    if (!ctx.memory.view(projectId)) return report;
     const view = await projectView(ctx, projectId, true);
     if (!view) return report;
     const findings = await validate(ctx, projectId, view, report);
     report.clashes = candidatePairs(linesWith(ctx.memory.state(projectId)))
       .filter((pair) => pair.clash.length)
       .map(({ a, b, clash }) => ({ a: a.id, b: b.id, names: clash }));
-    if (options.verify !== false && smallModelEnabled()) {
-      const ask = options.ask ?? completeMemory;
+    if (verifying) {
       await verifyMarked(ctx, projectId, view, findings, ask, report);
       await settlePairs(ctx, projectId, view, ask, report);
     }
-    pushSheet(ctx, projectId);
+    if (options.push !== false) pushSheet(ctx, projectId);
     return report;
   } catch (err) {
     warn("memory", err, "checkMemory");

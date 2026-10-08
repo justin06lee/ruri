@@ -112,6 +112,43 @@ describe("ruri's memory commands", () => {
     expect((await run("forget", "nope"))!.ok).toBe(false);
   });
 
+  test("a note the memory already has replaces the line, and one that might be is put back to the agent", async () => {
+    await run(
+      "note",
+      "trap",
+      "On the Jetson run make as flock -o /tmp/jetson-build.lock make, never plain flock",
+    );
+    const first = briefs.get("p").memory!.gotchas[0]!.id;
+    // said again, near word for word: it takes the old line's place
+    const again = (await run(
+      "note",
+      "trap",
+      "On the Jetson run make as flock -o /tmp/jetson-build.lock make, never a plain flock",
+    ))!;
+    expect(again.text).toContain(`${first} said that already`);
+    const gotchas = briefs.get("p").memory!.gotchas;
+    expect(gotchas).toHaveLength(1);
+    expect(gotchas[0]!.id).not.toBe(first);
+    // only alike: the agent decides
+    const maybe = (await run(
+      "note",
+      "trap",
+      "On the Jetson use flock -o for make so launched apps don't inherit the build lock",
+    ))!;
+    expect(maybe.ok).toBe(false);
+    expect(maybe.text).toContain(`may already be in the memory — ${gotchas[0]!.id}`);
+    expect(maybe.text).toContain("--update");
+    expect(
+      (await run(
+        "note",
+        "trap",
+        "On the Jetson use flock -o for make so launched apps don't inherit the build lock",
+        "--new",
+      ))!.ok,
+    ).toBe(true);
+    expect(briefs.get("p").memory!.gotchas).toHaveLength(2);
+  });
+
   test("the log: a line's history, what left, and putting a line or a fold back", async () => {
     await run("note", "trap", "Never run make update from a session");
     const id = briefs.get("p").memory!.gotchas[0]!.id;

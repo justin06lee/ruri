@@ -523,6 +523,7 @@ export async function repairSheets(
   ctx: ServerContext,
   projectId: string,
   ask?: (system: string, prompt: string, maxTokens: number) => Promise<string>,
+  push = true,
 ): Promise<number> {
   const project = ctx.store.get(projectId);
   if (!project) return 0;
@@ -573,6 +574,6 @@ export async function repairSheets(
     const { updated: _updated, stamp: _stamp, ...kept } = sheet;
     ctx.briefs.writeLayer(projectId, slug, { ...kept, files }, { by: "model" });
   }
-  if (filled) pushSheet(ctx, projectId);
+  if (filled && push) pushSheet(ctx, projectId);
   return filled;
 }

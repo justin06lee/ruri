@@ -447,7 +447,7 @@ export const BRIEF_RECENT = 3;
  * condensed past, then the listed exchanges newest first — and the ones
  * that don't fit are named by their record files, not dropped.
  */
-export const BRIEF_BUDGET_TOKENS = Number(process.env["RURI_BRIEF_BUDGET"]) || 16_000;
+export const BRIEF_BUDGET_TOKENS = Number(process.env["RURI_BRIEF_BUDGET"]) || 10_000;
 const CHARS_PER_TOKEN = 4;
 /** What the layers and the condensed past may take of it, at most. */
 const LAYERS_SHARE = 0.12;

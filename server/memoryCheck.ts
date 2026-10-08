@@ -737,7 +737,7 @@ export async function checkMemory(
     const verifying = options.verify !== false && smallModelEnabled();
     const ask = options.ask ?? completeMemory;
     // the layers' sheets first: a key file listed with no word on what it does
-    report.sheetJobs = await repairSheets(ctx, projectId, verifying ? ask : undefined);
+    report.sheetJobs = await repairSheets(ctx, projectId, verifying ? ask : undefined, options.push !== false);
     if (!ctx.memory.view(projectId)) return report;
     const view = await projectView(ctx, projectId, true);
     if (!view) return report;

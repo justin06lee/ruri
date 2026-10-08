@@ -39,11 +39,14 @@ const ASKS = {
   status: ["status", "--porcelain=v1", "--branch", "--untracked-files=normal"],
   head: ["rev-parse", "--short", "HEAD"],
   heads: ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
-  remotes: ["for-each-ref", "--format=%(refname:short)", "refs/remotes"],
   log: ["log", "-5", "--format=%h%x09%cr%x09%s"],
 } as const;
 
-type Answers = Record<keyof typeof ASKS, string>;
+type Answers = Record<keyof typeof ASKS, string> & { remotes?: string };
+
+/** The remote-tracking branches, asked apart: a help, never a reason for
+ *  the rest of the state not to come back. */
+const REMOTES = ["for-each-ref", "--format=%(refname:short)", "refs/remotes"] as const;
 
 /** Names, one a line, as a set. */
 function nameSet(text: string | undefined): Set<string> {
@@ -129,17 +132,26 @@ function run(dir: string, args: readonly string[]): Promise<string> {
 /** The repo's state, blocking — for a compaction, which has to hand the
  *  brief over before the next prompt can go. Undefined outside a repo. */
 export function gitStateSync(dir: string): GitState | undefined {
+  const maybe = (args: readonly string[]) => {
+    try {
+      return runSync(dir, args);
+    } catch {
+      return "";
+    }
+  };
   try {
     const answers = Object.fromEntries(
       Object.entries(ASKS).map(([key, args]) => [key, runSync(dir, args)]),
     ) as Answers;
+    answers.remotes = maybe(REMOTES);
     const mainline = mainlineOf(answers.heads);
     const merged = mainline
       ? runSync(dir, ["branch", "--merged", mainline, "--format=%(refname:short)"])
       : undefined;
-    const mergedRemotes = mainline
-      ? runSync(dir, ["branch", "-r", "--merged", mainline, "--format=%(refname:short)"])
-      : undefined;
+    const mergedRemotes =
+      mainline && answers.remotes
+        ? maybe(["branch", "-r", "--merged", mainline, "--format=%(refname:short)"])
+        : "";
     return parse(answers, merged, mainline, mergedRemotes);
   } catch {
     return undefined;
@@ -150,13 +162,19 @@ export function gitStateSync(dir: string): GitState | undefined {
 export async function gitState(dir: string): Promise<GitState | undefined> {
   try {
     const keys = Object.keys(ASKS) as Array<keyof typeof ASKS>;
-    const outs = await Promise.all(keys.map((key) => run(dir, ASKS[key])));
+    const [outs, remotes] = await Promise.all([
+      Promise.all(keys.map((key) => run(dir, ASKS[key]))),
+      run(dir, REMOTES).catch(() => ""),
+    ]);
     const answers = Object.fromEntries(keys.map((key, i) => [key, outs[i]!])) as Answers;
+    answers.remotes = remotes;
     const mainline = mainlineOf(answers.heads);
     const [merged, mergedRemotes] = mainline
       ? await Promise.all([
           run(dir, ["branch", "--merged", mainline, "--format=%(refname:short)"]),
-          run(dir, ["branch", "-r", "--merged", mainline, "--format=%(refname:short)"]),
+          remotes
+            ? run(dir, ["branch", "-r", "--merged", mainline, "--format=%(refname:short)"]).catch(() => "")
+            : Promise.resolve(""),
         ])
       : [undefined, undefined];
     return parse(answers, merged, mainline, mergedRemotes);

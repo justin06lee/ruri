@@ -13,6 +13,7 @@ import { writeTextAtomic } from "./atomic.js";
 import { BridgeState } from "./bridgeState.js";
 import { BriefStore, writeBriefFiles } from "./brief.js";
 import { MemoryBook } from "./memoryLog.js";
+import { checkAllSoon } from "./memoryCheck.js";
 import { FoldQueue, resumeFolds } from "./memoryQueue.js";
 import { installCli, writeLibrarySkill } from "./library.js";
 import { adoptShared } from "./catchupBrief.js";
@@ -234,6 +235,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   notesTimer.unref();
   // turns that were waiting to be folded into a memory when ruri stopped
   resumeFolds(ctx);
+  // every memory held up against its code, one project after another
+  checkAllSoon(ctx);
   ctx.componentHost = createComponentHost(ctx);
   // every window hears who may message whom, and each message as it moves
   ctx.talk.onChange = () => pushTalk(ctx);

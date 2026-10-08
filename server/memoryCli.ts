@@ -8,6 +8,7 @@ import { branchFacts, gitLines, gitState } from "./gitState.js";
 import { parseArgs, slugify } from "./library.js";
 import { allLines, dayOf, lineText, memoryEmpty } from "./memoryLines.js";
 import type { LineRecord, MemoryEvent } from "./memoryLog.js";
+import { checkMemory, withAnchors } from "./memoryCheck.js";
 import { isEdit, runIndexCommand, runLayerCommand } from "./sheetEdits.js";
 import { readTurnRecord } from "./turnRecords.js";
 import {
@@ -95,6 +96,8 @@ export const MEMORY_HELP = `and this project's memory — .ruri/catchup.md, whic
   ruri memory undo [<fold>]          take the newest fold of the memory back whole (or the one named)
   ruri memory confirm <id>           let in a line gathered from web or tool output, once you have
                                      checked it against the code
+  ruri memory check                  hold every line up against the code now: what moved is marked, and
+                                     the memory model confirms, corrects or retires what it can
   ruri state                         git, and what this chat has changed — live
   ruri recall <words>                search every exchange in this project, across its chats
   ruri recall show <ref>             one exchange whole; a ref is what follows a memory line: 7a3637b4#16
@@ -312,7 +315,7 @@ export async function runMemoryCommand(
       }
       const result = ctx.memory.apply(
         projectId,
-        [
+        await withAnchors(ctx, projectId, [
           {
             op: "add",
             part,
@@ -321,7 +324,7 @@ export async function runMemoryCommand(
             ...(turn ? { source: { chat: channelId, turn } } : {}),
             ...(layer ? { layer } : {}),
           },
-        ],
+        ]),
         { by: "agent", chat: channelId },
       );
       const line = result.added[0];
@@ -573,6 +576,37 @@ async function memoryCommand(
         `took fold ${result.fold} back: ${result.undone.length} line${result.undone.length === 1 ? "" : "s"} as they were before it${result.kept.length ? `; ${result.kept.join(", ")} changed since and stay as they are` : ""}`,
       );
     }
+    case "check": {
+      const report = await checkMemory(ctx, projectId);
+      if (!report) return no("a check of this memory is running already — try again in a minute");
+      const marked = [...ctx.memory.state(projectId).lines.values()]
+        .filter((line) => line.status === "current" && line.check)
+        .map((line) => {
+          const kind = line.check!.kind ?? "stale";
+          const label =
+            kind === "unchecked" ? "unchecked" : kind === "conflict" ? "disagrees" : "may be stale";
+          return `  ${line.id}  ${label}: ${line.check!.reason}\n      ${lineText(line)}`;
+        });
+      const v = report.verdicts;
+      return yes(
+        [
+          `${project.name} — its memory held up against the code and against itself:`,
+          `  ${report.checked} lines checked: ${report.stale} where something they rest on moved, ${report.unchecked} naming what the code doesn't show${report.baselined ? `, ${report.baselined} anchored for the first time` : ""}${report.misfiled ? `, ${report.misfiled} taken out as not project memory` : ""}`,
+          `  the memory model: ${v.holds} hold, ${v.superseded} corrected, ${v.retired} retired, ${v.unsure} it couldn't settle`,
+          ...(report.clashes.length
+            ? [
+                `  lines giving one setting two values: ${report.clashes.map((c) => `${c.a}/${c.b} (${c.names.join(", ")})`).join(", ")}`,
+              ]
+            : []),
+          ...(report.conflicts.length
+            ? [
+                `  pairs that might disagree: ${report.conflicts.map((c) => `${c.a}/${c.b} ${c.verdict}`).join(", ")}`,
+              ]
+            : []),
+          ...(marked.length ? ["", "Still marked:", ...marked] : ["", "Nothing is marked."]),
+        ].join("\n"),
+      );
+    }
     case "confirm": {
       if (!id) return no("ruri memory confirm <id>");
       const result = ctx.memory.apply(projectId, [{ op: "confirm", line: id }], agent);
@@ -583,7 +617,7 @@ async function memoryCommand(
     }
   }
   return no(
-    `ruri memory ${sub}? — ruri memory [log [<id>] | past | restore <id> | undo [<fold>] | confirm <id>]`,
+    `ruri memory ${sub}? — ruri memory [log [<id>] | past | restore <id> | undo [<fold>] | confirm <id> | check]`,
   );
 }
 

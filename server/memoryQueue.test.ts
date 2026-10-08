@@ -7,6 +7,7 @@ import { SessionArchive } from "./archive.js";
 import { BriefStore } from "./brief.js";
 import type { ServerContext } from "./context.js";
 import { MemoryBook } from "./memoryLog.js";
+import { cancelChecks } from "./memoryCheck.js";
 import { backfillFolds, enqueueFold, foldCoverage, FoldQueue, runFolds } from "./memoryQueue.js";
 
 let dir: string;
@@ -68,6 +69,7 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const timer of ctx.folds.timers.values()) clearTimeout(timer);
+  cancelChecks();
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(projectDir, { recursive: true, force: true });
   delete process.env["RURI_CONFIG_DIR"];

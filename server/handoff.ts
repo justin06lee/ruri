@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { MemoryPart, TranscriptEvent } from "../shared/protocol.js";
 import { layerNotes, layerOfFile, layered } from "./brief.js";
-import { memoryLineText } from "./brief.js";
+import { memoryLineText, shown } from "./brief.js";
 import { sourceLabel } from "./catchupBrief.js";
 import { forgetReads } from "./sheetEdits.js";
 import { harnessOfSession } from "./archive.js";
@@ -107,7 +107,7 @@ export function withRelevance(ctx: ServerContext, channelId: string, brief: stri
     const memory = owner ? ctx.briefs.get(owner.id).memory : undefined;
     const lines = memory
       ? allLines(memory)
-          .filter(({ part }) => part !== "now")
+          .filter(({ part, line }) => part !== "now" && shown(line))
           .map(({ part, line }) => {
             const ref = line.source ? sourceLabel(ctx, line.source)?.ref : undefined;
             return {

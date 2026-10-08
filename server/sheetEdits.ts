@@ -17,6 +17,7 @@ import {
   layerOfFile,
   mapLine,
   memoryLineText,
+  shown,
   parseMapLine,
   type BriefWrite,
   type ProjectBrief,
@@ -679,7 +680,7 @@ async function layerSheetText(
   }
   const log = await layerLog(project.path, layer.paths ?? []);
   if (log.length) out.push("", "Lately in this layer, from git:", ...log.map((l) => `  ${l}`));
-  const notes = allLines(linesOf(brief.memory, slug));
+  const notes = allLines(linesOf(brief.memory, slug)).filter(({ line }) => shown(line));
   if (notes.length) {
     out.push(
       "",

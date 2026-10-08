@@ -470,6 +470,13 @@ export interface MemoryLine {
 export interface MemoryCheck {
   reason: string;
   since: number;
+  /** "stale": something it rests on moved — shown wherever it is read.
+   *  "conflict": another line says otherwise — shown too. "unchecked": it
+   *  names what the code doesn't show, or was never held up against git —
+   *  waiting for a check, and not shown as stale. Absent: "stale". */
+  kind?: "stale" | "conflict" | "unchecked";
+  /** When a check of the line last looked and couldn't settle it. */
+  tried?: number;
 }
 
 /**

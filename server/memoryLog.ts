@@ -126,6 +126,8 @@ export type MemoryChange =
       /** The line becomes the actor's own (the user correcting one). */
       claim?: boolean;
       pinned?: boolean;
+      /** What the new words rest on in the code. */
+      anchors?: MemoryAnchors;
       reason?: string;
     }
   | {
@@ -147,7 +149,14 @@ export type MemoryChange =
   | { op: "restore"; line: string; reason?: string }
   | { op: "pin"; line: string }
   | { op: "unpin"; line: string }
-  | { op: "flag"; line: string; reason: string }
+  | {
+      op: "flag";
+      line: string;
+      reason: string;
+      kind?: "stale" | "conflict" | "unchecked";
+      /** A check looked and couldn't settle it, now. */
+      tried?: number;
+    }
   | { op: "verify"; line: string; anchors?: MemoryAnchors; evidence?: string }
   | { op: "confirm"; line: string };
 
@@ -427,6 +436,8 @@ export function applyChanges(
           layer: part === "now" ? undefined : layer,
           ...(change.claim && actor.by !== "system" ? { by: actor.by, date: dayOf(now) } : {}),
           ...(change.pinned !== undefined ? { pinned: change.pinned || undefined } : {}),
+          // new words are checked from scratch
+          ...(change.text !== undefined ? { anchors: change.anchors, check: undefined } : {}),
         });
         emit("edit", after, { ...(change.reason ? { reason: change.reason } : {}) });
         break;
@@ -522,11 +533,22 @@ export function applyChanges(
       case "unpin":
         emit("unpin", withKeys(line!, { pinned: undefined }));
         break;
-      case "flag":
-        emit("flag", withKeys(line!, { check: { reason: change.reason, since: now } }), {
+      case "flag": {
+        const was = line!.check;
+        const same =
+          was && was.reason === change.reason && (was.kind ?? "stale") === (change.kind ?? "stale");
+        const check = {
           reason: change.reason,
-        });
+          since: same ? was.since : now,
+          ...(change.kind && change.kind !== "stale" ? { kind: change.kind } : {}),
+          ...((change.tried ?? (same ? was.tried : undefined)) !== undefined
+            ? { tried: change.tried ?? was!.tried! }
+            : {}),
+        };
+        if (same && change.tried === undefined) break;
+        emit("flag", withKeys(line!, { check }), { reason: change.reason });
         break;
+      }
       case "verify":
         emit(
           "verify",

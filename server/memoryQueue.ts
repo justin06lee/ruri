@@ -9,6 +9,7 @@ import { isMissing, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
 import { dayOf } from "./memoryLines.js";
 import { foldTurns, outsideTool, turnMaterial, type Ask, type FoldTurn } from "./memoryFold.js";
+import { scheduleCheck, withAnchors } from "./memoryCheck.js";
 import { linesWith, MemoryBook } from "./memoryLog.js";
 import { projectRelative } from "./recall.js";
 import { completeMemory, smallModelEnabled } from "./smallmodel.js";
@@ -372,7 +373,9 @@ export async function runFolds(ctx: ServerContext, projectId: string): Promise<v
         }
         continue;
       }
-      const { events, refused } = ctx.memory.apply(projectId, result.changes, { by: "model", fold });
+      // each new line with what it rests on in the code now
+      const changes = await withAnchors(ctx, projectId, result.changes);
+      const { events, refused } = ctx.memory.apply(projectId, changes, { by: "model", fold });
       for (const { change, reason } of refused) {
         warn("memory", new Error(`${change.op} refused: ${reason}`), "runFolds");
       }
@@ -400,4 +403,6 @@ export async function runFolds(ctx: ServerContext, projectId: string): Promise<v
   }
   // turns that joined while this ran, or were still running
   if (queue.pending.length) schedule(ctx, projectId, FOLD_DELAY_MS);
+  // and what the folds wrote, held up against the code and itself
+  if (foldedNow) scheduleCheck(ctx, projectId);
 }

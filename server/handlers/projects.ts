@@ -18,6 +18,8 @@ import {
   writeLayerSheets,
 } from "../catchupBrief.js";
 import { rebuildMemory } from "../memory.js";
+import { withAnchors } from "../memoryCheck.js";
+import type { MemoryChange } from "../memoryLog.js";
 import { buildCompaction, removeTurnFiles } from "../compaction.js";
 import type { ServerContext } from "../context.js";
 import { busy } from "../channel.js";
@@ -213,16 +215,13 @@ export const projectHandlers = {
     const text = msg.text.trim();
     const why = msg.why?.trim();
     if (!text) return;
-    const { events } = ctx.memory.apply(
-      msg.projectId,
-      [
-        msg.lineId
-          ? { op: "edit", line: msg.lineId, text, why: why || null, claim: true, pinned: true }
-          : { op: "add", part: msg.part, text, ...(why ? { why } : {}), pinned: true },
-      ],
-      { by: "user" },
-    );
-    if (events.length) pushSheet(ctx, msg.projectId);
+    const change: MemoryChange = msg.lineId
+      ? { op: "edit", line: msg.lineId, text, why: why || null, claim: true, pinned: true }
+      : { op: "add", part: msg.part, text, ...(why ? { why } : {}), pinned: true };
+    void withAnchors(ctx, msg.projectId, [change]).then((changes) => {
+      const { events } = ctx.memory.apply(msg.projectId, changes, { by: "user" });
+      if (events.length) pushSheet(ctx, msg.projectId);
+    });
   },
   /** The user correcting a line of the shape, or striking it. */
   sheet_line: (ctx, _ws, msg) => {

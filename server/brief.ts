@@ -21,7 +21,7 @@ import type {
 import { ownsSummary } from "../shared/protocol.js";
 import { slugify, uniqueSlug } from "./library.js";
 import { isMissing, warn } from "./log.js";
-import { allLines, layerCounts, lineText, linesOf, memoryEmpty, readMemory } from "./memoryLines.js";
+import { allLines, dayOf, layerCounts, lineText, linesOf, memoryEmpty, readMemory } from "./memoryLines.js";
 
 /**
  * What ruri knows about a project as a whole, for the model that has never
@@ -707,7 +707,9 @@ const PART_LABEL: Record<MemoryPart, string> = {
  *  what it says, and when, where and by whom. */
 export function layerNotes(brief: ProjectBrief, slug: string, extra: SheetExtras = {}): string[] {
   const memory = linesOf(brief.memory, slug);
-  return allLines(memory).map(({ part, line }) => `${PART_LABEL[part]}: ${memoryLineText(line, extra)}`);
+  return allLines(memory)
+    .filter(({ line }) => shown(line))
+    .map(({ part, line }) => `${PART_LABEL[part]}: ${memoryLineText(line, extra)}`);
 }
 
 /**
@@ -734,12 +736,30 @@ function byLabel(line: MemoryLine): string {
   return line.by === "agent" ? "by an agent" : "";
 }
 
+/** What a check found on a line, as every reader is shown it: that it may
+ *  be stale, and why — or that another line says otherwise. A line only
+ *  waiting for a check says nothing. */
+export function staleMark(line: MemoryLine): string {
+  const check = line.check;
+  if (!check || check.kind === "unchecked") return "";
+  const since = dayOf(check.since);
+  return check.kind === "conflict"
+    ? ` [disagrees: ${check.reason} (${since})]`
+    : ` [may be stale: ${check.reason} (${since})]`;
+}
+
+/** Whether sessions are shown a line: not one from outside content that
+ *  nobody has confirmed. */
+export function shown(line: MemoryLine): boolean {
+  return !line.quarantined;
+}
+
 /** A memory line as the file has it: what, why, git's word on the branches
- *  it names, and when, where and by whom. */
+ *  it names, what a check found, and when, where and by whom. */
 export function memoryLineText(line: MemoryLine, extra: SheetExtras = {}): string {
   const fact = extra.facts?.[line.id];
   const tail = [line.date, extra.refs?.[line.id], byLabel(line)].filter(Boolean).join(" · ");
-  return `${lineText(line)}${fact ? ` ${fact}` : ""}${tail ? ` (${tail})` : ""}`;
+  return `${lineText(line)}${fact ? ` ${fact}` : ""}${staleMark(line)}${tail ? ` (${tail})` : ""}`;
 }
 
 /**
@@ -756,7 +776,7 @@ export function catchupText(name: string, brief: ProjectBrief, extra: SheetExtra
     `# ${name} — catch-up`,
     "",
     `Where the work on this project stands, for a model picking it up cold: what git says, which chats are at work, what was decided and why, what worked, what was tried and failed and why, the traps, and what's still open — gathered from every chat in this project as its turns finish. Read it before you start, and don't redo a settled decision or retry what already failed without a new reason. The project's shape (the stack, how to run it) is in architecture.md beside this file${indexed ? "; what was learned working in one layer is kept with that layer's sheet, and `ruri layer <handle>` prints both" : ""}.`,
-    "Each line ends with the day it was learned and the exchange it came from: `7a3637b4#16` is exchange 16 of one of this project's chats, and `ruri recall show 7a3637b4#16` prints it whole — check a line there before you lean on it. Lines by the user are the user's own word; lines by an agent were written by the session that did the work; the rest were gathered by a small model and can be wrong.",
+    "Each line ends with the day it was learned and the exchange it came from: `7a3637b4#16` is exchange 16 of one of this project's chats, and `ruri recall show 7a3637b4#16` prints it whole. Lines by the user are the user's own word; lines by an agent were written by the session that did the work; the rest were gathered by the memory model. Every line is held up against the code as it changes: one marked [may be stale: …] rests on something that moved since it was written — check it before you lean on it — and one marked [disagrees: …] has another line saying otherwise.",
     `When your work settles something the next session will need — a decision and why, an approach that failed and why, a trap, something left open — add it: \`ruri note decision "<what>" --why "<why>"\` (or failed, worked, trap, open)${indexed ? ", with `--layer <handle>` when it is about one layer" : ""}.`,
     "Don't edit this file: ruri writes it. The user corrects it on the architecture page.",
     "",
@@ -794,7 +814,7 @@ export function catchupText(name: string, brief: ProjectBrief, extra: SheetExtra
     }
     if (memory.now.length) {
       if (extra.git?.length || extra.chats?.length) lines.push("From the chats:", "");
-      for (const line of memory.now) lines.push(`- ${memoryLineText(line, extra)}`);
+      for (const line of memory.now.filter(shown)) lines.push(`- ${memoryLineText(line, extra)}`);
       lines.push("");
     }
   }
@@ -810,7 +830,7 @@ export function catchupText(name: string, brief: ProjectBrief, extra: SheetExtra
     section(
       lines,
       title,
-      items.map((line) => memoryLineText(line, extra)),
+      items.filter(shown).map((line) => memoryLineText(line, extra)),
     );
   part("Decisions, and why", memory.decisions);
   part("What worked", memory.worked);

@@ -26,7 +26,7 @@ export function words(text: string): number {
  *  wants signing in to, the network being down, a turn that never ran. */
 const TRIVIA: RegExp[] = [
   // the harness asking for connectors to be authorised
-  /\b(?:authori[sz]e|authenticate|sign(?:ed)?\s+in|log(?:ged)?\s+in|oauth)\b[^.]{0,80}\b(?:mcp|asana|atlassian|datadog|linear|notion|pagerduty|slack|connectors?)\b/i,
+  /\b(?:authori[sz]\w*|authenticat\w*|sign(?:ed|ing)?\s+in|log(?:ged|ging)?\s+in|oauth)\b[^.]{0,80}\b(?:mcp|asana|atlassian|datadog|linear|notion|pagerduty|slack|connectors?)\b/i,
   /(?:^|\s)\/mcp\b/i,
   // a session's connection trouble
   /\b(?:session|chat|turn)\b[^.]{0,80}\b(?:ENOTFOUND|ECONNREFUSED|ETIMEDOUT|offline|wi-?fi)\b/i,
@@ -54,6 +54,22 @@ export function lineRefusal(
   if (why && words(why) > WHY_WORDS[by]) {
     return `its reason is too long: ${words(why)} words, at most ${WHY_WORDS[by]}`;
   }
+  return misfiled(part, text, why, by);
+}
+
+/**
+ * Why a line, however long, is not the project's memory where it is filed:
+ * one session's circumstances, or (the model's) a fixed bug filed as a
+ * failure. What a check of the memory takes out of it (server/memoryCheck.ts)
+ * — the length a line was let in at is not held against it.
+ */
+export function misfiled(
+  part: MemoryPart,
+  text: string,
+  why: string | undefined,
+  by: MemoryLine["by"] | "system",
+): string | undefined {
+  if (by === "user" || by === "system") return undefined;
   const said = `${text} ${why ?? ""}`;
   if (TRIVIA.some((pattern) => pattern.test(said))) {
     return "that is about one session's circumstances (an integration to sign in to, the network), not the project";

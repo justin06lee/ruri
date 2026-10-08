@@ -127,8 +127,13 @@ const roles = (m: string) => {
   const r = cyc.cycleModelStar(m);
   return `${r.starred.includes(m) ? "starred" : "-"} ${r.small === m ? "small" : "-"} ${r.default === m ? "default" : "-"}`;
 };
-check("one star: starred, no role", roles("sonnet") === "starred - -");
-check("a second star: plain again", roles("sonnet") === "- - -");
+// (not "sonnet": it wears the memory tag until another model is given it)
+check("one star: starred, no role", roles("haiku") === "starred - -");
+check("a second star: plain again", roles("haiku") === "- - -");
+check(
+  "the memory's model keeps its star like any role's holder",
+  roles("sonnet").startsWith("starred") && roles("sonnet").startsWith("starred"),
+);
 check("a role stars its holder", cyc.assignModelRole("sonnet", "small").starred.includes("sonnet"));
 check("and the star does not cycle the role on", cyc.modelRoles().small === "sonnet");
 check(

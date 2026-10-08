@@ -58,11 +58,14 @@ export interface Floor {
   trigram: number;
 }
 
-/** The floor the brief's pick holds to (measured on the labelled set in
- *  scripts/memory-eval.ts). */
-export const BRIEF_FLOOR: Floor = { matched: 0.5, bm25: 3, meaning: 0.62, trigram: 0.5 };
+/** The floor the brief's pick holds to, measured on a hand-labelled set of
+ *  real queries (scripts/memory-eval.ts): relevant exchanges sat at a cosine
+ *  of about 0.75 with nomic-embed-text, the rest at 0.53 with a long tail —
+ *  at 0.62 meaning let in four irrelevant for every relevant one; at 0.75 it
+ *  adds no noise to what the words find. */
+export const BRIEF_FLOOR: Floor = { matched: 0.5, bm25: 3, meaning: 0.75, trigram: 0.5 };
 /** `ruri recall` asks to see more, and is read by the one who asked. */
-export const RECALL_FLOOR: Floor = { matched: 0.34, bm25: 1.2, meaning: 0.55, trigram: 0.42 };
+export const RECALL_FLOOR: Floor = { matched: 0.34, bm25: 1.2, meaning: 0.68, trigram: 0.42 };
 
 const K = 60;
 

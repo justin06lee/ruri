@@ -77,6 +77,10 @@ export interface HarnessSession {
   session?: string;
   seen?: string;
   sent?: string;
+  /** The last event of the project's memory log the session was told of —
+   *  as its brief went out, or in a <memory-update> since (server/handoff.ts
+   *  memoryUpdate). */
+  memory?: number;
 }
 
 export interface ArchiveData {
@@ -210,11 +214,12 @@ function readHarnesses(raw: unknown): Record<string, HarnessSession> | undefined
   const out: Record<string, HarnessSession> = {};
   for (const [harness, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!value || typeof value !== "object") continue;
-    const { session, seen, sent } = value as Record<string, unknown>;
+    const { session, seen, sent, memory } = value as Record<string, unknown>;
     out[harness] = {
       ...(typeof session === "string" ? { session } : {}),
       ...(typeof seen === "string" ? { seen } : {}),
       ...(typeof sent === "string" ? { sent } : {}),
+      ...(typeof memory === "number" ? { memory } : {}),
     };
   }
   return out;
@@ -879,6 +884,19 @@ export class SessionArchive {
   /** Every harness the chat has a session on. */
   harnessSessions(projectId: string): Readonly<Record<string, HarnessSession>> {
     return this.load(projectId).harnesses ?? {};
+  }
+
+  /** How far into the project's memory log the chat's session on a harness
+   *  has been told. */
+  memorySeen(projectId: string, harness: string): number | undefined {
+    return this.load(projectId).harnesses?.[harness]?.memory;
+  }
+
+  setMemorySeen(projectId: string, harness: string, seq: number): void {
+    const entry = this.load(projectId);
+    if (entry.harnesses?.[harness]?.memory === seq) return;
+    entry.harnesses = { ...entry.harnesses, [harness]: { ...entry.harnesses?.[harness], memory: seq } };
+    this.scheduleWrite(projectId);
   }
 
   /** The session a build on this harness resumes, if the chat has one. */

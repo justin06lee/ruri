@@ -15,6 +15,14 @@ import { followCrew } from "./crew.js";
 import { answerTalk, talkDropped } from "./talk.js";
 import type { Handler, Handlers } from "./types.js";
 
+/** Whether the chat's next prompt starts a fresh session, briefed. */
+function freshNext(ctx: Parameters<Handler<"draft">>[0], channelId: string): boolean {
+  const project = channelProject(ctx, channelId);
+  if (!project) return false;
+  const harness = ctx.manager.harnessFor(project);
+  return ctx.archive.hasPendingBrief(channelId) || !ctx.archive.harnessSession(channelId, harness)?.session;
+}
+
 /** A prompt sent: now, or into the queue behind whatever is running. */
 const send: Handler<"send"> = (ctx, _ws, msg) => {
   if (msg.text.trim().length === 0 && !msg.attachments?.length) return;
@@ -207,6 +215,9 @@ export const promptHandlers = {
       return stored ? [{ ...meta, ...drawn, url: stored.url }] : [];
     });
     ctx.drafts.set(msg.projectId, msg.text, attachments);
+    // a prompt that will start a fresh session is ranked against the
+    // project as it goes: its meaning, ready before it is sent
+    if (msg.text.trim().length >= 8 && freshNext(ctx, msg.projectId)) ctx.embedder.warm([msg.text], "query");
   },
   permission_response: (ctx, _ws, msg) => {
     // an agent asking to message another: ruri's own card, not the harness's

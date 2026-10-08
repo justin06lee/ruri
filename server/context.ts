@@ -28,6 +28,7 @@ import type { UsageGauges } from "./gauges.js";
 import type { HomeLog } from "./homelog.js";
 import type { IdeaStore } from "./ideas.js";
 import type { LedgerStore } from "./ledger.js";
+import type { Embedder } from "./embeddings.js";
 import type { MemoryBook } from "./memoryLog.js";
 import type { FoldQueue } from "./memoryQueue.js";
 import type { ResourceMeters } from "./resources.js";
@@ -172,6 +173,9 @@ export interface ServerContext {
   /** Every finished turn, waiting to be folded into its project's memory
    *  (server/memoryQueue.ts). */
   readonly folds: FoldQueue;
+  /** Exchanges' and memory lines' meaning, from a local embedding model
+   *  when there is one (server/embeddings.ts). */
+  readonly embedder: Embedder;
   /** What every project has spent, by the day — the one count that
    *  survives rewinds, compactions and Home's nightly amnesia. */
   readonly ledger: LedgerStore;

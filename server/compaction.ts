@@ -4,7 +4,7 @@ import type { Attachment, CompactionDigest, CompactionEntry, TranscriptEvent } f
 import type { TurnSummary } from "./archive.js";
 import { storedFilePath } from "./uploads.js";
 import { isMissing, warn } from "./log.js";
-import { projectRelative, rank, rankExchanges, type Exchange } from "./recall.js";
+import { projectRelative, type Exchange } from "./recall.js";
 import { turnRecordPath, turnsDir } from "./turnRecords.js";
 
 /**
@@ -525,61 +525,55 @@ export function buildCatchUp(
   );
 }
 
-/** How many exchanges the prompt's pick brings in at length, at most. */
-const RELEVANT_EXCHANGES = 2;
-const RELEVANT_LINES = 4;
+/** What the brief's pick found (server/handoff.ts withRelevance ranks it,
+ *  project-wide): exchanges from any of the project's chats, and memory
+ *  lines, each already labelled. */
+export interface Picked {
+  exchanges: Array<Exchange & { title?: string }>;
+  lines: Array<{ label: string; text: string }>;
+}
 
 /**
- * What of the conversation and the project's memory bears on the prompt
- * the brief rides in with, at more length than the brief gives it — the
- * exchanges already at length in the brief aside. Picked by the words the
- * prompt shares with them (server/recall.ts), so it costs no model call
- * and the send stays instant. "" when nothing shares enough.
+ * What of the project's chats and memory bears on the prompt the brief
+ * rides in with, at more length than the brief gives it. An exchange of
+ * this chat names its record; one of another chat names the command that
+ * prints it whole. "" when the pick found nothing — nothing is better than
+ * a distractor.
  */
-export function relevantBlock(
-  channelId: string,
-  exchanges: Exchange[],
-  memory: Array<{ label: string; text: string }>,
-  prompt: string,
-): string {
-  if (!prompt.trim()) return "";
-  const skip = new Set(exchanges.slice(-BRIEF_RECENT).map((ex) => ex.turnId));
-  // ranked among them all, the brief's own recent ones included: when the
-  // best match is one the brief already gives at length, an older one has
-  // to come close to it to be worth adding — a prompt about the work in
-  // hand shares a word or two with half the conversation
-  const hits = rankExchanges(exchanges, prompt, { limit: RELEVANT_EXCHANGES + BRIEF_RECENT + 2 });
-  const top = hits[0]?.score ?? 0;
-  const picked = hits
-    .filter((hit) => !skip.has(hit.item.turnId) && hit.score >= top * 0.5)
-    .slice(0, RELEVANT_EXCHANGES);
-  const lines = rank(memory, prompt, (line) => [[line.text, 1]], { limit: RELEVANT_LINES });
-  if (picked.length === 0 && lines.length === 0) return "";
+export function relevantBlock(channelId: string, picked: Picked): string {
+  if (picked.exchanges.length === 0 && picked.lines.length === 0) return "";
   const parts = ["<relevant>"];
-  if (picked.length) {
+  if (picked.exchanges.length) {
     parts.push(
-      "Your next message shares words with these earlier exchanges, so here they are at more length:",
+      "Your next message bears on these earlier exchanges in this project, so here they are at more length:",
       "",
-      ...picked
-        .sort((a, b) => a.item.n - b.item.n)
-        .map(({ item }) => {
-          const file = turnRecordPath(item.chat, item.n);
-          const text = [`${item.n}. user wrote:`, quoted(cut(item.user, 1500))];
+      ...[...picked.exchanges]
+        .sort((a, b) => (a.chat === b.chat ? a.n - b.n : a.chat === channelId ? 1 : -1))
+        .map((item) => {
+          const ours = item.chat === channelId;
+          const head = ours
+            ? `${item.n}. user wrote:`
+            : `${item.chat.slice(0, 8)}#${item.n} (in the "${item.title ?? "untitled"}" chat). The user wrote:`;
+          const text = [head, quoted(cut(item.user, 1500))];
           text.push(
-            "   you replied:",
+            ours ? "   you replied:" : "   the agent replied:",
             item.assistant.trim() ? quoted(cut(item.assistant, 1500)) : "(no reply)",
           );
           if (item.files.length) text.push(`   changed: ${item.files.slice(0, 20).join(", ")}`);
-          text.push(`   full: ${file}`);
+          text.push(
+            ours
+              ? `   full: ${turnRecordPath(item.chat, item.n)}`
+              : `   full: \`ruri recall show ${item.chat.slice(0, 8)}#${item.n}\``,
+          );
           return text.join("\n");
         }),
     );
   }
-  if (lines.length) {
-    if (picked.length) parts.push("");
+  if (picked.lines.length) {
+    if (picked.exchanges.length) parts.push("");
     parts.push(
       "From the project's memory (.ruri/catchup.md), lines that bear on it:",
-      ...lines.map(({ item }) => `- ${item.label}: ${item.text}`),
+      ...picked.lines.map((line) => `- ${line.label}: ${line.text}`),
     );
   }
   parts.push("</relevant>", "", "");

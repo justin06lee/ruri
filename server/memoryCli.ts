@@ -6,20 +6,14 @@ import { ownerProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import { branchFacts, gitLines, gitState } from "./gitState.js";
 import { parseArgs, slugify } from "./library.js";
-import { allLines, dayOf, lineText, memoryEmpty } from "./memoryLines.js";
+import { dayOf, lineText, memoryEmpty } from "./memoryLines.js";
 import type { LineRecord, MemoryEvent } from "./memoryLog.js";
 import { checkMemory, withAnchors } from "./memoryCheck.js";
 import { isEdit, runIndexCommand, runLayerCommand } from "./sheetEdits.js";
 import { readTurnRecord } from "./turnRecords.js";
-import {
-  exchangeLine,
-  exchangesOf,
-  exchangeText,
-  projectRelative,
-  rank,
-  rankExchanges,
-  type Exchange,
-} from "./recall.js";
+import { searchProject } from "./projectSearch.js";
+import { exchangeLine, exchangesOf, exchangeText, projectRelative } from "./recall.js";
+import { RECALL_FLOOR } from "./retrieval.js";
 
 /**
  * The project's memory from a session's shell — the same `ruri` command as
@@ -127,21 +121,6 @@ const TITLES: Record<MemoryPart, string> = {
   gotchas: "Gotchas and rules",
   open: "Still open",
 };
-
-/** Every exchange in a project, every chat. */
-function projectExchanges(ctx: ServerContext, projectId: string): Array<Exchange & { title: string }> {
-  const project = ctx.store.get(projectId);
-  if (!project) return [];
-  return project.sessions.flatMap((session) =>
-    exchangesOf(
-      session.id,
-      ctx.archive.allEvents(session.id),
-      ctx.archive.summaries(session.id),
-      project.name,
-      ctx.archive.exchangeNumbers(session.id),
-    ).map((ex) => ({ ...ex, title: session.title || "untitled" })),
-  );
-}
 
 /**
  * A chat's changed files, most recent first: what each finished turn
@@ -482,24 +461,31 @@ export async function runMemoryCommand(
       }
       const query = args.words.slice(1).join(" ").trim();
       if (!query) return no("ruri recall <words> — what to look for");
-      const hits = rankExchanges(projectExchanges(ctx, projectId), query, { limit: 10 });
-      const memory = ctx.briefs.get(projectId).memory;
-      const lines = memory
-        ? rank(allLines(memory), query, ({ line }) => [[lineText(line), 1]], { limit: 4, min: 1 })
-        : [];
+      const found = await searchProject(ctx, projectId, query, { limit: 14, floor: RECALL_FLOOR });
+      const lines = found.flatMap((hit) => (hit.item.kind === "line" ? [hit.item.line] : [])).slice(0, 6);
+      const hits = found
+        .flatMap((hit) => (hit.item.kind === "exchange" ? [hit.item.exchange] : []))
+        .slice(0, 10);
       if (hits.length === 0 && lines.length === 0) {
-        return yes(`nothing in ${project.name}'s chats matches "${query}" — try other words, or fewer`);
+        return yes(
+          `nothing in ${project.name}'s chats or memory matches "${query}" — try other words, or fewer`,
+        );
       }
       const out: string[] = [];
       if (lines.length) {
         out.push("In the memory:");
-        for (const { item } of lines) out.push(`  ${item.line.id}  ${lineText(item.line)}`);
+        for (const line of lines) {
+          const gone =
+            line.status === "current"
+              ? ""
+              : ` [${line.status}${line.supersededBy ? ` by ${line.supersededBy}` : ""}${line.reason ? `: ${line.reason}` : ""}]`;
+          out.push(`  ${line.id}  ${lineText(line)}${gone}`);
+        }
         out.push("");
       }
       if (hits.length) {
         out.push("Exchanges, best match first:");
-        for (const { item } of hits) {
-          const ex = item as Exchange & { title: string };
+        for (const ex of hits) {
           out.push(`  ${exchangeRef(ex.chat, ex.n)}  ${dayOf(ex.ts)}  "${ex.title}" — ${exchangeLine(ex)}`);
         }
         out.push("", "ruri recall show <ref> prints one whole.");

@@ -12,8 +12,11 @@ import { SessionArchive } from "./archive.js";
 import { writeTextAtomic } from "./atomic.js";
 import { BridgeState } from "./bridgeState.js";
 import { BriefStore, writeBriefFiles } from "./brief.js";
+import { Embedder } from "./embeddings.js";
 import { MemoryBook } from "./memoryLog.js";
 import { checkAllSoon } from "./memoryCheck.js";
+import { lineText } from "./memoryLines.js";
+import { warmProject } from "./projectSearch.js";
 import { FoldQueue, resumeFolds } from "./memoryQueue.js";
 import { installCli, writeLibrarySkill } from "./library.js";
 import { adoptShared } from "./catchupBrief.js";
@@ -141,6 +144,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     briefs,
     memory,
     folds: new FoldQueue(),
+    embedder: new Embedder(),
     ledger,
     ideas,
     components,
@@ -237,6 +241,17 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   resumeFolds(ctx);
   // every memory held up against its code, one project after another
   checkAllSoon(ctx);
+  // each memory line's meaning as it changes, and every project's
+  // exchanges and lines a little after launch — for the searches
+  memory.onChange((_projectId, events) => {
+    const current = events.flatMap((e) => (e.after.status === "current" ? [lineText(e.after)] : []));
+    if (current.length) ctx.embedder.warm(current);
+  });
+  const firstWarm = setTimeout(() => {
+    if (!ctx.embedder.usable()) return;
+    for (const project of store.list()) warmProject(ctx, project.id);
+  }, 120_000);
+  firstWarm.unref();
   ctx.componentHost = createComponentHost(ctx);
   // every window hears who may message whom, and each message as it moves
   ctx.talk.onChange = () => pushTalk(ctx);

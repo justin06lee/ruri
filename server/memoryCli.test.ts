@@ -142,7 +142,9 @@ describe("ruri's memory commands", () => {
     expect(shown).toContain("## The agent\n\nThe snapshot kept the old context");
     expect((await run("recall", "show", "#1"))!.ok).toBe(true);
     expect((await run("recall", "show", "c0ffee11#9"))!.ok).toBe(false);
-    expect((await run("recall", "haiku", "autumn"))!.text).toContain("nothing in demo's chats matches");
+    expect((await run("recall", "haiku", "autumn"))!.text).toContain(
+      "nothing in demo's chats or memory matches",
+    );
   });
 
   test("state answers outside a repo too, and the library's commands pass through", async () => {

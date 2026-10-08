@@ -24,6 +24,7 @@ import { HOME_ID } from "./manager.js";
 import { warn } from "./log.js";
 import { dayOf } from "./memoryLines.js";
 import { enqueueFold } from "./memoryQueue.js";
+import { warmChat } from "./projectSearch.js";
 import { projectRelative } from "./recall.js";
 import { layerCandidate } from "./sweep.js";
 import { noteSummary } from "./notes.js";
@@ -430,6 +431,8 @@ export function createTurnTracker(ctx: ServerContext): TurnTracker {
           // into the memory, with every other finished turn
           enqueueFold(ctx, owner.id, projectId, turn.turnId);
         }
+        // and its meaning, for the searches to come
+        warmChat(ctx, projectId);
       })
       .catch((err: unknown) => warn("events", err, "settleTurnFiles"));
     if (!smallModelEnabled()) return;

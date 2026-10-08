@@ -135,32 +135,27 @@ describe("the compaction brief", () => {
     );
   });
 
-  test("the next prompt brings the exchanges and memory lines it shares words with", () => {
+  test("what the pick found goes in at length: this chat's by its record, another's by its ref", () => {
     const events = conversation(8);
     buildCompaction("chat-3", events, {});
     const exchanges = exchangesOf("chat-3", events, {});
-    const block = relevantBlock(
-      "chat-3",
-      exchanges,
-      [
-        { label: "didn't work", text: "Polling the cursor for the peek band hover — cost battery" },
-        { label: "decision", text: "Ledger totals are per local day" },
-      ],
-      "the peek band hover broke again after the drag change",
-    );
+    const other = { ...exchanges[2]!, chat: "0ther123-chat", n: 14, title: "Peek band" };
+    const block = relevantBlock("chat-3", {
+      exchanges: [exchanges[0]!, other],
+      lines: [{ label: "didn't work", text: "Polling the cursor for the peek band hover — cost battery" }],
+    });
     expect(block).toStartWith("<relevant>");
     expect(block).toContain(
       '1. user wrote:\n"""\nthe peek band hover is blocked by the drag region, fix it\n"""',
     );
     expect(block).toContain("changed: web/src/components/PeekBand.tsx");
     expect(block).toContain(path.join("turns", "chat-3", "001.md"));
+    expect(block).toContain('0ther123#14 (in the "Peek band" chat). The user wrote:');
+    expect(block).toContain("full: `ruri recall show 0ther123#14`");
+    // another chat's first, then this chat's in order
+    expect(block.indexOf("0ther123#14")).toBeLessThan(block.indexOf("1. user wrote"));
     expect(block).toContain("- didn't work: Polling the cursor for the peek band hover — cost battery");
-    expect(block).not.toContain("Ledger totals");
-    // nothing shares enough: nothing added
-    expect(relevantBlock("chat-3", exchanges, [], "write a haiku about autumn")).toBe("");
-    // what the brief already gives at length isn't given twice
-    expect(relevantBlock("chat-3", exchanges, [], "step 8 ledger totals tidy")).not.toContain(
-      "8. user wrote",
-    );
+    // nothing found, nothing added
+    expect(relevantBlock("chat-3", { exchanges: [], lines: [] })).toBe("");
   });
 });

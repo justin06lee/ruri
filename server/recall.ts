@@ -124,7 +124,7 @@ export function terms(text: string): string[] {
 }
 
 /** What of an exchange a search reads, and how much each part counts. */
-function fields(ex: Exchange): Array<[string, number]> {
+export function exchangeFields(ex: Exchange): Array<[string, number]> {
   const reply =
     ex.assistant.length > 6000 ? `${ex.assistant.slice(0, 4000)} ${ex.assistant.slice(-2000)}` : ex.assistant;
   return [
@@ -196,13 +196,21 @@ export function rankExchanges(
   query: string,
   options: { limit?: number; min?: number } = {},
 ): Array<{ item: Exchange; score: number; matched: string[] }> {
-  return rank(exchanges, query, fields, options);
+  return rank(exchanges, query, exchangeFields, options);
 }
 
 const flat = (text: string, max: number) => {
   const one = text.replace(/\s+/g, " ").trim();
   return one.length > max ? `${one.slice(0, max - 1)}…` : one;
 };
+
+/** An exchange as its meaning is read (server/embeddings.ts): its notes,
+ *  or the openings of its prompt and reply where it has none. */
+export function exchangeGist(ex: Exchange): string {
+  const user = ex.note?.user?.trim() || flat(ex.user, 300);
+  const reply = ex.note?.reply?.trim() || flat(ex.assistant.slice(-1500), 500);
+  return `${user}\n${reply}`;
+}
 
 /** An exchange in one line, as a search lists it. */
 export function exchangeLine(ex: Exchange): string {

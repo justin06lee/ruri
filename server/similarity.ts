@@ -52,6 +52,11 @@ function overlap(a: Set<string>, b: Set<string>): number {
   return shared / Math.max(4, Math.min(a.size, b.size));
 }
 
+/** How alike two texts' character trigrams are, 0 to 1. */
+export function trigramCosine(a: string, b: string): number {
+  return cosine(trigrams(a), trigrams(b));
+}
+
 /** How alike, 0 to 1 — the mean of the words' overlap and the trigrams'
  *  cosine. */
 export function similarity(a: string, b: string): number {

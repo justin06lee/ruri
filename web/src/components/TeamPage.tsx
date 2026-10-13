@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { MemberState, Project, RecentSession, TeamAction, TeamMember } from "../../../shared/protocol";
 import { useNow } from "../lib/beat";
+import { roughName } from "../lib/models";
 import { askTeam, send, teamAction, useRuri } from "../store";
 import { Icon } from "./chat/Icon";
 import { useConfirm } from "./Confirm";
@@ -68,6 +69,9 @@ const ACTIONS: Array<{ action: TeamAction; label: string; title: string; ask?: s
 
 function MemberCard({ member, now }: { member: TeamMember; now: number }) {
   const { confirm: ask, card } = useConfirm();
+  // the model by its name, as the composer's picker says it
+  const model =
+    useRuri((s) => s.models.find((m) => m.value === member.model)?.displayName) ?? roughName(member.model);
   const usage = member.context
     ? Math.round((member.context.tokens / Math.max(1, member.context.window)) * 100)
     : undefined;
@@ -107,7 +111,7 @@ function MemberCard({ member, now }: { member: TeamMember; now: number }) {
       )}
       {member.lastWords && <div className="team-member-words">“{member.lastWords}”</div>}
       <div className="team-member-actions">
-        <span className="team-member-model">{member.model}</span>
+        <span className="team-member-model">{model}</span>
         {card}
         {ACTIONS.map(({ action, label, title, ask: why }) => (
           <button

@@ -10142,7 +10142,7 @@ button.stop:hover {
 
 .team-member.state-working,
 .team-member.state-permission {
-  border-color: var(--edge);
+  border-color: var(--ink-faint);
 }
 
 .team-member-head {

@@ -899,7 +899,7 @@
           ]
         },
         {
-          "name": "Global store and socket",
+          "name": "Global store, socket and prefs",
           "files": [
             "web/src/store.ts",
             "web/src/prefs.ts"
@@ -909,13 +909,6 @@
           "name": "Asleep frozen hold and catch-up",
           "files": [
             "web/src/lib/held.ts",
-            "web/src/store.ts"
-          ]
-        },
-        {
-          "name": "User prefs cache",
-          "files": [
-            "web/src/prefs.ts",
             "web/src/store.ts"
           ]
         },
@@ -975,6 +968,12 @@
             "web/src/components/Composer.tsx",
             "web/src/components/Switcher.tsx",
             "web/src/components/Sketch.tsx"
+          ]
+        },
+        {
+          "name": "Team page roster",
+          "files": [
+            "web/src/components/TeamPage.tsx"
           ]
         }
       ],
@@ -1774,7 +1773,7 @@
       ]
     },
     "harnesses": {
-      "summary": "This layer drives installed coding CLIs (claude/codex/opencode/gemini/ACP) through yagami's AgentSession/ProviderSession, translating harness events into ruri transcript events. It is built around server/sessions.ts (SessionManager, ~3474 lines) with a provider registry, model catalog, Home manager agent, subagent logs, auto-updater, and cheap small-model client. Newcomers must grasp: ruri never talks to models directly — every prompt goes through a session object owned here, and transcript/usage/permission shapes are normalized here.",
+      "summary": "This layer drives installed coding CLIs (claude/codex/opencode/gemini/ACP) through yagami's AgentSession/ProviderSession, translating harness events into ruri transcript events. It is built around server/sessions.ts (SessionManager, ~3474 lines) with a provider registry, model catalog, Home manager agent, persistent team subagents with idle sleep/wake and budget gating, auto-updater, and cheap small-model client. Newcomers must grasp: ruri never talks to models directly — every prompt goes through a session object owned here, and transcript/usage/permission shapes are normalized here.",
       "map": [
         {
           "name": "Harness sessions and prompt turns",
@@ -1813,7 +1812,7 @@
           ]
         },
         {
-          "name": "Subagent cards and logs",
+          "name": "Subagent cards, team roster and logs",
           "files": [
             "server/agents.ts",
             "server/sessions.ts",
@@ -1880,8 +1879,9 @@
           "steps": [
             "Harness emits spawn/task tool call",
             "sessions.ts creates card with SubagentState",
+            "Budget gate admits the teammate (teams capped, one-at-a-time waits for a slot)",
             "Agent work streams to per-agent log in server/agents.ts",
-            "Card updates in place; report ends it; dead process marked stopped"
+            "Card updates in place; report ends it; idle teammates sleep and wake on message; dead process marked stopped"
           ]
         }
       ],
@@ -1891,7 +1891,7 @@
         "server/models.ts — Models: startup-probed Claude + harness model picker, live-session replacement",
         "server/smallmodel.ts — cheap completions client for titles, summaries, splits, briefs, tracker extraction",
         "server/manager.ts — Home agent at workspace root with MCP/drop-file tools managing projects",
-        "server/agents.ts — per-subagent JSON logs under config agents/<channel>/<key>.json with debounce and cap",
+        "server/agents.ts — per-subagent JSON logs under config agents/<channel>/<key>.json with debounce and cap; team-aware roster, idle sleep/wake and budget gating",
         "server/updater.ts — hourly CLI self-update via native updater/bun/npm/brew, never under a running turn",
         "scripts/provider-events.ts — harness-free fake-provider transcript parity check",
         "scripts/provider-session.ts — real-harness tool-chip/patch/gauge/rewind parity check",

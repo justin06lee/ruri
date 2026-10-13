@@ -8,9 +8,8 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 ## Where to change what
 
 - **App root and page routing:** web/src/App.tsx, web/src/main.tsx, web/index.html
-- **Global store and socket:** web/src/store.ts, web/src/prefs.ts
+- **Global store, socket and prefs:** web/src/store.ts, web/src/prefs.ts
 - **Asleep frozen hold and catch-up:** web/src/lib/held.ts, web/src/store.ts
-- **User prefs cache:** web/src/prefs.ts, web/src/store.ts
 - **Global manga theme styles:** web/src/styles.css
 - **Animation clocks:** web/src/lib/beat.ts, web/src/lib/spin.ts, web/src/lib/awake.ts
 - **Fixture eyeball mode:** web/src/fixture.ts, web/src/store.ts
@@ -19,6 +18,7 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - **Build, lint and script tests:** vite.config.ts, eslint.config.js, scripts/run-tests.ts
 - **Settings permissions Linux copy:** web/src/components/Settings.tsx
 - **Terminal and composer Linux keys:** web/src/components/Terminal.tsx, web/src/components/Composer.tsx, web/src/components/Switcher.tsx, web/src/components/Sketch.tsx
+- **Team page roster:** web/src/components/TeamPage.tsx
 
 ## How it works
 

@@ -35,6 +35,7 @@ The cards above the Home agent: one per open project with a status word, three l
 Its files: web/src/components/HomeBoard.tsx
 Reaches into: server/ledger.ts, web/src/styles.css:1030
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/2c257373-2ee6-4b6a-bd82-63158cfd33b4-home-2-hero.png
+Its code has changed since that picture — if you change it, `ruri edit home-page-all-projects-section --shot <new picture>`
 
 ## drawing-page — drawing page
 The drawing page the pen next to the composer's shell toggle opens: pen, arrows, lines, boxes, ellipses, labels, five colours, three widths, undo. Attach drops it in the prompt as an image; opened from the viewer's "Draw on it", Put it back replaces the attachment under the same marker.
@@ -168,12 +169,14 @@ The chat | statistics strip at the top of Home, now over a track (HomeDeck): its
 Its files: web/src/components/HomeBoard.tsx
 Reaches into: web/src/components/ChatPane.tsx:1340, web/src/styles.css:1059, web/src/styles.css:1186, web/src/components/ChatPane.tsx
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/93efbf75-d76f-439d-8248-f3d944a7bc20-home-tabs.png, /Users/huiyunlee/.config/ruri/uploads/dcde1c25-7649-45b5-b37e-755a64e7747e-shot-10.png
+Its code has changed since that picture — if you change it, `ruri edit home-tabs --shot <new picture>`
 
 ## projects-page — the projects page
 Home's projects tab, replacing the old board above the agent: a head with the project count and today/week/all-time spend tiles, then a card per project (live ones first under a rule) with a status pill, live session lines, and today/all-time figures along the foot. Status classes are st-working etc. because a bare `working` class collides with the transcript's progress line.
 Its files: web/src/components/HomeBoard.tsx
 Reaches into: server/ledger.ts, web/src/styles.css:1180
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/6fffa3ee-eeca-456d-9c22-b49d43d38eb7-shot-6.png
+Its code has changed since that picture — if you change it, `ruri edit projects-page --shot <new picture>`
 
 ## model-role-tags — the model role tags
 The "small tasks" (filled) and "default" (outlined) tags on catalog rows in Settings; the star cycles none → starred → small → default → none, and either tag drags onto another row to hand the role over. Crowning a default pins every existing project and Home to the old one first.

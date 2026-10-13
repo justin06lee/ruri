@@ -25,9 +25,9 @@ import * as linux from "./linuxApps.js";
  * compositor of an Electron app that has been told it is occluded — so
  * nothing here hides anything. Launched apps stay visible-but-behind:
  * `open -g` puts a native app there to begin with, and an Electron app that
- * activated itself on launch has the app that was in front put back in
- * front. That is the whole of the focus handling, and it means captures
- * always work.
+ * activates itself as it comes up has the app that was in front put back
+ * in front, for as long as its first window may take to show. That is the
+ * whole of the focus handling, and it means captures always work.
  *
  * Permissions, on first use, for ruri (or for whatever launched it in a dev
  * run): Automation → System Events, for any of the AppleScript; Accessibility,
@@ -58,12 +58,21 @@ export interface AppHandle {
   driver?: PageDriver;
   socket?: CdpSocket;
   child?: ChildProcess;
+  /** Brought in front for the user (`activate`): it is no longer kept
+   *  behind whoever was in front when it launched. */
+  inFront?: boolean;
 }
 
 /** How long a command gets to open a page target. */
 const ATTACH_TIMEOUT_MS = 30_000;
 /** How long an app gets to show up as a process after `open`. */
 const OPEN_TIMEOUT_MS = 15_000;
+/** How long a launched Electron app is kept from taking the front: its
+ *  first window waits for its first paint, seconds after the page it is
+ *  driven through exists. */
+const FRONT_WATCH_MS = 10_000;
+/** How often it is looked at, meanwhile. */
+const FRONT_POLL_MS = 250;
 /** How long a quit gets to be graceful before it is a signal. */
 const QUIT_GRACE_MS = 3_000;
 /** UI trees stop here, however deep the app goes. */
@@ -204,27 +213,79 @@ async function pidOfBundle(appPath: string): Promise<number | undefined> {
   }
 }
 
-/** The app in front right now, by System Events' name for it. */
-async function frontmostName(): Promise<string | undefined> {
+/** The app in front right now, by pid. */
+async function frontmostPid(): Promise<number | undefined> {
   try {
-    return await applescript(
-      'tell application "System Events" to get name of first process whose frontmost is true',
+    const out = await run(
+      "osascript",
+      ["-e", 'tell application "System Events" to get unix id of first process whose frontmost is true'],
       4_000,
     );
+    const pid = Number(out.trim());
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
   } catch {
     return undefined;
   }
 }
 
-/** Put an app back in front, by name. Best-effort. */
-async function bringForward(name: string): Promise<void> {
+/** The process group a process is in — a launched Electron app's is the
+ *  command that started it, spawned `detached`. */
+async function groupOf(pid: number): Promise<number | undefined> {
   try {
-    await applescript(
-      `tell application "System Events" to set frontmost of process ${asLiteral(name)} to true`,
+    const group = Number((await run("ps", ["-o", "pgid=", "-p", String(pid)], 4_000)).trim());
+    return Number.isInteger(group) && group > 0 ? group : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Put an app back in front, by pid — ruri itself by its own hand.
+ *  Best-effort. */
+async function bringForward(pid: number): Promise<void> {
+  if (pid === process.pid) {
+    electronApp.focus({ steal: true });
+    return;
+  }
+  try {
+    await run(
+      "osascript",
+      [
+        "-e",
+        `tell application "System Events" to set frontmost of (first process whose unix id is ${pid}) to true`,
+      ],
       4_000,
     );
   } catch {
     // stays where it is
+  }
+}
+
+/**
+ * Whether the launched app took the front from `before` — and if so, give
+ * it back.
+ */
+async function handBack(app: AppHandle, before: number): Promise<void> {
+  const front = await frontmostPid();
+  if (front === undefined || front === before || app.inFront) return;
+  if ((await groupOf(front)) === app.pid) await bringForward(before);
+}
+
+/**
+ * Keep a launched Electron app behind whoever was in front as it launched.
+ *
+ * Its first window tends to wait for its first paint (`ready-to-show`) and
+ * take the focus as it shows — seconds after its page could be driven, so
+ * one look just after attaching missed it, and the user's keys went to an
+ * app they never opened (ruri's own, often, for a chat they were typing
+ * in). So it is watched until its window has had time to show, and handed
+ * back each time it is found in front. Brought forward for the user
+ * (`activate`), or gone, it is let be.
+ */
+async function keepBehind(app: AppHandle, before: number): Promise<void> {
+  const until = Date.now() + FRONT_WATCH_MS;
+  while (Date.now() < until && !app.inFront && alive(app.pid)) {
+    await handBack(app, before);
+    await sleep(FRONT_POLL_MS);
   }
 }
 
@@ -256,13 +317,13 @@ export async function launchNative(app: string, files: string[] = []): Promise<A
 
 /**
  * Run a command that starts an Electron app, with a debugging port added,
- * and attach to its first page. Whoever was in front before is put back
- * there afterwards, since an app's first window tends to take the focus
- * with it.
+ * and attach to its first page. Whoever was in front before is kept there
+ * (keepBehind), since an app's first window tends to take the focus with
+ * it.
  */
 export async function launchElectron(command: string, args: string[], cwd?: string): Promise<AppHandle> {
   const port = await freePort();
-  const before = LINUX ? undefined : await frontmostName();
+  const before = LINUX ? undefined : await frontmostPid();
   const beforeWindow = LINUX ? await linux.activeWindow() : undefined;
   let child: ChildProcess;
   try {
@@ -291,17 +352,8 @@ export async function launchElectron(command: string, args: string[], cwd?: stri
   const socket = await CdpSocket.connect(target.webSocketDebuggerUrl);
   const driver = new PageDriver(socket);
   await driver.enable();
-  // a window that just appeared is very likely in front now; put the
-  // user's app back, and ruri itself if that was the one
-  await sleep(400);
-  if (LINUX) await linux.restoreFocus(beforeWindow);
-  const after = LINUX ? undefined : await frontmostName();
-  if (before && after && after !== before) {
-    if (before === electronApp.name || before === "Electron") electronApp.focus({ steal: true });
-    else await bringForward(before);
-  }
   nextHandle += 1;
-  return {
+  const app: AppHandle = {
     handle: `app-${nextHandle}`,
     kind: "electron",
     pid: child.pid ?? 0,
@@ -312,6 +364,16 @@ export async function launchElectron(command: string, args: string[], cwd?: stri
     socket,
     child,
   };
+  // a window that just appeared is very likely in front now; put the
+  // user's app back, and ruri itself if that was the one — now, and for as
+  // long as a window still to come might take it again
+  await sleep(400);
+  if (LINUX) await linux.restoreFocus(beforeWindow);
+  else if (before !== undefined && app.pid) {
+    await handBack(app, before);
+    void keepBehind(app, before);
+  }
+  return app;
 }
 
 function stop(child: ChildProcess): void {
@@ -377,6 +439,7 @@ export async function quit(app: AppHandle, immediate = false): Promise<string> {
 /* ── the front of an app, for the user ──────────────────────────── */
 
 export async function activate(app: AppHandle): Promise<void> {
+  app.inFront = true;
   if (LINUX) return linux.activate(app);
   try {
     await applescript(

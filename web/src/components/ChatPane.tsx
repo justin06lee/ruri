@@ -901,7 +901,7 @@ function ChatView({
               home={isHome}
               model={model}
               {...(modelChoice ? { choice: modelChoice } : {})}
-              {...(isHome ? {} : { title: session?.title ?? project.name })}
+              {...(isHome ? {} : { title: (!isLead && session?.title) || project.name })}
             />
             <div className="hero-composer">
               {rapid?.on && <RapidBar rapid={rapid} />}

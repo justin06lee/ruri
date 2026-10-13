@@ -88,7 +88,11 @@ function MemberCard({ member, now }: { member: TeamMember; now: number }) {
           <span>
             {member.exchanges} exchange{member.exchanges === 1 ? "" : "s"}
           </span>
-          <span>{member.lastActive ? `worked ${ago(member.lastActive, now)}` : "not worked yet"}</span>
+          {member.lastActive ? (
+            <span>worked {ago(member.lastActive, now)}</span>
+          ) : (
+            member.exchanges === 0 && <span>not worked yet</span>
+          )}
         </span>
       </div>
       <div className="team-member-duty">{member.duty || "no duty given"}</div>

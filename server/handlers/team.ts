@@ -253,11 +253,19 @@ export function rosterText(ctx: ServerContext, leadId: string): string {
       const usage = member.context
         ? ` · context ${Math.round((member.context.tokens / Math.max(1, member.context.window)) * 100)}% of ${Math.round(member.context.window / 1000)}k`
         : "";
-      const when = member.lastActive ? ` · last worked ${ago(member.lastActive)}` : " · has not worked yet";
+      const when = member.lastActive
+        ? ` · last worked ${ago(member.lastActive)}`
+        : member.exchanges === 0
+          ? " · has not worked yet"
+          : "";
       lines.push(
         "",
         `  ${ctx.talk.handleOf(member.id)}  ${member.name || "untitled"} — ${STATE_WORDS[member.state]}${usage}${when} · ${member.exchanges} exchange${member.exchanges === 1 ? "" : "s"} · ${member.model}`,
-        `    duty: ${member.duty || "(none given)"}`,
+        `    duty: ${member.duty || "(none given)"}${
+          member.duty && member.duty === member.name
+            ? " — only the title of the chat it was before it joined: sharpen it with update_teammate once you know what it covers"
+            : ""
+        }`,
         ...(member.layers.length ? [`    layers: ${member.layers.join(", ")}`] : []),
         ...(member.lastWords ? [`    last said: ${member.lastWords}`] : []),
       );

@@ -9,7 +9,15 @@ import { atWork, hasSlot, releaseWaiting, rosterText, teamBudget, teamHost } fro
 import { ProjectStore } from "./projects.js";
 import { SendQueues } from "./queue.js";
 import { TalkBook } from "./talk.js";
-import { leadBriefing, memberBriefing, parseMeminfo, parseVmStat, slotsFor, TeamGovernor } from "./team.js";
+import {
+  leadBriefing,
+  memberBriefing,
+  parseLevel,
+  parseMeminfo,
+  parseVmStat,
+  slotsFor,
+  TeamGovernor,
+} from "./team.js";
 
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
@@ -70,6 +78,9 @@ describe("the machine's room for members at work", () => {
     ].join("\n");
     expect(parseVmStat(vm)).toBe((10000 + 200000 + 5000 + 1000) * 16384);
     expect(parseVmStat("nothing here")).toBeUndefined();
+    expect(parseLevel("36\n", 8 * GB)).toBeCloseTo(0.36 * 8 * GB);
+    expect(parseLevel("", 8 * GB)).toBeUndefined();
+    expect(parseLevel("nope", 8 * GB)).toBeUndefined();
     expect(parseMeminfo("MemTotal:       16000000 kB\nMemFree:  100 kB\nMemAvailable:    8000000 kB\n")).toBe(
       8000000 * 1024,
     );

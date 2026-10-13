@@ -84,11 +84,22 @@ export function slotsFor(input: {
 }
 
 /**
- * What macOS could hand out now, from `vm_stat`: free pages, and the ones
- * it gives up the moment anyone asks — inactive, speculative, purgeable.
- * `os.freemem()` there is the free pages alone, which on a Mac that has
- * been up an hour is a few hundred MB of a machine with gigabytes to give.
+ * What macOS could hand out now. Its own figure first: the kernel's
+ * memory-free level (`kern.memorystatus_level`, a percentage — what
+ * `memory_pressure` reports and Activity Monitor's pressure follows), which
+ * counts what compression would win back. Failing that, `vm_stat`.
+ * Never `os.freemem()`, which there is the free pages alone: on a Mac that
+ * has been up an hour, a few hundred MB of a machine with gigabytes to give.
  */
+export function parseLevel(text: string, totalBytes: number): number | undefined {
+  const level = Number(text.trim());
+  return text.trim() !== "" && Number.isFinite(level) && level > 0 && level <= 100
+    ? (level / 100) * totalBytes
+    : undefined;
+}
+
+/** `vm_stat`'s free pages, and the ones macOS gives up the moment anyone
+ *  asks — inactive, speculative, purgeable. */
 export function parseVmStat(text: string): number | undefined {
   const size = Number(/page size of (\d+) bytes/.exec(text)?.[1]);
   if (!size) return undefined;
@@ -103,31 +114,45 @@ export function parseMeminfo(text: string): number | undefined {
   return kb > 0 ? kb * 1024 : undefined;
 }
 
+const LEVEL = ["-n", "kern.memorystatus_level"];
+const QUICK = { encoding: "utf8" as const, timeout: 2_000 };
+
 function readAvailableSync(): number {
   try {
     if (process.platform === "linux")
       return parseMeminfo(fs.readFileSync("/proc/meminfo", "utf8")) ?? os.freemem();
     if (process.platform === "darwin")
-      return parseVmStat(execFileSync("vm_stat", { encoding: "utf8", timeout: 2_000 })) ?? os.freemem();
+      return (
+        parseLevel(execFileSync("sysctl", LEVEL, QUICK), os.totalmem()) ??
+        parseVmStat(execFileSync("vm_stat", QUICK)) ??
+        os.freemem()
+      );
   } catch {
     // the system's own figure, low as it is on a Mac
   }
   return os.freemem();
 }
 
-function readAvailable(): Promise<number> {
+/** A quick command's output, or nothing when it fails. */
+function output(command: string, args: string[]): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    execFile(command, args, QUICK, (err, stdout) => resolve(err ? undefined : stdout));
+  });
+}
+
+async function readAvailable(): Promise<number> {
   if (process.platform === "linux") {
     return fs.promises
       .readFile("/proc/meminfo", "utf8")
       .then((text) => parseMeminfo(text) ?? os.freemem())
       .catch(() => os.freemem());
   }
-  if (process.platform !== "darwin") return Promise.resolve(os.freemem());
-  return new Promise((resolve) => {
-    execFile("vm_stat", { encoding: "utf8", timeout: 2_000 }, (err, stdout) => {
-      resolve((err ? undefined : parseVmStat(stdout)) ?? os.freemem());
-    });
-  });
+  if (process.platform !== "darwin") return os.freemem();
+  const level = await output("sysctl", LEVEL);
+  const fromLevel = level === undefined ? undefined : parseLevel(level, os.totalmem());
+  if (fromLevel !== undefined) return fromLevel;
+  const vm = await output("vm_stat", []);
+  return (vm === undefined ? undefined : parseVmStat(vm)) ?? os.freemem();
 }
 
 /**

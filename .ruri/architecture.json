@@ -1,529 +1,398 @@
 {
-  "description": "ruri is a macOS and Linux desktop workspace for people working with coding agents across multiple projects. It keeps each project’s sessions together, warm, and resumable while letting each chat use an installed agent harness.",
+  "description": "A desktop app for macOS and Linux for managing projects as folders of parallel LLM coding sessions, powered by installed agent CLIs.",
   "features": [
-    "Find projects and start sessions from the Home workspace agent.",
-    "Keep parallel project sessions warm and resume them after relaunch.",
-    "Choose installed agent harnesses, models, effort, and permissions per chat.",
-    "Discover computers, install ruri over SSH, and pair with six words.",
-    "Stream replies with tool results, diffs, previews, and permission cards.",
-    "Queue, edit, reorder, merge, or interrupt prompts during a turn.",
-    "Attach files and media, crop image regions, and sketch.",
-    "Checkpoint, rewind, fork, and import agent conversations.",
-    "Manage MCP servers, plugins, and marketplaces through harness CLIs.",
-    "Follow subagents and background scripts through live cards.",
-    "See recently finished, unopened chats in navigation and Projects.",
-    "Let agents message sessions in other open projects.",
-    "Let sessions inspect and drive browser pages or native apps.",
-    "Maintain project memory and shareable architecture sheets incrementally.",
-    "Maintain a component library."
+    "Project workspaces: folders, parallel sessions, persistence, visibility controls, single-open guard",
+    "Home workspace agent: finds projects by name, opens them, kicks off sessions",
+    "Any harness verbatim: Claude, Codex, OpenCode, Gemini, ACP, per-chat model/effort/permissions",
+    "Streaming markdown replies: tool chips, inline diffs, read previews, unified permission cards",
+    "App-side prompt queue: reorder, merge with undo, edit, interrupt via Cmd+Enter/held Enter",
+    "Queued messages hold on connection or usage-limit errors, with manual send",
+    "Attachments: images, videos, PDFs, files, region crops, viewer, sketch pad",
+    "Edit and rewind: per-harness checkpoints, fork exchanges, import outside chats, lost-session auto fresh-start with resend, startup-failure auto-retry",
+    "Subagents and background scripts as live cards, agents page, brief-started agents",
+    "Agent messaging with interrupt-or-queue delivery, busy status, new-chat start, approvals",
+    "Bridge preview and takeover for web pages via hidden CDP browser and native apps via Accessibility (macOS) or X11 + AT-SPI over D-Bus (Linux)",
+    "MCP servers, plugins, marketplaces for Claude Code and Codex via Settings",
+    "Project memory with recall search, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup",
+    "Sessions edit layer sheets only after reading, by line number with stale-read guard",
+    "Frontend component library with freshness stamps, auto-refresh and picture capture",
+    "Linux: per-user make install, GNOME app grid entry, Ctrl for ⌘ shortcuts, no grants to ask for"
   ],
   "layers": [
     {
-      "name": "Window and navigation",
-      "what": "Starts the React window and provides its layout, navigation, shared controls, and visual behavior.",
-      "slug": "window-navigation",
+      "name": "Conversation: composer and chat",
+      "what": "Composing prompts and reading replies, with attachments, markdown, diffs and questions",
+      "slug": "conversation",
       "paths": [
-        "web/index.html",
-        "web/src/"
-      ]
-    },
-    {
-      "name": "Chat and prompting",
-      "what": "Displays transcripts and session controls, and lets users compose prompts with attachments, commands, and terminal input.",
-      "slug": "chat-prompting",
-      "paths": [
-        "web/src/components/Attachments.tsx",
-        "web/src/components/Capped.tsx",
-        "web/src/components/ChatPane.tsx",
-        "web/src/components/CommandMenu.tsx",
         "web/src/components/Composer.tsx",
-        "web/src/components/Diff.tsx",
-        "web/src/components/Dragon.tsx",
-        "web/src/components/EmptyTop.tsx",
+        "web/src/components/Attachments.tsx",
+        "web/src/components/Markers.tsx",
+        "web/src/components/Sketch.tsx",
+        "web/src/components/CommandMenu.tsx",
+        "web/src/components/ChatPane.tsx",
         "web/src/components/EventView.tsx",
         "web/src/components/Exchange.tsx",
-        "web/src/components/Markers.tsx",
-        "web/src/components/Marks.tsx",
-        "web/src/components/PermissionBanner.tsx",
+        "web/src/components/Diff.tsx",
         "web/src/components/Questions.tsx",
+        "web/src/components/PermissionBanner.tsx",
+        "web/src/components/Thinking.tsx",
+        "web/src/components/Selection.tsx",
+        "web/src/components/Terminal.tsx",
+        "web/src/markdown.tsx",
+        "web/src/lib/markers.ts",
+        "web/src/lib/files.ts",
+        "web/src/lib/commandLine.ts",
+        "web/src/lib/markdownHtml.ts",
+        "web/src/lib/highlighter.ts",
+        "web/src/lib/highlight.worker.ts",
+        "web/src/lib/transcript.ts",
+        "web/src/lib/scrollGate.ts",
+        "web/src/lib/rapid.ts"
+      ]
+    },
+    {
+      "name": "Navigation: sidebar, projects and queue",
+      "what": "Moving between projects and sessions, with sidebar, home board, switcher, queue and rapid fire",
+      "slug": "navigation-projects",
+      "paths": [
+        "web/src/components/Sidebar.tsx",
+        "web/src/components/HomeBoard.tsx",
+        "web/src/components/Switcher.tsx",
         "web/src/components/Queue.tsx",
         "web/src/components/RapidFire.tsx",
-        "web/src/components/Selection.tsx",
         "web/src/components/SessionControls.tsx",
-        "web/src/components/Sketch.tsx",
-        "web/src/components/Terminal.tsx",
-        "web/src/components/Thinking.tsx",
-        "web/src/components/chat/",
-        "web/src/copy.ts",
-        "web/src/dragonArt.ts",
-        "web/src/lib/commandLine.ts",
-        "web/src/lib/files.ts",
-        "web/src/lib/held.ts",
-        "web/src/lib/highlight.worker.ts",
-        "web/src/lib/highlighter.ts",
-        "web/src/lib/markdownHtml.ts",
-        "web/src/lib/markers.ts",
-        "web/src/lib/marks.ts",
-        "web/src/lib/models.ts",
-        "web/src/lib/rapid.ts",
-        "web/src/lib/scrollGate.ts",
-        "web/src/lib/transcript.ts",
-        "web/src/markdown.tsx"
+        "web/src/components/Player.tsx",
+        "web/src/lib/fuzzy.ts",
+        "web/src/lib/runNote.ts",
+        "web/src/lib/audio.ts"
       ]
     },
     {
-      "name": "Home and project pages",
-      "what": "Shows the home board, ideas, project architecture, component gallery, usage statistics, and feature tracker.",
-      "slug": "home-project-pages",
-      "paths": [
-        "web/src/components/Architecture.tsx",
-        "web/src/components/Components.tsx",
-        "web/src/components/HomeBoard.tsx",
-        "web/src/components/Ideas.tsx",
-        "web/src/components/NameCard.tsx",
-        "web/src/components/Statistics.tsx",
-        "web/src/components/Tracker.tsx",
-        "web/src/components/figures.ts",
-        "web/src/lib/runNote.ts"
-      ]
-    },
-    {
-      "name": "Agent and bridge views",
-      "what": "Shows agent runs, agent messaging, and the pages or apps a session is driving through the bridge.",
-      "slug": "agent-bridge-views",
+      "name": "Management: agents, skills and tracking",
+      "what": "Managing agents, integrations, skills, ideas, talk and cost/tracker pages",
+      "slug": "management-pages",
       "paths": [
         "web/src/components/AgentsPage.tsx",
-        "web/src/components/Bridge.tsx",
+        "web/src/components/Integrations.tsx",
+        "web/src/components/Skills.tsx",
+        "web/src/components/Ideas.tsx",
+        "web/src/components/Tracker.tsx",
         "web/src/components/TalkPage.tsx",
-        "web/src/components/chat/AgentCard.tsx"
+        "web/src/components/Statistics.tsx",
+        "web/src/components/Bridge.tsx",
+        "web/src/components/figures.ts",
+        "web/src/lib/models.ts",
+        "scripts/meters.ts"
       ]
     },
     {
-      "name": "Settings and personalization",
-      "what": "Edits integrations, skills, themes, greetings, pictures, and media preferences, and renders the personalized band and player.",
-      "slug": "settings-personalization",
+      "name": "Appearance: theme, art and component library",
+      "what": "Theming, peek band and hero art, dragon gauges and shared UI pieces",
+      "slug": "appearance-library",
       "paths": [
-        "web/src/band.ts",
-        "web/src/components/BandEditor.tsx",
-        "web/src/components/GreetingEditor.tsx",
-        "web/src/components/Integrations.tsx",
-        "web/src/components/PeekBand.tsx",
-        "web/src/components/Player.tsx",
+        "web/src/components/Components.tsx",
+        "web/src/components/Architecture.tsx",
         "web/src/components/Settings.tsx",
         "web/src/components/SettingsRows.tsx",
-        "web/src/components/Skills.tsx",
-        "web/src/greetings.ts",
-        "web/src/lib/audio.ts",
-        "web/src/lib/effects.ts",
-        "web/src/lib/greetings.ts",
-        "web/src/lib/peekBand.ts",
+        "web/src/components/BandEditor.tsx",
+        "web/src/components/PeekBand.tsx",
+        "web/src/components/Dragon.tsx",
+        "web/src/components/Dropdown.tsx",
+        "web/src/components/Capped.tsx",
+        "web/src/components/Confirm.tsx",
+        "web/src/components/NameCard.tsx",
+        "web/src/band.ts",
         "web/src/pictures.ts",
-        "web/src/prefs.ts",
+        "web/src/dragonArt.ts",
         "web/src/theme.ts",
-        "web/src/components/Devices.tsx",
-        "web/src/lib/shell.ts"
+        "web/src/icons.ts",
+        "web/src/lib/effects.ts",
+        "web/src/lib/peekBand.ts",
+        "web/src/press.ts",
+        "scripts/draw-icon.ts",
+        "build/icon.png",
+        "web/src/lib/featureDoodles.ts",
+        "assets/feature-doodles.png"
       ]
     },
     {
-      "name": "Interface tooling: development and tests",
-      "what": "Configures the Vite development page and supplies fixture state and DOM setup for interface tests.",
-      "slug": "interface-tooling",
+      "name": "App shell, state and tooling",
+      "what": "App entry, store, prefs, global styles, clocks, fixture and art tuner tooling",
+      "slug": "app-shell",
       "paths": [
-        "vite.config.ts",
-        "web/src/fixture.ts",
-        "web/src/test/"
+        "web/src/",
+        "web/index.html",
+        "eslint.config.js",
+        "scripts/run-tests.ts",
+        "vite.config.ts"
       ]
     },
     {
-      "name": "Client state",
-      "what": "The client store connects the interface to server messages and holds session state.",
-      "slug": "client-state",
+      "name": "Chat runs and queue",
+      "what": "Live prompts, queue, turns, rewind and transcript delivery over the socket.",
+      "slug": "chat-runs-queue",
       "paths": [
-        "web/src/store.ts"
-      ]
-    },
-    {
-      "name": "Shared protocol",
-      "what": "Shared TypeScript protocol and schemas define data exchanged across the app.",
-      "slug": "shared-protocol",
-      "paths": [
-        "shared/"
-      ]
-    },
-    {
-      "name": "Server transport",
-      "what": "The server starts HTTP and socket services, routes requests, and dispatches actions.",
-      "slug": "server-transport",
-      "paths": [
-        "server/index.ts",
-        "server/server.ts",
-        "server/socket.ts",
-        "server/routes.ts",
-        "server/dispatch.ts",
-        "server/handlers/",
-        "server/desktopServer.ts",
-        "server/hostLink.ts",
-        "server/sharing.ts",
-        "server/tlsCert.ts",
-        "server/invite.ts",
-        "server/words.ts"
-      ]
-    },
-    {
-      "name": "Sessions",
-      "what": "Session management connects chats, prompts, queues, providers, and agent events.",
-      "slug": "sessions",
-      "paths": [
-        "server/sessions.ts",
-        "server/manager.ts",
-        "server/providers.ts",
         "server/chats.ts",
-        "server/queue.ts",
-        "server/events.ts",
         "server/channel.ts",
+        "server/dispatch.ts",
+        "server/events.ts",
+        "server/queue.ts",
         "server/turns.ts",
-        "server/agents.ts",
-        "server/talk.ts"
+        "server/retry.ts",
+        "server/blocked.ts",
+        "server/paragraphs.ts",
+        "server/drafts.ts",
+        "server/commands.ts",
+        "server/homelog.ts",
+        "server/handlers/prompts.ts",
+        "server/handlers/rewind.ts",
+        "server/handlers/transcript.ts",
+        "server/handlers/talk.ts",
+        "server/talk.ts",
+        "scripts/rewind-git.ts",
+        "scripts/rewind.ts",
+        "scripts/smoke.ts"
       ]
     },
     {
-      "name": "Project knowledge",
-      "what": "Project memory, architecture sheets, recall, and component records support sessions.",
-      "slug": "project-knowledge",
+      "name": "Projects, memory and history",
+      "what": "Project sessions, checkpoints, working memory, archive, tracker and briefs.",
+      "slug": "projects-memory-history",
       "paths": [
+        "server/projects.ts",
+        "server/handlers/projects.ts",
+        "server/checkpoints.ts",
+        "server/compaction.ts",
+        "server/handoff.ts",
         "server/memory.ts",
-        "server/memoryCli.ts",
         "server/memoryLines.ts",
+        "server/memoryCli.ts",
+        "server/recall.ts",
+        "server/notes.ts",
+        "server/brief.ts",
+        "server/briefing.ts",
         "server/catchup.ts",
         "server/catchupBrief.ts",
-        "server/briefing.ts",
-        "server/sheetEdits.ts",
-        "server/notes.ts",
-        "server/recall.ts",
-        "server/compaction.ts",
-        "server/components.ts",
-        "server/library.ts",
-        "server/libraryRefresh.ts"
+        "server/archive.ts",
+        "server/orphans.ts",
+        "server/recent.ts",
+        "server/ledger.ts",
+        "server/tracker.ts",
+        "server/ideas.ts",
+        "server/handlers/boards.ts",
+        "server/gitState.ts",
+        "server/ruriDir.ts",
+        "server/configDir.ts"
       ]
     },
     {
-      "name": "Server services",
-      "what": "Remaining server modules handle persistence, settings, uploads, integrations, usage, and support work.",
-      "slug": "server-services",
+      "name": "Library, skills and sweeps",
+      "what": "Component library, skills, repo sweeps and their screenshots.",
+      "slug": "library-skills-sweeps",
       "paths": [
-        "server/"
+        "server/components.ts",
+        "server/library.ts",
+        "server/libraryRefresh.ts",
+        "server/shots.ts",
+        "server/photographer.ts",
+        "server/sweep.ts",
+        "server/skills.ts",
+        "server/handlers/components.ts",
+        "server/handlers/skills.ts"
+      ]
+    },
+    {
+      "name": "Terminals, agents and integrations",
+      "what": "Composer terminals, background scripts, crew agents, music and harness integrations.",
+      "slug": "terminals-agents-integrations",
+      "paths": [
+        "server/terminal.ts",
+        "server/handlers/terminal.ts",
+        "server/relay.ts",
+        "server/scrollback.ts",
+        "server/scripts.ts",
+        "server/handlers/crew.ts",
+        "server/music.ts",
+        "server/integrations.ts",
+        "server/handlers/integrations.ts",
+        "server/handlers/host.ts",
+        "server/handlers/settings.ts",
+        "server/prefs.ts",
+        "scripts/crew-live.ts",
+        "scripts/talk.ts"
+      ]
+    },
+    {
+      "name": "Server runtime and transport",
+      "what": "Node HTTP+WebSocket server, routing, auth, uploads, secrets, gauges and shared stores.",
+      "slug": "server-runtime-transport",
+      "paths": [
+        "server/",
+        "scripts/auth.ts",
+        "scripts/lib/server.ts",
+        "scripts/port.ts",
+        "scripts/uploads-sweep.ts",
+        "shared/protocol.ts"
+      ]
+    },
+    {
+      "name": "Agent harnesses",
+      "what": "yagami AgentSession to installed claude/Codex/OpenCode/Gemini/ACP CLIs, models, small-model layer",
+      "slug": "harnesses",
+      "paths": [
+        "server/providers.ts",
+        "server/models.ts",
+        "server/sessions.ts",
+        "server/manager.ts",
+        "server/agents.ts",
+        "server/smallmodel.ts",
+        "server/updater.ts",
+        "scripts/acp-start.ts",
+        "scripts/lost-session.ts",
+        "scripts/provider-check.ts",
+        "scripts/provider-events.ts",
+        "scripts/provider-session.ts",
+        "scripts/subagents-live.ts",
+        "scripts/subagents.ts"
       ]
     },
     {
       "name": "Bridge",
-      "what": "Server CDP and desktop bridge modules let sessions inspect and drive pages or apps.",
+      "what": "Hidden Chromium over CDP plus native apps over Accessibility, previews above composer",
       "slug": "bridge",
       "paths": [
         "server/bridge.ts",
-        "server/bridgeState.ts",
         "server/cdp.ts",
+        "server/bridgeState.ts",
         "desktop/bridge.ts",
         "desktop/capture.ts",
         "desktop/apps.ts",
         "desktop/linuxApps.ts",
-        "desktop/desktopEntries.ts"
+        "desktop/desktopEntries.ts",
+        "desktop/desktopEntries.test.ts",
+        "desktop/main.ts"
       ]
-    },
-    {
-      "name": "Desktop shell",
-      "what": "Electron runs the desktop window and handles platform permissions and app lifecycle.",
-      "slug": "desktop-shell",
-      "paths": [
-        "desktop/main.ts",
-        "desktop/permissions.ts",
-        "desktop/serverProcess.ts",
-        "desktop/remote.ts",
-        "desktop/preload.ts",
-        "desktop/offline.ts",
-        "desktop/peers.ts",
-        "desktop/sshSetup.ts"
-      ]
-    },
-    {
-      "name": "Build and checks",
-      "what": "Bun scripts, Make targets, and configuration build, install, format, and check the app.",
-      "slug": "build-and-checks",
-      "paths": [
-        "scripts/",
-        "package.json",
-        "bun.lock",
-        "Makefile",
-        "eslint.config.js",
-        "tsconfig.server.json"
-      ]
-    },
-    {
-      "name": "Agent runtimes",
-      "what": "Installed Claude, Codex, OpenCode, Gemini, or ACP harnesses run the coding sessions.",
-      "slug": "agent-runtimes"
     }
   ],
   "flows": [
     {
-      "name": "A prompt",
+      "name": "A prompt turn",
       "steps": [
-        "composer (web/src/components/Composer.tsx)",
-        "client store (web/src/store.ts)",
-        "socket (server/socket.ts)",
-        "dispatcher (server/dispatch.ts)",
-        "sessions (server/sessions.ts)",
-        "providers (server/providers.ts)",
-        "installed agent harness"
+        "Composer (web/src/components/Composer.tsx)",
+        "WebSocket (shared/protocol.ts)",
+        "server/dispatch.ts + server/queue.ts",
+        "providers/harness CLI (server/providers.ts)",
+        "StreamingMarkdown/EventView (web/src/markdown.tsx)"
       ]
     },
     {
-      "name": "A streamed reply",
+      "name": "An agent messages another agent",
       "steps": [
-        "installed agent harness",
-        "sessions (server/sessions.ts)",
-        "events (server/events.ts)",
-        "socket (server/socket.ts)",
-        "client store (web/src/store.ts)",
-        "chat pane (web/src/components/ChatPane.tsx)"
+        "Talk page (web/src/components/TalkPage.tsx)",
+        "server/talk.ts + relay",
+        "target chat interrupted or queued, or new chat started",
+        "approval card / reply back"
       ]
     },
     {
-      "name": "A bridge preview",
+      "name": "A session drives what it built",
       "steps": [
-        "session (server/sessions.ts)",
-        "bridge (server/bridge.ts)",
-        "CDP (server/cdp.ts) or desktop bridge (desktop/bridge.ts)",
-        "client store (web/src/store.ts)",
-        "bridge strip (web/src/components/Bridge.tsx)"
+        "server/bridge.ts + server/cdp.ts",
+        "hidden browser / native app (desktop/bridge.ts)",
+        "BridgeStrip preview (web/src/components/Bridge.tsx)",
+        "takeover / give back"
       ]
     },
     {
-      "name": "A project architecture edit",
+      "name": "Memory and architecture fold-in",
       "steps": [
-        "architecture page (web/src/components/Architecture.tsx)",
-        "client store (web/src/store.ts)",
-        "project handler (server/handlers/projects.ts)",
-        "sheet edits (server/sheetEdits.ts)",
-        ".ruri/architecture.md or .ruri/layers/"
+        "ruri note/recall/state CLI (server/memoryCli.ts)",
+        ".ruri/catchup.md + .ruri/architecture.md + .ruri/layers/",
+        "Architecture page (web/src/components/Architecture.tsx)"
       ]
     }
   ],
   "layout": [
-    "web/src/ — React interface, client state, rendering, and browser helpers.",
-    "web/src/components/ — chat, project, settings, bridge, and architecture views.",
-    "shared/ — client and server protocol types and schemas.",
-    "server/ — sessions, transport, project records, integrations, and bridge services.",
-    "server/sharing.ts — host sharing, device pairing, and access control.",
-    "server/handlers/ — handlers for prompts, projects, settings, transcripts, and other actions.",
-    "desktop/ — Electron entry point, platform permissions, capture, and native app bridge.",
-    "scripts/ — build helpers, checks, and scenario test scripts.",
-    ".ruri/architecture.json — shareable project architecture index for import.",
-    "assets/ — app artwork.",
-    "docs/ — project documentation, including desktop permissions.",
-    "package.json — Bun scripts and package metadata.",
-    "Makefile — platform build, installation, update, and launch targets."
+    "server/ — Node backend: sessions, chats, queue, checkpoints, memory, bridge, routes",
+    "server/handlers/ — WebSocket/HTTP handlers per surface: projects, prompts, rewind, talk, skills",
+    "web/src/ — React UI: ChatPane, Composer, Queue, Sidebar, Settings, theming",
+    "web/src/components/ — chat, attachments, bridge, agents, architecture, ideas, tracker views",
+    "web/src/lib/ — markdown, markers, models, transcript, effects, peek band helpers",
+    "shared/ — single wire contract: protocol.ts, client schema, question input",
+    "desktop/ — Electron shell: main, permissions, hidden bridge windows, native apps (linuxApps.ts on Linux)",
+    "scripts/ — per-capability smoke/dev scripts run via bun run *-test",
+    "docs/ — features, permissions, long-form capability docs",
+    "assets/ — ruri.svg, dragon art"
   ],
   "run": [
-    "make — build, install, tidy, and launch.",
-    "make update — stop, rebuild, reinstall, tidy, and relaunch.",
-    "make build — build the app into dist-app/.",
-    "bun install — install dependencies for development.",
-    "bun run dev — run the server on port 7777 and UI on port 5173.",
-    "bun run desktop — run the unpackaged desktop app.",
-    "bun run typecheck — check server, web, and web test TypeScript.",
-    "bun test — run the Bun tests.",
-    "ruri --serve — run with no window (headless when there is no display), sharing on, printing six words; ruri --invite prints more, ruri --quit stops it.",
-    "bun run sharing-test — the sharing door: pairing, keys, origins, unpairing."
+    "make # macOS: build, sign, install ruri.app to /Applications, tidy, launch · Linux: build, install to ~/.local/opt/ruri + .desktop + icon, AppArmor profile and apt deps once (sudo), launch",
+    "make update # stop running app, rebuild, reinstall, relaunch",
+    "make build # bundle only, into dist-app/",
+    "bun install # install dependencies",
+    "bun run dev # browser mode: server :7777 + UI :5173",
+    "bun run desktop # unpackaged desktop app (built UI + Electron); on Ubuntu 24.04+ add -- --no-sandbox",
+    "bun test # unit tests",
+    "bun run typecheck # server + web typecheck"
   ],
   "conventions": [
-    "Use Bun for dependencies and package scripts.",
-    "Use make as the build, install, and launch path on macOS and Linux.",
-    "Run sessions through an installed, signed-in coding CLI.",
-    "On Linux with restricted user namespaces, pass --no-sandbox when running the unpackaged desktop app.",
-    "Project memory and architecture live under each project’s .ruri/ directory."
+    "Package manager is bun (bun install, bun run, bun test)",
+    "Prettier + ESLint: bun run format, format:check, lint; typecheck before shipping",
+    "macOS and Linux; installed by make, never downloaded; not notarized; Linux install is per-user under ~/.local",
+    "Stable self-signed `ruri dev` identity keeps privacy grants across rebuilds"
   ],
   "layerSheets": {
-    "window-navigation": {
-      "summary": "This layer starts the React window, chooses the active view, and supplies navigation and shared controls. App.tsx composes the main views, while Sidebar.tsx and Switcher.tsx navigate using client state. The Projects page shows recently finished chats using completion state from the store. Global styles and visibility-aware clocks define how the window looks and moves.",
+    "conversation": {
+      "summary": "This layer is the conversation surface: composing prompts in Composer.tsx and reading replies in ChatPane.tsx as grouped transcript turns. Rendering is componentized per event kind (EventView, Exchange, Diff, Thinking, Questions) with markdown sanitized to HTML and code highlighting cached plus offloaded to a worker. A newcomer must grasp that the prompt is plain text with markers ([image #n], /commands) mirrored as chips, and the transcript is a flat event stream grouped into turns at render time.",
       "map": [
         {
-          "name": "Window startup",
+          "name": "Prompt composing and sending",
           "files": [
-            "web/src/main.tsx",
-            "web/index.html"
+            "web/src/components/Composer.tsx",
+            "web/src/lib/markers.ts",
+            "web/src/components/CommandMenu.tsx",
+            "web/src/lib/commandLine.ts"
           ]
         },
         {
-          "name": "Active view and layout",
+          "name": "Attachment chips, viewer and region crops",
           "files": [
-            "web/src/App.tsx",
-            "web/src/styles.css"
+            "web/src/components/Attachments.tsx",
+            "web/src/lib/files.ts",
+            "web/src/components/Composer.tsx"
           ]
         },
         {
-          "name": "Projects page and recently finished chats",
+          "name": "Sketch pad drawing to image",
           "files": [
-            "web/src/components/HomeBoard.tsx",
-            "web/src/store.ts",
-            "web/src/styles.css"
+            "web/src/components/Sketch.tsx",
+            "web/src/components/Composer.tsx"
           ]
         },
         {
-          "name": "Project and session sidebar",
+          "name": "Marker chips mirror over textarea",
           "files": [
-            "web/src/components/Sidebar.tsx",
-            "web/src/styles.css"
+            "web/src/components/Markers.tsx",
+            "web/src/lib/markers.ts"
           ]
         },
         {
-          "name": "Quick navigation",
-          "files": [
-            "web/src/components/Switcher.tsx",
-            "web/src/lib/fuzzy.ts",
-            "web/src/lib/keys.ts"
-          ]
-        },
-        {
-          "name": "Confirmation cards",
-          "files": [
-            "web/src/components/Confirm.tsx",
-            "web/src/styles.css"
-          ]
-        },
-        {
-          "name": "Dropdown controls",
-          "files": [
-            "web/src/components/Dropdown.tsx",
-            "web/src/styles.css"
-          ]
-        },
-        {
-          "name": "Visibility-aware motion",
-          "files": [
-            "web/src/lib/awake.ts",
-            "web/src/lib/beat.ts",
-            "web/src/lib/spin.ts",
-            "web/src/styles.css"
-          ]
-        },
-        {
-          "name": "Button press behavior",
-          "files": [
-            "web/src/press.ts"
-          ]
-        },
-        {
-          "name": "Shared artwork and icons",
-          "files": [
-            "web/src/lib/doodle.ts",
-            "web/src/icons.ts"
-          ]
-        }
-      ],
-      "flows": [
-        {
-          "name": "Window startup",
-          "steps": [
-            "web/index.html hosts the page",
-            "web/src/main.tsx initializes theme and global interaction handlers",
-            "web/src/main.tsx mounts web/src/App.tsx",
-            "web/src/App.tsx connects client state and renders the active view"
-          ]
-        },
-        {
-          "name": "Navigation",
-          "steps": [
-            "web/src/components/Sidebar.tsx or web/src/components/Switcher.tsx presents a destination",
-            "web/src/components/Switcher.tsx ranks typed matches with web/src/lib/fuzzy.ts",
-            "The chosen destination updates client state",
-            "web/src/App.tsx renders the active view"
-          ]
-        },
-        {
-          "name": "Automatic motion",
-          "steps": [
-            "web/src/lib/awake.ts tracks window and element visibility",
-            "web/src/lib/beat.ts or web/src/lib/spin.ts runs a clock for visible movers",
-            "The clock updates a mover only when its step changes",
-            "Motion pauses while hidden or asleep and is disabled for reduced motion"
-          ]
-        }
-      ],
-      "files": [
-        "web/src/App.tsx — composes the window's active view and connects client state",
-        "web/src/main.tsx — initializes global window behavior and mounts React",
-        "web/src/components/HomeBoard.tsx — Projects page cards and recently finished chat indicators",
-        "web/src/store.ts — client state, including unseen finished chats",
-        "web/src/components/Sidebar.tsx — project, session, and Home navigation",
-        "web/src/components/Switcher.tsx — searchable keyboard navigation",
-        "web/src/styles.css — global theme surfaces, layout, controls, and motion styling",
-        "web/src/lib/awake.ts — window wake state and element visibility",
-        "web/src/lib/beat.ts — shared, visibility-aware clocks for stepped motion",
-        "web/src/press.ts — pointer capture for shrinking clickable controls"
-      ],
-      "rules": [
-        "Keep the theme's paper and ink semantics consistent; styles.css uses shade and pattern to distinguish surfaces and state.",
-        "Automatic movers use the shared clocks, which pause when hidden or asleep and respect reduced motion.",
-        "The switcher opens on the right Option key only when it was tapped alone; platform command shortcuts use lib/keys.ts.",
-        "Press handling captures the pointer so a button's shrink animation does not lose its click, while a release far outside still cancels it.",
-        "The global drop handler prevents untargeted file drops from navigating away from the app.",
-        "A chat covered by Projects or Settings counts as unseen when its turn finishes; opening that chat clears its finished marker."
-      ],
-      "edges": [
-        "Client state — App.tsx, Sidebar.tsx, Switcher.tsx, and HomeBoard.tsx read state and change the active destination",
-        "Shared protocol — Sidebar.tsx and Switcher.tsx use shared IDs and data types",
-        "Chat and prompting — App.tsx renders the chat view and prewarms transcript markdown",
-        "Home and project pages — App.tsx renders the Projects page through HomeBoard.tsx",
-        "Settings and personalization — App.tsx renders Settings, and main.tsx initializes the theme"
-      ]
-    },
-    "chat-prompting": {
-      "summary": "This layer renders chat transcripts, session controls, and the prompt composer, including attachments, commands, questions, and terminal input. React components use client state and shared protocol types, while helpers handle markers, transcript presentation, and Markdown. A newcomer should understand that attachment and command chips are a visual mirror of text in the composer, not separate prompt objects.",
-      "map": [
-        {
-          "name": "Chat pane and transcript layout",
+          "name": "Transcript pane, turns and autoscroll",
           "files": [
             "web/src/components/ChatPane.tsx",
+            "web/src/components/Exchange.tsx",
+            "web/src/lib/scrollGate.ts",
+            "web/src/lib/transcript.ts"
+          ]
+        },
+        {
+          "name": "Transcript event rendering",
+          "files": [
+            "web/src/components/EventView.tsx",
             "web/src/components/Exchange.tsx"
           ]
         },
         {
-          "name": "Prompt composer and sending",
-          "files": [
-            "web/src/components/Composer.tsx",
-            "web/src/components/SessionControls.tsx"
-          ]
-        },
-        {
-          "name": "Attachments and image regions",
-          "files": [
-            "web/src/components/Attachments.tsx",
-            "web/src/lib/files.ts"
-          ]
-        },
-        {
-          "name": "Sketch pad",
-          "files": [
-            "web/src/components/Sketch.tsx"
-          ]
-        },
-        {
-          "name": "Prompt markers and command chips",
-          "files": [
-            "web/src/components/Markers.tsx",
-            "web/src/lib/markers.ts",
-            "web/src/components/CommandMenu.tsx"
-          ]
-        },
-        {
-          "name": "Transcript events and diffs",
-          "files": [
-            "web/src/components/EventView.tsx",
-            "web/src/components/Diff.tsx"
-          ]
-        },
-        {
-          "name": "Markdown rendering and highlighting",
+          "name": "Reply markdown and code blocks",
           "files": [
             "web/src/markdown.tsx",
             "web/src/lib/markdownHtml.ts",
@@ -532,883 +401,803 @@
           ]
         },
         {
-          "name": "Queued prompts",
+          "name": "Diff display",
           "files": [
-            "web/src/components/Queue.tsx"
+            "web/src/components/Diff.tsx",
+            "web/src/components/EventView.tsx"
           ]
         },
         {
-          "name": "Question cards",
+          "name": "Question / permission cards",
           "files": [
-            "web/src/components/Questions.tsx"
+            "web/src/components/Questions.tsx",
+            "web/src/components/PermissionBanner.tsx"
           ]
         },
         {
-          "name": "Terminal input",
+          "name": "Working / thinking indicator",
+          "files": [
+            "web/src/components/Thinking.tsx",
+            "web/src/components/ChatPane.tsx"
+          ]
+        },
+        {
+          "name": "Composer terminal tabs",
           "files": [
             "web/src/components/Terminal.tsx",
             "web/src/components/Composer.tsx"
           ]
         },
         {
-          "name": "Rapid fire session selection",
+          "name": "Transcript text selection flags",
           "files": [
-            "web/src/components/RapidFire.tsx",
-            "web/src/lib/rapid.ts"
-          ]
-        },
-        {
-          "name": "Turn progress",
-          "files": [
-            "web/src/components/Thinking.tsx",
-            "web/src/components/Dragon.tsx"
+            "web/src/components/Selection.tsx",
+            "web/src/components/ChatPane.tsx"
           ]
         }
       ],
       "flows": [
         {
-          "name": "Compose a prompt",
+          "name": "Send a prompt",
           "steps": [
-            "Composer collects text and attachments",
-            "Attachments supplies previews and image regions",
-            "Markers mirrors attachment and command text as chips",
-            "Composer sends through client state"
+            "Type plain text with markers in Composer.tsx textarea",
+            "Markers parsed and mirrored as chips via lib/markers.ts and Markers.tsx",
+            "Attachments and sketch images appended with region crops from Attachments.tsx",
+            "Slash command resolved via CommandMenu.tsx and scripts/commands.ts",
+            "Sent through store send; ChatPane.tsx groups reply events into turns via Exchange.tsx groupTurns"
           ]
         },
         {
-          "name": "Show a transcript",
+          "name": "Render a reply",
           "steps": [
-            "ChatPane obtains the session transcript from client state",
-            "Exchange groups turns",
-            "EventView renders events and attachments",
-            "Markdown rendering sanitizes model output before HTML display"
+            "ChatPane.tsx receives flat TranscriptEvent stream",
+            "Exchange.tsx groupTurns folds user prompt through following events; compaction stands solo",
+            "EventView.tsx renders each event kind with shortened paths and command chips",
+            "Markdown goes through lib/markdownHtml.ts with DOMPurify then markdown.tsx components",
+            "Code blocks highlight inline or via highlight.worker.ts with cache in highlighter.ts"
           ]
         },
         {
           "name": "Answer a question",
           "steps": [
-            "Questions displays one question at a time",
-            "Picks and typed answers remain keyed by request while the card is unmounted",
-            "The answer is sent in the originating tool's input shape"
+            "Ask/permission event renders QuestionCard in Questions.tsx or PermissionBanner.tsx",
+            "One question shown at a time with slide navigation and persisted picks",
+            "Answer sent back in harness-native shape via store send"
           ]
         }
       ],
       "files": [
-        "web/src/components/ChatPane.tsx — assembles the chat view and transcript",
-        "web/src/components/Composer.tsx — composes and sends prompts",
-        "web/src/components/EventView.tsx — renders transcript events",
-        "web/src/components/Exchange.tsx — groups transcript turns",
-        "web/src/components/Attachments.tsx — previews attachments and handles image regions",
-        "web/src/components/Markers.tsx — draws interactive chips over composer text",
-        "web/src/lib/markers.ts — finds and edits marker text",
-        "web/src/components/Queue.tsx — displays and edits queued prompts",
-        "web/src/components/Questions.tsx — collects answers to tool questions",
-        "web/src/lib/markdownHtml.ts — renders and sanitizes Markdown HTML"
+        "web/src/components/ChatPane.tsx — transcript holder, turn grouping host and composer dock",
+        "web/src/components/Composer.tsx — prompt textarea, attachments, commands, shell toggle and send",
+        "web/src/components/EventView.tsx — per-event transcript rendering, compaction marks and tool blocks",
+        "web/src/components/Exchange.tsx — groupTurns flat events into prompt-to-result turns and folds",
+        "web/src/markdown.tsx — streaming markdown components for replies",
+        "web/src/lib/markdownHtml.ts — marked plus DOMPurify markdown-to-HTML kept testable off components",
+        "web/src/lib/markers.ts — pure string handling of [image #n] and /command markers",
+        "web/src/components/Markers.tsx — chip mirror overlay drawn over the textarea",
+        "web/src/components/Attachments.tsx — composer strip, full viewer, region annotations and transcript attachments",
+        "web/src/components/Questions.tsx — single-card AskUserQuestion and elicitation flow with persisted state"
       ],
       "rules": [
-        "Composer markers remain text in the textarea; the mirror must wrap exactly like that text.",
-        "Image region numbers are counted across all attachments in drawing order so each region reference identifies one crop.",
-        "Model Markdown is untrusted; sanitize its rendered HTML before inserting it into the page.",
-        "Question picks, typed answers, and position survive switching sessions until the answer is sent.",
-        "Queued prompts stay app-side and remain editable or removable until dispatch.",
-        "Sketch strokes are stored as shapes per channel and picture, then redrawn for undo and export."
+        "Never put highlighting or sanitizing inline in components: markdown goes via lib/markdownHtml.ts with DOMPurify since model output is untrusted innerHTML.",
+        "Do not re-highlight from scratch: highlighter.ts caches by language plus text and only long blocks go to highlight.worker.ts; short blocks stay inline.",
+        "Keep markers as text: find, move, space and strip them only with lib/markers.ts so mirror width and wrapping stay identical to the textarea.",
+        "Compaction events are solo turns in groupTurns and never fold or host other events.",
+        "Sketch keeps shapes and redraws at export size with per-channel autosave; it closes only on its own close button, never on Escape."
       ],
       "edges": [
-        "Client state — supplies transcripts, drafts, queues, attachments, and send actions",
-        "Shared protocol — defines session, transcript, attachment, question, and progress types",
-        "Sessions — receives prompts and answers through client state and supplies session events",
-        "Window and navigation — hosts the chat pane and its surrounding views",
-        "Agent and bridge views — appear within the chat pane"
+        "Protocol — TranscriptEvent, Attachment, AskQuestion and marker text shapes come from shared/protocol.ts",
+        "App shell, state and tooling — send, transcript, drafts and prefs come from the store/prefs; do not duplicate them here",
+        "Chat runs and queue — live prompts, turns, rewind and transcript delivery arrive over the socket into ChatPane.tsx",
+        "Navigation: sidebar, projects and queue — session switching unmounts cards so question state is keyed by request to survive",
+        "Bridge — BridgeStrip preview sits above the composer alongside Terminal.tsx tabs"
       ]
     },
-    "home-project-pages": {
-      "summary": "This layer renders the home and project pages: live project activity, statistics, ideas, architecture sheets, a component gallery, and a feature tracker. React components read client state and send user actions through the store; shared protocol types define their data. The architecture stack is an index into layer sheets that sessions read before working in a layer.",
+    "navigation-projects": {
+      "summary": "This layer moves the user between projects and sessions: sidebar project/session list, HomeBoard projects overview, ⌘K/right-Option Switcher, per-chat Queue list, Rapid Fire line, SessionControls pickers, and Player music bar. It is built as presentational React components over the app store (`useRuri`/`send`) plus three small libs (fuzzy scoring, run-note staleness, Web Audio engine). Newcomers must grasp that these components navigate and display state but never own turn execution — sends go through the store/socket and the active session stays put unless explicitly changed.",
       "map": [
         {
-          "name": "Project activity and home tabs",
+          "name": "Sidebar project/session list",
+          "files": [
+            "web/src/components/Sidebar.tsx",
+            "web/src/components/Player.tsx"
+          ]
+        },
+        {
+          "name": "Home projects board",
           "files": [
             "web/src/components/HomeBoard.tsx"
           ]
         },
         {
-          "name": "Usage and machine statistics",
+          "name": "Quick switcher (⌘K / right Option)",
           "files": [
-            "web/src/components/Statistics.tsx",
-            "web/src/components/figures.ts"
+            "web/src/components/Switcher.tsx",
+            "web/src/lib/fuzzy.ts"
           ]
         },
         {
-          "name": "Architecture stack and layer sheets",
+          "name": "Queued prompts list",
           "files": [
-            "web/src/components/Architecture.tsx",
+            "web/src/components/Queue.tsx"
+          ]
+        },
+        {
+          "name": "Rapid Fire line",
+          "files": [
+            "web/src/components/RapidFire.tsx"
+          ]
+        },
+        {
+          "name": "Per-chat session controls (model/effort/permission)",
+          "files": [
+            "web/src/components/SessionControls.tsx"
+          ]
+        },
+        {
+          "name": "Music player bar",
+          "files": [
+            "web/src/components/Player.tsx",
+            "web/src/lib/audio.ts"
+          ]
+        },
+        {
+          "name": "Fuzzy search scoring",
+          "files": [
+            "web/src/lib/fuzzy.ts"
+          ]
+        },
+        {
+          "name": "Background-run notes and timestamps",
+          "files": [
             "web/src/lib/runNote.ts"
-          ]
-        },
-        {
-          "name": "Component gallery and code",
-          "files": [
-            "web/src/components/Components.tsx",
-            "web/src/lib/runNote.ts"
-          ]
-        },
-        {
-          "name": "Name a newly built component",
-          "files": [
-            "web/src/components/NameCard.tsx"
-          ]
-        },
-        {
-          "name": "Ideas and their drafts",
-          "files": [
-            "web/src/components/Ideas.tsx"
-          ]
-        },
-        {
-          "name": "Feature review",
-          "files": [
-            "web/src/components/Tracker.tsx"
-          ]
-        },
-        {
-          "name": "Shared number formatting",
-          "files": [
-            "web/src/components/figures.ts"
           ]
         }
       ],
       "flows": [
         {
-          "name": "Architecture sheet",
+          "name": "Switch project/session",
           "steps": [
-            "Show the project stack",
-            "Open a layer to reveal its sheet",
-            "Show the change map, flows, key files, and traps that a session reads for that layer"
+            "Sidebar row click, Switcher Enter, HomeBoard card, or RapidBar channel handoff calls setActive/go",
+            "Store updates activeId while app active session is preserved where required (RapidFire)",
+            "Chat pane renders the newly active channel transcript",
+            "Unread pips and recent-note lines update from store"
           ]
         },
         {
-          "name": "Idea",
+          "name": "Hold and dispatch a queued prompt",
           "steps": [
-            "Write an idea and attach files in a persistent draft",
-            "Add it to the project's ideas board",
-            "Mark it done or send it for work by user action"
+            "Queue.tsx holds prompt app-side while a turn runs (nothing reaches harness)",
+            "User edits, merges (drop on body), reorders (drop on edge), or removes card up to dispatch",
+            "Fold can be undone within UNDO_MS (8000ms)",
+            "composeInto/send releases the prompt when its turn comes"
           ]
         },
         {
-          "name": "Feature review",
+          "name": "Rapid Fire pass through ready sessions",
           "steps": [
-            "Show items extracted from turns",
-            "Cycle each item through open, works, and needs fixing",
-            "Add a note or files to an item needing fixing",
-            "Finish review to clear accepted items, keep rejected items as repeats, and place a fix prompt in the composer"
+            "Line membership resolved via lib/rapid: all open vs starred-only, hidden excluded",
+            "RapidFire hands the ordinary chat pane a different channel to show (builds no pane)",
+            "Prompt lands and sits readable, card eases out",
+            "Next project name announces big before its chat rises",
+            "Leaving the line restores the prior active session"
           ]
         }
       ],
       "files": [
-        "web/src/components/HomeBoard.tsx — home tabs and project activity cards",
-        "web/src/components/Architecture.tsx — project stack and expandable layer sheets",
-        "web/src/components/Components.tsx — project component gallery, details, and code",
-        "web/src/components/Ideas.tsx — ideas board and persistent idea drafts",
-        "web/src/components/Statistics.tsx — spending and machine usage page",
-        "web/src/components/Tracker.tsx — feature checklist and review actions",
-        "web/src/components/NameCard.tsx — naming request for a newly built component",
-        "web/src/components/figures.ts — shared totals and number formatting",
-        "web/src/lib/runNote.ts — expiry and relative time for background run notes"
+        "web/src/components/Sidebar.tsx — project/session list, Home row, unread pips, star/hide, account bar",
+        "web/src/components/HomeBoard.tsx — HomeTab/HomeDeck/ProjectsPage grid of per-project status cards",
+        "web/src/components/Switcher.tsx — ⌘K/right-Option fuzzy search over places, projects, sessions",
+        "web/src/components/Queue.tsx — QueuedList/QueueStandby editable held-prompt cards with drag reorder/merge",
+        "web/src/components/RapidFire.tsx — RapidFire/useRapidFire/RapidBar same-chat session line",
+        "web/src/components/SessionControls.tsx — composer's per-chat model/effort/permission pickers",
+        "web/src/components/Player.tsx — music bar, waveform, seek/volume over AudioEngine",
+        "web/src/lib/audio.ts — two-deck Web Audio engine with crossfade, shuffle, repeat; streams /music/track",
+        "web/src/lib/fuzzy.ts — score() ranked matcher for the switcher",
+        "web/src/lib/runNote.ts — useNoteStale/FINAL_NOTE_MS/since() for background-run last words"
       ],
       "rules": [
-        "Project cards advance by completed steps; streaming reply text and motion belong in the open chat. Cards group live → finished → idle: finished while a chat has an unseen finished turn (store unread, the sidebar's diamond), until that chat is opened.",
-        "Ideas are user written and change only when the user acts; drafts survive leaving the page and relaunching.",
-        "Tracker items stay in place during review; their status cycles open → liked → rejected → open.",
-        "A component naming response resolves the model's permission request, so the chosen name reaches its tool call.",
-        "Finished background run notes expire 25 seconds after their latest report; a newer report or active run is fresh.",
-        "Statistics receives CPU usage measured per core; divide by the machine's core count for displayed percentages, so 100% means all cores are busy."
+        "HomeBoard never animates: streaming reply words and anything moving belong only to the open chat.",
+        "RapidFire must not move the app's active session; exiting the line returns to where the user was.",
+        "SessionControls picks are per chat (session id / Home channelId), never per project.",
+        "Queued prompts stay app-side until their turn; editable/removable up to dispatch only.",
+        "Switcher opens on right-Option tap alone; Option held for shortcuts (e.g. ⌥→) must not open it.",
+        "Finished run notes expire after FINAL_NOTE_MS (25s) so stale results don't linger across opens."
       ],
       "edges": [
-        "Client state — supplies page data, subscriptions, drafts, and actions",
-        "Shared protocol — defines page data, statuses, and requests",
-        "Project knowledge — supplies architecture sheets and component records",
-        "Server services — supplies spending and process usage data",
-        "Chat and prompting — receives tracker fix prompts and idea content in the composer"
+        "App shell, state and tooling — reads/writes store via useRuri/send/setActive/composeInto and prefs via getPref/setPref",
+        "Protocol — all entities typed in shared/protocol.ts (Project, SessionInfo, QueuedPrompt, Playlist/Track, HOME_ID)",
+        "Conversation — RapidFire and Queue hand channels/prompts to the ordinary chat pane and composer",
+        "Chat runs and queue — QueuedList mirrors server turn queue/held state; dispatches through send",
+        "Management — HomeBoard embeds StatisticsPage for the cost question split off the board"
       ]
     },
-    "agent-bridge-views": {
-      "summary": "This layer presents agent runs and scripts, controls who agents may message, and shows pages or apps a session is driving through the bridge. Its four React components read client state, use shared protocol types, and send actions through the client store. Keep the distinction between an agent card in chat and one on the agents page when changing how agents open.",
+    "management-pages": {
+      "summary": "Management layer holds the secondary boards and settings pages: agents/scripts, harness integrations, skills, ideas, tracker review, talk rules, and cost/machine statistics. Pages are thin views over server state via the store's `send`/`useRuri`, with formatting shared in figures.ts and model-name helpers in models.ts. Newcomer idea: ruri never owns harness config here — it displays and delegates to harness CLIs, bmo, ledger, and tracker/talk servers.",
       "map": [
         {
-          "name": "Agent runs, logs, and controls",
+          "name": "Agents and background scripts",
           "files": [
             "web/src/components/AgentsPage.tsx"
           ]
         },
         {
-          "name": "Agent cards and status labels",
-          "files": [
-            "web/src/components/chat/AgentCard.tsx"
-          ]
-        },
-        {
-          "name": "Agent messaging rules and recent messages",
-          "files": [
-            "web/src/components/TalkPage.tsx"
-          ]
-        },
-        {
-          "name": "Bridge preview and takeover",
-          "files": [
-            "web/src/components/Bridge.tsx"
-          ]
-        }
-      ],
-      "flows": [
-        {
-          "name": "Agent run",
-          "steps": [
-            "An agent card opens its agent in the appropriate chat or page context.",
-            "The agents page shows the run and its output.",
-            "A running script's page refreshes its output every two seconds.",
-            "The page offers actions to message, stop, or close the agent."
-          ]
-        },
-        {
-          "name": "Agent messaging",
-          "steps": [
-            "The talk page selects everyone, a project, or a chat.",
-            "It shows or changes who that scope may message.",
-            "It shows recent messages and their status."
-          ]
-        },
-        {
-          "name": "Bridge display",
-          "steps": [
-            "A session opens a page or app.",
-            "The strip above the composer shows its live picture, title, and address.",
-            "The user can open the picture in a read-only viewer or take over the real window.",
-            "Giving control back hides the window while the session continues; closing the bridge removes the strip."
-          ]
-        }
-      ],
-      "files": [
-        "web/src/components/AgentsPage.tsx — agent and script page, output, and run controls",
-        "web/src/components/TalkPage.tsx — agent messaging rules and recent messages",
-        "web/src/components/Bridge.tsx — bridge preview and takeover strip",
-        "web/src/components/chat/AgentCard.tsx — agent card, status text, and opening context"
-      ],
-      "rules": [
-        "Messaging rules inherit from everyone to project to chat; a more specific rule overrides the one above it.",
-        "A project's messaging rule covers its chats, including new ones.",
-        "Agent cards open differently in chat and on the agents page; preserve their AgentHost context.",
-        "The bridge picture opens read-only; takeover uses the real window.",
-        "Giving bridge control back hides the window without ending the session's control.",
-        "The bridge strip sits above the composer and stacks above the rapid-fire plate when both appear."
-      ],
-      "edges": [
-        "Client state — components read session state and send agent, talk, and bridge actions through the store",
-        "Shared protocol — supplies agent, project, transcript, and talk types",
-        "Chat and prompting — hosts agent cards and the bridge strip above the composer",
-        "Sessions — supplies agent runs and agent-to-agent messaging",
-        "Bridge — supplies the driven page or app shown by the strip"
-      ]
-    },
-    "interface-tooling": {
-      "summary": "This layer makes the interface usable in development and test environments. Vite exposes the server token to its own development page, fixture mode fills the client store with canned UI state, and a jsdom setup supplies browser globals for tests. The key distinction is that fixture mode can show the interface without a live server.",
-      "map": [
-        {
-          "name": "Development page token access",
-          "files": [
-            "vite.config.ts"
-          ]
-        },
-        {
-          "name": "Fixture mode and screenshot state",
-          "files": [
-            "web/src/fixture.ts"
-          ]
-        },
-        {
-          "name": "Browser globals for interface tests",
-          "files": [
-            "web/src/test/dom.ts"
-          ]
-        }
-      ],
-      "flows": [
-        {
-          "name": "Development token",
-          "steps": [
-            "The Vite development page requests /__token.",
-            "The middleware rejects a request whose Origin differs from its own host.",
-            "It reads the token from the configured directory."
-          ]
-        },
-        {
-          "name": "Fixture mode",
-          "steps": [
-            "Fixture mode calls installFixture.",
-            "The fixture populates the client store with canned transcript, permission, folder, and project status state.",
-            "The interface renders that state without a live server."
-          ]
-        },
-        {
-          "name": "DOM test setup",
-          "steps": [
-            "Import the DOM setup first.",
-            "It creates a jsdom window and adds missing browser globals.",
-            "Dynamically import modules that bind to window when they load."
-          ]
-        }
-      ],
-      "files": [
-        "web/src/fixture.ts — canned, store-backed state for viewing and driving the interface in fixture mode",
-        "vite.config.ts — Vite configuration and same-origin development token middleware",
-        "web/src/test/dom.ts — jsdom window and browser globals for web tests"
-      ],
-      "rules": [
-        "Keep the development token endpoint restricted to the Vite page’s origin; it must not expose CORS headers.",
-        "Import the DOM setup before modules that need browser globals, and dynamically import modules that bind to window during loading.",
-        "Use jsdom for sanitizer tests; the file documents that happy-dom changes the tested HTML in misleading ways.",
-        "Fixture mode must remain usable without a live server."
-      ],
-      "edges": [
-        "Client state — the fixture populates and exposes state through the client store.",
-        "Server transport — the development token middleware reads the token written for server socket access.",
-        "Window and navigation — fixture state lets the interface be viewed and screenshotted."
-      ]
-    },
-    "settings-personalization": {
-      "summary": "This layer provides settings for models, integrations, skills, themes, greetings, pictures, and music. React editors use the client store for server-backed actions, while preference modules keep local copies for immediate rendering. The key distinction is that band and greeting definitions are validated separately from their live, editable state.",
-      "map": [
-        {
-          "name": "Settings page and model choices",
-          "files": [
-            "web/src/components/Settings.tsx"
-          ]
-        },
-        {
-          "name": "Integrations",
+          "name": "Harness integrations (MCP servers, plugins)",
           "files": [
             "web/src/components/Integrations.tsx"
           ]
         },
         {
-          "name": "Skills",
+          "name": "Skills install/enable view",
           "files": [
             "web/src/components/Skills.tsx"
           ]
         },
         {
-          "name": "Theme and schedule",
+          "name": "Ideas board",
           "files": [
-            "web/src/theme.ts",
-            "web/src/components/Settings.tsx",
-            "web/src/prefs.ts"
+            "web/src/components/Ideas.tsx"
           ]
         },
         {
-          "name": "Peek band editing",
+          "name": "Feature tracker review",
           "files": [
-            "web/src/components/BandEditor.tsx",
+            "web/src/components/Tracker.tsx"
+          ]
+        },
+        {
+          "name": "Talk permissions and letters",
+          "files": [
+            "web/src/components/TalkPage.tsx"
+          ]
+        },
+        {
+          "name": "Cost statistics and machine meters",
+          "files": [
+            "web/src/components/Statistics.tsx",
+            "web/src/components/figures.ts",
+            "scripts/meters.ts"
+          ]
+        },
+        {
+          "name": "Bridge preview strip",
+          "files": [
+            "web/src/components/Bridge.tsx"
+          ]
+        },
+        {
+          "name": "Number formatting",
+          "files": [
+            "web/src/components/figures.ts"
+          ]
+        },
+        {
+          "name": "Model/harness naming",
+          "files": [
+            "web/src/lib/models.ts"
+          ]
+        }
+      ],
+      "flows": [
+        {
+          "name": "Tracker review pass",
+          "steps": [
+            "Tracker.tsx lists small-model items",
+            "click cycles open → liked → rejected, note field folds out on rejected",
+            "Finish review clears liked, pins rejected as repeats",
+            "small-model fix-it prompt drops into composer"
+          ]
+        },
+        {
+          "name": "Statistics read",
+          "steps": [
+            "Statistics.tsx mounts and subscribes via watchMeters",
+            "money totals come off ledger",
+            "machine usage sampled from ps only while page is up",
+            "figures.ts formats money/counts/span identically to cards"
+          ]
+        },
+        {
+          "name": "Talk rule resolution",
+          "steps": [
+            "TalkPage.tsx edits global rule",
+            "project rule overrides global for its chats",
+            "chat rule overrides project",
+            "latest inter-agent letters listed underneath"
+          ]
+        }
+      ],
+      "files": [
+        "web/src/components/Statistics.tsx — money/machine cost page over ledger and ps sampling",
+        "web/src/components/AgentsPage.tsx — per-chat agents and running scripts with live log",
+        "web/src/components/Integrations.tsx — MCP servers/plugins view delegating to harness CLIs",
+        "web/src/components/Tracker.tsx — hand-test checklist review with finish-to-composer",
+        "web/src/components/Ideas.tsx — user-written wants board with draft persistence and attachments",
+        "web/src/components/TalkPage.tsx — who-may-message-whom rules plus recent letters",
+        "web/src/components/Skills.tsx — bmo/filesystem skills view with skills-off toggle",
+        "web/src/components/Bridge.tsx — live hidden-window plate above composer with take-over",
+        "web/src/components/figures.ts — shared money/count/span formatting",
+        "web/src/lib/models.ts — harnessName and roughName label helpers"
+      ],
+      "rules": [
+        "Nothing here owns harness config: integrations go through harness CLIs, skills through bmo and skills-off/ folders — never write harness files directly.",
+        "Ideas never move on their own: nothing lands or leaves without the user; only states are open and done.",
+        "Tracker items never reorder mid-review; keep list stable until finish.",
+        "Statistics money must come off the ledger so rewinds/compactions agree; machine sampling only while the page watches (view message starts/stops it).",
+        "figures.ts formatting is shared with project cards — change in one place so both pages agree.",
+        "Bridge picture opens read-only in the viewer; take-over/give-back is the only control."
+      ],
+      "edges": [
+        "Protocol — all rows, rules, letters, totals typed in shared/protocol.ts",
+        "App shell, state and tooling — pages read/write through store send/useRuri, composer drafts, viewer, Capped/Confirm pieces",
+        "Projects, memory and history — ledger, tracker, ideas servers supply statistics/tracker/ideas data",
+        "Terminals, agents and integrations — integrations/skills/talk pages delegate to harness CLIs, bmo, crew/talk servers",
+        "Bridge — BridgeStrip renders hidden Chromium/app window state with take-over"
+      ]
+    },
+    "appearance-library": {
+      "summary": "Appearance owns ruri's look: light/dark/ember theming, the sidebar peek band, the empty-chat hero face, the dragon usage gauges, and the shared UI pieces (dropdown, confirm, settings rows). It is built as pure presentational state plus editors — shape/parse helpers in lib, live window copies in band.ts/hero.ts/pictures.ts, and manga-styled components. A newcomer must grasp that band/hero are stored shapes read back checked from disk, with live bytes and animation state kept separately, and that a visible window keeps animating whether or not it has focus.",
+      "map": [
+        {
+          "name": "Theme and schedule",
+          "files": [
+            "web/src/theme.ts",
+            "web/src/components/Settings.tsx"
+          ]
+        },
+        {
+          "name": "Peek band display",
+          "files": [
+            "web/src/components/PeekBand.tsx",
             "web/src/band.ts",
             "web/src/lib/peekBand.ts"
           ]
         },
         {
-          "name": "Peek band display and picture motion",
+          "name": "Peek band editor",
           "files": [
-            "web/src/components/PeekBand.tsx",
+            "web/src/components/BandEditor.tsx",
+            "web/src/lib/peekBand.ts"
+          ]
+        },
+        {
+          "name": "Dragon gauges",
+          "files": [
+            "web/src/components/Dragon.tsx",
+            "web/src/dragonArt.ts"
+          ]
+        },
+        {
+          "name": "Settings page",
+          "files": [
+            "web/src/components/Settings.tsx",
+            "web/src/components/SettingsRows.tsx"
+          ]
+        },
+        {
+          "name": "Component library gallery",
+          "files": [
+            "web/src/components/Components.tsx"
+          ]
+        },
+        {
+          "name": "Architecture page",
+          "files": [
+            "web/src/components/Architecture.tsx"
+          ]
+        },
+        {
+          "name": "Shared primitives",
+          "files": [
+            "web/src/components/Dropdown.tsx",
+            "web/src/components/Confirm.tsx",
+            "web/src/components/Capped.tsx"
+          ]
+        },
+        {
+          "name": "Pictures and animation",
+          "files": [
             "web/src/pictures.ts",
             "web/src/lib/effects.ts"
           ]
         },
         {
-          "name": "Greetings",
+          "name": "Icons, press art, tracing and the feature doodles (kept, not used yet)",
           "files": [
-            "web/src/components/GreetingEditor.tsx",
-            "web/src/greetings.ts",
-            "web/src/lib/greetings.ts"
+            "web/src/icons.ts",
+            "web/src/press.ts",
+            "scripts/trace-dragon.py",
+            "web/src/lib/featureDoodles.ts"
+          ]
+        }
+      ],
+      "flows": [
+        {
+          "name": "Band / hero customize",
+          "steps": [
+            "Stored shape parsed and checked in lib/peekBand.ts or lib/heroFace.ts",
+            "Live copy held in band.ts / hero.ts, pictures bytes in pictures.ts",
+            "Rendered by PeekBand.tsx / HeroFace.tsx",
+            "Edited by hand in BandEditor.tsx / HeroEditor.tsx",
+            "Written back, sidebar updates a beat later"
           ]
         },
         {
-          "name": "Music player",
+          "name": "Theme pick",
+          "steps": [
+            "theme.ts reads per-machine pref via prefs",
+            "Settings hand-pick or schedule clock picks light/dark/ember",
+            "applyTheme paints the page",
+            "Hand pick turns schedule off"
+          ]
+        }
+      ],
+      "files": [
+        "web/src/theme.ts — the three themes, schedule clock, and per-machine pref persistence",
+        "web/src/band.ts — the window's live peek-band copy",
+        "web/src/hero.ts — the window's live hero-face copy",
+        "web/src/pictures.ts — user picture bytes, animated/still handling",
+        "web/src/lib/peekBand.ts — band shape, defaults, checked parse",
+        "web/src/lib/heroFace.ts — hero shape, face/greeting picking, checked parse",
+        "web/src/components/PeekBand.tsx — sidebar band display and BandPic",
+        "web/src/components/HeroFace.tsx — empty-chat face display",
+        "web/src/components/Dragon.tsx — context/limit dragon gauges",
+        "web/src/dragonArt.ts — traced calm/sweat dragon paths"
+      ],
+      "rules": [
+        "Band is the window title bar: while ruri is active it must not be a drag region or hover never arrives; press-and-drag moves via shell windowDrag. Focus only controls whether the picture strip along the top of the sidebar drags the window.",
+        "Stored band/hero come off disk and must be parsed/checked, never trusted directly.",
+        "Theme is per machine via prefs/localStorage, not per project.",
+        "Dragon art is committed traced paths; only regenerate via scripts/trace-dragon.py and scripts/png-slim.ts if drawings change.",
+        "Gauges belong to the channel model's harness, never default to Claude's numbers; missing limits show empty dragons.",
+        "A visible window keeps streaming, clocks and animated pictures live even without focus; only hidden/minimized/covered goes quiet, so visible-but-unfocused ruri still uses CPU."
+      ],
+      "edges": [
+        "App shell, state and tooling — store, prefs, beat clock, styles and tuner drive all live copies",
+        "Protocol — HarnessInfo, ModelRole, usage/limits and sheet types arrive typed from shared/protocol.ts",
+        "Desktop shell — windowDrag carries band presses; theme/prefs persist via server copy",
+        "Chat runs and queue — composer flanks read harness usage for dragon fills",
+        "Management — Integrations and model catalog surface inside Settings"
+      ]
+    },
+    "app-shell": {
+      "summary": "This layer is the web app shell: entry HTML, React root, global zustand store with socket wiring, local-first prefs, and global manga-theme styles. It freezes a window nobody can see (minimised, hidden, another Space, or fully covered — not merely unfocused): inbound updates are held with only the latest kept and applied in one redraw on wake, while agents and terminals keep running. It also carries the Linux shell adaptations: Permissions settings renders a no-grants message instead of macOS calls and shortcuts use Ctrl on Linux. Newcomers must grasp that store.ts is the single state/socket hub all feature layers read, that held.ts owns the asleep hold-and-catch-up, and that styles.css plus the beat/awake/spin clocks define how anything may look or move.",
+      "map": [
+        {
+          "name": "App root and page routing",
           "files": [
-            "web/src/components/Player.tsx",
-            "web/src/lib/audio.ts",
+            "web/src/App.tsx",
+            "web/src/main.tsx",
+            "web/index.html"
+          ]
+        },
+        {
+          "name": "Global store and socket",
+          "files": [
+            "web/src/store.ts",
             "web/src/prefs.ts"
           ]
         },
         {
-          "name": "Devices: sharing, pairing, and remote setup that installs ruri when needed",
+          "name": "Asleep frozen hold and catch-up",
           "files": [
-            "web/src/components/Devices.tsx",
-            "web/src/lib/shell.ts"
+            "web/src/lib/held.ts",
+            "web/src/store.ts"
+          ]
+        },
+        {
+          "name": "User prefs cache",
+          "files": [
+            "web/src/prefs.ts",
+            "web/src/store.ts"
+          ]
+        },
+        {
+          "name": "Global manga theme styles",
+          "files": [
+            "web/src/styles.css"
+          ]
+        },
+        {
+          "name": "Animation clocks",
+          "files": [
+            "web/src/lib/beat.ts",
+            "web/src/lib/spin.ts",
+            "web/src/lib/awake.ts"
+          ]
+        },
+        {
+          "name": "Fixture eyeball mode",
+          "files": [
+            "web/src/fixture.ts",
+            "web/src/store.ts"
+          ]
+        },
+        {
+          "name": "Art tuner dev tool",
+          "files": [
+            "vite.config.ts"
+          ]
+        },
+        {
+          "name": "Shared chat card pieces",
+          "files": [
+            "web/src/components/chat/AgentCard.tsx",
+            "web/src/components/chat/Icon.tsx",
+            "web/src/components/chat/empty.ts"
+          ]
+        },
+        {
+          "name": "Build, lint and script tests",
+          "files": [
+            "vite.config.ts",
+            "eslint.config.js",
+            "scripts/run-tests.ts"
+          ]
+        },
+        {
+          "name": "Settings permissions Linux copy",
+          "files": [
+            "web/src/components/Settings.tsx"
+          ]
+        },
+        {
+          "name": "Terminal and composer Linux keys",
+          "files": [
+            "web/src/components/Terminal.tsx",
+            "web/src/components/Composer.tsx",
+            "web/src/components/Switcher.tsx",
+            "web/src/components/Sketch.tsx"
           ]
         }
       ],
       "flows": [
         {
-          "name": "Preference change",
+          "name": "App boot to live state",
           "steps": [
-            "An editor changes a setting",
-            "The relevant live module updates the window's copy",
-            "prefs.ts caches and sends the preference",
-            "A late server snapshot fills missing values without replacing changes made this session"
+            "web/index.html loads web/src/main.tsx",
+            "main.tsx paints cached pref theme then mounts web/src/App.tsx",
+            "App.tsx connects web/src/store.ts socket once",
+            "store hydrates prefs via web/src/prefs.ts and prewarms transcripts",
+            "clocks in web/src/lib/beat.ts and web/src/lib/spin.ts start only while awake per web/src/lib/awake.ts"
           ]
         },
         {
-          "name": "Peek band picture",
+          "name": "Asleep freeze to wake catch-up",
           "steps": [
-            "BandEditor.tsx places and configures a picture",
-            "band.ts holds the live band",
-            "lib/peekBand.ts defines and validates its stored shape",
-            "pictures.ts loads uploaded bytes and chooses moving or still display",
-            "PeekBand.tsx renders the result"
+            "window sleeps and store sets live false",
+            "web/src/lib/held.ts holds inbound updates keeping only the latest of each kind",
+            "server holds chat streams at the marked position",
+            "on wake held updates apply in a single redraw",
+            "server sends each open chat exactly what it missed"
           ]
         },
         {
-          "name": "Music playback",
+          "name": "Fixture screenshot pass",
           "steps": [
-            "Player.tsx receives playlists and tracks from client state",
-            "Player.tsx passes tracks to AudioEngine",
-            "lib/audio.ts streams tracks and handles crossfade, shuffle, and repeat",
-            "Player.tsx renders playback state"
+            "open ?fixture to run web/src/fixture.ts installFixture",
+            "fixture drives web/src/store.ts with canned events and statuses",
+            "eyeball or screenshot with no server and no tokens"
           ]
         }
       ],
       "files": [
-        "web/src/components/Settings.tsx — settings page, including model choices and theme scheduling",
-        "web/src/components/BandEditor.tsx — interactive peek band editor",
-        "web/src/band.ts — live band state and preference persistence",
-        "web/src/lib/peekBand.ts — band shape, defaults, limits, and stored-data parsing",
-        "web/src/components/Integrations.tsx — MCP servers, plugins, and marketplaces UI",
-        "web/src/components/Skills.tsx — installed skills view and enable controls",
-        "web/src/components/Player.tsx — music player controls and display",
-        "web/src/lib/audio.ts — two-deck Web Audio playback engine",
-        "web/src/pictures.ts — uploaded picture loading and animation state",
-        "web/src/prefs.ts — local preference cache, server synchronization, and watchers"
+        "web/src/store.ts — global zustand store, socket send/watchers, drafts and transcripts",
+        "web/src/lib/held.ts — asleep hold queue keeping latest per kind with single-redraw catch-up",
+        "web/src/App.tsx — root component, page switch, connect-once and transcript prewarm",
+        "web/src/main.tsx — boot entry, pref-first paint, copy installer, fixture switch",
+        "web/src/styles.css — whole manga theme tokens, surfaces, motion-layer rules",
+        "web/src/prefs.ts — localStorage-first pref cache in front of server prefs",
+        "web/src/fixture.ts — canned ?fixture state for UI eyeballing without server",
+        "web/src/tuner.tsx — dev-only peek-band and hero-frame art placer",
+        "web/src/lib/beat.ts — slow shared tick clock for self-moving elements",
+        "vite.config.ts — dev server plus tuner-save endpoint with dev-origin check"
       ],
       "rules": [
-        "Preference reads are local-first so the theme can be applied before the first paint; hydration must not overwrite a preference changed in the current session.",
-        "Band and greeting state is read on first use to avoid import cycles with the client store.",
-        "Stored bands and greetings are parsed and constrained before use; the band allows at most 16 pictures, and greetings allow at most 20 lines of 80 characters.",
-        "Band picture uploads remain referenced by the band preference; changing that reference affects how long uploads are retained.",
-        "Integration changes are performed by the harness CLI, whose configuration holds command values; the UI shows those values by name only.",
-        "Turning a skill off parks it in a sibling skills-off folder and turning it on restores it."
+        "No CSS animations for ambient motion — drive steps from lib/beat.ts or lib/spin.ts so Chromium composites one layer instead of repainting at display rate.",
+        "Never touch the DOM when a tick changes nothing, and never move anything while asleep, out of view, or under prefers-reduced-motion. Asleep means unseen (document.hidden), never merely unfocused — a visible window that slept on blur froze chats mid-reply; focus only sets the peek band's drag region (data-unfocused).",
+        "A pref set this session wins over an arriving server snapshot — do not let hydrate overwrite touched keys.",
+        "Surfaces differ by shade, never by line or shadow: keep --edge invisible and use --rim for genuine frames.",
+        "Tuner page and tuner-save endpoint are dev-only and must never enter the app bundle or production build.",
+        "Fixture mode is screenshots and timing only — it never talks to a server or spends tokens."
       ],
       "edges": [
-        "Client state — settings, integrations, skills, playlists, uploads, and preference updates use store state or messages",
-        "Shared protocol — model, permission, integration, skill, playlist, and track data use shared types",
-        "Server services — preferences, uploads, integrations, and music come from server-backed services",
-        "Desktop shell — the peek band asks the shell to drag the window while pressed",
-        "Home and project pages — Home uses the configured greetings"
+        "Protocol — store.ts types every client/server message from shared/protocol.ts",
+        "Appearance — tuner.tsx writes src/peek.ts and styles.css carries theme tokens theme.ts paints into",
+        "Chat runs and queue — store watchers deliver server transcripts, queue, progress and permissions",
+        "Terminals, agents and integrations — prefs.ts cache fronts server/prefs.ts over the socket",
+        "Test scripts: composer, windows and previews — ?fixture and ?awake flags exist to be driven by shot/chips scripts"
       ]
     },
-    "client-state": {
-      "summary": "The Zustand store connects the interface to server messages and holds client session state. It uses the shared protocol for message types, state types, and transcript limits. Start here when a change affects state shared across screens or how the client sends and receives messages.",
+    "chat-runs-queue": {
+      "summary": "This layer runs live chat turns: prompt dispatch, app-side queue, per-channel turn progress, and transcript delivery over the socket. It is built around dispatch.ts handing prompts to harness sessions, queue.ts holding what waits, turns.ts tracking the turn in flight, and events.ts recording each transcript event. Newcomers must grasp that a prompt is written, checkpointed, titled, and queued or run, and a finished turn drains the queue or retries.",
       "map": [
         {
-          "name": "Session state and server messages",
+          "name": "sending a prompt",
           "files": [
-            "web/src/store.ts"
+            "server/dispatch.ts",
+            "server/handlers/prompts.ts",
+            "server/queue.ts"
           ]
         },
         {
-          "name": "Sending client actions",
+          "name": "prompt queue (order, edit, rearrange, stop/hold)",
           "files": [
-            "web/src/store.ts"
-          ]
-        },
-        {
-          "name": "Transcript loading and history",
-          "files": [
-            "web/src/store.ts"
-          ]
-        },
-        {
-          "name": "Composer drafts and attachments",
-          "files": [
-            "web/src/store.ts"
-          ]
-        },
-        {
-          "name": "Channel, board, and meter watching",
-          "files": [
-            "web/src/store.ts"
-          ]
-        },
-        {
-          "name": "Agent navigation and logs",
-          "files": [
-            "web/src/store.ts"
-          ]
-        },
-        {
-          "name": "Terminal messages",
-          "files": [
-            "web/src/store.ts"
-          ]
-        }
-      ],
-      "flows": [
-        {
-          "name": "Client and server state",
-          "steps": [
-            "Interface code calls send with a client message",
-            "The store handles server messages",
-            "Interface code reads state through useRuri"
-          ]
-        }
-      ],
-      "files": [
-        "web/src/store.ts — Zustand store, message connection, session state, and exported client actions"
-      ],
-      "rules": [
-        "Use the shared protocol's message types and transcript constants when changing the corresponding store behavior.",
-        "Transcript handling uses the imported overlay and reuse helpers.",
-        "unread[chat] is the sidebar's and projects page's diamond: set by a result event the user didn't see. The open chat counts as unseen while the projects page or settings has the pane; closing either clears the open chat's mark (seen())."
-      ],
-      "edges": [
-        "Shared protocol — supplies message and state types, defaults, and transcript constants",
-        "Server transport — exchanges client and server messages",
-        "Chat and prompting — uses drafts, attachments, transcripts, terminal messages, and session state",
-        "Home and project pages — reads board, project, and related state",
-        "Agent and bridge views — uses agent navigation, logs, and bridge state"
-      ]
-    },
-    "shared-protocol": {
-      "summary": "This layer defines the types and constants shared by the server and web UI. It validates incoming client messages at runtime and provides question-answer validation used by both the UI and provider adapter. When changing a client message, keep its type and schema aligned.",
-      "map": [
-        {
-          "name": "Client message contract",
-          "files": [
-            "shared/protocol.ts",
-            "shared/clientSchema.ts"
-          ]
-        },
-        {
-          "name": "Session, project, and model types",
-          "files": [
-            "shared/protocol.ts"
-          ]
-        },
-        {
-          "name": "Attachments and composer drafts",
-          "files": [
-            "shared/protocol.ts"
-          ]
-        },
-        {
-          "name": "Transcript retention",
-          "files": [
-            "shared/protocol.ts"
-          ]
-        },
-        {
-          "name": "Question-answer validation",
-          "files": [
-            "shared/questionInput.ts",
-            "shared/protocol.ts"
-          ]
-        },
-        {
-          "name": "Statistics resource fields",
-          "files": [
-            "shared/protocol.ts"
-          ]
-        }
-      ],
-      "flows": [
-        {
-          "name": "Incoming client message",
-          "steps": [
-            "A client message has a type in shared/protocol.ts",
-            "shared/clientSchema.ts checks its shape at runtime",
-            "Unknown fields are dropped before the server handles it"
-          ]
-        },
-        {
-          "name": "Question answer",
-          "steps": [
-            "An AskQuestion defines the input constraints",
-            "The UI or provider adapter passes answers to questionError",
-            "questionError returns an error message or undefined"
-          ]
-        }
-      ],
-      "files": [
-        "shared/protocol.ts — shared server and UI types, constants, resource fields, and recent-event trimming",
-        "shared/clientSchema.ts — runtime schema for ClientMessage",
-        "shared/questionInput.ts — shared question-answer validation"
-      ],
-      "rules": [
-        "Every ClientMessage member needs a matching schema arm; the schema’s ClientMessage annotation checks assignability at typecheck.",
-        "Incoming client messages must be checked at runtime because parsed JSON may have the wrong shape.",
-        "keepRecent starts at a user or compaction event when one falls within the retained tail; a longer single turn is cut at the limit.",
-        "The statistics memory field is named memory rather than rss because Linux reports PSS, not RSS."
-      ],
-      "edges": [
-        "Client state — uses the shared server and UI protocol",
-        "Server transport — validates incoming client messages against the shared schema",
-        "Chat and prompting — uses shared draft, attachment, transcript, and question definitions",
-        "Sessions — uses shared session types and question validation"
-      ]
-    },
-    "server-transport": {
-      "summary": "This layer starts the HTTP and WebSocket services on the local port — and, when sharing is on, a second TLS door other devices pair and come in through — and routes client requests to domain handlers. A shared server context holds the live state and services those handlers use. Follow a message from the socket or HTTP route into its handler; prompt execution then continues through dispatch.",
-      "map": [
-        {
-          "name": "Server startup and its process under the app",
-          "files": [
-            "server/server.ts",
-            "server/desktopServer.ts",
-            "server/hostLink.ts",
-            "server/index.ts"
-          ]
-        },
-        {
-          "name": "HTTP endpoints",
-          "files": [
-            "server/routes.ts"
-          ]
-        },
-        {
-          "name": "WebSocket connections and messages",
-          "files": [
-            "server/socket.ts",
-            "server/handlers/index.ts",
-            "server/handlers/types.ts"
-          ]
-        },
-        {
-          "name": "Prompts, queues, and turn control",
-          "files": [
+            "server/queue.ts",
             "server/handlers/prompts.ts",
             "server/dispatch.ts"
           ]
         },
         {
-          "name": "Projects and chats",
+          "name": "turn progress and context gauge",
           "files": [
-            "server/handlers/projects.ts"
-          ]
-        },
-        {
-          "name": "Agent messaging",
-          "files": [
-            "server/handlers/talk.ts"
-          ]
-        },
-        {
-          "name": "Rewind and fork",
-          "files": [
-            "server/handlers/rewind.ts"
-          ]
-        },
-        {
-          "name": "Component library",
-          "files": [
-            "server/handlers/components.ts"
-          ]
-        },
-        {
-          "name": "Settings and integrations",
-          "files": [
-            "server/handlers/settings.ts",
-            "server/handlers/integrations.ts"
-          ]
-        },
-        {
-          "name": "Transcript loading",
-          "files": [
-            "server/handlers/transcript.ts"
-          ]
-        },
-        {
-          "name": "User started agents, tracker and ideas boards",
-          "files": [
-            "server/handlers/crew.ts",
-            "server/handlers/boards.ts"
-          ]
-        },
-        {
-          "name": "Sharing: other devices using this computer, pairing and invites",
-          "files": [
-            "server/sharing.ts",
-            "server/invite.ts",
-            "server/tlsCert.ts",
-            "server/words.ts",
-            "server/handlers/sharing.ts"
-          ]
-        }
-      ],
-      "flows": [
-        {
-          "name": "Server startup",
-          "steps": [
-            "the desktop shell forks server/desktopServer.ts (or server/index.ts runs standalone)",
-            "server/server.ts assembles live state, managers, hosts, and timers",
-            "server/routes.ts and server/socket.ts serve HTTP and WebSocket traffic on the local port, and server/sharing.ts opens the TLS door for other devices when sharing is on"
-          ]
-        },
-        {
-          "name": "WebSocket message",
-          "steps": [
-            "server/socket.ts checks the upgrade at its door — the local window's origin and token, or at sharing's a paired device's key, marking that window in Clients.seats",
-            "It sends a state snapshot on connection",
-            "It validates each incoming message against the client schema",
-            "server/handlers/index.ts hands the message to its domain handler"
-          ]
-        },
-        {
-          "name": "Prompt and turn",
-          "steps": [
-            "server/handlers/prompts.ts receives a prompt or queue action",
-            "server/dispatch.ts records and prepares the prompt, then hands it to the chat session",
-            "When a turn ends, server/dispatch.ts can advance the queue or retry a dropped turn"
-          ]
-        }
-      ],
-      "files": [
-        "server/server.ts — assembles the server context and services; under the app, server/desktopServer.ts runs it in a process of its own and server/hostLink.ts stands in for the shell's services",
-        "server/socket.ts — authenticates WebSocket connections, sends snapshots, and validates messages",
-        "server/routes.ts — serves HTTP endpoints and the built UI",
-        "server/handlers/index.ts — routes validated socket messages to domain handlers",
-        "server/dispatch.ts — prepares prompts and handles queue progress after turns",
-        "server/handlers/prompts.ts — handles composer, queue, stop, draft, and answer messages",
-        "server/handlers/projects.ts — handles project and session changes",
-        "server/handlers/talk.ts — handles messages between agents",
-        "server/handlers/components.ts — connects component library actions to the app",
-        "server/sharing.ts — the door other devices come in by: a TLS listener on every interface, the LAN beacon, word and SSH pairing (POST /pair/hello, /pair/prove; /sharing/pair-local on the local port), device keys kept as hashes; off unless turned on"
-      ],
-      "rules": [
-        "HTTP requests that change state, and WebSocket upgrades, must pass the origin and token checks; incoming messages must pass schema validation before dispatch.",
-        "Every request through the sharing door needs a paired device's key (header, ?token= or the ruri_device cookie), GETs included; /sharing/pair-local answers only on the local door; what is for someone at this screen (folder dialog, macOS grants, carrying the window) checks ctx.clients.seats and does nothing for a far window.",
-        "The initial socket snapshot carries only a transcript tail; transcript_get supplies the rest.",
-        "User started crew agents have their own session manager, separate from chat sessions.",
-        "Integration changes take effect when a harness next starts; affected warm sessions retire as they become idle.",
-        "The server never imports Electron: under the app it runs in a utility process and reaches the shell's services only through server/hostLink.ts."
-      ],
-      "edges": [
-        "Client state — receives socket snapshots and updates, and sends client messages",
-        "Shared protocol — supplies message types and the client message schema",
-        "Sessions — dispatch hands prompts to chat sessions and advances work after turns",
-        "Project knowledge — project and component handlers update sheets, memory, and library records",
-        "Server services — routes and handlers use authentication, uploads, integrations, settings, and persistence"
-      ]
-    },
-    "sessions": {
-      "summary": "This layer runs Home and project chats, connecting provider sessions to prompts, queues, transcript events, and agent activity. Its central idea is the channel: Home or one session has its own state and settings while a project session inherits its parent project's defaults.",
-      "map": [
-        {
-          "name": "Session lifecycle and prompts",
-          "files": [
-            "server/sessions.ts",
-            "server/chats.ts"
-          ]
-        },
-        {
-          "name": "Provider and model choices",
-          "files": [
-            "server/providers.ts",
-            "server/sessions.ts"
-          ]
-        },
-        {
-          "name": "Prompt queue",
-          "files": [
-            "server/queue.ts",
-            "server/chats.ts"
-          ]
-        },
-        {
-          "name": "Transcript events and turn follow-up",
-          "files": [
-            "server/events.ts",
-            "server/chats.ts"
-          ]
-        },
-        {
-          "name": "Home agent",
-          "files": [
-            "server/manager.ts",
-            "server/chats.ts"
-          ]
-        },
-        {
-          "name": "Channel settings and ownership",
-          "files": [
+            "server/turns.ts",
             "server/channel.ts"
           ]
         },
         {
-          "name": "Turn progress and context",
+          "name": "transcript delivery and history",
           "files": [
-            "server/turns.ts"
+            "server/handlers/transcript.ts",
+            "server/events.ts"
           ]
         },
         {
-          "name": "Subagent logs",
+          "name": "rewind and fork",
           "files": [
-            "server/agents.ts"
+            "server/handlers/rewind.ts",
+            "server/turns.ts",
+            "scripts/rewind.ts",
+            "scripts/rewind-git.ts"
           ]
         },
         {
-          "name": "Messages between chats",
+          "name": "agent-to-agent talk",
           "files": [
             "server/talk.ts",
-            "server/queue.ts"
+            "server/handlers/talk.ts"
+          ]
+        },
+        {
+          "name": "slash commands in prompts",
+          "files": [
+            "server/commands.ts",
+            "server/dispatch.ts"
+          ]
+        },
+        {
+          "name": "retry and dropped turns",
+          "files": [
+            "server/retry.ts",
+            "server/dispatch.ts"
+          ]
+        },
+        {
+          "name": "chat session wiring",
+          "files": [
+            "server/chats.ts",
+            "server/channel.ts"
+          ]
+        },
+        {
+          "name": "streaming paragraphs",
+          "files": [
+            "server/paragraphs.ts"
+          ]
+        },
+        {
+          "name": "drafts",
+          "files": [
+            "server/drafts.ts"
+          ]
+        },
+        {
+          "name": "blocked and home log",
+          "files": [
+            "server/blocked.ts",
+            "server/homelog.ts"
           ]
         }
       ],
       "flows": [
         {
-          "name": "Chat turn",
+          "name": "prompt to running turn",
           "steps": [
-            "server/chats.ts wires a Home or project chat to its session",
-            "server/sessions.ts runs the provider session and emits events",
-            "server/events.ts records and pushes transcript events",
-            "server/chats.ts handles finished-turn work, including queue and retry"
+            "handlers/prompts.ts accepts send, split, stop, or queue rearrange",
+            "dispatch.ts writes prompt to transcript, checkpoints, titles, splits slash commands",
+            "queue.ts holds it if channel busy, visible or silent entry",
+            "chats.ts hands it to the chat session with briefing and tools",
+            "turns.ts tracks progress and context during the run",
+            "events.ts records, redacts, archives, and pushes each event",
+            "finished turn triggers drainQueue and maybeRetry in dispatch.ts"
           ]
         },
         {
-          "name": "Message between chats",
+          "name": "rewind",
           "steps": [
-            "server/talk.ts checks whether the sender may message the destination",
-            "The message enters the destination chat as a marked prompt",
-            "server/queue.ts holds it behind any running turn",
-            "server/talk.ts returns the turn's last word by wait or later delivery, unless no answer was requested"
+            "handlers/rewind.ts receives rewind to just before a prompt ran",
+            "restoreContext resets context gauge to the kept exchange",
+            "files and repo restored via native fork or checkpoint plus brief",
+            "transcript truncated and prompt returned to composer"
+          ]
+        },
+        {
+          "name": "talk message",
+          "steps": [
+            "handlers/talk.ts checks seats and TalkPolicy via talk.ts rules",
+            "message delivered into other chat as a prompt with from marking",
+            "it queues behind that chat's work like a user prompt",
+            "at turn end the last word is clipped and carried back to sender"
           ]
         }
       ],
       "files": [
-        "server/sessions.ts — runs provider-backed sessions and prompts",
-        "server/chats.ts — wires chat sessions to server events, queues, briefings, and tools",
-        "server/events.ts — redacts, archives, and pushes transcript events and starts finished-turn follow-up",
-        "server/queue.ts — holds visible and silent prompts until a running turn finishes",
-        "server/providers.ts — loads providers and presents model choices",
-        "server/channel.ts — resolves a channel's effective settings and owning project",
-        "server/manager.ts — defines the Home agent and its app-management requests",
-        "server/talk.ts — routes messages and answers between chats",
-        "server/turns.ts — tracks and broadcasts turn progress and context usage",
-        "server/agents.ts — stores capped, per-agent subagent logs"
+        "server/dispatch.ts — prompt way out, queue drain, retry, stop, cut-in, /compact",
+        "server/queue.ts — app-side waiting prompts, visible and silent entries, reslot and combine",
+        "server/turns.ts — turn in flight per channel, progress clock, context window",
+        "server/events.ts — transcript event intake, redact, archive, push, small-model follow-ups",
+        "server/chats.ts — chat session manager wiring sessions to server",
+        "server/channel.ts — channel busy, running, and project ownership",
+        "server/handlers/prompts.ts — composer messages: send, split, queue, stop, drafts, cards",
+        "server/talk.ts — agent-to-agent rules, handles, wording, in-flight book, tools",
+        "server/handlers/rewind.ts — rewind and fork across harnesses",
+        "server/handlers/transcript.ts — transcript tail, history, subscriptions, turn removal"
       ],
       "rules": [
-        "A channel ID is Home or a session ID; project sessions inherit their parent's defaults but can override model, effort, and permission mode.",
-        "Visible queued prompts are editable in the UI; silent entries are sub-prompts under an already visible prompt.",
-        "A queued split prompt is split only when it reaches the front, after prompts ahead of it have run.",
-        "A chat-to-chat message queues like a user prompt; a waiting sender may need to resume a wait after its current wait slice ends.",
-        "Subagent logs are separate from the parent chat's agent card, capped at 1,500 events, and written on a debounce."
+        "Split sub-prompts ride silent under the original prompt; split only when reaching the front so earlier commands run first.",
+        "An entry being rewritten keeps queue place but nothing sends it until the rewrite returns.",
+        "Quoted slash commands ('/compact', \"/compact\", `/compact`) stay plain text and go to the model untouched.",
+        "Only existing commands count: ruri's own, harness prompt commands, installed skills; /tmp alone on a line is a path.",
+        "Turn progress lives in turns.ts not the window so the clock survives reload; broadcast deltas throttled to one message a second.",
+        "Rewind must restore files, branch, transcript, composer prompt, and context gauge to the kept exchange, not the tip."
       ],
       "edges": [
-        "Shared protocol — supplies session, event, queue, and turn types",
-        "Server transport — dispatches actions and drains or retries queued work",
-        "Project knowledge — supplies briefings and receives event-driven memory and sheet updates",
-        "Agent runtimes — provide the sessions and subagent activity managed here",
-        "Client state — receives pushed events, queue state, and turn progress"
+        "Protocol — every socket message and transcript event is typed in shared/protocol.ts",
+        "Agent harnesses — dispatch and chats hand prompts to sessions and get turns, checkpoints, and forks back",
+        "Projects, memory and history — checkpoints, compaction, handoff briefs, notes, and archive feed prompts, rewind, and events",
+        "Server runtime and transport — socket routing, clients push, uploads, and stores carry transcript and queue messages",
+        "Conversation — composer sends and queue/transcript handlers drive what the chat pane shows"
       ]
     },
-    "project-knowledge": {
-      "summary": "This layer keeps project knowledge available to sessions: working memory, architecture sheets, recall notes, compaction briefs, and a per-project component library. It builds knowledge from chats and repository reads, while session commands let agents record firsthand corrections. A newcomer should distinguish stored notes and sheets from the source material they summarize.",
+    "projects-memory-history": {
+      "summary": "This layer owns project sessions and everything remembered about them: sessions/chats in projects.json, live transcripts plus history, per-prompt file checkpoints, working memory lines, BM25 recall, and the .ruri/architecture.md briefs. It is built as small stores over ~/.config/ruri (sessions, history) and the project .ruri dir, with scripts/* as CLI/test entry points. A newcomer must grasp the split: live session file is rewritten per event, history JSONL is append-only by compaction, and briefs/memory are precomputed so resume and compaction stay instant.",
       "map": [
         {
-          "name": "Working memory",
+          "name": "Project sessions (open/close/rename/star/hide)",
+          "files": [
+            "server/projects.ts",
+            "server/handlers/projects.ts",
+            "server/ruriDir.ts",
+            "server/configDir.ts"
+          ]
+        },
+        {
+          "name": "Session archive and transcript",
+          "files": [
+            "server/archive.ts",
+            "server/notes.ts",
+            "server/handlers/boards.ts"
+          ]
+        },
+        {
+          "name": "Checkpoints and rewind",
+          "files": [
+            "server/checkpoints.ts",
+            "server/gitState.ts",
+            "scripts/checkpoint.ts",
+            "scripts/rewind-compaction.ts"
+          ]
+        },
+        {
+          "name": "Compaction and digests",
+          "files": [
+            "server/compaction.ts",
+            "server/handoff.ts",
+            "scripts/digest.ts"
+          ]
+        },
+        {
+          "name": "Working memory lines",
           "files": [
             "server/memoryLines.ts",
             "server/memory.ts",
@@ -1416,595 +1205,774 @@
           ]
         },
         {
-          "name": "Architecture sheets",
+          "name": "Recall across chats",
           "files": [
-            "server/catchup.ts",
-            "server/catchupBrief.ts",
-            "server/sheetEdits.ts"
-          ]
-        },
-        {
-          "name": "Recall notes and search",
-          "files": [
-            "server/notes.ts",
             "server/recall.ts",
-            "server/memoryCli.ts"
+            "server/memoryCli.ts",
+            "scripts/recall.ts"
           ]
         },
         {
-          "name": "Compaction briefs",
+          "name": "Project brief / architecture sheet",
           "files": [
-            "server/compaction.ts",
-            "server/recall.ts"
-          ]
-        },
-        {
-          "name": "Session knowledge briefing",
-          "files": [
+            "server/brief.ts",
+            "server/catchupBrief.ts",
             "server/briefing.ts"
           ]
         },
         {
-          "name": "Component records",
+          "name": "Catchup from existing repo",
           "files": [
-            "server/components.ts",
-            "server/libraryRefresh.ts"
+            "server/catchup.ts",
+            "server/catchupBrief.ts",
+            "scripts/history.ts"
           ]
         },
         {
-          "name": "Component library commands",
+          "name": "Outside chats import",
           "files": [
-            "server/library.ts",
-            "server/components.ts"
+            "server/recent.ts",
+            "server/orphans.ts",
+            "scripts/orphans.ts"
+          ]
+        },
+        {
+          "name": "Tracker, ledger and ideas",
+          "files": [
+            "server/tracker.ts",
+            "server/ledger.ts",
+            "server/ideas.ts",
+            "server/handlers/boards.ts"
+          ]
+        },
+        {
+          "name": "Notes CLI",
+          "files": [
+            "scripts/notes.ts",
+            "server/notes.ts",
+            "server/memoryCli.ts"
+          ]
+        },
+        {
+          "name": "Fork / home-cap / hidden helpers",
+          "files": [
+            "scripts/fork.ts",
+            "scripts/home-cap.ts",
+            "scripts/hidden.ts"
           ]
         }
       ],
       "flows": [
         {
-          "name": "Build project knowledge",
+          "name": "Compact and resume",
           "steps": [
-            "server/catchup.ts reads the repository to build architecture sheets",
-            "server/memory.ts assembles existing chat knowledge into working memory",
-            "server/catchupBrief.ts writes and publishes the sheets"
+            "server/compaction.ts builds brief from per-exchange recall notes without calling a model",
+            "server/archive.ts appends pre-compaction live events to history JSONL and retires live session",
+            "brief rides invisibly on next prompt; archived turn files refreshed/removed via refreshArchivedTurnFiles/removeTurnFiles",
+            "fresh session reads .ruri brief plus full exchange files on demand"
           ]
         },
         {
-          "name": "Recall and compact",
+          "name": "Checkpoint and rewind",
           "steps": [
-            "server/notes.ts stores prompt and reply notes",
-            "server/recall.ts ranks relevant exchanges",
-            "server/compaction.ts builds a brief with paths to complete exchanges"
+            "server/checkpoints.ts captures whole working tree into git via private index under refs/ruri/ once per prompt send and once per turn end",
+            "ref named for prompt; user branch, staging area and git log untouched",
+            "rewind reads refs to undo what a chat's turns did, reported as RewindReport"
           ]
         },
         {
-          "name": "Use the component library",
+          "name": "Remember and recall",
           "steps": [
-            "server/components.ts stores named project components",
-            "server/library.ts handles agent search, show, add, and register commands",
-            "server/libraryRefresh.ts checks recorded files against Git changes"
+            "agent writes first-hand line via ruri note (server/memoryCli.ts) or small model folds chats into id-addressed lines (server/memoryLines.ts)",
+            "lines kept per-part with caps; agent/user lines kept or retired, never rephrased",
+            "ruri recall / prompt-time pick scores exchanges with BM25 over notes, words, reply open/close and changed files (server/recall.ts)"
           ]
         }
       ],
       "files": [
-        "server/memoryLines.ts — stores sourced memory lines and applies folds",
-        "server/catchupBrief.ts — writes, publishes, and refreshes project sheets",
-        "server/catchup.ts — builds architecture sheets from repository reads",
-        "server/memory.ts — rebuilds working memory from existing chats",
-        "server/memoryCli.ts — handles session memory and architecture commands",
-        "server/sheetEdits.ts — applies session corrections to architecture sheets",
-        "server/notes.ts — stores and backfills recall notes",
-        "server/recall.ts — finds and ranks relevant exchanges",
-        "server/compaction.ts — builds briefs for fresh sessions",
-        "server/components.ts — stores the per-project component library"
+        "server/projects.ts — ProjectStore over projects.json plus per-chat session settings",
+        "server/handlers/projects.ts — socket moves for projects and sessions",
+        "server/archive.ts — live sessions/<id>.json plus append-only history/<id>.jsonl and turn summaries",
+        "server/checkpoints.ts — per-prompt hidden git commits and rewind",
+        "server/compaction.ts — model-free compaction briefs and digests",
+        "server/memoryLines.ts — id-addressed working-memory lines with per-part caps",
+        "server/recall.ts — BM25 exchange search across chats",
+        "server/brief.ts — .ruri/architecture.md shape and stack/layer sheets",
+        "server/catchupBrief.ts — sheet broadcast and rebuild from app side",
+        "server/recent.ts — outside-ruri harness sessions listed and imported"
       ],
       "rules": [
-        "A memory fold keeps retained lines by ID; it may reword its own lines, but must not rephrase agent or user lines.",
-        "Pinned memory lines survive model folds.",
-        "Compaction uses existing recall notes and calls no model; its exchange paths lead to full records when the brief lacks detail.",
-        "Component records can drift as code moves; refresh follows Git renames and detects missing or changed files.",
-        "Session architecture edits supply firsthand corrections to sheets that were inferred from replies."
+        "Nothing except compaction appends to history/<id>.jsonl; live session file is the only rewritten transcript.",
+        "Checkpoints must use a private index file and refs/ruri/ refs; never touch the user's staging area, branch, or pushed refs.",
+        "Memory fold addresses kept lines by id and returns them verbatim; only the small model's own lines may be reworded, pinned lines always stay.",
+        "Compaction calls no model; it only assembles already-written per-exchange recall notes.",
+        "Only sessions ruri did not start are offered by recent import; never re-import a sidebar chat."
       ],
       "edges": [
-        "Shared protocol — defines memory, sheet, component, attachment, and message types",
-        "Sessions — supplies chats, turns, archives, and broadcasts used to gather and deliver knowledge",
-        "Server services — supplies small-model work, Git state, uploads, and project storage",
-        "Agent runtimes — receive the session briefing and use the ruri commands"
+        "Chat runs and queue — supplies prompts, turns, events and rewind entry points this layer archives and checkpoints",
+        "Protocol — TranscriptEvent, TurnSummary, MemoryLine, Project/Session and brief sheet types in shared/protocol.ts",
+        "Server runtime and transport — routing, auth, uploads and stores hosting projects/handlers endpoints",
+        "Agent harnesses — harness session ids resumed and settled via agents/sessions",
+        "Library, skills and sweeps — sweep/describe candidates feed catchup; library owns skill removal on teardown"
       ]
     },
-    "bridge": {
-      "summary": "The bridge lets sessions inspect and drive web pages and desktop apps while showing a live preview. The server now runs in a separate process and sends bridge requests to Electron's main process, where windows, debugger access, and native app controls remain. CDP actions are shared, while window and native app operations depend on the desktop platform.",
+    "library-skills-sweeps": {
+      "summary": "This layer keeps each project's component library — user names, handles, code refs, and screenshots — plus repo-wide naming sweeps and harness skills. The store is server/components.ts with the agent CLI in server/library.ts; handlers, refresh, screenshots, sweeps, and skills orbit it. Newcomer idea: the filesystem and git are truth — this layer indexes, names, and photographs what exists, never renders it.",
       "map": [
         {
-          "name": "Bridge tools and calls",
+          "name": "Component store and naming tools",
           "files": [
-            "server/bridge.ts",
-            "desktop/bridge.ts"
+            "server/components.ts",
+            "server/library.ts",
+            "server/handlers/components.ts"
           ]
         },
         {
-          "name": "Web page driving",
+          "name": "Agent library CLI (search/show/add/register)",
           "files": [
+            "server/library.ts",
+            "server/components.ts"
+          ]
+        },
+        {
+          "name": "Library page and app-side host",
+          "files": [
+            "server/handlers/components.ts",
+            "server/components.ts",
+            "server/library.ts"
+          ]
+        },
+        {
+          "name": "Library refresh against git",
+          "files": [
+            "server/libraryRefresh.ts",
+            "server/components.ts",
+            "server/handlers/components.ts"
+          ]
+        },
+        {
+          "name": "Repo sweep naming unnamed UI",
+          "files": [
+            "server/sweep.ts",
+            "server/library.ts",
+            "server/components.ts"
+          ]
+        },
+        {
+          "name": "Mechanical screenshots of components",
+          "files": [
+            "server/shots.ts",
+            "server/handlers/components.ts",
+            "server/sweep.ts"
+          ]
+        },
+        {
+          "name": "Agent-taken photographs",
+          "files": [
+            "server/photographer.ts",
+            "server/handlers/components.ts",
+            "server/components.ts"
+          ]
+        },
+        {
+          "name": "Skills list/toggle/install",
+          "files": [
+            "server/skills.ts",
+            "server/handlers/skills.ts"
+          ]
+        }
+      ],
+      "flows": [
+        {
+          "name": "Register and reuse a component",
+          "steps": [
+            "Agent builds UI and registers it via server/library.ts (ruri register) into server/components.ts store",
+            "server/handlers/components.ts hosts naming card and stores shot via storeShot",
+            "Later agent searches with ruri search/show and copies with planCopy/installCommand",
+            "server/libraryRefresh.ts marks entry changed/stale as files move"
+          ]
+        },
+        {
+          "name": "Sweep and photograph a repo",
+          "steps": [
+            "server/sweep.ts skims source tops, exports, CSS classes for candidates",
+            "Names proposed and written via server/components.ts index",
+            "server/shots.ts boots dev server and captures selector rectangles",
+            "Unreachable entries go to agent photo chat via server/photographer.ts prompt"
+          ]
+        },
+        {
+          "name": "Skills management",
+          "steps": [
+            "server/skills.ts scans global and project skill dirs",
+            "server/handlers/skills.ts pushes list and serves bodies",
+            "toggle moves folder to skills-off/, install/remove/update shell out to bmo"
+          ]
+        }
+      ],
+      "files": [
+        "server/components.ts — per-project component index, store, mention detection, model tools",
+        "server/library.ts — agent ruri CLI: search/show/add/register, copy planning, arg parsing",
+        "server/handlers/components.ts — app-side host, naming tools, refresh orchestration, library endpoint",
+        "server/sweep.ts — repo skim naming pass for unnamed UI files",
+        "server/libraryRefresh.ts — git-based staleness: renames, deletions, changes since last seen",
+        "server/shots.ts — dev-server boot and selector screenshot capture via CaptureHost",
+        "server/skills.ts — filesystem-backed skill listing, toggle via skills-off, bmo shell-outs",
+        "server/photographer.ts — prompt for agent-driven photos of unpictured/changed entries",
+        "server/handlers/skills.ts — skills page messages, command menu data, pushSkills"
+      ],
+      "rules": [
+        "Never invent components or screenshots: files, selectors, and pictures must be observed from source or a running app.",
+        "Entries drift — always consult libraryRefresh changes/tidyFiles and ComponentStore.touch semantics before trusting notes or shots.",
+        "Do not delete on skill disable: park to skills-off/ so bmo metadata and updates survive.",
+        "Shots cannot cover login-gated, state-dependent, or non-web UI — route those to photographer agent flow, not shots.ts."
+      ],
+      "edges": [
+        "Protocol — NamedComponent, ComponentProposal, Attachment, SkillInfo types in shared/protocol.ts",
+        "Server runtime and transport — uploads storedFilePath, config/ruri dirs, dispatch, channel project resolution",
+        "Bridge / Desktop shell — CaptureHost loads URLs in hidden window and captures element rectangles",
+        "Agent harnesses — smallmodel naming pass feeds sweep; harnesses consume skills and library via ruri CLI"
+      ]
+    },
+    "terminals-agents-integrations": {
+      "summary": "This layer runs everything beside the chat turn: composer pty terminals, background script output, user-started crew agents, folder-backed music serving, and harness integrations plus host/settings plumbing. It is built as small stateful server modules (Terminals, TerminalRelay, Scrollback, PrefStore) fronted by thin socket handlers, with CLI-mediated side effects. Newcomers must grasp that terminals are paced append-streams with backpressure, and integration changes apply only at next harness launch.",
+      "map": [
+        {
+          "name": "Composer terminal tabs",
+          "files": [
+            "server/terminal.ts",
+            "server/handlers/terminal.ts",
+            "server/scrollback.ts",
+            "server/relay.ts"
+          ]
+        },
+        {
+          "name": "Terminal backpressure / relay",
+          "files": [
+            "server/relay.ts",
+            "server/terminal.ts",
+            "server/scrollback.ts"
+          ]
+        },
+        {
+          "name": "Background script output page",
+          "files": [
+            "server/scripts.ts",
+            "server/handlers/crew.ts"
+          ]
+        },
+        {
+          "name": "Crew agents (start/send/stop/follow)",
+          "files": [
+            "server/handlers/crew.ts",
+            "scripts/crew-live.ts"
+          ]
+        },
+        {
+          "name": "MCP servers / plugins / marketplaces",
+          "files": [
+            "server/integrations.ts",
+            "server/handlers/integrations.ts"
+          ]
+        },
+        {
+          "name": "Music library and track serving",
+          "files": [
+            "server/music.ts",
+            "server/handlers/settings.ts"
+          ]
+        },
+        {
+          "name": "Window preferences",
+          "files": [
+            "server/prefs.ts",
+            "server/handlers/settings.ts"
+          ]
+        },
+        {
+          "name": "Settings changes (model, permissions, folders, art)",
+          "files": [
+            "server/handlers/settings.ts",
+            "server/prefs.ts"
+          ]
+        },
+        {
+          "name": "Desktop host bridge (picker, permissions, windows)",
+          "files": [
+            "server/handlers/host.ts"
+          ]
+        },
+        {
+          "name": "Agent-to-agent talk",
+          "files": [
+            "scripts/talk.ts"
+          ]
+        }
+      ],
+      "flows": [
+        {
+          "name": "Terminal output to windows",
+          "steps": [
+            "Terminals spawns login shell on pty via expect (pipes fallback)",
+            "Chunks appended to Scrollback in O(arrival) pieces",
+            "TerminalRelay holds per-window queue; ready window gets chunk at once",
+            "Behind windows coalesce waiting chunks into one message on drain",
+            "All windows behind pauses pty reads so writer blocks; nothing buffers unbounded"
+          ]
+        },
+        {
+          "name": "Integration change",
+          "steps": [
+            "Window reads via readIntegrations (file listings, never starts servers)",
+            "Change runs through harness CLI command (e.g. claude mcp add-json)",
+            "Warm sessions on changed harness retired as each goes idle",
+            "Next prompt starts fresh process with new servers/plugins"
+          ]
+        },
+        {
+          "name": "Crew agent run",
+          "steps": [
+            "Chat agents page starts agent on its own SessionManager",
+            "Card moves along; log holds brief and run output",
+            "agent_send follows up on same conversation; agent_stop ends long run",
+            "Chat transcript and status hear none of it"
+          ]
+        }
+      ],
+      "files": [
+        "server/terminal.ts — real pty shells per channel/tab behind composer terminal mode",
+        "server/relay.ts — paces shell output to windows with per-window queues and pty backpressure",
+        "server/scrollback.ts — chunk-list scrollback, joined only on read",
+        "server/handlers/terminal.ts — socket handlers for terminal list/new/open/input/resize/close",
+        "server/handlers/crew.ts — user-started crew agents on their own session manager",
+        "server/scripts.ts — background script output page read from harness output file tail",
+        "server/integrations.ts — MCP/plugin/marketplace read and CLI-mediated changes",
+        "server/handlers/integrations.ts — Integrations settings handlers; retires warm sessions on change",
+        "server/music.ts — folder-as-playlist music library scan and same-origin track serving",
+        "server/prefs.ts — machine-scoped untyped window preference bag"
+      ],
+      "rules": [
+        "Never write a harness config format by hand; every integration change goes through that CLI's own command.",
+        "Never health-check Claude servers with `claude mcp list`; it starts every server — read ~/.claude.json / .mcp.json / plugin lists instead.",
+        "Keep integration secrets as names only here; values stay in the harness layer.",
+        "Terminal output is append-only so coalescing is safe; do not reorder or drop chunks.",
+        "New window preferences need no change in server/prefs.ts — it is a deliberately untyped bag (max 200 keys)."
+      ],
+      "edges": [
+        "Agent harnesses — integration changes take effect only when a harness next starts; warm sessions retired idle",
+        "Bridge — host handlers reach desktop shell for picker, permissions, bridge windows; no-ops headless",
+        "Protocol — tabs, permissions, playlists, crew cards, integration rows typed in shared/protocol.ts",
+        "Server runtime and transport — music served over /music/* same-origin; prefs/config live machine-side"
+      ]
+    },
+    "server-runtime-transport": {
+      "summary": "This layer is the Node HTTP + WebSocket transport everything else rides on: one port serving the UI, uploads, and the socket every window talks over. It is built around a single shared ServerContext (server/context.ts) assembled once in server/server.ts and handed to routes, socket, and handlers. A newcomer must grasp: this layer moves bytes and enforces origin/token gates — domain logic lives in handlers and other layers, not here — and a window only sleeps when it cannot be seen at all (minimized, on another Space, or fully covered); a visible-but-unfocused window stays live and keeps receiving streams.",
+      "map": [
+        {
+          "name": "Server assembly and startup",
+          "files": [
+            "server/server.ts",
+            "server/context.ts",
+            "server/index.ts"
+          ]
+        },
+        {
+          "name": "HTTP routing (health, uploads, static UI)",
+          "files": [
+            "server/routes.ts",
+            "server/mime.ts",
+            "server/readable.ts"
+          ]
+        },
+        {
+          "name": "WebSocket server and client fan-out",
+          "files": [
+            "server/socket.ts",
+            "server/clients.ts",
+            "server/context.ts",
+            "shared/protocol.ts"
+          ]
+        },
+        {
+          "name": "Auth gate (origin + token)",
+          "files": [
+            "server/auth.ts",
+            "server/socket.ts",
+            "server/routes.ts"
+          ]
+        },
+        {
+          "name": "Prompt attachment uploads",
+          "files": [
+            "server/uploads.ts",
+            "server/mime.ts",
+            "scripts/uploads-sweep.ts"
+          ]
+        },
+        {
+          "name": "Secrets vault and placeholders",
+          "files": [
+            "server/secrets.ts",
+            "server/atomic.ts"
+          ]
+        },
+        {
+          "name": "Usage and machine meters",
+          "files": [
+            "server/usage.ts",
+            "server/gauges.ts",
+            "server/resources.ts"
+          ]
+        },
+        {
+          "name": "Port claim and orphan retire",
+          "files": [
+            "server/port.ts",
+            "scripts/port.ts",
+            "scripts/lib/server.ts"
+          ]
+        },
+        {
+          "name": "Handler dispatch entry",
+          "files": [
+            "server/handlers/index.ts",
+            "server/handlers/types.ts",
+            "server/context.ts"
+          ]
+        },
+        {
+          "name": "Project memory, sheets and auto-compact",
+          "files": [
+            "server/archive.ts",
+            "shared/protocol.ts"
+          ]
+        },
+        {
+          "name": "Bridge proxy, hidden browser and terminal pty",
+          "files": [
+            "server/bridge.ts",
+            "server/terminal.ts",
+            "server/socket.ts"
+          ]
+        },
+        {
+          "name": "Harness updater",
+          "files": [
+            "server/updater.ts",
+            "server/updater.test.ts"
+          ]
+        }
+      ],
+      "flows": [
+        {
+          "name": "Window connects and stays live",
+          "steps": [
+            "HTTP server from server/routes.ts and socket from server/socket.ts listen on one claimed port (server/port.ts)",
+            "Socket upgrade checked for page origin and token (server/auth.ts), rejected otherwise",
+            "New client registered with its on-screen view (server/clients.ts)",
+            "Snapshot of everything sent on connect, then per-chat transcript only to windows showing it",
+            "A window reports live:false only when unseen (minimized, another Space, fully covered) and then its chat streams are gated off and other updates held latest-only; a visible-but-unfocused window stays live; on wake it catches up in one redraw plus per-chat missed content",
+            "Each incoming message schema-checked and handed to server/handlers/index.ts"
+          ]
+        },
+        {
+          "name": "Attachment upload and serve-back",
+          "steps": [
+            "Base64 upload received over HTTP or socket",
+            "Persisted under config uploads dir with sanitized unique path (server/uploads.ts)",
+            "Transcript carries small /uploads/<file> URL instead of base64",
+            "Served back via serveUpload with MIME from server/mime.ts",
+            "Stale files reaped by scripts/uploads-sweep.ts"
+          ]
+        },
+        {
+          "name": "Mutating request gate",
+          "steps": [
+            "Route or socket handler asks server/auth.ts for originAllowed and tokenMatches",
+            "GETs stay open; POSTs need token plus permitted origin",
+            "Token file written 0600 and removed on close (scripts/auth.ts, scripts/lib/server.ts)",
+            "Failed checks rejected before any store or handler runs"
+          ]
+        }
+      ],
+      "files": [
+        "server/server.ts — assembles stores, managers, timers, routes and socket on one port",
+        "server/context.ts — the shared ServerContext object every part takes first",
+        "server/routes.ts — HTTP side: health, uploads, static UI, origin/token-gated mutations",
+        "server/socket.ts — WebSocket upgrade gate, snapshot on connect, schema-checked dispatch",
+        "server/clients.ts — per-window views and targeted transcript/status broadcast",
+        "server/auth.ts — origin and token checks for HTTP and socket",
+        "server/uploads.ts — attachment persist, model payload, serve and sweep",
+        "server/archive.ts — turn archive with stable exchange numbers, memory fold and grounding",
+        "server/bridge.ts — HTTP proxy to bridge state for hidden-browser and native-app calls",
+        "server/terminal.ts — real pty backing terminal tabs"
+      ],
+      "rules": [
+        "Never put domain logic in routes/socket — dispatch to server/handlers/index.ts; what each message does lives per-domain.",
+        "Never weaken the gate: mutating HTTP needs token + permitted origin, socket needs both at upgrade; GETs stay open.",
+        "The port is identity (origin for stored prefs) — claim it via server/port.ts, never silently fall to an ephemeral port.",
+        "Transcript fan-out is scoped: live per-chat events go only to windows showing that chat (server/clients.ts).",
+        "Uploads must persist as URL-backed files, never inline megabytes of base64 in transcript events.",
+        "Secrets must never enter model context, logs, or transcripts — only names/placeholders leave server/secrets.ts."
+      ],
+      "edges": [
+        "Protocol — every socket message is typed/validated in shared/protocol.ts and shared/clientSchema.ts",
+        "Chat runs and queue — handlers under server/handlers/* implement prompt/turn/rewind semantics on top of ServerContext",
+        "Agent harnesses — session managers and usage/resource sources (agents, sessions, providers) plug into server.ts assembly",
+        "Bridge — HTTP routes proxy bridge pictures/calls via bridge state, not directly; native-app driving needs X11 plus AT-SPI and must refuse on Wayland",
+        "Desktop shell — single-instance lock and served UI origin depend on the claimed port"
+      ]
+    },
+    "harnesses": {
+      "summary": "This layer drives installed coding CLIs (claude/codex/opencode/gemini/ACP) through yagami's AgentSession/ProviderSession, translating harness events into ruri transcript events. It is built around server/sessions.ts (SessionManager, ~3474 lines) with a provider registry, model catalog, Home manager agent, subagent logs, auto-updater, and cheap small-model client. Newcomers must grasp: ruri never talks to models directly — every prompt goes through a session object owned here, and transcript/usage/permission shapes are normalized here.",
+      "map": [
+        {
+          "name": "Harness sessions and prompt turns",
+          "files": [
+            "server/sessions.ts",
+            "server/providers.ts",
+            "server/blocked.ts"
+          ]
+        },
+        {
+          "name": "Model catalog and picker",
+          "files": [
+            "server/models.ts",
+            "server/providers.ts"
+          ]
+        },
+        {
+          "name": "Provider registry and startup probing",
+          "files": [
+            "server/providers.ts",
+            "server/models.ts"
+          ]
+        },
+        {
+          "name": "Small-model summaries, titles and memory folds",
+          "files": [
+            "server/smallmodel.ts",
+            "server/memoryLines.ts"
+          ]
+        },
+        {
+          "name": "Home manager agent",
+          "files": [
+            "server/manager.ts",
+            "server/sessions.ts"
+          ]
+        },
+        {
+          "name": "Subagent cards and logs",
+          "files": [
+            "server/agents.ts",
+            "server/sessions.ts",
+            "scripts/subagents.ts"
+          ]
+        },
+        {
+          "name": "Harness CLI auto-update",
+          "files": [
+            "server/updater.ts"
+          ]
+        },
+        {
+          "name": "ACP/OpenCode startup retry (locked DB / dead warm process)",
+          "files": [
+            "scripts/acp-start.ts"
+          ]
+        },
+        {
+          "name": "Lost/dead Claude session recovery",
+          "files": [
+            "scripts/lost-session.ts",
+            "server/sessions.ts"
+          ]
+        },
+        {
+          "name": "Cross-harness event and session parity checks",
+          "files": [
+            "scripts/provider-events.ts",
+            "scripts/provider-session.ts",
+            "scripts/provider-check.ts"
+          ]
+        },
+        {
+          "name": "Live subagent end-to-end check",
+          "files": [
+            "scripts/subagents-live.ts",
+            "server/agents.ts"
+          ]
+        }
+      ],
+      "flows": [
+        {
+          "name": "Prompt turn through a harness",
+          "steps": [
+            "SessionManager builds/resumes provider session in server/sessions.ts",
+            "ProviderRegistry resolves harness via server/providers.ts",
+            "yagami CLI session streams AgentEvents",
+            "sessions.ts normalizes to TranscriptEvents (text, tool chips, patches, questions)",
+            "Usage/limits recorded, reply finalized"
+          ]
+        },
+        {
+          "name": "Small-model background call",
+          "steps": [
+            "sessions.ts or memory layer requests title/summary/split",
+            "server/smallmodel.ts picks double-starred model, RURI_SMALL_MODEL fallback, then codex default",
+            "yagami engine.stream over the signed-in CLI, aborted at a deadline (60s + 20ms/token), stalled model rests and the fallback answers",
+            "Result folded back (title, summary, tracker items); skipped when RURI_NO_MEMORY=1"
+          ]
+        },
+        {
+          "name": "Subagent spawn to card",
+          "steps": [
+            "Harness emits spawn/task tool call",
+            "sessions.ts creates card with SubagentState",
+            "Agent work streams to per-agent log in server/agents.ts",
+            "Card updates in place; report ends it; dead process marked stopped"
+          ]
+        }
+      ],
+      "files": [
+        "server/sessions.ts — SessionManager: owns AgentSession lifecycle, event-to-transcript translation, permissions, usage",
+        "server/providers.ts — ProviderRegistry: creates/loads yagami providers, parses model refs, capability mapping",
+        "server/models.ts — Models: startup-probed Claude + harness model picker, live-session replacement",
+        "server/smallmodel.ts — cheap completions client for titles, summaries, splits, briefs, tracker extraction",
+        "server/manager.ts — Home agent at workspace root with MCP/drop-file tools managing projects",
+        "server/agents.ts — per-subagent JSON logs under config agents/<channel>/<key>.json with debounce and cap",
+        "server/updater.ts — hourly CLI self-update via native updater/bun/npm/brew, never under a running turn",
+        "scripts/provider-events.ts — harness-free fake-provider transcript parity check",
+        "scripts/provider-session.ts — real-harness tool-chip/patch/gauge/rewind parity check",
+        "scripts/acp-start.ts — ACP restart on closed-pipe/locked-DB startup death"
+      ],
+      "rules": [
+        "Never bypass SessionManager to call a CLI directly; session resume, permissions and usage accounting live there.",
+        "A live session's Claude model report only replaces probed ids/names — never clobber display names resolved from the startup catalog.",
+        "Never replace a harness binary mid-turn; updater defers when a chat is active.",
+        "Subagent transcript text must never leak into the parent chat — only the card carries SubagentState.",
+        "Small-model calls are one per sent prompt and per finished reply, honor RURI_NO_MEMORY=1, and each runs through client.engine.stream with an AbortSignal and a deadline (smallmodel.ts ask) — never messages.create, which takes no signal, so a harness that never answers would keep its process and its place in line for good.",
+        "ACP startup failures (locked SQLite, dead warm process) are retried, not surfaced as turn failures."
+      ],
+      "edges": [
+        "Chat runs and queue — consumes SessionManager turns and TranscriptEvents over the socket",
+        "Projects, memory and history — supplies checkpoints/rewind files and receives small-model summaries, titles, folds",
+        "Protocol — every transcript, question, model-choice and subagent message is typed in shared/protocol.ts",
+        "Library, skills and sweeps — skills/sweeps feed harness session context and tools",
+        "Terminals, agents and integrations — Home manager agent drives app actions via MCP or .ruri/open.jsonl drop file"
+      ]
+    },
+    "bridge": {
+      "summary": "This layer lets an agent session see and drive what it built in a hidden window: web pages via the DevTools protocol (CDP) and native apps via CDP (Electron) or the Accessibility tree. It is built as a shared CDP driver in server/cdp.ts plus a tool definition in server/bridge.ts, with Electron-only hands in desktop/bridge.ts, desktop/apps.ts, and desktop/capture.ts. The key idea: the model never touches the user's screen — it gets scaled previews beside the composer while the real window stays hidden and auto-closes after the turn.",
+      "map": [
+        {
+          "name": "Hidden web page driving (web_open, click, type, screenshot)",
+          "files": [
+            "server/cdp.ts",
+            "desktop/bridge.ts",
+            "server/bridge.ts"
+          ]
+        },
+        {
+          "name": "Bridge tool definitions and MCP/HTTP briefing",
+          "files": [
+            "server/bridge.ts"
+          ]
+        },
+        {
+          "name": "Native/Electron app launch and driving",
+          "files": [
+            "desktop/apps.ts",
             "desktop/bridge.ts",
             "server/cdp.ts"
           ]
         },
         {
-          "name": "Bridge lifetime and takeover",
+          "name": "Scaled previews above composer",
+          "files": [
+            "desktop/bridge.ts",
+            "server/bridgeState.ts"
+          ]
+        },
+        {
+          "name": "Window lifetime and auto-close after turn",
           "files": [
             "server/bridgeState.ts",
             "desktop/bridge.ts"
           ]
         },
         {
-          "name": "Electron app driving",
+          "name": "Component screenshot sweep (selector rectangles)",
           "files": [
-            "desktop/apps.ts",
+            "desktop/capture.ts",
             "server/cdp.ts"
           ]
         },
         {
-          "name": "Native app control",
+          "name": "Linux native apps (.desktop lookup, X11 windows and captures, AT-SPI tree and app_ui Python helpers)",
           "files": [
-            "desktop/apps.ts",
-            "desktop/linuxApps.ts"
-          ]
-        },
-        {
-          "name": "Linux app discovery",
-          "files": [
-            "desktop/desktopEntries.ts",
-            "desktop/linuxApps.ts"
-          ]
-        },
-        {
-          "name": "Component screenshots",
-          "files": [
-            "desktop/capture.ts"
+            "desktop/linuxApps.ts",
+            "desktop/desktopEntries.ts"
           ]
         }
       ],
       "flows": [
         {
-          "name": "Drive a web page",
+          "name": "Drive a hidden web page",
           "steps": [
-            "A session calls a bridge tool defined in server/bridge.ts.",
-            "The server sends the request to Electron's main process over the host message channel.",
-            "desktop/bridge.ts opens or reuses a hidden window for the channel.",
-            "server/cdp.ts drives the page through its debugger.",
-            "The bridge returns a scaled preview and updates bridge state."
+            "Agent calls bridge tool defined in server/bridge.ts",
+            "desktop/bridge.ts creates hidden window on first web_open",
+            "PageDriver in server/cdp.ts sends CDP verbs over CdpLink (debugger link)",
+            "Action result returns scaled preview, not full capture",
+            "BridgeState in server/bridgeState.ts schedules close BRIDGE_GRACE_MS after turn ends unless taken over"
           ]
         },
         {
           "name": "Drive a desktop app",
           "steps": [
-            "The server sends the bridge request to Electron's main process.",
-            "desktop/apps.ts launches or finds the app.",
-            "Electron apps connect to the shared CDP driver; native apps use platform accessibility controls.",
-            "The app is captured for the bridge preview."
+            "desktop/apps.ts launches Electron with remote-debugging-port or native app with open -g",
+            "Electron apps driven over CdpSocket with same PageDriver; native apps driven via Accessibility tree (System Events)",
+            "Photographed off window server / compositor without stealing focus",
+            "desktop/bridge.ts returns preview and handles quit on session end"
           ]
         },
         {
-          "name": "End a turn",
+          "name": "Capture component targets",
           "steps": [
-            "server/bridgeState.ts starts a short grace period.",
-            "A following turn can reuse what the channel holds.",
-            "Otherwise the bridge closes it unless the user has taken it over."
+            "desktop/capture.ts loads project page in hidden window",
+            "Finds each selector and captures rectangle around it",
+            "Refuses blank/collapsed captures",
+            "Walks app links (never buttons) to find missing selectors"
           ]
         }
       ],
       "files": [
-        "server/bridge.ts — defines bridge tools, calls, results, and harness briefings",
-        "desktop/bridge.ts — handles bridge calls in Electron's main process using hidden windows and app control",
-        "server/cdp.ts — drives pages through a small CDP connection interface",
-        "server/bridgeState.ts — tracks channel takeover and delayed closure",
-        "desktop/apps.ts — launches and controls Electron and native desktop apps",
-        "desktop/linuxApps.ts — controls Linux native apps through desktop windows and accessibility",
-        "desktop/desktopEntries.ts — resolves Linux apps from desktop entries",
-        "desktop/capture.ts — captures project components in a hidden browser window"
+        "server/cdp.ts — shared CDP driver (CdpLink, CdpSocket, PageDriver) knowing nothing about Electron or sessions",
+        "server/bridge.ts — bridge tool definitions, runBridge, MCP/HTTP briefings",
+        "desktop/bridge.ts — Electron half: hidden per-channel windows, previews, takeover handling",
+        "desktop/apps.ts — background app launch (Electron over CDP, others over Accessibility) and native capture",
+        "server/bridgeState.ts — per-channel takeover state and grace-period auto-close after turns",
+        "desktop/capture.ts — hidden-window selector screenshot sweep for the component library",
+        "desktop/linuxApps.ts — Linux native side: launch without focus (_TIME0 startup id), xdotool windows, X11 captures, AT-SPI over D-Bus from an embedded Python prelude",
+        "desktop/desktopEntries.ts — .desktop entry parsing, Exec field codes, app lookup by id/name/command (pure, tested)"
       ],
       "rules": [
-        "Keep the CDP driver independent of Electron, sessions, and the config directory; each connection supplies the CdpLink interface.",
-        "Electron bridge operations must run in the main process; the separate server requests them over the host message channel.",
-        "Bridge windows and launched apps belong to a channel and close after its turn's grace period unless the user has taken over.",
-        "Bridge actions return a scaled preview rather than the full capture.",
-        "Component capture rejects blank targets and follows links to find selectors; it does not click unknown buttons."
+        "Nothing in server/cdp.ts may know about Electron, sessions, or the config dir — it stays exercisable without a window.",
+        "Never show or activate the driven window: native apps launch with open -g on macOS and a _TIME0 startup id on Linux; a launched Electron app is watched 10s (keepBehind) and handed back whenever its process group is in front, since its window shows on ready-to-show long after attach. Capture works from behind ruri.",
+        "Return scaled previews to the model, not full captures.",
+        "Hidden windows/apps auto-close a few seconds after the turn ends unless the user took them over; never leave renderers running.",
+        "In capture sweeps, follow links only — never click unknown buttons.",
+        "Never pin a blank/collapsed screenshot to a component entry."
       ],
       "edges": [
-        "Shared protocol — supplies bridge state and server message types.",
-        "Sessions — invoke bridge tools and determine when a channel's turn ends.",
-        "Agent runtimes — receive bridge tools through MCP or HTTP briefings.",
-        "Desktop shell — handles server bridge requests over the host message channel and supplies Electron windows, debugger access, and capture.",
-        "Project knowledge — uses desktop component capture during screenshot sweeps."
-      ]
-    },
-    "server-services": {
-      "summary": "This layer supplies the server’s persistence and supporting services, including archives, project settings, checkpoints, integrations, usage, terminals, and project briefs. The server runs in a separate Electron helper process and requests Electron-only operations through a message link to the main process. A newcomer should identify which service owns a record, whether it is shared through `.ruri/`, and which side of the process link owns an operation.",
-      "map": [
-        {
-          "name": "Server process startup and context",
-          "files": [
-            "server/desktopServer.ts",
-            "server/server.ts",
-            "server/context.ts",
-            "server/handlers/index.ts"
-          ]
-        },
-        {
-          "name": "Electron host requests and bridge",
-          "files": [
-            "server/hostLink.ts",
-            "server/bridge.ts",
-            "server/routes.ts",
-            "server/handlers/host.ts"
-          ]
-        },
-        {
-          "name": "Port ownership and process meters",
-          "files": [
-            "server/port.ts",
-            "server/resources.ts",
-            "server/resources.test.ts",
-            "server/usage.ts"
-          ]
-        },
-        {
-          "name": "Session transcripts, checkpoints, and rewind",
-          "files": [
-            "server/archive.ts",
-            "server/checkpoints.ts"
-          ]
-        },
-        {
-          "name": "Project and chat settings",
-          "files": [
-            "server/projects.ts",
-            "server/prefs.ts",
-            "server/handlers/projects.ts",
-            "server/handlers/projects.test.ts"
-          ]
-        },
-        {
-          "name": "Project architecture and briefs",
-          "files": [
-            "server/brief.ts",
-            "server/ruriDir.ts",
-            "server/handoff.ts",
-            "server/layers.test.ts"
-          ]
-        },
-        {
-          "name": "Project notes and catchup",
-          "files": [
-            "server/notes.ts",
-            "server/catchup.ts",
-            "server/catchupBrief.ts",
-            "server/notesBackfill.test.ts"
-          ]
-        },
-        {
-          "name": "Small-model summaries and layer sheets",
-          "files": [
-            "server/smallmodel.ts",
-            "server/smallmodel.test.ts",
-            "server/lazySheets.test.ts"
-          ]
-        },
-        {
-          "name": "MCP servers and plugins",
-          "files": [
-            "server/integrations.ts"
-          ]
-        },
-        {
-          "name": "Sharing and device invites",
-          "files": [
-            "server/sharing.ts",
-            "server/invite.ts",
-            "server/handlers/sharing.ts",
-            "server/invite.test.ts"
-          ]
-        },
-        {
-          "name": "Window message delivery",
-          "files": [
-            "server/clients.ts",
-            "server/events.ts"
-          ]
-        },
-        {
-          "name": "Terminal tabs and attachments",
-          "files": [
-            "server/terminal.ts",
-            "server/scrollback.ts",
-            "server/uploads.ts",
-            "server/handlers/pictures.test.ts"
-          ]
-        }
-      ],
-      "flows": [
-        {
-          "name": "Desktop server and host operations",
-          "steps": [
-            "Electron starts the server in a helper process",
-            "The server handles requests and sends Electron-only operations over the host message link",
-            "Electron performs those operations and returns their results",
-            "If the server exits unexpectedly, Electron starts a replacement and the window reconnects on the same port"
-          ]
-        },
-        {
-          "name": "Project checkpoint",
-          "steps": [
-            "Capture the working tree when a prompt goes out",
-            "Capture it again when the turn ends",
-            "Build commits through a private Git index and retain them under refs/ruri/",
-            "Use those checkpoints for rewind"
-          ]
-        },
-        {
-          "name": "Project architecture",
-          "steps": [
-            "Read a project's overview for its first prompt",
-            "Import an existing `.ruri/architecture.json` when the project has one",
-            "Write or update a layer sheet when a turn touches that layer or someone opens it on the Architecture page",
-            "Add files and folders to a new project's architecture as work reaches them"
-          ]
-        }
-      ],
-      "files": [
-        "server/desktopServer.ts — starts the server inside the Electron helper process",
-        "server/hostLink.ts — carries requests and results between the server and Electron main process",
-        "server/server.ts — assembles and runs the server",
-        "server/bridge.ts — connects server bridge operations to the Electron host",
-        "server/archive.ts — persists live transcripts, earlier history, turn summaries, and resumable session IDs",
-        "server/checkpoints.ts — captures working trees and supports turn rewind through private Git refs",
-        "server/brief.ts — builds and writes project architecture and briefing files",
-        "server/ruriDir.ts — manages project files under `.ruri/`",
-        "server/sharing.ts — provides server-side sharing support",
-        "server/resources.ts — samples current process CPU and memory for the Statistics page"
-      ],
-      "rules": [
-        "The live archive starts at the newest compaction mark; older events belong in append-only history.",
-        "Checkpoint capture must leave the user’s branch, staging area, and Git status unchanged.",
-        "Electron-only bridge, screenshot, permission, and window operations must run in the main process through the host link.",
-        "Port ownership must report the app’s PID; stopping only the helper server would let the old app restart it.",
-        "Change harness integrations through their CLIs; do not write their configuration formats by hand. Reading Claude MCP servers must not invoke `claude mcp list`, which starts servers for health checks.",
-        "On Linux, process CPU from `ps` is a lifetime average and summed RSS counts shared Chromium pages repeatedly; use interval CPU and shared-page-aware memory for the Statistics meter."
-      ],
-      "edges": [
-        "Shared protocol — supplies session, project, integration, usage, transcript, and architecture types",
-        "Sessions — archive, checkpoints, briefs, terminals, and resource meters support active chats",
-        "Project knowledge — briefs, handoff context, notes, and small-model output feed project memory",
-        "Desktop main process — hosts Electron-only operations requested over the message link and restarts the helper server after a crash",
-        "Agent runtimes — integrations, updates, usage, and recent-session import read or invoke installed harnesses"
-      ]
-    },
-    "desktop-shell": {
-      "summary": "This layer starts the Electron desktop app, creates its window, and connects it to this computer's server — or, onto another computer, to that one's, with no server here at all. It finds the user's other computers, sets them up over SSH and pairs, and reads and requests platform permissions. A newcomer should account for the limited PATH of GUI-launched apps, a Linux host with no display, and on macOS permissions tied to the app's code signature.",
-      "map": [
-        {
-          "name": "App startup and window lifecycle",
-          "files": [
-            "desktop/main.ts"
-          ]
-        },
-        {
-          "name": "Platform permission status and requests",
-          "files": [
-            "desktop/permissions.ts"
-          ]
-        },
-        {
-          "name": "GUI launch PATH recovery",
-          "files": [
-            "desktop/main.ts"
-          ]
-        },
-        {
-          "name": "Server process start, restart and quit",
-          "files": [
-            "desktop/serverProcess.ts",
-            "desktop/main.ts"
-          ]
-        },
-        {
-          "name": "Using another computer: reaching it, pinning its certificate, the can't-reach page",
-          "files": [
-            "desktop/remote.ts",
-            "desktop/offline.ts",
-            "desktop/main.ts"
-          ]
-        },
-        {
-          "name": "Finding the user's computers and setting one up over SSH",
-          "files": [
-            "desktop/sshSetup.ts",
-            "desktop/main.ts",
-            "web/src/components/Devices.tsx",
-            "web/src/lib/shell.ts"
-          ]
-        },
-        {
-          "name": "What the page may ask the shell (window.ruriShell)",
-          "files": [
-            "desktop/preload.ts",
-            "desktop/main.ts"
-          ]
-        },
-        {
-          "name": "ruri --serve, --invite, --quit and the headless restart",
-          "files": [
-            "desktop/main.ts"
-          ]
-        }
-      ],
-      "flows": [
-        {
-          "name": "Launch",
-          "steps": [
-            "main.ts fixes PATH and waits for Electron",
-            "serverProcess.ts forks server.mjs and sends it the port, token and static dir",
-            "the server answers ready with its port",
-            "main.ts opens the window on it"
-          ]
-        },
-        {
-          "name": "Onto another computer",
-          "steps": [
-            "remote.json names the host",
-            "no local server starts",
-            "remote.ts reach races its addresses under the pinned certificate",
-            "the window loads https://address:port/?token=key",
-            "a check every 15 s; two misses race the addresses again or show the can't-reach page"
-          ]
-        },
-        {
-          "name": "Set up over SSH",
-          "steps": [
-            "Settings asks ruri:setup",
-            "sshSetup.ts runs ssh … sh -s with the host script",
-            "the far side finds ruri or builds and installs it, starts it as a service, then asks its local port for a pairing",
-            "remote.ts adopt pins it",
-            "the window leaves the local page, the local server stops, the window opens on the host"
-          ]
-        }
-      ],
-      "files": [
-        "desktop/main.ts — Electron entry point for the window, the desktop bridge, the shell's services and app lifecycle; it forks the server rather than running it",
-        "desktop/permissions.ts — macOS permission checks, requests, and privacy database rows",
-        "desktop/serverProcess.ts — forks the server as a utility process, answers its calls for shell services, forwards bridge state, restarts it if it dies",
-        "desktop/remote.ts — paired computers (remote.json), certificate pinning, word pairing, reaching a host",
-        "desktop/peers.ts — the user's computers from makima's socket, Tailscale's CLI and a LAN broadcast, each probed for ruri",
-        "desktop/sshSetup.ts — the host script and SSH run that install ruri when missing, start it, and pair",
-        "desktop/preload.ts — window.ruriShell, bundled to CommonJS on its own"
-      ],
-      "rules": [
-        "GUI-launched apps can lack CLI install directories in PATH; desktop/main.ts recovers the user's login-shell PATH so session commands can find their tools.",
-        "macOS grants are tied to the app's code signature. A newly signed build can lose effective grants even while System Settings shows them enabled.",
-        "Permission state is read from the system rather than inferred from whether a request was made.",
-        "A device onto another computer runs no server or harness of its own; switching stops every chat here, and the window leaves the local page first — server.close() waits on the window's open connection.",
-        "With no DISPLAY or WAYLAND_DISPLAY, main() re-execs itself with --ozone-platform=headless; Chromium picks its platform before appendSwitch could change it."
-      ],
-      "edges": [
-        "Server transport — desktop/serverProcess.ts forks server/desktopServer.ts and talks to it through server/hostLink.ts messages",
-        "Bridge — desktop/main.ts imports the desktop Bridge and captureTargets",
-        "Shared protocol — window drag and permission types come from the shared protocol"
-      ]
-    },
-    "build-and-checks": {
-      "summary": "This layer defines the Bun and Make commands for building, installing, formatting, and checking the app. Its main build produces separate Electron main-process and server-process bundles. The server bundle is kept ASCII-only to avoid doubling its string storage in V8. Focused scripts check server behavior, shared protocol messages, desktop bridge actions, and agent runtimes; before running one, check whether it uses a fake provider, a local mock, or a real CLI.",
-      "map": [
-        {
-          "name": "Build, install, and check commands",
-          "files": [
-            "package.json",
-            "Makefile"
-          ]
-        },
-        {
-          "name": "Main and server process builds",
-          "files": [
-            "scripts/build-main.ts",
-            "package.json"
-          ]
-        },
-        {
-          "name": "Test runner",
-          "files": [
-            "scripts/run-tests.ts",
-            "package.json"
-          ]
-        },
-        {
-          "name": "Performance meter checks",
-          "files": [
-            "scripts/meters.ts"
-          ]
-        },
-        {
-          "name": "Lint and server TypeScript configuration",
-          "files": [
-            "eslint.config.js",
-            "tsconfig.server.json"
-          ]
-        },
-        {
-          "name": "Session continuity checks",
-          "files": [
-            "scripts/session-stress.ts",
-            "scripts/lost-session.ts"
-          ]
-        },
-        {
-          "name": "Agent messaging checks",
-          "files": [
-            "scripts/talk-replies.ts",
-            "scripts/talk.ts"
-          ]
-        },
-        {
-          "name": "Bridge end-to-end check",
-          "files": [
-            "scripts/bridge.ts"
-          ]
-        },
-        {
-          "name": "Bridge close check",
-          "files": [
-            "scripts/bridge-close.ts"
-          ]
-        },
-        {
-          "name": "Provider event check",
-          "files": [
-            "scripts/provider-events.ts"
-          ]
-        },
-        {
-          "name": "Shared test server setup",
-          "files": [
-            "scripts/lib/server.ts"
-          ]
-        }
-      ],
-      "flows": [
-        {
-          "name": "Server integration check",
-          "steps": [
-            "A focused script creates scratch configuration and project data.",
-            "It starts or connects to the server.",
-            "It drives actions over WebSocket or HTTP.",
-            "It checks the resulting messages, transcript, or state."
-          ]
-        }
-      ],
-      "files": [
-        "package.json — Bun commands and package configuration",
-        "Makefile — Make targets for build and maintenance work",
-        "scripts/run-tests.ts — test runner",
-        "scripts/build-main.ts — builds separate Electron main-process and server-process bundles and keeps them ASCII-only",
-        "scripts/lib/server.ts — shared server setup used by integration scripts",
-        "eslint.config.js — lint configuration",
-        "tsconfig.server.json — server TypeScript configuration",
-        "scripts/session-stress.ts — real-CLI session continuity stress check",
-        "scripts/provider-events.ts — fake-provider event and transcript check",
-        "scripts/meters.ts — performance meter check"
-      ],
-      "rules": [
-        "Several focused scripts are manual checks that invoke real CLIs and may consume model turns; scripts/provider-events.ts uses a fake provider and costs no model turns.",
-        "Server integration checks use scratch configuration or projects so they do not depend on normal user state.",
-        "The desktop bridge check isolates its app data and port; its app-control pass depends on platform permissions or Linux desktop tooling and may be skipped when those are absent.",
-        "scripts/bridge-close.ts must pass the app its access token.",
-        "scripts/session-stress.ts treats lost model context, missing transcript turns, failed prompts, and failed return to an earlier model as session loss.",
-        "Keep the server bundle ASCII-only: non-ASCII characters in regular expressions made V8 store the entire bundle at two bytes per character."
-      ],
-      "edges": [
-        "Server transport — integration scripts drive the real server over WebSocket or HTTP",
-        "Shared protocol — scripts type and inspect client messages, server messages, and transcript events",
-        "Sessions — checks exercise provider events, queues, settings, retries, and session continuity",
-        "Bridge and desktop shell — the bridge check boots the desktop app and drives its HTTP bridge",
-        "Agent runtimes — real-CLI checks exercise installed harnesses"
+        "Desktop shell — owns the visible window, permissions/TCC, and hidden bridge windows that desktop/bridge.ts drives",
+        "Protocol — BridgeState type and server messages for previews/takeover live in shared/protocol.ts",
+        "Library, skills and sweeps — server/shots.ts starts dev servers and wraps desktop/capture.ts",
+        "Agent harnesses — expose server/bridge.ts tools in-process (Claude bridge MCP server) so every harness gets the same verbs",
+        "Management: agents, skills and tracking — Bridge preview UI beside the composer and takeover button"
       ]
     }
   },
-  "builtAt": "73767d2"
+  "builtAt": "137e280"
 }

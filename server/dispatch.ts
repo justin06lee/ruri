@@ -67,13 +67,16 @@ export function dispatch(
   /** Another agent sent it (server/talk.ts): the transcript says whose,
    *  and the model reads it wrapped as a message, not as the user. */
   from?: LetterFrom,
-): void {
+  /** The id the user event should go by — the one the window already shows
+   *  the prompt under, or the queue entry it waited in (see userEventId). */
+  eventId?: string,
+): string | undefined {
   // /compact is ruri's own, not the harness's: summaries + full-turn file
   // hooks into a fresh session, with the zigzag mark in the transcript —
   // the user's to ask for, never another agent's
   if (!silent && !from && text.trim() === "/compact" && uploads.length === 0) {
     compactChannel(ctx, channelId);
-    return;
+    return undefined;
   }
   const project = channelProject(ctx, channelId);
   if (!project) throw new Error("unknown session");
@@ -96,7 +99,7 @@ export function dispatch(
     if (visible) ctx.archive.noteSent(channelId, harness, visible);
     const payload = modelPayload(text, uploads);
     ctx.manager.send(project, brief + payload.text + named, payload.images, undefined, true, visible);
-    return;
+    return undefined;
   }
   // Whatever the session this goes to doesn't hold rides in ahead of it,
   // invisibly: the whole conversation for a fresh one (after a compaction,
@@ -113,7 +116,7 @@ export function dispatch(
   const processed = processAttachments(text, uploads);
   const userEvent: TranscriptEvent = {
     kind: "user",
-    id: randomUUID(),
+    id: userEventId(ctx, channelId, eventId),
     text: processed.display,
     ...(processed.attachments.length ? { attachments: processed.attachments } : {}),
     ...(from ? { from } : {}),
@@ -130,6 +133,29 @@ export function dispatch(
   // sender's hands, which is that letter done with. Only once it has gone:
   // one that fails to go goes back in line, and stays in the book
   if (from) ctx.talk.arrived(from);
+  return userEvent.id;
+}
+
+/**
+ * The id a prompt's user event goes by: the one asked for — what the
+ * window has been showing the prompt under since it was sent, or the queue
+ * entry it waited in, which the window showed as that — so the real event
+ * replaces the window's own copy where it stands instead of arriving
+ * beside it. A fresh one when none was asked for, or when the transcript
+ * already holds an event by that name (a prompt sent again after it failed
+ * on its way to the harness).
+ */
+function userEventId(ctx: ServerContext, channelId: string, wanted: string | undefined): string {
+  if (wanted && !holdsEvent(ctx, channelId, wanted)) return wanted;
+  return randomUUID();
+}
+
+/** Whether the chat's live transcript has an event by this id — read from
+ *  the end, where a prompt just sent is. */
+export function holdsEvent(ctx: ServerContext, channelId: string, eventId: string): boolean {
+  const events = ctx.archive.events(channelId);
+  for (let i = events.length - 1; i >= 0; i--) if (events[i]!.id === eventId) return true;
+  return false;
 }
 
 /**
@@ -143,13 +169,15 @@ export function dispatchSplit(
   uploads: AttachmentUpload[],
   /** Ahead of a queue standing by since a stop — see `send`. */
   ahead = false,
-): void {
+  /** The id the user event should go by (see dispatch). */
+  eventId?: string,
+): string {
   // The user sees exactly one thing: their prompt, sent now. The
   // split and the turn-by-turn feed happen entirely out of sight.
   const attachments = storeAttachments(uploads);
   const userEvent: TranscriptEvent = {
     kind: "user",
-    id: randomUUID(),
+    id: userEventId(ctx, channelId, eventId),
     text: text,
     ...(attachments.length ? { attachments } : {}),
     ts: Date.now(),
@@ -189,6 +217,7 @@ export function dispatchSplit(
       if (first) dispatch(ctx, channelId, first.text, first.uploads, true);
     },
   );
+  return userEvent.id;
 }
 
 /** Send the next queued prompt, once the channel settles. Answers whether
@@ -214,8 +243,10 @@ export function drainQueue(ctx: ServerContext, channelId: string): boolean {
   // emitting it) — so the queued turn's "working" sticks
   queueMicrotask(() => {
     try {
-      if (next.split) dispatchSplit(ctx, channelId, next.text, next.uploads);
-      else dispatch(ctx, channelId, next.text, next.uploads, next.silent, next.from);
+      // the user event takes the entry's id: the card the window showed in
+      // the queue becomes the bubble in the transcript, in place
+      if (next.split) dispatchSplit(ctx, channelId, next.text, next.uploads, false, next.id);
+      else dispatch(ctx, channelId, next.text, next.uploads, next.silent, next.from, next.id);
     } catch (err) {
       // the send failed (the channel vanished, the harness would not
       // start): the prompt goes back to the head of the line rather than
@@ -314,6 +345,9 @@ export function promptEntries(
   text: string,
   uploads: AttachmentUpload[],
   split: boolean,
+  /** The window's id for the prompt: the entry carrying its words goes by
+   *  it (each command gets one of its own). */
+  clientId?: string,
 ): { entries: QueueEntry[]; commands: number } {
   const { commands, rest } = splitCommands(text, knownCommands(ownerProject(ctx, channelId)?.path));
   const entries: QueueEntry[] = commands.map((command) => ({
@@ -324,7 +358,7 @@ export function promptEntries(
   }));
   if (commands.length === 0 || rest || uploads.length > 0) {
     entries.push({
-      id: randomUUID(),
+      id: clientId ?? randomUUID(),
       text: commands.length === 0 ? text : rest,
       uploads,
       silent: false,
@@ -350,11 +384,13 @@ export function queueWithCommands(
   /** This prompt goes ahead of what is already queued — a queue that has
    *  been standing by since a stop waited for this one, not the reverse. */
   ahead = false,
+  /** The window's id for the prompt (see promptEntries). */
+  clientId?: string,
 ): boolean {
   const { commands } = splitCommands(text, knownCommands(ownerProject(ctx, channelId)?.path));
   if (commands.length === 0) return false;
   const wasBusy = ahead ? running(ctx, channelId) : busy(ctx, channelId);
-  const { entries } = promptEntries(ctx, channelId, text, uploads, split);
+  const { entries } = promptEntries(ctx, channelId, text, uploads, split, clientId);
   const queue = ctx.queues.entries.get(channelId) ?? [];
   if (ahead) queue.unshift(...entries);
   else queue.push(...entries);
@@ -419,9 +455,11 @@ export function cutIn(
   text: string,
   uploads: AttachmentUpload[],
   split: boolean,
+  /** The window's id for the prompt (see promptEntries). */
+  clientId?: string,
 ): boolean {
   if (!running(ctx, channelId)) return false;
-  cutInWith(ctx, channelId, promptEntries(ctx, channelId, text, uploads, split).entries);
+  cutInWith(ctx, channelId, promptEntries(ctx, channelId, text, uploads, split, clientId).entries);
   return true;
 }
 

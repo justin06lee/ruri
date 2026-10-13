@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Attachment } from "../../../shared/protocol";
+import { localSrc } from "../lib/localFiles";
 import { HTTP_BASE } from "../store";
 
 /**
@@ -616,7 +617,8 @@ export function TranscriptAttachments({ attachments }: { attachments: Attachment
     <>
       <div className="att-strip in-msg">
         {attachments.map((att) => {
-          const src = HTTP_BASE + (att.url ?? "");
+          // the window's own copy of what it just sent, while it has one
+          const src = localSrc(att.id) ?? HTTP_BASE + (att.url ?? "");
           return (
             <div
               key={att.id}

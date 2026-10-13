@@ -120,8 +120,12 @@ export function ChatPane({
     [isHome, workspaceDir, home, storeProject, session],
   );
   // The snapshot only carries a chat's last few events; the whole history
-  // is asked for when the chat opens, and until it arrives the pane stays
-  // blank rather than showing the tail and then jumping.
+  // is asked for when the chat opens. Until it arrives the pane shows what
+  // it has — the tail, or the whole chat as held before a reconnect — at
+  // the bottom, where the view is pinned: the rest fills in above, out of
+  // sight, rather than the pane standing blank for a round trip that over
+  // a network is long enough to see. (The pointer on a chat's row usually
+  // has it here whole before the click: prefetchTranscript.)
   const { loaded, connected } = useRuri(
     useShallow((s) => ({ loaded: activeId ? s.loaded[activeId] === true : true, connected: s.connected })),
   );
@@ -152,7 +156,7 @@ export function ChatPane({
     clearPicked();
   }, [picked, clearPicked]);
 
-  if (!project || !activeId || !loaded) {
+  if (!project || !activeId) {
     return <main className={paneClass("chat empty", rapid)} />;
   }
   return (
@@ -195,6 +199,8 @@ function ChatView({
     queuedItems,
     queueHeld,
     turn,
+    stopping,
+    unsent,
     crewAgents,
     trackerItems,
     earlier,
@@ -208,6 +214,8 @@ function ChatView({
       queuedItems: s.queued[activeId] ?? NO_QUEUED,
       queueHeld: s.queueHeld[activeId],
       turn: s.turns[activeId],
+      stopping: s.stopping[activeId] === true,
+      unsent: Object.values(s.unsent).filter((id) => id === activeId).length,
       crewAgents: s.crew[activeId],
       trackerItems: s.tracker[activeId],
       // What a compaction left behind it: the live transcript opens on
@@ -1002,7 +1010,22 @@ function ChatView({
               {status === "working" && (
                 <div className="working">
                   {!draft && <Thinking />}
-                  {turn && <WorkingLine turn={turn} effort={project.effort || DEFAULT_EFFORT} />}
+                  {stopping ? (
+                    // the stop is heard; the harness is winding the turn down
+                    <div className="working-line">
+                      <span className="working-word">Stopping…</span>
+                    </div>
+                  ) : (
+                    turn && <WorkingLine turn={turn} effort={project.effort || DEFAULT_EFFORT} />
+                  )}
+                </div>
+              )}
+              {unsent > 0 && (
+                // on screen, and in the outbox: it goes the moment there is
+                // a line to the server again (store.ts, sendPrompt)
+                <div className="unsent-note">
+                  {unsent === 1 ? "This prompt goes" : `These ${unsent} prompts go`} as soon as ruri is
+                  reachable again.
                 </div>
               )}
               {/* neither a question nor a naming is an allow/deny — each gets

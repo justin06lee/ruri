@@ -20,7 +20,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AskAnswers, AskQuestion, AskQuestions, PermissionRequest } from "../../../shared/protocol";
-import { send, showError, useRuri } from "../store";
+import { answerCard, showError, useRuri } from "../store";
 import { questionError } from "../../../shared/questionInput";
 
 /** What one question's answer looks like while the card is open. */
@@ -312,7 +312,9 @@ export function QuestionCard({ request }: { request: PermissionRequest }) {
   };
 
   const finish = (answers?: AskAnswers) => {
-    if (send({ type: "question_response", requestId: request.requestId, ...(answers ? { answers } : {}) })) {
+    if (
+      answerCard({ type: "question_response", requestId: request.requestId, ...(answers ? { answers } : {}) })
+    ) {
       held.delete(request.requestId);
     } else {
       showError("Not connected — the answer did not go through; try again once ruri is back.");

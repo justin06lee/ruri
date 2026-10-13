@@ -17,6 +17,7 @@ import {
   type PluginRow,
   type ClientMessage,
   type Attachment,
+  type AttachmentUpload,
   type CommandInfo,
   type ContextUsage,
   type DraftAttachment,
@@ -42,6 +43,8 @@ import {
   type Resources,
   type ProjectStatus,
   type QueuedPrompt,
+  type PermissionMode,
+  type SessionInfo,
   type QueueHold,
   type RecentSession,
   type ServerMessage,
@@ -52,6 +55,15 @@ import {
   type UsageLimits,
 } from "../../shared/protocol";
 import type { ComposerAttachment } from "./components/Attachments";
+import {
+  insertAt,
+  predict,
+  statusWithOutgoing,
+  withOutgoing,
+  withOutgoingItems,
+  type Outgoing,
+  type PromptMessage,
+} from "./lib/outgoing";
 import { overlay, reuse } from "./lib/transcript";
 import { pictureStored } from "./pictures";
 import { hydratePrefs } from "./prefs";
@@ -410,6 +422,13 @@ interface RuriState {
   usage: Record<string, UsageLimits>;
   /** Context-window occupancy per channel. */
   contexts: Record<string, ContextUsage>;
+  /** Prompts on screen that have not left this window yet — no socket to
+   *  send them down — by their id, each to its chat. They go the moment
+   *  there is one (the outbox). */
+  unsent: Record<string, string>;
+  /** Chats whose turn the user has stopped and that have not stopped yet:
+   *  the stop is answered at once, the harness winds down after. */
+  stopping: Record<string, true>;
   /** How the running turn is getting on, per channel — what the working
    *  line counts. Only channels with a turn in flight are in here. */
   turns: Record<string, TurnProgress>;
@@ -565,6 +584,8 @@ export const useRuri = create<RuriState>((set) => ({
   terminals: {},
   usage: {},
   contexts: {},
+  unsent: {},
+  stopping: {},
   turns: {},
   stats: {},
   recent: {},
@@ -709,9 +730,516 @@ export function send(message: ClientMessage): boolean {
   return true;
 }
 
-/** How many chats the window keeps whole at once. Opening a fifth lets the
- *  least recently opened go back to its tail; opening it again asks. */
-const KEEP_LOADED = 4;
+/* ── prompts on their way (lib/outgoing.ts) ──────────────────────── */
+
+/** The prompts this window has put on screen and the server has not yet
+ *  said it has, in the order they were sent. */
+const outbox = new Map<string, Outgoing>();
+/** Each chat's status as the server last said it — what `statuses` goes
+ *  back to once no prompt of this window's is holding it at working. */
+const serverStatuses: Record<string, ProjectStatus> = {};
+
+/* The outbox outlives the page: a prompt typed while the socket was down,
+   and a reload before it came back, must not be a prompt lost. Kept in the
+   window's own storage — the server is the one thing it cannot reach. */
+const OUTBOX_KEY = "ruri-outbox";
+
+function saveOutbox(): void {
+  try {
+    // one still packing its files is not written down until it has them
+    const kept = [...outbox.values()]
+      .filter((out) => !packing.has(out.message.clientId))
+      .map((out) => ({ message: out.message, shown: out.shown, at: out.at }));
+    if (kept.length) localStorage.setItem(OUTBOX_KEY, JSON.stringify(kept));
+    else localStorage.removeItem(OUTBOX_KEY);
+  } catch {
+    // over the storage quota (big attachments): the prompt still goes from
+    // memory; only a reload before it does would lose it
+  }
+}
+
+function restoreOutbox(): void {
+  try {
+    const raw = localStorage.getItem(OUTBOX_KEY);
+    if (!raw) return;
+    for (const saved of JSON.parse(raw) as Array<Pick<Outgoing, "message" | "shown" | "at">>) {
+      outbox.set(saved.message.clientId, shownAs(saved.message, saved.shown, saved.at));
+    }
+  } catch {
+    localStorage.removeItem(OUTBOX_KEY);
+  }
+}
+
+/** What stands on screen for a prompt: its bubble or its card. */
+function shownAs(
+  message: PromptMessage,
+  shown: Outgoing["shown"],
+  at: number,
+  files?: Attachment[],
+): Outgoing {
+  const attachments: Attachment[] =
+    files ??
+    (message.attachments ?? []).map(({ id, kind, mediaType, name, n }) => ({ id, kind, mediaType, name, n }));
+  const out: Outgoing = { message, shown, at };
+  if (shown === "event") {
+    out.event = {
+      kind: "user",
+      id: message.clientId,
+      text: message.text,
+      ...(attachments.length ? { attachments } : {}),
+      ts: at,
+    };
+  } else if (shown === "queued") {
+    out.item = { id: message.clientId, text: message.text, ...(attachments.length ? { attachments } : {}) };
+  }
+  return out;
+}
+
+/** The state with a prompt on its way put on screen. */
+function showOutgoing(s: RuriState, out: Outgoing): Partial<RuriState> {
+  const channelId = out.message.projectId;
+  if (out.shown === "event") {
+    return {
+      transcripts: {
+        ...s.transcripts,
+        [channelId]: withOutgoing(channelId, s.transcripts[channelId] ?? [], [out]),
+      },
+      ...goneOut(s, out),
+    };
+  }
+  if (out.shown === "queued") {
+    return {
+      queued: { ...s.queued, [channelId]: withOutgoingItems(channelId, s.queued[channelId] ?? [], [out]) },
+    };
+  }
+  return {};
+}
+
+/** Prompts on screen whose files are still being packed for the wire:
+ *  they go when their bytes are ready, not before — a prompt sent without
+ *  its pictures would be a different prompt. */
+const packing = new Set<string>();
+
+/** The state with a prompt that has just gone down a socket: its chat at
+ * work, its working line counting from now. */
+function goneOut(s: RuriState, out: Outgoing): Partial<RuriState> {
+  const channelId = out.message.projectId;
+  if (out.shown !== "event" || out.onWire === undefined) return {};
+  const status = statusWithOutgoing(channelId, s.statuses[channelId] ?? "idle", [out], out.onWire);
+  return {
+    statuses: { ...s.statuses, [channelId]: status },
+    ...(s.turns[channelId]
+      ? {}
+      : { turns: { ...s.turns, [channelId]: { startedAt: out.onWire, tokens: 0, at: out.onWire } } }),
+  };
+}
+
+/** Put a prompt from the outbox down the socket, if there is one. */
+function transmit(out: Outgoing): boolean {
+  if (!send(out.message)) return false;
+  out.onWire = Date.now();
+  return true;
+}
+
+/**
+ * Send a prompt — on screen at once, wherever the server is going to put
+ * it, and sent now or the moment there is a socket to send it down. Never
+ * fails: what the composer held is in the outbox and goes when it can.
+ * `files`: the attachments as the bubble shows them (the composer's own
+ * copies, see lib/localFiles.ts); `uploads`: their bytes, which may still
+ * be on their way — the prompt shows first and goes when they are ready.
+ */
+export function sendPrompt(
+  message: Omit<PromptMessage, "clientId" | "attachments">,
+  files?: Attachment[],
+  uploads?: Promise<AttachmentUpload[]>,
+): void {
+  const s = useRuri.getState();
+  const channelId = message.projectId;
+  const full = { ...message, clientId: crypto.randomUUID() } as PromptMessage;
+  const shown = predict(
+    { status: s.statuses[channelId], queued: s.queued[channelId], held: s.queueHeld[channelId] },
+    message.text,
+    message.now === true,
+  );
+  const out = shownAs(full, shown, Date.now(), files);
+  outbox.set(full.clientId, out);
+  /** Off it goes — or it waits for a socket, and says so under the chat. */
+  const go = (): boolean => {
+    saveOutbox();
+    return transmit(out);
+  };
+  const waiting = (state: RuriState): Partial<RuriState> => ({
+    unsent: { ...state.unsent, [full.clientId]: channelId },
+  });
+  if (!uploads) {
+    // sent first, then shown: one render, with the chat already at work
+    const went = go();
+    useRuri.setState((state) => ({ ...showOutgoing(state, out), ...(went ? {} : waiting(state)) }));
+    return;
+  }
+  useRuri.setState((state) => showOutgoing(state, out));
+  packing.add(full.clientId);
+  uploads.then(
+    (attachments) => {
+      packing.delete(full.clientId);
+      out.message = { ...out.message, ...(attachments.length ? { attachments } : {}) };
+      const went = go();
+      useRuri.setState((state) => (went ? goneOut(state, out) : waiting(state)));
+    },
+    () => {
+      // the files could not be read back: nothing went, and the words go
+      // back to the composer rather than out without what they point at
+      packing.delete(full.clientId);
+      outbox.delete(full.clientId);
+      useRuri.setState((state) => settleOutgoing(state, out, "failed"));
+      composeInto(channelId, full.text);
+      showError("The attachments could not be read — the prompt is back in the composer.");
+    },
+  );
+}
+
+/** Everything in the outbox, down a socket that has just opened. The ones
+ *  that went down the last one too may have arrived — the server knows
+ *  them by their ids, and answers rather than runs them again. */
+function flushOutbox(): void {
+  const gone = [...outbox.values()].filter((out) => !packing.has(out.message.clientId) && transmit(out));
+  if (gone.length === 0) return;
+  useRuri.setState((s) =>
+    gone.reduce<RuriState>((state, out) => ({ ...state, ...goneOut(state, out) }), { ...s, unsent: {} }),
+  );
+}
+
+/** The server has a prompt, and says where it went. */
+function settleOutgoing(
+  s: RuriState,
+  out: Outgoing,
+  as: "event" | "queued" | "other" | "failed",
+): Partial<RuriState> {
+  const channelId = out.message.projectId;
+  const id = out.message.clientId;
+  const next: Partial<RuriState> = {};
+  if (s.unsent[id]) {
+    const { [id]: _gone, ...rest } = s.unsent;
+    next.unsent = rest;
+  }
+  // the bubble, where the server did not make it one — unless the server's
+  // own event has already taken its place
+  const events = s.transcripts[channelId];
+  if (out.event && as !== "event" && events?.includes(out.event)) {
+    next.transcripts = { ...s.transcripts, [channelId]: events.filter((event) => event !== out.event) };
+  }
+  const items = s.queued[channelId];
+  if (out.item && as !== "queued" && items?.includes(out.item)) {
+    next.queued = { ...s.queued, [channelId]: items.filter((item) => item !== out.item) };
+  }
+  // working on this window's word alone: the server's word stands now
+  const status = statusWithOutgoing(
+    channelId,
+    serverStatuses[channelId] ?? "idle",
+    outbox.values(),
+    Date.now(),
+  );
+  if (status !== s.statuses[channelId]) next.statuses = { ...s.statuses, [channelId]: status };
+  if (status !== "working" && status !== "permission" && s.turns[channelId]?.tokens === 0) {
+    const { [channelId]: _gone, ...turns } = s.turns;
+    next.turns = turns;
+  }
+  return next;
+}
+
+/** Stop a chat's turn. The stop shows at once; the harness winds down
+ *  after, and the chat says so when it has. */
+export function stopTurn(channelId: string): void {
+  if (!send({ type: "interrupt", projectId: channelId })) return;
+  useRuri.setState((s) => ({ stopping: { ...s.stopping, [channelId]: true } }));
+  // a harness that never says it stopped must not leave it saying so
+  setTimeout(() => {
+    const { stopping } = useRuri.getState();
+    if (!stopping[channelId]) return;
+    const { [channelId]: _gone, ...rest } = stopping;
+    useRuri.setState({ stopping: rest });
+  }, 20_000);
+}
+
+/* ── changes on screen before the server's word ─────────────────── */
+
+/**
+ * A change this window made to something the server sends whole — the
+ * project list, a chat's queue — shown the moment it is made, and laid
+ * over each copy the server sends until one shows it (or until it has
+ * waited long enough that it is not going to, and the server's word
+ * stands). Without it a rename snaps back to the old name for the round
+ * trip, and a card dragged in the queue jumps back to where it was.
+ */
+interface Change<T> {
+  apply(value: T): T;
+  /** The server's copy already shows it: it is done with. */
+  shows(value: T): boolean;
+  until: number;
+}
+const CHANGE_MS = 10_000;
+
+/** The server's copy, with the changes it does not show yet laid over it. */
+function laid<T>(changes: Array<Change<T>>, value: T): T {
+  const now = Date.now();
+  for (let i = changes.length - 1; i >= 0; i -= 1) {
+    const change = changes[i]!;
+    if (change.until < now || change.shows(value)) changes.splice(i, 1);
+  }
+  return changes.reduce((v, change) => change.apply(v), value);
+}
+
+const projectChanges: Array<Change<Project[]>> = [];
+const queueChanges = new Map<string, Array<Change<QueuedPrompt[]>>>();
+
+/** Send a change to the project list, and show it now. */
+function changeProjects(
+  message: ClientMessage,
+  apply: (projects: Project[]) => Project[],
+  shows: (projects: Project[]) => boolean,
+): void {
+  if (!send(message)) {
+    showError("Not connected — that did not go through; try again once ruri is back.");
+    return;
+  }
+  projectChanges.push({ apply, shows, until: Date.now() + CHANGE_MS });
+  useRuri.setState((s) => ({ projects: apply(s.projects) }));
+}
+
+/** Send a change to a chat's queue, and show it now. */
+function changeQueue(
+  message: ClientMessage,
+  channelId: string,
+  apply: (items: QueuedPrompt[]) => QueuedPrompt[],
+  shows: (items: QueuedPrompt[]) => boolean,
+): void {
+  if (!send(message)) return;
+  const changes = queueChanges.get(channelId) ?? [];
+  changes.push({ apply, shows, until: Date.now() + CHANGE_MS });
+  queueChanges.set(channelId, changes);
+  useRuri.setState((s) => ({ queued: { ...s.queued, [channelId]: apply(s.queued[channelId] ?? []) } }));
+}
+
+/** A chat's queue as the server sent it, with this window's prompts on
+ *  their way and its own rearranging laid over it. */
+function queueOf(channelId: string, items: QueuedPrompt[]): QueuedPrompt[] {
+  const changes = queueChanges.get(channelId);
+  const mine = withOutgoingItems(channelId, items, outbox.values());
+  return changes?.length ? laid(changes, mine) : mine;
+}
+
+function onSession(
+  projects: Project[],
+  sessionId: string,
+  change: (session: SessionInfo) => SessionInfo,
+): Project[] {
+  return projects.map((p) =>
+    p.sessions.some((x) => x.id === sessionId)
+      ? { ...p, sessions: p.sessions.map((x) => (x.id === sessionId ? change(x) : x)) }
+      : p,
+  );
+}
+function onProject(projects: Project[], projectId: string, change: (project: Project) => Project): Project[] {
+  return projects.map((p) => (p.id === projectId ? change(p) : p));
+}
+function sessionIn(projects: Project[], sessionId: string): SessionInfo | undefined {
+  for (const p of projects) for (const x of p.sessions) if (x.id === sessionId) return x;
+  return undefined;
+}
+
+export function renameSession(sessionId: string, title: string): void {
+  changeProjects(
+    { type: "rename_session", sessionId, title },
+    (projects) => onSession(projects, sessionId, (x) => ({ ...x, title })),
+    (projects) => sessionIn(projects, sessionId)?.title === title,
+  );
+}
+
+export function renameProject(projectId: string, name: string): void {
+  changeProjects(
+    { type: "rename_project", projectId, name },
+    (projects) => onProject(projects, projectId, (p) => ({ ...p, name })),
+    (projects) => projects.find((p) => p.id === projectId)?.name === name,
+  );
+}
+
+/** Star or unstar a project — or tuck it away or bring it back. The server
+ *  flips it; this window shows the side it flips to, whichever copy of the
+ *  list comes first. */
+export function toggleProject(projectId: string, what: "starred" | "hidden"): void {
+  const project = useRuri.getState().projects.find((p) => p.id === projectId);
+  if (!project) return;
+  const to = !project[what];
+  changeProjects(
+    { type: what === "starred" ? "toggle_star" : "toggle_hidden", projectId },
+    (projects) => onProject(projects, projectId, (p) => ({ ...p, [what]: to })),
+    (projects) => Boolean(projects.find((p) => p.id === projectId)?.[what]) === to,
+  );
+}
+
+export function removeSession(sessionId: string): void {
+  changeProjects(
+    { type: "remove_session", sessionId },
+    (projects) =>
+      projects.map((p) =>
+        p.sessions.some((x) => x.id === sessionId)
+          ? { ...p, sessions: p.sessions.filter((x) => x.id !== sessionId) }
+          : p,
+      ),
+    (projects) => !sessionIn(projects, sessionId),
+  );
+}
+
+/**
+ * A chat's model, effort or permission mode, picked — on the picker at
+ * once. A chat's pick is its own; a project's is every chat's in it, and
+ * what a new one starts on; Home's is Home's (server/handlers/settings.ts).
+ */
+export function pickSetting(
+  channelId: string,
+  setting: "model" | "effort" | "permissionMode",
+  value: string,
+): void {
+  const message: ClientMessage =
+    setting === "model"
+      ? { type: "set_model", projectId: channelId, model: value }
+      : setting === "effort"
+        ? { type: "set_effort", projectId: channelId, effort: value }
+        : { type: "set_permission_mode", projectId: channelId, mode: value as PermissionMode };
+  if (channelId === HOME_ID) {
+    // Home's settings come back whole (home_settings), and nothing else
+    // sends them in between: shown now, they simply stand
+    if (send(message)) useRuri.setState((s) => ({ home: { ...s.home, [setting]: value } }));
+    return;
+  }
+  const isSession = sessionIn(useRuri.getState().projects, channelId) !== undefined;
+  changeProjects(
+    message,
+    (projects) =>
+      isSession
+        ? onSession(projects, channelId, (x) => ({ ...x, [setting]: value }))
+        : onProject(projects, channelId, (p) => ({
+            ...p,
+            [setting]: value,
+            sessions: p.sessions.map((x) => {
+              const { [setting]: _gone, ...rest } = x;
+              return rest;
+            }),
+          })),
+    (projects) =>
+      isSession
+        ? sessionIn(projects, channelId)?.[setting] === value
+        : projects.find((p) => p.id === channelId)?.[setting] === value,
+  );
+}
+
+/** Take a prompt out of the queue. */
+export function unqueue(channelId: string, itemId: string): void {
+  changeQueue(
+    { type: "queue_remove", projectId: channelId, itemId },
+    channelId,
+    (items) => items.filter((item) => item.id !== itemId),
+    (items) => !items.some((item) => item.id === itemId),
+  );
+}
+
+/** Carry a queued prompt to just before another — or to the back of the
+ *  line, with none. The one being rewritten stays at the end, out of it. */
+export function moveQueued(channelId: string, itemId: string, beforeId: string | undefined): void {
+  const place = (items: QueuedPrompt[]): QueuedPrompt[] => {
+    const moving = items.find((item) => item.id === itemId);
+    if (!moving) return items;
+    const line = items.filter((item) => item !== moving && !item.editing);
+    const at = beforeId ? line.findIndex((item) => item.id === beforeId) : -1;
+    if (at === -1) line.push(moving);
+    else line.splice(at, 0, moving);
+    return [...line, ...items.filter((item) => item !== moving && item.editing)];
+  };
+  changeQueue(
+    { type: "queue_move", projectId: channelId, itemId, ...(beforeId ? { beforeId } : {}) },
+    channelId,
+    place,
+    (items) => {
+      const line = items.filter((item) => !item.editing).map((item) => item.id);
+      const at = line.indexOf(itemId);
+      return at === -1 || (beforeId ? line[at + 1] === beforeId : at === line.length - 1);
+    },
+  );
+}
+
+/** Fold one queued prompt into another — the words in the order the two
+ *  stood in the line, the second's markers numbered on from the first's
+ *  (server/queue.ts, mergeEntries). */
+export function mergeQueued(channelId: string, itemId: string, intoId: string): void {
+  changeQueue(
+    { type: "queue_merge", projectId: channelId, itemId, intoId },
+    channelId,
+    (items) => {
+      const from = items.find((item) => item.id === itemId);
+      const into = items.find((item) => item.id === intoId);
+      if (!from || !into || from === into || from.from || into.from) return items;
+      const [first, second] = items.indexOf(from) < items.indexOf(into) ? [from, into] : [into, from];
+      const offset = { image: 0, video: 0, file: 0, region: 0 };
+      for (const att of first.attachments ?? []) {
+        offset[att.kind] = Math.max(offset[att.kind], att.n);
+        for (const region of att.regions ?? []) offset.region = Math.max(offset.region, region.n);
+      }
+      const text = second.text.replace(
+        /\[(image|video|file|region)\s#(\d+)\]/g,
+        (_, kind: keyof typeof offset, n: string) => `[${kind} #${Number(n) + offset[kind]}]`,
+      );
+      const attachments = [
+        ...(first.attachments ?? []),
+        ...(second.attachments ?? []).map((att) => ({ ...att, n: att.n + offset[att.kind] })),
+      ];
+      const merged: QueuedPrompt = {
+        id: into.id,
+        text: [first.text, text].filter((part) => part.trim()).join("\n\n"),
+        ...(attachments.length ? { attachments } : {}),
+      };
+      return items.filter((item) => item !== from).map((item) => (item === into ? merged : item));
+    },
+    (items) => !items.some((item) => item.id === itemId),
+  );
+}
+
+/** Take a queued prompt out of the line to rewrite it: marked so at once,
+ *  so the composer knows it is rewriting before the server says so — an
+ *  Enter pressed in between puts the rewrite back, rather than sending a
+ *  second copy of the prompt. */
+export function editQueued(channelId: string, itemId: string): void {
+  changeQueue(
+    { type: "queue_edit", projectId: channelId, itemId },
+    channelId,
+    (items) => {
+      const item = items.find((x) => x.id === itemId);
+      if (!item || item.editing) return items;
+      return [...items.filter((x) => x !== item), { ...item, editing: true }];
+    },
+    (items) => items.some((item) => item.id === itemId && item.editing),
+  );
+}
+
+/** Cards the user has answered that the server has not yet taken down. */
+const answered = new Set<string>();
+
+/** Answer a permission or question card — taken down at once. False when
+ *  the answer could not be sent, and the card stays. */
+export function answerCard(
+  message: Extract<ClientMessage, { type: "permission_response" | "question_response" }>,
+): boolean {
+  if (!send(message)) return false;
+  answered.add(message.requestId);
+  useRuri.setState((s) => ({ permissions: s.permissions.filter((p) => p.requestId !== message.requestId) }));
+  return true;
+}
+
+/** How many chats the window keeps whole at once. Opening one more lets
+ *  the least recently opened go back to its tail; opening it again asks.
+ *  A dozen: a chat opened from the sidebar is usually one of the last few,
+ *  and over a network every one kept is one that opens without a wait. */
+const KEEP_LOADED = 12;
 /** Loaded chats, least recently opened first. */
 const opened: string[] = [];
 /** Asked for and not yet arrived — so a re-render does not ask twice. */
@@ -729,6 +1257,19 @@ export function ensureTranscript(channelId: string): void {
   // leaving the server and the view arriving there falls in the gap
   if (viewQueued) sendView();
   if (send({ type: "transcript_get", projectId: channelId })) requested.add(channelId);
+}
+
+/**
+ * Ask for a chat's history before it is opened — the pointer is on its
+ * row, and a click is likely a moment away. Over a network that moment is
+ * most of the round trip: the chat opens whole instead of opening to its
+ * last few events and filling in. The server marks where this window now
+ * stands in it, and catches it up from there when the chat does open.
+ */
+export function prefetchTranscript(channelId: string): void {
+  const state = useRuri.getState();
+  if (!state.connected || state.loaded[channelId] || requested.has(channelId)) return;
+  if (send({ type: "transcript_get", projectId: channelId, prefetch: true })) requested.add(channelId);
 }
 
 /* ── what this window has on screen ──────────────────────────────── */
@@ -987,6 +1528,74 @@ export function showError(message: string): void {
   useRuri.setState({ lastError: message });
 }
 
+/* ── the line to the server ───────────────────────────────────────── */
+
+/**
+ * A window onto another computer (server/sharing.ts — the page came over
+ * TLS). Its socket crosses a network, which can drop it without a word: a
+ * laptop that slept, a change of Wi-Fi. The browser goes on believing such
+ * a socket is open, and what is sent down it is simply gone. So this
+ * window asks every so often whether the server is still there (`ping`),
+ * and a socket that does not answer is let go of and a new one opened. The
+ * window's own socket on this computer cannot fail that way, and is left
+ * alone: nothing to ask, nothing to wake for.
+ */
+const OVER_NETWORK = location.protocol === "https:";
+/** Quiet this long, and the server is asked whether it is there. */
+const QUIET_MS = 10_000;
+/** Asked, and no word back in this long: the socket is dead. */
+const ANSWER_MS = 4_000;
+/** When the server last said anything at all — any message is proof of life. */
+let lastHeard = 0;
+let probing = false;
+
+/** Ask the server whether it is there; no word back in `wait` and the
+ *  socket is let go of. */
+function probe(wait = ANSWER_MS): void {
+  const socket = ws;
+  if (!socket || socket.readyState !== WebSocket.OPEN || probing) return;
+  probing = true;
+  const asked = Date.now();
+  socket.send(JSON.stringify({ type: "ping" } satisfies ClientMessage));
+  setTimeout(() => {
+    probing = false;
+    if (ws === socket && lastHeard < asked) abandon(socket);
+  }, wait);
+}
+
+if (OVER_NETWORK) {
+  setInterval(() => {
+    if (Date.now() - lastHeard >= QUIET_MS) probe();
+  }, QUIET_MS / 2);
+  // back on a network, or back in front of someone: is the line still good?
+  window.addEventListener("online", () => probe(2_500));
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && Date.now() - lastHeard > 3_000) probe(2_500);
+  });
+}
+
+/** Let a socket go that has stopped answering, and open another now —
+ *  not after the close it would wait on, which a dead line never sends. */
+function abandon(socket: WebSocket): void {
+  socket.onclose = null;
+  socket.onmessage = null;
+  socket.onerror = null;
+  try {
+    socket.close();
+  } catch {
+    // closing a dead socket can throw; it is let go of either way
+  }
+  if (ws !== socket) return;
+  ws = null;
+  useRuri.setState({ connected: false });
+  connect();
+}
+
+/** Tries since the socket was last open; how long each waits grows with it,
+ *  from nothing to a few seconds. */
+let attempts = 0;
+const RETRY_MS = [0, 250, 1_000, 2_000];
+
 export function connect(): void {
   // Dev-only fixture mode (?fixture): canned data instead of a live server,
   // so the UI can be screenshotted deterministically without spending tokens.
@@ -999,28 +1608,46 @@ export function connect(): void {
   }
   const retry = () => {
     useRuri.setState({ connected: false });
-    setTimeout(connect, 1500);
+    const wait = RETRY_MS[attempts] ?? 3_000;
+    attempts += 1;
+    setTimeout(connect, wait);
   };
   resolveToken().then(
     (t) => {
-      ws = new WebSocket(`${WS_URL}/?token=${encodeURIComponent(t)}`);
-      ws.onopen = () => {
+      const socket = new WebSocket(`${WS_URL}/?token=${encodeURIComponent(t)}`);
+      ws = socket;
+      socket.onopen = () => {
+        attempts = 0;
+        lastHeard = Date.now();
         useRuri.setState({ connected: true });
         flushUnsavedDrafts();
+        // prompts sent while there was no socket, or on the one that died
+        flushOutbox();
         // who may message whom: the talk page, and the header's count
         send({ type: "talk_get" });
         // a new connection knows nothing of what is on screen
         lastView = "";
         sendView();
       };
-      ws.onmessage = (raw) => receive(JSON.parse(raw.data as string) as ServerMessage);
-      ws.onclose = retry;
-      ws.onerror = () => ws?.close();
+      socket.onmessage = (raw) => {
+        lastHeard = Date.now();
+        const msg = JSON.parse(raw.data as string) as ServerMessage;
+        // proof of life and nothing more: never held, never applied
+        if (msg.type === "pong") return;
+        receive(msg);
+      };
+      socket.onclose = () => {
+        if (ws === socket) ws = null;
+        retry();
+      };
+      socket.onerror = () => socket.close();
     },
     // no token means no server yet (dev: the file appears when it starts)
     retry,
   );
 }
+
+restoreOutbox();
 
 function apply(msg: ServerMessage): void {
   const { setState } = useRuri;
@@ -1046,20 +1673,37 @@ function apply(msg: ServerMessage): void {
         // lands in the strip when it arrives
         if (draft.attachments?.length) void restoreAttachments(channelId, draft.attachments);
       }
-      // the snapshot carries tails: every chat is unloaded again, and the
-      // one on screen asks for itself (ChatPane)
+      // The snapshot carries tails: every chat is unloaded again, and the
+      // one on screen asks for itself (ChatPane). A chat this window held
+      // whole stays on screen meanwhile — its tail laid over its end —
+      // rather than going blank for the round trip, which on a socket that
+      // dropped across a network is the one moment it is most noticed.
       requested.clear();
       historyAsked.clear();
       opened.length = 0;
+      Object.assign(serverStatuses, msg.statuses);
       setState((s) => ({
-        projects: msg.projects,
-        transcripts: msg.transcripts,
+        projects: laid(projectChanges, msg.projects),
+        transcripts: Object.fromEntries(
+          Object.entries(msg.transcripts).map(([id, tail]) => {
+            const held = s.loaded[id] ? s.transcripts[id] : undefined;
+            return [id, withOutgoing(id, held ? overlay(held, tail) : tail, outbox.values())];
+          }),
+        ),
         loaded: {},
         history: {},
-        earlier: {},
-        statuses: msg.statuses,
+        // what the chats on screen fold away above their newest compaction,
+        // until each one's transcript comes again with its own
+        earlier: Object.fromEntries(Object.entries(s.earlier).filter(([id]) => id in msg.transcripts)),
+        statuses: Object.fromEntries(
+          Object.entries(msg.statuses).map(([id, status]) => [
+            id,
+            statusWithOutgoing(id, status, outbox.values(), Date.now()),
+          ]),
+        ),
         work: msg.work ?? {},
-        permissions: msg.permissions,
+        // a card answered here stays down, whatever the server still holds
+        permissions: msg.permissions.filter((p) => !answered.has(p.requestId)),
         models: msg.models,
         summaries: msg.summaries,
         tracker: msg.tracker,
@@ -1067,7 +1711,7 @@ function apply(msg: ServerMessage): void {
         components: msg.components,
         componentDirs: msg.componentDirs,
         secrets: msg.secrets,
-        queued: msg.queued,
+        queued: Object.fromEntries(Object.entries(msg.queued).map(([id, items]) => [id, queueOf(id, items)])),
         queueHeld: msg.queuesHeld,
         usage: msg.usage,
         contexts: msg.contexts,
@@ -1148,11 +1792,12 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "projects": {
+      const projects = laid(projectChanges, msg.projects);
       setState((s) => ({
-        projects: msg.projects,
+        projects,
         activeId:
           s.activeId &&
-          (s.activeId === HOME_ID || msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
+          (s.activeId === HOME_ID || projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
             ? s.activeId
             : HOME_ID,
       }));
@@ -1160,7 +1805,7 @@ function apply(msg: ServerMessage): void {
     }
     case "queued": {
       setState((s) => ({
-        queued: { ...s.queued, [msg.projectId]: msg.items },
+        queued: { ...s.queued, [msg.projectId]: queueOf(msg.projectId, msg.items) },
         queueHeld: { ...s.queueHeld, [msg.projectId]: msg.held },
       }));
       break;
@@ -1175,7 +1820,10 @@ function apply(msg: ServerMessage): void {
       setState((s) => {
         const transcripts = {
           ...s.transcripts,
-          [msg.projectId]: reuse(s.transcripts[msg.projectId], msg.events),
+          [msg.projectId]: reuse(
+            s.transcripts[msg.projectId],
+            withOutgoing(msg.projectId, msg.events, outbox.values()),
+          ),
         };
         const loaded: Record<string, true> = { ...s.loaded, [msg.projectId]: true };
         const earlier = { ...s.earlier, [msg.projectId]: msg.earlier ?? [] };
@@ -1424,7 +2072,7 @@ function apply(msg: ServerMessage): void {
       setState((s) => {
         let transcript = [...(s.transcripts[msg.projectId] ?? [])];
         const existing = transcript.findIndex((event) => event.id === msg.event.id);
-        if (existing === -1) transcript.push(msg.event);
+        if (existing === -1) transcript.splice(insertAt(transcript, msg.event), 0, msg.event);
         else transcript[existing] = msg.event;
         // a chat nobody is looking at keeps only its tail
         if (!s.loaded[msg.projectId] && transcript.length > TRANSCRIPT_TAIL) {
@@ -1475,16 +2123,44 @@ function apply(msg: ServerMessage): void {
           const held = transcripts[id];
           // a whole chat stays whole, its end brought up to date; a chat
           // held only as a tail simply takes the newer tail
-          transcripts[id] = s.loaded[id] && held ? overlay(held, tail) : tail;
+          transcripts[id] = withOutgoing(
+            id,
+            s.loaded[id] && held ? overlay(held, tail) : tail,
+            outbox.values(),
+          );
         }
         return { transcripts };
       });
       break;
     }
     case "status": {
-      setState((s) => ({ statuses: { ...s.statuses, [msg.projectId]: msg.status } }));
+      serverStatuses[msg.projectId] = msg.status;
+      setState((s) => {
+        // a prompt of this window's on its way keeps the chat working,
+        // whatever a turn that ended a moment before says
+        const status = statusWithOutgoing(msg.projectId, msg.status, outbox.values(), Date.now());
+        const stopped = status !== "working" && status !== "permission" && s.stopping[msg.projectId];
+        if (!stopped) return { statuses: { ...s.statuses, [msg.projectId]: status } };
+        const { [msg.projectId]: _gone, ...stopping } = s.stopping;
+        return { statuses: { ...s.statuses, [msg.projectId]: status }, stopping };
+      });
       break;
     }
+    case "sent": {
+      const out = outbox.get(msg.clientId);
+      if (!out) break;
+      outbox.delete(msg.clientId);
+      saveOutbox();
+      setState((s) => settleOutgoing(s, out, msg.as));
+      // it never went: the words go back where they were written
+      if (msg.as === "failed") {
+        composeInto(msg.projectId, out.message.text);
+        setState({ lastError: "That prompt did not go through — it is back in the composer." });
+      }
+      break;
+    }
+    case "pong":
+      break;
     case "talk": {
       setState({ talk: { policy: msg.policy, letters: msg.letters } });
       break;
@@ -1517,6 +2193,9 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "permission_request": {
+      // answered here already: the server has not heard yet, and the card
+      // stays down
+      if (answered.has(msg.request.requestId)) break;
       // a request sent again is the same card with something changed on it
       // (a question gone late), not a second card
       setState((s) => ({
@@ -1527,6 +2206,7 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "permission_resolved": {
+      answered.delete(msg.requestId);
       setState((s) => ({
         permissions: s.permissions.filter((p) => p.requestId !== msg.requestId),
       }));

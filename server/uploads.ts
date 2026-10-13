@@ -139,8 +139,18 @@ export function processAttachments(
 
 const CORS: Record<string, string> = { "access-control-allow-origin": "*" };
 
-/** GET /uploads/<file> — attachment payloads for transcript previews. */
-export function serveUpload(req: http.IncomingMessage, res: http.ServerResponse): void {
+/**
+ * GET /uploads/<file> — attachment payloads for transcript previews.
+ *
+ * `network`: asked for by a window on another device (server/sharing.ts),
+ * which keeps it. A file here never changes under its name — the name is
+ * the attachment's id, and a picture drawn on goes back under a new one —
+ * so the window may keep it for good rather than fetch every picture in a
+ * chat again each time the chat is drawn. This computer's own window is
+ * left to read it off the disk as before: kept, it would only crowd the
+ * page's own bundle out of the small cache that window has.
+ */
+export function serveUpload(req: http.IncomingMessage, res: http.ServerResponse, network = false): void {
   const name = (req.url ?? "").replace("/uploads/", "").split("?")[0] ?? "";
   const filePath = path.join(uploadsDir(), path.basename(name));
   try {
@@ -150,6 +160,7 @@ export function serveUpload(req: http.IncomingMessage, res: http.ServerResponse)
       ...CORS,
       "content-type": mimeOf(filePath, UPLOAD_MIME),
       "content-length": stat.size,
+      ...(network ? { "cache-control": "private, max-age=31536000, immutable" } : {}),
     });
     fs.createReadStream(filePath).pipe(res);
   } catch (err) {

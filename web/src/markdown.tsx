@@ -2,6 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefOb
 import type { Attachment } from "../../shared/protocol";
 import { Viewer } from "./components/Attachments";
 import { createStreamingBlocks, renderMarkdown } from "./lib/markdownHtml";
+import { localSrc } from "./lib/localFiles";
 import { HTTP_BASE } from "./store";
 
 /** Clicked — a picture in a reply, or a prompt's chip: what the viewer is
@@ -43,10 +44,11 @@ function onClick(
   const chip = attachments && onPicture && target.closest<HTMLElement>(".marker-chip");
   if (chip) {
     const att = chipAttachment(chip, attachments);
-    if (!att?.url) return;
+    const src = att && (localSrc(att.id) ?? (att.url ? HTTP_BASE + att.url : undefined));
+    if (!att || !src) return;
     onPicture({
       kind: att.kind,
-      src: HTTP_BASE + att.url,
+      src,
       label: `${att.kind} #${att.n} — ${att.name}`,
       name: att.name,
       mediaType: att.mediaType,

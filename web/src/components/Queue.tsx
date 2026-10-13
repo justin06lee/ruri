@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { QueuedPrompt, QueueHold } from "../../../shared/protocol";
-import { composeInto, send } from "../store";
+import { composeInto, editQueued, mergeQueued, moveQueued, send, unqueue } from "../store";
 import { TranscriptAttachments } from "./Attachments";
 import { MarkerText } from "./Markers";
 
@@ -52,7 +52,7 @@ function QueuedCard({
   // embedded in the card. The others move up meanwhile; sending the
   // rewrite puts it back where it was among whichever are still waiting.
   const edit = () => {
-    send({ type: "queue_edit", projectId, itemId: item.id });
+    editQueued(projectId, item.id);
     composeInto(projectId, item.text, item.attachments);
   };
   const lifting = lift?.id === item.id;
@@ -119,7 +119,7 @@ function QueuedCard({
           <button
             className="icon-button"
             title="Remove from the queue"
-            onClick={() => send({ type: "queue_remove", projectId, itemId: item.id })}
+            onClick={() => unqueue(projectId, item.id)}
           >
             <svg
               viewBox="0 0 24 24"
@@ -226,14 +226,14 @@ export function QueuedList({
       setLift(null);
       if (!over) return;
       if (over.zone === "merge") {
-        send({ type: "queue_merge", projectId, itemId: p.id, intoId: over.id });
+        mergeQueued(projectId, p.id, over.id);
         setUndoable(over.id);
         return;
       }
       const line = items.filter((item) => !item.editing && item.id !== p.id).map((item) => item.id);
       const at = line.indexOf(over.id);
       const beforeId = over.zone === "before" ? over.id : line[at + 1];
-      send({ type: "queue_move", projectId, itemId: p.id, ...(beforeId ? { beforeId } : {}) });
+      moveQueued(projectId, p.id, beforeId);
     },
     cancel() {
       press.current = null;

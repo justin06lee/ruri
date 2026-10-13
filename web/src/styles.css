@@ -3433,6 +3433,14 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 100%;
 }
 
+/* a prompt shown in the chat that has not left the window yet: no line to
+   the server. Said once under the chat, quietly — it goes by itself. */
+.unsent-note {
+  align-self: flex-end;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
 .working-line {
   display: flex;
   align-items: baseline;

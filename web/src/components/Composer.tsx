@@ -1,7 +1,17 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { HOME_ID, MODEL_IMAGE_TYPES, type Project } from "../../../shared/protocol";
+import { HOME_ID, MODEL_IMAGE_TYPES, type AttachmentUpload, type Project } from "../../../shared/protocol";
 import { fileToBase64 } from "../lib/files";
-import { clearComposerDraft, composerDrafts, send, setComposerDraft, showError, useRuri } from "../store";
+import { keepLocal } from "../lib/localFiles";
+import {
+  clearComposerDraft,
+  composerDrafts,
+  send,
+  sendPrompt,
+  setComposerDraft,
+  showError,
+  stopTurn,
+  useRuri,
+} from "../store";
 import { tooBigNotice, useConfirm } from "./Confirm";
 import {
   AttachmentStrip,
@@ -113,6 +123,42 @@ function MoreActions({
  *  button fills over exactly this long. */
 const CUT_IN_HOLD_MS = 600;
 
+/** The composer's files as the wire takes them: the bytes, a PNG of a
+ *  picture the model would not take as it is, and each drawn region cut
+ *  out as a picture of its own. */
+function encodeUploads(files: ComposerAttachment[]): Promise<AttachmentUpload[]> {
+  return Promise.all(
+    files.map(async (att) => {
+      // a picture the model would not take as it is goes with a PNG of it
+      const picture =
+        att.kind === "image" && !MODEL_IMAGE_TYPES.includes(att.mediaType)
+          ? await drawAsPng(att.objectUrl, att.mediaType)
+          : null;
+      return {
+        id: att.id,
+        kind: att.kind,
+        mediaType: att.mediaType,
+        name: att.name,
+        n: att.n,
+        data: await fileToBase64(att.file),
+        ...(picture ? { picture } : {}),
+        ...(att.regions.length
+          ? {
+              regions: await Promise.all(
+                att.regions.map(async (region) => ({
+                  n: region.n,
+                  data: await cropRegion(att.objectUrl, region),
+                  mediaType: "image/png",
+                  rect: { x: region.x, y: region.y, w: region.w, h: region.h },
+                })),
+              ),
+            }
+          : {}),
+      };
+    }),
+  );
+}
+
 export function Composer({
   channelId,
   project,
@@ -159,6 +205,8 @@ export function Composer({
   /** The queued prompt this box is rewriting, if any: sending puts it back
    *  in line rather than queueing a new one. */
   const editing = useRuri((s) => (s.queued[channelId] ?? NO_QUEUED).find((item) => item.editing));
+  /** The stop was pressed and the turn has not stopped yet. */
+  const stopping = useRuri((s) => s.stopping[channelId] === true);
   const barRef = useRef<HTMLDivElement>(null);
   /** Too narrow for three pickers and four buttons in a row: the pickers
    *  fold into one and the buttons behind a ⋯, leaving send (and stop). */
@@ -427,59 +475,52 @@ export function Composer({
   const submit = async (mode: "send" | "send_split" = "send", now = false) => {
     const trimmed = releaseMarkers(text).trim();
     if (!trimmed && atts.length === 0) return;
-    const uploads = await Promise.all(
-      atts.map(async (att) => {
-        // a picture the model would not take as it is goes with a PNG of it
-        const picture =
-          att.kind === "image" && !MODEL_IMAGE_TYPES.includes(att.mediaType)
-            ? await drawAsPng(att.objectUrl, att.mediaType)
-            : null;
-        return {
-          id: att.id,
-          kind: att.kind,
-          mediaType: att.mediaType,
-          name: att.name,
-          n: att.n,
-          data: await fileToBase64(att.file),
-          ...(picture ? { picture } : {}),
-          ...(att.regions.length
-            ? {
-                regions: await Promise.all(
-                  att.regions.map(async (region) => ({
-                    n: region.n,
-                    data: await cropRegion(att.objectUrl, region),
-                    mediaType: "image/png",
-                    rect: { x: region.x, y: region.y, w: region.w, h: region.h },
-                  })),
-                ),
-              }
-            : {}),
-        };
-      }),
-    );
-    const sent = editing
-      ? // the rewrite goes back in line where the prompt was
-        send({
-          type: "queue_update",
-          projectId,
-          itemId: editing.id,
-          text: trimmed,
-          ...(uploads.length ? { attachments: uploads } : {}),
-          ...(mode === "send_split" ? { split: true } : {}),
-        })
-      : send({
+    const files = atts;
+    if (editing) {
+      // the rewrite goes back in line where the prompt was
+      const uploads = await encodeUploads(files);
+      const sent = send({
+        type: "queue_update",
+        projectId,
+        itemId: editing.id,
+        text: trimmed,
+        ...(uploads.length ? { attachments: uploads } : {}),
+        ...(mode === "send_split" ? { split: true } : {}),
+      });
+      // nothing took it: the prompt stays here, files and all, to send again
+      if (!sent) {
+        showError("Not connected — the prompt stays in the composer; send again once ruri is back.");
+        return;
+      }
+      for (const att of files) URL.revokeObjectURL(att.objectUrl);
+    } else {
+      // On screen now, wherever the server will put it, and on its way —
+      // or on its way the moment there is a socket (the outbox): a prompt
+      // sent is never one the composer has to hold on to. The files go to
+      // the transcript as the composer's own copies, so the bubble shows
+      // them without fetching back what it just sent, and before their
+      // bytes are even packed for the wire.
+      sendPrompt(
+        {
           type: mode,
           projectId,
           text: trimmed,
-          ...(uploads.length ? { attachments: uploads } : {}),
           ...(now ? { now: true as const } : {}),
-        });
-    // nothing took it: the prompt stays here, files and all, to send again
-    if (!sent) {
-      showError("Not connected — the prompt stays in the composer; send again once ruri is back.");
-      return;
+        },
+        files.map((att) => {
+          keepLocal(att.id, att.objectUrl);
+          return {
+            id: att.id,
+            kind: att.kind,
+            mediaType: att.mediaType,
+            name: att.name,
+            n: att.n,
+            ...(att.regions.length ? { regions: att.regions } : {}),
+          };
+        }),
+        files.length ? encodeUploads(files) : undefined,
+      );
     }
-    for (const att of atts) URL.revokeObjectURL(att.objectUrl);
     clearComposerDraft(channelId);
     setAtts([]);
     setText("");
@@ -712,7 +753,8 @@ export function Composer({
                 <button
                   className="stop"
                   title="Interrupt the running turn"
-                  onClick={() => send({ type: "interrupt", projectId })}
+                  onClick={() => stopTurn(projectId)}
+                  disabled={stopping}
                 >
                   <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                     <rect x="6" y="6" width="12" height="12" rx="2" />

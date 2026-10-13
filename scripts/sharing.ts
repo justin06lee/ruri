@@ -298,6 +298,12 @@ try {
     remote.snapshot?.type,
   );
   check("no folder dialog for it", remote.snapshot?.canPickFolder === false);
+  // over a network the JSON goes compressed, as the window negotiates it
+  check(
+    "its socket is compressed",
+    remote.ws?.extensions.includes("permessage-deflate") === true,
+    remote.ws?.extensions,
+  );
   let online = ((await home.next("sharing")) as { sharing: SharingInfo }).sharing;
   while (!online.devices.some((d) => d.online)) {
     online = ((await home.next("sharing")) as { sharing: SharingInfo }).sharing;
@@ -309,8 +315,18 @@ try {
   );
 
   // it may not shut the door it stands in
-  const refused = await new Promise<ServerMessage>((resolve) => {
-    remote.ws!.once("message", (raw) => resolve(JSON.parse(String(raw)) as ServerMessage));
+  // the answer, past whatever else is still on its way down: the door's
+  // socket is compressed, and a broadcast sent before the ask can land after
+  const refused = await new Promise<ServerMessage | { type: "nothing" }>((resolve) => {
+    const timer = setTimeout(() => resolve({ type: "nothing" }), 3_000);
+    const hear = (raw: WebSocket.RawData) => {
+      const msg = JSON.parse(String(raw)) as ServerMessage;
+      if (msg.type !== "error") return;
+      clearTimeout(timer);
+      remote.ws!.off("message", hear);
+      resolve(msg);
+    };
+    remote.ws!.on("message", hear);
     remote.ws!.send(JSON.stringify({ type: "sharing_set", on: false }));
   });
   check("turning sharing off from the far side is refused", refused.type === "error", refused);

@@ -14,6 +14,10 @@ import type { ClientMessage } from "./protocol.js";
 
 /** Ids (sessions, projects, items, requests): short, never empty. */
 const id = z.string().min(1).max(500);
+/** A window's own name for something it shows ahead of the server (a
+ *  prompt's bubble): a UUID, since the server makes it the id of an event
+ *  that sits in the transcript among ids it minted itself. */
+const clientId = z.string().uuid();
 /** The harnesses whose MCP servers and plugins ruri manages. */
 const integrationHarness = z.enum(["claude", "codex"]);
 /** Free text a person or a model wrote: generous, but not unbounded. */
@@ -124,6 +128,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     text,
     attachments: z.array(attachmentUpload).optional(),
     now: z.literal(true).optional(),
+    clientId: clientId.optional(),
   }),
   z.object({
     type: z.literal("send_split"),
@@ -131,7 +136,9 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     text,
     attachments: z.array(attachmentUpload).optional(),
     now: z.literal(true).optional(),
+    clientId: clientId.optional(),
   }),
+  z.object({ type: z.literal("ping") }),
   z.object({ type: z.literal("queue_remove"), ...projectId, itemId: id }),
   z.object({ type: z.literal("queue_move"), ...projectId, itemId: id, beforeId: id.optional() }),
   z.object({ type: z.literal("queue_merge"), ...projectId, itemId: id, intoId: id }),
@@ -155,7 +162,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("rewind"), ...projectId, eventId: id }),
   z.object({ type: z.literal("fork"), ...projectId, eventId: id }),
   z.object({ type: z.literal("recent_list"), ...projectId }),
-  z.object({ type: z.literal("transcript_get"), ...projectId }),
+  z.object({ type: z.literal("transcript_get"), ...projectId, prefetch: z.literal(true).optional() }),
   z.object({
     type: z.literal("view"),
     channels: z.array(id).max(1_000),

@@ -27,7 +27,27 @@ export interface SocketDoor {
   /** The device a window that came in here belongs to — none for this
    *  computer's own. */
   seat?(req: http.IncomingMessage): Seat | undefined;
+  /** Over the network: messages worth it go compressed (see below). */
+  compress?: boolean;
 }
+
+/**
+ * Compression for a socket that crosses a network — per message, as the
+ * window negotiates it (Chromium always offers it).
+ *
+ * What goes down the socket is JSON: a chat's transcript when it opens,
+ * the snapshot on connecting, every event after. It shrinks five- to
+ * tenfold, and on a link of a few megabits that is the difference between
+ * a chat appearing as it is clicked and appearing a beat later. Small
+ * messages (a status, a streamed paragraph, a pong) are left as they are:
+ * under a kilobyte, compressing saves less than it costs. The window's own
+ * socket on this computer is never compressed — loopback has bandwidth to
+ * spare, and the time would be spent on every keystroke's worth of reply.
+ */
+const DEFLATE = {
+  threshold: 1024,
+  zlibDeflateOptions: { level: 6 },
+} as const;
 
 /** The local window's door: the page's own origin and the token. */
 function localDoor(ctx: ServerContext): SocketDoor {
@@ -48,6 +68,7 @@ export function createSocketServer(
 ): WebSocketServer {
   const wss = new WebSocketServer({
     server,
+    ...(door.compress ? { perMessageDeflate: DEFLATE } : {}),
     // the socket is the whole app: a page from anywhere else, or one
     // without the key, is turned away at the upgrade
     verifyClient: ({ origin, req }, done) => {

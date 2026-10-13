@@ -22,7 +22,7 @@ import type { QueueEntry } from "./queue.js";
 import { RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
 import { sessionRoleTitle, smallModelEnabled, splitPrompt } from "./smallmodel.js";
 import { answerPrompt, letterPrompt } from "./talk.js";
-import { resetContext } from "./turns.js";
+import { contextWindow, resetContext } from "./turns.js";
 import { modelPayload, processAttachments, storeAttachments } from "./uploads.js";
 
 /**
@@ -487,12 +487,54 @@ export function cutInWith(ctx: ServerContext, channelId: string, entries: QueueE
 }
 
 /**
+ * Where ruri compacts a chat before its harness would: a share of the
+ * model's window, below each harness's own trigger — Claude Code's fires
+ * near the top of the window, Codex's at about nine tenths, Gemini CLI's at
+ * seven tenths — so the compaction that happens is ruri's: a brief that
+ * keeps every prompt word for word and every exchange on file, not the
+ * harness's own summary. RURI_AUTO_COMPACT_AT sets one share for every
+ * harness; the "ruri-auto-compact" preference "off" leaves it to /compact.
+ */
+const AUTO_COMPACT_AT: Record<string, number> = {
+  claude: 0.8,
+  codex: 0.8,
+  opencode: 0.8,
+  gemini: 0.6,
+  goose: 0.75,
+};
+
+/** Why a chat whose turn just ended should be compacted now — its context
+ *  past its share of the window — or undefined. Never while an agent or a
+ *  script it started is still running in the session. */
+export function autoCompactDue(ctx: ServerContext, channelId: string): string | undefined {
+  if (channelId === HOME_ID || ctx.prefs.all()["ruri-auto-compact"] === "off") return undefined;
+  const project = channelProject(ctx, channelId);
+  if (!project) return undefined;
+  const tokens = ctx.turns.contexts.get(channelId)?.tokens ?? ctx.archive.contextTokens(channelId) ?? 0;
+  if (tokens === 0) return undefined;
+  const window = contextWindow(ctx, channelId);
+  const harness = ctx.manager.harnessFor(project);
+  const share = Number(process.env["RURI_AUTO_COMPACT_AT"]) || AUTO_COMPACT_AT[harness] || 0.8;
+  if (tokens < window * share) return undefined;
+  const work = ctx.manager.backgroundWork(channelId);
+  if (work.agents > 0 || work.scripts > 0) return undefined;
+  const k = (n: number) => (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`);
+  return `the context reached ${Math.round((tokens / window) * 100)}% of ${k(window)} — ruri compacted it, keeping every prompt word for word and every exchange on file`;
+}
+
+/**
  * ruri's custom /compact: retire the live session and its resume id, stash
  * the brief (turn summaries + full-record file paths) for the next prompt,
  * and drop the zigzag compaction mark into the transcript. No model call —
- * the summaries are precomputed, so this is instant.
+ * the summaries are precomputed, so this is instant. `why` is said in the
+ * transcript first, when ruri compacted it on its own.
  */
-function compactChannel(ctx: ServerContext, channelId: string): void {
+export function compactChannel(ctx: ServerContext, channelId: string, why?: string): void {
+  if (why) {
+    const said: TranscriptEvent = { kind: "info", id: randomUUID(), text: why, ts: Date.now() };
+    ctx.archive.append(channelId, said);
+    ctx.clients.pushEvent(channelId, said);
+  }
   const built = buildCompaction(
     channelId,
     ctx.archive.allEvents(channelId),

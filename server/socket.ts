@@ -144,6 +144,7 @@ export function createSocketServer(
       home: ctx.store.homeSettings(),
       starredModels: ctx.store.starredModels(),
       smallModel: ctx.store.smallModel() ?? "",
+      memoryModel: ctx.store.memoryModel(),
       defaultModel: ctx.store.defaultModel(),
       user: os.userInfo().username,
       harnesses: ctx.updater.list(),

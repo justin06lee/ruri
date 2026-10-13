@@ -405,3 +405,72 @@ describe("the live file's text", () => {
     expect(stitchedMs).toBeLessThan(wholeMs);
   });
 });
+
+describe("each exchange's number, which never moves", () => {
+  test("a chat from before the numbers is numbered as its transcript stands", () => {
+    fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "sessions", "c.json"),
+      JSON.stringify({ events: [user("u1"), reply("a1"), user("u2"), reply("a2")], summaries: {} }),
+    );
+    const archive = new SessionArchive();
+    expect(archive.exchangeNo("c", "u1")).toBe(1);
+    expect(archive.exchangeNo("c", "u2")).toBe(2);
+    expect(archive.turnOfExchange("c", 2)).toBe("u2");
+  });
+
+  test("the history's cap dropping the oldest leaves every other exchange its number", () => {
+    const archive = new SessionArchive({ historyMaxBytes: 60_000 });
+    for (let i = 0; i < 60; i++) {
+      archive.append("c", user(`u${i}`, "z".repeat(1_000)));
+      archive.append("c", reply(`a${i}`, "z".repeat(1_000)));
+    }
+    archive.append("c", mark("m"));
+    archive.append("c", user("later"));
+    expect(archive.history("c")[0]!.id).not.toBe("u0");
+    expect(archive.exchangeNo("c", "u59")).toBe(60);
+    expect(archive.exchangeNo("c", "later")).toBe(61);
+    expect(archive.exchangeNo("c", "u0")).toBeUndefined();
+    expect(archive.turnOfExchange("c", 1)).toBeUndefined();
+  });
+
+  test("a rewind takes its exchanges' numbers and records with it, and none is given again", () => {
+    const archive = new SessionArchive();
+    for (const id of ["u1", "u2", "u3"]) archive.append("c", user(id));
+    const record = path.join(dir, "turns", "c", "003.md");
+    fs.mkdirSync(path.dirname(record), { recursive: true });
+    fs.writeFileSync(record, "# Exchange 3");
+    archive.truncateFrom("c", "u3");
+    expect(fs.existsSync(record)).toBe(false);
+    archive.append("c", user("u4"));
+    expect(archive.exchangeNo("c", "u4")).toBe(4);
+    expect(archive.turnOfExchange("c", 3)).toBeUndefined();
+  });
+
+  test("the numbers survive a restart", () => {
+    const first = new SessionArchive();
+    for (const id of ["u1", "u2", "u3"]) first.append("c", user(id));
+    first.truncateFrom("c", "u2");
+    first.append("c", user("u4"));
+    first.flushAll();
+    const again = new SessionArchive();
+    expect(again.exchangeNo("c", "u1")).toBe(1);
+    expect(again.exchangeNo("c", "u4")).toBe(4);
+  });
+
+  test("a fork keeps the numbers of the exchanges it copies", () => {
+    const archive = new SessionArchive();
+    for (const id of ["u1", "u2", "u3"]) archive.append("c", user(id));
+    archive.truncateFrom("c", "u2");
+    archive.append("c", user("u4"));
+    archive.seed("f", {
+      events: archive.events("c"),
+      summaries: {},
+      chain: {},
+      seqs: archive.exchangeNumbers("c"),
+    });
+    expect(archive.exchangeNo("f", "u4")).toBe(4);
+    archive.append("f", user("u5"));
+    expect(archive.exchangeNo("f", "u5")).toBe(5);
+  });
+});

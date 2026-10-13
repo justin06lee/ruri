@@ -257,9 +257,12 @@ describe("what rides in ahead of a prompt", () => {
     expect(catchUp(ctx, CHAT, "the first half", "p2").brief).toBe("");
   });
 
-  test("a brief waiting for a fresh start goes to one — and a session that exists drops it as stale", () => {
+  test("a brief waiting for a fresh start goes to one, made again as it goes — and a session that exists drops it as stale", () => {
     archive.setPendingBrief(CHAT, "<the compaction's brief>");
-    expect(catchUp(ctx, CHAT, "carry on").brief).toContain("<the compaction's brief>");
+    // made now from the conversation, so its state is git's as it is now
+    const brief = catchUp(ctx, CHAT, "carry on").brief;
+    expect(brief).toStartWith("<compacted-history>");
+    expect(brief).toContain("build the ledger");
     expect(archive.hasPendingBrief(CHAT)).toBe(false);
     ranOn("S1", "p1");
     archive.setPendingBrief(CHAT, "<stale>");

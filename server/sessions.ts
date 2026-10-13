@@ -28,6 +28,7 @@ import {
   getSessionMessages,
   type HookInput,
   type PreToolUseHookSpecificOutput,
+  type SessionStartHookSpecificOutput,
 } from "@anthropic-ai/claude-agent-sdk";
 import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
 import { IMAGE_EXTS } from "./mime.js";
@@ -104,6 +105,12 @@ export interface SessionEvents {
    *  background task started or ended, a subagent finished. The manager
    *  looks again at whether an idle session can close. */
   onBackground?(projectId: string): void;
+  /** The harness compacted the conversation itself — Claude Code's
+   *  auto-compact — and the context is `postTokens` now (when it says). */
+  onCompacted?(
+    projectId: string,
+    info: { trigger: "manual" | "auto"; preTokens?: number; postTokens?: number },
+  ): void;
 }
 
 /** A prompt as it went to a session, to go again word for word: `eventId`
@@ -166,6 +173,14 @@ export interface SessionExtras {
    * process finds the card it is picking back up.
    */
   transcript?: () => TranscriptEvent[];
+  /**
+   * Claude Code compacted the conversation on its own (its auto-compact, or
+   * a /compact it ran itself): what ruri hands the session as it starts
+   * again from its own summary — the state of the repo, the layers, the
+   * user's last prompts word for word, where every exchange's record is.
+   * Undefined adds nothing.
+   */
+  afterCompact?: (info: { trigger: "manual" | "auto" }) => Promise<string | undefined>;
 }
 
 /** How the manager reaches non-Claude harnesses (see server/providers.ts). */
@@ -1021,6 +1036,10 @@ class ProjectSession implements ChannelSession {
   private readonly secretFill: SessionExtras["fillSecrets"];
   /** The file checkpoint a changing tool waits for (SessionExtras.beforeTools). */
   private readonly toolBarrier: SessionExtras["beforeTools"];
+  /** What a session that compacted itself is told as it starts again. */
+  private readonly afterCompact: SessionExtras["afterCompact"];
+  /** The last compaction Claude Code began, by its own trigger. */
+  private compacting: "manual" | "auto" | undefined;
   /** Background tasks the CLI reports live (a shell run in the background,
    *  a subagent), by kind. They live in the CLI's process, so it stays
    *  while any do. */
@@ -1057,6 +1076,7 @@ class ProjectSession implements ChannelSession {
     this.resumed = resume;
     this.secretFill = extras?.fillSecrets;
     this.toolBarrier = extras?.beforeTools;
+    this.afterCompact = extras?.afterCompact;
     this.agents = new AgentBook(project.id, events, () =>
       (extras?.transcript?.() ?? []).filter((e): e is ToolEvent => e.kind === "tool" && !!e.agent),
     );
@@ -1085,6 +1105,10 @@ class ProjectSession implements ChannelSession {
         // entirely. A PreToolUse hook fires regardless of mode, and its
         // updatedInput is exactly how the tool receives an answer.
         hooks: {
+          // Claude Code's own compaction: noticed as it starts, and the
+          // session handed ruri's context back as it starts again
+          PreCompact: [{ hooks: [this.onPreCompact] }],
+          SessionStart: [{ hooks: [this.onSessionStart] }],
           PreToolUse: [
             {
               matcher: "AskUserQuestion",
@@ -1227,6 +1251,36 @@ class ProjectSession implements ChannelSession {
    * the model itself. A dismissed card allows the call untouched, which the
    * tool renders as "the user did not answer".
    */
+  /** Claude Code is about to compact the conversation itself. */
+  private onPreCompact = async (input: HookInput): Promise<{ continue: true }> => {
+    if (input.hook_event_name === "PreCompact") this.compacting = input.trigger;
+    return { continue: true };
+  };
+
+  /**
+   * The session starting again — after Claude Code compacted it, from its
+   * own summary of the conversation. Whatever ruri had put in the prompts
+   * (briefs, catch-ups, memory updates) went into that summary or nowhere,
+   * so ruri's context goes back in here, as the CLI's own additional
+   * context for the restarted session.
+   */
+  private onSessionStart = async (
+    input: HookInput,
+  ): Promise<{ continue: true; hookSpecificOutput?: SessionStartHookSpecificOutput }> => {
+    if (input.hook_event_name !== "SessionStart" || input.source !== "compact" || !this.afterCompact) {
+      return { continue: true };
+    }
+    const trigger = this.compacting ?? "auto";
+    this.compacting = undefined;
+    const text = await this.afterCompact({ trigger }).catch((err: unknown) => {
+      warn("sessions", err, "afterCompact");
+      return undefined;
+    });
+    return text
+      ? { continue: true, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: text } }
+      : { continue: true };
+  };
+
   private askUserQuestion = async (
     input: HookInput,
     _toolUseId: string | undefined,
@@ -1644,6 +1698,21 @@ class ProjectSession implements ChannelSession {
         this.limited = true;
         this.limitResetsAt = info.resetsAt ? info.resetsAt * 1000 : undefined;
       } else this.limitResetsAt = undefined;
+      return;
+    }
+    if (msg.type === "system" && msg.subtype === "compact_boundary") {
+      // Claude Code compacted the conversation on its own
+      const meta = (
+        msg as {
+          compact_metadata?: { trigger?: "manual" | "auto"; pre_tokens?: number; post_tokens?: number };
+        }
+      ).compact_metadata;
+      if (meta?.post_tokens) this.lastContext = meta.post_tokens;
+      this.events.onCompacted?.(this.project.id, {
+        trigger: meta?.trigger ?? "auto",
+        ...(meta?.pre_tokens ? { preTokens: meta.pre_tokens } : {}),
+        ...(meta?.post_tokens ? { postTokens: meta.post_tokens } : {}),
+      });
       return;
     }
     if (msg.type === "system" && msg.subtype === "background_tasks_changed") {

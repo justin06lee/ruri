@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { TranscriptEvent } from "../shared/protocol.js";
 import { BriefStore } from "./brief.js";
+import { MemoryBook } from "./memoryLog.js";
 import type { ServerContext } from "./context.js";
 import { runMemoryCommand } from "./memoryCli.js";
 
@@ -22,6 +23,10 @@ const user = (text: string): TranscriptEvent =>
   ({ kind: "user", id: `u${++n}`, text, ts: Date.now() }) as TranscriptEvent;
 const reply = (text: string): TranscriptEvent =>
   ({ kind: "assistant", id: `a${++n}`, text, ts: Date.now() }) as TranscriptEvent;
+
+/** Each prompt's number, by its place — as the archive numbers a chat. */
+const numbersOf = (events: TranscriptEvent[]) =>
+  new Map(events.filter((e) => e.kind === "user").map((e, i) => [e.id, i + 1]));
 
 let ctx: ServerContext;
 let briefs: BriefStore;
@@ -46,8 +51,12 @@ beforeEach(() => {
       allEvents: () => events,
       summaries: () => ({}),
       turnIds: () => events.filter((e) => e.kind === "user").map((e) => e.id),
+      exchangeNumbers: () => numbersOf(events),
+      exchangeNo: (_chat: string, turn: string) => numbersOf(events).get(turn),
+      turnOfExchange: (_chat: string, n: number) => [...numbersOf(events)].find(([, at]) => at === n)?.[0],
     },
     briefs,
+    memory: new MemoryBook(briefs),
     clients: { broadcast: () => {} },
   } as unknown as ServerContext;
 });
@@ -88,14 +97,77 @@ describe("ruri's memory commands", () => {
     const id = memory.failed[0]!.id;
     expect(listed).toContain(`${id}  Polling the cursor — cost battery (`);
     expect(listed).toContain("c0ffee11#2");
-    briefs.remember("p", {
-      ...memory,
-      gotchas: [{ id: "g0me", text: "never make update", by: "user", pinned: true }],
-    });
-    expect((await run("forget", "g0me"))!.ok).toBe(false);
-    expect((await run("forget", id))!.ok).toBe(true);
+    const users = ctx.memory.apply(
+      "p",
+      [{ op: "add", part: "gotchas", text: "never make update", pinned: true }],
+      {
+        by: "user",
+      },
+    ).added[0]!.id;
+    const refused = (await run("forget", users))!;
+    expect(refused.ok).toBe(false);
+    expect(refused.text).toContain("the user's");
+    expect((await run("forget", id, "--why", "battery is fine now"))!.ok).toBe(true);
     expect(briefs.get("p").memory!.failed).toEqual([]);
     expect((await run("forget", "nope"))!.ok).toBe(false);
+  });
+
+  test("a note the memory already has replaces the line, and one that might be is put back to the agent", async () => {
+    await run(
+      "note",
+      "trap",
+      "On the Jetson run make as flock -o /tmp/jetson-build.lock make, never plain flock",
+    );
+    const first = briefs.get("p").memory!.gotchas[0]!.id;
+    // said again, near word for word: it takes the old line's place
+    const again = (await run(
+      "note",
+      "trap",
+      "On the Jetson run make as flock -o /tmp/jetson-build.lock make, never a plain flock",
+    ))!;
+    expect(again.text).toContain(`${first} said that already`);
+    const gotchas = briefs.get("p").memory!.gotchas;
+    expect(gotchas).toHaveLength(1);
+    expect(gotchas[0]!.id).not.toBe(first);
+    // only alike: the agent decides
+    const maybe = (await run(
+      "note",
+      "trap",
+      "On the Jetson use flock -o for make so launched apps don't inherit the build lock",
+    ))!;
+    expect(maybe.ok).toBe(false);
+    expect(maybe.text).toContain(`may already be in the memory — ${gotchas[0]!.id}`);
+    expect(maybe.text).toContain("--update");
+    expect(
+      (await run(
+        "note",
+        "trap",
+        "On the Jetson use flock -o for make so launched apps don't inherit the build lock",
+        "--new",
+      ))!.ok,
+    ).toBe(true);
+    expect(briefs.get("p").memory!.gotchas).toHaveLength(2);
+  });
+
+  test("the log: a line's history, what left, and putting a line or a fold back", async () => {
+    await run("note", "trap", "Never run make update from a session");
+    const id = briefs.get("p").memory!.gotchas[0]!.id;
+    await run("forget", id, "--why", "make update keeps the session now");
+    const past = (await run("memory", "past"))!.text;
+    expect(past).toContain(`${id}  retired`);
+    expect(past).toContain("make update keeps the session now");
+    expect((await run("memory", "restore", id))!.ok).toBe(true);
+    expect(briefs.get("p").memory!.gotchas.map((l) => l.id)).toEqual([id]);
+    const log = (await run("memory", "log", id))!.text;
+    expect(log).toContain("added by an agent");
+    expect(log).toContain("retired by an agent — make update keeps the session now");
+    expect(log).toContain("restored by an agent");
+    // a fold is taken back whole
+    ctx.memory.apply("p", [{ op: "add", part: "open", text: "folded in" }], { by: "model", fold: "f123" });
+    const undone = (await run("memory", "undo"))!;
+    expect(undone.text).toContain("took fold f123 back: 1 line");
+    expect(briefs.get("p").memory!.open).toEqual([]);
+    expect((await run("memory", "nonsense"))!.ok).toBe(false);
   });
 
   test("recall finds an exchange by its words and prints it whole by its ref", async () => {
@@ -107,7 +179,9 @@ describe("ruri's memory commands", () => {
     expect(shown).toContain("## The agent\n\nThe snapshot kept the old context");
     expect((await run("recall", "show", "#1"))!.ok).toBe(true);
     expect((await run("recall", "show", "c0ffee11#9"))!.ok).toBe(false);
-    expect((await run("recall", "haiku", "autumn"))!.text).toContain("nothing in demo's chats matches");
+    expect((await run("recall", "haiku", "autumn"))!.text).toContain(
+      "nothing in demo's chats or memory matches",
+    );
   });
 
   test("state answers outside a repo too, and the library's commands pass through", async () => {

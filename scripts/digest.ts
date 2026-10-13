@@ -1,8 +1,9 @@
 /**
  * The digest (server/compaction.ts): a compaction brief lists at most
- * BRIEF_LISTED exchanges, and the oldest past that are folded into one
- * condensed memory by the small model. No tokens — a scripted fold stands in
- * for the model, and a real archive runs in a scratch config dir:
+ * BRIEF_LISTED exchanges, and the oldest past that are folded into the
+ * condensed past — fixed sections the memory model edits by small ops, the
+ * files kept by ruri. No tokens — a scripted fold stands in for the model,
+ * and a real archive runs in a scratch config dir:
  *   bun run digest-test
  */
 import * as fs from "node:fs";
@@ -51,6 +52,14 @@ let clock = 1_000;
 function exchange(n: number): void {
   const at = (clock += 10);
   archive.append(channel, { kind: "user", id: `u${n}`, text: `prompt number ${n}`, ts: at });
+  archive.append(channel, {
+    kind: "tool",
+    id: `t${n}`,
+    name: "Edit",
+    summary: "edit",
+    diff: { path: `src/file${n % 3}.ts`, hunks: [] },
+    ts: at,
+  } as unknown as TranscriptEvent);
   archive.append(channel, { kind: "assistant", id: `a${n}`, text: `reply number ${n}`, ts: at + 1 });
   archive.append(channel, { kind: "result", id: `r${n}`, ok: true, ts: at + 2 } as TranscriptEvent);
   archive.setSummary(channel, `u${n}`, "user", `ask ${n}`);
@@ -60,10 +69,25 @@ for (let n = 1; n <= 95; n++) exchange(n);
 
 const calls: number[][] = [];
 let gate: (() => void) | null = null;
-const fold: FoldDigest = async (memory, exchanges) => {
+const fold: FoldDigest = async (digest, exchanges) => {
   calls.push(exchanges.map((e) => e.n));
   if (gate) await new Promise<void>((resolve) => (gate = resolve));
-  return `${memory}${memory ? "\n" : ""}folded ${exchanges[0]!.n}-${exchanges[exchanges.length - 1]!.n}: ${exchanges.map((e) => e.user).join(", ")}`;
+  // what a model answers: a line added for what was folded, and the first
+  // fold's intent sharpened when a later one comes
+  const first = digest?.sections?.intent?.[0];
+  return [
+    {
+      op: "add" as const,
+      section: "state" as const,
+      text: `folded ${exchanges[0]!.n}-${exchanges.at(-1)!.n}: ${exchanges
+        .map((e) => e.reply)
+        .slice(0, 3)
+        .join(", ")}`,
+    },
+    first
+      ? { op: "edit" as const, id: first.id, text: `${first.text}, still` }
+      : { op: "add" as const, section: "intent" as const, text: "build the ledger" },
+  ];
 };
 const folder = new DigestFolder(archive, fold);
 
@@ -75,7 +99,23 @@ check(
 );
 check("a second run at the same time adds nothing", calls.length === 2);
 check("the digest ends on exchange 65", archive.digest(channel)?.through === "u65", archive.digest(channel));
-check("and folds its notes, not raw text", archive.digest(channel)?.text.includes("ask 1, ask 2") === true);
+check(
+  "it folds the replies' notes, into its sections",
+  archive.digest(channel)?.sections?.state?.[0]?.text === "folded 1-40: did 1, did 2, did 3",
+  archive.digest(channel),
+);
+check(
+  "a later fold edits what is there rather than writing it again",
+  archive
+    .digest(channel)
+    ?.sections?.intent?.map((l) => l.text)
+    .join() === "build the ledger, still" && archive.digest(channel)?.sections?.state?.length === 2,
+);
+check(
+  "the files the folded exchanges changed are kept by ruri",
+  JSON.stringify(archive.digest(channel)?.files?.["src/file1.ts"]?.slice(0, 3)) === "[1,4,7]",
+  archive.digest(channel)?.files,
+);
 
 const built = buildCompaction(
   channel,
@@ -98,7 +138,13 @@ check(
 );
 check(
   "the digest's exchanges are not listed again",
-  !built?.brief.includes("\n1. user:") && Boolean(built?.brief.includes("\n66. user: ask 66")),
+  !built?.brief.includes("\n1. user wrote:") && Boolean(built?.brief.includes("\n66. user wrote:")),
+);
+check(
+  "the brief gives the sections and the files",
+  Boolean(
+    built?.brief.includes("Where it stood:") && built.brief.includes("Files changed then (by exchange):"),
+  ),
 );
 check("the mark carries the digest for the window", built?.digest?.through === 65);
 check(
@@ -120,7 +166,10 @@ check(
   JSON.stringify(calls) === JSON.stringify([ids(11, 66).map((id) => Number(id.slice(1)))]),
   calls,
 );
-check("and the digest keeps what it had", Boolean(archive.digest(channel)?.text.startsWith("folded 1-40")));
+check(
+  "and the digest keeps what it had",
+  archive.digest(channel)?.sections?.state?.[0]?.text.startsWith("folded 1-40") === true,
+);
 
 // a rewind back past the digest's end, while a fold is in flight
 for (let n = 107; n <= 117; n++) exchange(n);
@@ -143,7 +192,7 @@ check(
 const plain = buildCompaction(channel, archive.allEvents(channel), archive.summaries(channel), undefined);
 check(
   "no digest: every exchange listed from 1",
-  plain?.entries[0]?.n === 1 && !plain.brief.includes("<condensed>"),
+  plain?.entries[0]?.n === 1 && !plain.brief.includes("<condensed>\n"),
 );
 
 archive.flushAll();

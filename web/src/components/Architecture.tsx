@@ -53,6 +53,7 @@ function split(line: string): [string, string] {
 const ICON = {
   edit: <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />,
   strike: <path d="M6 6l12 12M18 6L6 18" />,
+  confirm: <path d="M5 12.5l4.5 4.5L19 7" />,
 };
 
 function Tool({ icon, title, onClick }: { icon: keyof typeof ICON; title: string; onClick(): void }) {
@@ -475,8 +476,17 @@ const NOTE_LABEL: Record<MemoryPart, string> = {
   open: "still open",
 };
 
+/** What a check found on a line, as the page says it beside the line —
+ *  nothing for one only waiting to be checked. */
+function checkNote(line: MemoryLine): string | undefined {
+  const check = line.check;
+  if (!check || check.kind === "unchecked") return undefined;
+  return `${check.kind === "conflict" ? "disagrees" : "may be stale"}: ${check.reason}`;
+}
+
 /** What sessions learned working in one layer — read with its sheet. A
- *  line struck here is gone from the memory. */
+ *  line struck here leaves the memory (its log keeps it); one gathered from
+ *  web or tool output waits here, unread by sessions, until confirmed. */
 function LayerNotes({
   projectId,
   notes,
@@ -486,21 +496,45 @@ function LayerNotes({
 }) {
   return (
     <ul className="arch-list arch-notes">
-      {notes.map(({ part, line }) => (
-        <li key={line.id} className="arch-line">
-          <span className="arch-note-kind">{NOTE_LABEL[part]}</span> {line.text}
-          {line.why && <span className="arch-note-why"> — {line.why}</span>}
-          <span className="arch-actions">
-            <Tool
-              icon="strike"
-              title="Strike this line — it no longer holds"
-              onClick={() =>
-                send({ type: "memory_line", projectId, part, lineId: line.id, action: "remove" })
-              }
-            />
-          </span>
-        </li>
-      ))}
+      {notes.map(({ part, line }) => {
+        const found = checkNote(line);
+        return (
+          <li key={line.id} className={`arch-line${line.quarantined ? " arch-note-held" : ""}`}>
+            <span className="arch-note-kind">{NOTE_LABEL[part]}</span> {line.text}
+            {line.why && <span className="arch-note-why"> — {line.why}</span>}
+            {found && (
+              <span className="arch-note-check" title={found}>
+                {" "}
+                · {found}
+              </span>
+            )}
+            {line.quarantined && (
+              <span className="arch-note-check">
+                {" "}
+                · from web or tool output — sessions don&apos;t read it yet
+              </span>
+            )}
+            <span className="arch-actions">
+              {line.quarantined && (
+                <Tool
+                  icon="confirm"
+                  title="Confirm — it holds; let sessions read it"
+                  onClick={() =>
+                    send({ type: "memory_line", projectId, part, lineId: line.id, action: "confirm" })
+                  }
+                />
+              )}
+              <Tool
+                icon="strike"
+                title="Strike this line — it no longer holds (the memory's log keeps it)"
+                onClick={() =>
+                  send({ type: "memory_line", projectId, part, lineId: line.id, action: "remove" })
+                }
+              />
+            </span>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -728,8 +762,9 @@ export function Architecture({ projectId }: { projectId: string }) {
           Written into the project as <code>.ruri/architecture.md</code>, with each layer&apos;s sheet in{" "}
           <code>.ruri/layers/</code>. A session that has read a sheet puts right what its work changed there (
           <code>ruri layer &lt;handle&gt;</code>, <code>ruri architecture</code>); what it leaves, the small
-          model folds in as its turns finish — a turn only into the layers whose files it changed. Hover a
-          line to rewrite or strike it.
+          model folds in as its turns finish — a turn only into the layers whose files it changed. What
+          sessions learned is held up against the code as it changes, and a line something moved under says
+          so. Hover a line to rewrite or strike it.
         </div>
       </div>
     </section>

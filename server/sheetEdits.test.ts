@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { LayerSheet, StackLayer, TranscriptEvent } from "../shared/protocol.js";
 import { BriefStore } from "./brief.js";
+import { MemoryBook } from "./memoryLog.js";
 import type { ServerContext } from "./context.js";
 import { runMemoryCommand } from "./memoryCli.js";
 import { editedSince, forgetReads, noteToolRead } from "./sheetEdits.js";
@@ -76,9 +77,13 @@ beforeEach(() => {
       allEvents: () => events,
       summaries: () => ({}),
       turnIds: () => ["u1"],
+      exchangeNo: (_chat: string, turn: string) => (turn === "u1" ? 1 : undefined),
+      turnOfExchange: (_chat: string, n: number) => (n === 1 ? "u1" : undefined),
+      exchangeNumbers: () => new Map([["u1", 1]]),
     },
     checkpoints: { changedSince: async () => changed },
     briefs,
+    memory: new MemoryBook(briefs),
     clients: { broadcast: () => {} },
   } as unknown as ServerContext;
   forgetReads(ME);
@@ -160,11 +165,20 @@ describe("a session keeps a layer's sheet", () => {
     expect(briefs.get("p").layerSheets!["bridge"]!.flows).toEqual([
       { name: "a click", steps: ["web_click", "server/cdp.ts", "CDP"] },
     ]);
-    for (let i = 2; i <= 6; i++) await run("layer", "bridge", "add", "rules", `rule ${i}`);
-    const full = (await run("layer", "bridge", "add", "rules", "rule 7"))!;
+    // no count a section: a seventh rule is a rule like the others
+    for (let i = 2; i <= 7; i++) await run("layer", "bridge", "add", "rules", `rule ${i}`);
+    expect(briefs.get("p").layerSheets!["bridge"]!.rules).toHaveLength(7);
+    // a budget of words for the whole sheet instead
+    const long = Array.from({ length: 160 }, (_, i) => `word${i}`).join(" ");
+    for (let i = 0; i < 6; i++) await run("layer", "bridge", "add", "rules", long);
+    const full = (await run("layer", "bridge", "add", "rules", long))!;
     expect(full.ok).toBe(false);
-    expect(full.text).toContain("full at 6");
-    expect((await run("layer", "bridge", "drop", "rules", "9"))!.text).toContain("no line 9");
+    expect(full.text).toContain("past its 1000");
+    expect((await run("layer", "bridge", "drop", "rules", "99"))!.text).toContain("no line 99");
+    // the format's own words are not a file's job
+    const placeholder = (await run("layer", "bridge", "add", "files", "server/cdp.ts — its job"))!;
+    expect(placeholder.ok).toBe(false);
+    expect(placeholder.text).toContain("say what server/cdp.ts does");
   });
 
   test("owning a file another layer names takes reading that one too", async () => {

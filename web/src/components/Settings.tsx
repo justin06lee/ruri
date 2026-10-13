@@ -61,6 +61,7 @@ function ModelCatalog() {
   const starredIds = useRuri((s) => s.starredModels);
   const smallModel = useRuri((s) => s.smallModel);
   const defaultModel = useRuri((s) => s.defaultModel);
+  const memoryModel = useRuri((s) => s.memoryModel);
   const [query, setQuery] = useState("");
   // A role tag in flight: dragged off its row, on its way to another. The
   // row under it lights up; dropping hands the role over in one move
@@ -78,7 +79,7 @@ function ModelCatalog() {
   // listing it, so its star and tag stay within reach. (A Claude "[1m]" one
   // the CLI stopped listing moves to its plain id on the server instead.)
   const listed = new Set(models.map((m) => m.value));
-  const kept = [...new Set([...starredIds, smallModel, defaultModel])]
+  const kept = [...new Set([...starredIds, smallModel, defaultModel, memoryModel])]
     .filter((value) => value && !listed.has(value))
     .map((value) => unlisted(value, models));
   const q = query.trim().toLowerCase();
@@ -105,6 +106,7 @@ function ModelCatalog() {
           const starred = starredIds.includes(m.value);
           const small = smallModel === m.value;
           const isDefault = defaultModel === m.value;
+          const keeper = memoryModel === m.value;
           const tag = (role: ModelRole, label: string, hint: string) => (
             <span
               className={`model-role-tag ${role} ${dragging === role ? "lifted" : ""}`}
@@ -144,20 +146,20 @@ function ModelCatalog() {
                 setDragging(null);
                 setOver(null);
                 if (!role) return;
-                const holder = role === "small" ? smallModel : defaultModel;
+                const holder = role === "small" ? smallModel : role === "memory" ? memoryModel : defaultModel;
                 if (holder !== m.value) send({ type: "set_model_role", model: m.value, role });
               }}
             >
               <button
                 className={`model-star ${starred ? "on" : ""}`}
                 title={
-                  starred && (small || isDefault)
-                    ? `The ${small ? "small-tasks model" : "default"} stays starred — drag its tag to another model first`
+                  starred && (small || isDefault || keeper)
+                    ? `The ${small ? "small-tasks model" : keeper ? "memory's model" : "default"} stays starred — drag its tag to another model first`
                     : starred
                       ? "Starred — click to unstar"
                       : "Star — pin into the picker"
                 }
-                disabled={starred && (small || isDefault)}
+                disabled={starred && (small || isDefault || keeper)}
                 onClick={() => send({ type: "toggle_model_star", model: m.value })}
               >
                 <svg
@@ -181,6 +183,12 @@ function ModelCatalog() {
               {small &&
                 tag("small", "small tasks", "Runs the small tasks: notes, titles, splitting, the tracker")}
               {isDefault && tag("default", "default", "What new chats and projects start on")}
+              {keeper &&
+                tag(
+                  "memory",
+                  "memory",
+                  "Writes and checks each project's memory: folds finished turns in, and checks lines whose code moved",
+                )}
               <span className="model-tag">{m.providerLabel ?? "Claude Code"}</span>
             </div>
           );
@@ -191,7 +199,9 @@ function ModelCatalog() {
         — except on a model wearing a tag, which stays starred until the tag moves. The small-tasks model —
         session titles, turn summaries, prompt splitting, the tracker, starting on GPT Luna — and the default
         that new chats and projects start on, starting on Fable 5.1, move by dragging their tags onto another
-        model (nothing already open moves).
+        model (nothing already open moves). The memory tag marks the model that writes and checks each
+        project's memory — what was decided, what failed, the traps — starting on Sonnet: a capable model,
+        since it decides what every later session is told.
       </div>
     </div>
   );

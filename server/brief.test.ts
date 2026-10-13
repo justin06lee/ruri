@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ProjectMemory, TranscriptEvent } from "../shared/protocol.js";
+import type { ProjectMemory } from "../shared/protocol.js";
 import {
   architectureText,
   BriefStore,
@@ -11,8 +11,6 @@ import {
   sharedSheet,
   writeBriefFiles,
 } from "./brief.js";
-import type { ServerContext } from "./context.js";
-import { memoryMaterial } from "./memory.js";
 
 let config: string;
 let saved: string | undefined;
@@ -81,7 +79,7 @@ describe("the sheet", () => {
       },
       true,
     );
-    store.remember("p", memory, true);
+    store.remember("p", memory, 7);
     // a change is written a moment later; a quit flushes it
     store.flush();
     const again = new BriefStore().get("p");
@@ -89,7 +87,7 @@ describe("the sheet", () => {
     expect(again.flows?.[0]?.steps).toEqual(["composer", "WebSocket", "server"]);
     expect(again.memory).toEqual(memory);
     expect(typeof again.built).toBe("number");
-    expect(typeof again.recalled).toBe("number");
+    expect(again.memorySeq).toBe(7);
     // a fold of the shape leaves the memory alone, and the memory the shape
     store.write("p", { description: "Still a desktop app.", features: ["Parallel sessions"] });
     expect(store.get("p").memory).toEqual(memory);
@@ -269,58 +267,5 @@ describe("the sheet", () => {
     writeBriefFiles(project, "x", { description: "", features: [], shots: [] });
     expect(fs.existsSync(path.join(project, ".ruri", "architecture.md"))).toBe(false);
     expect(fs.existsSync(path.join(project, ".ruri", "catchup.md"))).toBe(false);
-  });
-});
-
-describe("the memory's reading of the chats", () => {
-  const at = (day: number) => Date.UTC(2026, 8, day, 12);
-  let n = 0;
-  const user = (text: string, ts: number): TranscriptEvent =>
-    ({ kind: "user", id: `u${++n}`, text, ts }) as TranscriptEvent;
-  const reply = (text: string, ts: number): TranscriptEvent =>
-    ({ kind: "assistant", id: `a${++n}`, text, ts }) as TranscriptEvent;
-  const done = (ts: number): TranscriptEvent =>
-    ({ kind: "result", id: `r${++n}`, ok: true, ts }) as TranscriptEvent;
-
-  test("each chat's notes and last replies, the chat most recently at work last", () => {
-    const events: Record<string, TranscriptEvent[]> = {
-      old: [
-        user("make the band hover", at(1)),
-        reply("Tried polling the cursor; it cost battery.", at(1)),
-        done(at(1)),
-      ],
-      recent: [
-        user("build the library", at(20)),
-        reply("Built it; register goes through the card.", at(20)),
-        done(at(20)),
-      ],
-      empty: [],
-    };
-    const firstOld = events["old"]![0]!.id;
-    const ctx = {
-      store: {
-        get: () => ({
-          id: "p",
-          sessions: [
-            { id: "recent", title: "Library" },
-            { id: "old", title: "Band" },
-            { id: "empty", title: "Idle" },
-          ],
-        }),
-      },
-      archive: {
-        allEvents: (id: string) => events[id] ?? [],
-        summaries: (id: string) =>
-          id === "old" ? { [firstOld]: { user: "band hover", reply: "polling failed: battery" } } : {},
-        digest: () => undefined,
-      },
-    } as unknown as ServerContext;
-    const text = memoryMaterial(ctx, "p");
-    expect(text.indexOf("CHAT: Band")).toBeLessThan(text.indexOf("CHAT: Library"));
-    expect(text).not.toContain("CHAT: Idle");
-    expect(text).toContain("[old#1 · 2026-09-01] user: band hover\n   agent: polling failed: battery");
-    expect(text).toContain("refs start old");
-    expect(text).toContain("user: build the library");
-    expect(text).toContain("Tried polling the cursor; it cost battery.");
   });
 });

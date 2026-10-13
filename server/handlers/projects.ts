@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { WebSocket } from "ws";
-import { ideaDraftKey, type MemoryLine, type ServerMessage } from "../../shared/protocol.js";
+import { ideaDraftKey, type ServerMessage } from "../../shared/protocol.js";
 import {
   adoptShared,
   pushSheet,
@@ -18,7 +18,8 @@ import {
   writeLayerSheets,
 } from "../catchupBrief.js";
 import { rebuildMemory } from "../memory.js";
-import { addLine, dayOf, findLine, replaceLine } from "../memoryLines.js";
+import { withAnchors } from "../memoryCheck.js";
+import type { MemoryChange } from "../memoryLog.js";
 import { buildCompaction, removeTurnFiles } from "../compaction.js";
 import type { ServerContext } from "../context.js";
 import { busy } from "../channel.js";
@@ -56,6 +57,7 @@ function closeProjectById(ctx: ServerContext, projectId: string): void {
     ctx.bridge.closeBridge(sessionId);
   }
   ctx.briefs.remove(projectId);
+  ctx.memory.remove(projectId);
   ctx.ideas.removeProject(projectId);
   ctx.drafts.remove(ideaDraftKey(projectId));
   ctx.components.removeProject(projectId);
@@ -174,7 +176,7 @@ export const projectHandlers = {
     void writeLayerSheets(ctx, msg.projectId, [msg.slug]);
   },
   memory_rebuild: (ctx, _ws, msg) => {
-    void rebuildMemory(ctx, msg.projectId);
+    rebuildMemory(ctx, msg.projectId);
   },
   /** The architecture page opening on a project. */
   sheet_get: (ctx, ws, msg) => {
@@ -186,47 +188,40 @@ export const projectHandlers = {
       })
       .catch(() => {});
   },
-  /** The user pinning a memory line, unpinning it, or striking it. */
+  /** The user pinning a memory line, unpinning it, striking it, or
+   *  bringing back one that left the memory. */
   memory_line: (ctx, _ws, msg) => {
-    const memory = ctx.briefs.get(msg.projectId).memory;
-    const found = findLine(memory, msg.lineId);
-    if (!memory || !found) return;
-    const { pinned: _pinned, ...line } = found.line;
-    const next =
-      msg.action === "remove" ? undefined : msg.action === "pin" ? { ...line, pinned: true } : line;
-    ctx.briefs.remember(msg.projectId, replaceLine(memory, found.line.id, next));
-    pushSheet(ctx, msg.projectId);
+    if (!ctx.store.get(msg.projectId)) return;
+    const line = msg.lineId;
+    const { events } = ctx.memory.apply(
+      msg.projectId,
+      [
+        msg.action === "remove"
+          ? { op: "retire", line, reason: "struck by the user" }
+          : msg.action === "restore"
+            ? { op: "restore", line, reason: "brought back by the user" }
+            : msg.action === "confirm"
+              ? { op: "confirm", line }
+              : { op: msg.action, line },
+      ],
+      { by: "user" },
+    );
+    if (events.length) pushSheet(ctx, msg.projectId);
   },
-  /** The user's own line, or their correction of one — theirs, and pinned. */
+  /** The user's own line, or their correction of one — theirs, and pinned.
+   *  A correction keeps the line's id; the log keeps what it said before. */
   memory_write: (ctx, _ws, msg) => {
     if (!ctx.store.get(msg.projectId)) return;
-    const memory = ctx.briefs.get(msg.projectId).memory;
     const text = msg.text.trim();
     const why = msg.why?.trim();
-    if (msg.lineId) {
-      const found = findLine(memory, msg.lineId);
-      if (!memory || !found) return;
-      const { why: _why, ...rest } = found.line;
-      const next: MemoryLine = {
-        ...rest,
-        text,
-        ...(why ? { why } : {}),
-        date: dayOf(),
-        by: "user",
-        pinned: true,
-      };
-      ctx.briefs.remember(msg.projectId, replaceLine(memory, found.line.id, next));
-    } else {
-      const added = addLine(memory, msg.part, {
-        text,
-        ...(why ? { why } : {}),
-        date: dayOf(),
-        by: "user",
-        pinned: true,
-      });
-      ctx.briefs.remember(msg.projectId, added.memory);
-    }
-    pushSheet(ctx, msg.projectId);
+    if (!text) return;
+    const change: MemoryChange = msg.lineId
+      ? { op: "edit", line: msg.lineId, text, why: why || null, claim: true, pinned: true }
+      : { op: "add", part: msg.part, text, ...(why ? { why } : {}), pinned: true };
+    void withAnchors(ctx, msg.projectId, [change]).then((changes) => {
+      const { events } = ctx.memory.apply(msg.projectId, changes, { by: "user" });
+      if (events.length) pushSheet(ctx, msg.projectId);
+    });
   },
   /** The user correcting a line of the shape, or striking it. */
   sheet_line: (ctx, _ws, msg) => {

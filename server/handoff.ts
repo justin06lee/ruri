@@ -1,19 +1,32 @@
 import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { MemoryPart, TranscriptEvent } from "../shared/protocol.js";
 import { layerNotes, layerOfFile, layered } from "./brief.js";
 import { memoryLineText } from "./brief.js";
-import { sourceLabel } from "./catchupBrief.js";
+import { chatLayers, sourceLabel } from "./catchupBrief.js";
 import { forgetReads } from "./sheetEdits.js";
 import { harnessOfSession } from "./archive.js";
 import { channelProject, ownerProject } from "./channel.js";
-import { buildCatchUp, buildCompaction, relevantBlock, type BriefContext } from "./compaction.js";
+import {
+  BRIEF_RECENT,
+  buildAfterCompaction,
+  buildCatchUp,
+  buildCompaction,
+  relevantBlock,
+  type BriefContext,
+} from "./compaction.js";
 import type { ServerContext } from "./context.js";
-import { branchFacts, gitLines, gitStateSync } from "./gitState.js";
+import { branchFacts, gitLines, gitStateSync, type GitState } from "./gitState.js";
 import { warn } from "./log.js";
-import { allLines } from "./memoryLines.js";
-import { exchangesOf } from "./recall.js";
+import { allLines, lineText } from "./memoryLines.js";
+import type { MemoryEvent } from "./memoryLog.js";
+import type { Embedder } from "./embeddings.js";
+import { cachedMeaning, candidatesOf } from "./projectSearch.js";
+import { BRIEF_FLOOR, hybrid } from "./retrieval.js";
 import { claudeSessionGone, claudeSessionHas } from "./recent.js";
 import type { LostPrompt } from "./sessions.js";
+import { restoreContext } from "./turns.js";
 
 /**
  * What the app adds to a compaction brief that the transcript alone can't
@@ -66,6 +79,31 @@ export function layersBlock(ctx: ServerContext, projectId: string, files: string
   return out.join("\n");
 }
 
+/**
+ * How each of these files stands now, as the brief says it beside the
+ * exchanges that changed it: "uncommitted", "new, uncommitted", "deleted"
+ * — or nothing, committed and unchanged since. From git's status, which
+ * the brief has read already, and the disk.
+ */
+function standingOf(dir: string, files: string[], state: GitState | undefined): Map<string, string> {
+  const dirty = new Map<string, string>();
+  for (const line of state?.dirty ?? []) {
+    const code = line.slice(0, 2);
+    const file = line.slice(3).replace(/^"|"$/g, "").split(" -> ").at(-1)!;
+    dirty.set(
+      file,
+      code.includes("?") ? "new, uncommitted" : code.includes("D") ? "deleted, uncommitted" : "uncommitted",
+    );
+  }
+  const out = new Map<string, string>();
+  for (const file of files) {
+    const known = dirty.get(file);
+    if (known) out.set(file, known);
+    else if (!fs.existsSync(path.join(dir, file))) out.set(file, "deleted");
+  }
+  return out;
+}
+
 /** Git's account, read now. Blocking, and meant to be: the brief must be
  *  whole before the next prompt can take it, and git answers in
  *  milliseconds. */
@@ -73,9 +111,11 @@ export function briefContext(ctx: ServerContext, channelId: string): BriefContex
   const project = ownerProject(ctx, channelId);
   const state = project ? gitStateSync(project.path) : undefined;
   return {
+    ...(project ? { standing: (files: string[]) => standingOf(project.path, files, state) } : {}),
     ...(project
       ? { projectName: project.name, layers: (files: string[]) => layersBlock(ctx, project.id, files) }
       : {}),
+    numbers: ctx.archive.exchangeNumbers(channelId),
     ...(state ? { git: gitLines(state), facts: (text: string) => branchFacts(text, state) } : {}),
   };
 }
@@ -89,32 +129,54 @@ const LABEL: Record<MemoryPart, string> = {
   open: "still open",
 };
 
-/** The brief with what bears on `prompt` added after it — or as it was,
- *  when nothing does, or anything goes wrong: the pick is a help, never a
- *  reason for the prompt not to go. */
+/** How many exchanges the pick brings in at length, at most, and lines. */
+const RELEVANT_EXCHANGES = 2;
+const RELEVANT_LINES = 4;
+
+/**
+ * The brief with what bears on `prompt` added after it — or as it was,
+ * when nothing does, or anything goes wrong: the pick is a help, never a
+ * reason for the prompt not to go.
+ *
+ * Picked across the whole project — every chat's exchanges, the memory's
+ * lines and the ones archived past a cap — by words, trigrams and (where a
+ * local model has embedded them) meaning, fused, and held to a floor
+ * (server/retrieval.ts). The exchanges the brief already gives at length
+ * are left out.
+ */
 export function withRelevance(ctx: ServerContext, channelId: string, brief: string, prompt: string): string {
-  if (!brief) return brief;
+  if (!brief || !prompt.trim()) return brief;
   try {
     const owner = ownerProject(ctx, channelId);
-    const exchanges = exchangesOf(
-      channelId,
-      ctx.archive.allEvents(channelId),
-      ctx.archive.summaries(channelId),
-      owner?.name,
+    if (!owner) return brief;
+    const recent = new Set(ctx.archive.turnIds(channelId).slice(-BRIEF_RECENT));
+    const candidates = candidatesOf(ctx, owner.id, { past: "archived" }).filter(
+      (c) =>
+        c.item.kind !== "exchange" ||
+        c.item.exchange.chat !== channelId ||
+        !recent.has(c.item.exchange.turnId),
     );
-    const memory = owner ? ctx.briefs.get(owner.id).memory : undefined;
-    const lines = memory
-      ? allLines(memory)
-          .filter(({ part }) => part !== "now")
-          .map(({ part, line }) => {
-            const ref = line.source ? sourceLabel(ctx, line.source)?.ref : undefined;
-            return {
-              label: line.layer ? `${LABEL[part]} (${line.layer})` : LABEL[part],
-              text: memoryLineText(line, ref ? { refs: { [line.id]: ref } } : {}),
-            };
-          })
-      : [];
-    return brief + relevantBlock(channelId, exchanges, lines, prompt);
+    const meaning = cachedMeaning(ctx.embedder as Embedder | undefined, prompt);
+    const hits = hybrid(candidates, prompt, {
+      limit: RELEVANT_EXCHANGES + RELEVANT_LINES + 4,
+      floor: BRIEF_FLOOR,
+      ...(meaning ? { meaning } : {}),
+    });
+    const exchanges = hits
+      .flatMap((hit) => (hit.item.kind === "exchange" ? [hit.item.exchange] : []))
+      .slice(0, RELEVANT_EXCHANGES);
+    const lines = hits
+      .flatMap((hit) => (hit.item.kind === "line" ? [hit.item.line] : []))
+      .slice(0, RELEVANT_LINES)
+      .map((line) => {
+        const ref = line.source ? sourceLabel(ctx, line.source)?.ref : undefined;
+        const kind = line.layer ? `${LABEL[line.part]} (${line.layer})` : LABEL[line.part];
+        return {
+          label: line.status === "archived" ? `${kind}, archived` : kind,
+          text: memoryLineText(line, ref ? { refs: { [line.id]: ref } } : {}),
+        };
+      });
+    return brief + relevantBlock(channelId, { exchanges, lines });
   } catch (err) {
     warn("compaction", err, "withRelevance");
     return brief;
@@ -154,6 +216,22 @@ function wholeBrief(ctx: ServerContext, channelId: string, current?: string): st
       briefContext(ctx, channelId),
     )?.brief ?? ""
   );
+}
+
+/**
+ * A brief a /compact left waiting, made again as the prompt goes out: the
+ * one it wrote opened with <state> as git stood at the /compact — a branch
+ * since merged, files since committed — and said "where a note disagrees
+ * with it, the state is right". Made now, the state is now. The waiting
+ * one is what goes when the conversation can't be read again.
+ */
+function rebriefed(ctx: ServerContext, channelId: string, waiting: string, current?: string): string {
+  try {
+    return wholeBrief(ctx, channelId, current) || waiting;
+  } catch (err) {
+    warn("compaction", err, "rebriefed");
+    return waiting;
+  }
 }
 
 /**
@@ -222,10 +300,155 @@ export function catchUp(
   if (!had?.session) {
     // a fresh session holds none of the sheets the last one read
     forgetReads(channelId);
-    const brief = waiting ?? wholeBrief(ctx, channelId, current);
+    const brief = waiting ? rebriefed(ctx, channelId, waiting, current) : wholeBrief(ctx, channelId, current);
+    // it reads the memory as it stands now: what changes from here on
+    // reaches it as updates
+    const seq = memorySeq(ctx, channelId);
+    if (seq !== undefined) ctx.archive.setMemorySeen(channelId, harness, seq);
     return { harness, brief: withRelevance(ctx, channelId, brief, prompt) };
   }
-  return { harness, brief: missedBrief(ctx, channelId, had.seen, current) };
+  return {
+    harness,
+    brief: missedBrief(ctx, channelId, had.seen, current) + memoryUpdate(ctx, channelId, harness),
+  };
+}
+
+/* ── Claude's own compaction ───────────────────────────────────────── */
+
+/**
+ * What a session that Claude Code compacted on its own is handed as it
+ * starts again (SessionExtras.afterCompact). It no longer holds what it
+ * read — the summary does not keep a sheet word for word — so the sheets
+ * it read count as unread again, and it can't edit one on the strength of
+ * a read it no longer has. ruri's own /compact starts a fresh session and
+ * says the same; this is the compaction ruri didn't run.
+ */
+export function afterCompactBrief(ctx: ServerContext, channelId: string): string {
+  forgetReads(channelId);
+  try {
+    return buildAfterCompaction(
+      channelId,
+      ctx.archive.allEvents(channelId),
+      ctx.archive.summaries(channelId),
+      briefContext(ctx, channelId),
+    );
+  } catch (err) {
+    warn("compaction", err, "afterCompactBrief");
+    return "";
+  }
+}
+
+/** Claude Code compacted a chat on its own: the transcript says so, the
+ *  gauge reads what is left, and what the session read is unread. */
+export function noteSelfCompaction(
+  ctx: ServerContext,
+  channelId: string,
+  info: { trigger: "manual" | "auto"; preTokens?: number; postTokens?: number },
+): void {
+  forgetReads(channelId);
+  const k = (n: number) => `${Math.round(n / 1000)}k`;
+  const size =
+    info.preTokens && info.postTokens ? ` (${k(info.preTokens)} → ${k(info.postTokens)} tokens)` : "";
+  const event: TranscriptEvent = {
+    kind: "info",
+    id: randomUUID(),
+    text: `Claude compacted this conversation on its own${size}; ruri handed it back the repo's state, the layers and your last prompts word for word`,
+    ts: Date.now(),
+  };
+  ctx.archive.append(channelId, event);
+  ctx.clients.pushEvent(channelId, event);
+  if (info.postTokens) restoreContext(ctx, channelId, info.postTokens);
+}
+
+/* ── the memory, as it changes under a running session ─────────────── */
+
+/** The last event of the memory log of the chat's project — undefined
+ *  when it can't be read (a stand-in context in a test, a project gone). */
+function memorySeq(ctx: ServerContext, channelId: string): number | undefined {
+  try {
+    const owner = ownerProject(ctx, channelId);
+    return owner ? ctx.memory.state(owner.id).seq : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** How many changed lines one update tells, at most. */
+const UPDATE_LINES = 8;
+
+const UPDATE_KIND: Record<string, string> = {
+  decisions: "decision",
+  worked: "worked",
+  failed: "didn't work",
+  gotchas: "trap",
+  open: "still open",
+  now: "now",
+};
+
+/**
+ * What changed in the project's memory since this chat's session on
+ * `harness` last read it — told on its next prompt, as a <memory-update>.
+ * A session reads catchup.md as it starts, and then works for hours while
+ * the other chats in the project write what they find; without this, what
+ * a parallel chat learned reached it only after a compaction. Only what
+ * bears on it: lines across the project and lines of the layers this chat
+ * has been working in; only what others did, not what its own turns wrote;
+ * new lines, replaced ones, retired ones, and ones a check found may be
+ * stale or disagreeing — a few at most, the rest one command away.
+ *
+ * In the prompt, never the system prompt, which stays the same for every
+ * session so the provider's cache holds.
+ */
+export function memoryUpdate(ctx: ServerContext, channelId: string, harness: string): string {
+  const owner = ownerProject(ctx, channelId);
+  if (!owner) return "";
+  let state: ReturnType<typeof ctx.memory.state>;
+  try {
+    state = ctx.memory.state(owner.id);
+  } catch {
+    return "";
+  }
+  const seen = ctx.archive.memorySeen(channelId, harness);
+  ctx.archive.setMemorySeen(channelId, harness, state.seq);
+  // a session from before updates were kept starts counting now
+  if (seen === undefined || seen >= state.seq) return "";
+  const layers = new Set(chatLayers(ctx, owner.id, channelId));
+  const latest = new Map<string, MemoryEvent>();
+  for (const event of state.events) {
+    if (event.seq <= seen) continue;
+    if (!["add", "edit", "supersede", "merge", "retire", "restore", "flag"].includes(event.op)) continue;
+    const line = event.after;
+    if (event.chat === channelId || line.source?.chat === channelId) continue;
+    if (line.quarantined || (line.layer && !layers.has(line.layer))) continue;
+    if (event.op === "flag" && (!line.check || line.check.kind === "unchecked")) continue;
+    latest.set(line.id, event);
+  }
+  if (latest.size === 0) return "";
+  const told = [...latest.values()].sort((a, b) => a.seq - b.seq);
+  const lines = told.slice(-UPDATE_LINES).map((event) => {
+    const line = event.after;
+    const kind = `${UPDATE_KIND[line.part] ?? line.part}${line.layer ? ` (${line.layer})` : ""}`;
+    const said = lineText(line);
+    if (event.op === "retire")
+      return `- no longer holds — ${kind}: ${said} [${event.reason ?? "retired"}] (${line.id})`;
+    if (event.op === "supersede" || event.op === "merge") {
+      const by = line.supersededBy ? state.lines.get(line.supersededBy) : undefined;
+      return `- replaced — ${kind}: ${said}${by ? ` → now: ${lineText(by)} (${by.id})` : ""}`;
+    }
+    if (event.op === "flag") {
+      return `- ${line.check?.kind === "conflict" ? "disagrees" : "may be stale"} — ${kind}: ${said} [${line.check?.reason}] (${line.id})`;
+    }
+    const verb = event.op === "add" ? "new" : event.op === "restore" ? "back" : "reworded";
+    return `- ${verb} — ${kind}: ${said} (${line.id})`;
+  });
+  const more = told.length - lines.length;
+  return (
+    "<memory-update>\n" +
+    "Since this session last read the project's memory (.ruri/catchup.md), other sessions changed it:\n" +
+    lines.join("\n") +
+    (more > 0 ? `\n(and ${more} more — \`ruri memory log\` lists them)` : "") +
+    "\n`ruri memory log <id>` is a line's history.\n</memory-update>\n\n"
+  );
 }
 
 /** A harness's name, as a line in the transcript says it. */

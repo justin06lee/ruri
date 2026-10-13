@@ -17,6 +17,7 @@ import {
   layerOfFile,
   mapLine,
   memoryLineText,
+  shown,
   parseMapLine,
   type BriefWrite,
   type ProjectBrief,
@@ -25,6 +26,7 @@ import { pushSheet, sourceLabel } from "./catchupBrief.js";
 import type { ServerContext } from "./context.js";
 import { slugify, uniqueSlug, type ParsedArgs } from "./library.js";
 import { allLines, linesOf } from "./memoryLines.js";
+import { placeholderJob, SECTION_MAX, SHEET_WORDS, sheetWords } from "./sheetBudget.js";
 import { layerCandidates } from "./sweep.js";
 
 /**
@@ -223,6 +225,9 @@ function checkPairLine(format: string) {
 function checkFileLine(text: string, projectDir: string): string | { error: string } {
   const parts = pair(text);
   if (!parts) return { error: 'a key file reads "path — its job"' };
+  if (placeholderJob(parts[1])) {
+    return { error: `say what ${parts[0]} does — "its job" is the format, not the line` };
+  }
   const file = onDisk(projectDir, parts[0]);
   return file ? `${file} — ${parts[1]}` : { error: `there is no ${parts[0]} in the project` };
 }
@@ -240,21 +245,27 @@ function checkFlowLine(text: string): string | { error: string } {
   return typeof flow === "string" ? { error: flow } : flowLine(flow);
 }
 
-/** A layer's lists, with the caps the folds keep them to. */
+/** A layer's lists. A sheet keeps a budget of words rather than a count
+ *  a section (server/sheetBudget.ts): any section may take what it needs. */
 const LAYER_LISTS: Record<Exclude<LayerEditSection, "summary" | "owns">, ListSection> = {
   map: {
     title: "where to change what",
     format: '"what a person calls it — file, file"',
-    max: 12,
+    max: SECTION_MAX,
     check: checkMapLine,
   },
-  flows: { title: "how it works", format: '"Name: part → part → part"', max: 3, check: checkFlowLine },
-  files: { title: "key files", format: '"path — its job"', max: 10, check: checkFileLine },
-  rules: { title: "rules and traps", max: 6, check: free },
+  flows: {
+    title: "how it works",
+    format: '"Name: part → part → part"',
+    max: SECTION_MAX,
+    check: checkFlowLine,
+  },
+  files: { title: "key files", format: '"path — what it does"', max: SECTION_MAX, check: checkFileLine },
+  rules: { title: "rules and traps", max: SECTION_MAX, check: free },
   edges: {
     title: "what it talks to",
     format: '"layer — how"',
-    max: 5,
+    max: SECTION_MAX,
     check: checkPairLine('"layer — how"'),
   },
 };
@@ -679,7 +690,7 @@ async function layerSheetText(
   }
   const log = await layerLog(project.path, layer.paths ?? []);
   if (log.length) out.push("", "Lately in this layer, from git:", ...log.map((l) => `  ${l}`));
-  const notes = allLines(linesOf(brief.memory, slug));
+  const notes = allLines(linesOf(brief.memory, slug)).filter(({ line }) => shown(line));
   if (notes.length) {
     out.push(
       "",
@@ -862,6 +873,15 @@ export async function runLayerCommand(
   const key = section as keyof typeof LAYER_LISTS;
   const lines = editList(layerLines(sheet, key), edit, spec, project.path);
   if (typeof lines === "string") return no(lines);
+  // a sheet is read whole before work starts: it keeps to its words
+  if (edit.verb !== "drop") {
+    const after = sheetWords(withLayerLines(sheet, key, lines));
+    if (after > SHEET_WORDS && after > sheetWords(sheet)) {
+      return no(
+        `the ${slug} sheet would be ${after} words, past its ${SHEET_WORDS} — merge this into a line that is there, or drop one that no longer holds, first (a sheet is read whole before work starts, so it stays short)`,
+      );
+    }
+  }
   const written = ctx.briefs.writeLayer(project.id, slug, withLayerLines(sheet, key, lines), stamp);
   const now = written.layerSheets![slug]!;
   return done(

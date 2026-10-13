@@ -173,6 +173,7 @@ export function installFixture(): void {
     // small implies starred, matching the real cycle
     starredModels: ["claude-fable-5[1m]", "codex:gpt-5.3-codex", "claude-sonnet-5"],
     smallModel: "claude-sonnet-5",
+    memoryModel: "sonnet",
     // enough for all four dragons: a context reading that would have read as
     // full against the wrong window, and windows that all roll over later
     contexts: {

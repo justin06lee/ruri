@@ -6,17 +6,16 @@ import { ownerProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import { branchFacts, gitLines, gitState } from "./gitState.js";
 import { parseArgs, slugify } from "./library.js";
-import { addLine, allLines, dayOf, findLine, lineText, memoryEmpty, replaceLine } from "./memoryLines.js";
+import { dayOf, lineText, memoryEmpty } from "./memoryLines.js";
+import { linesWith, type LineRecord, type MemoryEvent } from "./memoryLog.js";
+import { ASK_FROM, SAME_AT } from "./memoryFold.js";
+import { mostAlike } from "./similarity.js";
+import { checkMemory, withAnchors } from "./memoryCheck.js";
 import { isEdit, runIndexCommand, runLayerCommand } from "./sheetEdits.js";
-import {
-  exchangeLine,
-  exchangesOf,
-  exchangeText,
-  projectRelative,
-  rank,
-  rankExchanges,
-  type Exchange,
-} from "./recall.js";
+import { readTurnRecord } from "./turnRecords.js";
+import { searchProject } from "./projectSearch.js";
+import { exchangeLine, exchangesOf, exchangeText, projectRelative } from "./recall.js";
+import { RECALL_FLOOR } from "./retrieval.js";
 
 /**
  * The project's memory from a session's shell — the same `ruri` command as
@@ -82,9 +81,22 @@ export const MEMORY_HELP = `and this project's memory — .ruri/catchup.md, whic
                                      write down what the next session will need: kind is decision,
                                      failed, worked, trap or open. What you learned, not what you built.
                                      A line about one layer is read with its sheet; without --layer it
-                                     goes to the layer this turn's changes are in, if they are in one
+                                     goes to the layer this turn's changes are in, if they are in one.
+                                     A line the memory already has is replaced by yours rather than
+                                     kept twice; one that might be is shown to you first —
+                                     --update <id> replaces that line, --new adds yours anyway
   ruri memory                        the memory as it stands, each line with its id and where it came from
-  ruri forget <id>                   take out a line that is wrong, or done (not one of the user's)
+  ruri forget <id> [--why "<why>"]   take out a line that is wrong, or done (not one of the user's); the
+                                     log keeps it, with your reason
+  ruri memory log [<id>]             what happened to the memory, or to one line: added, reworded,
+                                     superseded, retired, archived, restored — by whom, and why
+  ruri memory past                   the lines that left the memory, and why each went
+  ruri memory restore <id>           bring a line that left back into the memory
+  ruri memory undo [<fold>]          take the newest fold of the memory back whole (or the one named)
+  ruri memory confirm <id>           let in a line gathered from web or tool output, once you have
+                                     checked it against the code
+  ruri memory check                  hold every line up against the code now: what moved is marked, and
+                                     the memory model confirms, corrects or retires what it can
   ruri state                         git, and what this chat has changed — live
   ruri recall <words>                search every exchange in this project, across its chats
   ruri recall show <ref>             one exchange whole; a ref is what follows a memory line: 7a3637b4#16
@@ -114,20 +126,6 @@ const TITLES: Record<MemoryPart, string> = {
   gotchas: "Gotchas and rules",
   open: "Still open",
 };
-
-/** Every exchange in a project, every chat. */
-function projectExchanges(ctx: ServerContext, projectId: string): Array<Exchange & { title: string }> {
-  const project = ctx.store.get(projectId);
-  if (!project) return [];
-  return project.sessions.flatMap((session) =>
-    exchangesOf(
-      session.id,
-      ctx.archive.allEvents(session.id),
-      ctx.archive.summaries(session.id),
-      project.name,
-    ).map((ex) => ({ ...ex, title: session.title || "untitled" })),
-  );
-}
 
 /**
  * A chat's changed files, most recent first: what each finished turn
@@ -186,14 +184,68 @@ function memoryText(ctx: ServerContext, projectId: string, git: string[]): strin
     out.push(`${TITLES[part]}:`);
     for (const line of lines) {
       const ref = line.source ? sourceLabel(ctx, line.source)?.ref : undefined;
+      const marks = [
+        ...(line.check ? [`may be stale: ${line.check.reason}`] : []),
+        ...(line.quarantined ? ["from web or tool output — not shown to sessions until confirmed"] : []),
+      ];
       out.push(
-        `  ${line.id}  ${line.layer ? `[${line.layer}] ` : ""}${memoryLineText(line, ref ? { refs: { [line.id]: ref } } : {})}`,
+        `  ${line.id}  ${line.layer ? `[${line.layer}] ` : ""}${memoryLineText(line, ref ? { refs: { [line.id]: ref } } : {})}${marks.length ? ` [${marks.join("; ")}]` : ""}`,
       );
     }
     out.push("");
   }
-  out.push("ruri recall show <ref> prints the exchange a line came from; ruri forget <id> takes a line out.");
+  out.push(
+    "ruri recall show <ref> prints the exchange a line came from; ruri forget <id> takes a line out;",
+    "ruri memory log <id> is a line's history, ruri memory past the lines that left.",
+  );
   return out.join("\n");
+}
+
+/** When, as the log lists it: the day and the time. */
+function stamp(ts: number): string {
+  const d = new Date(ts);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${dayOf(ts)} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+
+const DID: Record<MemoryEvent["op"], string> = {
+  import: "brought in",
+  add: "added",
+  edit: "reworded",
+  supersede: "superseded",
+  merge: "merged",
+  retire: "retired",
+  archive: "archived",
+  restore: "restored",
+  pin: "pinned",
+  unpin: "unpinned",
+  flag: "flagged",
+  verify: "checked",
+  confirm: "confirmed",
+  undo: "undone",
+};
+
+/** One event, as `ruri memory log` prints it. */
+function eventLine(event: MemoryEvent): string {
+  const who =
+    event.by === "system"
+      ? "ruri"
+      : event.by === "model"
+        ? "the model"
+        : event.by === "agent"
+          ? "an agent"
+          : "the user";
+  const where =
+    event.after.status === "current" ? event.after.part : `${event.after.part}, ${event.after.status}`;
+  const why = [event.reason, event.evidence ? `evidence: ${event.evidence}` : ""].filter(Boolean).join(" — ");
+  return `  #${event.seq}  ${stamp(event.at)}  ${event.line}  ${DID[event.op]} by ${who}${event.fold ? ` (fold ${event.fold})` : ""}${why ? ` — ${why}` : ""}\n      [${where}] ${lineText(event.after)}`;
+}
+
+/** A line that left the memory, as `ruri memory past` prints it. */
+function pastLine(line: LineRecord): string {
+  const when = line.invalidAt ? dayOf(line.invalidAt) : "";
+  const into = line.supersededBy ? ` by ${line.supersededBy}` : "";
+  return `  ${line.id}  ${line.status}${into} ${when}${line.reason ? ` — ${line.reason}` : ""}\n      [${line.part}${line.layer ? `, ${line.layer}` : ""}] ${lineText(line)}`;
 }
 
 /**
@@ -245,16 +297,71 @@ export async function runMemoryCommand(
         layer = dominantLayer(layers, await turnSoFar(ctx, channelId, project));
         guessed = !!layer;
       }
-      const { memory, line } = addLine(ctx.briefs.get(projectId).memory, part, {
+      // a line the memory already has is said again, not added twice: one
+      // that plainly restates an agent's or the model's line takes its
+      // place; one that only might is put back to the agent to decide
+      const current = linesWith(ctx.memory.state(projectId)).filter((l) => !l.quarantined);
+      const target = args.flags.get("update")?.at(-1)?.trim();
+      let replace: LineRecord | undefined;
+      if (target) {
+        replace = current.find((l) => l.id.toLowerCase() === target.toLowerCase());
+        if (!replace)
+          return no(`ruri note --update ${target}: no current line ${target} — \`ruri memory\` lists them`);
+      } else if (!args.switches.has("new")) {
+        const [like] = mostAlike(`${text} ${why ?? ""}`, current, (l) => `${l.text} ${l.why ?? ""}`, {
+          limit: 1,
+          floor: ASK_FROM,
+        });
+        if (like && like.score >= SAME_AT && like.item.by !== "user" && !like.item.pinned)
+          replace = like.item;
+        else if (like) {
+          const owner =
+            like.item.by === "user" || like.item.pinned
+              ? "the user's"
+              : like.item.by === "agent"
+                ? "an agent's"
+                : "the model's";
+          return no(
+            `that may already be in the memory — ${like.item.id} (${like.item.part}, ${owner}): ${lineText(like.item)}\n` +
+              (like.item.by === "user" || like.item.pinned
+                ? "It is the user's line: if yours says something it doesn't, add it with --new."
+                : `If yours says the same thing better, replace it: ruri note ${kind} "${text}" --update ${like.item.id}. If it says something else, add it with --new.`),
+          );
+        }
+      }
+      const fields = {
         text,
         ...(why ? { why } : {}),
-        date: dayOf(),
-        by: "agent",
         ...(turn ? { source: { chat: channelId, turn } } : {}),
         ...(layer ? { layer } : {}),
-      });
-      ctx.briefs.remember(projectId, memory);
+      };
+      const result = ctx.memory.apply(
+        projectId,
+        await withAnchors(ctx, projectId, [
+          replace
+            ? {
+                op: "supersede",
+                line: replace.id,
+                ...fields,
+                ...(replace.part !== part ? { part } : {}),
+                layer: layer ?? null,
+                reason: target
+                  ? "an agent's newer line, by its own say"
+                  : "said again by an agent, in its own words",
+                evidence: turn ? `${channelId.slice(0, 8)}'s turn` : "an agent's note",
+              }
+            : { op: "add", part, ...fields },
+        ]),
+        { by: "agent", chat: channelId },
+      );
+      const line = result.added[0];
+      if (!line) return no(`ruri note: ${result.refused[0]?.reason ?? "the line could not be kept"}`);
       pushSheet(ctx, projectId);
+      if (replace) {
+        return yes(
+          `${replace.id} said that already (${lineText(replace)}) — it is ${line.id} now, in your words: ${lineText(line)}. The log keeps the old one (ruri memory log ${replace.id}).`,
+        );
+      }
       const missingWhy = !why && (part === "decisions" || part === "failed");
       const where = layer
         ? ` with the ${layer} layer${guessed ? ` (where this turn's changes are — if it holds across the project, ruri forget ${line.id} and note it again with --layer project)` : ""}`
@@ -270,25 +377,32 @@ export async function runMemoryCommand(
     }
 
     case "memory":
-      return yes(
-        memoryText(ctx, projectId, (await gitState(project.path).then((s) => s && gitLines(s))) ?? []),
-      );
+      return memoryCommand(ctx, channelId, projectId, args.words.slice(1), project);
 
     case "forget":
     case "done": {
       const id = args.words[1];
       if (!id) return no(`ruri ${command} <id> — \`ruri memory\` lists each line's id`);
-      const memory = ctx.briefs.get(projectId).memory;
-      const found = findLine(memory, id);
-      if (!found || !memory) return no(`no line ${id} in the memory — \`ruri memory\` lists them`);
-      if (found.line.by === "user" || found.line.pinned) {
+      const found = ctx.memory.record(projectId, id);
+      if (!found || found.status !== "current") {
+        return no(`no line ${id} in the memory — \`ruri memory\` lists them`);
+      }
+      if (found.by === "user" || found.pinned) {
         return no(
-          `${found.line.id} is the user's — they change it on the architecture page. Say so to them if it's wrong.`,
+          `${found.id} is the user's — they change it on the architecture page. Say so to them if it's wrong.`,
         );
       }
-      ctx.briefs.remember(projectId, replaceLine(memory, found.line.id, undefined));
+      const why = args.flags.get("why")?.at(-1)?.trim() || args.flags.get("reason")?.at(-1)?.trim();
+      const reason = why || (command === "done" ? "done, says an agent" : "taken out by an agent");
+      const result = ctx.memory.apply(projectId, [{ op: "retire", line: found.id, reason }], {
+        by: "agent",
+        chat: channelId,
+      });
+      if (result.refused.length) return no(`ruri ${command}: ${result.refused[0]!.reason}`);
       pushSheet(ctx, projectId);
-      return yes(`took out ${found.line.id}: ${lineText(found.line)}`);
+      return yes(
+        `took out ${found.id}: ${lineText(found)} — the log keeps it (ruri memory restore ${found.id} brings it back)`,
+      );
     }
 
     case "layer":
@@ -375,12 +489,21 @@ export async function runMemoryCommand(
           ctx.archive.allEvents(chat),
           ctx.archive.summaries(chat),
           project.name,
+          ctx.archive.exchangeNumbers(chat),
         );
-        const ex = exchanges[n - 1];
-        if (!ex)
+        const ex = exchanges.find((e) => e.n === n);
+        if (!ex) {
+          // the history's cap dropped it, or a rewind took it: its turn
+          // record is what is left, when there is one
+          const record = readTurnRecord(chat, n);
+          if (record) return yes(`# ${exchangeRef(chat, n)} — from its turn record\n\n${record}`);
+          const top = exchanges.at(-1)?.n ?? 0;
           return no(
-            `that chat has ${exchanges.length} exchange${exchanges.length === 1 ? "" : "s"}, not ${n}`,
+            n > top
+              ? `that chat has ${top} exchange${top === 1 ? "" : "s"}, not ${n}`
+              : `exchange ${n} of that chat is gone — rewound away, or dropped from its history`,
           );
+        }
         const title = ctx.store.findSession(chat)?.session.title || "untitled";
         return yes(
           exchangeText(
@@ -391,24 +514,31 @@ export async function runMemoryCommand(
       }
       const query = args.words.slice(1).join(" ").trim();
       if (!query) return no("ruri recall <words> — what to look for");
-      const hits = rankExchanges(projectExchanges(ctx, projectId), query, { limit: 10 });
-      const memory = ctx.briefs.get(projectId).memory;
-      const lines = memory
-        ? rank(allLines(memory), query, ({ line }) => [[lineText(line), 1]], { limit: 4, min: 1 })
-        : [];
+      const found = await searchProject(ctx, projectId, query, { limit: 14, floor: RECALL_FLOOR });
+      const lines = found.flatMap((hit) => (hit.item.kind === "line" ? [hit.item.line] : [])).slice(0, 6);
+      const hits = found
+        .flatMap((hit) => (hit.item.kind === "exchange" ? [hit.item.exchange] : []))
+        .slice(0, 10);
       if (hits.length === 0 && lines.length === 0) {
-        return yes(`nothing in ${project.name}'s chats matches "${query}" — try other words, or fewer`);
+        return yes(
+          `nothing in ${project.name}'s chats or memory matches "${query}" — try other words, or fewer`,
+        );
       }
       const out: string[] = [];
       if (lines.length) {
         out.push("In the memory:");
-        for (const { item } of lines) out.push(`  ${item.line.id}  ${lineText(item.line)}`);
+        for (const line of lines) {
+          const gone =
+            line.status === "current"
+              ? ""
+              : ` [${line.status}${line.supersededBy ? ` by ${line.supersededBy}` : ""}${line.reason ? `: ${line.reason}` : ""}]`;
+          out.push(`  ${line.id}  ${lineText(line)}${gone}`);
+        }
         out.push("");
       }
       if (hits.length) {
         out.push("Exchanges, best match first:");
-        for (const { item } of hits) {
-          const ex = item as Exchange & { title: string };
+        for (const ex of hits) {
           out.push(`  ${exchangeRef(ex.chat, ex.n)}  ${dayOf(ex.ts)}  "${ex.title}" — ${exchangeLine(ex)}`);
         }
         out.push("", "ruri recall show <ref> prints one whole.");
@@ -417,6 +547,117 @@ export async function runMemoryCommand(
     }
   }
   return undefined;
+}
+
+/** `ruri memory …`: the memory, its log, what left it, and putting a line
+ *  or a fold back. */
+async function memoryCommand(
+  ctx: ServerContext,
+  channelId: string,
+  projectId: string,
+  words: string[],
+  project: { name: string; path: string },
+): Promise<MemoryAnswer> {
+  const sub = (words[0] ?? "").toLowerCase();
+  const id = words[1];
+  const agent = { by: "agent" as const, chat: channelId };
+  switch (sub) {
+    case "":
+      return yes(
+        memoryText(ctx, projectId, (await gitState(project.path).then((s) => s && gitLines(s))) ?? []),
+      );
+    case "log":
+    case "history": {
+      const events = ctx.memory.history(projectId, id);
+      if (events.length === 0) {
+        return yes(id ? `nothing in the log for ${id}` : `${project.name}'s memory has no log yet`);
+      }
+      const shown = id ? events : events.slice(-40);
+      return yes(
+        [
+          id
+            ? `${id} — every change to it, oldest first:`
+            : `${project.name} — the memory's log, the last ${shown.length} of ${events.length} changes, oldest first:`,
+          ...shown.map(eventLine),
+        ].join("\n"),
+      );
+    }
+    case "past": {
+      const past = ctx.memory.past(projectId);
+      if (past.length === 0) return yes("no line has left the memory yet");
+      return yes(
+        [
+          `${project.name} — lines that left the memory, the latest first (ruri memory restore <id> brings one back):`,
+          ...past.slice(0, 60).map(pastLine),
+          ...(past.length > 60
+            ? [`  … and ${past.length - 60} more — ruri recall finds them by their words`]
+            : []),
+        ].join("\n"),
+      );
+    }
+    case "restore": {
+      if (!id) return no("ruri memory restore <id> — `ruri memory past` lists the lines that left");
+      const result = ctx.memory.apply(
+        projectId,
+        [{ op: "restore", line: id, reason: "brought back by an agent" }],
+        agent,
+      );
+      if (!result.events.length)
+        return no(`ruri memory restore: ${result.refused[0]?.reason ?? `no line ${id}`}`);
+      pushSheet(ctx, projectId);
+      return yes(`${id} is back in the memory: ${lineText(result.events[0]!.after)}`);
+    }
+    case "undo": {
+      const result = ctx.memory.undo(projectId, agent, id);
+      if (!result.fold) return no("there is no fold in the log to take back");
+      if (result.undone.length) pushSheet(ctx, projectId);
+      return yes(
+        `took fold ${result.fold} back: ${result.undone.length} line${result.undone.length === 1 ? "" : "s"} as they were before it${result.kept.length ? `; ${result.kept.join(", ")} changed since and stay as they are` : ""}`,
+      );
+    }
+    case "check": {
+      const report = await checkMemory(ctx, projectId);
+      if (!report) return no("a check of this memory is running already — try again in a minute");
+      const marked = [...ctx.memory.state(projectId).lines.values()]
+        .filter((line) => line.status === "current" && line.check)
+        .map((line) => {
+          const kind = line.check!.kind ?? "stale";
+          const label =
+            kind === "unchecked" ? "unchecked" : kind === "conflict" ? "disagrees" : "may be stale";
+          return `  ${line.id}  ${label}: ${line.check!.reason}\n      ${lineText(line)}`;
+        });
+      const v = report.verdicts;
+      return yes(
+        [
+          `${project.name} — its memory held up against the code and against itself:`,
+          `  ${report.checked} lines checked: ${report.stale} where something they rest on moved, ${report.unchecked} naming what the code doesn't show${report.baselined ? `, ${report.baselined} anchored for the first time` : ""}${report.misfiled ? `, ${report.misfiled} taken out as not project memory` : ""}`,
+          `  the memory model: ${v.holds} hold, ${v.superseded} corrected, ${v.retired} retired, ${v.unsure} it couldn't settle`,
+          ...(report.clashes.length
+            ? [
+                `  lines giving one setting two values: ${report.clashes.map((c) => `${c.a}/${c.b} (${c.names.join(", ")})`).join(", ")}`,
+              ]
+            : []),
+          ...(report.conflicts.length
+            ? [
+                `  pairs that might disagree: ${report.conflicts.map((c) => `${c.a}/${c.b} ${c.verdict}`).join(", ")}`,
+              ]
+            : []),
+          ...(marked.length ? ["", "Still marked:", ...marked] : ["", "Nothing is marked."]),
+        ].join("\n"),
+      );
+    }
+    case "confirm": {
+      if (!id) return no("ruri memory confirm <id>");
+      const result = ctx.memory.apply(projectId, [{ op: "confirm", line: id }], agent);
+      if (!result.events.length)
+        return no(`ruri memory confirm: ${result.refused[0]?.reason ?? `no line ${id}`}`);
+      pushSheet(ctx, projectId);
+      return yes(`${id} is confirmed — sessions read it now`);
+    }
+  }
+  return no(
+    `ruri memory ${sub}? — ruri memory [log [<id>] | past | restore <id> | undo [<fold>] | confirm <id> | check]`,
+  );
 }
 
 /** A layer by its handle, its name, or the start of either. */

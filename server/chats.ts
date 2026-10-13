@@ -11,9 +11,9 @@ import { sessionBriefing } from "./briefing.js";
 import { channelProject, ownerProject } from "./channel.js";
 import { COMPONENT_TOOLS, componentTools } from "./components.js";
 import type { ServerContext } from "./context.js";
-import { drainQueue, holdForTheWorld, maybeRetry } from "./dispatch.js";
+import { autoCompactDue, compactChannel, drainQueue, holdForTheWorld, maybeRetry } from "./dispatch.js";
 import { recordEvent, redacted } from "./events.js";
-import { recoverLostStart } from "./handoff.js";
+import { afterCompactBrief, noteSelfCompaction, recoverLostStart } from "./handoff.js";
 import { ensureLibrarySkill, libraryEndpoint } from "./handlers/components.js";
 import { cliEnv, skillDir } from "./library.js";
 import { HOME_ID, managerExtras } from "./manager.js";
@@ -86,9 +86,16 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           } else {
             // a turn that landed is the line answering
             if (event.ok) ctx.queues.connectionBack(projectId);
+            // a context past its share of the window is compacted now, by
+            // ruri, before the harness's own compaction would — and the
+            // queue moves after it, into the fresh session
+            const due = event.ok ? autoCompactDue(ctx, projectId) : undefined;
+            if (due) {
+              ctx.retries.cancelRetry(projectId);
+              setImmediate(() => compactChannel(ctx, projectId, due));
+            } else if (!drainQueue(ctx, projectId)) maybeRetry(ctx, projectId, event);
             // a prompt already waiting is a better answer to a dropped turn
             // than a nudge is, and it has just gone out
-            if (!drainQueue(ctx, projectId)) maybeRetry(ctx, projectId, event);
             else ctx.retries.cancelRetry(projectId);
           }
           // a message from another agent that started this turn is answered
@@ -96,6 +103,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           talkTurnEnded(ctx, projectId, event);
         }
       },
+      onCompacted: (projectId, info) => noteSelfCompaction(ctx, projectId, info),
       onEventUpdate: (projectId, raw) => {
         // a subagent's card moving along: replaced where it stands, and
         // only while it still stands in the live transcript
@@ -221,6 +229,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       });
       return tagged(project.id, {
         transcript: () => ctx.archive.events(project.id),
+        // Claude Code compacted on its own: ruri's context goes back in
+        afterCompact: async () => afterCompactBrief(ctx, project.id) || undefined,
         fillSecrets: (input) =>
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
         beforeTools: () => ctx.checkpoints.idle(project.id),

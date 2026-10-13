@@ -73,6 +73,7 @@
     "crew-live-test": "tsx scripts/crew-live.ts",
     "provider-test": "tsx scripts/provider-session.ts",
     "rewind-compaction-test": "tsx scripts/rewind-compaction.ts",
+    "self-compact-test": "tsx scripts/self-compact.ts",
     "talk-test": "tsx scripts/talk.ts",
     "talk-replies-test": "tsx scripts/talk-replies.ts"
   },

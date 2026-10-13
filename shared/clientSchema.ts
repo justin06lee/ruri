@@ -59,7 +59,7 @@ const permissionId = z.enum([
 ]);
 const pickTarget = z.enum(["workspace", "music"]);
 const trackerStatus = z.enum(["open", "liked", "rejected"]);
-const modelRole = z.enum(["small", "default"]);
+const modelRole = z.enum(["small", "default", "memory"]);
 const skillScope = z.enum(["global", "project"]);
 
 const draftRegion = z.object({
@@ -262,7 +262,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     ...projectId,
     part: memoryPart,
     lineId: id,
-    action: z.enum(["pin", "unpin", "remove"]),
+    action: z.enum(["pin", "unpin", "remove", "restore", "confirm"]),
   }),
   z.object({
     type: z.literal("memory_write"),

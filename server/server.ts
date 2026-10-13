@@ -12,6 +12,12 @@ import { SessionArchive } from "./archive.js";
 import { writeTextAtomic } from "./atomic.js";
 import { BridgeState } from "./bridgeState.js";
 import { BriefStore, writeBriefFiles } from "./brief.js";
+import { Embedder } from "./embeddings.js";
+import { MemoryBook } from "./memoryLog.js";
+import { checkAllSoon } from "./memoryCheck.js";
+import { lineText } from "./memoryLines.js";
+import { warmProject } from "./projectSearch.js";
+import { FoldQueue, resumeFolds } from "./memoryQueue.js";
 import { installCli, writeLibrarySkill } from "./library.js";
 import { adoptShared } from "./catchupBrief.js";
 import { ownerProject, running } from "./channel.js";
@@ -51,7 +57,8 @@ import { Retries } from "./retry.js";
 import { createHttpServer, createRequestHandler } from "./routes.js";
 import { SecretStore } from "./secrets.js";
 import { Sharing } from "./sharing.js";
-import { digestHistory, setSmallModel } from "./smallmodel.js";
+import { foldDigest } from "./digestFold.js";
+import { setMemoryModel, setSmallModel } from "./smallmodel.js";
 import { createSocketServer } from "./socket.js";
 import { TalkBook } from "./talk.js";
 import { Terminals } from "./terminal.js";
@@ -65,6 +72,7 @@ export type { RuriServer, StartServerOptions } from "./context.js";
 export async function startServer(options: StartServerOptions): Promise<RuriServer> {
   const store = new ProjectStore();
   setSmallModel(store.smallModel());
+  setMemoryModel(store.memoryModel());
 
   const archive = new SessionArchive();
   /** What each subagent did, apart from the chat that started it. */
@@ -82,6 +90,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const homeLog = new HomeLog();
   const tracker = new TrackerStore();
   const briefs = new BriefStore();
+  // the working memory's log: every change to it, kept, and the memory as
+  // it stands read off it into briefs.json (server/memoryLog.ts)
+  const memory = new MemoryBook(briefs);
   // what every project has spent, by the day — the one count that survives
   // rewinds, compactions and Home's nightly amnesia
   const ledger = new LedgerStore();
@@ -103,6 +114,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     writeLibrarySkill(project.id, project.name, components.items(project.id), components.dir(project.id));
     // briefs used to be kept per session; a project's brief is the project's
     for (const session of project.sessions) briefs.move(session.id, project.id);
+    // the log taken up — a memory from before there was one is imported,
+    // briefs.json backed up first
+    memory.state(project.id);
     writeBriefFiles(project.path, project.name, briefs.get(project.id));
     for (const session of project.sessions) {
       // Older compacted exchanges retained attachment metadata in the
@@ -129,6 +143,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     homeLog,
     tracker,
     briefs,
+    memory,
+    folds: new FoldQueue(),
+    embedder: new Embedder(),
     ledger,
     ideas,
     components,
@@ -148,7 +165,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         clients.broadcast({ type: "terminal_exit", projectId, termId, note });
       },
     }),
-    digests: new DigestFolder(archive, digestHistory),
+    digests: new DigestFolder(archive, (digest, exchanges) => foldDigest(digest, exchanges)),
     clients,
     readable: new ReadableImages((channelId) => ownerProject(ctx, channelId)?.path),
     turns: new Turns(clients.toViewers),
@@ -221,6 +238,21 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   firstNotes.unref();
   const notesTimer = setInterval(allNotes, 60 * 60_000);
   notesTimer.unref();
+  // turns that were waiting to be folded into a memory when ruri stopped
+  resumeFolds(ctx);
+  // every memory held up against its code, one project after another
+  checkAllSoon(ctx);
+  // each memory line's meaning as it changes, and every project's
+  // exchanges and lines a little after launch — for the searches
+  memory.onChange((_projectId, events) => {
+    const current = events.flatMap((e) => (e.after.status === "current" ? [lineText(e.after)] : []));
+    if (current.length) ctx.embedder.warm(current);
+  });
+  const firstWarm = setTimeout(() => {
+    if (!ctx.embedder.usable()) return;
+    for (const project of store.list()) warmProject(ctx, project.id);
+  }, 120_000);
+  firstWarm.unref();
   ctx.componentHost = createComponentHost(ctx);
   // every window hears who may message whom, and each message as it moves
   ctx.talk.onChange = () => pushTalk(ctx);

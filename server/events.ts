@@ -9,11 +9,9 @@ import type { Project, StackLayer, TranscriptEvent } from "../shared/protocol.js
 import {
   dueRead,
   exchangeRef,
-  memoryStack,
   pushSheet,
   rebuildCatchup,
   refreshSheet,
-  resolveRef,
   touchProject,
   writeLayerSheets,
 } from "./catchupBrief.js";
@@ -24,8 +22,9 @@ import { pushComponents } from "./handlers/components.js";
 import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
 import { warn } from "./log.js";
-import { rebuildMemory } from "./memory.js";
-import { dayOf, rebase } from "./memoryLines.js";
+import { dayOf } from "./memoryLines.js";
+import { enqueueFold } from "./memoryQueue.js";
+import { warmChat } from "./projectSearch.js";
 import { projectRelative } from "./recall.js";
 import { layerCandidate } from "./sweep.js";
 import { noteSummary } from "./notes.js";
@@ -34,7 +33,6 @@ import {
   endsIntact,
   extractTrackerItems,
   foldLayerSheet,
-  foldMemory,
   sessionRoleTitle,
   smallModelEnabled,
   summarizePrompt,
@@ -94,7 +92,7 @@ export function foldBrief(
   const held = gathering.get(project.id) ?? { turns: [], last: 0 };
   gathering.set(project.id, held);
   const chat = found.session.title ? ` (in the "${found.session.title}" chat)` : "";
-  const n = turn.turnId ? ctx.archive.turnIds(channelId).indexOf(turn.turnId) + 1 : 0;
+  const n = turn.turnId ? (ctx.archive.exchangeNo(channelId, turn.turnId) ?? 0) : 0;
   const tag = [n ? exchangeRef(channelId, n) : "", dayOf()].filter(Boolean).join(" · ");
   const changed = turn.files ?? [];
   const files = changed.length ? `\n\nFiles it changed: ${changed.slice(0, 30).join(", ")}` : "";
@@ -115,7 +113,9 @@ export function foldBrief(
   held.timer.unref?.();
 }
 
-/** What a project's turns did since the last fold, into its sheet. */
+/** What a project's turns did since the last fold, into its shape — the
+ *  index and the layers' sheets. (The memory takes in every turn by its
+ *  own queue: server/memoryQueue.ts.) */
 function foldGathered(ctx: ServerContext, projectId: string): void {
   const held = gathering.get(projectId);
   const project = ctx.store.get(projectId);
@@ -127,39 +127,12 @@ function foldGathered(ctx: ServerContext, projectId: string): void {
   delete held.timer;
   held.last = Date.now();
   if (turns.length === 0) return;
-  const happened = turns.map((turn) => turn.text).join("\n\n---\n\n");
-  const current = ctx.briefs.get(project.id);
   // the index is left to a session that kept it itself this turn
   const unkept = turns.filter((turn) => !keptItself(turn).index);
   const shapeHappened = unkept.map((turn) => turn.text).join("\n\n---\n\n");
   void foldShape(ctx, project, turns, shapeHappened).catch((err: unknown) =>
     warn("events", err, "foldShape"),
   );
-
-  // A project with no memory yet reads its chats whole — what they hold
-  // includes these turns — rather than starting from this batch alone.
-  if (!current.memory) {
-    void rebuildMemory(ctx, project.id);
-    return;
-  }
-  const before = current.memory;
-  foldMemory(
-    project.name,
-    before,
-    happened,
-    dayOf(),
-    (ref) => resolveRef(ctx, project.id, ref),
-    memoryStack(ctx, project.id),
-  )
-    .then((folded) => {
-      if (!folded) return;
-      const live = ctx.briefs.get(project.id).memory;
-      const memory = rebase(folded, before, live);
-      if (JSON.stringify(memory) === JSON.stringify(live)) return;
-      ctx.briefs.remember(project.id, memory);
-      pushSheet(ctx, project.id);
-    })
-    .catch(() => {});
 }
 
 /**
@@ -453,7 +426,13 @@ export function createTurnTracker(ctx: ServerContext): TurnTracker {
         }
         // a file it made finds its layer; one it removed is let go
         adoptFiles(ctx, owner.id, owner.path, files);
-        if (smallModelEnabled()) foldBrief(ctx, projectId, { ...turn, files });
+        if (smallModelEnabled()) {
+          foldBrief(ctx, projectId, { ...turn, files });
+          // into the memory, with every other finished turn
+          enqueueFold(ctx, owner.id, projectId, turn.turnId);
+        }
+        // and its meaning, for the searches to come
+        warmChat(ctx, projectId);
       })
       .catch((err: unknown) => warn("events", err, "settleTurnFiles"));
     if (!smallModelEnabled()) return;

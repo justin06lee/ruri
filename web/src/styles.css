@@ -691,139 +691,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   transform: rotate(45deg);
 }
 
-.folder-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 4px 10px 4px 6px;
-  margin-bottom: 3px;
-  border: none;
-  border-radius: var(--radius-s);
-  background: transparent;
-  color: var(--ink-faint);
-  font-size: var(--fs-md);
-  font-weight: 600;
-  text-align: left;
-}
-
-.folder-row:hover {
-  color: var(--ink);
-  background: color-mix(in srgb, var(--paper) 42%, var(--paper-dim));
-  transform: none;
-}
-
-.folder-row svg {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-}
-
-.folder-chevron {
-  width: 10px !important;
-  height: 10px !important;
-  transition: transform 120ms ease-out;
-}
-
-.folder-chevron.open {
-  transform: rotate(90deg);
-}
-
-.folder-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.folder-actions {
-  display: none;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.folder-row:hover .folder-actions {
-  display: flex;
-}
-
-.project-folder {
-  cursor: pointer;
-  color: var(--ink-soft);
-  font-weight: 600;
-}
-
-.folder-actions .star,
-.folder-actions .add-session,
-.folder-actions .remove {
-  border: none;
-  background: none;
-  padding: 2px;
-  color: var(--ink-faint);
-  line-height: 0;
-}
-
-.folder-actions .star svg,
-.folder-actions .add-session svg,
-.folder-actions .remove svg {
-  width: 12px;
-  height: 12px;
-}
-
-.folder-actions .star:hover,
-.folder-actions .add-session:hover {
-  color: var(--ink);
-  background: none;
-  transform: none;
-}
-
-.folder-actions .remove:hover {
-  color: var(--ink);
-  background: none;
-  transform: none;
-}
-
-.folder-actions .star.on {
-  color: var(--ink);
-}
-
-/* starred folders always show their star. A class, not :has(.star.on):
-   a :has() over a row is looked at again on every change inside it — the
-   dragon running beside a busy folder steps twice a second — and its
-   whole subtree restyled each time. */
-.project-folder.starred .folder-actions {
-  display: flex;
-}
-
-.project-folder.starred:not(:hover) .add-session,
-.project-folder.starred:not(:hover) .remove {
-  display: none;
-}
-
-.folder-children {
-  margin-left: 16px;
-}
-
-/* the chats from outside ruri: a quiet row under the project's own, and
-   the sessions it finds indented a step further, tagged by harness */
-.project-row.recent-row {
-  padding: 4px 10px;
-  margin-bottom: 5px;
-  background: transparent;
-  color: var(--ink-faint);
-  font-size: 12px;
-}
-
-.project-row.recent-row .folder-chevron {
-  width: 11px;
-  height: 11px;
-}
-
-.project-row.recent-row:hover,
-.project-row.recent-row.open {
-  color: var(--ink-soft);
-}
-
+/* the chats from outside ruri, on the team page (TeamPage.tsx): each one
+   found a quiet row, tagged by harness */
 .recent-note {
   padding: 2px 10px 8px 30px;
   font-size: var(--fs-sm);
@@ -939,8 +808,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border-color: var(--ink);
 }
 
-.project-row.renaming .remove,
-.folder-row.renaming .folder-actions {
+.project-row.renaming .remove {
   display: none;
 }
 
@@ -1030,20 +898,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    jaw and the open one swapped four times in a third of a second, once,
    and then it is still again. */
 
-.project-row .remove.busy,
-.project-folder.busy .folder-actions {
+.project-row .remove.busy {
   display: flex;
-}
-
-.project-folder.busy:not(:hover) .add-session,
-.project-folder.busy:not(:hover) .hide,
-.project-folder.busy:not(:hover) .star:not(.on) {
-  display: none;
-}
-
-/* over the starred folder's own rule, which tucks its X away unhovered */
-.project-folder.busy .folder-actions .remove.busy {
-  display: block;
 }
 
 .row-dragon {
@@ -1091,18 +947,15 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    each one shaking the head — and the jaws held open until the pointer
    goes, when the clock takes over again. The held pose is the animation's
    own last frame, which outranks the clock's step for as long as it lasts. */
-.project-row:hover .row-dragon,
-.folder-row:hover .row-dragon {
+.project-row:hover .row-dragon {
   animation: bite-shake 550ms linear 1 forwards;
 }
 
-.project-row:hover .row-dragon-frame.f1,
-.folder-row:hover .row-dragon-frame.f1 {
+.project-row:hover .row-dragon-frame.f1 {
   animation: chomp-open 550ms step-end 1 forwards;
 }
 
-.project-row:hover .row-dragon-frame.f2,
-.folder-row:hover .row-dragon-frame.f2 {
+.project-row:hover .row-dragon-frame.f2 {
   animation: chomp-shut 550ms step-end 1 forwards;
 }
 
@@ -9736,40 +9589,6 @@ button.stop:hover {
 }
 
 /* ── hidden projects ──────────────────────────────────────────────── */
-
-/* the hide toggle on a folder row sits with the star, plus and remove */
-.folder-actions .hide {
-  border: none;
-  background: none;
-  padding: 2px;
-  color: var(--ink-faint);
-  line-height: 0;
-}
-
-.folder-actions .hide svg {
-  width: 12px;
-  height: 12px;
-}
-
-.folder-actions .hide:hover {
-  color: var(--ink);
-  background: none;
-  transform: none;
-}
-
-.project-folder.starred:not(:hover) .hide {
-  display: none;
-}
-
-/* a hidden project, once the fold is open: there, but quieter */
-.project-folder.is-hidden {
-  color: var(--ink-faint);
-  opacity: 0.72;
-}
-
-.project-folder.is-hidden:hover {
-  opacity: 1;
-}
 
 /* the fold at the bottom of the list: "show 2 hidden" / "hide 2 hidden" —
    it sits at the foot of the sidebar, under whatever room the list leaves */

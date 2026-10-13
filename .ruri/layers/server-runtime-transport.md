@@ -1,6 +1,6 @@
 # ruri — Server runtime and transport
 
-One layer of ruri's stack, owning `server/, scripts/auth.ts, scripts/lib/server.ts, scripts/port.ts, scripts/uploads-sweep.ts, shared/protocol.ts, shared/clientSchema.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
+One layer of ruri's stack, owning `server/, scripts/auth.ts, scripts/lib/server.ts, scripts/port.ts, scripts/uploads-sweep.ts, shared/protocol.ts, shared/clientSchema.ts, bunfig.toml, scripts/test-config.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer server-runtime-transport` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer server-runtime-transport add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
 This layer is the Node HTTP + WebSocket transport everything else rides on: one port serving the UI, uploads, and the socket every window talks over. It is built around a single shared ServerContext (server/context.ts) assembled once in server/server.ts and handed to routes, socket, and handlers. A newcomer must grasp: this layer moves bytes and enforces origin/token gates — domain logic lives in handlers and other layers, not here — and a window only sleeps when it cannot be seen at all (minimized, on another Space, or fully covered); a visible-but-unfocused window stays live and keeps receiving streams.
@@ -15,8 +15,8 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - **Secrets vault and placeholders:** server/secrets.ts, server/atomic.ts
 - **Usage and machine meters:** server/usage.ts, server/gauges.ts, server/resources.ts
 - **Port claim and orphan retire:** server/port.ts, scripts/port.ts, scripts/lib/server.ts
-- **Handler dispatch entry:** server/handlers/index.ts, server/handlers/types.ts, server/context.ts
-- **Project memory, sheets and auto-compact:** server/archive.ts, shared/protocol.ts
+- **Handler dispatch entry:** server/dispatch.ts, server/events.ts, server/chats.ts, server/handlers/index.ts
+- **Project memory, sheets and auto-compact:** server/archive.ts, server/compaction.ts, server/brief.ts, server/catchupBrief.ts
 - **Bridge proxy, hidden browser and terminal pty:** server/bridge.ts, server/terminal.ts, server/socket.ts
 - **Harness updater:** server/updater.ts, server/updater.test.ts
 
@@ -36,8 +36,8 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - server/auth.ts — origin and token checks for HTTP and socket
 - server/uploads.ts — attachment persist, model payload, serve and sweep
 - server/archive.ts — turn archive with stable exchange numbers, memory fold and grounding
-- server/bridge.ts — HTTP proxy to bridge state for hidden-browser and native-app calls
-- server/terminal.ts — real pty backing terminal tabs
+- server/compaction.ts — auto-compact and digest fold of turns
+- server/dispatch.ts — mutating request dispatch into stores and handlers
 
 ## Rules and traps
 
@@ -45,7 +45,7 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - Never weaken the gate: mutating HTTP needs token + permitted origin, socket needs both at upgrade; GETs stay open.
 - The port is identity (origin for stored prefs) — claim it via server/port.ts, never silently fall to an ephemeral port.
 - Transcript fan-out is scoped: live per-chat events go only to windows showing that chat (server/clients.ts).
-- Uploads must persist as URL-backed files, never inline megabytes of base64 in transcript events.
+- Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder of its own (bunfig.toml, scripts/test-config.ts), so a test run never touches ~/.config/ruri.
 - Secrets must never enter model context, logs, or transcripts — only names/placeholders leave server/secrets.ts.
 
 ## What it talks to

@@ -1,6 +1,6 @@
 # ruri — Management: agents, skills and tracking
 
-One layer of ruri's stack, owning `web/src/components/AgentsPage.tsx, web/src/components/Integrations.tsx, web/src/components/Skills.tsx, web/src/components/Ideas.tsx, web/src/components/Tracker.tsx, web/src/components/TalkPage.tsx, web/src/components/Statistics.tsx, web/src/components/Bridge.tsx, web/src/components/figures.ts, web/src/lib/models.ts, scripts/meters.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
+One layer of ruri's stack, owning `web/src/components/AgentsPage.tsx, web/src/components/Integrations.tsx, web/src/components/Skills.tsx, web/src/components/Ideas.tsx, web/src/components/Tracker.tsx, web/src/components/TalkPage.tsx, web/src/components/Statistics.tsx, web/src/components/Bridge.tsx, web/src/components/figures.ts, web/src/lib/models.ts, scripts/meters.ts, web/src/components/TeamPage.tsx`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer management-pages` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer management-pages add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
 Management layer holds the secondary boards and settings pages: agents/scripts, harness integrations, skills, ideas, tracker review, talk rules, and cost/machine statistics. Pages are thin views over server state via the store's `send`/`useRuri`, with formatting shared in figures.ts and model-name helpers in models.ts. Newcomer idea: ruri never owns harness config here — it displays and delegates to harness CLIs, bmo, ledger, and tracker/talk servers.
@@ -12,7 +12,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - **Skills install/enable view:** web/src/components/Skills.tsx
 - **Ideas board:** web/src/components/Ideas.tsx
 - **Feature tracker review:** web/src/components/Tracker.tsx
-- **Talk permissions and letters:** web/src/components/TalkPage.tsx
+- **Talk permissions and letters; the team page (a lead's members, the machine's room for them):** web/src/components/TalkPage.tsx, web/src/components/TeamPage.tsx
 - **Cost statistics and machine meters:** web/src/components/Statistics.tsx, web/src/components/figures.ts, scripts/meters.ts
 - **Bridge preview strip:** web/src/components/Bridge.tsx
 - **Number formatting:** web/src/components/figures.ts
@@ -31,10 +31,10 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - web/src/components/Integrations.tsx — MCP servers/plugins view delegating to harness CLIs
 - web/src/components/Tracker.tsx — hand-test checklist review with finish-to-composer
 - web/src/components/Ideas.tsx — user-written wants board with draft persistence and attachments
-- web/src/components/TalkPage.tsx — who-may-message-whom rules plus recent letters
+- web/src/components/TeamPage.tsx — a project's team: each member's state, duty, layers, context and last words, the machine's slot budget, compact/restart/clear/retire, outside chats brought in as teammates
 - web/src/components/Skills.tsx — bmo/filesystem skills view with skills-off toggle
 - web/src/components/Bridge.tsx — live hidden-window plate above composer with take-over
-- web/src/components/figures.ts — shared money/count/span formatting
+- web/src/components/TalkPage.tsx — who-may-message-whom rules plus recent letters (figures.ts formats money/counts/spans for every page)
 - web/src/lib/models.ts — harnessName and roughName label helpers
 
 ## Rules and traps

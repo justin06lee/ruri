@@ -1,6 +1,6 @@
 # ruri — Chat runs and queue
 
-One layer of ruri's stack, owning `server/chats.ts, server/channel.ts, server/dispatch.ts, server/events.ts, server/queue.ts, server/turns.ts, server/retry.ts, server/blocked.ts, server/paragraphs.ts, server/drafts.ts, server/commands.ts, server/homelog.ts, server/handlers/prompts.ts, server/handlers/rewind.ts, server/handlers/transcript.ts, server/handlers/talk.ts, server/talk.ts, scripts/rewind-git.ts, scripts/rewind.ts, scripts/smoke.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
+One layer of ruri's stack, owning `server/chats.ts, server/channel.ts, server/dispatch.ts, server/events.ts, server/queue.ts, server/turns.ts, server/retry.ts, server/blocked.ts, server/paragraphs.ts, server/drafts.ts, server/commands.ts, server/homelog.ts, server/handlers/prompts.ts, server/handlers/rewind.ts, server/handlers/transcript.ts, server/handlers/talk.ts, server/talk.ts, scripts/rewind-git.ts, scripts/rewind.ts, scripts/smoke.ts, server/team.ts, server/handlers/team.ts, scripts/team.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer chat-runs-queue` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer chat-runs-queue add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
 This layer runs live chat turns: prompt dispatch, app-side queue, per-channel turn progress, and transcript delivery over the socket. It is built around dispatch.ts handing prompts to harness sessions, queue.ts holding what waits, turns.ts tracking the turn in flight, and events.ts recording each transcript event. Newcomers must grasp that a prompt is written, checkpointed, titled, and queued or run, and a finished turn drains the queue or retries.
@@ -12,7 +12,7 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - **turn progress and context gauge:** server/turns.ts, server/channel.ts
 - **transcript delivery and history:** server/handlers/transcript.ts, server/events.ts
 - **rewind and fork:** server/handlers/rewind.ts, server/turns.ts, scripts/rewind.ts, scripts/rewind-git.ts
-- **agent-to-agent talk:** server/talk.ts, server/handlers/talk.ts
+- **agent-to-agent talk and project teams (lead, members, slots, the lead's team tools):** server/talk.ts, server/handlers/talk.ts, server/team.ts, server/handlers/team.ts
 - **slash commands in prompts:** server/commands.ts, server/dispatch.ts
 - **retry and dropped turns:** server/retry.ts, server/dispatch.ts
 - **chat session wiring:** server/chats.ts, server/channel.ts
@@ -24,7 +24,7 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 
 - **prompt to running turn:** handlers/prompts.ts accepts send, split, stop, or queue rearrange → dispatch.ts writes prompt to transcript, checkpoints, titles, splits slash commands → queue.ts holds it if channel busy, visible or silent entry → chats.ts hands it to the chat session with briefing and tools → turns.ts tracks progress and context during the run → events.ts records, redacts, archives, and pushes each event → finished turn triggers drainQueue and maybeRetry in dispatch.ts
 - **rewind:** handlers/rewind.ts receives rewind to just before a prompt ran → restoreContext resets context gauge to the kept exchange → files and repo restored via native fork or checkpoint plus brief → transcript truncated and prompt returned to composer
-- **talk message:** handlers/talk.ts checks seats and TalkPolicy via talk.ts rules → message delivered into other chat as a prompt with from marking → it queues behind that chat's work like a user prompt → at turn end the last word is clipped and carried back to sender
+- **talk message:** handlers/talk.ts checks seats and TalkPolicy via talk.ts rules → delivered into the other chat as a prompt marked whose — a sleeping team member only when the memory budget has a slot (server/handlers/team.ts hasSlot), else waitForSlot until a member's turn ends and releaseWaiting drains it → queues behind that chat's work like a user prompt → at turn end the last word is clipped and carried back to sender
 
 ## Key files
 
@@ -33,18 +33,18 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - server/turns.ts — turn in flight per channel, progress clock, context window
 - server/events.ts — transcript event intake, redact, archive, push, small-model follow-ups
 - server/chats.ts — chat session manager wiring sessions to server
-- server/channel.ts — channel busy, running, and project ownership
+- server/team.ts — a project's team: the memory budget (TeamGovernor, slotsFor), the lead's and members' words, the lead's MCP tools
 - server/handlers/prompts.ts — composer messages: send, split, queue, stop, drafts, cards
 - server/talk.ts — agent-to-agent rules, handles, wording, in-flight book, tools
 - server/handlers/rewind.ts — rewind and fork across harnesses
-- server/handlers/transcript.ts — transcript tail, history, subscriptions, turn removal
+- server/handlers/team.ts — slot gate and release for sleeping members, the roster and team page, actOn (compact/restart/clear/retire), teamHost behind the tools and POST /talk
 
 ## Rules and traps
 
 - Split sub-prompts ride silent under the original prompt; split only when reaching the front so earlier commands run first.
 - An entry being rewritten keeps queue place but nothing sends it until the rewrite returns.
-- Quoted slash commands ('/compact', "/compact", `/compact`) stay plain text and go to the model untouched.
-- Only existing commands count: ruri's own, harness prompt commands, installed skills; /tmp alone on a line is a path.
+- Only existing commands count — ruri's own, harness prompt commands, installed skills; quoted ones ('/compact', "/compact", `/compact`) and /tmp alone on a line stay plain text to the model.
+- A team member at work holds a slot; one holding on an answer (talk.awaiting) does not, or members waiting on each other's teammates hold every slot for good. Only waking a sleeping member is gated — never a lead, never a member mid-turn.
 - Turn progress lives in turns.ts not the window so the clock survives reload; broadcast deltas throttled to one message a second.
 - Rewind must restore files, branch, transcript, composer prompt, and context gauge to the kept exchange, not the tip.
 

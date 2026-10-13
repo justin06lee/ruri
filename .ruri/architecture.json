@@ -1,7 +1,7 @@
 {
-  "description": "A desktop app for macOS and Linux for managing projects as folders of parallel LLM coding sessions, powered by installed agent CLIs.",
+  "description": "A desktop app for macOS and Linux for managing projects — each one lead agent the user talks to, with a team of persistent agent sessions behind it — powered by installed agent CLIs.",
   "features": [
-    "Project workspaces: folders, parallel sessions, persistence, visibility controls, single-open guard",
+    "Project workspaces: one lead chat per project with a team of persistent members behind it (duties, sleep between jobs, a memory-budgeted number at work, team page), visibility controls, single-open guard",
     "Home workspace agent: finds projects by name, opens them, kicks off sessions",
     "Any harness verbatim: Claude, Codex, OpenCode, Gemini, ACP, per-chat model/effort/permissions",
     "Streaming markdown replies: tool chips, inline diffs, read previews, unified permission cards",
@@ -13,7 +13,7 @@
     "Agent messaging with interrupt-or-queue delivery, busy status, new-chat start, approvals",
     "Bridge preview and takeover for web pages via hidden CDP browser and native apps via Accessibility (macOS) or X11 + AT-SPI over D-Bus (Linux)",
     "MCP servers, plugins, marketplaces for Claude Code and Codex via Settings",
-    "Project memory with recall search, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup",
+    "Project memory as an audited log, folded from every finished turn and checked against the code, with project-wide recall by words and meaning, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup",
     "Sessions edit layer sheets only after reading, by line number with stale-read guard",
     "Frontend component library with freshness stamps, auto-refresh and picture capture",
     "Linux: per-user make install, GNOME app grid entry, Ctrl for ⌘ shortcuts, no grants to ask for"
@@ -52,7 +52,7 @@
     },
     {
       "name": "Navigation: sidebar, projects and queue",
-      "what": "Moving between projects and sessions, with sidebar, home board, switcher, queue and rapid fire",
+      "what": "Moving between projects (each its lead), with sidebar, home board, switcher, queue and rapid fire",
       "slug": "navigation-projects",
       "paths": [
         "web/src/components/Sidebar.tsx",
@@ -82,7 +82,8 @@
         "web/src/components/Bridge.tsx",
         "web/src/components/figures.ts",
         "web/src/lib/models.ts",
-        "scripts/meters.ts"
+        "scripts/meters.ts",
+        "web/src/components/TeamPage.tsx"
       ]
     },
     {
@@ -124,7 +125,9 @@
         "web/index.html",
         "eslint.config.js",
         "scripts/run-tests.ts",
-        "vite.config.ts"
+        "vite.config.ts",
+        "scripts/session-settings.ts",
+        "scripts/sharing.ts"
       ]
     },
     {
@@ -151,7 +154,10 @@
         "server/talk.ts",
         "scripts/rewind-git.ts",
         "scripts/rewind.ts",
-        "scripts/smoke.ts"
+        "scripts/smoke.ts",
+        "server/team.ts",
+        "server/handlers/team.ts",
+        "scripts/team.ts"
       ]
     },
     {
@@ -182,7 +188,23 @@
         "server/handlers/boards.ts",
         "server/gitState.ts",
         "server/ruriDir.ts",
-        "server/configDir.ts"
+        "server/configDir.ts",
+        "server/memoryLog.ts",
+        "server/memoryFold.ts",
+        "server/memoryQueue.ts",
+        "server/memoryCheck.ts",
+        "server/memoryQuality.ts",
+        "server/grounding.ts",
+        "server/similarity.ts",
+        "server/embeddings.ts",
+        "server/retrieval.ts",
+        "server/projectSearch.ts",
+        "server/digestFold.ts",
+        "server/sheetBudget.ts",
+        "server/turnRecords.ts",
+        "scripts/digest.ts",
+        "scripts/memory-eval.ts",
+        "scripts/self-compact.ts"
       ]
     },
     {
@@ -233,7 +255,9 @@
         "scripts/port.ts",
         "scripts/uploads-sweep.ts",
         "shared/protocol.ts",
-        "shared/clientSchema.ts"
+        "shared/clientSchema.ts",
+        "bunfig.toml",
+        "scripts/test-config.ts"
       ]
     },
     {
@@ -291,9 +315,8 @@
     {
       "name": "An agent messages another agent",
       "steps": [
-        "Talk page (web/src/components/TalkPage.tsx)",
-        "server/talk.ts + relay",
-        "target chat interrupted or queued, or new chat started",
+        "message_agent / start_chat (server/talk.ts, server/handlers/talk.ts)",
+        "target interrupted or queued; a sleeping team member woken when the memory budget has a slot (server/handlers/team.ts), another project reached through its lead",
         "approval card / reply back"
       ]
     },
@@ -497,10 +520,10 @@
       ]
     },
     "navigation-projects": {
-      "summary": "This layer moves the user between projects and sessions: sidebar project/session list, HomeBoard projects overview, ⌘K/right-Option Switcher, per-chat Queue list, Rapid Fire line, SessionControls pickers, and Player music bar. It is built as presentational React components over the app store (`useRuri`/`send`) plus three small libs (fuzzy scoring, run-note staleness, Web Audio engine). Newcomers must grasp that these components navigate and display state but never own turn execution — sends go through the store/socket and the active session stays put unless explicitly changed.",
+      "summary": "This layer moves the user between projects: a sidebar row per project (its lead behind it, the count of teammates at work beside it), HomeBoard projects overview, ⌘K/right-Option Switcher, per-chat Queue list, Rapid Fire line, SessionControls pickers, and Player music bar. It is built as presentational React components over the app store (useRuri/send) plus three small libs (fuzzy scoring, run-note staleness, Web Audio engine). Newcomers must grasp that a project is one chat for the user — its lead; its team's members never show here — and these components navigate and display state but never own turn execution.",
       "map": [
         {
-          "name": "Sidebar project/session list",
+          "name": "Sidebar project rows (one a project, its lead)",
           "files": [
             "web/src/components/Sidebar.tsx",
             "web/src/components/Player.tsx"
@@ -559,12 +582,12 @@
       ],
       "flows": [
         {
-          "name": "Switch project/session",
+          "name": "Switch project",
           "steps": [
-            "Sidebar row click, Switcher Enter, HomeBoard card, or RapidBar channel handoff calls setActive/go",
-            "Store updates activeId while app active session is preserved where required (RapidFire)",
-            "Chat pane renders the newly active channel transcript",
-            "Unread pips and recent-note lines update from store"
+            "Sidebar row, Switcher Enter, HomeBoard card, or RapidBar hand-off calls setActive/go on the project's lead",
+            "setActive turns a member's id into its lead's (store.ts shownChat) while app active session is preserved where required (RapidFire)",
+            "Chat pane renders the lead's transcript",
+            "Unread pips and recent-note lines update from store (teammates' turns wear none)"
           ]
         },
         {
@@ -588,9 +611,9 @@
         }
       ],
       "files": [
-        "web/src/components/Sidebar.tsx — project/session list, Home row, unread pips, star/hide, account bar",
+        "web/src/components/Sidebar.tsx — a row per project (ProjectRow: the lead behind it, teammates at work counted, star/hide/remove), Home and Projects rows, account bar",
         "web/src/components/HomeBoard.tsx — HomeTab/HomeDeck/ProjectsPage grid of per-project status cards",
-        "web/src/components/Switcher.tsx — ⌘K/right-Option fuzzy search over places, projects, sessions",
+        "web/src/components/Switcher.tsx — ⌘K/right-Option fuzzy search over places and projects, each opening its lead",
         "web/src/components/Queue.tsx — QueuedList/QueueStandby editable held-prompt cards with drag reorder/merge",
         "web/src/components/RapidFire.tsx — RapidFire/useRapidFire/RapidBar same-chat session line",
         "web/src/components/SessionControls.tsx — composer's per-chat model/effort/permission pickers",
@@ -601,7 +624,7 @@
       ],
       "rules": [
         "HomeBoard never animates: streaming reply words and anything moving belong only to the open chat.",
-        "RapidFire must not move the app's active session; exiting the line returns to where the user was.",
+        "A project's team never shows here: the sidebar, switcher, rapid fire line and projects board give each project once, as its lead (leadOf), and setActive sends a member's id to its lead. RapidFire must not move the app's active session; leaving the line returns to where the user was.",
         "SessionControls picks are per chat (session id / Home channelId), never per project.",
         "Queued prompts stay app-side until their turn; editable/removable up to dispatch only.",
         "Switcher opens on right-Option tap alone; Option held for shortcuts (e.g. ⌥→) must not open it.",
@@ -649,9 +672,10 @@
           ]
         },
         {
-          "name": "Talk permissions and letters",
+          "name": "Talk permissions and letters; the team page (a lead's members, the machine's room for them)",
           "files": [
-            "web/src/components/TalkPage.tsx"
+            "web/src/components/TalkPage.tsx",
+            "web/src/components/TeamPage.tsx"
           ]
         },
         {
@@ -716,10 +740,10 @@
         "web/src/components/Integrations.tsx — MCP servers/plugins view delegating to harness CLIs",
         "web/src/components/Tracker.tsx — hand-test checklist review with finish-to-composer",
         "web/src/components/Ideas.tsx — user-written wants board with draft persistence and attachments",
-        "web/src/components/TalkPage.tsx — who-may-message-whom rules plus recent letters",
+        "web/src/components/TeamPage.tsx — a project's team: each member's state, duty, layers, context and last words, the machine's slot budget, compact/restart/clear/retire, outside chats brought in as teammates",
         "web/src/components/Skills.tsx — bmo/filesystem skills view with skills-off toggle",
         "web/src/components/Bridge.tsx — live hidden-window plate above composer with take-over",
-        "web/src/components/figures.ts — shared money/count/span formatting",
+        "web/src/components/TalkPage.tsx — who-may-message-whom rules plus recent letters (figures.ts formats money/counts/spans for every page)",
         "web/src/lib/models.ts — harnessName and roughName label helpers"
       ],
       "rules": [
@@ -1055,10 +1079,12 @@
           ]
         },
         {
-          "name": "agent-to-agent talk",
+          "name": "agent-to-agent talk and project teams (lead, members, slots, the lead's team tools)",
           "files": [
             "server/talk.ts",
-            "server/handlers/talk.ts"
+            "server/handlers/talk.ts",
+            "server/team.ts",
+            "server/handlers/team.ts"
           ]
         },
         {
@@ -1128,8 +1154,8 @@
           "name": "talk message",
           "steps": [
             "handlers/talk.ts checks seats and TalkPolicy via talk.ts rules",
-            "message delivered into other chat as a prompt with from marking",
-            "it queues behind that chat's work like a user prompt",
+            "delivered into the other chat as a prompt marked whose — a sleeping team member only when the memory budget has a slot (server/handlers/team.ts hasSlot), else waitForSlot until a member's turn ends and releaseWaiting drains it",
+            "queues behind that chat's work like a user prompt",
             "at turn end the last word is clipped and carried back to sender"
           ]
         }
@@ -1140,17 +1166,17 @@
         "server/turns.ts — turn in flight per channel, progress clock, context window",
         "server/events.ts — transcript event intake, redact, archive, push, small-model follow-ups",
         "server/chats.ts — chat session manager wiring sessions to server",
-        "server/channel.ts — channel busy, running, and project ownership",
+        "server/team.ts — a project's team: the memory budget (TeamGovernor, slotsFor), the lead's and members' words, the lead's MCP tools",
         "server/handlers/prompts.ts — composer messages: send, split, queue, stop, drafts, cards",
         "server/talk.ts — agent-to-agent rules, handles, wording, in-flight book, tools",
         "server/handlers/rewind.ts — rewind and fork across harnesses",
-        "server/handlers/transcript.ts — transcript tail, history, subscriptions, turn removal"
+        "server/handlers/team.ts — slot gate and release for sleeping members, the roster and team page, actOn (compact/restart/clear/retire), teamHost behind the tools and POST /talk"
       ],
       "rules": [
         "Split sub-prompts ride silent under the original prompt; split only when reaching the front so earlier commands run first.",
         "An entry being rewritten keeps queue place but nothing sends it until the rewrite returns.",
-        "Quoted slash commands ('/compact', \"/compact\", `/compact`) stay plain text and go to the model untouched.",
-        "Only existing commands count: ruri's own, harness prompt commands, installed skills; /tmp alone on a line is a path.",
+        "Only existing commands count — ruri's own, harness prompt commands, installed skills; quoted ones ('/compact', \"/compact\", `/compact`) and /tmp alone on a line stay plain text to the model.",
+        "A team member at work holds a slot; one holding on an answer (talk.awaiting) does not, or members waiting on each other's teammates hold every slot for good. Only waking a sleeping member is gated — never a lead, never a member mid-turn.",
         "Turn progress lives in turns.ts not the window so the clock survives reload; broadcast deltas throttled to one message a second.",
         "Rewind must restore files, branch, transcript, composer prompt, and context gauge to the kept exchange, not the tip."
       ],
@@ -1163,7 +1189,7 @@
       ]
     },
     "projects-memory-history": {
-      "summary": "This layer owns project sessions and everything remembered about them: sessions/chats in projects.json, live transcripts plus history, per-prompt file checkpoints, working memory lines, BM25 recall, and the .ruri/architecture.md briefs. It is built as small stores over ~/.config/ruri (sessions, history) and the project .ruri dir, with scripts/* as CLI/test entry points. A newcomer must grasp the split: live session file is rewritten per event, history JSONL is append-only by compaction, and briefs/memory are precomputed so resume and compaction stay instant.",
+      "summary": "This layer owns project sessions and everything remembered about them: sessions/chats in projects.json, live transcripts plus history with stable exchange numbers, per-prompt file checkpoints, the project memory, project-wide recall, and the .ruri briefs and sheets. The memory is an append-only event log per project (memory/<id>.jsonl) whose current lines are written to briefs.json; every finished turn is folded in by the memory model as ops, and each line is checked against the code it names. A newcomer must grasp the split: the live session file is rewritten per event, history JSONL is append-only by compaction, the memory changes only through its log, and briefs are assembled at send time without calling a model.",
       "map": [
         {
           "name": "Project sessions (open/close/rename/star/hide)",
@@ -1192,26 +1218,39 @@
           ]
         },
         {
-          "name": "Compaction and digests",
+          "name": "Compaction, digests and auto-compact",
           "files": [
             "server/compaction.ts",
             "server/handoff.ts",
-            "scripts/digest.ts"
+            "server/digestFold.ts",
+            "server/turnRecords.ts",
+            "scripts/digest.ts",
+            "scripts/self-compact.ts"
           ]
         },
         {
-          "name": "Working memory lines",
+          "name": "Memory log, folds and the check against the code",
           "files": [
+            "server/memoryLog.ts",
+            "server/memoryFold.ts",
+            "server/memoryQueue.ts",
+            "server/memoryCheck.ts",
+            "server/grounding.ts",
+            "server/memoryQuality.ts",
             "server/memoryLines.ts",
             "server/memory.ts",
-            "server/memoryCli.ts"
+            "server/memoryCli.ts",
+            "scripts/memory-eval.ts"
           ]
         },
         {
-          "name": "Recall across chats",
+          "name": "Recall across the project",
           "files": [
+            "server/projectSearch.ts",
+            "server/retrieval.ts",
             "server/recall.ts",
-            "server/memoryCli.ts",
+            "server/embeddings.ts",
+            "server/similarity.ts",
             "scripts/recall.ts"
           ]
         },
@@ -1220,7 +1259,8 @@
           "files": [
             "server/brief.ts",
             "server/catchupBrief.ts",
-            "server/briefing.ts"
+            "server/briefing.ts",
+            "server/sheetBudget.ts"
           ]
         },
         {
@@ -1269,10 +1309,10 @@
         {
           "name": "Compact and resume",
           "steps": [
-            "server/compaction.ts builds brief from per-exchange recall notes without calling a model",
-            "server/archive.ts appends pre-compaction live events to history JSONL and retires live session",
-            "brief rides invisibly on next prompt; archived turn files refreshed/removed via refreshArchivedTurnFiles/removeTurnFiles",
-            "fresh session reads .ruri brief plus full exchange files on demand"
+            "past the harness's share of the window at turn end (0.8; Gemini 0.6), or by the user",
+            "compactChannel (server/dispatch.ts)",
+            "server/archive.ts appends live events to history JSONL, keeps exchange numbers, retires the live session",
+            "brief built at send within 10k tokens, no model call (server/compaction.ts, server/handoff.ts); when Claude compacts itself, its PreCompact/SessionStart hooks (server/sessions.ts) get afterCompactBrief and the sheet-read guard resets"
           ]
         },
         {
@@ -1286,20 +1326,23 @@
         {
           "name": "Remember and recall",
           "steps": [
-            "agent writes first-hand line via ruri note (server/memoryCli.ts) or small model folds chats into id-addressed lines (server/memoryLines.ts)",
-            "lines kept per-part with caps; agent/user lines kept or retired, never rephrased",
-            "ruri recall / prompt-time pick scores exchanges with BM25 over notes, words, reply open/close and changed files (server/recall.ts)"
+            "turn end",
+            "enqueueFold (server/memoryQueue.ts)",
+            "memory model returns ADD/UPDATE/SUPERSEDE/RETIRE/NOOP ops (server/memoryFold.ts)",
+            "MemoryBook.apply (server/memoryLog.ts) appends events, writes current lines to briefs.json",
+            "server/memoryCheck.ts checks anchors (server/grounding.ts); a verifier confirms, supersedes or retires",
+            "ruri recall and the brief's pick fuse BM25, trigram and embeddings by RRF across the project (server/projectSearch.ts, server/retrieval.ts)"
           ]
         }
       ],
       "files": [
-        "server/projects.ts — ProjectStore over projects.json plus per-chat session settings",
+        "server/projects.ts — ProjectStore over projects.json plus per-chat session settings; a project's lead first and its members with duty and layers (formTeams at launch, addMember, setMember)",
         "server/handlers/projects.ts — socket moves for projects and sessions",
         "server/archive.ts — live sessions/<id>.json plus append-only history/<id>.jsonl and turn summaries",
         "server/checkpoints.ts — per-prompt hidden git commits and rewind",
-        "server/compaction.ts — model-free compaction briefs and digests",
-        "server/memoryLines.ts — id-addressed working-memory lines with per-part caps",
-        "server/recall.ts — BM25 exchange search across chats",
+        "server/compaction.ts — briefs within the token budget, state lines, anchored digest sections",
+        "server/memoryLog.ts — the memory event log: actor rules, caps that archive, undo, reconcile with briefs.json; fed by server/memoryQueue.ts, checked by server/memoryCheck.ts",
+        "server/projectSearch.ts — project-wide hybrid search over exchanges and memory lines (BM25 in server/recall.ts)",
         "server/brief.ts — .ruri/architecture.md shape and stack/layer sheets",
         "server/catchupBrief.ts — sheet broadcast and rebuild from app side",
         "server/recent.ts — outside-ruri harness sessions listed and imported"
@@ -1307,15 +1350,16 @@
       "rules": [
         "Nothing except compaction appends to history/<id>.jsonl; live session file is the only rewritten transcript.",
         "Checkpoints must use a private index file and refs/ruri/ refs; never touch the user's staging area, branch, or pushed refs.",
-        "Memory fold addresses kept lines by id and returns them verbatim; only the small model's own lines may be reworded, pinned lines always stay.",
-        "Compaction calls no model; it only assembles already-written per-exchange recall notes.",
-        "Only sessions ruri did not start are offered by recent import; never re-import a sidebar chat."
+        "The memory changes only through MemoryBook.apply (server/memoryLog.ts), never by writing briefs.json: a line a fold leaves out stays; the model edits only its own lines; agent lines go only with a reason and evidence; user and pinned lines are never touched by the model; cap overflow archives.",
+        "Building and sending a brief calls no model and never waits on one (embeddings count only if already warmed; the digest folds in the background), and the system-prompt briefing stays byte-stable so the prompt cache holds — anything dynamic (<state>, <memory-update>) rides in the prompt.",
+        "Only sessions ruri did not start are offered by recent import; never re-import a sidebar chat.",
+        "Exchange numbers are stable (seqs/nextSeq in server/archive.ts); refs and turn files use them, never a position."
       ],
       "edges": [
         "Chat runs and queue — supplies prompts, turns, events and rewind entry points this layer archives and checkpoints",
         "Protocol — TranscriptEvent, TurnSummary, MemoryLine, Project/Session and brief sheet types in shared/protocol.ts",
         "Server runtime and transport — routing, auth, uploads and stores hosting projects/handlers endpoints",
-        "Agent harnesses — harness session ids resumed and settled via agents/sessions",
+        "Agent harnesses — session ids resumed; the memory model's lane (completeMemory in server/smallmodel.ts) and Claude's PreCompact/SessionStart hooks (server/sessions.ts)",
         "Library, skills and sweeps — sweep/describe candidates feed catchup; library owns skill removal on teardown"
       ]
     },
@@ -1638,16 +1682,19 @@
         {
           "name": "Handler dispatch entry",
           "files": [
-            "server/handlers/index.ts",
-            "server/handlers/types.ts",
-            "server/context.ts"
+            "server/dispatch.ts",
+            "server/events.ts",
+            "server/chats.ts",
+            "server/handlers/index.ts"
           ]
         },
         {
           "name": "Project memory, sheets and auto-compact",
           "files": [
             "server/archive.ts",
-            "shared/protocol.ts"
+            "server/compaction.ts",
+            "server/brief.ts",
+            "server/catchupBrief.ts"
           ]
         },
         {
@@ -1707,15 +1754,15 @@
         "server/auth.ts — origin and token checks for HTTP and socket",
         "server/uploads.ts — attachment persist, model payload, serve and sweep",
         "server/archive.ts — turn archive with stable exchange numbers, memory fold and grounding",
-        "server/bridge.ts — HTTP proxy to bridge state for hidden-browser and native-app calls",
-        "server/terminal.ts — real pty backing terminal tabs"
+        "server/compaction.ts — auto-compact and digest fold of turns",
+        "server/dispatch.ts — mutating request dispatch into stores and handlers"
       ],
       "rules": [
         "Never put domain logic in routes/socket — dispatch to server/handlers/index.ts; what each message does lives per-domain.",
         "Never weaken the gate: mutating HTTP needs token + permitted origin, socket needs both at upgrade; GETs stay open.",
         "The port is identity (origin for stored prefs) — claim it via server/port.ts, never silently fall to an ephemeral port.",
         "Transcript fan-out is scoped: live per-chat events go only to windows showing that chat (server/clients.ts).",
-        "Uploads must persist as URL-backed files, never inline megabytes of base64 in transcript events.",
+        "Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder of its own (bunfig.toml, scripts/test-config.ts), so a test run never touches ~/.config/ruri.",
         "Secrets must never enter model context, logs, or transcripts — only names/placeholders leave server/secrets.ts."
       ],
       "edges": [

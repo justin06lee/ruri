@@ -1,7 +1,7 @@
 {
   "name": "ruri",
   "version": "0.76.0",
-  "description": "One desktop workspace for all your projects, each a folder of live coding sessions.",
+  "description": "One desktop workspace for all your projects, each one lead you talk to, with a team of agents behind it.",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.mjs",
@@ -75,6 +75,7 @@
     "rewind-compaction-test": "tsx scripts/rewind-compaction.ts",
     "self-compact-test": "tsx scripts/self-compact.ts",
     "talk-test": "tsx scripts/talk.ts",
+    "team-test": "tsx scripts/team.ts",
     "talk-replies-test": "tsx scripts/talk-replies.ts"
   },
   "dependencies": {

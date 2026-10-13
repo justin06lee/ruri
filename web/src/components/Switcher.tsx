@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HOME_ID } from "../../../shared/protocol";
+import { HOME_ID, leadOf } from "../../../shared/protocol";
 import { prefetchTranscript, send, useRuri } from "../store";
 import { score } from "../lib/fuzzy";
 import { commandKey } from "../lib/keys";
 
 /**
  * The switcher: tap the right Option key (or ⌘K) and a search stands over
- * the app. Type a few letters of a project, a session, or a place — Home,
+ * the app. Type a few letters of a project or a place — Home,
  * Rapid fire, Settings — and Enter goes to the best match. The best match
  * is also written into the box ahead of the caret, greyed, the way
  * Spotlight completes a name; Tab or → takes the completion, arrows move
@@ -17,19 +17,21 @@ import { commandKey } from "../lib/keys";
  * is not a tap, and opens nothing.
  */
 
-type Kind = "place" | "project" | "session";
+type Kind = "place" | "project";
 
 interface Entry {
   id: string;
   kind: Kind;
   /** What is searched and completed. */
   name: string;
-  /** Where it is — the project's path, the session's project. */
+  /** Where it is — the project's path. */
   where?: string;
+  /** The chat it opens on: a project's lead. */
+  chat?: string;
   go(): void;
 }
 
-const KIND_LABEL: Record<Kind, string> = { place: "go", project: "project", session: "chat" };
+const KIND_LABEL: Record<Kind, string> = { place: "go", project: "project" };
 
 /** A project's own page name, for the list and the completion. */
 function shortPath(path: string): string {
@@ -75,31 +77,25 @@ export function Switcher() {
         kind: "project",
         name: project.name,
         where: shortPath(project.path),
+        ...(leadOf(project) ? { chat: leadOf(project)!.id } : {}),
+        // a project is its lead: the one chat it has for the user
         go: () => {
-          const first = project.sessions[0];
-          if (first) {
-            setActive(first.id);
+          const lead = leadOf(project);
+          if (lead) {
+            setActive(lead.id);
             return;
           }
           // no chats yet: open one, and go to it when it arrives
           send({ type: "new_session", projectId: project.id });
           const unsubscribe = useRuri.subscribe((s) => {
-            const fresh = s.projects.find((p) => p.id === project.id)?.sessions[0];
+            const p = s.projects.find((x) => x.id === project.id);
+            const fresh = p && leadOf(p);
             if (!fresh) return;
             unsubscribe();
             s.setActive(fresh.id);
           });
         },
       });
-      for (const session of project.sessions) {
-        list.push({
-          id: session.id,
-          kind: "session",
-          name: session.title ?? "new session",
-          where: project.name,
-          go: () => setActive(session.id),
-        });
-      }
     }
     return list;
   }, [projects, setActive, setRapid, setSettingsOpen]);
@@ -115,13 +111,13 @@ export function Switcher() {
       return [{ entry, best }];
     });
     if (q) scored.sort((a, b) => b.best - a.best);
-    return scored.map((s) => s.entry).filter((entry) => entry.id !== activeId);
+    return scored.map((s) => s.entry).filter((entry) => entry.id !== activeId && entry.chat !== activeId);
   }, [entries, query, activeId]);
 
   const picked = results[Math.min(cursor, Math.max(results.length - 1, 0))];
   // the chat Enter would open is asked for while it is the one picked, so
   // it opens whole (store.ts, prefetchTranscript)
-  const pickedChat = open && picked?.kind === "session" ? picked.id : undefined;
+  const pickedChat = open ? picked?.chat : undefined;
   useEffect(() => {
     if (!pickedChat) return;
     const timer = setTimeout(() => prefetchTranscript(pickedChat), 120);

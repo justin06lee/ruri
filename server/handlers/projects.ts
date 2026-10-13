@@ -28,7 +28,7 @@ import { findProjects } from "../finder.js";
 import { errorMessage } from "../log.js";
 import { HOME_ID, type ManagerHost } from "../manager.js";
 import { expandPath } from "../projects.js";
-import { importRecent, listRecent } from "../recent.js";
+import { importRecent, listRecent, titleOf } from "../recent.js";
 import { talkChatsClosed } from "./talk.js";
 import type { Handlers } from "./types.js";
 
@@ -53,6 +53,7 @@ function closeProjectById(ctx: ServerContext, projectId: string): void {
     ctx.retries.cancelRetry(sessionId);
     ctx.queues.entries.delete(sessionId);
     ctx.queues.held.delete(sessionId);
+    ctx.governor.unwait(sessionId);
     ctx.terminals.closeChannel(sessionId);
     ctx.bridge.closeBridge(sessionId);
   }
@@ -64,6 +65,32 @@ function closeProjectById(ctx: ServerContext, projectId: string): void {
   removeLibrarySkill(projectId);
   ctx.ledger.removeProject(projectId);
   ctx.store.remove(projectId);
+  ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+}
+
+/** Close one chat and everything it accumulated — the user's remove, or
+ *  a lead retiring (or clearing) a member of its team. */
+export function closeSession(ctx: ServerContext, sessionId: string): void {
+  const owner = ctx.store.findSession(sessionId)?.project;
+  talkChatsClosed(ctx, [sessionId]);
+  if (owner?.path) void ctx.checkpoints.forgetChannel(owner, sessionId).catch(() => undefined);
+  ctx.manager.dispose(sessionId);
+  ctx.archive.remove(sessionId);
+  ctx.clients.forgetChannel(sessionId);
+  removeTurnFiles(sessionId);
+  for (const key of ctx.crew.remove(sessionId)) ctx.crewManager.dispose(key);
+  ctx.agentLogs.remove(sessionId);
+  ctx.drafts.remove(sessionId);
+  ctx.tracker.removeProject(sessionId);
+  ctx.turns.contexts.delete(sessionId);
+  ctx.turns.progress.delete(sessionId);
+  ctx.turns.sent.delete(sessionId);
+  ctx.retries.cancelRetry(sessionId);
+  ctx.queues.entries.delete(sessionId);
+  ctx.queues.held.delete(sessionId);
+  ctx.governor.unwait(sessionId);
+  ctx.bridge.closeBridge(sessionId);
+  ctx.store.removeSession(sessionId);
   ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
 }
 
@@ -240,24 +267,7 @@ export const projectHandlers = {
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
   },
   remove_session: (ctx, _ws, msg) => {
-    const owner = ctx.store.findSession(msg.sessionId)?.project;
-    talkChatsClosed(ctx, [msg.sessionId]);
-    if (owner?.path) void ctx.checkpoints.forgetChannel(owner, msg.sessionId).catch(() => undefined);
-    ctx.manager.dispose(msg.sessionId);
-    ctx.archive.remove(msg.sessionId);
-    ctx.clients.forgetChannel(msg.sessionId);
-    removeTurnFiles(msg.sessionId);
-    for (const key of ctx.crew.remove(msg.sessionId)) ctx.crewManager.dispose(key);
-    ctx.agentLogs.remove(msg.sessionId);
-    ctx.drafts.remove(msg.sessionId);
-    ctx.tracker.removeProject(msg.sessionId);
-    ctx.turns.contexts.delete(msg.sessionId);
-    ctx.turns.progress.delete(msg.sessionId);
-    ctx.turns.sent.delete(msg.sessionId);
-    ctx.retries.cancelRetry(msg.sessionId);
-    ctx.bridge.closeBridge(msg.sessionId);
-    ctx.store.removeSession(msg.sessionId);
-    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+    closeSession(ctx, msg.sessionId);
   },
   toggle_star: (ctx, _ws, msg) => {
     const project = ctx.store.get(msg.projectId);
@@ -310,7 +320,14 @@ export const projectHandlers = {
     if (!project) throw new Error("unknown project");
     const imported = importRecent(project, msg.id);
     if (!imported) throw new Error("that session's file is gone");
-    const fresh = ctx.store.newSession(project.id);
+    // a teammate, for the lead to hand the rest of that work to
+    const opening = imported.events.find((e) => e.kind === "user");
+    const fresh = ctx.store.newSession(
+      project.id,
+      `carry on the ${imported.provider === "claude" ? "Claude Code" : "Codex"} chat it was brought in from${
+        opening?.kind === "user" ? `, which began "${titleOf(opening.text)}"` : ""
+      }`,
+    );
     if (!fresh) throw new Error("unknown project");
     ctx.archive.seed(fresh.id, { events: imported.events, summaries: {}, chain: {} });
     const providerId = ctx.models.registry.parse(project.model).providerId;
@@ -335,7 +352,10 @@ export const projectHandlers = {
       summaries: {},
     });
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "open_session", projectId: fresh.id } satisfies ServerMessage));
+      // a lead (the project had no chat left) is opened; a teammate is the
+      // lead's to talk to, and shows on the team page
+      if (fresh.lead)
+        ws.send(JSON.stringify({ type: "open_session", projectId: fresh.id } satisfies ServerMessage));
       if (!sameHarness) {
         ws.send(
           JSON.stringify({

@@ -22,6 +22,7 @@ import {
   waitAnswer,
 } from "./handlers/talk.js";
 import { SendQueues } from "./queue.js";
+import { TeamGovernor } from "./team.js";
 import {
   defaultPolicy,
   letterPrompt,
@@ -214,6 +215,8 @@ function world(
         if (session) session.model = model;
       },
       sessionIds: () => projects.flatMap((p) => p.sessions.map((s) => s.id)),
+      // a project's first chat is its lead; the rest are its team
+      isMember: (id: string) => projects.some((p) => p.sessions.findIndex((s) => s.id === id) > 0),
       defaultModel: () => "sonnet",
       findSession: (id: string) => {
         for (const project of projects) {
@@ -228,7 +231,9 @@ function world(
     permissions: new Map<string, PermissionRequest>(),
     clients: { broadcast },
     queues: new SendQueues(broadcast),
-    manager: { statuses: () => statuses, interrupt: (id: string) => interrupted.push(id) },
+    manager: { statuses: () => statuses, interrupt: (id: string) => interrupted.push(id), live: () => false },
+    governor: new TeamGovernor({ read: () => 64 * 1024 ** 3, totalBytes: 128 * 1024 ** 3, cap: 4 }),
+    meters: { latest: () => undefined },
     archive: { events: (id: string) => events[id] ?? [] },
     turns: { work: new Map(), progress: new Map() },
     models: {
@@ -294,10 +299,21 @@ describe("a message", () => {
 
   test("it finds the other chat by its handle too", async () => {
     const { ctx } = world();
-    const handle = ctx.talk.handleOf("c");
-    expect(listSeats(ctx, "a")).toContain(`${handle}  Docs`);
+    const handle = ctx.talk.handleOf("b");
+    expect(listSeats(ctx, "a")).toContain(`${handle}  the lead`);
     await sendLetter(ctx, "a", { to: handle, message: "hi", reply: "none" });
+    expect(ctx.queues.entries.get("b")).toHaveLength(1);
+    // one on another project's team is reached by name or handle, but not
+    // listed: a project is talked to through its lead
+    expect(listSeats(ctx, "a")).not.toContain(ctx.talk.handleOf("c"));
+    await sendLetter(ctx, "a", { to: ctx.talk.handleOf("c"), message: "hi", reply: "none" });
     expect(ctx.queues.entries.get("c")).toHaveLength(1);
+  });
+
+  test("a project by its name alone is its lead", async () => {
+    const { ctx } = world();
+    await sendLetter(ctx, "a", { to: "api", message: "hello", reply: "none" });
+    expect(ctx.queues.entries.get("b")).toHaveLength(1);
   });
 
   test("outside bypass mode it waits on the user's card", async () => {
@@ -667,8 +683,11 @@ describe("an agent deciding who to disturb, and starting chats of its own", () =
     expect(listed).toContain('working for 3h 05m — on "watch the training run until DPO starts"');
     expect(listed).toContain("running Bash: ssh tenet");
     expect(listed).toContain("1 queued behind it");
-    expect(listed).toContain("waiting on the user to answer a card");
     expect(listed).toContain("start_chat");
+    // its own team, each with what it is doing
+    expect(listSeats(ctx, "b")).toContain("Docs");
+    expect(listSeats(ctx, "b")).toContain("waiting on the user to answer a card");
+    expect(listSeats(ctx, "b")).toContain("your project, your team");
   });
 
   test('"queue" never stops a chat at work, and says so', async () => {
@@ -691,22 +710,19 @@ describe("an agent deciding who to disturb, and starting chats of its own", () =
     expect(sent.text).toContain("it could not be interrupted: it is waiting on the user");
   });
 
-  test("start_chat opens a new chat in an open project, on the model asked for, and sends it the message", async () => {
+  test("start_chat hands the job to the other project's lead, and opens no chat", async () => {
     const { ctx, projects } = world();
-    const api = projects.find((p) => p.name === "api")!;
     const sent = await startChat(ctx, "a", {
       project: "api",
       message: "where is the auth middleware?",
       model: "Haiku 4.5",
       reply: "later",
     });
-    const fresh = api.sessions.at(-1)! as { id: string; model?: string };
-    expect(api.sessions).toHaveLength(3);
-    expect(fresh.model).toBe("haiku");
-    expect((api as { model?: string }).model).toBeUndefined();
-    expect(sent.text).toContain("Started a new chat in api on Haiku 4.5");
-    expect(sent.text).toContain(ctx.talk.handleOf(fresh.id));
-    expect(ctx.queues.entries.get(fresh.id)![0]).toMatchObject({
+    expect(projects.flatMap((p) => p.sessions)).toHaveLength(3);
+    expect(sent.text).toContain("Handed to api's lead");
+    expect(sent.text).toContain(ctx.talk.handleOf("b"));
+    expect(sent.text).toContain("left as it is");
+    expect(ctx.queues.entries.get("b")![0]).toMatchObject({
       text: "where is the auth middleware?",
       from: { agent: "a" },
     });
@@ -721,30 +737,28 @@ describe("an agent deciding who to disturb, and starting chats of its own", () =
     expect((await startChat(ctx, "a", { project: "/no/such/folder", message: "hi" })).text).toContain(
       "There is no folder at /no/such/folder",
     );
-    expect((await startChat(ctx, "a", { project: "api", message: "hi", model: "gpt-99" })).text).toContain(
-      'No model "gpt-99"',
-    );
     expect((await startChat(ctx, "a", { project: "api", message: "  " })).text).toContain("empty");
+    // its own project is its team's to message
+    expect((await startChat(ctx, "a", { project: "web", message: "hi" })).text).toContain("your own project");
     ctx.talk.setPolicy({ everyone: { to: "nobody", projects: [], chats: [] }, projects: {}, chats: {} });
     expect((await startChat(ctx, "a", { project: "api", message: "hi" })).text).toContain(
-      "has not let you start chats in api",
+      "has not let you message api",
     );
     ctx.talk.setPolicy(defaultPolicy());
     expect(count()).toBe(3);
   });
 
-  test("outside bypass mode one card asks for the chat and its message, and a no starts nothing", async () => {
-    const { ctx, said, projects } = world({ a: "default" });
-    const going = startChat(ctx, "a", { project: "api", message: "a question", model: "GPT-6-Astra" });
+  test("outside bypass mode the lead is asked about the way any message is, and a no sends nothing", async () => {
+    const { ctx, said } = world({ a: "default" });
+    const going = startChat(ctx, "a", { project: "api", message: "a question" });
     const card = said.find((m) => m.type === "permission_request");
     expect(card?.type === "permission_request" && card.request.input).toMatchObject({
       project: "api",
       text: "a question",
-      fresh: { model: "GPT-6-Astra" },
     });
     answerTalk(ctx, card?.type === "permission_request" ? card.request.requestId : "", false);
-    expect((await going).text).toContain("did not let you start a chat in api");
-    expect(projects.flatMap((p) => p.sessions)).toHaveLength(3);
+    expect((await going).text).toContain("did not let");
+    expect(ctx.queues.entries.get("b")).toBeUndefined();
     expect(said.filter((m) => m.type === "permission_request")).toHaveLength(1);
   });
 });

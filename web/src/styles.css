@@ -691,139 +691,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   transform: rotate(45deg);
 }
 
-.folder-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 4px 10px 4px 6px;
-  margin-bottom: 3px;
-  border: none;
-  border-radius: var(--radius-s);
-  background: transparent;
-  color: var(--ink-faint);
-  font-size: var(--fs-md);
-  font-weight: 600;
-  text-align: left;
-}
-
-.folder-row:hover {
-  color: var(--ink);
-  background: color-mix(in srgb, var(--paper) 42%, var(--paper-dim));
-  transform: none;
-}
-
-.folder-row svg {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-}
-
-.folder-chevron {
-  width: 10px !important;
-  height: 10px !important;
-  transition: transform 120ms ease-out;
-}
-
-.folder-chevron.open {
-  transform: rotate(90deg);
-}
-
-.folder-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.folder-actions {
-  display: none;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.folder-row:hover .folder-actions {
-  display: flex;
-}
-
-.project-folder {
-  cursor: pointer;
-  color: var(--ink-soft);
-  font-weight: 600;
-}
-
-.folder-actions .star,
-.folder-actions .add-session,
-.folder-actions .remove {
-  border: none;
-  background: none;
-  padding: 2px;
-  color: var(--ink-faint);
-  line-height: 0;
-}
-
-.folder-actions .star svg,
-.folder-actions .add-session svg,
-.folder-actions .remove svg {
-  width: 12px;
-  height: 12px;
-}
-
-.folder-actions .star:hover,
-.folder-actions .add-session:hover {
-  color: var(--ink);
-  background: none;
-  transform: none;
-}
-
-.folder-actions .remove:hover {
-  color: var(--ink);
-  background: none;
-  transform: none;
-}
-
-.folder-actions .star.on {
-  color: var(--ink);
-}
-
-/* starred folders always show their star. A class, not :has(.star.on):
-   a :has() over a row is looked at again on every change inside it — the
-   dragon running beside a busy folder steps twice a second — and its
-   whole subtree restyled each time. */
-.project-folder.starred .folder-actions {
-  display: flex;
-}
-
-.project-folder.starred:not(:hover) .add-session,
-.project-folder.starred:not(:hover) .remove {
-  display: none;
-}
-
-.folder-children {
-  margin-left: 16px;
-}
-
-/* the chats from outside ruri: a quiet row under the project's own, and
-   the sessions it finds indented a step further, tagged by harness */
-.project-row.recent-row {
-  padding: 4px 10px;
-  margin-bottom: 5px;
-  background: transparent;
-  color: var(--ink-faint);
-  font-size: 12px;
-}
-
-.project-row.recent-row .folder-chevron {
-  width: 11px;
-  height: 11px;
-}
-
-.project-row.recent-row:hover,
-.project-row.recent-row.open {
-  color: var(--ink-soft);
-}
-
+/* the chats from outside ruri, on the team page (TeamPage.tsx): each one
+   found a quiet row, tagged by harness */
 .recent-note {
   padding: 2px 10px 8px 30px;
   font-size: var(--fs-sm);
@@ -939,8 +808,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border-color: var(--ink);
 }
 
-.project-row.renaming .remove,
-.folder-row.renaming .folder-actions {
+.project-row.renaming .remove {
   display: none;
 }
 
@@ -948,6 +816,78 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   color: var(--ink);
   background: none;
   transform: none;
+}
+
+/* ── a project's row: one row, its lead behind it ─────────────────────
+   (Sidebar.tsx ProjectRow.) A folder mark, the name, a count of the
+   teammates at work, and the star, hide and remove — the star kept while
+   it is on, the X while something works (the dragon stands there), the
+   rest on hover. */
+.team-row-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: var(--ink-faint);
+}
+
+.project-row.active .team-row-icon {
+  color: var(--ink-soft);
+}
+
+.team-row .row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.team-row .star svg {
+  width: 12px;
+  height: 12px;
+}
+
+.team-row .hide {
+  display: none;
+  border: none;
+  background: none;
+  padding: 2px;
+  color: var(--ink-faint);
+  line-height: 0;
+}
+
+.team-row .hide svg {
+  width: 12px;
+  height: 12px;
+}
+
+.team-row:hover .hide {
+  display: block;
+}
+
+.team-row .hide:hover {
+  color: var(--ink);
+  background: none;
+  transform: none;
+}
+
+.team-row.renaming .row-actions {
+  display: none;
+}
+
+/* the count of teammates at work sits right after the name; the actions
+   follow it, not the far edge */
+.team-row .team-count {
+  margin-left: 0;
+}
+
+/* a hidden project, once the fold is open: there, but quieter */
+.team-row.is-hidden {
+  color: var(--ink-faint);
+  opacity: 0.72;
+}
+
+.team-row.is-hidden:hover {
+  opacity: 1;
 }
 
 /* ── the dragon in the X's place ──────────────────────────────────────
@@ -958,20 +898,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    jaw and the open one swapped four times in a third of a second, once,
    and then it is still again. */
 
-.project-row .remove.busy,
-.project-folder.busy .folder-actions {
+.project-row .remove.busy {
   display: flex;
-}
-
-.project-folder.busy:not(:hover) .add-session,
-.project-folder.busy:not(:hover) .hide,
-.project-folder.busy:not(:hover) .star:not(.on) {
-  display: none;
-}
-
-/* over the starred folder's own rule, which tucks its X away unhovered */
-.project-folder.busy .folder-actions .remove.busy {
-  display: block;
 }
 
 .row-dragon {
@@ -1019,18 +947,15 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    each one shaking the head — and the jaws held open until the pointer
    goes, when the clock takes over again. The held pose is the animation's
    own last frame, which outranks the clock's step for as long as it lasts. */
-.project-row:hover .row-dragon,
-.folder-row:hover .row-dragon {
+.project-row:hover .row-dragon {
   animation: bite-shake 550ms linear 1 forwards;
 }
 
-.project-row:hover .row-dragon-frame.f1,
-.folder-row:hover .row-dragon-frame.f1 {
+.project-row:hover .row-dragon-frame.f1 {
   animation: chomp-open 550ms step-end 1 forwards;
 }
 
-.project-row:hover .row-dragon-frame.f2,
-.folder-row:hover .row-dragon-frame.f2 {
+.project-row:hover .row-dragon-frame.f2 {
   animation: chomp-shut 550ms step-end 1 forwards;
 }
 
@@ -9665,40 +9590,6 @@ button.stop:hover {
 
 /* ── hidden projects ──────────────────────────────────────────────── */
 
-/* the hide toggle on a folder row sits with the star, plus and remove */
-.folder-actions .hide {
-  border: none;
-  background: none;
-  padding: 2px;
-  color: var(--ink-faint);
-  line-height: 0;
-}
-
-.folder-actions .hide svg {
-  width: 12px;
-  height: 12px;
-}
-
-.folder-actions .hide:hover {
-  color: var(--ink);
-  background: none;
-  transform: none;
-}
-
-.project-folder.starred:not(:hover) .hide {
-  display: none;
-}
-
-/* a hidden project, once the fold is open: there, but quieter */
-.project-folder.is-hidden {
-  color: var(--ink-faint);
-  opacity: 0.72;
-}
-
-.project-folder.is-hidden:hover {
-  opacity: 1;
-}
-
 /* the fold at the bottom of the list: "show 2 hidden" / "hide 2 hidden" —
    it sits at the foot of the sidebar, under whatever room the list leaves */
 .hidden-fold {
@@ -10215,5 +10106,173 @@ button.stop:hover {
 .message-card-reply {
   margin: -4px 0 12px;
   font-size: var(--fs-sm);
+  color: var(--ink-faint);
+}
+
+/* ── the team page ────────────────────────────────────────────────────
+   (TeamPage.tsx.) Who works behind a project's lead: a card a teammate —
+   its name and state, its duty, its layers, what it last said, and what
+   can be done to it — under a line of the machine's room for them. */
+
+.team-budget {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 10px 2px 4px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+}
+
+.team-budget b {
+  color: var(--ink-soft);
+}
+
+.team-member {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--paper);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  animation: rise 160ms ease-out;
+}
+
+.team-member.state-working,
+.team-member.state-permission {
+  border-color: var(--edge);
+}
+
+.team-member-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.team-member-name {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-state {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.team-state.working,
+.team-state.permission {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.team-state.waiting,
+.team-state.queued {
+  border-color: var(--ink-soft);
+  color: var(--ink-soft);
+}
+
+.team-member-meta {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.team-member-duty {
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.team-member-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.team-layer {
+  padding: 0 5px;
+  border: 1px dashed var(--line-soft);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.team-member-words {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink-faint);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.team-member-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.team-member-model {
+  margin-right: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.team-member-actions button {
+  padding: 2px 8px;
+  font-size: var(--fs-sm);
+}
+
+.team-outside {
+  margin-top: 18px;
+}
+
+.team-outside-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: var(--fs-sm);
+}
+
+.team-outside-toggle .icon {
+  width: 11px;
+  height: 11px;
+  transition: transform 120ms ease-out;
+}
+
+.team-outside-toggle.open .icon {
+  transform: rotate(90deg);
+}
+
+.team-outside .recent-note {
+  padding-left: 22px;
+}
+
+/* a teammate's card in the lead's chat: the card, under whose it is */
+.team-ask-from {
+  margin: 0 2px 4px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
   color: var(--ink-faint);
 }

@@ -1,20 +1,11 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { HOME_ID, type Project, type RecentSession, type SessionInfo } from "../../../shared/protocol";
+import { HOME_ID, leadOf, type Project } from "../../../shared/protocol";
 import { useConfirm } from "./Confirm";
 import { PeekBand } from "./PeekBand";
 import { Player } from "./Player";
 import { getPref, setPref } from "../prefs";
 import { STAR_PATH } from "../icons";
-import {
-  isBusy,
-  prefetchTranscript,
-  removeSession,
-  renameProject,
-  renameSession,
-  send,
-  toggleProject,
-  useRuri,
-} from "../store";
+import { isBusy, prefetchTranscript, renameProject, send, toggleProject, useRuri } from "../store";
 import { DragonHead } from "./Thinking";
 
 function HomeRow() {
@@ -204,322 +195,183 @@ function RemoveIcon({ busy }: { busy: boolean }) {
   );
 }
 
-/** How long the pointer rests on a chat's row before its history is asked
- *  for: long enough that sweeping across the sidebar asks for nothing. */
+/** How long the pointer rests on a project's row before its lead's history
+ *  is asked for: long enough that sweeping across the sidebar asks for
+ *  nothing. */
 const HOVER_MS = 90;
 
-function SessionRow({ session }: { session: SessionInfo }) {
-  const activeId = useRuri((s) => s.activeId);
-  const unread = useRuri((s) => s.unread[session.id] ?? false);
-  // a turn running, or agents and scripts it left running after it
-  const busy = useRuri((s) => isBusy(s, session.id));
+/**
+ * A project: one row, and the one chat behind it — its lead (server/team.ts).
+ *
+ * The project used to be a folder of chats, one for each thing the user
+ * had going in it, and the sidebar filled with them. Now the lead is the
+ * project's only chat the user sees; the rest are its team, which it hands
+ * work to and which the team page (in the chat's header) shows. The row
+ * says when anything on the team is at work — the dragon where the X goes,
+ * as a chat's row always had — and how many teammates are, beside it.
+ */
+function ProjectRow({ project }: { project: Project }) {
+  const lead = leadOf(project);
+  const leadId = lead?.id;
+  const active = useRuri((s) => leadId !== undefined && s.activeId === leadId);
+  const unread = useRuri((s) => (leadId ? (s.unread[leadId] ?? false) : false));
   const setActive = useRuri((s) => s.setActive);
+  // the lead at work, or anyone on its team: the head where the X goes
+  const anyBusy = useRuri((s) => project.sessions.some((x) => isBusy(s, x.id)));
+  // how many teammates are at work — one number, so the row repaints when
+  // it changes rather than on every status in the app
+  const teamAtWork = useRuri(
+    (s) => project.sessions.filter((x) => x.id !== leadId && s.statuses[x.id] === "working").length,
+  );
   const [renaming, setRenaming] = useState(false);
   const { confirm: ask, card } = useConfirm();
   const hover = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(hover.current), []);
-  const rename = (title: string | null) => {
+  const rename = (name: string | null) => {
     setRenaming(false);
-    if (title) renameSession(session.id, title);
+    if (name) renameProject(project.id, name);
   };
-
+  const open = () => {
+    if (leadId) {
+      setActive(leadId);
+      return;
+    }
+    // an emptied project: a lead, and to it when it arrives
+    send({ type: "new_session", projectId: project.id });
+    const unsubscribe = useRuri.subscribe((s) => {
+      const p = s.projects.find((x) => x.id === project.id);
+      const fresh = p && leadOf(p);
+      if (!fresh) return;
+      unsubscribe();
+      s.setActive(fresh.id);
+    });
+  };
   return (
     <div
-      className={`project-row session-row ${activeId === session.id ? "active" : ""} ${renaming ? "renaming" : ""}`}
-      title={renaming ? undefined : `${session.title ?? "New session"} — double-click to rename`}
-      onClick={() => setActive(session.id)}
-      // the chat's history asked for while the pointer rests on its row, or
+      className={`project-row team-row ${active ? "active" : ""} ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${anyBusy ? "busy" : ""}`}
+      title={renaming ? undefined : `${project.path} — double-click to rename`}
+      onClick={open}
+      // the lead's history asked for while the pointer rests on the row, or
       // the moment it goes down on it — over a network that is most of the
       // round trip done before the click lands (store.ts, prefetchTranscript)
       onPointerEnter={() => {
+        if (!leadId) return;
         clearTimeout(hover.current);
-        hover.current = setTimeout(() => prefetchTranscript(session.id), HOVER_MS);
+        hover.current = setTimeout(() => prefetchTranscript(leadId), HOVER_MS);
       }}
       onPointerLeave={() => clearTimeout(hover.current)}
-      onPointerDown={() => prefetchTranscript(session.id)}
+      onPointerDown={() => {
+        if (leadId) prefetchTranscript(leadId);
+      }}
       onDoubleClick={(e) => {
         e.preventDefault();
         setRenaming(true);
       }}
     >
+      <svg
+        className="team-row-icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+      </svg>
       {renaming ? (
-        <NameEditor value={session.title ?? ""} className="project-name" onDone={rename} />
+        <NameEditor value={project.name} className="project-name" onDone={rename} />
       ) : (
-        <span className="project-name">{session.title ?? "new session"}</span>
+        <span className="project-name">{project.name}</span>
       )}
       {unread && <span className="unread-pip" title="Turn finished" />}
+      {teamAtWork > 0 && (
+        <span
+          className="row-count team-count"
+          title={`${teamAtWork} ${teamAtWork === 1 ? "teammate" : "teammates"} at work`}
+        >
+          {teamAtWork}
+        </span>
+      )}
       {card}
-      <button
-        className={`remove ${busy ? "busy" : ""}`}
-        title={busy ? "Working — click to remove this session anyway" : "Remove session"}
-        onClick={(e) => {
-          e.stopPropagation();
-          void ask({
-            title: "Remove this session?",
-            body: busy
-              ? "It is still working — that stops, and its transcript is deleted; files are untouched."
-              : "Its transcript is deleted; files are untouched.",
-            ok: "Remove",
-          }).then((yes) => {
-            if (yes) removeSession(session.id);
-          });
-        }}
-      >
-        <RemoveIcon busy={busy} />
-      </button>
-    </div>
-  );
-}
-
-/** "2h ago", "3d ago" — how long since a session on disk was last written. */
-function ago(at: number): string {
-  const mins = Math.max(1, Math.round((Date.now() - at) / 60_000));
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return days < 30 ? `${days}d` : `${Math.floor(days / 30)}mo`;
-}
-
-/**
- * The chats that happened outside ruri: a `claude` or `codex` run from a
- * terminal in this project's directory. Folded under the project's own
- * sessions, looked up when unfolded, and one click brings one in as a
- * session of its own — history on screen, and the next prompt resumes it.
- */
-function RecentRow({ project }: { project: Project }) {
-  const items = useRuri((s) => s.recent[project.id]);
-  const [open, setOpen] = useState(false);
-  const toggle = () => {
-    if (!open) send({ type: "recent_list", projectId: project.id });
-    setOpen(!open);
-  };
-  return (
-    <>
-      <div
-        className={`project-row recent-row ${open ? "open" : ""}`}
-        title="Chats started outside ruri, in this project's directory"
-        onClick={toggle}
-      >
-        <svg
-          className={`folder-chevron ${open ? "open" : ""}`}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
+      <span className="row-actions">
+        <button
+          className={`star ${project.starred ? "on" : ""}`}
+          title={project.starred ? "Unstar" : "Star"}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleProject(project.id, "starred");
+          }}
         >
-          <path d="M9 6l6 6-6 6" />
-        </svg>
-        <span className="project-name">recent chats</span>
-      </div>
-      {open &&
-        (items === undefined ? (
-          <div className="recent-note">looking…</div>
-        ) : items.length === 0 ? (
-          <div className="recent-note">nothing from outside ruri</div>
-        ) : (
-          items.map((item: RecentSession) => (
-            <div
-              key={item.id}
-              className="project-row recent-item"
-              title={`${item.title}
-${item.provider === "claude" ? "Claude Code" : "Codex"} · ${ago(item.at)} ago${item.branch ? ` · ${item.branch}` : ""}
-Click to bring it in as a session`}
-              onClick={() => {
-                send({ type: "recent_import", projectId: project.id, id: item.id });
-                setOpen(false);
-              }}
-            >
-              <span className={`recent-tag ${item.provider}`}>
-                {item.provider === "claude" ? "cc" : "cx"}
-              </span>
-              <span className="project-name">{item.title}</span>
-              <span className="recent-age">{ago(item.at)}</span>
-            </div>
-          ))
-        ))}
-    </>
-  );
-}
-
-/** Folders are folded by default — only ones the user opened are stored. */
-function loadExpanded(): Set<string> {
-  try {
-    return new Set(JSON.parse(getPref("ruri-expanded") ?? "[]") as string[]);
-  } catch {
-    return new Set();
-  }
-}
-
-/** A project folder: name, star, add-session, remove — sessions as leaves. */
-function ProjectFolder({
-  project,
-  collapsed,
-  onToggle,
-}: {
-  project: Project;
-  collapsed: boolean;
-  onToggle(): void;
-}) {
-  const [renaming, setRenaming] = useState(false);
-  const { confirm: ask, card } = useConfirm();
-  // folded, the folder speaks for the chats inside it: any of them at work
-  // puts the head where the folder's X goes
-  const anyBusy = useRuri((s) => project.sessions.some((x) => isBusy(s, x.id)));
-  const busy = collapsed && anyBusy;
-  const rename = (name: string | null) => {
-    setRenaming(false);
-    if (name) renameProject(project.id, name);
-  };
-  return (
-    <div>
-      <div
-        className={`folder-row project-folder ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${busy ? "busy" : ""}`}
-        onClick={onToggle}
-        onDoubleClick={(e) => {
-          e.preventDefault();
-          setRenaming(true);
-        }}
-      >
-        <svg
-          className={`folder-chevron ${collapsed ? "" : "open"}`}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M9 6l6 6-6 6" />
-        </svg>
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-        </svg>
-        {renaming ? (
-          <NameEditor value={project.name} className="folder-name" onDone={rename} />
-        ) : (
-          <span className="folder-name" title={`${project.path} — double-click to rename`}>
-            {project.name}
-          </span>
-        )}
-        <span className="folder-actions">
-          <button
-            className={`star ${project.starred ? "on" : ""}`}
-            title={project.starred ? "Unstar" : "Star"}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleProject(project.id, "starred");
-            }}
+          <svg
+            viewBox="0 0 24 24"
+            fill={project.starred ? "currentColor" : "none"}
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+            aria-hidden
           >
-            <svg
-              viewBox="0 0 24 24"
-              fill={project.starred ? "currentColor" : "none"}
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d={STAR_PATH} />
-            </svg>
-          </button>
-          <button
-            className="add-session"
-            title="New session in this project"
-            onClick={(e) => {
-              e.stopPropagation();
-              send({ type: "new_session", projectId: project.id });
-            }}
-          >
+            <path d={STAR_PATH} />
+          </svg>
+        </button>
+        <button
+          className="hide"
+          title={project.hidden ? "Unhide project" : "Hide project (stays open)"}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleProject(project.id, "hidden");
+          }}
+        >
+          {project.hidden ? (
             <svg
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
               strokeWidth="2"
               strokeLinecap="round"
+              strokeLinejoin="round"
               aria-hidden
             >
-              <path d="M12 5v14M5 12h14" />
+              <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" />
+              <circle cx="12" cy="12" r="3" />
             </svg>
-          </button>
-          <button
-            className="hide"
-            title={project.hidden ? "Unhide project" : "Hide project (stays open)"}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleProject(project.id, "hidden");
-            }}
-          >
-            {project.hidden ? (
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            ) : (
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <path d="M3 3l18 18" />
-                <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
-                <path d="M9.9 5.1A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1" />
-                <path d="M6.6 6.6A16.6 16.6 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 4.4-1" />
-              </svg>
-            )}
-          </button>
-          {card}
-          <button
-            className={`remove ${busy ? "busy" : ""}`}
-            title={busy ? "Working — click to remove this project anyway" : "Remove project"}
-            onClick={(e) => {
-              e.stopPropagation();
-              void ask({
-                title: `Remove "${project.name}"?`,
-                body: anyBusy
-                  ? "All its sessions go with it, the working ones stopped; files are untouched."
-                  : "All its sessions go with it; files are untouched.",
-                ok: "Remove",
-              }).then((yes) => {
-                if (yes) send({ type: "remove_project", projectId: project.id });
-              });
-            }}
-          >
-            <RemoveIcon busy={busy} />
-          </button>
-        </span>
-      </div>
-      {!collapsed && (
-        <div className="folder-children">
-          {project.sessions.map((session) => (
-            <SessionRow key={session.id} session={session} />
-          ))}
-          <RecentRow project={project} />
-        </div>
-      )}
+          ) : (
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M3 3l18 18" />
+              <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+              <path d="M9.9 5.1A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1" />
+              <path d="M6.6 6.6A16.6 16.6 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 4.4-1" />
+            </svg>
+          )}
+        </button>
+        <button
+          className={`remove ${anyBusy ? "busy" : ""}`}
+          title={anyBusy ? "Working — click to remove this project anyway" : "Remove project"}
+          onClick={(e) => {
+            e.stopPropagation();
+            void ask({
+              title: `Remove "${project.name}"?`,
+              body: anyBusy
+                ? "Its lead and its team go with it, the working ones stopped; files are untouched."
+                : "Its lead and its team go with it; files are untouched.",
+              ok: "Remove",
+            }).then((yes) => {
+              if (yes) send({ type: "remove_project", projectId: project.id });
+            });
+          }}
+        >
+          <RemoveIcon busy={anyBusy} />
+        </button>
+      </span>
     </div>
   );
 }
@@ -532,9 +384,8 @@ export const Sidebar = memo(function Sidebar() {
   const user = useRuri((s) => s.user);
   // a window onto another computer says which, beside whose account it is
   const onto = useRuri((s) => (s.remoteDevice !== null ? s.sharing?.name : undefined));
-  const [expandedSet, setExpandedSet] = useState<Set<string>>(loadExpanded);
   // The fold at the bottom: hidden projects stay out of sight until it is
-  // opened, and whether it is open is remembered like the folders are.
+  // opened, and whether it is open is remembered.
   const [showHidden, setShowHidden] = useState<boolean>(() => {
     try {
       return getPref("ruri-show-hidden") === "1";
@@ -554,45 +405,19 @@ export const Sidebar = memo(function Sidebar() {
   const settingsOpen = useRuri((s) => s.settingsOpen);
   const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
 
-  // A chat reached some other way than a click in here — the switcher, the
-  // Home agent — may sit in a folded folder. It is opened for it.
+  // A chat inside a hidden project being looked at — reached by the
+  // switcher, or the Home agent — opens the fold, so the row that is
+  // active is actually on screen. Noticed while rendering (the way React
+  // has state follow the store), and on the first render too.
   const activeId = useRuri((s) => s.activeId);
-  const owner = useRuri((s) => s.projects.find((p) => p.sessions.some((x) => x.id === activeId))?.id);
-  const ownerHidden = useRuri((s) => s.projects.find((p) => p.id === owner)?.hidden === true);
-  // Noticed while rendering (the way React has state follow the store), and
-  // on the first render too: a chat inside a hidden project is being looked
-  // at, so the fold opens and the row that is active is actually on screen;
-  // a newly active chat's folder is opened for it.
-  const [ownerSeen, setOwnerSeen] = useState<{ owner: string | undefined; hidden: boolean } | null>(null);
-  if (!ownerSeen || ownerSeen.owner !== owner || ownerSeen.hidden !== ownerHidden) {
-    setOwnerSeen({ owner, hidden: ownerHidden });
+  const ownerHidden = useRuri(
+    (s) => s.projects.find((p) => p.sessions.some((x) => x.id === activeId))?.hidden === true,
+  );
+  const [hiddenSeen, setHiddenSeen] = useState<boolean | null>(null);
+  if (hiddenSeen !== ownerHidden) {
+    setHiddenSeen(ownerHidden);
     if (ownerHidden) setShowHidden(true);
-    if (owner && (!ownerSeen || ownerSeen.owner !== owner)) {
-      setExpandedSet((prev) => (prev.has(owner) ? prev : new Set(prev).add(owner)));
-    }
   }
-  // remembered whenever it changes, however it changed — not on mount,
-  // where what was loaded is what is saved (and setPref would mark the
-  // key as this session's, shutting the snapshot's copy out)
-  const loadedExpanded = useRef(false);
-  useEffect(() => {
-    if (!loadedExpanded.current) {
-      loadedExpanded.current = true;
-      return;
-    }
-    try {
-      setPref("ruri-expanded", JSON.stringify([...expandedSet]));
-    } catch {
-      // preference just won't persist
-    }
-  }, [expandedSet]);
-
-  const toggleFolder = (name: string) => {
-    const next = new Set(expandedSet);
-    if (next.has(name)) next.delete(name);
-    else next.add(name);
-    setExpandedSet(next);
-  };
 
   // Starred projects pin to the top of the one Projects list — no separate
   // section, the filled star on the row is the marker.
@@ -620,12 +445,7 @@ export const Sidebar = memo(function Sidebar() {
         )}
         {ordered.length > 0 && <div className="group-label">Projects</div>}
         {ordered.map((p) => (
-          <ProjectFolder
-            key={p.id}
-            project={p}
-            collapsed={!expandedSet.has(p.id)}
-            onToggle={() => toggleFolder(p.id)}
-          />
+          <ProjectRow key={p.id} project={p} />
         ))}
         {hidden.length > 0 && (
           <>
@@ -647,15 +467,7 @@ export const Sidebar = memo(function Sidebar() {
               </svg>
               {showHidden ? "hide" : "show"} {hidden.length} hidden
             </button>
-            {showHidden &&
-              hidden.map((p) => (
-                <ProjectFolder
-                  key={p.id}
-                  project={p}
-                  collapsed={!expandedSet.has(p.id)}
-                  onToggle={() => toggleFolder(p.id)}
-                />
-              ))}
+            {showHidden && hidden.map((p) => <ProjectRow key={p.id} project={p} />)}
           </>
         )}
       </div>

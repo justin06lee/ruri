@@ -61,6 +61,7 @@ import { foldDigest } from "./digestFold.js";
 import { setMemoryModel, setSmallModel } from "./smallmodel.js";
 import { createSocketServer } from "./socket.js";
 import { TalkBook } from "./talk.js";
+import { TeamGovernor } from "./team.js";
 import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { pushContexts, Turns } from "./turns.js";
@@ -75,6 +76,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   setMemoryModel(store.memoryModel());
 
   const archive = new SessionArchive();
+  // every project a team: one lead the user talks to, the chats it had its
+  // members (server/team.ts) — and a chat never used, gone
+  store.formTeams((id) => archive.events(id).length === 0 && !archive.hasHistory(id));
   /** What each subagent did, apart from the chat that started it. */
   const agentLogs = new AgentLogs();
   const crew = new Crew();
@@ -183,6 +187,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       options.appPid,
     ),
     usage: new UsageGauges(clients.broadcast),
+    // how many team members the machine has room to have at work at once
+    governor: new TeamGovernor(),
     bridge: new BridgeState(options.bridge, (channelId) => running(ctx, channelId), clients.broadcast),
     permissions: new Map<string, PermissionRequest>(),
     pendingComponents: new Map<string, PendingComponent>(),

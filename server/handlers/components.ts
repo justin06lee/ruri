@@ -335,7 +335,8 @@ function startPhotographer(
   const prior = ctx.photographers.get(projectId);
   const kept = prior && ctx.store.findSession(prior)?.project.id === projectId ? prior : undefined;
   if (kept && ctx.turns.progress.has(kept)) return "busy";
-  const sessionId = kept ?? ctx.store.newSession(projectId)?.id;
+  const sessionId =
+    kept ?? ctx.store.newSession(projectId, "takes the pictures of the component library's entries")?.id;
   if (!sessionId) return undefined;
   ctx.photographers.set(projectId, sessionId);
   ctx.store.setSessionTitle(sessionId, PHOTO_CHAT);
@@ -344,7 +345,7 @@ function startPhotographer(
   return "started";
 }
 
-/** What the pictures chat is called in the sidebar. */
+/** What the pictures chat is called on the project's team. */
 const PHOTO_CHAT = "Library pictures";
 
 /**

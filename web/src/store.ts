@@ -4,6 +4,7 @@ import {
   HOME_ID,
   HOME_TRANSCRIPT_MAX,
   keepRecent,
+  leadOf,
   TRANSCRIPT_TAIL,
   briefLine,
   type BackgroundWork,
@@ -14,6 +15,9 @@ import {
   type Integrations,
   type TalkLetter,
   type TalkPolicy,
+  type TeamAction,
+  type TeamBudget,
+  type TeamMember,
   type PluginRow,
   type ClientMessage,
   type Attachment,
@@ -487,6 +491,9 @@ interface RuriState {
   /** Who may message whom, and the latest messages between agents (the
    *  talk page, server/talk.ts) — asked for on every connect. */
   talk: { policy: TalkPolicy; letters: TalkLetter[] } | null;
+  /** Each project's team, as the team page last heard it — asked for when
+   *  the page opens, and kept up to date while it is (server/team.ts). */
+  team: Record<string, { members: TeamMember[]; budget: TeamBudget }>;
   /** The plugin browser's last answer. */
   pluginsFound: { harness: IntegrationHarness; query: string; plugins: PluginRow[]; total: number } | null;
   /** How the last change to the integrations went. */
@@ -537,6 +544,27 @@ interface RuriState {
  * page go by. Reads two maps and answers a boolean, so a selector made of
  * it re-renders only when the answer changes.
  */
+/**
+ * The chat the window shows for `id`: Home, or a project's lead — for a
+ * member of its team, the lead (the user talks to the lead, which talks
+ * to its team). Undefined when no open project has it.
+ */
+export function shownChat(projects: Project[], id: string): string | undefined {
+  if (id === HOME_ID) return id;
+  const project = projects.find((p) => p.sessions.some((x) => x.id === id));
+  return project ? leadOf(project)?.id : undefined;
+}
+
+/** The team page opening on a project: its team, and news of it while open. */
+export function askTeam(projectId: string): void {
+  send({ type: "team_get", projectId });
+}
+
+/** The user doing to a member what its lead can. */
+export function teamAction(memberId: string, action: TeamAction): void {
+  send({ type: "team_member", memberId, action });
+}
+
 export function isBusy(s: Pick<RuriState, "statuses" | "work">, channelId: string): boolean {
   const status = s.statuses[channelId];
   return status === "working" || status === "permission" || channelId in s.work;
@@ -613,6 +641,7 @@ export const useRuri = create<RuriState>((set) => ({
   harnessesChecking: false,
   integrations: null,
   talk: null,
+  team: {},
   pluginsFound: null,
   integrationNote: null,
   canPickFolder: false,
@@ -624,8 +653,11 @@ export const useRuri = create<RuriState>((set) => ({
   grants: null,
   picked: null,
   lastError: null,
-  setActive: (id) =>
+  setActive: (asked) =>
     set((s) => {
+      // a member of a project's team is its lead's to talk to: the window
+      // goes to the lead (a fork, an import, an old link to one)
+      const id = asked === null ? null : (shownChat(s.projects, asked) ?? asked);
       // Home is ephemeral: crossing its boundary (either direction) asks the
       // server to wipe it — ignored server-side while a turn is running.
       if ((s.activeId === HOME_ID) !== (id === HOME_ID)) send({ type: "reset_home" });
@@ -1755,11 +1787,7 @@ function apply(msg: ServerMessage): void {
         // every log goes, and the one on screen asks again below
         agentLogs: {},
         crew: msg.crew,
-        activeId:
-          s.activeId &&
-          (s.activeId === HOME_ID || msg.projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
-            ? s.activeId
-            : HOME_ID,
+        activeId: (s.activeId && shownChat(msg.projects, s.activeId)) ?? HOME_ID,
       }));
       agentLogOrder.length = 0;
       const panel = useRuri.getState().agentPanel;
@@ -1799,11 +1827,7 @@ function apply(msg: ServerMessage): void {
       const projects = laid(projectChanges, msg.projects);
       setState((s) => ({
         projects,
-        activeId:
-          s.activeId &&
-          (s.activeId === HOME_ID || projects.some((p) => p.sessions.some((x) => x.id === s.activeId)))
-            ? s.activeId
-            : HOME_ID,
+        activeId: (s.activeId && shownChat(projects, s.activeId)) ?? HOME_ID,
       }));
       break;
     }
@@ -2100,9 +2124,12 @@ function apply(msg: ServerMessage): void {
           // open chat is elsewhere too while the projects page or settings
           // has the pane: you went there to wait, and it is the projects
           // page that should say this one is done.
+          // A teammate's turn wears none: the user never opens its chat,
+          // and its lead says what came of it.
           unread:
             msg.event.kind !== "result" ||
-            (msg.projectId === s.activeId && !s.projectsOpen && !s.settingsOpen)
+            (msg.projectId === s.activeId && !s.projectsOpen && !s.settingsOpen) ||
+            shownChat(s.projects, msg.projectId) !== msg.projectId
               ? s.unread
               : { ...s.unread, [msg.projectId]: true },
         };
@@ -2171,6 +2198,12 @@ function apply(msg: ServerMessage): void {
       break;
     case "talk": {
       setState({ talk: { policy: msg.policy, letters: msg.letters } });
+      break;
+    }
+    case "team": {
+      setState((s) => ({
+        team: { ...s.team, [msg.projectId]: { members: msg.members, budget: msg.budget } },
+      }));
       break;
     }
     case "integrations": {

@@ -11,6 +11,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_PERMISSION_MODE,
   type HomeSettings,
+  leadOf,
   type ModelRole,
   type Project,
   type SessionInfo,
@@ -37,6 +38,9 @@ const DEFAULTS: Required<SessionSettings> = {
   permissionMode: DEFAULT_PERMISSION_MODE,
   effort: DEFAULT_EFFORT,
 };
+
+/** What a lead is called where other agents read it ("ruri · Lead"). */
+export const LEAD_TITLE = "Lead";
 
 function projectsFile(): string {
   return path.join(configDir(), "projects.json");
@@ -321,11 +325,94 @@ export class ProjectStore {
       name: name.trim() || path.basename(resolved),
       path: resolved,
       ...(folder?.trim() ? { folder: folder.trim() } : {}),
-      sessions: [{ id: randomUUID() }],
+      sessions: [{ id: randomUUID(), title: LEAD_TITLE, lead: true }],
     };
     this.projects.push(project);
     this.save();
     return project;
+  }
+
+  /**
+   * Every project as a team (server/team.ts): one lead, first, that the
+   * user talks to, and every other chat a member of its team. Run once at
+   * launch; a project already a team only has its lead put back first.
+   *
+   * A project with one chat makes that chat its lead, history and all. One
+   * with several gets a new lead, and the chats it had become its members —
+   * each keeping its conversation, named what it was called, with that
+   * name as its duty until the lead says otherwise. A chat with no name
+   * and nothing in it (`empty`) was never used, and goes. True when
+   * anything changed.
+   */
+  formTeams(empty: (sessionId: string) => boolean): boolean {
+    let changed = false;
+    for (const project of this.projects) {
+      const marked = project.sessions.find((session) => session.lead);
+      if (marked) {
+        if (project.sessions[0] !== marked) {
+          project.sessions = [marked, ...project.sessions.filter((session) => session !== marked)];
+          changed = true;
+        }
+        continue;
+      }
+      changed = true;
+      const used = project.sessions.filter((session) => session.title || !empty(session.id));
+      if (used.length <= 1) {
+        const lead = used[0] ?? project.sessions[0] ?? { id: randomUUID() };
+        lead.lead = true;
+        lead.title = LEAD_TITLE;
+        project.sessions = [lead];
+        continue;
+      }
+      for (const member of used) member.duty ??= member.title ?? "general work in this project";
+      project.sessions = [{ id: randomUUID(), title: LEAD_TITLE, lead: true }, ...used];
+    }
+    if (changed) this.save();
+    return changed;
+  }
+
+  /** A project's lead, the session marked so (else its first). */
+  lead(projectId: string): SessionInfo | undefined {
+    const project = this.get(projectId);
+    return project ? leadOf(project) : undefined;
+  }
+
+  /** Whether a chat is a member of its project's team, not its lead. */
+  isMember(sessionId: string): boolean {
+    const found = this.findSession(sessionId);
+    return !!found && leadOf(found.project)?.id !== sessionId;
+  }
+
+  /** A new member of a project's team, named and given its duty. */
+  addMember(
+    projectId: string,
+    member: { name: string; duty: string; layers?: string[]; model?: string },
+  ): SessionInfo | undefined {
+    const project = this.projects.find((p) => p.id === projectId);
+    if (!project) return undefined;
+    const session: SessionInfo = {
+      id: randomUUID(),
+      title: member.name,
+      duty: member.duty,
+      ...(member.layers?.length ? { layers: member.layers } : {}),
+      ...(member.model ? { model: member.model } : {}),
+    };
+    project.sessions.push(session);
+    this.save();
+    return session;
+  }
+
+  /** A member's name, duty or layers changed. "" layers clears them. */
+  setMember(sessionId: string, patch: { name?: string; duty?: string; layers?: string[] }): void {
+    const found = this.findSession(sessionId);
+    if (!found) return;
+    if (patch.name) found.session.title = patch.name;
+    if (patch.duty) found.session.duty = patch.duty;
+    if (patch.layers) {
+      if (patch.layers.length) found.session.layers = patch.layers;
+      else delete found.session.layers;
+    }
+    this.save();
   }
 
   /** Patch a project's settings (model, permission mode, …) and persist. */
@@ -350,21 +437,34 @@ export class ProjectStore {
     return undefined;
   }
 
-  newSession(projectId: string): SessionInfo | undefined {
+  /** A new chat in a project: its lead when it has none (an emptied
+   *  folder), else a member of its team — the sidebar shows only the lead. */
+  newSession(projectId: string, duty?: string): SessionInfo | undefined {
     const project = this.projects.find((p) => p.id === projectId);
     if (!project) return undefined;
-    const session: SessionInfo = { id: randomUUID() };
+    const session: SessionInfo =
+      project.sessions.length === 0
+        ? { id: randomUUID(), title: LEAD_TITLE, lead: true }
+        : { id: randomUUID(), ...(duty ? { duty } : {}) };
     project.sessions.push(session);
     this.save();
     return session;
   }
 
   /** Remove a session; the project stays (an empty folder), even when it
-   *  was the last one — only removing the project itself closes the folder. */
+   *  was the last one — only removing the project itself closes the folder.
+   *  A lead removed hands the lead to the first member left. */
   removeSession(sessionId: string): void {
     const found = this.findSession(sessionId);
     if (!found) return;
     found.project.sessions = found.project.sessions.filter((s) => s.id !== sessionId);
+    const next = found.project.sessions[0];
+    if (found.session.lead && next) {
+      next.lead = true;
+      next.title = LEAD_TITLE;
+      delete next.duty;
+      delete next.layers;
+    }
     this.save();
   }
 

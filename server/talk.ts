@@ -602,7 +602,7 @@ export function talkTools(host: TalkHost, channelId: string) {
     ),
     tool(
       "start_chat",
-      "Start a new chat in a project and send it a first message — to ask a fresh agent about that codebase, or hand it a job, without taking up a chat that is busy. The chat opens in the sidebar like one the user started, works in that project's folder with its own tools, and answers the way message_agent does (reply \"wait\" by default). Any project open in ruri (list_agents lists them), or a folder path, which is opened as a project if it isn't. Outside bypass mode the user is asked first, on a card.",
+      'Hand a job, or a question, to another project: its lead gets it as a message and hands it on to its own team, and answers the way message_agent does (reply "wait" by default). Any project open in ruri (list_agents lists them), or a folder path, which is opened as a project — its lead new with it — if it isn\'t. Not for your own project: there, message a teammate. Outside bypass mode the user is asked first, on a card.',
       {
         project: z
           .string()
@@ -610,14 +610,9 @@ export function talkTools(host: TalkHost, channelId: string) {
         message: z
           .string()
           .describe(
-            "The first thing the new chat reads. It starts knowing nothing of you: say who you are working for, what you need, and anything it cannot find in its folder.",
+            "What the lead reads. It knows nothing of you: say who you are working for, what you need, and anything it cannot find in its folder.",
           ),
-        model: z
-          .string()
-          .optional()
-          .describe(
-            'A model for it, by name or id ("Haiku 4.5", "codex:gpt-6-astra"); the project\'s own by default',
-          ),
+        model: z.string().optional().describe("Ignored: the lead runs on the model its project picked"),
         reply: z.enum(["wait", "later", "none"]).optional().describe(REPLY_DOC),
       },
       async (args, extra) => ({
@@ -653,7 +648,7 @@ export function talkTools(host: TalkHost, channelId: string) {
 export function talkToolBriefing(): string {
   return [
     "<ruri:talk>",
-    "Other agents are working in ruri too — other chats in this project and in the user's other open projects — and you can talk to them. mcp__ruri__list_agents shows who you may message and what each is doing right now; mcp__ruri__message_agent sends one a message and brings back its answer; mcp__ruri__start_chat opens a new chat in any project (or a folder) and asks it something — a fresh agent to ask about a codebase, or to hand a job.",
+    "Other agents are working in ruri too — your project's team, and the leads of the user's other open projects — and you can talk to them. mcp__ruri__list_agents shows who you may message and what each is doing right now; mcp__ruri__message_agent sends one a message and brings back its answer; mcp__ruri__start_chat hands a job or a question to another project's lead (or to a folder's, opened as a project first).",
     'A message interrupts a chat at work by default — it stops, reads yours, and goes back to what it was doing. When list_agents shows it deep in something your message can wait for, send it with delivery "queue".',
     'The answer comes back unless you ask for none: by default message_agent waits for it (a long job returns first with a letter id — mcp__ruri__wait_for_answer keeps waiting); reply "later" keeps you working and brings the answer to this chat as a message; reply "none" is only for work the other agent should just get on with in the background, with nothing sent back.',
     "For the chats in ruri use these tools, not ListAgents or SendMessage: those reach Claude sessions on this machine behind ruri's back — a message waits on another user's approval there, and no answer comes back through ruri.",
@@ -671,11 +666,11 @@ export function talkHttpBriefing(endpoint: string, waitMs = HTTP_WAIT_DEFAULT_MS
     `  curl -s -X POST ${endpoint} -H 'content-type: application/json' -d '${body}'`;
   return [
     "<ruri:talk>",
-    `Other agents are working in ruri too — other chats in this project and in the user's other open projects — and you can talk to them, by POSTing JSON to ${endpoint}. Each call answers {"ok": true, "text": "...", ...}; read "text".`,
+    `Other agents are working in ruri too — your project's team, and the leads of the user's other open projects — and you can talk to them, by POSTing JSON to ${endpoint}. Each call answers {"ok": true, "text": "...", ...}; read "text".`,
     '  {"do": "list"} — who you may message, each with a handle',
     '  {"do": "list"} also says what each is doing right now — idle, or working (for how long, on what), answering another agent, waiting on the user',
     '  {"do": "send", "to": "<handle>", "message": "...", "reply": "wait", "delivery": "interrupt"} — send one a message',
-    '  {"do": "new", "project": "<open project name, or a folder path>", "message": "...", "model": "<optional>", "reply": "wait"} — start a new chat in a project and send it a first message: a fresh agent to ask about that codebase, or to hand a job',
+    '  {"do": "new", "project": "<open project name, or a folder path>", "message": "...", "reply": "wait"} — hand a job or a question to another project\'s lead (a folder is opened as a project first)',
     '  {"do": "wait", "letter": "<id>"} — keep waiting on the answer to a message you sent',
     '"delivery": "interrupt" (the default) stops the turn a busy chat is running so it reads yours now, and sends it back to that work after; "queue" waits in its line instead — for when it is deep in something your message can wait for.',
     call('{"do":"list"}'),

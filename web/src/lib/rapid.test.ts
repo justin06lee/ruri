@@ -3,7 +3,8 @@ import type { ProjectStatus } from "../../../shared/protocol";
 import { lineOf, type LineProject, nextAfter, repick } from "./rapid";
 
 const PROJECTS: LineProject[] = [
-  { starred: true, sessions: [{ id: "star-1" }, { id: "star-2" }] },
+  { starred: true, sessions: [{ id: "star-1", lead: true }, { id: "star-1-member" }] },
+  { starred: true, sessions: [{ id: "star-2" }] },
   { sessions: [{ id: "plain-1" }] },
   { hidden: true, starred: true, sessions: [{ id: "hidden-starred" }] },
   { hidden: true, sessions: [{ id: "hidden-plain" }] },
@@ -24,6 +25,12 @@ describe("the rapid fire line", () => {
 
   test("holds every open project, starred first, when it is not narrowed", () => {
     expect(lineOf(PROJECTS, STATUSES).ids).toEqual(["star-1", "star-2", "plain-1"]);
+  });
+
+  test("holds a project once, as its lead — never a member of its team", () => {
+    expect(lineOf(PROJECTS, STATUSES).ids).not.toContain("star-1-member");
+    const marked: LineProject[] = [{ sessions: [{ id: "member" }, { id: "lead", lead: true }] }];
+    expect(lineOf(marked, {}).ids).toEqual(["lead"]);
   });
 
   test("narrowed, holds only the starred ones", () => {

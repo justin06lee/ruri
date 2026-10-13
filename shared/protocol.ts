@@ -42,11 +42,25 @@ export type ModelRole = "small" | "default" | "memory";
  * One live coding session inside a project. Transcripts, statuses,
  * drafts, summaries, and tracker items are keyed by the session id (the
  * protocol's `projectId` fields carry session ids for project sessions).
+ *
+ * A project is a team (server/team.ts): its lead — always its first
+ * session — is the one chat the user sees and talks to, and every other
+ * session is a member the lead hands work to, out of the sidebar, asleep
+ * between jobs.
  */
 export interface SessionInfo {
   id: string;
-  /** Role title, auto-named by the small model ("Frontend UI", …). */
+  /** Role title, auto-named by the small model ("Frontend UI", …); a
+   *  member's is its name on the team, given when it joined. */
   title?: string;
+  /** The project's lead: the chat the user talks to. */
+  lead?: boolean;
+  /** A member's duty: what part of the project it looks after, in the
+   *  lead's words. */
+  duty?: string;
+  /** The layer sheets a member owns (their handles), when the project has
+   *  a layered stack. */
+  layers?: string[];
   /** This chat's own model, effort and permission mode. Unset means the
    *  project's — which is only ever what a NEW chat starts on: picking one
    *  in a chat sets it here, for this chat, and never reaches another. */
@@ -56,6 +70,11 @@ export interface SessionInfo {
 }
 
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
+
+/** What can be done to a member: its process closed (the conversation
+ *  kept), its conversation compacted, cleared (a fresh start that keeps
+ *  only its duty), or the member retired. */
+export type TeamAction = "restart" | "compact" | "clear" | "retire";
 
 /** Reasoning-effort levels, yagami's shared vocabulary: Claude takes them
  *  natively, Codex maps them to model_reasoning_effort; harnesses without
@@ -95,6 +114,69 @@ export interface Project {
   hidden?: boolean;
   /** The project's sessions (possibly none — an empty folder is fine). */
   sessions: SessionInfo[];
+}
+
+/** A project's lead: the session marked so, else its first. */
+export function leadOf(project: Pick<Project, "sessions">): SessionInfo | undefined {
+  return project.sessions.find((session) => session.lead) ?? project.sessions[0];
+}
+
+/** Whether a session is one of its project's members, not its lead. */
+export function isMember(project: Pick<Project, "sessions">, sessionId: string): boolean {
+  return leadOf(project)?.id !== sessionId && project.sessions.some((session) => session.id === sessionId);
+}
+
+/** How a member stands right now, as the team page shows it. */
+export type MemberState =
+  /** No process: it costs nothing, and the next message wakes it. */
+  | "asleep"
+  /** Its process is up between turns, about to close. */
+  | "idle"
+  | "working"
+  /** In a turn, but holding on an answer from another agent. */
+  | "waiting"
+  /** Something for it is waiting on a free slot (TeamBudget). */
+  | "queued"
+  /** Waiting on the user at a card. */
+  | "permission";
+
+/** One member of a project's team, for the team page. */
+export interface TeamMember {
+  id: string;
+  name: string;
+  duty: string;
+  layers: string[];
+  model: string;
+  state: MemberState;
+  /** How full its context is, when a turn has reported it. */
+  context?: ContextUsage;
+  /** When its last turn ended (epoch ms). */
+  lastActive?: number;
+  /** Its exchanges so far. */
+  exchanges: number;
+  /** The start of the last thing it said. */
+  lastWords?: string;
+}
+
+/**
+ * How many members may work at once across ruri, and why: each at work
+ * holds a harness process of a few hundred MB, so the number follows the
+ * memory the machine has free (server/team.ts).
+ */
+export interface TeamBudget {
+  /** Members that may be at work at once right now. */
+  slots: number;
+  /** Members at work now (not counting ones holding on an answer). */
+  atWork: number;
+  /** Members waiting on a slot, oldest first (their chat ids). */
+  waiting: string[];
+  availableBytes: number;
+  totalBytes: number;
+  /** What one agent at work is taken to cost. */
+  perAgentBytes: number;
+  /** The most there may ever be, whatever the memory (cores, or the
+   *  user's RURI_TEAM_MAX). */
+  cap: number;
 }
 
 export type ProjectStatus = "idle" | "working" | "permission" | "error";
@@ -1860,7 +1942,13 @@ export type ClientMessage =
    *  said lately. Answered with `talk`. */
   | { type: "talk_get" }
   /** The talk page's limits, whole. */
-  | { type: "talk_set"; policy: TalkPolicy };
+  | { type: "talk_set"; policy: TalkPolicy }
+  /** The team page opened on a project: answered with `team`, and kept
+   *  up to date while it is open. */
+  | { type: "team_get"; projectId: string }
+  /** The user doing to a member what the lead can: restart its process,
+   *  compact or clear its conversation, or retire it. */
+  | { type: "team_member"; memberId: string; action: TeamAction };
 
 export type ServerMessage =
   | {
@@ -2004,6 +2092,8 @@ export type ServerMessage =
   | { type: "integrations"; projectId?: string; integrations: Integrations }
   /** Who may message whom, and the latest messages between agents. */
   | { type: "talk"; policy: TalkPolicy; letters: TalkLetter[] }
+  /** A project's team as it stands, and the machine's budget for it. */
+  | { type: "team"; projectId: string; members: TeamMember[]; budget: TeamBudget }
   | { type: "plugins_found"; harness: IntegrationHarness; query: string; plugins: PluginRow[]; total: number }
   /** How a change to the integrations went, in words. */
   | { type: "integration_done"; ok: boolean; message: string }

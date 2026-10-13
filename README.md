@@ -4,8 +4,8 @@
 
 # ruri
 
-**One desktop workspace for all your projects — each a folder of live coding sessions.**<br>
-*A folder-organized sidebar on the left, a real agent session on the right.*
+**One desktop workspace for all your projects — each one lead you talk to, with a team of agents behind it.**<br>
+*A row per project on the left, a real agent session on the right.*
 
 </div>
 
@@ -40,7 +40,7 @@ On a Linux that restricts unprivileged user namespaces (Ubuntu 24.04 and later),
 ## What it does
 
 - **Home, the workspace agent** — tell it what to work on and it finds the projects by name, opens them in the sidebar and kicks their sessions off, on whatever model you point it at.
-- **Projects are folders of parallel sessions** — auto-named after their first turn, warm in the background, resumed after a relaunch; idle ones give their process back and resume on the next prompt.
+- **A project is one chat — its lead — with a team behind it** — the lead hands work to teammates, each a persistent chat with a duty (a part of the project), and manages them: adds, compacts, restarts, clears, retires. Teammates sleep between jobs (no process, conversation kept) and wake when messaged; how many may work at once follows the memory your machine has free, and the rest wait for a slot. The team page in the lead's header shows them.
 - **Any harness, verbatim** — Claude, Codex, OpenCode, Gemini, ACP agents; model, reasoning effort and permission mode are per chat — and every one of them kept up to date on the hour, the way it was installed.
 - **Streaming markdown replies** with tool chips, inline diffs, previews of what was read, and permission cards that mean the same thing on every harness.
 - **An app-side prompt queue** you can reorder, merge (with an undo) and edit while a turn runs — or cut in past it with ⌘Enter or a held Enter, stopping the answer and sending yours in its place. A dropped connection or a usage limit holds it, with a Send queued button, instead of spending it against the same wall; a prompt splitter; slash commands inside a prompt.
@@ -48,7 +48,7 @@ On a Linux that restricts unprivileged user namespaces (Ubuntu 24.04 and later),
 - **Edit & rewind** with ruri's own checkpoints on every harness — the discarded turns' files, commits and context go back, and nothing else does; fork a chat at any exchange; import chats started outside ruri.
 - **MCP servers, plugins and marketplaces** for Claude Code and Codex, listed, added and removed from Settings through each CLI's own commands.
 - **Subagents and background scripts as live cards**, an agents page, and agents of your own started from a brief; an agent the model sends on again picks its own card back up.
-- **Agents talk to agents** — a chat's agent can message a chat in any open project and hear back, waiting on the answer or having it come later; the talk page in every chat's header says who may message whom, and outside Bypass each message waits on your OK.
+- **Agents talk to agents** — a teammate, its lead, or another project's lead, and hear back, waiting on the answer or having it come later; the talk page in every chat's header says who may message whom, and outside Bypass each message waits on your OK.
 - **The bridge** — a session looks at and drives what it built: a hidden browser window over CDP, native apps over Accessibility (AT-SPI on Linux), previews above the composer.
 - **ruri's own `/compact`** — instant and token-free, built from per-turn recall notes; transcripts split into a live part and a capped history.
 - **A component library per project** — every piece of its interface with a picture, a name and its code, in a searchable gallery; agents find, read and install components with the `ruri` command (`ruri search`, `ruri show`, `ruri add peek-band`) and put back what they build.

@@ -10,7 +10,7 @@ bun run test:scripts     # every token-free integration script below, one after 
 bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, signed with the local identity
 ```
 
-`bun test` is bun's own runner: any `*.test.ts` beside the module it tests, `bun:test` for `describe`/`test`/`expect`. It skips dot-directories, so worktrees under `.claude/` are never scanned.
+`bun test` is bun's own runner: any `*.test.ts` beside the module it tests, `bun:test` for `describe`/`test`/`expect`. It skips dot-directories, so worktrees under `.claude/` are never scanned. Its preload (`bunfig.toml` → `scripts/test-config.ts`) gives every run a `RURI_CONFIG_DIR` of its own before any test loads, so nothing a test does — or a store writes a moment after its test has put the folder back — reaches your `~/.config/ruri`; and each store fixes its folder when it is made, so a put-off write lands where the store was read from.
 
 `bun run test:scripts` (`scripts/run-tests.ts`) runs each script below exactly as its own `bun run <name>-test` line does — `bunx tsx scripts/<name>.ts` from the repo root — and reads only its exit code. A script whose header names a binary it needs (`retry` needs `claude`) is skipped, not failed, when the binary is missing. Any failure prints that script's whole output and the run exits non-zero.
 

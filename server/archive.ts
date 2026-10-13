@@ -305,6 +305,10 @@ const WRITE_DELAY_MS = 1000;
 
 export class SessionArchive {
   private readonly data = new Map<string, ArchiveData>();
+  /** Where it lives, fixed when it is made: a write a moment after a
+   *  change goes where the store was read from, whatever the config
+   *  folder is by then (a test that set its own and put it back). */
+  private readonly dir = archiveDir();
   private readonly timers = new Map<string, NodeJS.Timeout>();
   /** Per channel, moved on by every flush — how a slower write knows a
    *  newer one has passed it (see flush). */
@@ -380,7 +384,7 @@ export class SessionArchive {
     if (entry) return entry;
     try {
       const raw = JSON.parse(
-        fs.readFileSync(path.join(archiveDir(), `${projectId}.json`), "utf8"),
+        fs.readFileSync(path.join(this.dir, `${projectId}.json`), "utf8"),
       ) as Partial<ArchiveData>;
       // summaries were single combined strings before the prompt/reply
       // split — an old note covered the whole turn, so it lands as `reply`
@@ -665,7 +669,7 @@ export class SessionArchive {
     this.generations.set(projectId, (this.generations.get(projectId) ?? 0) + 1);
     this.inflight.delete(projectId);
     try {
-      writeTextAtomic(path.join(archiveDir(), `${projectId}.json`), archiveText(entry));
+      writeTextAtomic(path.join(this.dir, `${projectId}.json`), archiveText(entry));
     } catch (err) {
       warn("archive", err, "writeLive");
     }
@@ -699,7 +703,7 @@ export class SessionArchive {
       // Compact: nobody reads these by eye, and the indentation was a third
       // of every file and of every write.
       await writeTextAtomicAsync(
-        path.join(archiveDir(), `${projectId}.json`),
+        path.join(this.dir, `${projectId}.json`),
         archiveText(entry),
         () => this.generations.get(projectId) !== generation,
       );
@@ -1322,7 +1326,7 @@ export class SessionArchive {
     if (timer) clearTimeout(timer);
     this.timers.delete(projectId);
     try {
-      fs.rmSync(path.join(archiveDir(), `${projectId}.json`), { force: true });
+      fs.rmSync(path.join(this.dir, `${projectId}.json`), { force: true });
       fs.rmSync(historyFile(projectId), { force: true });
     } catch (err) {
       warn("archive", err, "remove");

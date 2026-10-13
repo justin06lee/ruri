@@ -23,11 +23,15 @@ const WRITE_DELAY_MS = 400;
 
 export class DraftStore {
   private readonly drafts = new Map<string, ComposerDraftState>();
+  /** Where it lives, fixed when it is made: a write a moment after a
+   *  change goes where the store was read from, whatever the config
+   *  folder is by then (a test that set its own and put it back). */
+  private readonly file = draftsFile();
   private timer: NodeJS.Timeout | undefined;
 
   constructor() {
     try {
-      const raw = JSON.parse(fs.readFileSync(draftsFile(), "utf8")) as Record<string, unknown>;
+      const raw = JSON.parse(fs.readFileSync(this.file, "utf8")) as Record<string, unknown>;
       for (const [channelId, saved] of Object.entries(raw)) {
         // drafts were text alone before attachments could be parked
         const draft: ComposerDraftState | undefined =
@@ -84,7 +88,7 @@ export class DraftStore {
     this.timer = setTimeout(() => {
       this.timer = undefined;
       try {
-        writeJsonAtomic(draftsFile(), this.all(), 2);
+        writeJsonAtomic(this.file, this.all(), 2);
       } catch (err) {
         warn("drafts", err, "scheduleWrite");
         // persistence is best-effort; in-memory state stays correct

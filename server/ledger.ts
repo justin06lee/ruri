@@ -43,11 +43,15 @@ const WRITE_DELAY_MS = 800;
 export class LedgerStore {
   /** project id → day → totals */
   private readonly days = new Map<string, Map<string, Totals>>();
+  /** Where it lives, fixed when it is made: a write a moment after a
+   *  change goes where the store was read from, whatever the config
+   *  folder is by then (a test that set its own and put it back). */
+  private readonly file = ledgerFile();
   private timer: NodeJS.Timeout | null = null;
 
   constructor() {
     try {
-      const raw = JSON.parse(fs.readFileSync(ledgerFile(), "utf8")) as Record<
+      const raw = JSON.parse(fs.readFileSync(this.file, "utf8")) as Record<
         string,
         Record<string, Partial<Totals>>
       >;
@@ -70,7 +74,7 @@ export class LedgerStore {
       try {
         const out: Record<string, Record<string, Totals>> = {};
         for (const [projectId, days] of this.days) out[projectId] = Object.fromEntries(days);
-        writeJsonAtomic(ledgerFile(), out, 1);
+        writeJsonAtomic(this.file, out, 1);
       } catch (err) {
         warn("ledger", err, "save");
         // best-effort; the in-memory sums stay right
@@ -118,7 +122,7 @@ export class LedgerStore {
     try {
       const out: Record<string, Record<string, Totals>> = {};
       for (const [projectId, days] of this.days) out[projectId] = Object.fromEntries(days);
-      writeJsonAtomic(ledgerFile(), out, 1);
+      writeJsonAtomic(this.file, out, 1);
     } catch (err) {
       warn("ledger", err, "flush");
       // best-effort

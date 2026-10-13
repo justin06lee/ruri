@@ -260,10 +260,14 @@ export function parseMapLine(line: string): ConceptPlace | undefined {
 
 export class BriefStore {
   private readonly briefs = new Map<string, ProjectBrief>();
+  /** Where it lives, fixed when it is made: a write a moment after a
+   *  change goes where the store was read from, whatever the config
+   *  folder is by then (a test that set its own and put it back). */
+  private readonly file = briefsFile();
 
   constructor() {
     try {
-      const raw = JSON.parse(fs.readFileSync(briefsFile(), "utf8")) as Record<string, ProjectBrief>;
+      const raw = JSON.parse(fs.readFileSync(this.file, "utf8")) as Record<string, ProjectBrief>;
       for (const [projectId, brief] of Object.entries(raw)) {
         if (!brief || typeof brief !== "object") continue;
         const layers = layersOf(brief.layers);
@@ -330,8 +334,8 @@ export class BriefStore {
 
   private writeNow(): void {
     try {
-      fs.mkdirSync(path.dirname(briefsFile()), { recursive: true });
-      writeJsonAtomic(briefsFile(), Object.fromEntries(this.briefs));
+      fs.mkdirSync(path.dirname(this.file), { recursive: true });
+      writeJsonAtomic(this.file, Object.fromEntries(this.briefs));
     } catch (err) {
       warn("brief", err, "save");
       // best-effort persistence

@@ -42,10 +42,14 @@ export function settleAgent(event: TranscriptEvent): TranscriptEvent {
 
 export class AgentLogs {
   private readonly live = new Map<string, TranscriptEvent[]>();
+  /** Where it lives, fixed when it is made: a write a moment after a
+   *  change goes where the store was read from, whatever the config
+   *  folder is by then (a test that set its own and put it back). */
+  private readonly dir = agentsDir();
   private readonly timers = new Map<string, NodeJS.Timeout>();
 
   private file(channelId: string, key: string): string {
-    return path.join(agentsDir(), safe(channelId), `${safe(key)}.json`);
+    return path.join(this.dir, safe(channelId), `${safe(key)}.json`);
   }
 
   private id(channelId: string, key: string): string {
@@ -123,7 +127,7 @@ export class AgentLogs {
       this.timers.delete(id);
       this.live.delete(id);
     }
-    fs.rmSync(path.join(agentsDir(), safe(channelId)), { recursive: true, force: true });
+    fs.rmSync(path.join(this.dir, safe(channelId)), { recursive: true, force: true });
   }
 }
 
@@ -149,12 +153,16 @@ interface CrewMember {
  */
 export class Crew {
   private readonly chats = new Map<string, CrewMember[]>();
+  /** Where it lives, fixed when it is made: a write a moment after a
+   *  change goes where the store was read from, whatever the config
+   *  folder is by then (a test that set its own and put it back). */
+  private readonly dir = agentsDir();
   /** Which chat each agent belongs to (every chat read so far). */
   private readonly owners = new Map<string, string>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
 
   private file(chatId: string): string {
-    return path.join(agentsDir(), safe(chatId), CREW_FILE);
+    return path.join(this.dir, safe(chatId), CREW_FILE);
   }
 
   private load(chatId: string): CrewMember[] {

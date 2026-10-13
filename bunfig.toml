@@ -1,0 +1,4 @@
+[test]
+# Every test run gets a config folder of its own (scripts/test-config.ts):
+# a test that forgets to set one never reads or writes the user's ruri.
+preload = ["./scripts/test-config.ts"]

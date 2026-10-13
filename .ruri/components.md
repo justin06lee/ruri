@@ -48,18 +48,21 @@ The [image #1] markers in the composer drawn as chips over the textarea by a mir
 Its files: web/src/components/Markers.tsx, web/src/components/ChatPane.tsx
 Reaches into: web/src/styles.css:4700
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/63733cc5-6acb-4a26-949c-9762026498a8-crop-1.png
+Its code has changed since that picture — if you change it, `ruri edit attachment-tags --shot <new picture>`
 
 ## recent-chats-dropdown — recent chats dropdown
 The "recent chats" row under a project's sessions in the sidebar: unfolds to the Claude and Codex sessions on disk for that directory that ruri did not make, tagged cc/cx with their age; clicking one imports it as a session whose next prompt resumes the real thing.
 Its files: web/src/components/Sidebar.tsx
 Reaches into: server/recent.ts, server/server.ts
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/2c55429b-e165-41b6-becf-b47a13829f93-crop-recent.png
+Its code has changed since that picture — if you change it, `ruri edit recent-chats-dropdown --shot <new picture>`
 
 ## question-box — question box
 The AskUserQuestion card with several questions side by side on a strip that slides between them: picking a single-choice answer moves on by itself, the card is as tall as its tallest question, and every pick and typed "Other" survives leaving the session. When the tool call behind it has moved on, the card says so and "Send as a prompt" sends the answers as a new prompt.
 Its files: web/src/components/Questions.tsx
 Reaches into: web/src/styles.css:3760
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/2fcd3a19-a7b0-4dc3-b14b-a6181d3dd600-ask-strip.png
+Its code has changed since that picture — if you change it, `ruri edit question-box --shot <new picture>`
 
 ## selection-flags — the selection flags
 A flag at each end of a transcript selection (double-click a word, or drag one out); drag a flag to change what is selected, scroll first if you like, and near the transcript's edge the drag scrolls it. Drawn fixed in a portal over the page; the flags take no pointer while one is dragged so the caret lookup finds the text underneath.
@@ -221,30 +224,35 @@ The eye button on a sidebar folder row tucks a project away without closing it; 
 Its files: web/src/components/Sidebar.tsx
 Reaches into: web/src/styles.css, server/server.ts, shared/protocol.ts
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/440e40d0-82de-4a35-b18e-0facf5b00e18-shot-4.png
+Its code has changed since that picture — if you change it, `ruri edit hidden-fold --shot <new picture>`
 
 ## folded-exchanges — the folded exchanges
 Exchanges above the newest compaction (and any hand-folded turn) laid out like chat, showing recall notes: prompt note in a dashed bubble, reply note beneath, click to open in full. Fed by the history outline (archive.earlier).
 Its files: web/src/components/ChatPane.tsx
 Reaches into: web/src/styles.css, server/archive.ts, shared/protocol.ts
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/01c29e00-8822-40ae-963d-72625bda1d68-shot-7.png
+Its code has changed since that picture — if you change it, `ruri edit folded-exchanges --shot <new picture>`
 
 ## agent-cards — the agent cards
 A subagent in the chat (Claude's Agent tool, Codex's spawn_agent): type, brief, a turning ring while it works, its live activity or report, and tools · tokens · time. Click to open its log. The card is the spawning tool event re-sent in place as the agent moves (SubagentState).
 Its files: web/src/components/ChatPane.tsx
 Reaches into: web/src/styles.css, server/sessions.ts, shared/protocol.ts
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/c0ec217c-b144-4b81-8625-aa8998f6856d-shot-10.png
+Its code has changed since that picture — if you change it, `ruri edit agent-cards --shot <new picture>`
 
 ## agents-panel — the agents panel
 Slides over the right of the chat, stopping above the composer: one agent's own conversation live (brief, what it said, every tool), or the list of every agent in the chat from the header's robot button (badge = still working). Esc closes; back steps out. Logs live in ~/.config/ruri/agents/.
 Its files: web/src/components/ChatPane.tsx
 Reaches into: web/src/store.ts, web/src/styles.css, server/agents.ts
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/5acab168-c6a1-482e-a63e-afbc8bdd430d-shot-13.png
+Its code has changed since that picture — if you change it, `ruri edit agents-panel --shot <new picture>`
 
 ## agents-page — the agents page
 Replaces the chat when the header's robot button is pressed (always there; badge counts working agents). It lists every agent in the chat, the model's and your own, above a box that starts an agent of your own. Clicking one opens its conversation full-page, with a follow-up/stop line for yours and "Put in the composer". Esc steps back out. Your agents run on their own SessionManager (server.ts) and their cards live in agents/<chat>/@crew.json.
 Its files: web/src/components/ChatPane.tsx
 Reaches into: web/src/store.ts, web/src/styles.css, server/agents.ts, server/server.ts
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/3f070929-3e50-45d5-ae24-a7582c7f4928-shot-13.png
+Its code has changed since that picture — if you change it, `ruri edit agents-page --shot <new picture>`
 
 ## flat-paper-look — the flat paper look
 All three themes drawn the same way now: no rules around panels and no shadow cast to the lower right — one surface is told from the next by the shade it is printed in, with --rim (ink mixed into the paper) only where a frame is really needed, like a tile or a picture's white ground. The tokens are at the top of styles.css; --edge is now a transparent border that only holds its space.
@@ -292,6 +300,7 @@ The line under a queue that is standing by: why (a stop, a dropped connection, a
 Its files: web/src/components/Queue.tsx
 Reaches into: server/blocked.ts, server/queue.ts, web/src/components/ChatPane.tsx
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/e532c309-37f0-4c1a-8279-d9ced2829f20-shot-1.png
+Its code has changed since that picture — if you change it, `ruri edit held-queue-bar --shot <new picture>`
 
 ## band-editor — the band editor
 Settings → Peek band: the band drawn at 2× over a faint view of what it clips, with drag-to-place, scroll-to-size, the picture strip, and each picture's hover effect, hover picture, GIF mode, themes (light/dark/ember, never none), dark-theme invert, mirror and place fields; Restore the default brings back the mountain path. Saved as the ruri-band pref.
@@ -317,6 +326,7 @@ Layers-icon page in the chat header: the project's stack as bars (the index ever
 Its files: web/src/components/Architecture.tsx
 Reaches into: web/src/styles.css, server/brief.ts, server/catchupBrief.ts
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/c4351169-a3b5-46dc-a3f6-ce757c134023-shot-5.png, /Users/huiyunlee/.config/ruri/uploads/8153aa47-32b7-4d27-8f16-3024b0bce40d-shot-9.png, /Users/huiyunlee/.config/ruri/uploads/d23e4894-cdcf-49c5-9f1d-ac7f942a0b35-shot-8.png, /Users/huiyunlee/.config/ruri/uploads/f9ec4470-ed4e-44ff-9ef1-8a8ba50d7d97-shot-41.png, /Users/huiyunlee/.config/ruri/uploads/72f24d33-bd5b-40f8-8e05-18046c8a2881-shot-32.png, /Users/huiyunlee/.config/ruri/uploads/e0a946df-eaca-4885-823e-712bea301686-shot-23.png
+Its code has changed since that picture — if you change it, `ruri edit architecture-page --shot <new picture>`
 
 ## slash-command-menu — slash command menu
 Slash-command picker over the composer listing ruri, harness, skill and custom commands.
@@ -343,6 +353,7 @@ Model, effort and permission pickers for the current chat; each model shows its 
 Its files: web/src/components/SessionControls.tsx
 On screen: .composer-controls
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/946e5f68-845e-494d-be68-65d2835b52eb-shot-4.png, /Users/huiyunlee/.config/ruri/uploads/3d62cd4c-1b9a-47d5-9d4a-0a5fc9e195c5-the-composer-pickers.png
+Its code has changed since that picture — if you change it, `ruri edit composer-pickers --shot <new picture>`
 
 ## provider-marks — the provider marks
 Over an empty chat: the hand-drawn "lab × product" logo pair for whoever made the chat's model (Anthropic × Claude, OpenAI × ChatGPT, Google × Gemini, …), then the chat's title or Home's greeting. markFor() picks the lab from an OpenCode provider segment, the model's name, then the harness; unknown labs get the harness mark × the model's name lettered. Ink is currentColor so it follows light/dark/ember.

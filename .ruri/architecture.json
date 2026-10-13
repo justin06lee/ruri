@@ -232,7 +232,8 @@
         "scripts/lib/server.ts",
         "scripts/port.ts",
         "scripts/uploads-sweep.ts",
-        "shared/protocol.ts"
+        "shared/protocol.ts",
+        "shared/clientSchema.ts"
       ]
     },
     {
@@ -270,7 +271,9 @@
         "desktop/linuxApps.ts",
         "desktop/desktopEntries.ts",
         "desktop/desktopEntries.test.ts",
-        "desktop/main.ts"
+        "desktop/main.ts",
+        "desktop/remote.ts",
+        "desktop/sshSetup.ts"
       ]
     }
   ],

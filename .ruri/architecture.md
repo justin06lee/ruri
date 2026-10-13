@@ -18,9 +18,9 @@ A desktop app for macOS and Linux for managing projects as folders of parallel L
 7. **Projects, memory and history** — Project sessions, checkpoints, working memory, archive, tracker and briefs. (`server/, server/handlers/ · 24 files`) → `.ruri/layers/projects-memory-history.md`
 8. **Library, skills and sweeps** — Component library, skills, repo sweeps and their screenshots. (`server/, server/handlers/ · 9 files`) → `.ruri/layers/library-skills-sweeps.md`
 9. **Terminals, agents and integrations** — Composer terminals, background scripts, crew agents, music and harness integrations. (`server/, server/handlers/, scripts/ · 14 files`) → `.ruri/layers/terminals-agents-integrations.md`
-10. **Server runtime and transport** — Node HTTP+WebSocket server, routing, auth, uploads, secrets, gauges and shared stores. (`server/, scripts/, scripts/lib/ +1 · 5 files`) → `.ruri/layers/server-runtime-transport.md`
+10. **Server runtime and transport** — Node HTTP+WebSocket server, routing, auth, uploads, secrets, gauges and shared stores. (`server/, scripts/, scripts/lib/ +1 · 6 files`) → `.ruri/layers/server-runtime-transport.md`
 11. **Agent harnesses** — yagami AgentSession to installed claude/Codex/OpenCode/Gemini/ACP CLIs, models, small-model layer (`server/, scripts/ · 14 files`) → `.ruri/layers/harnesses.md`
-12. **Bridge** — Hidden Chromium over CDP plus native apps over Accessibility, previews above composer (`server/, desktop/ · 10 files`) → `.ruri/layers/bridge.md`
+12. **Bridge** — Hidden Chromium over CDP plus native apps over Accessibility, previews above composer (`server/, desktop/ · 12 files`) → `.ruri/layers/bridge.md`
 
 ## How it flows
 

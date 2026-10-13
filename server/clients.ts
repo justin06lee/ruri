@@ -24,7 +24,7 @@ export interface ClientView {
   board: boolean;
   /** The statistics page is up: it wants the resource meters running. */
   meters: boolean;
-  /** Anyone is looking: the window on screen and the one in use
+  /** Anyone is looking: some of the window can be seen
    *  (web/src/lib/awake.ts) — what decides how long its chats' processes
    *  are worth keeping warm. */
   awake: boolean;

@@ -51,7 +51,7 @@ const ANIMATE: Array<{ value: Animate; label: string; title: string }> = [
   {
     value: "always",
     label: "Always",
-    title: "Plays all the time (held still while ruri is not the window in use)",
+    title: "Plays all the time (held still while ruri can't be seen)",
   },
   {
     value: "hover",

@@ -204,7 +204,7 @@ function usePlay(loaded: Loaded | null, on: boolean): string | undefined {
  * What a picture shows right now: itself; the hover picture while `hot`,
  * played from its first frame if it moves; for one that moves, its first
  * frame while it is set to hold still, waiting for the pointer, or the
- * window is out of use (nothing on it moves then — lib/awake.ts).
+ * window can't be seen (nothing on it moves then — lib/awake.ts).
  */
 export function useShown(
   picture: { src: string; hoverSrc?: string; animate: Animate },

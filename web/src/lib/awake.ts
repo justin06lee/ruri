@@ -1,14 +1,24 @@
 /**
- * Whether anyone can see ruri — the window on screen and the one in use —
- * and which elements are actually in view.
+ * Whether anyone can see ruri, and which elements are actually in view.
  *
- * Asleep (another app in front, minimised, hidden, on another Space)
- * nothing on the window changes: the clocks stop where they stand (beat.ts,
- * spin.ts), any entrance caught halfway pauses, to finish on waking, and
- * nothing the server says is applied — it stops sending the chats, and what
- * little else comes is held unread (store.ts, receive) until the window
- * wakes and takes it in one render. The only work left running is the
- * agents'.
+ * Asleep — nothing of the window can be seen: minimised, hidden, on another
+ * Space, or covered whole by other windows, which macOS tells the page the
+ * same way — nothing on the window changes: the clocks stop where they
+ * stand (beat.ts, spin.ts), any entrance caught halfway pauses, to finish
+ * on waking, and nothing the server says is applied — it stops sending the
+ * chats, and what little else comes is held unread (store.ts, receive)
+ * until the window wakes and takes it in one render. The only work left
+ * running is the agents'.
+ *
+ * A window that can be seen is awake whether or not it is the one in use.
+ * It used to sleep the moment another app took the focus, and someone
+ * watching a chat from beside the app they were in — or whose focus a
+ * launched app had taken — watched a reply stop at whatever the agent was
+ * doing as the focus left, a tool call as often as not, and a working
+ * clock that had stopped as if the model had: a reply cut off, put right
+ * only by clicking back into ruri. Focus still decides one thing, apart
+ * from all this: whether the peek band is the page's or the title bar
+ * (`data-unfocused`, styles.css).
  *
  * `watchSeen` is the same idea one element at a time: a mover scrolled out
  * of view or inside a hidden pane is not worth a step either.
@@ -21,13 +31,19 @@
 const forced = new URLSearchParams(location.search).has("awake");
 
 function seen(): boolean {
-  return forced || (!document.hidden && document.hasFocus());
+  return forced || !document.hidden;
+}
+
+/** The window is the one in use: keys and clicks go to it. */
+function focused(): boolean {
+  return forced || document.hasFocus();
 }
 
 let awake = seen();
 document.documentElement.toggleAttribute("data-asleep", !awake);
+document.documentElement.toggleAttribute("data-unfocused", !focused());
 
-/** The window can be seen and is the one being used. */
+/** Some of the window can be seen. */
 export function isAwake(): boolean {
   return awake;
 }
@@ -46,6 +62,7 @@ export function subscribeAwake(listener: () => void): () => void {
 let paused: Animation[] = [];
 
 function update(): void {
+  document.documentElement.toggleAttribute("data-unfocused", !focused());
   const next = seen();
   if (next === awake) return;
   awake = next;

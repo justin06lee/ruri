@@ -33,7 +33,7 @@ function drag(phase: WindowDragPhase): void {
  * While ruri is behind another app, the band is the title bar again: a
  * press there is the window's first click, which the page never sees,
  * and macOS drags the window by it natively, bringing it forward as it
- * goes. Hover waits for the window to be in use, as the band's GIFs do.
+ * goes. Hover waits for the window to be in use.
  */
 
 export const BandPic = memo(function BandPic({

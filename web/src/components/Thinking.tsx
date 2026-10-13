@@ -38,7 +38,7 @@ export function Thinking() {
  * row's remove button goes (a folded folder's, for a chat inside it; the
  * Projects row's, for any chat at all). It chomps on the doodle's clock —
  * jaws open, jaws shut, twice a second, two drawings and no more — and
- * only while it is in view and the window is in use (lib/beat.ts). Running
+ * only while it is in view and the window can be seen (lib/beat.ts). Running
  * the pointer over the row bites twice, quickly and with a shake, and
  * holds the jaws open until the pointer leaves (styles.css, .row-dragon).
  */
@@ -133,7 +133,7 @@ function tokens(n: number): string {
 export function WorkingLine({ turn, effort }: { turn: TurnProgress; effort: string }) {
   // one tick a second: the clock has to move, and nothing else on screen
   // is going to move it while a turn sits in a long tool call — while ruri
-  // is in front, that is; behind another app it waits, then catches up
+  // can be seen, that is; out of sight it waits, then catches up
   const now = useNow(1000);
 
   const quiet = now - turn.at;

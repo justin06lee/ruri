@@ -388,7 +388,7 @@ textarea::placeholder {
 
 /* the window in use (awake.ts marks the one that isn't): the band is the
    page's, and carries the window itself */
-html:not([data-asleep]) .desktop .sidebar-header {
+html:not([data-unfocused]) .desktop .sidebar-header {
   -webkit-app-region: no-drag;
 }
 

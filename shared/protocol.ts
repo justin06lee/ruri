@@ -1498,8 +1498,8 @@ export type ClientMessage =
    *  in `channels` also keep their agent process warm between turns; a chat
    *  nobody has open closes its process the moment its work is done.
    *
-   *  `awake` is whether anyone is actually looking (lib/awake.ts): the
-   *  window on screen and the one in use. A warm CLI is 150-400 MB and goes
+   *  `awake` is whether anyone is actually looking (lib/awake.ts): some of
+   *  the window can be seen. A warm CLI is 150-400 MB and goes
    *  on costing the battery for as long as it lives, and a window nobody is
    *  looking at is nobody about to type the next prompt — so a chat open in
    *  a sleeping window holds its process for a minute rather than the ten a

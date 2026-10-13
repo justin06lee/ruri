@@ -31,6 +31,7 @@ import type { LedgerStore } from "./ledger.js";
 import type { Embedder } from "./embeddings.js";
 import type { MemoryBook } from "./memoryLog.js";
 import type { FoldQueue } from "./memoryQueue.js";
+import type { TeamGovernor } from "./team.js";
 import type { ResourceMeters } from "./resources.js";
 import type { HarnessUpdater } from "./updater.js";
 import type { ManagerHost } from "./manager.js";
@@ -229,6 +230,9 @@ export interface ServerContext {
   /** What the agents are costing this machine, while a window is looking
    *  (server/resources.ts). */
   readonly meters: ResourceMeters;
+  /** The machine's memory, and the team members waiting on a slot to work
+   *  (server/team.ts). */
+  readonly governor: TeamGovernor;
   readonly bridge: BridgeState;
   /** The cards up: permissions, questions and components to name. */
   readonly permissions: Map<string, PermissionRequest>;

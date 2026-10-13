@@ -14,6 +14,7 @@ import { ownerProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import { libraryHost } from "./handlers/components.js";
 import { httpWaitFor, listSeats, sendLetter, startChat, waitAnswer } from "./handlers/talk.js";
+import { teamHost } from "./handlers/team.js";
 import { runLibrary } from "./library.js";
 import { MEMORY_HELP, runMemoryCommand } from "./memoryCli.js";
 import { errorMessage, isMissing, warn } from "./log.js";
@@ -153,6 +154,11 @@ async function serveTalkCall(
     delivery?: unknown;
     project?: unknown;
     model?: unknown;
+    who?: unknown;
+    how?: unknown;
+    name?: unknown;
+    duty?: unknown;
+    layers?: unknown;
   };
   try {
     body = JSON.parse(await readBody(req, 256 * 1024)) as typeof body;
@@ -164,7 +170,61 @@ async function serveTalkCall(
     reply(200, { ok: true, text: listSeats(ctx, id) });
     return;
   }
+  // a lead's team (server/team.ts), the same calls as its tools
+  const team = teamHost(ctx);
+  const str = (value: unknown) => (typeof value === "string" ? value : undefined);
+  const list = (value: unknown) =>
+    Array.isArray(value) ? value.filter((x): x is string => typeof x === "string") : undefined;
+  if (body?.do === "team") {
+    reply(200, { ok: true, text: team.roster(id) });
+    return;
+  }
+  if (body?.do === "update" && str(body.who)) {
+    const name = str(body.name);
+    const duty = str(body.duty);
+    const layers = list(body.layers);
+    reply(200, {
+      ok: true,
+      text: team.update(id, {
+        who: str(body.who)!,
+        ...(name ? { name } : {}),
+        ...(duty ? { duty } : {}),
+        ...(layers ? { layers } : {}),
+      }),
+    });
+    return;
+  }
+  if (body?.do === "reset" && str(body.who)) {
+    const how = body.how === "restart" || body.how === "clear" ? body.how : "compact";
+    reply(200, { ok: true, text: team.reset(id, str(body.who)!, how) });
+    return;
+  }
+  if (body?.do === "retire" && str(body.who)) {
+    reply(200, { ok: true, text: team.retire(id, str(body.who)!) });
+    return;
+  }
   const waiting = { via: "http" as const, waitMs: httpWaitFor(ctx, id), signal: gone.signal };
+  if (body?.do === "add" && str(body.name) && str(body.duty)) {
+    const layers = list(body.layers);
+    const model = str(body.model);
+    const message = str(body.message);
+    const mode = body.reply === "later" || body.reply === "none" ? body.reply : "wait";
+    reply(200, {
+      ok: true,
+      text: await team.add(
+        id,
+        {
+          name: str(body.name)!,
+          duty: str(body.duty)!,
+          ...(layers ? { layers } : {}),
+          ...(model ? { model } : {}),
+          ...(message ? { message, reply: mode } : {}),
+        },
+        waiting,
+      ),
+    });
+    return;
+  }
   if (body?.do === "wait" && typeof body.letter === "string") {
     reply(200, { ok: true, ...(await waitAnswer(ctx, id, body.letter, waiting)) });
     return;
@@ -188,7 +248,7 @@ async function serveTalkCall(
     reply(400, {
       ok: false,
       error:
-        'send {"do": "list"}, {"do": "send", "to": "<handle>", "message": "..."}, {"do": "new", "project": "<name or path>", "message": "..."} or {"do": "wait", "letter": "<id>"}',
+        'send {"do": "list"}, {"do": "send", "to": "<handle>", "message": "..."}, {"do": "new", "project": "<name or path>", "message": "..."} or {"do": "wait", "letter": "<id>"} — and, for a lead, {"do": "team"}, {"do": "add", ...}, {"do": "update", ...}, {"do": "reset", ...} or {"do": "retire", ...}',
     });
     return;
   }

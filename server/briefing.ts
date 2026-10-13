@@ -49,6 +49,9 @@ export function sessionBriefing(input: {
   /** What the session is told about talking to the other agents open in
    *  ruri (server/talk.ts): tools for Claude, an endpoint for the rest. */
   talk?: string;
+  /** Where it stands on its project's team (server/team.ts): the lead's
+   *  words, or a member's — its name and duty. */
+  team?: string;
   /** The project's stack, one line a layer, each pointing at its sheet
    *  (brief.ts stackBriefing) — empty for a project without layer sheets. */
   stack?: string;
@@ -122,6 +125,8 @@ export function sessionBriefing(input: {
   if (input.bridge) blocks.push(input.bridge);
 
   if (input.talk) blocks.push(input.talk);
+
+  if (input.team) blocks.push(input.team);
 
   const vault = input.secrets.briefing(input.claude);
   if (vault) blocks.push(vault);

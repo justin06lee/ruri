@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   HOME_ID,
+  leadOf,
   type BackgroundWork,
   type Project,
   type SessionInfo,
@@ -207,14 +208,11 @@ function ProjectCard({
         {fresh && <span className="unread-pip" title="A turn finished here since you last looked" />}
         <span className="pcard-status">{status === "idle" && fresh ? "finished" : WORD[status]}</span>
       </div>
-      {/* a project of twenty chats is not a card twenty chats tall */}
       <Capped max={4} className="pcard-body">
-        {project.sessions.length === 0 ? (
+        {sessions.length === 0 ? (
           <span className="board-line note">no sessions open</span>
         ) : (
-          sessions.map((session) => (
-            <SessionLines key={session.id} session={session} many={project.sessions.length > 1} />
-          ))
+          sessions.map((session) => <SessionLines key={session.id} session={session} many={false} />)
         )}
       </Capped>
     </div>
@@ -255,25 +253,13 @@ function statusOf(
 }
 
 /**
- * The sessions a card lists. A live card lists the ones that make it live
- * — working, waiting on you, errored — and the ones that finished since you
- * last looked, but none of the chats that finished hours ago beside them,
- * which are a click away in the sidebar. A finished card lists what
- * finished; an idle card has nothing new to show, so it shows where each
- * chat left off.
+ * The sessions a card lists: the lead's, the one chat the user has in a
+ * project. Its team works behind it — their state is the card's status,
+ * and what came of their work is what the lead says.
  */
-function shownSessions(
-  project: Project,
-  status: Status,
-  fresh: boolean,
-  statuses: Record<string, string>,
-  work: Record<string, BackgroundWork>,
-  unread: Record<string, boolean>,
-): SessionInfo[] {
-  if (status === "idle" && !fresh) return project.sessions;
-  return project.sessions.filter(
-    (session) => unread[session.id] || sessionStatus(session, statuses, work) !== "idle",
-  );
+function shownSessions(project: Project): SessionInfo[] {
+  const lead = leadOf(project);
+  return lead ? [lead] : [];
 }
 
 /**
@@ -461,13 +447,9 @@ export function ProjectsPage() {
     const ranked = projects
       .map((project) => {
         const status = statusOf(project, statuses, work);
-        const fresh = project.sessions.some((session) => unread[session.id]);
-        return {
-          project,
-          status,
-          fresh,
-          sessions: shownSessions(project, status, fresh, statuses, work, unread),
-        };
+        const lead = leadOf(project);
+        const fresh = !!lead && !!unread[lead.id];
+        return { project, status, fresh, sessions: shownSessions(project) };
       })
       .sort((a, b) => RANK[a.status] - RANK[b.status] || a.project.name.localeCompare(b.project.name));
     return {

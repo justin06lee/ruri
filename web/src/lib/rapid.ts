@@ -11,14 +11,16 @@
  * - "Starred only" narrows what is left, and is a filter on top of hidden,
  *   never instead of it. Off, the line is every open project, starred ones
  *   first — the order the sidebar shows them in either way.
+ * - A project stands in it once, as its lead: the chat the user talks to.
+ *   Its team is the lead's to hand work to, never the user's to prompt.
  */
-import type { ProjectStatus } from "../../../shared/protocol";
+import { leadOf, type ProjectStatus } from "../../../shared/protocol";
 
 /** As much of a project as the line cares about. */
 export interface LineProject {
   hidden?: boolean;
   starred?: boolean;
-  sessions: { id: string }[];
+  sessions: { id: string; lead?: boolean }[];
 }
 
 export interface Line {
@@ -34,9 +36,10 @@ export function lineOf(
   starredOnly = false,
 ): Line {
   const inLine = projects.filter((p) => !p.hidden && (!starredOnly || p.starred));
-  const ids = [...inLine.filter((p) => p.starred), ...inLine.filter((p) => !p.starred)].flatMap((project) =>
-    project.sessions.map((session) => session.id),
-  );
+  const ids = [...inLine.filter((p) => p.starred), ...inLine.filter((p) => !p.starred)].flatMap((project) => {
+    const lead = leadOf(project);
+    return lead ? [lead.id] : [];
+  });
   return { ids, ready: ids.filter((id) => (statuses[id] ?? "idle") !== "working") };
 }
 

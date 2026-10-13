@@ -4,7 +4,7 @@
  * turn's spend, queue and retry, the cards a turn raises, and what each
  * session is told and given (its briefing, the vault, ruri's tools).
  */
-import type { ContextUsage, PermissionRequest } from "../shared/protocol.js";
+import { leadOf, type ContextUsage, type PermissionRequest } from "../shared/protocol.js";
 import { stackBriefing } from "./brief.js";
 import { BRIDGE_TOOLS, bridgeHttpBriefing, bridgeTools, bridgeToolBriefing } from "./bridge.js";
 import { sessionBriefing } from "./briefing.js";
@@ -18,9 +18,11 @@ import { ensureLibrarySkill, libraryEndpoint } from "./handlers/components.js";
 import { cliEnv, skillDir } from "./library.js";
 import { HOME_ID, managerExtras } from "./manager.js";
 import { talkHost, talkTurnEnded } from "./handlers/talk.js";
+import { teamHost, teamStatus } from "./handlers/team.js";
 import { ParagraphGate } from "./paragraphs.js";
 import { SessionManager, type SessionExtras } from "./sessions.js";
 import { httpWaitMs, TALK_TOOLS, talkHttpBriefing, talkToolBriefing, talkTools } from "./talk.js";
+import { leadBriefing, memberBriefing, TEAM_TOOLS, teamTools } from "./team.js";
 import { contextWindow, pushContexts, pushWork } from "./turns.js";
 
 /**
@@ -142,6 +144,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           ctx.bridge.closeBridgeSoon(projectId);
         }
         ctx.clients.broadcast({ type: "status", projectId, status });
+        // a member at work holds a slot; one done frees it for the next
+        teamStatus(ctx, projectId, status);
       },
       onProgress: ctx.turns.advance,
       // an agent or a script started, ended, or was picked back up
@@ -205,6 +209,20 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       // which is long before any session is made
       const owner = ownerProject(ctx, project.id);
       const bridgeCtx = { channelId: project.id, projectId: owner?.id ?? project.id };
+      // the project's lead manages its team; every other chat is on it
+      const seat = owner?.sessions.find((session) => session.id === project.id);
+      const lead = !!owner && leadOf(owner)?.id === project.id;
+      const talkEndpoint = `http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`;
+      const team = !owner
+        ? ""
+        : lead
+          ? leadBriefing(owner.name, claude ? "tool" : "http", talkEndpoint)
+          : memberBriefing({
+              project: owner.name,
+              name: seat?.title ?? "",
+              duty: seat?.duty ?? "general work in this project",
+              ...(seat?.layers ? { layers: seat.layers } : {}),
+            });
       if (owner) ensureLibrarySkill(ctx, owner.id);
       const bridge = !ctx.options.bridge
         ? ""
@@ -222,9 +240,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         bridge,
         // the other agents open in ruri: tools, or the same over HTTP —
         // told how long one call waits on this harness
-        talk: claude
-          ? talkToolBriefing()
-          : talkHttpBriefing(`http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`, httpWaitMs(harness)),
+        talk: claude ? talkToolBriefing() : talkHttpBriefing(talkEndpoint, httpWaitMs(harness)),
+        team,
         stack: owner ? stackBriefing(ctx.briefs.get(owner.id)) : "",
       });
       return tagged(project.id, {
@@ -235,15 +252,20 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
         beforeTools: () => ctx.checkpoints.idle(project.id),
         // ruri asks the user about these itself, message by message
-        autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS, ...TALK_TOOLS],
+        autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS, ...TALK_TOOLS, ...(lead ? TEAM_TOOLS : [])],
         options: {
           // the vault rides into the harness process here, and only here —
           // beside the `ruri` command and where it posts
           env: { ...ctx.secrets.env(), ...cliEnv(libraryEndpoint(ctx, project.id)) },
           mcpServers: {
-            ruri: componentTools(ctx.componentHost, project.id, talkTools(talkHost(ctx), project.id)),
+            ruri: componentTools(ctx.componentHost, project.id, [
+              ...talkTools(talkHost(ctx), project.id),
+              ...(lead ? teamTools(teamHost(ctx), project.id) : []),
+            ]),
             bridge: bridgeTools(ctx.options.bridge, bridgeCtx),
           },
+          // a member has no user to ask: nobody would ever see the card
+          ...(owner && !lead ? { disallowedTools: ["AskUserQuestion"] } : {}),
           // the component library as a skill, whose list changes and whose
           // description never does (server/library.ts)
           ...(owner
@@ -273,9 +295,13 @@ export function createChatManager(ctx: ServerContext): SessionManager {
   manager.useDefaultModel(() => ctx.store.defaultModel());
   // between turns a process stays for the chat open in a window someone is
   // looking at, a prompt queued behind the turn, or a retry about to go —
-  // for nothing else
+  // for nothing else. A team member's line waiting on a slot is not about
+  // to go, so it holds nothing: the member sleeps until its slot comes
   manager.useKeepWarm(
-    (id) => ctx.clients.isOpen(id) || (ctx.queues.entries.get(id)?.length ?? 0) > 0 || ctx.retries.has(id),
+    (id) =>
+      ctx.clients.isOpen(id) ||
+      ((ctx.queues.entries.get(id)?.length ?? 0) > 0 && !ctx.governor.waiting.includes(id)) ||
+      ctx.retries.has(id),
   );
   // open, but only where nobody is looking: held on the short lease, so a
   // moment in another app costs nothing and an afternoon costs no battery

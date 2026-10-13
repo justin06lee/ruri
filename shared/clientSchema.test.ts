@@ -225,6 +225,8 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
       chats: { c: { to: "nobody", projects: [], chats: [] } },
     },
   },
+  team_get: { type: "team_get", projectId: "p" },
+  team_member: { type: "team_member", memberId: "m", action: "compact" },
 };
 
 /** The `type` literal of every arm the schema has. */

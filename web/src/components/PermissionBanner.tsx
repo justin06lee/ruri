@@ -1,4 +1,4 @@
-import { HOME_ID, type PermissionRequest, type TalkAsk } from "../../../shared/protocol";
+import { HOME_ID, leadOf, type PermissionRequest, type TalkAsk } from "../../../shared/protocol";
 import { harnessName } from "../lib/models";
 import { Markdown } from "../markdown";
 import { answerCard, showError, useRuri } from "../store";
@@ -134,13 +134,28 @@ function MessageCard({ request }: { request: PermissionRequest }) {
 /** A card waiting on the user: a question, a naming, a message to send,
  *  or an allow/deny. */
 export function AskCard({ request }: { request: PermissionRequest }) {
-  return request.kind === "question" ? (
-    <QuestionCard request={request} />
-  ) : request.kind === "component" ? (
-    <NameCard request={request} />
-  ) : request.kind === "message" ? (
-    <MessageCard request={request} />
-  ) : (
-    <PermissionBanner request={request} />
+  // a member of the lead's team asking: its card comes up in the lead's
+  // chat, the only one the user sees, saying whose it is
+  const teammate = useRuri((s) => {
+    const project = s.projects.find((p) => p.sessions.some((x) => x.id === request.projectId));
+    if (!project || leadOf(project)?.id === request.projectId) return undefined;
+    return project.sessions.find((x) => x.id === request.projectId)?.title || "a teammate";
+  });
+  const card =
+    request.kind === "question" ? (
+      <QuestionCard request={request} />
+    ) : request.kind === "component" ? (
+      <NameCard request={request} />
+    ) : request.kind === "message" ? (
+      <MessageCard request={request} />
+    ) : (
+      <PermissionBanner request={request} />
+    );
+  if (teammate === undefined) return card;
+  return (
+    <div className="team-ask">
+      <div className="team-ask-from">from the team — {teammate}</div>
+      {card}
+    </div>
   );
 }

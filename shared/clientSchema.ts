@@ -393,6 +393,12 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("sharing_forget"), deviceId: id }),
   z.object({ type: z.literal("talk_get") }),
   z.object({ type: z.literal("talk_set"), policy: talkPolicy }),
+  z.object({ type: z.literal("team_get"), ...projectId }),
+  z.object({
+    type: z.literal("team_member"),
+    memberId: id,
+    action: z.enum(["restart", "compact", "clear", "retire"]),
+  }),
 ]);
 
 /** Why a message was refused, in a line: the first issue, with its path. */

@@ -16,6 +16,8 @@ import {
   type StackLayer,
   type TeamAction,
   type TeamBudget,
+  type TeamLetter,
+  type TeamLiaison,
   type TeamMember,
 } from "../../shared/protocol.js";
 import { channelProject, running } from "../channel.js";
@@ -177,26 +179,54 @@ function clip(text: string, max: number): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
+/** How a member — or the liaison — stands, as the team page shows it. */
+function seat(ctx: ServerContext, chat: string): Omit<TeamMember, "name" | "duty" | "layers"> {
+  const events = ctx.archive.events(chat);
+  const ended = events.findLast((event) => event.kind === "result");
+  const said = events.findLast((event) => event.kind === "assistant" && event.text.trim() !== "");
+  const context = ctx.turns.contexts.get(chat);
+  return {
+    id: chat,
+    model: channelProject(ctx, chat)?.model || ctx.store.defaultModel(),
+    state: memberState(ctx, chat),
+    ...(context ? { context } : {}),
+    ...(ended ? { lastActive: ended.ts } : {}),
+    exchanges: ctx.archive.turnIds(chat).length,
+    ...(said?.kind === "assistant" ? { lastWords: clip(said.text, 200) } : {}),
+  };
+}
+
 /** A project's members, as the team page shows them. */
 export function teamMembers(ctx: ServerContext, project: Project): TeamMember[] {
-  return membersOf(project).map((session) => {
-    const events = ctx.archive.events(session.id);
-    const ended = events.findLast((event) => event.kind === "result");
-    const said = events.findLast((event) => event.kind === "assistant" && event.text.trim() !== "");
-    const context = ctx.turns.contexts.get(session.id);
-    return {
-      id: session.id,
-      name: session.title ?? "",
-      duty: session.duty ?? "",
-      layers: session.layers ?? [],
-      model: channelProject(ctx, session.id)?.model || ctx.store.defaultModel(),
-      state: memberState(ctx, session.id),
-      ...(context ? { context } : {}),
-      ...(ended ? { lastActive: ended.ts } : {}),
-      exchanges: ctx.archive.turnIds(session.id).length,
-      ...(said?.kind === "assistant" ? { lastWords: clip(said.text, 200) } : {}),
-    };
+  return membersOf(project).map((session) => ({
+    ...seat(ctx, session.id),
+    name: session.title ?? "",
+    duty: session.duty ?? "",
+    layers: session.layers ?? [],
+  }));
+}
+
+/** A project's liaison, as the team page shows it — once there is one. */
+function teamLiaison(ctx: ServerContext, project: Project): TeamLiaison | undefined {
+  const liaison = liaisonOf(project);
+  if (!liaison) return undefined;
+  const { owed, out } = inFlight(ctx, liaison.id);
+  // this project's own chats go by their titles alone
+  const who = (id: string) => {
+    const own = project.sessions.find((session) => session.id === id);
+    return own ? own.title || "untitled" : named(ctx, id);
+  };
+  const letter = (other: string, ts: number, text: string): TeamLetter => ({
+    who: who(other),
+    ts,
+    text: clip(text, 160),
   });
+  return {
+    ...seat(ctx, liaison.id),
+    doing: doing(ctx, liaison.id),
+    answering: owed.map((p) => letter(p.from, p.ts, p.text)),
+    waitingOn: out.map((p) => letter(p.to, p.ts, p.text)),
+  };
 }
 
 /** "40s", "12m", "3h", "2d" ago. */
@@ -223,10 +253,15 @@ function stackLayers(ctx: ServerContext, project: Project): StackLayer[] {
   return (ctx.briefs.get(project.id)?.layers ?? []).filter((layer) => layer.slug);
 }
 
+/** The layers of the stack no teammate holds yet. */
+function unheldLayers(ctx: ServerContext, project: Project): StackLayer[] {
+  const held = new Set(membersOf(project).flatMap((member) => member.layers ?? []));
+  return stackLayers(ctx, project).filter((layer) => !held.has(layer.slug!));
+}
+
 /** The layers no teammate holds yet, for the roster. */
 function freeLayers(ctx: ServerContext, project: Project): string {
-  const held = new Set(membersOf(project).flatMap((member) => member.layers ?? []));
-  const free = stackLayers(ctx, project).filter((layer) => !held.has(layer.slug!));
+  const free = unheldLayers(ctx, project);
   if (stackLayers(ctx, project).length === 0) return "";
   return free.length === 0
     ? "Every layer of the stack has its teammate."
@@ -235,25 +270,34 @@ function freeLayers(ctx: ServerContext, project: Project): string {
         .join("\n")}`;
 }
 
-/** The letters a chat has in flight: being answered, and handed out. */
-function lettersOf(ctx: ServerContext, chat: string): string[] {
-  const named = (id: string) => {
-    const found = ctx.store.findSession(id);
-    return found ? `${found.project.name} · ${found.session.title || "untitled"}` : "a closed chat";
-  };
+/** A chat by its project and title. */
+function named(ctx: ServerContext, id: string): string {
+  const found = ctx.store.findSession(id);
+  return found ? `${found.project.name} · ${found.session.title || "untitled"}` : "a closed chat";
+}
+
+/** The letters a chat has in flight: owed an answer by it, and handed out. */
+function inFlight(ctx: ServerContext, chat: string) {
   const pending = [...ctx.talk.pending.values()].filter((letter) => !letter.ending);
-  const owed = pending.filter((letter) => letter.to === chat);
-  const out = pending.filter((letter) => letter.from === chat);
+  return {
+    owed: pending.filter((letter) => letter.to === chat),
+    out: pending.filter((letter) => letter.from === chat),
+  };
+}
+
+/** The letters a chat has in flight, for a roster. */
+function lettersOf(ctx: ServerContext, chat: string): string[] {
+  const { owed, out } = inFlight(ctx, chat);
   return [
     ...(owed.length
       ? [
           `    answering: ${owed
-            .map((letter) => `${named(letter.from)} (${ago(letter.ts)}): "${clip(letter.text, 80)}"`)
+            .map((letter) => `${named(ctx, letter.from)} (${ago(letter.ts)}): "${clip(letter.text, 80)}"`)
             .join("; ")}`,
         ]
       : []),
     ...(out.length
-      ? [`    waiting on: ${out.map((letter) => `${named(letter.to)} (${ago(letter.ts)})`).join(", ")}`]
+      ? [`    waiting on: ${out.map((letter) => `${named(ctx, letter.to)} (${ago(letter.ts)})`).join(", ")}`]
       : []),
   ];
 }
@@ -621,7 +665,15 @@ const watched = new Set<string>();
 const pushing = new Map<string, NodeJS.Timeout>();
 
 function teamMessage(ctx: ServerContext, project: Project): ServerMessage {
-  return { type: "team", projectId: project.id, members: teamMembers(ctx, project), budget: teamBudget(ctx) };
+  const liaison = teamLiaison(ctx, project);
+  return {
+    type: "team",
+    projectId: project.id,
+    members: teamMembers(ctx, project),
+    ...(liaison ? { liaison } : {}),
+    freeLayers: unheldLayers(ctx, project).map((layer) => ({ slug: layer.slug!, name: layer.name })),
+    budget: teamBudget(ctx),
+  };
 }
 
 /** A project's team to every window, a moment after it changes. */
@@ -636,7 +688,8 @@ export function pushTeam(ctx: ServerContext, projectId: string): void {
   pushing.set(projectId, timer);
 }
 
-function pushTeamOf(ctx: ServerContext, chat: string): void {
+/** The team of a chat's project, when it changed. */
+export function pushTeamOf(ctx: ServerContext, chat: string): void {
   const project = ctx.store.findSession(chat)?.project;
   if (project) pushTeam(ctx, project.id);
 }

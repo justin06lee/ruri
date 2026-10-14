@@ -384,12 +384,11 @@ Tags: icon, doodle, art, features
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/981feb09-a71a-4e31-a75a-85be9983f1de-feature-doodles.png
 
 ## team-page — the team page
-The figures button in a project lead's header: the lead's team — each member's state (asleep, working, waiting on an answer, waiting for a slot, waiting on you), duty, layers, context, exchanges, last words — how many are at work across ruri (and RURI_TEAM_MAX's cap, when set), Compact/Restart/Clear/Retire per member, and outside chats brought in as teammates. Server-fed by team_get/team (server/handlers/team.ts).
+The figures button in a project lead's header: the lead's team — each member's state (asleep, just finished, working, waiting on an answer, waiting on you; waiting for a slot only with RURI_TEAM_MAX set), duty, layers, context, exchanges, last words, and Stop/Compact/Restart/Refresh/Retire; the liaison's own dashed card above them (its state, what it is doing, what it is answering and waiting on — no actions, it is a lead); the stack's layers no teammate holds yet as faint chips; how many teammates are at work across ruri (and RURI_TEAM_MAX's cap, when set); outside chats brought in as teammates. Server-fed by team_get/team (server/handlers/team.ts).
 Its files: web/src/components/TeamPage.tsx
 Reaches into: web/src/styles.css, web/src/components/ChatPane.tsx, web/src/store.ts
 Tags: page, team, agents, board
-Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/148cfd2f-e6c0-4d6b-b027-3434ae373935-team-page.png
-Its code has changed since that picture — if you change it, `ruri edit team-page --shot <new picture>`
+Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/da000e60-b44a-450e-b1e1-43382fc2e671-shot-22.png, /Users/huiyunlee/.config/ruri/uploads/148cfd2f-e6c0-4d6b-b027-3434ae373935-team-page.png
 
 ## project-rows — the project rows
 The sidebar's one row per project (ProjectRow): click opens the project's lead; the number beside the name is teammates at work (the liaison counts, the lead doesn't); star kept while on, hide on hover, the X (a dragon while anyone on the team works) asks before closing, warning when the lead is at work too. Double-click renames. Replaced the folders of sessions.
@@ -397,3 +396,10 @@ Its files: web/src/components/Sidebar.tsx
 Reaches into: web/src/styles.css
 Tags: nav, sidebar, row
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/7002b54d-1496-4049-81b9-32e706fd0818-shot-3.png, /Users/huiyunlee/.config/ruri/uploads/c643fae4-0cc5-4379-91b7-821ac9314dfc-project-rows.png
+
+## carry-on-note — the carry-on note
+ruri's prompt carrying an agent on after it compacted itself (CarryOn, picked by shared handoffNote): under the compaction mark, "↻ carried on from its handoff note" (· for <agent> when the job is another agent's message) over the agent's own note, folded to four lines with "the whole note". Never drawn as a user bubble or a letter. Folded above a newer compaction it is a dotted slip (Exchange.tsx).
+Its files: web/src/components/EventView.tsx
+Reaches into: web/src/styles.css, web/src/components/Exchange.tsx, shared/protocol.ts
+Tags: chat, compaction, transcript, note
+Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/3045fd32-916d-4311-b967-51f38a43c879-shot-21.png

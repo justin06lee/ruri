@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import type { MemberState, Project, RecentSession, TeamAction, TeamMember } from "../../../shared/protocol";
+import type {
+  MemberState,
+  Project,
+  RecentSession,
+  TeamAction,
+  TeamLetter,
+  TeamLiaison,
+  TeamMember,
+} from "../../../shared/protocol";
 import { useNow } from "../lib/beat";
 import { roughName } from "../lib/models";
 import { askTeam, send, teamAction, useRuri } from "../store";
@@ -10,13 +18,17 @@ import { useConfirm } from "./Confirm";
  * The team page: who works behind a project's lead (server/team.ts).
  *
  * The user talks to the lead and nothing else — the sidebar has one row a
- * project — and the lead hands work to its team: chats of their own, each
- * with a duty, asleep between jobs. This is where the user can see them
- * anyway: what each one is for, whether it is working, asleep or waiting
- * for a slot, how full its context is and what it last said — and how
- * many are at work across ruri. And do to one what the
- * lead can: compact it, restart it, clear it, retire it. Opened from the
- * lead's header; nothing here is a chat to open.
+ * project — and the lead hands every job to its team: chats of their own,
+ * one a layer of the stack, made as the work calls for them and asleep
+ * between jobs. Other projects' agents never reach the lead: they write to
+ * its liaison, a second lead out of the user's sight that hands their jobs
+ * to the same team. This is where the user can see them anyway: what each
+ * teammate is for, whether it is working, asleep or waiting on an answer,
+ * how full its context is and what it last said; what the liaison is
+ * doing, answering and waiting on; the layers no teammate holds yet; and
+ * how many are at work across ruri. And do to a teammate what the lead
+ * can: stop its turn, compact it, restart it, refresh it, retire it.
+ * Opened from the lead's header; nothing here is a chat to open.
  */
 
 const STATE_WORD: Record<MemberState, string> = {
@@ -24,9 +36,15 @@ const STATE_WORD: Record<MemberState, string> = {
   idle: "just finished",
   working: "working",
   waiting: "waiting on an answer",
+  // only ever with RURI_TEAM_MAX set
   queued: "waiting for a slot",
   permission: "waiting on you",
 };
+
+/** Its turn is running: at work, holding on an answer, or at a card. */
+function busy(state: MemberState): boolean {
+  return state === "working" || state === "waiting" || state === "permission";
+}
 
 /** "3m ago", "just now". */
 function ago(ts: number, now: number): string {
@@ -39,6 +57,12 @@ function ago(ts: number, now: number): string {
 
 const ACTIONS: Array<{ action: TeamAction; label: string; title: string; ask?: string }> = [
   {
+    action: "stop",
+    label: "Stop",
+    title:
+      "End the turn it is on and send it nothing new. Its conversation is kept, and it waits for the next message",
+  },
+  {
     action: "compact",
     label: "Compact",
     title: "Condense its conversation into a brief and go on from that in a fresh session",
@@ -49,9 +73,10 @@ const ACTIONS: Array<{ action: TeamAction; label: string; title: string; ask?: s
     title: "Close its process — stopping a turn it is stuck in. Its conversation is kept",
   },
   {
-    action: "clear",
-    label: "Clear",
-    title: "Throw its conversation away and start it fresh, keeping its name, duty and layers",
+    action: "refresh",
+    label: "Refresh",
+    title:
+      "Start it on a fresh session with only its name, duty and layers — its conversation is thrown away",
     ask: "Its conversation is thrown away, and it starts fresh with only its name, duty and layers. What it learned that mattered is in the project's memory.",
   },
   {
@@ -62,37 +87,62 @@ const ACTIONS: Array<{ action: TeamAction; label: string; title: string; ask?: s
   },
 ];
 
+/** A model by its name, as the composer's picker says it. */
+function useModelName(model: string): string {
+  return useRuri((s) => s.models.find((m) => m.value === model)?.displayName) ?? roughName(model);
+}
+
+/** How full its context is, how much it has done, and when it last did. */
+function SeatMeta({
+  seat,
+  now,
+}: {
+  seat: Pick<TeamMember, "context" | "exchanges" | "lastActive">;
+  now: number;
+}) {
+  const usage = seat.context
+    ? Math.round((seat.context.tokens / Math.max(1, seat.context.window)) * 100)
+    : undefined;
+  return (
+    <span className="team-member-meta">
+      {usage !== undefined && (
+        <span
+          title={`${seat.context!.tokens.toLocaleString()} of ${seat.context!.window.toLocaleString()} tokens`}
+        >
+          context {usage}%
+        </span>
+      )}
+      <span>
+        {seat.exchanges} exchange{seat.exchanges === 1 ? "" : "s"}
+      </span>
+      {seat.lastActive ? (
+        <span>worked {ago(seat.lastActive, now)}</span>
+      ) : (
+        seat.exchanges === 0 && <span>not worked yet</span>
+      )}
+    </span>
+  );
+}
+
 function MemberCard({ member, now }: { member: TeamMember; now: number }) {
   const { confirm: ask, card } = useConfirm();
-  // the model by its name, as the composer's picker says it
-  const model =
-    useRuri((s) => s.models.find((m) => m.value === member.model)?.displayName) ?? roughName(member.model);
-  const usage = member.context
-    ? Math.round((member.context.tokens / Math.max(1, member.context.window)) * 100)
-    : undefined;
-  const busy = member.state === "working" || member.state === "waiting" || member.state === "permission";
+  const model = useModelName(member.model);
+  const atWork = busy(member.state);
   return (
     <div className={`team-member state-${member.state}`}>
       <div className="team-member-head">
         <span className="team-member-name">{member.name || "untitled"}</span>
-        <span className={`team-state ${member.state}`}>{STATE_WORD[member.state]}</span>
-        <span className="team-member-meta">
-          {usage !== undefined && (
-            <span
-              title={`${member.context!.tokens.toLocaleString()} of ${member.context!.window.toLocaleString()} tokens`}
-            >
-              context {usage}%
-            </span>
-          )}
-          <span>
-            {member.exchanges} exchange{member.exchanges === 1 ? "" : "s"}
-          </span>
-          {member.lastActive ? (
-            <span>worked {ago(member.lastActive, now)}</span>
-          ) : (
-            member.exchanges === 0 && <span>not worked yet</span>
-          )}
+        <span
+          className={`team-state ${member.state}`}
+          title={
+            member.state === "queued"
+              ? "As many teammates as RURI_TEAM_MAX allows are at work across ruri: it starts when one finishes"
+              : undefined
+          }
+        >
+          {STATE_WORD[member.state]}
         </span>
+        <SeatMeta seat={member} now={now} />
       </div>
       <div className="team-member-duty">{member.duty || "no duty given"}</div>
       {member.layers.length > 0 && (
@@ -113,6 +163,8 @@ function MemberCard({ member, now }: { member: TeamMember; now: number }) {
             key={action}
             className="ghost"
             title={title}
+            // only a running turn can be stopped
+            disabled={action === "stop" && !atWork}
             onClick={() => {
               if (!why) {
                 teamAction(member.id, action);
@@ -120,7 +172,7 @@ function MemberCard({ member, now }: { member: TeamMember; now: number }) {
               }
               void ask({
                 title: `${label} ${member.name || "this teammate"}?`,
-                body: busy ? `It is at work — that stops. ${why}` : why,
+                body: atWork ? `It is at work — that stops. ${why}` : why,
                 ok: label,
               }).then((yes) => {
                 if (yes) teamAction(member.id, action);
@@ -130,6 +182,54 @@ function MemberCard({ member, now }: { member: TeamMember; now: number }) {
             {label}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** Messages the liaison has in flight one way: whose, since when, and how
+ *  each starts. */
+function Letters({ label, letters, now }: { label: string; letters: TeamLetter[]; now: number }) {
+  if (letters.length === 0) return null;
+  return (
+    <div className="team-letters">
+      <span className="team-letters-label">{label}</span>
+      <div className="team-letters-list">
+        {letters.map((letter) => (
+          <div key={`${letter.who}-${letter.ts}`} className="team-letter" title={letter.text}>
+            <b>{letter.who}</b>
+            <span className="team-letter-when">{ago(letter.ts, now)}</span>
+            {letter.text && <span className="team-letter-text">“{letter.text}”</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The liaison, set apart from the team it hands other projects' jobs to:
+ *  a lead, not a teammate, so nothing here acts on it. */
+function LiaisonCard({ liaison, now }: { liaison: TeamLiaison; now: number }) {
+  const model = useModelName(liaison.model);
+  return (
+    <div className={`team-member team-liaison state-${liaison.state}`}>
+      <div className="team-member-head">
+        <span className="team-member-name">Liaison</span>
+        <span className={`team-state ${liaison.state}`}>{STATE_WORD[liaison.state]}</span>
+        <SeatMeta seat={liaison} now={now} />
+      </div>
+      <div className="team-member-duty">
+        Other projects’ agents reach it, never the lead, and it hands their jobs to this team.
+      </div>
+      {busy(liaison.state) ? (
+        <div className="team-liaison-doing">{liaison.doing}</div>
+      ) : (
+        liaison.lastWords && <div className="team-member-words">“{liaison.lastWords}”</div>
+      )}
+      <Letters label="answering" letters={liaison.answering} now={now} />
+      <Letters label="waiting on" letters={liaison.waitingOn} now={now} />
+      <div className="team-member-actions">
+        <span className="team-member-model">{model}</span>
       </div>
     </div>
   );
@@ -184,6 +284,7 @@ export function TeamPage({ project, onClose }: { project: Project; onClose(): vo
   const members = team?.members ?? [];
   const budget = team?.budget;
   const atWork = members.filter((m) => m.state === "working" || m.state === "permission").length;
+  const asleep = members.every((m) => m.state === "asleep");
   return (
     <section className="board-page team-page">
       <div className="board-inner">
@@ -194,7 +295,7 @@ export function TeamPage({ project, onClose }: { project: Project; onClose(): vo
               ? "…"
               : members.length === 0
                 ? "the lead has no teammates yet"
-                : `${members.length} behind the lead${atWork > 0 ? ` · ${atWork} at work` : " · all asleep"}`}
+                : `${members.length} behind the lead${atWork > 0 ? ` · ${atWork} at work` : asleep ? " · all asleep" : ""}`}
           </span>
           <button className="icon-button" title="Back to the chat" onClick={onClose}>
             <Icon d="M18 6L6 18M6 6l12 12" />
@@ -203,24 +304,48 @@ export function TeamPage({ project, onClose }: { project: Project; onClose(): vo
         {budget && (
           <div className="team-budget">
             <span>
-              {budget.atWork} at work across ruri
-              {budget.waiting.length > 0 ? ` · ${budget.waiting.length} waiting` : ""}
+              {budget.atWork === 0 ? "no" : budget.atWork} teammate{budget.atWork === 1 ? "" : "s"} at work
+              across ruri
             </span>
             {budget.cap !== undefined && (
               <span>
                 at most <b>{budget.cap}</b> at once (RURI_TEAM_MAX)
+                {budget.waiting.length > 0 ? ` · ${budget.waiting.length} waiting for a slot` : ""}
               </span>
             )}
           </div>
+        )}
+        {team?.liaison ? (
+          <LiaisonCard liaison={team.liaison} now={now} />
+        ) : (
+          team !== undefined && (
+            <div className="team-liaison-none">
+              no liaison yet — the first agent from another project to write here makes one
+            </div>
+          )
         )}
         {members.map((member) => (
           <MemberCard key={member.id} member={member} now={now} />
         ))}
         {team !== undefined && members.length === 0 && (
           <div className="board-empty">
-            You talk to the lead; the lead hands work to its team — chats of their own, each looking after a
-            part of {project.name}, asleep between jobs. It adds them as the work calls for it. Ask it to set
-            one up (“make a teammate for the UI”), or just give it work.
+            You talk to the lead; the lead hands every job to its team — chats of their own, each looking
+            after a layer or a part of {project.name}, asleep between jobs. It makes them as the work calls
+            for them: just give it work.
+          </div>
+        )}
+        {team !== undefined && team.freeLayers.length > 0 && (
+          <div className="team-free">
+            <span>no teammate yet</span>
+            {team.freeLayers.map((layer) => (
+              <span
+                key={layer.slug}
+                className="team-layer"
+                title={`${layer.name} — the lead makes a teammate for it the first time a job there comes up`}
+              >
+                {layer.slug}
+              </span>
+            ))}
           </div>
         )}
         <OutsideChats project={project} />

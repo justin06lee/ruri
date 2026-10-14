@@ -10022,7 +10022,9 @@ button.stop:hover {
 /* ── the team page ────────────────────────────────────────────────────
    (TeamPage.tsx.) Who works behind a project's lead: a card a teammate —
    its name and state, its duty, its layers, what it last said, and what
-   can be done to it — under a line of the machine's room for them. */
+   can be done to it — under a line of how many are at work across ruri
+   and the liaison's card, dashed: a lead, not a teammate. The layers no
+   teammate holds yet trail them, quietly. */
 
 .team-budget {
   display: flex;
@@ -10151,6 +10153,91 @@ button.stop:hover {
 .team-member-actions button {
   padding: 2px 8px;
   font-size: var(--fs-sm);
+}
+
+.team-liaison {
+  border-style: dashed;
+}
+
+.team-liaison-doing {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-liaison-none {
+  margin: 10px 2px 0;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+}
+
+.team-letters {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.team-letters-label {
+  flex-shrink: 0;
+  width: 68px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.9;
+  color: var(--ink-faint);
+}
+
+.team-letters-list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.team-letter {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink-faint);
+}
+
+.team-letter b {
+  flex-shrink: 0;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.team-letter-when {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.team-letter-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-free {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  margin: 14px 2px 0;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+}
+
+.team-free > span:first-child {
+  margin-right: 6px;
 }
 
 .team-outside {

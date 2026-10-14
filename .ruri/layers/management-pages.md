@@ -12,7 +12,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - **Skills install/enable view:** web/src/components/Skills.tsx
 - **Ideas board:** web/src/components/Ideas.tsx
 - **Feature tracker review:** web/src/components/Tracker.tsx
-- **Talk permissions and letters; the team page (a lead's members, the machine's room for them):** web/src/components/TalkPage.tsx, web/src/components/TeamPage.tsx
+- **Talk permissions and letters; the team page (a lead's members, its liaison, the layers no teammate holds yet):** web/src/components/TalkPage.tsx, web/src/components/TeamPage.tsx
 - **Cost statistics and machine meters:** web/src/components/Statistics.tsx, web/src/components/figures.ts, scripts/meters.ts
 - **Bridge preview strip:** web/src/components/Bridge.tsx
 - **Number formatting:** web/src/components/figures.ts
@@ -23,6 +23,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - **Tracker review pass:** Tracker.tsx lists small-model items → click cycles open → liked → rejected, note field folds out on rejected → Finish review clears liked, pins rejected as repeats → small-model fix-it prompt drops into composer
 - **Statistics read:** Statistics.tsx mounts and subscribes via watchMeters → money totals come off ledger → machine usage sampled from ps only while page is up → figures.ts formats money/counts/span identically to cards
 - **Talk rule resolution:** TalkPage.tsx edits every project's rule → a project's own rule overrides it (anyone / only these projects / no one) → a team within its project always talks, whatever the rules → latest inter-agent letters listed underneath, a lead named by its project
+- **Team page:** TeamPage.tsx opens → team_get → server/handlers/team.ts sends team (members, liaison, freeLayers, budget) → pushed again when a member's or the liaison's status moves or a letter is sent → Stop/Compact/Restart/Refresh/Retire go out as team_member
 
 ## Key files
 
@@ -31,7 +32,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - web/src/components/Integrations.tsx — MCP servers/plugins view delegating to harness CLIs
 - web/src/components/Tracker.tsx — hand-test checklist review with finish-to-composer
 - web/src/components/Ideas.tsx — user-written wants board with draft persistence and attachments
-- web/src/components/TeamPage.tsx — a project's team: each member's state, duty, layers, context and last words, the machine's slot budget, compact/restart/clear/retire, outside chats brought in as teammates
+- web/src/components/TeamPage.tsx — a project's team: each member's state, duty, layers, context and last words with stop/compact/restart/refresh/retire, the liaison's card (doing, answering, waiting on), layers with no teammate, how many are at work across ruri (RURI_TEAM_MAX's cap when set), outside chats brought in as teammates
 - web/src/components/Skills.tsx — bmo/filesystem skills view with skills-off toggle
 - web/src/components/Bridge.tsx — live hidden-window plate above composer with take-over
 - web/src/components/TalkPage.tsx — which projects may reach which (every project's rule, a project's own over it) plus recent letters (figures.ts formats money/counts/spans for every page)
@@ -45,6 +46,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - Statistics money must come off the ledger so rewinds/compactions agree; machine sampling only while the page watches (view message starts/stops it).
 - figures.ts formatting is shared with project cards — change in one place so both pages agree.
 - Bridge picture opens read-only in the viewer; take-over/give-back is the only control.
+- The team page acts only on teammates: the liaison is a lead (actOn refuses it), so its card has no buttons; Stop is disabled unless the member's turn is running (working, waiting on an answer, or at a card).
 
 ## What it talks to
 
@@ -53,3 +55,4 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - Projects, memory and history — ledger, tracker, ideas servers supply statistics/tracker/ideas data
 - Terminals, agents and integrations — integrations/skills/talk pages delegate to harness CLIs, bmo, crew/talk servers
 - Bridge — BridgeStrip renders hidden Chromium/app window state with take-over
+- Chat runs and queue — server/handlers/team.ts builds the team message and acts on team_member; new fields there go through its owner

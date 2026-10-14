@@ -19,6 +19,7 @@ This layer is the conversation surface: composing prompts in Composer.tsx and re
 - **Working / thinking indicator:** web/src/components/Thinking.tsx, web/src/components/ChatPane.tsx
 - **Composer terminal tabs:** web/src/components/Terminal.tsx, web/src/components/Composer.tsx
 - **Transcript text selection flags:** web/src/components/Selection.tsx, web/src/components/ChatPane.tsx
+- **Carry-on after an agent compacted itself:** web/src/components/EventView.tsx, web/src/components/Exchange.tsx, shared/protocol.ts
 
 ## How it works
 
@@ -46,6 +47,7 @@ This layer is the conversation surface: composing prompts in Composer.tsx and re
 - Keep markers as text: find, move, space and strip them only with lib/markers.ts so mirror width and wrapping stay identical to the textarea.
 - Compaction events are solo turns in groupTurns and never fold or host other events.
 - Sketch keeps shapes and redraws at export size with per-channel autosave; it closes only on its own close button, never on Escape.
+- A user event whose text opens with CARRY_ON (shared handoffNote) is ruri's carry-on after a self-compaction: render it as CarryOn, never as the user's bubble or as a letter from its `from` (with `carried` that only says whose job it still is); server continuePrompt must keep opening with CARRY_ON.
 
 ## What it talks to
 

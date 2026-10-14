@@ -463,6 +463,14 @@
             "web/src/components/Selection.tsx",
             "web/src/components/ChatPane.tsx"
           ]
+        },
+        {
+          "name": "Carry-on after an agent compacted itself",
+          "files": [
+            "web/src/components/EventView.tsx",
+            "web/src/components/Exchange.tsx",
+            "shared/protocol.ts"
+          ]
         }
       ],
       "flows": [
@@ -512,7 +520,8 @@
         "Do not re-highlight from scratch: highlighter.ts caches by language plus text and only long blocks go to highlight.worker.ts; short blocks stay inline.",
         "Keep markers as text: find, move, space and strip them only with lib/markers.ts so mirror width and wrapping stay identical to the textarea.",
         "Compaction events are solo turns in groupTurns and never fold or host other events.",
-        "Sketch keeps shapes and redraws at export size with per-channel autosave; it closes only on its own close button, never on Escape."
+        "Sketch keeps shapes and redraws at export size with per-channel autosave; it closes only on its own close button, never on Escape.",
+        "A user event whose text opens with CARRY_ON (shared handoffNote) is ruri's carry-on after a self-compaction: render it as CarryOn, never as the user's bubble or as a letter from its `from` (with `carried` that only says whose job it still is); server continuePrompt must keep opening with CARRY_ON."
       ],
       "edges": [
         "Protocol — TranscriptEvent, Attachment, AskQuestion and marker text shapes come from shared/protocol.ts",
@@ -683,7 +692,7 @@
           ]
         },
         {
-          "name": "Talk permissions and letters; the team page (a lead's members, the machine's room for them)",
+          "name": "Talk permissions and letters; the team page (a lead's members, its liaison, the layers no teammate holds yet)",
           "files": [
             "web/src/components/TalkPage.tsx",
             "web/src/components/TeamPage.tsx"
@@ -745,6 +754,16 @@
             "a team within its project always talks, whatever the rules",
             "latest inter-agent letters listed underneath, a lead named by its project"
           ]
+        },
+        {
+          "name": "Team page",
+          "steps": [
+            "TeamPage.tsx opens",
+            "team_get",
+            "server/handlers/team.ts sends team (members, liaison, freeLayers, budget)",
+            "pushed again when a member's or the liaison's status moves or a letter is sent",
+            "Stop/Compact/Restart/Refresh/Retire go out as team_member"
+          ]
         }
       ],
       "files": [
@@ -753,7 +772,7 @@
         "web/src/components/Integrations.tsx — MCP servers/plugins view delegating to harness CLIs",
         "web/src/components/Tracker.tsx — hand-test checklist review with finish-to-composer",
         "web/src/components/Ideas.tsx — user-written wants board with draft persistence and attachments",
-        "web/src/components/TeamPage.tsx — a project's team: each member's state, duty, layers, context and last words, the machine's slot budget, compact/restart/clear/retire, outside chats brought in as teammates",
+        "web/src/components/TeamPage.tsx — a project's team: each member's state, duty, layers, context and last words with stop/compact/restart/refresh/retire, the liaison's card (doing, answering, waiting on), layers with no teammate, how many are at work across ruri (RURI_TEAM_MAX's cap when set), outside chats brought in as teammates",
         "web/src/components/Skills.tsx — bmo/filesystem skills view with skills-off toggle",
         "web/src/components/Bridge.tsx — live hidden-window plate above composer with take-over",
         "web/src/components/TalkPage.tsx — which projects may reach which (every project's rule, a project's own over it) plus recent letters (figures.ts formats money/counts/spans for every page)",
@@ -765,14 +784,16 @@
         "Tracker items never reorder mid-review; keep list stable until finish.",
         "Statistics money must come off the ledger so rewinds/compactions agree; machine sampling only while the page watches (view message starts/stops it).",
         "figures.ts formatting is shared with project cards — change in one place so both pages agree.",
-        "Bridge picture opens read-only in the viewer; take-over/give-back is the only control."
+        "Bridge picture opens read-only in the viewer; take-over/give-back is the only control.",
+        "The team page acts only on teammates: the liaison is a lead (actOn refuses it), so its card has no buttons; Stop is disabled unless the member's turn is running (working, waiting on an answer, or at a card)."
       ],
       "edges": [
         "Protocol — all rows, rules, letters, totals typed in shared/protocol.ts",
         "App shell, state and tooling — pages read/write through store send/useRuri, composer drafts, viewer, Capped/Confirm pieces",
         "Projects, memory and history — ledger, tracker, ideas servers supply statistics/tracker/ideas data",
         "Terminals, agents and integrations — integrations/skills/talk pages delegate to harness CLIs, bmo, crew/talk servers",
-        "Bridge — BridgeStrip renders hidden Chromium/app window state with take-over"
+        "Bridge — BridgeStrip renders hidden Chromium/app window state with take-over",
+        "Chat runs and queue — server/handlers/team.ts builds the team message and acts on team_member; new fields there go through its owner"
       ]
     },
     "appearance-library": {

@@ -707,8 +707,8 @@ function ChatView({
           className={`icon-button ${page === "team" ? "active" : ""} ${teamWorking > 0 ? "badged" : ""}`}
           title={
             teamWorking > 0
-              ? `Team — ${teamWorking} ${teamWorking === 1 ? "teammate" : "teammates"} at work behind the lead`
-              : "Team — who works behind the lead, and the machine's room for them"
+              ? `Team — ${teamWorking} at work behind the lead`
+              : "Team — who works behind the lead, and the liaison other projects reach"
           }
           onClick={() => setPage(page === "team" ? "chat" : "team")}
         >

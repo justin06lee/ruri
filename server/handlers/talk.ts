@@ -462,7 +462,8 @@ export async function sendLetter(
     const allowed = await askUser(ctx, channelId, {
       to: target,
       project: found.project.name,
-      title: found.session.title ?? "",
+      // a project's lead is the project, on the card
+      title: leadOf(found.project)?.id === target ? "" : (found.session.title ?? ""),
       text,
       reply,
     });

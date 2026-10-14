@@ -14,7 +14,7 @@
  * 400 MB, and this is where you find out which ones, and how much.
  */
 import { memo, useEffect, useMemo } from "react";
-import { HOME_ID, type AgentProcess, type Project, type Totals } from "../../../shared/protocol";
+import { HOME_ID, leadOf, type AgentProcess, type Project, type Totals } from "../../../shared/protocol";
 import { useRuri, watchMeters } from "../store";
 import { Capped } from "./Capped";
 import { money, shortCount, span, sum, NONE } from "./figures";
@@ -176,8 +176,12 @@ const Agents = memo(function Agents() {
   const nameOf = useMemo(() => {
     const names = new Map<string, { project: string; session: string }>();
     for (const project of projects) {
+      const lead = leadOf(project)?.id;
       for (const session of project.sessions) {
-        names.set(session.id, { project: project.name, session: session.title ?? "new session" });
+        names.set(session.id, {
+          project: project.name,
+          session: session.id === lead ? "lead" : session.title || "a teammate",
+        });
       }
     }
     return (channelId: string) => names.get(channelId);

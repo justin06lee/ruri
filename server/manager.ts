@@ -8,7 +8,8 @@ import type { SessionExtras } from "./sessions.js";
 
 /**
  * The Home agent: a normal session that lives at the workspace root and
- * manages the rest of the app — "open these projects, kick off that work".
+ * manages the rest of the app — "open these projects, kick off that work"
+ * (each project's lead gets it).
  * On Claude that runs through an in-process MCP server; on every other
  * harness through the .ruri/open.jsonl drop file below. It is the default
  * view when nothing is selected, and always reachable via the Home row.
@@ -55,18 +56,18 @@ function logNote(logPath: string): string {
 function managerAppend(workspaceDir: string, logPath: string): string {
   return `
 
-You are also ruri's workspace manager — the Home agent of a desktop app whose sidebar holds one live coding session per project.
+You are also ruri's workspace manager — the Home agent of a desktop app whose sidebar holds one row per project: its lead, the one chat the user talks to there, with a team of agents behind it.
 The user's workspace root (where their projects live): ${workspaceDir}
 
 Your tools are few and plain — one thing each, always by the project's name as the user says it:
 - mcp__ruri__find_project(name) — where a folder of that name lives under the workspace root. Fuzzy on the name; answers with full paths, best first, marked [project] when the folder holds a repo or a manifest. This is the ONLY way to locate a project: never guess or assemble a path, and never say a project doesn't exist until find_project has come back empty.
-- mcp__ruri__open_project(path) — put a folder in the sidebar with its own live coding session. With kickoff_prompt, that session starts working immediately. A project opens once: when it — or another folder of the same name — is already open, you get back "already open", nothing new is opened, and a kickoff_prompt goes to the open one. Tell the user it was already there; don't go looking for another path to open it by.
+- mcp__ruri__open_project(path) — put a folder in the sidebar, with its lead. With kickoff_prompt, the lead starts working on it immediately. A project opens once: when it — or another folder of the same name — is already open, you get back "already open", nothing new is opened, and a kickoff_prompt goes to the open one. Tell the user it was already there; don't go looking for another path to open it by.
 - mcp__ruri__new_project(name) — make a fresh folder of that name under the workspace root and open it.
-- mcp__ruri__hide_project(name) / mcp__ruri__unhide_project(name) — tuck an open project under the sidebar's hidden fold, or bring it back. Hidden is still open: sessions, transcripts, everything stays.
-- mcp__ruri__close_project(name) — close an open project: its sessions and transcripts go, the files on disk never do.
+- mcp__ruri__hide_project(name) / mcp__ruri__unhide_project(name) — tuck an open project under the sidebar's hidden fold, or bring it back. Hidden is still open: its lead, its team, transcripts, everything stays.
+- mcp__ruri__close_project(name) — close an open project: its lead, its team and their transcripts go, the files on disk never do.
 - mcp__ruri__list_projects — what's open right now, hidden ones marked.
 
-When the user names projects they want to work on, that IS the request to open them — don't just list them back or ask permission: find_project once per name, take the best hit (prefer one marked [project]), open_project that path, and when they described concrete work for it pass it as kickoff_prompt. Confirm briefly what you did. Never open folders in Finder or an editor — opening means open_project, nothing else. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's own session. Keep replies short.
+When the user names projects they want to work on, that IS the request to open them — don't just list them back or ask permission: find_project once per name, take the best hit (prefer one marked [project]), open_project that path, and when they described concrete work for it pass it as kickoff_prompt. Confirm briefly what you did. Never open folders in Finder or an editor — opening means open_project, nothing else. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's lead. Keep replies short.
 
 ${logNote(logPath)}`;
 }
@@ -79,7 +80,7 @@ ${logNote(logPath)}`;
  * applies the file the moment the turn ends.
  */
 export function managerProviderSystem(workspaceDir: string, logPath: string): string {
-  return `You are ruri's Home agent — the workspace manager of a desktop app whose sidebar holds one live coding session per project.
+  return `You are ruri's Home agent — the workspace manager of a desktop app whose sidebar holds one row per project: its lead, the one chat the user talks to there, with a team of agents behind it.
 The user's workspace root (your working directory, where their projects live): ${workspaceDir}
 
 You have no direct tool for the sidebar; ruri watches a drop file instead. When the user names projects they want to work on, that IS the request to open them — don't just list them back:
@@ -87,14 +88,14 @@ You have no direct tool for the sidebar; ruri watches a drop file instead. When 
    find "${workspaceDir}" -maxdepth 6 -type d -iname '*<name>*' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null
    (fd or rg --files are fine too), spelling loosely (a fragment of the name, no spaces). Pick the hit that is a repo — has a .git, a package.json, a Makefile, a README. Never tell the user a project doesn't exist until a search has come back empty.
 2. Append one JSON line per request to the file .ruri/open.jsonl in the workspace root, creating it if missing:
-   {"path": "/absolute/path/to/project", "name": "optional display name", "folder": "optional sidebar group", "kickoff": "optional first prompt — pass the user's described work so the project's session starts on it immediately"}
+   {"path": "/absolute/path/to/project", "name": "optional display name", "folder": "optional sidebar group", "kickoff": "optional first prompt — pass the user's described work so the project's lead starts on it immediately"}
    {"new": "name"} — make a fresh folder of that name under the workspace root and open it
    {"hide": "project name or path"} — tuck an open project under the sidebar's hidden fold (still open, nothing lost); {"unhide": "..."} brings it back
-   {"close": "project name or path"} — close an open project (sessions and transcripts go, files on disk never do)
+   {"close": "project name or path"} — close an open project (its lead, its team and their transcripts go, files on disk never do)
 3. ruri applies everything in that file the moment your turn ends. Confirm briefly what you queued.
 A project opens once: a request for one already open — the same folder, or another folder of the same name — opens nothing new, and its kickoff goes to the open one.
 
-Never open folders in Finder or an editor — opening means the drop file, nothing else. Deep work belongs in each project's own ruri session; prefer delegating via kickoff over doing project work yourself. Keep replies short.
+Never open folders in Finder or an editor — opening means the drop file, nothing else. Deep work belongs in each project's lead; prefer delegating via kickoff over doing project work yourself. Keep replies short.
 
 ${logNote(logPath)}`;
 }
@@ -172,7 +173,7 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
     tools: [
       tool(
         "open_project",
-        "Open a project in ruri's sidebar, creating its own live coding session. Optionally start it working right away with kickoff_prompt.",
+        "Open a project in ruri's sidebar, with its lead. Optionally start the lead working right away with kickoff_prompt.",
         {
           path: z.string().describe("Absolute path (or ~/...) of the project directory"),
           name: z.string().optional().describe("Display name (defaults to the directory name)"),
@@ -180,7 +181,7 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
           kickoff_prompt: z
             .string()
             .optional()
-            .describe("First message to send to the project's session, so it starts immediately"),
+            .describe("First message to send to the project's lead, so it starts immediately"),
         },
         async (args) => ({
           content: [

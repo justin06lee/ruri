@@ -1,5 +1,5 @@
-import { memo, useId, useState } from "react";
-import type { Project, TranscriptEvent } from "../../../shared/protocol";
+import { memo, useId, useLayoutEffect, useRef, useState } from "react";
+import { handoffNote, type LetterFrom, type Project, type TranscriptEvent } from "../../../shared/protocol";
 import { Markdown } from "../markdown";
 import { send } from "../store";
 import { ToolImage, TranscriptAttachments } from "./Attachments";
@@ -134,6 +134,74 @@ export function CompactionMark({
   );
 }
 
+/** ↻ — a chat carried on into its fresh session. */
+export const CARRY_ON_ICON = "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5";
+
+/** Whose job a carried-on chat is still doing, when another agent's. */
+function carriedFor(from: LetterFrom): string {
+  return `${from.project}${from.title ? ` · ${from.title}` : ""}`;
+}
+
+/**
+ * ruri's own prompt carrying a chat on after it compacted itself
+ * (server/selfCompaction.ts continuePrompt). Not the user's, and not the
+ * agent its `from` names either — that is only whose job it still is,
+ * and who still gets the answer. So it isn't drawn as a prompt: under the
+ * compaction mark it follows, one line in ruri's voice says the chat
+ * carried on, and the handoff note the agent wrote itself sits beneath,
+ * folded to its first lines when it runs long.
+ */
+export function CarryOn({ note, from }: { note: string; from?: LetterFrom }) {
+  const [open, setOpen] = useState(false);
+  // whether the folded note hides any of it: measured, since the lines a
+  // note takes depend on how wide the pane is
+  const [long, setLong] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!el || open) return;
+    const measure = () => setLong(el.scrollHeight > el.clientHeight + 2);
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [note, open]);
+  return (
+    <div className="msg carry-on">
+      <div
+        className="carry-on-head"
+        title={
+          from
+            ? `It compacted itself in the middle of a message from ${carriedFor(from)}, and goes on with it in a fresh session${from.reply === "none" ? "" : ": its last words, when the job is done, are still the answer"}`
+            : "It compacted itself and goes on in a fresh session, from a note it wrote for the moment"
+        }
+      >
+        <Icon d={CARRY_ON_ICON} />
+        <span>
+          carried on from its handoff note
+          {from && (
+            <>
+              {" · for "}
+              <b>{carriedFor(from)}</b>
+            </>
+          )}
+        </span>
+      </div>
+      {note && (
+        <div className={`carry-on-note${open ? " open" : ""}${long && !open ? " clipped" : ""}`} ref={body}>
+          <Markdown text={note} />
+        </div>
+      )}
+      {(long || open) && (
+        <button type="button" className="folded-open carry-on-toggle" onClick={() => setOpen(!open)}>
+          <Icon d={open ? "M6 15l6-6 6 6" : "M6 9l6 6 6-6"} />
+          {open ? "fold the note" : "the whole note"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function PlanEvent({ event }: { event: Extract<TranscriptEvent, { kind: "plan" }> }) {
   if (event.removed) {
     return <div className="plan-event removed">plan cleared</div>;
@@ -182,7 +250,11 @@ export const EventView = memo(function EventView({
   onRewind?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
 }) {
   switch (event.kind) {
-    case "user":
+    case "user": {
+      // ruri carrying the chat on after it compacted itself: neither the
+      // user's prompt nor the message of the agent its `from` names
+      const note = handoffNote(event.text);
+      if (note !== undefined) return <CarryOn note={note} {...(event.from ? { from: event.from } : {})} />;
       if (isCommand(event.text) && !event.attachments?.length) {
         return (
           <button
@@ -236,6 +308,7 @@ export const EventView = memo(function EventView({
           )}
         </div>
       );
+    }
     case "assistant":
       return (
         <div className="msg assistant">

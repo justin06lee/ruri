@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   HOME_ID,
+  handoffNote,
   leadOf,
   type BackgroundWork,
   type Project,
@@ -77,7 +78,10 @@ function lineOf(event: TranscriptEvent): Line | null {
     case "assistant":
       return event.text.trim() ? { kind: "said", text: clip(event.text) } : null;
     case "user":
-      return { kind: "you", text: clip(`you: ${event.text}`) };
+      // ruri carrying it on after it compacted itself — not the user's
+      return handoffNote(event.text) !== undefined
+        ? { kind: "note", text: "carried on from its handoff note" }
+        : { kind: "you", text: clip(`you: ${event.text}`) };
     case "result":
       return {
         kind: "done",

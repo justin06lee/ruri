@@ -3288,6 +3288,112 @@ input[type="range"]::-webkit-slider-thumb {
   overflow-wrap: break-word;
 }
 
+/* ruri carrying a chat on after it compacted itself (EventView CarryOn):
+   not a prompt, so on neither side — a line in the compaction label's
+   voice, and the agent's own handoff note under it on the brief's paper,
+   folded to its first lines when it runs long */
+.msg.carry-on {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.carry-on-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+}
+
+.carry-on-head .icon {
+  flex-shrink: 0;
+  width: 11px;
+  height: 11px;
+  color: var(--ink);
+}
+
+.carry-on-head b {
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+/* folded to four of the note's lines (the reply's 1.6 line height), plus
+   its padding — so the fold falls between lines, never through one */
+.carry-on-note {
+  position: relative;
+  max-height: calc(6.4em + 18px);
+  overflow: hidden;
+  padding: 9px 14px;
+  font-size: var(--fs-md);
+  color: var(--ink-soft);
+  background: var(--paper-dim);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-s);
+}
+
+.carry-on-note.open {
+  max-height: none;
+}
+
+/* the folded note fades out into its own paper, so its last line reads as
+   cut off rather than as the end */
+.carry-on-note.clipped::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3em;
+  background: linear-gradient(to bottom, transparent, var(--paper-dim));
+  pointer-events: none;
+}
+
+.carry-on-toggle.folded-open {
+  align-self: center;
+}
+
+/* opened from its slip above a newer compaction, a click folds it back:
+   the note takes the slip's dotted edge, as an open prompt does */
+.exchange-half.folds[data-half="prompt"] .msg.carry-on {
+  cursor: pointer;
+}
+
+.exchange-half.folds[data-half="prompt"] .carry-on-note {
+  border: 1.5px dotted var(--rim);
+  transition: border-color var(--lighten);
+}
+
+.exchange-half.folds[data-half="prompt"] .msg.carry-on:hover .carry-on-note {
+  border-color: var(--ink);
+}
+
+/* folded above a newer compaction: the line and a cut of the note, on one
+   dotted slip like every note — a click opens the note */
+.msg.carry-on.note {
+  gap: 4px;
+}
+
+.carry-on-cut {
+  overflow: hidden;
+  padding: 6px 14px;
+  font-size: var(--fs-md);
+  color: var(--ink-soft);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: var(--paper-dim);
+  border: 1.5px dotted var(--rim);
+  border-radius: var(--radius-s);
+  transition:
+    color var(--lighten),
+    border-color var(--lighten);
+}
+
+.msg.carry-on.note:hover .carry-on-cut {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
 .cursor {
   display: inline-block;
   width: 7px;

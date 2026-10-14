@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { TranscriptEvent } from "../shared/protocol.js";
+import { excerpt, handoffNote, type TranscriptEvent } from "../shared/protocol.js";
 import type { ServerContext } from "./context.js";
 import { contextBriefing } from "./selfCompaction.js";
 import {
@@ -200,5 +200,13 @@ describe("an agent compacts itself", () => {
       "The job is a message from ruri · Lead: when you finish it, your last message goes back to it as its answer",
     );
     expect(continuePrompt(NOTE, { who: "ruri · Lead", reply: "none" })).toContain("asked for no answer");
+  });
+
+  test("the chat knows the prompt for ruri's and finds the note in it — whole, or the history's cut", () => {
+    expect(handoffNote(continuePrompt(NOTE))).toBe(NOTE);
+    expect(handoffNote(continuePrompt(NOTE, { who: "ruri · Lead", reply: "wait" }))).toBe(NOTE);
+    const cut = handoffNote(excerpt(continuePrompt(NOTE), 220));
+    expect(cut && NOTE.startsWith(cut.replace(/…$/, ""))).toBe(true);
+    expect(handoffNote(NOTE)).toBeUndefined();
   });
 });

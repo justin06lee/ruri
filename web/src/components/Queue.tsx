@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { QueuedPrompt, QueueHold } from "../../../shared/protocol";
+import { handoffNote, type QueuedPrompt, type QueueHold } from "../../../shared/protocol";
 import { composeInto, editQueued, mergeQueued, moveQueued, send, unqueue } from "../store";
 import { TranscriptAttachments } from "./Attachments";
 import { MarkerText } from "./Markers";
@@ -58,6 +58,7 @@ function QueuedCard({
   const lifting = lift?.id === item.id;
   const over = lift?.over?.id === item.id ? lift.over.zone : null;
   const carried = Boolean(onLift) && !item.editing;
+  const handoff = handoffNote(item.text);
 
   return (
     <div
@@ -134,9 +135,17 @@ function QueuedCard({
           </button>
         </span>
       </div>
-      {item.from && <div className="letter-from">message from {item.from}</div>}
+      {/* ruri carrying the chat on after it compacted itself: its note, and
+          not a message from the agent whose job it still is */}
+      {handoff !== undefined ? (
+        <div className="letter-from">
+          carrying on from its handoff note{item.from ? ` · for ${item.from}` : ""}
+        </div>
+      ) : (
+        item.from && <div className="letter-from">message from {item.from}</div>
+      )}
       <div className="queued-text">
-        <MarkerText text={item.text} />
+        <MarkerText text={handoff ?? item.text} />
       </div>
       {item.attachments && item.attachments.length > 0 && (
         <TranscriptAttachments attachments={item.attachments} />

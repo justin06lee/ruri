@@ -22,6 +22,7 @@ import {
   talkTurnEnded,
   waitAnswer,
 } from "./handlers/talk.js";
+import { promptHandlers } from "./handlers/prompts.js";
 import { SendQueues } from "./queue.js";
 import { TeamGovernor } from "./team.js";
 import {
@@ -465,6 +466,23 @@ describe("a message", () => {
     expect((await sendLetter(ctx, "a", { to: "Backend", message: "pass it on" })).text).toContain(
       "agents deep",
     );
+  });
+
+  test("a message rewritten to nothing in the other chat's line — or to commands alone — is taken out, and its sender hears so", async () => {
+    for (const text of ["", "/compact"]) {
+      const { ctx } = world();
+      const sent = sendLetter(ctx, "a", { to: "Backend", message: "a job", reply: "wait" });
+      const entry = ctx.queues.entries.get("b")![0]!;
+      entry.editing = true;
+      promptHandlers.queue_update(ctx, {} as never, {
+        type: "queue_update",
+        projectId: "b",
+        itemId: entry.id,
+        text,
+      });
+      expect((await sent).text).toContain("took your message out");
+      expect(ctx.talk.pending.size).toBe(0);
+    }
   });
 
   test("the sender's turn ending takes down its cards", async () => {

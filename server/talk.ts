@@ -244,6 +244,19 @@ export function resumePrompt(who: string, running?: string): string {
   return `↩ Back to what you were doing: ${who}'s message interrupted you, and you've dealt with it. Carry on exactly where you left off — whatever the user asked of you before still stands. It was ruri that stopped you, not the user: a tool call that came back rejected or interrupted was not refused, so run it again.${cut}`;
 }
 
+/** ruri's prompt sending a chat back to a message it handed on, when the
+ *  answer it was waiting for came to it in a turn on something else — it
+ *  took it there with wait_for_answer — so no turn was answering the
+ *  message (server/handlers/talk.ts answerOnward). Sent as ruri's own
+ *  words, its `from` carrying that message. */
+export function relayPrompt(asker: string, answered: string): string {
+  return [
+    `↪ An answer you were waiting for on behalf of ${asker}'s message came to you while you were on something else — you took it there with wait_for_answer. ${asker} is still waiting on you: answer it now. Your last words in this turn go back to it as your answer, so end with what it needs (or hand the rest on, as before).`,
+    "",
+    answered,
+  ].join("\n");
+}
+
 /** An answer coming back to the chat that asked, for its model. `owed`:
  *  the message the chat sent this one on behalf of, still waiting on it —
  *  who sent that, and whether other answers for it are still to come. */

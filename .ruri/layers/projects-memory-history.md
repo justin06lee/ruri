@@ -7,7 +7,7 @@ This layer owns project sessions and everything remembered about them: sessions/
 
 ## Where to change what
 
-- **Projects (open/close/rename/star/hide) and their teams' members (closeMember, the one teardown forgetChat):** server/projects.ts, server/handlers/projects.ts, server/ruriDir.ts, server/configDir.ts
+- **Projects (open/close/rename/star/hide), leads and the hidden liaison, and their teams' members (closeMember, the one teardown forgetChat):** server/projects.ts, server/handlers/projects.ts, server/ruriDir.ts, server/configDir.ts
 - **Session archive and transcript:** server/archive.ts, server/notes.ts, server/handlers/boards.ts
 - **Checkpoints and rewind:** server/checkpoints.ts, server/gitState.ts, scripts/checkpoint.ts, scripts/rewind-compaction.ts
 - **Compaction, digests, auto-compact, self-compaction and carried delegations:** server/compaction.ts, server/handoff.ts, server/selfCompaction.ts, server/digestFold.ts
@@ -17,8 +17,6 @@ This layer owns project sessions and everything remembered about them: sessions/
 - **Catchup from existing repo:** server/catchup.ts, server/catchupBrief.ts, scripts/history.ts
 - **Outside chats import:** server/recent.ts, server/orphans.ts, scripts/orphans.ts
 - **Tracker, ledger and ideas:** server/tracker.ts, server/ledger.ts, server/ideas.ts, server/handlers/boards.ts
-- **Notes CLI:** scripts/notes.ts, server/notes.ts, server/memoryCli.ts
-- **Home-cap / hidden helpers:** scripts/home-cap.ts, scripts/hidden.ts
 
 ## How it works
 
@@ -38,7 +36,6 @@ This layer owns project sessions and everything remembered about them: sessions/
 - server/projectSearch.ts — project-wide hybrid search over exchanges and memory lines (BM25 in server/recall.ts)
 - server/brief.ts — .ruri/architecture.md shape and stack/layer sheets
 - server/catchupBrief.ts — sheet broadcast and rebuild from app side
-- server/recent.ts — outside-ruri harness sessions listed and imported
 
 ## Rules and traps
 

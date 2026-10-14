@@ -1183,7 +1183,7 @@
         "Every member may work at once; RURI_TEAM_MAX, when set, caps them — a member holding on an answer (talk.awaiting) does not count, or members waiting on each other's teammates hold every slot for good. Only waking a sleeping member is gated — never a lead or the liaison, never a member mid-turn.",
         "Turn progress lives in turns.ts not the window so the clock survives reload; broadcast deltas throttled to one message a second.",
         "Rewind must restore files, branch, transcript, composer prompt, and context gauge to the kept exchange, not the tip.",
-        "A letter is answered by the last words of the turn that finishes the job: owedLetter() is what a turn owes (its own letter, a carried one, or via an answer's owes); talkTurnEnded settles it only when nothing sent on its behalf is out (TalkBook.outstanding). Self-compaction marks the carry (carryLetter) at the turn's result, before talkTurnEnded — never inside the tool call, or a stopped turn leaves it hanging.",
+        "A letter is answered by the last words of the turn that finishes the job: owedLetter() is what a turn owes (its own letter, a carried one, or via an answer's owes); talkTurnEnded settles it only when nothing sent for it is out (TalkBook.outstanding). An answer that leaves the book any other way — a wait in another job, taken out of the queue — goes through answerOnward. Self-compaction marks the carry (carryLetter) at the turn's result, before talkTurnEnded.",
         "The liaison (session.liaison) is never marked lead and leadOf skips it; it is not a member either: what takes 'every non-lead session' as the team must skip it (membersOf, store.isMember, protocol isMember); unattended() covers members and the liaison, whose held lines nobody sends on by hand.",
         "A lead's stop or restart on a teammate ends its work: dropResume takes ruri's 'back to work' entry out of its line (other letters still go), and its next message starts with stoppedLine, naming the cut-off call."
       ],
@@ -1199,7 +1199,7 @@
       "summary": "This layer owns project sessions and everything remembered about them: sessions/chats in projects.json, live transcripts plus history with stable exchange numbers, per-prompt file checkpoints, the project memory, project-wide recall, and the .ruri briefs and sheets. The memory is an append-only event log per project (memory/<id>.jsonl) whose current lines are written to briefs.json; every finished turn is folded in by the memory model as ops, and each line is checked against the code it names. A newcomer must grasp the split: the live session file is rewritten per event, history JSONL is append-only by compaction, the memory changes only through its log, briefs are assembled at send time without calling a model, leads are pure delegators with a hidden liaison for cross-project work, and every agent now compacts itself at half its window with its own handoff note while ruri's 80% compaction stays as backstop.",
       "map": [
         {
-          "name": "Projects (open/close/rename/star/hide) and their teams' members (closeMember, the one teardown forgetChat)",
+          "name": "Projects (open/close/rename/star/hide), leads and the hidden liaison, and their teams' members (closeMember, the one teardown forgetChat)",
           "files": [
             "server/projects.ts",
             "server/handlers/projects.ts",
@@ -1284,21 +1284,6 @@
             "server/ideas.ts",
             "server/handlers/boards.ts"
           ]
-        },
-        {
-          "name": "Notes CLI",
-          "files": [
-            "scripts/notes.ts",
-            "server/notes.ts",
-            "server/memoryCli.ts"
-          ]
-        },
-        {
-          "name": "Home-cap / hidden helpers",
-          "files": [
-            "scripts/home-cap.ts",
-            "scripts/hidden.ts"
-          ]
         }
       ],
       "flows": [
@@ -1343,8 +1328,7 @@
         "server/memoryLog.ts — the memory event log: actor rules, caps that archive, undo, reconcile with briefs.json; fed by server/memoryQueue.ts, checked by server/memoryCheck.ts",
         "server/projectSearch.ts — project-wide hybrid search over exchanges and memory lines (BM25 in server/recall.ts)",
         "server/brief.ts — .ruri/architecture.md shape and stack/layer sheets",
-        "server/catchupBrief.ts — sheet broadcast and rebuild from app side",
-        "server/recent.ts — outside-ruri harness sessions listed and imported"
+        "server/catchupBrief.ts — sheet broadcast and rebuild from app side"
       ],
       "rules": [
         "Nothing except compaction appends to history/<id>.jsonl; live session file is the only rewritten transcript.",

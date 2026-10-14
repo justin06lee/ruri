@@ -44,6 +44,7 @@ import {
   httpWaitMs,
   MAX_DEPTH,
   mayMessage,
+  relayPrompt,
   resumePrompt,
   seatName,
   WAIT_MS,
@@ -835,7 +836,9 @@ function collect(ctx: ServerContext, pending: Pending): TalkResult {
     ctx.queues.broadcastQueue(pending.from);
   }
   ctx.talk.forget(pending.id, HANDED);
-  return { text: handed(ctx, pending, pending.ending!), letter: pending.id, answered: true };
+  const said = handed(ctx, pending, pending.ending!);
+  answerOnward(ctx, pending, { taken: said });
+  return { text: said, letter: pending.id, answered: true };
 }
 
 /** A message's end: answered, failed, or taken out of the line. A call
@@ -849,6 +852,7 @@ function settle(ctx: ServerContext, pending: Pending, outcome: Ending["outcome"]
     const said = handed(ctx, pending, ending);
     for (const waiter of [...pending.waiters]) waiter({ text: said, answered: true });
     book.forget(pending.id, HANDED);
+    answerOnward(ctx, pending, { taken: said });
     return;
   }
   if (pending.reply === "none") {
@@ -858,6 +862,53 @@ function settle(ctx: ServerContext, pending: Pending, outcome: Ending["outcome"]
   pending.ending = ending;
   book.keep(pending);
   sendBack(ctx, pending);
+}
+
+/** Whether something in a chat's line will start a turn on a message it
+ *  owes: the carried continuation of it, or an answer sent back for it —
+ *  other than the answer to `except`, the one on its way out. */
+function queuedFor(ctx: ServerContext, chat: string, letterId: string, except: string): boolean {
+  return (ctx.queues.entries.get(chat) ?? []).some((entry) =>
+    entry.from?.answer
+      ? entry.from.owes === letterId && entry.from.letter !== except
+      : entry.from?.letter === letterId,
+  );
+}
+
+/**
+ * A letter sent on behalf of another (Pending.for) is in its sender's
+ * hands some way other than as a prompt of its own — taken by a wait in a
+ * turn on something else, or taken out of its line by the user — so the
+ * turn that would have answered the message it was sent for will not come.
+ * Unless another will (one on that message is running, something in the
+ * line starts one, or more answers for it are still to come back), that
+ * message is seen to here: an answer taken elsewhere sends the chat back
+ * to answer it, with a prompt of ruri's carrying it, the way a compaction
+ * does; one taken out of its line ends it, saying why.
+ */
+function answerOnward(ctx: ServerContext, sub: Pending, how: { taken: string } | { dropped: true }): void {
+  const owed = sub.for ? ctx.talk.pending.get(sub.for) : undefined;
+  if (!owed || owed.ending || owed.to !== sub.from) return;
+  const chat = sub.from;
+  if (running(ctx, chat) && owedLetter(ctx, chat)?.id === owed.id) return;
+  if (queuedFor(ctx, chat, owed.id, sub.id) || ctx.talk.outstanding(owed.id)) return;
+  // nobody is waiting on it: it is done with, without a turn to say so
+  if (owed.reply === "none") {
+    settle(ctx, owed, "answered", "");
+    return;
+  }
+  if ("dropped" in how) {
+    settle(
+      ctx,
+      owed,
+      "failed",
+      `${whoIs(ctx, chat)} handed your message on, and the answer it was waiting for was taken out of its queue by the user before it could pass it on.`,
+    );
+    return;
+  }
+  // behind whatever it is doing — the turn that took the answer is still
+  // running, and is never stopped for this
+  deliver(ctx, chat, relayPrompt(senderOf(owed), how.taken), { ...letterFrom(owed), carried: true }, "queue");
 }
 
 /** An ended message into its sender's chat, as a message of its own:
@@ -994,6 +1045,8 @@ export function talkDropped(ctx: ServerContext, from: LetterFrom | undefined): v
       pending.id,
       "The user took that message's answer out of this chat's queue before it went in.",
     );
+    // an answer this chat was to pass on to whoever it asked for
+    answerOnward(ctx, pending, { dropped: true });
     return;
   }
   settle(

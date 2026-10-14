@@ -453,7 +453,7 @@ interface RuriState {
   sheetFacts: Record<string, { sources: Record<string, SourceLabel>; git?: SheetGit }>;
   /** Shell tab ids per channel, in the order the tab row shows them. */
   terminals: Record<string, string[]>;
-  /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
+  /** Rapid-fire mode: the main pane cycles through projects whose lead awaits a prompt. */
   rapid: boolean;
   /** The projects page, off the sidebar, is showing instead of a chat. */
   projectsOpen: boolean;

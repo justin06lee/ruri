@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import {
-  DEFAULT_EFFORT,
-  HOME_ID,
-  type Project,
-  type SessionInfo,
-  type TranscriptEvent,
-} from "../../../shared/protocol";
+import { DEFAULT_EFFORT, HOME_ID, type Project, type TranscriptEvent } from "../../../shared/protocol";
 import { beat } from "../lib/beat";
 import { spinStar } from "../lib/spin";
 import { StreamingMarkdown } from "../markdown";
@@ -166,7 +160,6 @@ export function ChatPane({
       activeId={activeId}
       project={project}
       isHome={isHome}
-      {...(session ? { session } : {})}
       {...(storeProject ? { boardId: storeProject.id } : {})}
       {...(rapid ? { rapid } : {})}
     />
@@ -177,14 +170,12 @@ export function ChatPane({
 function ChatView({
   activeId,
   project,
-  session,
   boardId,
   isHome,
   rapid,
 }: {
   activeId: string;
   project: Project;
-  session?: SessionInfo;
   /** The project the boards (ideas, components) belong to; Home has none. */
   boardId?: string;
   isHome: boolean;
@@ -229,27 +220,25 @@ function ChatView({
     })),
   );
   const allPermissions = useRuri((s) => s.permissions);
-  // a lead's chat is where its team's cards come up too: nobody sees theirs
-  const isLead = session?.lead === true;
-  const teamIds = useRuri((s) =>
-    isLead
-      ? (s.projects
-          .find((p) => p.id === boardId)
-          ?.sessions.map((x) => x.id)
-          .join(" ") ?? "")
-      : "",
+  // a project's chat is its lead's, where its team's cards come up too:
+  // nobody sees theirs
+  const teamIds = useRuri(
+    (s) =>
+      s.projects
+        .find((p) => p.id === boardId)
+        ?.sessions.map((x) => x.id)
+        .join(" ") ?? "",
   );
   const permissions = useMemo(() => {
     const team = new Set(teamIds.split(" "));
     return allPermissions.filter((p) => p.projectId === activeId || team.has(p.projectId));
   }, [allPermissions, activeId, teamIds]);
   // teammates at work, for the header's team button
-  const teamWorking = useRuri((s) =>
-    isLead
-      ? (s.projects.find((p) => p.id === boardId)?.sessions ?? []).filter(
-          (x) => x.id !== activeId && s.statuses[x.id] === "working",
-        ).length
-      : 0,
+  const teamWorking = useRuri(
+    (s) =>
+      (s.projects.find((p) => p.id === boardId)?.sessions ?? []).filter(
+        (x) => x.id !== activeId && s.statuses[x.id] === "working",
+      ).length,
   );
   const { lastError, dismissError } = useRuri(
     useShallow((s) => ({ lastError: s.lastError, dismissError: s.dismissError })),
@@ -711,27 +700,22 @@ function ChatView({
   const header = !isHome && (
     <header className="chat-header">
       <div className="chat-id">
-        <div className="chat-title">
-          {project.name}
-          {session?.title && !isLead && <span className="chat-session-title"> · {session.title}</span>}
-        </div>
+        <div className="chat-title">{project.name}</div>
       </div>
       <div className="header-controls">
-        {isLead && (
-          <button
-            className={`icon-button ${page === "team" ? "active" : ""} ${teamWorking > 0 ? "badged" : ""}`}
-            title={
-              teamWorking > 0
-                ? `Team — ${teamWorking} ${teamWorking === 1 ? "teammate" : "teammates"} at work behind the lead`
-                : "Team — who works behind the lead, and the machine's room for them"
-            }
-            onClick={() => setPage(page === "team" ? "chat" : "team")}
-          >
-            {/* one figure ahead, two behind it: the lead and its team */}
-            <Icon d="M12 4.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM7.5 19v-1.5a4.5 4.5 0 0 1 9 0V19M5 8.5a2 2 0 1 1 0 4M19 8.5a2 2 0 1 0 0 4M2.5 18v-1a3 3 0 0 1 3-3M21.5 18v-1a3 3 0 0 0-3-3" />
-            {teamWorking > 0 && <span className="tracker-badge">{teamWorking}</span>}
-          </button>
-        )}
+        <button
+          className={`icon-button ${page === "team" ? "active" : ""} ${teamWorking > 0 ? "badged" : ""}`}
+          title={
+            teamWorking > 0
+              ? `Team — ${teamWorking} ${teamWorking === 1 ? "teammate" : "teammates"} at work behind the lead`
+              : "Team — who works behind the lead, and the machine's room for them"
+          }
+          onClick={() => setPage(page === "team" ? "chat" : "team")}
+        >
+          {/* one figure ahead, two behind it: the lead and its team */}
+          <Icon d="M12 4.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM7.5 19v-1.5a4.5 4.5 0 0 1 9 0V19M5 8.5a2 2 0 1 1 0 4M19 8.5a2 2 0 1 0 0 4M2.5 18v-1a3 3 0 0 1 3-3M21.5 18v-1a3 3 0 0 0-3-3" />
+          {teamWorking > 0 && <span className="tracker-badge">{teamWorking}</span>}
+        </button>
         <button
           className={`icon-button ${agentsOpen ? "active" : ""} ${agentsWorking > 0 ? "badged" : ""}`}
           title={
@@ -890,7 +874,7 @@ function ChatView({
               home={isHome}
               model={model}
               {...(modelChoice ? { choice: modelChoice } : {})}
-              {...(isHome ? {} : { title: (!isLead && session?.title) || project.name })}
+              {...(isHome ? {} : { title: project.name })}
             />
             <div className="hero-composer">
               {rapid?.on && <RapidBar rapid={rapid} />}

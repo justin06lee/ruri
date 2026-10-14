@@ -1,7 +1,8 @@
 /**
  * Canned state for `?fixture` mode: every kind of transcript event, a pending
- * permission, folder groups, and per-project statuses — so the whole UI can be
- * eyeballed and screenshotted without a live server or a single token.
+ * permission, a project with a team behind its lead, and per-project
+ * statuses — so the whole UI can be eyeballed and screenshotted without a
+ * live server or a single token.
  */
 import { agentLogKey, composeInto, useRuri } from "./store";
 
@@ -129,8 +130,8 @@ export function installFixture(): void {
         path: "/Users/you/Workspace/ruri",
         starred: true,
         sessions: [
-          { id: "p1", title: "Frontend UI" },
-          { id: "p1b", title: "Backend API" },
+          { id: "p1", title: "Lead", lead: true },
+          { id: "p1b", title: "Backend API", duty: "the server and its API" },
         ],
       },
       {
@@ -138,14 +139,14 @@ export function installFixture(): void {
         name: "yagami",
         path: "/Users/you/Workspace/yagami",
         model: "claude-sonnet-5",
-        sessions: [{ id: "p2", title: "Session Layer" }],
+        sessions: [{ id: "p2", title: "Lead", lead: true }],
       },
       {
         id: "prj3",
         name: "dotfiles",
         path: "/Users/you/dotfiles",
         model: "codex:gpt-5.3-codex",
-        sessions: [{ id: "p3" }],
+        sessions: [{ id: "p3", title: "Lead", lead: true }],
       },
     ],
     activeId: "home",

@@ -59,7 +59,7 @@ export function Switcher() {
         id: "rapid",
         kind: "place",
         name: "Rapid fire",
-        where: "prompt whichever session is ready",
+        where: "prompt whichever project is ready",
         go: () => setRapid(true),
       },
       {
@@ -219,7 +219,7 @@ export function Switcher() {
               ref={inputRef}
               className="switcher-input"
               value={query}
-              placeholder="Go to a project, a chat, a place…"
+              placeholder="Go to a project or a place…"
               spellCheck={false}
               autoComplete="off"
               onChange={(e) => {

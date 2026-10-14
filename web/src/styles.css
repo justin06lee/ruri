@@ -720,14 +720,6 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   color: var(--ink-faint);
 }
 
-.recent-age {
-  margin-left: auto;
-  flex-shrink: 0;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--ink-faint);
-}
-
 .unread-pip {
   width: 6px;
   height: 6px;
@@ -1485,8 +1477,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* `.working` is also the transcript's progress line, which pins itself to
    the start of its column — a dot carrying the status word must not */
 .home-tab .dot,
-.pcard-head .dot,
-.board-session-title .dot {
+.pcard-head .dot {
   align-self: center;
 }
 
@@ -1767,16 +1758,6 @@ input[type="range"]::-webkit-slider-thumb {
 
 .board-session:active {
   transform: none;
-}
-
-.board-session-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--ink-soft);
-  margin-bottom: 1px;
 }
 
 .board-line {
@@ -2801,11 +2782,6 @@ input[type="range"]::-webkit-slider-thumb {
 .chat-title {
   font-weight: 700;
   font-size: 14.5px;
-}
-
-.chat-session-title {
-  font-weight: 500;
-  color: var(--ink-soft);
 }
 
 /* the page buttons read as one group, so they sit tight against each other */
@@ -3835,13 +3811,6 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 82%;
   /* INTRO_MS in RapidFire.tsx: the card comes down when this ends */
   animation: rapid-name 700ms ease-out forwards;
-}
-
-.rapid-intro-title {
-  font-size: 15px;
-  color: var(--ink-faint);
-  animation: rapid-name 660ms ease-out 40ms forwards;
-  opacity: 0;
 }
 
 /* The line's controls ride above the composer, on the composer's own width

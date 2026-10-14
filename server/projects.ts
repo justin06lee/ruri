@@ -499,6 +499,11 @@ export class ProjectStore {
     this.save();
   }
 
+  /** Every project's lead: the chats a window can show, besides Home. */
+  leadIds(): string[] {
+    return this.projects.flatMap((p) => leadOf(p)?.id ?? []);
+  }
+
   /** Every session id across every project. */
   sessionIds(): string[] {
     return this.projects.flatMap((p) => p.sessions.map((s) => s.id));

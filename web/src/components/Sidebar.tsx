@@ -98,7 +98,7 @@ function ProjectsRow() {
   );
 }
 
-/** Rapid fire: the pane that always shows whichever session is ready. */
+/** Rapid fire: the pane that always shows whichever project's lead is ready. */
 function RapidRow() {
   const rapid = useRuri((s) => s.rapid);
   const setRapid = useRuri((s) => s.setRapid);
@@ -106,7 +106,7 @@ function RapidRow() {
   return (
     <div
       className={`project-row rapid-row ${rapid ? "active" : ""}`}
-      title="Rapid fire — prompt whichever session is ready, one after another"
+      title="Rapid fire — prompt whichever project is ready, one after another"
       onClick={() => setRapid(!rapid)}
     >
       <svg

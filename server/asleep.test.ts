@@ -31,7 +31,8 @@ function server(): { ctx: ServerContext; clients: Clients } {
   const clients = new Clients();
   const ctx = {
     clients,
-    store: { sessionIds: () => ["a", "b"] },
+    // two projects, a lead each: the chats a window can show
+    store: { sessionIds: () => ["a", "b"], leadIds: () => ["a", "b"] },
     meters: { watch: () => {}, latest: () => undefined },
     readable: { allowReadImages: () => {}, allowArchived: (t: unknown) => t },
     archive: { events: () => [], allSummaries: () => ({}), earlier: () => [], tails: () => ({}) },

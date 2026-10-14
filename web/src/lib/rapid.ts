@@ -24,7 +24,7 @@ export interface LineProject {
 }
 
 export interface Line {
-  /** Every session in the line, in the order it goes round them. */
+  /** Every project's lead in the line, in the order it goes round them. */
   ids: string[];
   /** The ones that could take a prompt right now. */
   ready: string[];

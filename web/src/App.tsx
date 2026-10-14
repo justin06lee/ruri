@@ -10,16 +10,17 @@ import { connect, useRuri } from "./store";
 
 let connectedOnce = false;
 
-/** How many events of each session to render ahead of being asked. */
+/** How many events of each chat to render ahead of being asked. */
 const PREWARM_TAIL = 24;
 /** How still the app has to be before it renders ahead. */
 const PREWARM_QUIET_MS = 1200;
 
 /**
- * Render the sessions you haven't opened yet, on frames with nothing else to
- * do. Markdown is cached by its own text, so this is the whole trick behind
- * a session opening instantly the first time you click it: by then its last
- * screenful is already HTML.
+ * Render the projects you haven't opened yet, on frames with nothing else
+ * to do. Markdown is cached by its own text, so this is the whole trick
+ * behind a project opening instantly the first time you click it: by then
+ * its lead's last screenful is already HTML. (The window holds Home's and
+ * the leads' transcripts only; a team's are the server's.)
  *
  * It reads the whole transcript map, which changes on every event any
  * session emits — so it renders nothing itself and lives in its own leaf
@@ -117,9 +118,8 @@ export function App() {
       {/* the hand-off card sits over the pane, not inside it: the pane
           remounts underneath while this is up, which is the point */}
       {rapid.intro && (
-        <div className="rapid-intro" key={rapid.intro.name + (rapid.intro.title ?? "")}>
-          <div className="rapid-intro-name">{rapid.intro.name}</div>
-          {rapid.intro.title && <div className="rapid-intro-title">{rapid.intro.title}</div>}
+        <div className="rapid-intro" key={rapid.intro}>
+          <div className="rapid-intro-name">{rapid.intro}</div>
         </div>
       )}
     </div>

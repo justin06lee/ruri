@@ -95,17 +95,20 @@ export function createSocketServer(
     const seat = door.seat?.(req);
     if (seat) ctx.clients.seats.set(ws, seat);
     const projectIds = [...ctx.store.sessionIds(), HOME_ID];
+    // what a window can show: Home and each project's lead — a team's
+    // members are the lead's to talk to, and their transcripts stay here
+    const shown = [...ctx.store.leadIds(), HOME_ID];
     // the boards are the one thing keyed by project rather than by session
     const boardIds = ctx.store.list().map((p) => p.id);
     const snapshot: ServerMessage = {
       type: "snapshot",
       projects: ctx.store.list(),
-      transcripts: ctx.readable.allowArchived(ctx.archive.tails(projectIds, TRANSCRIPT_TAIL)),
+      transcripts: ctx.readable.allowArchived(ctx.archive.tails(shown, TRANSCRIPT_TAIL)),
       statuses: ctx.manager.statuses(),
       work: Object.fromEntries(ctx.turns.work),
       permissions: [...ctx.permissions.values()],
       models: ctx.models.allModels(),
-      summaries: ctx.archive.allSummaries(projectIds),
+      summaries: ctx.archive.allSummaries(shown),
       tracker: ctx.tracker.all(projectIds),
       ideas: ctx.ideas.all(boardIds),
       components: ctx.components.all(boardIds),

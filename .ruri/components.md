@@ -56,6 +56,7 @@ Its code has changed since that picture — if you change it, `ruri edit attachm
 Its files: web/src/components/TeamPage.tsx
 Reaches into: server/recent.ts, server/server.ts
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/c9342862-89e4-43bf-a1d2-8fbe5a4aa1a8-team-page.png, /Users/huiyunlee/.config/ruri/uploads/2c55429b-e165-41b6-becf-b47a13829f93-crop-recent.png
+Its code has changed since that picture — if you change it, `ruri edit recent-chats-dropdown --shot <new picture>`
 
 ## question-box — question box
 The AskUserQuestion card with several questions side by side on a strip that slides between them: picking a single-choice answer moves on by itself, the card is as tall as its tallest question, and every pick and typed "Other" survives leaving the session. When the tool call behind it has moved on, the card says so and "Send as a prompt" sends the answers as a new prompt.
@@ -388,6 +389,7 @@ Its files: web/src/components/TeamPage.tsx
 Reaches into: web/src/styles.css, web/src/components/ChatPane.tsx, web/src/store.ts
 Tags: page, team, agents, board
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/148cfd2f-e6c0-4d6b-b027-3434ae373935-team-page.png
+Its code has changed since that picture — if you change it, `ruri edit team-page --shot <new picture>`
 
 ## project-rows — the project rows
 The sidebar's one row per project (ProjectRow): click opens the project's lead; the number beside the name is teammates at work (the liaison counts, the lead doesn't); star kept while on, hide on hover, the X (a dragon while anyone on the team works) asks before closing, warning when the lead is at work too. Double-click renames. Replaced the folders of sessions.

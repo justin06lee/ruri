@@ -76,5 +76,5 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 - Project memory as an audited log, folded from every finished turn and checked against the code, with project-wide recall by words and meaning, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup
 - Sessions edit layer sheets only after reading, by line number with stale-read guard
 - Frontend component library with freshness stamps, auto-refresh and picture capture
-- Self-compaction: agents see context usage, compact at half-window with own handoff note
+- Self-compaction at half-window: handoff note, owed letters carried forward
 - Linux: per-user make install, GNOME app grid entry, Ctrl for ⌘ shortcuts, no grants to ask for

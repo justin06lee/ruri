@@ -45,7 +45,7 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - Turn progress lives in turns.ts not the window so the clock survives reload; broadcast deltas throttled to one message a second.
 - Rewind must restore files, branch, transcript, composer prompt, and context gauge to the kept exchange, not the tip.
 - A letter is answered by the last words of the turn that finishes the job: owedLetter() is what a turn owes (its own letter, a carried one, or via an answer's owes); talkTurnEnded settles it only when nothing sent on its behalf is out (TalkBook.outstanding). Self-compaction marks the carry (carryLetter) at the turn's result, before talkTurnEnded — never inside the tool call, or a stopped turn leaves it hanging.
-- The liaison (session.liaison) is neither the lead nor a member: anything that takes 'every non-lead session' as the team must skip it too (membersOf in handlers/team.ts, store.isMember, protocol isMember); unattended() covers members and the liaison, whose held lines nobody sends on by hand.
+- The liaison (session.liaison) is never marked lead and leadOf skips it; it is not a member either: what takes 'every non-lead session' as the team must skip it (membersOf, store.isMember, protocol isMember); unattended() covers members and the liaison, whose held lines nobody sends on by hand.
 - A lead's stop or restart on a teammate ends its work: dropResume takes ruri's 'back to work' entry out of its line (other letters still go), and its next message starts with stoppedLine, naming the cut-off call.
 
 ## What it talks to

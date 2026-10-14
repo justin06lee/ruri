@@ -10,7 +10,14 @@ import {
   type TranscriptEvent,
 } from "../shared/protocol.js";
 import type { ServerContext } from "./context.js";
-import { carryLetter, listSeats, sendLetter, talkTurnEnded } from "./handlers/talk.js";
+import {
+  carryLetter,
+  listSeats,
+  sendLetter,
+  talkDropped,
+  talkTurnEnded,
+  waitAnswer,
+} from "./handlers/talk.js";
 import { actOn, atWork, hasSlot, releaseWaiting, rosterText, teamBudget, teamHost } from "./handlers/team.js";
 import { ProjectStore } from "./projects.js";
 import { SendQueues } from "./queue.js";
@@ -710,6 +717,188 @@ describe("the liaison: what other projects' agents reach", () => {
     end(liaison);
     await waiting;
     expect(answered).toContain("The UI teammate.");
+  });
+});
+
+describe("a job handed on is answered however its answer comes back", () => {
+  /** copy (site) asks ruri, waiting; ruri's liaison hands it to UI and
+   *  ends its turn; then a second job from copy, which the liaison is on. */
+  async function handedOn() {
+    const w = world();
+    w.fallback.status = "permission";
+    let answered = "";
+    const asked = sendLetter(w.ctx, "copy", {
+      to: "ruri",
+      message: "how does rewind work?",
+      reply: "wait",
+    }).then((result) => {
+      answered = result.text;
+    });
+    const liaison = w.projects[0]!.sessions[1]!.id;
+    w.arrive(liaison);
+    const handed = await sendLetter(w.ctx, liaison, { to: "UI", message: "explain rewind for site" });
+    w.speak(liaison, "Handed to UI.");
+    w.end(liaison);
+    // another job, from the same asker, which the liaison is at work on
+    await sendLetter(w.ctx, "copy", { to: "ruri", message: "who owns the queue?", reply: "later" });
+    w.arrive(liaison);
+    w.set[liaison] = "working";
+    return { ...w, liaison, handed: handed.letter!, asked, answered: () => answered };
+  }
+
+  /** The liaison's second job ends, then the prompt ruri left behind it
+   *  runs: its words are the first job's answer. */
+  async function relayed(w: Awaited<ReturnType<typeof handedOn>>) {
+    const relay = w.ctx.queues.entries.get(w.liaison)?.at(-1);
+    expect(relay?.from?.carried).toBe(true);
+    expect(relay?.text).toContain("is still waiting on you: answer it now");
+    expect(relay?.text).toContain("Rewind restores files, branch and transcript.");
+    await Promise.resolve();
+    expect(w.answered()).toBe("");
+    w.speak(w.liaison, "The queue is the Chat runs teammate's.");
+    w.end(w.liaison);
+    w.arrive(w.liaison);
+    w.speak(w.liaison, "Rewind puts files, branch and transcript back to the kept exchange.");
+    w.end(w.liaison);
+    await w.asked;
+    expect(w.answered()).toContain("Rewind puts files, branch and transcript back");
+    expect(w.answered()).not.toContain("Handed to UI");
+  }
+
+  test("taken with a wait while the liaison is on another job — the wait held as it lands", async () => {
+    const w = await handedOn();
+    const took = waitAnswer(w.ctx, w.liaison, w.handed);
+    w.arrive("ui");
+    w.speak("ui", "Rewind restores files, branch and transcript.");
+    w.end("ui");
+    expect((await took).text).toContain("Rewind restores files, branch and transcript.");
+    await relayed(w);
+  });
+
+  test("taken with a wait while the liaison is on another job — out of its line, landed before", async () => {
+    const w = await handedOn();
+    w.arrive("ui");
+    w.speak("ui", "Rewind restores files, branch and transcript.");
+    w.end("ui");
+    // the answer waits in the liaison's line, behind the job it is on
+    expect(w.ctx.queues.entries.get(w.liaison)?.[0]?.from?.answer).toBe(true);
+    const took = await waitAnswer(w.ctx, w.liaison, w.handed);
+    expect(took.text).toContain("Rewind restores files, branch and transcript.");
+    expect(w.ctx.queues.entries.get(w.liaison)?.some((e) => e.from?.answer)).toBe(false);
+    await relayed(w);
+  });
+
+  test("taken by a wait in the turn on that very job: that turn answers, nothing is sent back", async () => {
+    const w = world();
+    w.fallback.status = "permission";
+    let answered = "";
+    const asked = sendLetter(w.ctx, "copy", {
+      to: "ruri",
+      message: "how does rewind work?",
+      reply: "wait",
+    }).then((result) => {
+      answered = result.text;
+    });
+    const liaison = w.projects[0]!.sessions[1]!.id;
+    w.arrive(liaison);
+    w.set[liaison] = "working";
+    const handed = await sendLetter(w.ctx, liaison, { to: "UI", message: "explain rewind" });
+    const took = waitAnswer(w.ctx, liaison, handed.letter!);
+    w.arrive("ui");
+    w.speak("ui", "Rewind restores files.");
+    w.end("ui");
+    await took;
+    expect(w.ctx.queues.entries.get(liaison) ?? []).toHaveLength(0);
+    w.speak(liaison, "Rewind restores files, as UI says.");
+    w.end(liaison);
+    await asked;
+    expect(answered).toContain("Rewind restores files, as UI says.");
+  });
+
+  test("taken out of the liaison's line before it goes in: the asker hears so, rather than nothing", async () => {
+    const w = world();
+    w.fallback.status = "permission";
+    let answered = "";
+    const asked = sendLetter(w.ctx, "copy", {
+      to: "ruri",
+      message: "how does rewind work?",
+      reply: "wait",
+    }).then((result) => {
+      answered = result.text;
+    });
+    const liaison = w.projects[0]!.sessions[1]!.id;
+    w.arrive(liaison);
+    await sendLetter(w.ctx, liaison, { to: "UI", message: "explain rewind" });
+    w.speak(liaison, "Handed to UI.");
+    w.end(liaison);
+    w.arrive("ui");
+    w.speak("ui", "Rewind restores files.");
+    w.end("ui");
+    const back = w.ctx.queues.entries.get(liaison)?.[0];
+    expect(back?.from?.answer).toBe(true);
+    w.set[liaison] = "idle";
+    talkDropped(w.ctx, back!.from);
+    await asked;
+    expect(answered).toContain("handed your message on, and the answer it was waiting for was taken out");
+    expect(w.ctx.talk.pending.size).toBe(0);
+  });
+
+  test("one nobody waits an answer on is just done with — no turn spent going back to it", async () => {
+    const w = world();
+    w.fallback.status = "permission";
+    await sendLetter(w.ctx, "copy", { to: "ruri", message: "tidy the rewind notes", reply: "none" });
+    const liaison = w.projects[0]!.sessions[1]!.id;
+    w.arrive(liaison);
+    const handed = await sendLetter(w.ctx, liaison, { to: "UI", message: "tidy the rewind notes" });
+    w.end(liaison);
+    expect(w.ctx.talk.pending.size).toBe(2);
+    await sendLetter(w.ctx, "copy", { to: "ruri", message: "who owns the queue?", reply: "later" });
+    w.arrive(liaison);
+    w.set[liaison] = "working";
+    const took = waitAnswer(w.ctx, liaison, handed.letter!);
+    w.arrive("ui");
+    w.end("ui");
+    await took;
+    expect(w.ctx.queues.entries.get(liaison) ?? []).toHaveLength(0);
+    // only the job it is on now is left in flight
+    expect([...w.ctx.talk.pending.values()].map((p) => p.text)).toEqual(["who owns the queue?"]);
+  });
+
+  test("with another answer for it still to come, taking one out waits for that one", async () => {
+    const w = world();
+    w.fallback.status = "permission";
+    let answered = "";
+    const asked = sendLetter(w.ctx, "copy", {
+      to: "ruri",
+      message: "rewind and the queue?",
+      reply: "wait",
+    }).then((result) => {
+      answered = result.text;
+    });
+    const liaison = w.projects[0]!.sessions[1]!.id;
+    w.arrive(liaison);
+    await sendLetter(w.ctx, liaison, { to: "UI", message: "explain rewind" });
+    await sendLetter(w.ctx, liaison, { to: "Memory", message: "explain the queue" });
+    w.speak(liaison, "Handed to UI and Memory.");
+    w.end(liaison);
+    w.arrive("ui");
+    w.speak("ui", "Rewind restores files.");
+    w.end("ui");
+    w.set[liaison] = "idle";
+    // as queue_remove does: its sender's book told, then out of the line
+    talkDropped(w.ctx, w.ctx.queues.entries.get(liaison)![0]!.from);
+    w.ctx.queues.entries.get(liaison)!.shift();
+    await Promise.resolve();
+    expect(answered).toBe("");
+    w.set[liaison] = "permission";
+    w.arrive("memory");
+    w.speak("memory", "The queue holds what waits.");
+    w.end("memory");
+    w.arrive(liaison);
+    w.speak(liaison, "The queue holds what waits; rewind's answer was lost on the way.");
+    w.end(liaison);
+    await asked;
+    expect(answered).toContain("rewind's answer was lost on the way");
   });
 });
 

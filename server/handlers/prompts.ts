@@ -245,6 +245,8 @@ export const promptHandlers = {
     if (msg.text.trim().length === 0 && uploads.length === 0) {
       ctx.queues.placeBack(channelId, entry, []);
       ctx.queues.broadcastQueue(channelId);
+      // rewritten to nothing: another agent's message taken out, as by its X
+      talkDropped(ctx, entry.from);
       return;
     }
     // commands written into the rewrite run ahead of it, as always
@@ -268,6 +270,8 @@ export const promptHandlers = {
       });
     }
     ctx.queues.placeBack(channelId, entry, entries);
+    // rewritten to commands alone: the message they replaced is taken out
+    if (entry.from && !entries.some((e) => e.from)) talkDropped(ctx, entry.from);
     // sending the rewrite is a "go": a queue standing by since a stop
     // moves again, the way it does for any prompt sent
     ctx.queues.releaseQueue(channelId);

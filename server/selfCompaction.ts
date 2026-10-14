@@ -30,7 +30,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type { LetterFrom, TranscriptEvent } from "../shared/protocol.js";
+import { CARRY_ON, type LetterFrom, type TranscriptEvent } from "../shared/protocol.js";
 import { channelProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import { autoCompactShare, compactChannel } from "./dispatch.js";
@@ -310,10 +310,11 @@ export function selfCompactDue(
   return note;
 }
 
-/** What the fresh session is sent, ahead of everything else in its line. */
+/** What the fresh session is sent, ahead of everything else in its line.
+ *  Its opening is how the chat knows it for ruri's (shared handoffNote). */
 export function continuePrompt(note: string, owed?: { who: string; reply: string }): string {
   return [
-    "↻ You compacted yourself: this is a fresh session, and the brief above is the conversation so far. This is the handoff note you wrote for this moment:",
+    `${CARRY_ON}: this is a fresh session, and the brief above is the conversation so far. This is the handoff note you wrote for this moment:`,
     "",
     "<handoff-note>",
     note,

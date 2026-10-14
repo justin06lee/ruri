@@ -389,6 +389,7 @@ Its files: web/src/components/TeamPage.tsx
 Reaches into: web/src/styles.css, web/src/components/ChatPane.tsx, web/src/store.ts
 Tags: page, team, agents, board
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/da000e60-b44a-450e-b1e1-43382fc2e671-shot-22.png, /Users/huiyunlee/.config/ruri/uploads/148cfd2f-e6c0-4d6b-b027-3434ae373935-team-page.png
+Its code has changed since that picture — if you change it, `ruri edit team-page --shot <new picture>`
 
 ## project-rows — the project rows
 The sidebar's one row per project (ProjectRow): click opens the project's lead; the number beside the name is teammates at work (the liaison counts, the lead doesn't); star kept while on, hide on hover, the X (a dragon while anyone on the team works) asks before closing, warning when the lead is at work too. Double-click renames. Replaced the folders of sessions.

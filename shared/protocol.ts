@@ -1121,6 +1121,25 @@ export function excerpt(text: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
 }
 
+/** How ruri's own prompt carrying a chat on after it compacted itself opens
+ *  (server/selfCompaction.ts continuePrompt) — what tells it, in a
+ *  transcript, from a prompt the user or another agent sent. */
+export const CARRY_ON = "↻ You compacted yourself";
+
+/**
+ * The handoff note in ruri's prompt carrying a chat on after it compacted
+ * itself — or undefined for any other prompt. A cut of one (the history's
+ * outline) gives as much of the note as it kept.
+ */
+export function handoffNote(text: string): string | undefined {
+  if (!text.startsWith(CARRY_ON)) return undefined;
+  const open = text.indexOf("<handoff-note>");
+  if (open < 0) return "";
+  const start = open + "<handoff-note>".length;
+  const close = text.indexOf("</handoff-note>", start);
+  return text.slice(start, close < 0 ? undefined : close).trim();
+}
+
 export type TranscriptEvent =
   | {
       kind: "user";

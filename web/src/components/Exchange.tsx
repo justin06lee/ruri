@@ -1,12 +1,13 @@
 import { memo, type ReactNode } from "react";
 import {
   excerpt,
+  handoffNote,
   unmarked,
   type Project,
   type TranscriptEvent,
   type TurnNote,
 } from "../../../shared/protocol";
-import { EventView } from "./EventView";
+import { CARRY_ON_ICON, EventView } from "./EventView";
 import { Icon } from "./chat/Icon";
 
 export interface Turn {
@@ -231,6 +232,10 @@ export const Exchange = memo(function Exchange({
   const rest = replyOpen && events ? events.slice(1) : undefined;
   const folded = !head && !rest;
   const asked = note?.user || prompt || "an exchange";
+  // ruri's prompt carrying the chat on after it compacted itself folds to
+  // what it is, not to a prompt of the user's
+  const first = events?.[0];
+  const carried = handoffNote(first?.kind === "user" ? first.text : prompt);
   const answered = note?.reply || reply;
   const view = (event: TranscriptEvent) => (
     <EventView key={event.id} event={event} project={project} channelId={channelId} onRewind={onRewind} />
@@ -250,6 +255,18 @@ export const Exchange = memo(function Exchange({
         <OpenHalf half="prompt" folds={foldable} onFold={() => onFoldHalf(turnId, "prompt")}>
           {view(head)}
         </OpenHalf>
+      ) : carried !== undefined ? (
+        <NoteHalf
+          className="msg carry-on note"
+          title="Show the handoff note it carried on from"
+          onOpen={() => onOpen(turnId, "prompt")}
+        >
+          <span className="carry-on-head">
+            <Icon d={CARRY_ON_ICON} />
+            <span>carried on from its handoff note</span>
+          </span>
+          {(note?.user || carried) && <span className="carry-on-cut">{note?.user || carried}</span>}
+        </NoteHalf>
       ) : (
         <NoteHalf
           className="msg user note"

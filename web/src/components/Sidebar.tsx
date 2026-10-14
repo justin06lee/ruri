@@ -38,6 +38,19 @@ function HomeRow() {
 }
 
 /**
+ * How many of a project's team are at work: every session but its lead —
+ * the liaison too — with a turn running, whoever started it (the lead, the
+ * user, another project's agent), a card waiting on the user, or agents
+ * and scripts it left going (isBusy). The lead hands every job to its team
+ * and is free most of the time, so what a row's dragon and its count say
+ * is the team's work, never the lead's own.
+ */
+function teamAtWork(s: Parameters<typeof isBusy>[0], project: Project): number {
+  const leadId = leadOf(project)?.id;
+  return project.sessions.reduce((n, x) => (x.id !== leadId && isBusy(s, x.id) ? n + 1 : n), 0);
+}
+
+/**
  * The projects page: every open project at once, in the pane.
  *
  * It used to be the other half of Home's strip, which made Home the place
@@ -52,17 +65,13 @@ function ProjectsRow() {
   const open = useRuri((s) => s.projectsOpen);
   const setOpen = useRuri((s) => s.setProjectsOpen);
 
-  // How many projects are at work right now — a turn running, a card
-  // waiting on the user, agents or scripts still going — counted the way
-  // the row dragons are lit (isBusy). One number, so the row repaints when
-  // it changes, not on every status of every session in the app. With the
-  // folders scrolled away or folded, this is the one place left that says
-  // how much is still running; how many are open is the projects page's.
+  // How many projects have their team at work right now, counted the way
+  // the row dragons are lit (teamAtWork). One number, so the row repaints
+  // when it changes, not on every status of every session in the app. With
+  // the rows scrolled away, this is the one place left that says how much
+  // is still running; how many are open is the projects page's.
   const active = useRuri((s) =>
-    s.projects.reduce(
-      (n, project) => (!project.hidden && project.sessions.some((x) => isBusy(s, x.id)) ? n + 1 : n),
-      0,
-    ),
+    s.projects.reduce((n, project) => (!project.hidden && teamAtWork(s, project) > 0 ? n + 1 : n), 0),
   );
 
   return (
@@ -207,8 +216,9 @@ const HOVER_MS = 90;
  * had going in it, and the sidebar filled with them. Now the lead is the
  * project's only chat the user sees; the rest are its team, which it hands
  * work to and which the team page (in the chat's header) shows. The row
- * says when anything on the team is at work — the dragon where the X goes,
- * as a chat's row always had — and how many teammates are, beside it.
+ * says when anyone on the team is at work — the dragon where the X goes,
+ * as a chat's row always had — and how many, beside it. The lead's own
+ * turn lights neither: it delegates, and its work is the team's.
  */
 function ProjectRow({ project }: { project: Project }) {
   const lead = leadOf(project);
@@ -216,13 +226,13 @@ function ProjectRow({ project }: { project: Project }) {
   const active = useRuri((s) => leadId !== undefined && s.activeId === leadId);
   const unread = useRuri((s) => (leadId ? (s.unread[leadId] ?? false) : false));
   const setActive = useRuri((s) => s.setActive);
-  // the lead at work, or anyone on its team: the head where the X goes
-  const anyBusy = useRuri((s) => project.sessions.some((x) => isBusy(s, x.id)));
   // how many teammates are at work — one number, so the row repaints when
-  // it changes rather than on every status in the app
-  const teamAtWork = useRuri(
-    (s) => project.sessions.filter((x) => x.id !== leadId && s.statuses[x.id] === "working").length,
-  );
+  // it changes rather than on every status in the app; any at all puts
+  // the head where the X goes
+  const atWork = useRuri((s) => teamAtWork(s, project));
+  const busy = atWork > 0;
+  // what removing it would stop: the lead's own turn counts here
+  const anyBusy = useRuri((s) => project.sessions.some((x) => isBusy(s, x.id)));
   const [renaming, setRenaming] = useState(false);
   const { confirm: ask, card } = useConfirm();
   const hover = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -236,7 +246,7 @@ function ProjectRow({ project }: { project: Project }) {
   };
   return (
     <div
-      className={`project-row team-row ${active ? "active" : ""} ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${anyBusy ? "busy" : ""}`}
+      className={`project-row team-row ${active ? "active" : ""} ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${busy ? "busy" : ""}`}
       title={renaming ? undefined : `${project.path} — double-click to rename`}
       onClick={open}
       // the lead's history asked for while the pointer rests on the row, or
@@ -274,12 +284,12 @@ function ProjectRow({ project }: { project: Project }) {
         <span className="project-name">{project.name}</span>
       )}
       {unread && <span className="unread-pip" title="Turn finished" />}
-      {teamAtWork > 0 && (
+      {busy && (
         <span
           className="row-count team-count"
-          title={`${teamAtWork} ${teamAtWork === 1 ? "teammate" : "teammates"} at work`}
+          title={`${atWork} ${atWork === 1 ? "teammate" : "teammates"} at work`}
         >
-          {teamAtWork}
+          {atWork}
         </span>
       )}
       {card}
@@ -342,7 +352,7 @@ function ProjectRow({ project }: { project: Project }) {
           )}
         </button>
         <button
-          className={`remove ${anyBusy ? "busy" : ""}`}
+          className={`remove ${busy ? "busy" : ""}`}
           title={anyBusy ? "Working — click to remove this project anyway" : "Remove project"}
           onClick={(e) => {
             e.stopPropagation();
@@ -357,7 +367,7 @@ function ProjectRow({ project }: { project: Project }) {
             });
           }}
         >
-          <RemoveIcon busy={anyBusy} />
+          <RemoveIcon busy={busy} />
         </button>
       </span>
     </div>

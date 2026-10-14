@@ -740,8 +740,8 @@ function ChatView({
           className={`icon-button ${page === "talk" ? "active" : ""} ${talking > 0 ? "badged" : ""}`}
           title={
             talking > 0
-              ? `Talk — ${talking} ${talking === 1 ? "message" : "messages"} between this chat and other agents on the way; and who your agents may message`
-              : "Talk — who your agents may message, in this project and the others, and what they have said lately"
+              ? `Talk — ${talking} ${talking === 1 ? "message" : "messages"} between this chat and other agents on the way; and which projects your agents may reach`
+              : "Talk — which projects your agents may reach, and what they have said lately"
           }
           onClick={() => setPage(page === "talk" ? "chat" : "talk")}
         >

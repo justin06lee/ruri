@@ -17,6 +17,7 @@ import {
   type TalkPolicy,
   type TeamAction,
   type TeamBudget,
+  type TeamLiaison,
   type TeamMember,
   type PluginRow,
   type ClientMessage,
@@ -493,7 +494,15 @@ interface RuriState {
   talk: { policy: TalkPolicy; letters: TalkLetter[] } | null;
   /** Each project's team, as the team page last heard it — asked for when
    *  the page opens, and kept up to date while it is (server/team.ts). */
-  team: Record<string, { members: TeamMember[]; budget: TeamBudget }>;
+  team: Record<
+    string,
+    {
+      members: TeamMember[];
+      liaison?: TeamLiaison;
+      freeLayers: Array<{ slug: string; name: string }>;
+      budget: TeamBudget;
+    }
+  >;
   /** The plugin browser's last answer. */
   pluginsFound: { harness: IntegrationHarness; query: string; plugins: PluginRow[]; total: number } | null;
   /** How the last change to the integrations went. */
@@ -2177,7 +2186,15 @@ function apply(msg: ServerMessage): void {
     }
     case "team": {
       setState((s) => ({
-        team: { ...s.team, [msg.projectId]: { members: msg.members, budget: msg.budget } },
+        team: {
+          ...s.team,
+          [msg.projectId]: {
+            members: msg.members,
+            ...(msg.liaison ? { liaison: msg.liaison } : {}),
+            freeLayers: msg.freeLayers,
+            budget: msg.budget,
+          },
+        },
       }));
       break;
     }

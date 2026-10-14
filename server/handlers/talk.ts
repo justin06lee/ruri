@@ -60,6 +60,7 @@ import {
   headOf,
   isMemberChat,
   noteStarting,
+  pushTeamOf,
   releaseWaiting,
   unattended,
   waitForSlot,
@@ -577,6 +578,9 @@ export async function sendLetter(
   const delivery = args.delivery ?? "interrupt";
   const busyWith = running(ctx, target) ? uninterruptible(ctx, target) : undefined;
   const where = deliver(ctx, target, text, letterFrom(pending), delivery);
+  // the team page shows the liaison's letters, both ways
+  pushTeamOf(ctx, target);
+  pushTeamOf(ctx, channelId);
   // a cut-in waits at the head of the line for the turn it stopped to end:
   // queued, for the moment it takes, and working from when it goes
   book.note({ ...base, to: target, status: where === "cut in" || where === "waiting" ? "queued" : where });

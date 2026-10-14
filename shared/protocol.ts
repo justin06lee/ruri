@@ -178,6 +178,28 @@ export interface TeamMember {
   lastWords?: string;
 }
 
+/** A message in flight, for the team page: the chat at its other end,
+ *  when it went, and how it starts. */
+export interface TeamLetter {
+  /** The other end: "project · title", or its title alone in this
+   *  project. */
+  who: string;
+  ts: number;
+  text: string;
+}
+
+/** A project's liaison, for the team page: how it stands, as a member
+ *  does, what it is doing in words, and the messages it is answering and
+ *  waiting on. */
+export interface TeamLiaison extends Omit<TeamMember, "name" | "duty" | "layers"> {
+  /** What it is doing right now, as list_agents says it. */
+  doing: string;
+  /** Messages from other projects' agents it owes an answer to. */
+  answering: TeamLetter[];
+  /** Messages it has handed on and is waiting on the answers to. */
+  waitingOn: TeamLetter[];
+}
+
 /**
  * Members at work across ruri. Every member may work at once; only the
  * user's RURI_TEAM_MAX, when set, caps them (server/team.ts).
@@ -2099,8 +2121,17 @@ export type ServerMessage =
   | { type: "integrations"; projectId?: string; integrations: Integrations }
   /** Who may message whom, and the latest messages between agents. */
   | { type: "talk"; policy: TalkPolicy; letters: TalkLetter[] }
-  /** A project's team as it stands, and the machine's budget for it. */
-  | { type: "team"; projectId: string; members: TeamMember[]; budget: TeamBudget }
+  /** A project's team as it stands: its members, its liaison once an
+   *  outside agent has written, the layers of its stack no member holds
+   *  yet, and how many are at work across ruri. */
+  | {
+      type: "team";
+      projectId: string;
+      members: TeamMember[];
+      liaison?: TeamLiaison;
+      freeLayers: Array<{ slug: string; name: string }>;
+      budget: TeamBudget;
+    }
   | { type: "plugins_found"; harness: IntegrationHarness; query: string; plugins: PluginRow[]; total: number }
   /** How a change to the integrations went, in words. */
   | { type: "integration_done"; ok: boolean; message: string }

@@ -31,7 +31,7 @@ Reaches into: web/src/components/ChatPane.tsx:1015, server/components.ts:144, we
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/f6537bdd-3420-43c5-b088-c6bc0ac7081e-12-corner-star.png
 
 ## home-page-all-projects-section — home page all projects section
-The cards above the Home agent: one per open project with a status word, three live lines of what each session is doing, and its spend today and all told; the strip on top adds every project up from the per-day ledger. Fold it with the chevron.
+The cards above the Home agent: one per open project with a status word, three live lines of what its lead is doing, and its spend today and all told; the strip on top adds every project up from the per-day ledger. Fold it with the chevron.
 Its files: web/src/components/HomeBoard.tsx
 Reaches into: server/ledger.ts, web/src/styles.css:1030
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/2c257373-2ee6-4b6a-bd82-63158cfd33b4-home-2-hero.png
@@ -103,7 +103,7 @@ On screen: .player
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/34ede12b-c1cd-4af9-b83d-700545dc5d98-the-player.png
 
 ## rapid-fire-bar — the rapid fire bar
-The plate above the composer in rapid fire: how many sessions in the line are ready and working, an all | starred switch for which projects the line goes round, skip (when another is ready) and leave. Right edge measured onto the textbox's. Counts come from the hook's subscribed projects/statuses — never getState(), which the React Compiler caches.
+The plate above the composer in rapid fire: how many projects in the line are ready and working (each its lead), an all | starred switch for which projects the line goes round, skip (when another is ready) and leave. Right edge measured onto the textbox's. Counts come from the hook's subscribed projects/statuses — never getState(), which the React Compiler caches.
 Its files: web/src/components/RapidFire.tsx
 On screen: .rapid-plate
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/9e04135f-519a-45d0-a8e6-7b231c0c73ee-shot-25.png
@@ -172,11 +172,10 @@ Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.c
 Its code has changed since that picture — if you change it, `ruri edit home-tabs --shot <new picture>`
 
 ## projects-page — the projects page
-Home's projects tab, replacing the old board above the agent: a head with the project count and today/week/all-time spend tiles, then a card per project (live ones first under a rule) with a status pill, live session lines, and today/all-time figures along the foot. Status classes are st-working etc. because a bare `working` class collides with the transcript's progress line.
+The Projects row's page: a head with the project count and how many are working, waiting on you or finished, then a card per project (live ones first under a rule) with a status pill — the whole team's state — and its lead's last lines. Status classes are st-working etc. because a bare working class collides with the transcript's progress line.
 Its files: web/src/components/HomeBoard.tsx
 Reaches into: server/ledger.ts, web/src/styles.css:1180
-Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/6fffa3ee-eeca-456d-9c22-b49d43d38eb7-shot-6.png
-Its code has changed since that picture — if you change it, `ruri edit projects-page --shot <new picture>`
+Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/04741ce3-9c9b-474a-83d0-02e50d093d37-projects-page.png, /Users/huiyunlee/.config/ruri/uploads/6fffa3ee-eeca-456d-9c22-b49d43d38eb7-shot-6.png
 
 ## model-role-tags — the model role tags
 The "small tasks" (filled) and "default" (outlined) tags on catalog rows in Settings; the star cycles none → starred → small → default → none, and either tag drags onto another row to hand the role over. Crowning a default pins every existing project and Home to the old one first.
@@ -208,7 +207,7 @@ Reaches into: web/src/components/Sidebar.tsx:74, web/src/styles.css:780, server/
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/c114c31d-7062-4ccb-bcaf-93753cfda9c9-project-rows.png, /Users/huiyunlee/.config/ruri/uploads/e4b3c141-f630-4266-8b27-a105c40ef94f-r-1-editing.png
 
 ## switcher — the switcher
-Tap the right Option key (or ⌘K) and a Spotlight-shaped search stands over the app: projects, chats, Home, Rapid fire, Settings. The best match completes greyed into the box; Enter goes there, Tab takes the completion, Escape closes. Option held with another key opens nothing.
+Tap the right Option key (or ⌘K) and a Spotlight-shaped search stands over the app: projects (each opening its lead), Home, Rapid fire, Settings. The best match completes greyed into the box; Enter goes there, Tab takes the completion, Escape closes. Option held with another key opens nothing.
 Its files: web/src/components/Switcher.tsx
 Reaches into: web/src/styles.css:6870, web/src/App.tsx
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/e0ffdc9c-f2eb-45aa-908a-06592208dbb3-s-2-typed.png
@@ -310,10 +309,10 @@ Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.c
 Its code has changed since that picture — if you change it, `ruri edit band-editor --shot <new picture>`
 
 ## talk-page — the talk page
-The chat header's two-speech-bubbles page: who each agent may message (every agent, per project, per chat — anyone / only these / no one, inheriting down) and the latest messages between agents; the server enforces it in sendLetter.
+The chat header's two-speech-bubbles page: which projects your agents may reach (every project's rule, a project's own over it — anyone / only these projects / no one; a team always talks among itself) and the latest messages between agents; the server enforces it in sendLetter.
 Its files: web/src/components/TalkPage.tsx
 Reaches into: server/talk.ts, server/handlers/talk.ts, web/src/styles.css, web/src/components/ChatPane.tsx
-Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/b073d0a8-c42e-4dcd-9dca-587cadf4fca7-shot-39.png
+Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/61fd1314-2faa-4c1a-ae86-2ded29a79366-talk-page.png, /Users/huiyunlee/.config/ruri/uploads/b073d0a8-c42e-4dcd-9dca-587cadf4fca7-shot-39.png
 
 ## component-library — the component library
 The Components page as a per-project gallery: search over picture cards (newest picture shown; 'outdated' when its code changed after it); a card opens its page with pictures, `ruri add <slug>`, fields, and its code in tabs. Agents reach the same library with the `ruri` command.
@@ -370,7 +369,7 @@ Tags: settings, home
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/966ca3f8-560e-42dd-a38c-c69b729d2db5-greeting.png
 
 ## rapid-fire-waiting — the rapid fire waiting screen
-What rapid fire shows when the line has nobody to hand you — nothing starred, nothing open, or everyone mid-turn — with the rapid fire bar under it; the first session to come free is picked up on its own (RapidWaiting, swapped in by App.tsx).
+What rapid fire shows when the line has nobody to hand you — nothing starred, nothing open, or every lead mid-turn — with the rapid fire bar under it; the first project to come free is picked up on its own (RapidWaiting, swapped in by App.tsx).
 Its files: web/src/components/RapidFire.tsx
 Reaches into: web/src/styles.css, web/src/App.tsx
 Tags: rapid fire, empty state, pane

@@ -44,7 +44,7 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - Never put domain logic in routes/socket — dispatch to server/handlers/index.ts; what each message does lives per-domain.
 - Never weaken the gate: mutating HTTP needs token + permitted origin, socket needs both at upgrade; GETs stay open.
 - The port is identity (origin for stored prefs) — claim it via server/port.ts, never silently fall to an ephemeral port.
-- Transcript fan-out is scoped: live per-chat events go only to windows showing that chat (server/clients.ts).
+- Transcript fan-out is scoped: live per-chat events go only to windows showing that chat (server/clients.ts); the snapshot and the projects page carry only Home's and the leads' tails (ProjectStore.leadIds) — a team's members are never sent whole, though a window (or a test script) may still view one by id
 - Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder of its own (bunfig.toml, scripts/test-config.ts), so a test run never touches ~/.config/ruri.
 - Secrets must never enter model context, logs, or transcripts — only names/placeholders leave server/secrets.ts.
 

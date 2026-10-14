@@ -21,15 +21,15 @@ This layer moves the user between projects: a sidebar row per project (its lead 
 
 - **Switch project:** Sidebar row, Switcher Enter, HomeBoard card, or RapidBar hand-off calls setActive/go on the project's lead → setActive turns a member's id into its lead's (store.ts shownChat) while app active session is preserved where required (RapidFire) → Chat pane renders the lead's transcript → Unread pips and recent-note lines update from store (teammates' turns wear none)
 - **Hold and dispatch a queued prompt:** Queue.tsx holds prompt app-side while a turn runs (nothing reaches harness) → User edits, merges (drop on body), reorders (drop on edge), or removes card up to dispatch → Fold can be undone within UNDO_MS (8000ms) → composeInto/send releases the prompt when its turn comes
-- **Rapid Fire pass through ready sessions:** Line membership resolved via lib/rapid: all open vs starred-only, hidden excluded → RapidFire hands the ordinary chat pane a different channel to show (builds no pane) → Prompt lands and sits readable, card eases out → Next project name announces big before its chat rises → Leaving the line restores the prior active session
+- **Rapid Fire pass through ready projects:** Line membership resolved via lib/rapid — each project once, as its lead; all open vs starred-only, hidden excluded → RapidFire hands the ordinary chat pane a different channel to show (builds no pane) → Prompt lands and sits readable, card eases out → Next project's name announces big (the project alone) before its lead's chat rises → Leaving the line restores the prior active chat
 
 ## Key files
 
 - web/src/components/Sidebar.tsx — a row per project (ProjectRow: the lead behind it, teammates at work counted, star/hide/remove), Home and Projects rows, account bar
-- web/src/components/HomeBoard.tsx — HomeTab/HomeDeck/ProjectsPage grid of per-project status cards
+- web/src/components/HomeBoard.tsx — HomeTab/HomeDeck/ProjectsPage grid of per-project cards: the lead's last lines (LeadLines), the whole team's status
 - web/src/components/Switcher.tsx — ⌘K/right-Option fuzzy search over places and projects, each opening its lead
 - web/src/components/Queue.tsx — QueuedList/QueueStandby editable held-prompt cards with drag reorder/merge
-- web/src/components/RapidFire.tsx — RapidFire/useRapidFire/RapidBar same-chat session line
+- web/src/components/RapidFire.tsx — RapidFire/useRapidFire/RapidBar: one project at a time, each its lead
 - web/src/components/SessionControls.tsx — composer's per-chat model/effort/permission pickers
 - web/src/components/Player.tsx — music bar, waveform, seek/volume over AudioEngine
 - web/src/lib/audio.ts — two-deck Web Audio engine with crossfade, shuffle, repeat; streams /music/track

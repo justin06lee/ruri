@@ -25,7 +25,7 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 ## How it flows
 
 - **A prompt turn:** Composer (web/src/components/Composer.tsx) → WebSocket (shared/protocol.ts) → server/dispatch.ts + server/queue.ts → providers/harness CLI (server/providers.ts) → StreamingMarkdown/EventView (web/src/markdown.tsx)
-- **An agent messages another agent:** message_agent / start_chat (server/talk.ts, server/handlers/talk.ts) → target interrupted or queued; a sleeping team member woken when the memory budget has a slot (server/handlers/team.ts), another project reached through its lead → approval card / reply back
+- **An agent messages another agent:** message_agent / ask_project (server/talk.ts, server/handlers/talk.ts) → its own team or another project's lead, held to the per-project talk rules (a team inside its project always may) → target interrupted or queued; a sleeping team member woken when the memory budget has a slot (server/handlers/team.ts) → approval card / reply back
 - **A session drives what it built:** server/bridge.ts + server/cdp.ts → hidden browser / native app (desktop/bridge.ts) → BridgeStrip preview (web/src/components/Bridge.tsx) → takeover / give back
 - **Memory and architecture fold-in:** ruri note/recall/state CLI (server/memoryCli.ts) → .ruri/catchup.md + .ruri/architecture.md + .ruri/layers/ → Architecture page (web/src/components/Architecture.tsx)
 
@@ -62,16 +62,16 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 
 ## What it does
 
-- Project workspaces: one lead chat per project with a team of persistent members behind it (duties, sleep between jobs, a memory-budgeted number at work, team page), visibility controls, single-open guard
-- Home workspace agent: finds projects by name, opens them, kicks off sessions
+- Project workspaces: one lead chat per project — no fork, new, close or rename of chats — with a team of persistent members behind it (duties, sleep between jobs, a memory-budgeted number at work, team page), visibility controls, single-open guard
+- Home workspace agent: finds projects by name, opens them, hands their leads a first prompt
 - Any harness verbatim: Claude, Codex, OpenCode, Gemini, ACP, per-chat model/effort/permissions
 - Streaming markdown replies: tool chips, inline diffs, read previews, unified permission cards
 - App-side prompt queue: reorder, merge with undo, edit, interrupt via Cmd+Enter/held Enter
 - Queued messages hold on connection or usage-limit errors, with manual send
 - Attachments: images, videos, PDFs, files, region crops, viewer, sketch pad
-- Edit and rewind: per-harness checkpoints, fork exchanges, import outside chats, lost-session auto fresh-start with resend, startup-failure auto-retry
+- Edit and rewind: per-harness checkpoints, outside chats brought in as teammates, lost-session auto fresh-start with resend, startup-failure auto-retry
 - Subagents and background scripts as live cards, agents page, brief-started agents
-- Agent messaging with interrupt-or-queue delivery, busy status, new-chat start, approvals
+- Agent messaging with interrupt-or-queue delivery, busy status, jobs handed to another project's lead (ask_project), per-project rules, approvals
 - Bridge preview and takeover for web pages via hidden CDP browser and native apps via Accessibility (macOS) or X11 + AT-SPI over D-Bus (Linux)
 - MCP servers, plugins, marketplaces for Claude Code and Codex via Settings
 - Project memory as an audited log, folded from every finished turn and checked against the code, with project-wide recall by words and meaning, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup

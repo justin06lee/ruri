@@ -11,7 +11,7 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - **prompt queue (order, edit, rearrange, stop/hold):** server/queue.ts, server/handlers/prompts.ts, server/dispatch.ts
 - **turn progress and context gauge:** server/turns.ts, server/channel.ts
 - **transcript delivery and history:** server/handlers/transcript.ts, server/events.ts
-- **rewind and fork:** server/handlers/rewind.ts, server/turns.ts, scripts/rewind.ts, scripts/rewind-git.ts
+- **rewind:** server/handlers/rewind.ts, server/turns.ts, scripts/rewind.ts, scripts/rewind-git.ts
 - **agent-to-agent talk and project teams (lead, members, slots, the lead's team tools):** server/talk.ts, server/handlers/talk.ts, server/team.ts, server/handlers/team.ts
 - **slash commands in prompts:** server/commands.ts, server/dispatch.ts
 - **retry and dropped turns:** server/retry.ts, server/dispatch.ts
@@ -24,7 +24,7 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 
 - **prompt to running turn:** handlers/prompts.ts accepts send, split, stop, or queue rearrange → dispatch.ts writes prompt to transcript, checkpoints, titles, splits slash commands → queue.ts holds it if channel busy, visible or silent entry → chats.ts hands it to the chat session with briefing and tools → turns.ts tracks progress and context during the run → events.ts records, redacts, archives, and pushes each event → finished turn triggers drainQueue and maybeRetry in dispatch.ts
 - **rewind:** handlers/rewind.ts receives rewind to just before a prompt ran → restoreContext resets context gauge to the kept exchange → files and repo restored via native fork or checkpoint plus brief → transcript truncated and prompt returned to composer
-- **talk message:** handlers/talk.ts checks seats and TalkPolicy via talk.ts rules → delivered into the other chat as a prompt marked whose — a sleeping team member only when the memory budget has a slot (server/handlers/team.ts hasSlot), else waitForSlot until a member's turn ends and releaseWaiting drains it → queues behind that chat's work like a user prompt → at turn end the last word is clipped and carried back to sender
+- **talk message:** handlers/talk.ts finds the seat — the sender's own team or another project's lead, no one else — and checks the per-project TalkPolicy (talk.ts mayMessage; a team inside its project always may) → delivered into the other chat as a prompt marked whose — a sleeping team member only when the memory budget has a slot (server/handlers/team.ts hasSlot), else waitForSlot until a member's turn ends and releaseWaiting drains it → queues behind that chat's work like a user prompt → at turn end the last word is clipped and carried back to sender; ask_project ({"do": "project"}) hands a job to another project's lead, opening a folder as a project first
 
 ## Key files
 
@@ -36,7 +36,7 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - server/team.ts — a project's team: the memory budget (TeamGovernor, slotsFor), the lead's and members' words, the lead's MCP tools
 - server/handlers/prompts.ts — composer messages: send, split, queue, stop, drafts, cards
 - server/talk.ts — agent-to-agent rules, handles, wording, in-flight book, tools
-- server/handlers/rewind.ts — rewind and fork across harnesses
+- server/handlers/rewind.ts — rewind across harnesses (a native fork back to the kept exchange, a brief, or a fresh start)
 - server/handlers/team.ts — slot gate and release for sleeping members, the roster and team page, actOn (compact/restart/clear/retire), teamHost behind the tools and POST /talk
 
 ## Rules and traps

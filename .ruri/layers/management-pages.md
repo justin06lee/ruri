@@ -22,7 +22,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 
 - **Tracker review pass:** Tracker.tsx lists small-model items → click cycles open → liked → rejected, note field folds out on rejected → Finish review clears liked, pins rejected as repeats → small-model fix-it prompt drops into composer
 - **Statistics read:** Statistics.tsx mounts and subscribes via watchMeters → money totals come off ledger → machine usage sampled from ps only while page is up → figures.ts formats money/counts/span identically to cards
-- **Talk rule resolution:** TalkPage.tsx edits global rule → project rule overrides global for its chats → chat rule overrides project → latest inter-agent letters listed underneath
+- **Talk rule resolution:** TalkPage.tsx edits every project's rule → a project's own rule overrides it (anyone / only these projects / no one) → a team within its project always talks, whatever the rules → latest inter-agent letters listed underneath, a lead named by its project
 
 ## Key files
 
@@ -34,7 +34,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - web/src/components/TeamPage.tsx — a project's team: each member's state, duty, layers, context and last words, the machine's slot budget, compact/restart/clear/retire, outside chats brought in as teammates
 - web/src/components/Skills.tsx — bmo/filesystem skills view with skills-off toggle
 - web/src/components/Bridge.tsx — live hidden-window plate above composer with take-over
-- web/src/components/TalkPage.tsx — who-may-message-whom rules plus recent letters (figures.ts formats money/counts/spans for every page)
+- web/src/components/TalkPage.tsx — which projects may reach which (every project's rule, a project's own over it) plus recent letters (figures.ts formats money/counts/spans for every page)
 - web/src/lib/models.ts — harnessName and roughName label helpers
 
 ## Rules and traps

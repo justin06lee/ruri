@@ -1,16 +1,16 @@
 {
   "description": "A desktop app for macOS and Linux for managing projects — each one lead agent the user talks to, with a team of persistent agent sessions behind it — powered by installed agent CLIs.",
   "features": [
-    "Project workspaces: one lead chat per project with a team of persistent members behind it (duties, sleep between jobs, a memory-budgeted number at work, team page), visibility controls, single-open guard",
-    "Home workspace agent: finds projects by name, opens them, kicks off sessions",
+    "Project workspaces: one lead chat per project — no fork, new, close or rename of chats — with a team of persistent members behind it (duties, sleep between jobs, a memory-budgeted number at work, team page), visibility controls, single-open guard",
+    "Home workspace agent: finds projects by name, opens them, hands their leads a first prompt",
     "Any harness verbatim: Claude, Codex, OpenCode, Gemini, ACP, per-chat model/effort/permissions",
     "Streaming markdown replies: tool chips, inline diffs, read previews, unified permission cards",
     "App-side prompt queue: reorder, merge with undo, edit, interrupt via Cmd+Enter/held Enter",
     "Queued messages hold on connection or usage-limit errors, with manual send",
     "Attachments: images, videos, PDFs, files, region crops, viewer, sketch pad",
-    "Edit and rewind: per-harness checkpoints, fork exchanges, import outside chats, lost-session auto fresh-start with resend, startup-failure auto-retry",
+    "Edit and rewind: per-harness checkpoints, outside chats brought in as teammates, lost-session auto fresh-start with resend, startup-failure auto-retry",
     "Subagents and background scripts as live cards, agents page, brief-started agents",
-    "Agent messaging with interrupt-or-queue delivery, busy status, new-chat start, approvals",
+    "Agent messaging with interrupt-or-queue delivery, busy status, jobs handed to another project's lead (ask_project), per-project rules, approvals",
     "Bridge preview and takeover for web pages via hidden CDP browser and native apps via Accessibility (macOS) or X11 + AT-SPI over D-Bus (Linux)",
     "MCP servers, plugins, marketplaces for Claude Code and Codex via Settings",
     "Project memory as an audited log, folded from every finished turn and checked against the code, with project-wide recall by words and meaning, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup",
@@ -315,8 +315,9 @@
     {
       "name": "An agent messages another agent",
       "steps": [
-        "message_agent / start_chat (server/talk.ts, server/handlers/talk.ts)",
-        "target interrupted or queued; a sleeping team member woken when the memory budget has a slot (server/handlers/team.ts), another project reached through its lead",
+        "message_agent / ask_project (server/talk.ts, server/handlers/talk.ts)",
+        "its own team or another project's lead, held to the per-project talk rules (a team inside its project always may)",
+        "target interrupted or queued; a sleeping team member woken when the memory budget has a slot (server/handlers/team.ts)",
         "approval card / reply back"
       ]
     },
@@ -600,22 +601,22 @@
           ]
         },
         {
-          "name": "Rapid Fire pass through ready sessions",
+          "name": "Rapid Fire pass through ready projects",
           "steps": [
-            "Line membership resolved via lib/rapid: all open vs starred-only, hidden excluded",
+            "Line membership resolved via lib/rapid — each project once, as its lead; all open vs starred-only, hidden excluded",
             "RapidFire hands the ordinary chat pane a different channel to show (builds no pane)",
             "Prompt lands and sits readable, card eases out",
-            "Next project name announces big before its chat rises",
-            "Leaving the line restores the prior active session"
+            "Next project's name announces big (the project alone) before its lead's chat rises",
+            "Leaving the line restores the prior active chat"
           ]
         }
       ],
       "files": [
         "web/src/components/Sidebar.tsx — a row per project (ProjectRow: the lead behind it, teammates at work counted, star/hide/remove), Home and Projects rows, account bar",
-        "web/src/components/HomeBoard.tsx — HomeTab/HomeDeck/ProjectsPage grid of per-project status cards",
+        "web/src/components/HomeBoard.tsx — HomeTab/HomeDeck/ProjectsPage grid of per-project cards: the lead's last lines (LeadLines), the whole team's status",
         "web/src/components/Switcher.tsx — ⌘K/right-Option fuzzy search over places and projects, each opening its lead",
         "web/src/components/Queue.tsx — QueuedList/QueueStandby editable held-prompt cards with drag reorder/merge",
-        "web/src/components/RapidFire.tsx — RapidFire/useRapidFire/RapidBar same-chat session line",
+        "web/src/components/RapidFire.tsx — RapidFire/useRapidFire/RapidBar: one project at a time, each its lead",
         "web/src/components/SessionControls.tsx — composer's per-chat model/effort/permission pickers",
         "web/src/components/Player.tsx — music bar, waveform, seek/volume over AudioEngine",
         "web/src/lib/audio.ts — two-deck Web Audio engine with crossfade, shuffle, repeat; streams /music/track",
@@ -710,7 +711,9 @@
           "name": "Tracker review pass",
           "steps": [
             "Tracker.tsx lists small-model items",
-            "click cycles open → liked → rejected, note field folds out on rejected",
+            "click cycles open",
+            "liked",
+            "rejected, note field folds out on rejected",
             "Finish review clears liked, pins rejected as repeats",
             "small-model fix-it prompt drops into composer"
           ]
@@ -727,10 +730,10 @@
         {
           "name": "Talk rule resolution",
           "steps": [
-            "TalkPage.tsx edits global rule",
-            "project rule overrides global for its chats",
-            "chat rule overrides project",
-            "latest inter-agent letters listed underneath"
+            "TalkPage.tsx edits every project's rule",
+            "a project's own rule overrides it (anyone / only these projects / no one)",
+            "a team within its project always talks, whatever the rules",
+            "latest inter-agent letters listed underneath, a lead named by its project"
           ]
         }
       ],
@@ -743,7 +746,7 @@
         "web/src/components/TeamPage.tsx — a project's team: each member's state, duty, layers, context and last words, the machine's slot budget, compact/restart/clear/retire, outside chats brought in as teammates",
         "web/src/components/Skills.tsx — bmo/filesystem skills view with skills-off toggle",
         "web/src/components/Bridge.tsx — live hidden-window plate above composer with take-over",
-        "web/src/components/TalkPage.tsx — who-may-message-whom rules plus recent letters (figures.ts formats money/counts/spans for every page)",
+        "web/src/components/TalkPage.tsx — which projects may reach which (every project's rule, a project's own over it) plus recent letters (figures.ts formats money/counts/spans for every page)",
         "web/src/lib/models.ts — harnessName and roughName label helpers"
       ],
       "rules": [
@@ -1069,7 +1072,7 @@
           ]
         },
         {
-          "name": "rewind and fork",
+          "name": "rewind",
           "files": [
             "server/handlers/rewind.ts",
             "server/turns.ts",
@@ -1152,10 +1155,10 @@
         {
           "name": "talk message",
           "steps": [
-            "handlers/talk.ts checks seats and TalkPolicy via talk.ts rules",
+            "handlers/talk.ts finds the seat — the sender's own team or another project's lead, no one else — and checks the per-project TalkPolicy (talk.ts mayMessage; a team inside its project always may)",
             "delivered into the other chat as a prompt marked whose — a sleeping team member only when the memory budget has a slot (server/handlers/team.ts hasSlot), else waitForSlot until a member's turn ends and releaseWaiting drains it",
             "queues behind that chat's work like a user prompt",
-            "at turn end the last word is clipped and carried back to sender"
+            "at turn end the last word is clipped and carried back to sender; ask_project ({\"do\": \"project\"}) hands a job to another project's lead, opening a folder as a project first"
           ]
         }
       ],
@@ -1168,7 +1171,7 @@
         "server/team.ts — a project's team: the memory budget (TeamGovernor, slotsFor), the lead's and members' words, the lead's MCP tools",
         "server/handlers/prompts.ts — composer messages: send, split, queue, stop, drafts, cards",
         "server/talk.ts — agent-to-agent rules, handles, wording, in-flight book, tools",
-        "server/handlers/rewind.ts — rewind and fork across harnesses",
+        "server/handlers/rewind.ts — rewind across harnesses (a native fork back to the kept exchange, a brief, or a fresh start)",
         "server/handlers/team.ts — slot gate and release for sleeping members, the roster and team page, actOn (compact/restart/clear/retire), teamHost behind the tools and POST /talk"
       ],
       "rules": [
@@ -1191,7 +1194,7 @@
       "summary": "This layer owns project sessions and everything remembered about them: sessions/chats in projects.json, live transcripts plus history with stable exchange numbers, per-prompt file checkpoints, the project memory, project-wide recall, and the .ruri briefs and sheets. The memory is an append-only event log per project (memory/<id>.jsonl) whose current lines are written to briefs.json; every finished turn is folded in by the memory model as ops, and each line is checked against the code it names. A newcomer must grasp the split: the live session file is rewritten per event, history JSONL is append-only by compaction, the memory changes only through its log, and briefs are assembled at send time without calling a model.",
       "map": [
         {
-          "name": "Project sessions (open/close/rename/star/hide)",
+          "name": "Projects (open/close/rename/star/hide) and their teams' members (closeMember, the one teardown forgetChat)",
           "files": [
             "server/projects.ts",
             "server/handlers/projects.ts",
@@ -1296,9 +1299,8 @@
           ]
         },
         {
-          "name": "Fork / home-cap / hidden helpers",
+          "name": "Home-cap / hidden helpers",
           "files": [
-            "scripts/fork.ts",
             "scripts/home-cap.ts",
             "scripts/hidden.ts"
           ]
@@ -1336,7 +1338,7 @@
       ],
       "files": [
         "server/projects.ts — ProjectStore over projects.json plus per-chat session settings; a project's lead first and its members with duty and layers (formTeams at launch, addMember, setMember)",
-        "server/handlers/projects.ts — socket moves for projects and sessions",
+        "server/handlers/projects.ts — socket moves for projects, a member off its team (closeMember), an outside chat brought in as a teammate",
         "server/archive.ts — live sessions/<id>.json plus append-only history/<id>.jsonl and turn summaries",
         "server/checkpoints.ts — per-prompt hidden git commits and rewind",
         "server/compaction.ts — briefs within the token budget, state lines, anchored digest sections",
@@ -1351,7 +1353,7 @@
         "Checkpoints must use a private index file and refs/ruri/ refs; never touch the user's staging area, branch, or pushed refs.",
         "The memory changes only through MemoryBook.apply (server/memoryLog.ts), never by writing briefs.json: a line a fold leaves out stays; the model edits only its own lines; agent lines go only with a reason and evidence; user and pinned lines are never touched by the model; cap overflow archives.",
         "Building and sending a brief calls no model and never waits on one (embeddings count only if already warmed; the digest folds in the background), and the system-prompt briefing stays byte-stable so the prompt cache holds — anything dynamic (<state>, <memory-update>) rides in the prompt.",
-        "Only sessions ruri did not start are offered by recent import; never re-import a sidebar chat.",
+        "Only sessions ruri did not start are offered by recent import, and one brought in joins the team as a named member (addMember) — never re-import one of ruri's own chats. A project's chats change only through its team: no new, close or rename moves, and a lead goes only with its project.",
         "Exchange numbers are stable (seqs/nextSeq in server/archive.ts); refs and turn files use them, never a position."
       ],
       "edges": [
@@ -1760,7 +1762,7 @@
         "Never put domain logic in routes/socket — dispatch to server/handlers/index.ts; what each message does lives per-domain.",
         "Never weaken the gate: mutating HTTP needs token + permitted origin, socket needs both at upgrade; GETs stay open.",
         "The port is identity (origin for stored prefs) — claim it via server/port.ts, never silently fall to an ephemeral port.",
-        "Transcript fan-out is scoped: live per-chat events go only to windows showing that chat (server/clients.ts).",
+        "Transcript fan-out is scoped: live per-chat events go only to windows showing that chat (server/clients.ts); the snapshot and the projects page carry only Home's and the leads' tails (ProjectStore.leadIds) — a team's members are never sent whole, though a window (or a test script) may still view one by id",
         "Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder of its own (bunfig.toml, scripts/test-config.ts), so a test run never touches ~/.config/ruri.",
         "Secrets must never enter model context, logs, or transcripts — only names/placeholders leave server/secrets.ts."
       ],

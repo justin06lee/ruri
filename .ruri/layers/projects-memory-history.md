@@ -7,7 +7,7 @@ This layer owns project sessions and everything remembered about them: sessions/
 
 ## Where to change what
 
-- **Project sessions (open/close/rename/star/hide):** server/projects.ts, server/handlers/projects.ts, server/ruriDir.ts, server/configDir.ts
+- **Projects (open/close/rename/star/hide) and their teams' members (closeMember, the one teardown forgetChat):** server/projects.ts, server/handlers/projects.ts, server/ruriDir.ts, server/configDir.ts
 - **Session archive and transcript:** server/archive.ts, server/notes.ts, server/handlers/boards.ts
 - **Checkpoints and rewind:** server/checkpoints.ts, server/gitState.ts, scripts/checkpoint.ts, scripts/rewind-compaction.ts
 - **Compaction, digests and auto-compact:** server/compaction.ts, server/handoff.ts, server/digestFold.ts, server/turnRecords.ts, scripts/digest.ts, scripts/self-compact.ts
@@ -18,7 +18,7 @@ This layer owns project sessions and everything remembered about them: sessions/
 - **Outside chats import:** server/recent.ts, server/orphans.ts, scripts/orphans.ts
 - **Tracker, ledger and ideas:** server/tracker.ts, server/ledger.ts, server/ideas.ts, server/handlers/boards.ts
 - **Notes CLI:** scripts/notes.ts, server/notes.ts, server/memoryCli.ts
-- **Fork / home-cap / hidden helpers:** scripts/fork.ts, scripts/home-cap.ts, scripts/hidden.ts
+- **Home-cap / hidden helpers:** scripts/home-cap.ts, scripts/hidden.ts
 
 ## How it works
 
@@ -29,7 +29,7 @@ This layer owns project sessions and everything remembered about them: sessions/
 ## Key files
 
 - server/projects.ts — ProjectStore over projects.json plus per-chat session settings; a project's lead first and its members with duty and layers (formTeams at launch, addMember, setMember)
-- server/handlers/projects.ts — socket moves for projects and sessions
+- server/handlers/projects.ts — socket moves for projects, a member off its team (closeMember), an outside chat brought in as a teammate
 - server/archive.ts — live sessions/<id>.json plus append-only history/<id>.jsonl and turn summaries
 - server/checkpoints.ts — per-prompt hidden git commits and rewind
 - server/compaction.ts — briefs within the token budget, state lines, anchored digest sections
@@ -45,7 +45,7 @@ This layer owns project sessions and everything remembered about them: sessions/
 - Checkpoints must use a private index file and refs/ruri/ refs; never touch the user's staging area, branch, or pushed refs.
 - The memory changes only through MemoryBook.apply (server/memoryLog.ts), never by writing briefs.json: a line a fold leaves out stays; the model edits only its own lines; agent lines go only with a reason and evidence; user and pinned lines are never touched by the model; cap overflow archives.
 - Building and sending a brief calls no model and never waits on one (embeddings count only if already warmed; the digest folds in the background), and the system-prompt briefing stays byte-stable so the prompt cache holds — anything dynamic (<state>, <memory-update>) rides in the prompt.
-- Only sessions ruri did not start are offered by recent import; never re-import a sidebar chat.
+- Only sessions ruri did not start are offered by recent import, and one brought in joins the team as a named member (addMember) — never re-import one of ruri's own chats. A project's chats change only through its team: no new, close or rename moves, and a lead goes only with its project.
 - Exchange numbers are stable (seqs/nextSeq in server/archive.ts); refs and turn files use them, never a position.
 
 ## What it talks to

@@ -160,7 +160,6 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("agent_send"), ...projectId, key: id, text }),
   z.object({ type: z.literal("agent_stop"), ...projectId, key: id }),
   z.object({ type: z.literal("rewind"), ...projectId, eventId: id }),
-  z.object({ type: z.literal("fork"), ...projectId, eventId: id }),
   z.object({ type: z.literal("recent_list"), ...projectId }),
   z.object({ type: z.literal("transcript_get"), ...projectId, prefetch: z.literal(true).optional() }),
   z.object({

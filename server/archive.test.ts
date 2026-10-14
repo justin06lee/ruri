@@ -195,27 +195,14 @@ describe("a rewind's fork point, tied to its session", () => {
     expect(archive.resumePoint("c")).toBeUndefined();
   });
 
-  test("a compaction's move to a fresh session takes the pending point and tip fork with it", () => {
+  test("a compaction's move to a fresh session takes the pending point with it", () => {
     const archive = new SessionArchive();
     archive.setLastSessionId("c", "S1");
     archive.setResumeAt("c", "S1", "u9");
-    archive.setForkNext("c", "S1");
     archive.clearLastSessionId("c");
     expect(archive.resumePoint("c")).toBeUndefined();
     expect(archive.resumeAtFor("c", "S1")).toBeUndefined();
-    expect(archive.forkNextFor("c", "S1")).toBe(false);
     expect(archive.harnessSessions("c")).toEqual({});
-  });
-
-  test("a tip fork is the session's it was set in, and waits for its fork too", () => {
-    const archive = new SessionArchive();
-    archive.setLastSessionId("c", "S1");
-    archive.setForkNext("c", "S1");
-    expect(archive.forkNextFor("c", "S2")).toBe(false);
-    expect(archive.forkNextFor("c", "S1")).toBe(true);
-    expect(archive.forkNextFor("c", "S1")).toBe(true);
-    archive.setLastSessionId("c", "S3");
-    expect(archive.forkNextFor("c", "S1")).toBe(false);
   });
 
   test("a point survives a restart, and one from before points named their session doesn't", () => {
@@ -226,10 +213,9 @@ describe("a rewind's fork point, tied to its session", () => {
     expect(new SessionArchive().resumePoint("c")).toEqual({ session: "S1", uuid: "u9" });
     const file = path.join(dir, "sessions", "c.json");
     const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
-    fs.writeFileSync(file, JSON.stringify({ ...raw, resumeAt: "860dc3e1", forkNext: true }));
+    fs.writeFileSync(file, JSON.stringify({ ...raw, resumeAt: "860dc3e1" }));
     const again = new SessionArchive();
     expect(again.resumePoint("c")).toBeUndefined();
-    expect(again.forkNextFor("c", "S1")).toBe(false);
   });
 });
 
@@ -458,19 +444,11 @@ describe("each exchange's number, which never moves", () => {
     expect(again.exchangeNo("c", "u4")).toBe(4);
   });
 
-  test("a fork keeps the numbers of the exchanges it copies", () => {
+  test("a chat brought in numbers its exchanges from one", () => {
     const archive = new SessionArchive();
-    for (const id of ["u1", "u2", "u3"]) archive.append("c", user(id));
-    archive.truncateFrom("c", "u2");
-    archive.append("c", user("u4"));
-    archive.seed("f", {
-      events: archive.events("c"),
-      summaries: {},
-      chain: {},
-      seqs: archive.exchangeNumbers("c"),
-    });
-    expect(archive.exchangeNo("f", "u4")).toBe(4);
-    archive.append("f", user("u5"));
-    expect(archive.exchangeNo("f", "u5")).toBe(5);
+    archive.seed("f", [user("u1"), user("u2")]);
+    expect(archive.exchangeNo("f", "u2")).toBe(2);
+    archive.append("f", user("u3"));
+    expect(archive.exchangeNo("f", "u3")).toBe(3);
   });
 });

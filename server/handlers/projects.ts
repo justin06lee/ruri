@@ -329,7 +329,7 @@ export const projectHandlers = {
       }`,
     );
     if (!fresh) throw new Error("unknown project");
-    ctx.archive.seed(fresh.id, { events: imported.events, summaries: {}, chain: {} });
+    ctx.archive.seed(fresh.id, imported.events);
     const providerId = ctx.models.registry.parse(project.model).providerId;
     const sameHarness =
       imported.provider === "claude" ? providerId === undefined : providerId === imported.provider;

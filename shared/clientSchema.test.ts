@@ -56,7 +56,6 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   agent_send: { type: "agent_send", projectId: "p", key: "k", text: "more" },
   agent_stop: { type: "agent_stop", projectId: "p", key: "k" },
   rewind: { type: "rewind", projectId: "p", eventId: "e" },
-  fork: { type: "fork", projectId: "p", eventId: "e" },
   recent_list: { type: "recent_list", projectId: "p" },
   transcript_get: { type: "transcript_get", projectId: "p", prefetch: true },
   view: { type: "view", channels: ["a", "b"], live: true, board: false },

@@ -690,12 +690,6 @@ function ChatView({
       setRewindTarget({ id: event.id, text: event.text }),
     [],
   );
-  const startFork = useCallback(
-    (event: Extract<TranscriptEvent, { kind: "user" }>) => {
-      send({ type: "fork", projectId: activeId, eventId: event.id });
-    },
-    [activeId],
-  );
 
   const busy = status === "working" || status === "permission";
 
@@ -711,11 +705,6 @@ function ChatView({
   const claudeRoute = !providerRoute;
   const canRewind = !isHome && !busy;
   const askRewind = canRewind ? startRewind : undefined;
-  // Fork: the branch under the pencil — a new session from this exchange
-  // on, no confirmation, since nothing is lost by it. Same footing as
-  // rewind: a project's session, while nothing is running. Not a lead's:
-  // a project has one chat for the user, and a fork would be a second.
-  const askFork = canRewind && !isLead ? startFork : undefined;
 
   // Home keeps no header bar — the transcript starts at the top; the
   // tracker page still auto-opens there and closes from its own X.
@@ -982,7 +971,6 @@ function ChatView({
                       project={project}
                       channelId={activeId}
                       onRewind={askRewind}
-                      onFork={askFork}
                       onOpen={openHalf}
                       onFold={foldExchange}
                       onFoldHalf={foldHalf}
@@ -1005,7 +993,6 @@ function ChatView({
                           project={project}
                           channelId={activeId}
                           onRewind={askRewind}
-                          onFork={askFork}
                         />
                       ))}
                     </div>
@@ -1033,7 +1020,6 @@ function ChatView({
                     project={project}
                     channelId={activeId}
                     onRewind={askRewind}
-                    onFork={askFork}
                     onOpen={openHalf}
                     onFold={foldExchange}
                     onFoldHalf={foldHalf}

@@ -1635,12 +1635,6 @@ export type ClientMessage =
    *  with the files left as they are. Either way the prompt itself returns
    *  to the composer, to edit and send like any other. */
   | { type: "rewind"; projectId: string; eventId: string }
-  /** Fork the conversation at this prompt's exchange: a new session in
-   *  the same project holding everything through this turn, carrying on
-   *  from there while this one stays exactly as it is. On Claude the CLI
-   *  session is forked at that point; elsewhere the new session opens on a
-   *  brief of what it holds. */
-  | { type: "fork"; projectId: string; eventId: string }
   /** The sessions on disk for this project that ruri did not make —
    *  answered with `recent`. */
   | { type: "recent_list"; projectId: string }

@@ -45,7 +45,7 @@ On a Linux that restricts unprivileged user namespaces (Ubuntu 24.04 and later),
 - **Streaming markdown replies** with tool chips, inline diffs, previews of what was read, and permission cards that mean the same thing on every harness.
 - **An app-side prompt queue** you can reorder, merge (with an undo) and edit while a turn runs — or cut in past it with ⌘Enter or a held Enter, stopping the answer and sending yours in its place. A dropped connection or a usage limit holds it, with a Send queued button, instead of spending it against the same wall; a prompt splitter; slash commands inside a prompt.
 - **Attachments** — images, videos, PDFs, files — with markers as chips, region crops, a full-size viewer and a sketch pad.
-- **Edit & rewind** with ruri's own checkpoints on every harness — the discarded turns' files, commits and context go back, and nothing else does; fork a chat at any exchange; import chats started outside ruri.
+- **Edit & rewind** with ruri's own checkpoints on every harness — the discarded turns' files, commits and context go back, and nothing else does; bring a chat started outside ruri onto a project's team.
 - **MCP servers, plugins and marketplaces** for Claude Code and Codex, listed, added and removed from Settings through each CLI's own commands.
 - **Subagents and background scripts as live cards**, an agents page, and agents of your own started from a brief; an agent the model sends on again picks its own card back up.
 - **Agents talk to agents** — a teammate, its lead, or another project's lead, and hear back, waiting on the answer or having it come later; the talk page in every chat's header says who may message whom, and outside Bypass each message waits on your OK.

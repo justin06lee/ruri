@@ -53,7 +53,6 @@
     "model-switch-test": "tsx scripts/model-switch.ts",
     "question-test": "tsx scripts/question.ts",
     "naming-test": "tsx scripts/naming.ts",
-    "fork-test": "tsx scripts/fork.ts",
     "compaction-attachments-test": "tsx scripts/compaction-attachments.ts",
     "sweep-test": "tsx scripts/sweep.ts",
     "uploads-sweep-test": "tsx scripts/uploads-sweep.ts",

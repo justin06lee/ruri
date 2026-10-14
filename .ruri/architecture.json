@@ -1733,7 +1733,7 @@
         {
           "name": "Agent self-compaction",
           "steps": [
-            "Every prompt carries a usage line (used/of threshold) via server/briefing.ts, repeated mid-turn on PostToolBatch; agent can query mcp__ruri__context or {\"do\":\"context\"} on /talk/<id>",
+            "Every prompt carries a usage line (used/of threshold) from catchUp in server/handoff.ts (contextLine, server/selfCompaction.ts), repeated mid-turn on PostToolBatch; agent can query mcp__ruri__context or {\"do\":\"context\"} on /talk/<id>",
             "Past threshold the agent calls mcp__ruri__compact or {\"do\":\"compact\",\"note\"|\"file\"} (server/routes.ts, server/handlers/talk.ts, shared/protocol.ts); tool only stores the note and tells the model to end its turn, it does not stop the turn",
             "At that turn's result in server/chats.ts, selfCompactDue returns the note; carryLetter is called then, before talkTurnEnded, so a stopped turn drops the note and settles the letter as today",
             "Continuation is queued at the head (server/queue.ts) then compactChannel runs and its drain sends it into the fresh session",

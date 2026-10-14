@@ -20,6 +20,7 @@ import { MEMORY_HELP, runMemoryCommand } from "./memoryCli.js";
 import { errorMessage, isMissing, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
 import { MUSIC_CORS, scan as scanMusic, serveTrack } from "./music.js";
+import { contextReport, noteFromCall, requestCompaction } from "./selfCompaction.js";
 import { serveStatic } from "./staticFiles.js";
 import { serveUpload } from "./uploads.js";
 
@@ -115,14 +116,15 @@ async function serveBridgeCall(
  * POST /talk/<channelId> — talking to the other agents, for a harness that
  * cannot hold ruri's tools (server/talk.ts): {"do": "list"},
  * {"do": "send", "to", "message", "reply", "delivery"}, {"do": "project",
- * "project", "message", "reply"} or {"do": "wait", "letter"},
- * answered {"ok", "text"} — and, about a message, its "letter" id and
- * whether "answered". A wait is held no longer than this chat's harness
- * lets a shell command block (httpWaitFor), and one whose curl goes away
- * before it is answered lets go of its answer, which then goes to the
- * chat. As with the bridge, the chat's id is the right to speak as that
- * chat; the handles list_agents hands out name the others without being
- * theirs.
+ * "project", "message", "reply"} or {"do": "wait", "letter"} — and the
+ * chat's own context, {"do": "context"} and {"do": "compact", "note" or
+ * "file"} (server/selfCompaction.ts) — answered {"ok", "text"} — and,
+ * about a message, its "letter" id and whether "answered". A wait is held
+ * no longer than this chat's harness lets a shell command block
+ * (httpWaitFor), and one whose curl goes away before it is answered lets
+ * go of its answer, which then goes to the chat. As with the bridge, the
+ * chat's id is the right to speak as that chat; the handles list_agents
+ * hands out name the others without being theirs.
  */
 async function serveTalkCall(
   ctx: ServerContext,
@@ -159,6 +161,8 @@ async function serveTalkCall(
     name?: unknown;
     duty?: unknown;
     layers?: unknown;
+    note?: unknown;
+    file?: unknown;
   };
   try {
     body = JSON.parse(await readBody(req, 256 * 1024)) as typeof body;
@@ -168,6 +172,16 @@ async function serveTalkCall(
   }
   if (body?.do === "list") {
     reply(200, { ok: true, text: listSeats(ctx, id) });
+    return;
+  }
+  // the chat's own context: how full it is, and compacting itself
+  // (server/selfCompaction.ts), the same as Claude's tools
+  if (body?.do === "context") {
+    reply(200, { ok: true, text: contextReport(ctx, id) });
+    return;
+  }
+  if (body?.do === "compact") {
+    reply(200, { ok: true, text: requestCompaction(ctx, id, noteFromCall(body)) });
     return;
   }
   // a lead's team (server/team.ts), the same calls as its tools

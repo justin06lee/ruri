@@ -52,6 +52,9 @@ export function sessionBriefing(input: {
   /** Where it stands on its project's team (server/team.ts): the lead's
    *  words, or a member's — its name and duty. */
   team?: string;
+  /** How it minds its context and compacts itself
+   *  (server/selfCompaction.ts contextBriefing). */
+  context?: string;
   /** The project's stack, one line a layer, each pointing at its sheet
    *  (brief.ts stackBriefing) — empty for a project without layer sheets. */
   stack?: string;
@@ -127,6 +130,8 @@ export function sessionBriefing(input: {
   if (input.talk) blocks.push(input.talk);
 
   if (input.team) blocks.push(input.team);
+
+  if (input.context) blocks.push(input.context);
 
   const vault = input.secrets.briefing(input.claude);
   if (vault) blocks.push(vault);

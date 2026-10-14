@@ -1086,6 +1086,10 @@ export type TranscriptEvent =
       attachments?: Attachment[];
       /** Sent by another agent, not typed by the user (server/talk.ts). */
       from?: LetterFrom;
+      /** ruri's prompt carrying on after the chat compacted itself in the
+       *  middle of answering a message (server/selfCompaction.ts): that
+       *  message's letter id, which this turn's last words now answer. */
+      carries?: string;
       ts: number;
     }
   | { kind: "assistant"; id: string; text: string; ts: number }

@@ -25,6 +25,7 @@ import type { Embedder } from "./embeddings.js";
 import { cachedMeaning, candidatesOf } from "./projectSearch.js";
 import { BRIEF_FLOOR, hybrid } from "./retrieval.js";
 import { claudeSessionGone, claudeSessionHas } from "./recent.js";
+import { contextLine } from "./selfCompaction.js";
 import type { LostPrompt } from "./sessions.js";
 import { restoreContext } from "./turns.js";
 
@@ -305,11 +306,15 @@ export function catchUp(
     // reaches it as updates
     const seq = memorySeq(ctx, channelId);
     if (seq !== undefined) ctx.archive.setMemorySeen(channelId, harness, seq);
-    return { harness, brief: withRelevance(ctx, channelId, brief, prompt) };
+    return { harness, brief: withRelevance(ctx, channelId, brief, prompt) + contextLine(ctx, channelId) };
   }
   return {
     harness,
-    brief: missedBrief(ctx, channelId, had.seen, current) + memoryUpdate(ctx, channelId, harness),
+    brief:
+      missedBrief(ctx, channelId, had.seen, current) +
+      memoryUpdate(ctx, channelId, harness) +
+      // how full its context is, last before the prompt itself
+      contextLine(ctx, channelId),
   };
 }
 

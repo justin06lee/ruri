@@ -73,6 +73,7 @@
     "provider-test": "tsx scripts/provider-session.ts",
     "rewind-compaction-test": "tsx scripts/rewind-compaction.ts",
     "self-compact-test": "tsx scripts/self-compact.ts",
+    "agent-compact-test": "tsx scripts/agent-compact.ts",
     "talk-test": "tsx scripts/talk.ts",
     "team-test": "tsx scripts/team.ts",
     "talk-replies-test": "tsx scripts/talk-replies.ts"

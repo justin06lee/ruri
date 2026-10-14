@@ -799,18 +799,24 @@ function saidAfter(events: TranscriptEvent[], promptId: string, all = false): st
  * chat itself was waiting on is released with its turn: a call still
  * holding for an answer (a curl the harness left running) is let go, and
  * the answer, when it comes, comes to the chat as a message.
+ *
+ * A turn that ended so the chat could compact itself (`carried`) answers
+ * nothing yet: the job goes on in the fresh session, whose prompt carries
+ * the letter (`carries`), and the turn that finishes it answers.
  */
 export function talkTurnEnded(
   ctx: ServerContext,
   channelId: string,
   event: Extract<TranscriptEvent, { kind: "result" }>,
+  options: { carried?: boolean } = {},
 ): void {
   const book = ctx.talk;
   if (book.pending.size === 0 && book.asks.size === 0) return;
   const events = ctx.archive.events(channelId);
   const prompt = events.findLast((e) => e.kind === "user");
   const from = prompt?.kind === "user" ? prompt.from : undefined;
-  const letter = from && !from.answer ? book.pending.get(from.letter) : undefined;
+  const id = from && !from.answer ? from.letter : prompt?.kind === "user" ? prompt.carries : undefined;
+  const letter = id && !options.carried ? book.pending.get(id) : undefined;
   if (prompt && letter && letter.to === channelId && !letter.ending) {
     const who = whoIs(ctx, channelId);
     if (event.stopped) {

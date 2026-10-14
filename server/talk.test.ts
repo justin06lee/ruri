@@ -428,6 +428,34 @@ describe("a message", () => {
   });
 });
 
+describe("a chat that compacts itself in the middle of a message", () => {
+  test("answers it with the last words of the turn that finishes the job, in the fresh session", async () => {
+    const { ctx, events, arrive, speak, answer } = world();
+    const sent = sendLetter(ctx, "a", { to: "Backend", message: "a long job" }, { waitMs: 5_000 });
+    const letter = arrive("b");
+    // the turn that asked to be compacted ends: no answer yet
+    speak("b", "Compacting now.");
+    talkTurnEnded(ctx, "b", { kind: "result", id: "r1", ok: true, ts: 3 }, { carried: true });
+    expect(ctx.talk.pending.size).toBe(1);
+    // the fresh session's prompt carries the letter
+    const id = letter.kind === "user" ? letter.from!.letter : "";
+    events["b"] = [
+      { kind: "compaction", id: "m", text: "brief", entries: [], ts: 4 },
+      { kind: "user", id: "u2", text: "↻ carry on", carries: id, ts: 5 },
+    ];
+    // and its turn's last words are the answer — or, compacting again, not yet
+    speak("b", "Compacting again.");
+    talkTurnEnded(ctx, "b", { kind: "result", id: "r2", ok: true, ts: 6 }, { carried: true });
+    expect(ctx.talk.pending.size).toBe(1);
+    answer("b", "All done: the job's report.");
+    expect(await sent).toMatchObject({
+      text: "api · Backend answered:\n\nAll done: the job's report.",
+      answered: true,
+    });
+    expect(ctx.talk.pending.size).toBe(0);
+  });
+});
+
 describe("an answer always comes back — unless none was asked for", () => {
   test("a wait that runs out of its slice hands back the letter, and waiting again gets the answer", async () => {
     const { ctx, arrive, answer } = world();

@@ -196,6 +196,7 @@ function world(
         { id: "api-lead", title: "Lead", lead: true },
         { id: "b", title: "Backend", liaison: true },
         { id: "c", title: "Docs" },
+        { id: "d", title: "Tests" },
       ],
     },
   ];
@@ -432,14 +433,21 @@ describe("a message", () => {
 
   test("two chats waiting on each other is refused", async () => {
     const { ctx, arrive } = world();
-    void sendLetter(ctx, "c", { to: "Backend", message: "q" });
-    arrive("b");
-    const text = (await sendLetter(ctx, "b", { to: "Docs", message: "q back?", reply: "wait" })).text;
+    void sendLetter(ctx, "c", { to: "Tests", message: "q" });
+    arrive("d");
+    const text = (await sendLetter(ctx, "d", { to: "Docs", message: "q back?", reply: "wait" })).text;
     expect(text).toContain("waiting on your answer");
     // later is fine: nobody holds anybody
-    expect((await sendLetter(ctx, "b", { to: "Docs", message: "fyi", reply: "later" })).text).toContain(
+    expect((await sendLetter(ctx, "d", { to: "Docs", message: "fyi", reply: "later" })).text).toContain(
       "Sent to",
     );
+  });
+
+  test("a lead — here, the liaison — never holds for an answer: what it sends comes back later", async () => {
+    const { ctx } = world();
+    const sent = await sendLetter(ctx, "b", { to: "Docs", message: "q", reply: "wait" });
+    expect(sent.text).toContain('a lead\'s hand-offs always come back "later"');
+    expect(ctx.talk.pending.get(sent.letter!)?.reply).toBe("later");
   });
 
   test("it stops being passed on past the depth cap", async () => {
@@ -753,7 +761,7 @@ describe("an agent deciding who to disturb, and handing jobs to other projects",
       message: "where is the auth middleware?",
       reply: "later",
     });
-    expect(projects.flatMap((p) => p.sessions)).toHaveLength(5);
+    expect(projects.flatMap((p) => p.sessions)).toHaveLength(6);
     expect(sent.text).toContain("Handed to api's liaison");
     expect(sent.text).toContain(ctx.talk.handleOf("b"));
     expect(ctx.queues.entries.get("b")![0]).toMatchObject({
@@ -781,7 +789,7 @@ describe("an agent deciding who to disturb, and handing jobs to other projects",
       "has not let you message api",
     );
     ctx.talk.setPolicy(defaultPolicy());
-    expect(count()).toBe(5);
+    expect(count()).toBe(6);
   });
 
   test("outside bypass mode the liaison is asked about the way any message is, and a no sends nothing", async () => {

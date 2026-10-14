@@ -364,7 +364,10 @@ await until("the lead to relay the word", () => said(lead.id).includes(WORD) && 
 check("the answer lands, and the lead relays it", said(lead.id).includes(WORD), said(lead.id));
 check(
   "the lead never read the file itself",
-  !(events[lead.id] ?? []).some((e) => e.kind === "tool" && /secret/i.test(`${e.name} ${e.summary}`)),
+  // a Read, a shell or a search of the file — not the job handed over
+  !(events[lead.id] ?? []).some(
+    (e) => e.kind === "tool" && /^(Read|Bash|Grep|Glob)$/.test(e.name) && /secret\.txt/i.test(e.summary),
+  ),
   (events[lead.id] ?? []).filter((e) => e.kind === "tool"),
 );
 await settle(6000);
@@ -427,12 +430,14 @@ let worker = words.id;
 const SLOW =
   "Run exactly this with your Bash tool, and nothing else: for i in $(seq 1 25); do sleep 1; done — then reply with just the word done.";
 const slow = async () => {
+  const since = (events[worker] ?? []).length;
   const sent = await talkCall(lead.id, { do: "send", to: "words", message: SLOW, reply: "none" });
-  await until("the slow job to start", () => busy(worker), 120_000);
-  // and the loop to be running, not just the turn
+  // the loop of this job running — not one from a turn before it
   await until(
     "the loop",
-    () => (events[worker] ?? []).some((e) => e.kind === "tool" && /seq 1 25/.test(e.summary)),
+    () =>
+      busy(worker) &&
+      (events[worker] ?? []).slice(since).some((e) => e.kind === "tool" && /seq 1 25/.test(e.summary)),
     120_000,
   );
   return sent;

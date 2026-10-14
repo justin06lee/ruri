@@ -368,7 +368,7 @@ describe("what the lead reads", () => {
     const lead = leadBriefing("ruri", "tool");
     expect(lead).toContain("you delegate every task");
     expect(lead).toContain('add_teammate with layer "<handle>"');
-    expect(lead).toContain('reply "later"');
+    expect(lead).toContain('it comes back "later", always');
     expect(lead).toContain("mcp__ruri__manage_teammate");
     expect(lead).toContain('"refresh"');
     expect(lead).toContain('"stop"');
@@ -460,17 +460,20 @@ describe("a teammate made for a layer, when a job for it comes up", () => {
       layer: "harnesses",
       message: "find out why Codex resumes fail",
     });
-    expect(added).toContain("Its answer will come to this chat as a message");
+    expect(added).toContain("Its answer comes to this chat as a message when the job is done");
     const fresh = projects[0]!.sessions.at(-1)!;
     expect(ctx.queues.entries.get(fresh.id)?.[0]?.from).toMatchObject({ agent: "lead", reply: "later" });
   });
 
-  test("a lead's message comes back 'later' unless it says otherwise; a member's is waited on", async () => {
+  test("a lead's message comes back 'later', even asked to wait; a member's is waited on", async () => {
     const { ctx, fallback } = world();
     fallback.status = "permission";
     const sent = await sendLetter(ctx, "lead", { to: "UI", message: "fix the composer" });
-    expect(sent.text).toContain("Its answer will come to this chat as a message");
+    expect(sent.text).toContain("Its answer comes to this chat as a message when the job is done");
     expect(ctx.talk.pending.get(sent.letter!)?.reply).toBe("later");
+    const held = await sendLetter(ctx, "lead", { to: "Memory", message: "how full are you?", reply: "wait" });
+    expect(held.text).toContain('a lead\'s hand-offs always come back "later"');
+    expect(ctx.talk.pending.get(held.letter!)?.reply).toBe("later");
     void sendLetter(ctx, "ui", { to: "Linux port", message: "does it build?" });
     expect([...ctx.talk.pending.values()].find((p) => p.from === "ui")?.reply).toBe("wait");
   });
@@ -615,7 +618,7 @@ describe("the liaison: what other projects' agents reach", () => {
     const { ctx, projects, fallback, arrive, speak, end } = world();
     fallback.status = "permission";
     let answered = "";
-    const waiting = sendLetter(ctx, "site-lead", {
+    const waiting = sendLetter(ctx, "copy", {
       to: "ruri",
       message: "how does rewind work?",
       reply: "wait",
@@ -653,7 +656,7 @@ describe("the liaison: what other projects' agents reach", () => {
     const { ctx, projects, fallback, arrive, speak, end } = world();
     fallback.status = "permission";
     let answered = "";
-    const waiting = sendLetter(ctx, "site-lead", {
+    const waiting = sendLetter(ctx, "copy", {
       to: "ruri",
       message: "who owns the UI?",
       reply: "wait",
@@ -674,7 +677,7 @@ describe("a teammate compacting itself in the middle of a job", () => {
     const { ctx, fallback, arrive, speak, end } = world();
     fallback.status = "permission";
     let answered = "";
-    const waiting = sendLetter(ctx, "lead", {
+    const waiting = sendLetter(ctx, "linux", {
       to: "UI",
       message: "rebuild the composer",
       reply: "wait",
@@ -684,7 +687,8 @@ describe("a teammate compacting itself in the middle of a job", () => {
     arrive("ui");
     speak("ui", "Writing a handoff note and compacting.");
     const from = carryLetter(ctx, "ui");
-    expect(from).toMatchObject({ agent: "lead", carried: true });
+    expect(from?.agent).toBe("linux");
+    expect(from?.carried).toBe(true);
     end("ui", { ok: false, stopped: true });
     await Promise.resolve();
     expect(answered).toBe("");
@@ -702,6 +706,6 @@ describe("a teammate compacting itself in the middle of a job", () => {
     await waiting;
     expect(answered).toContain("The composer is rebuilt.");
     // a turn that owes no one carries nothing
-    expect(carryLetter(ctx, "linux")).toBeUndefined();
+    expect(carryLetter(ctx, "memory")).toBeUndefined();
   });
 });

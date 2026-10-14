@@ -131,20 +131,20 @@ export function leadBriefing(
       ? [
           `You run the team over the same endpoint you message agents on (${endpoint}), with these extra calls:`,
           '  {"do": "team"} — the roster',
-          '  {"do": "add", "layer": "<handle>", "message": "<the job>", "reply": "later"} — a teammate for a layer, with its first job (or "name" and "duty" instead of "layer")',
+          '  {"do": "add", "layer": "<handle>", "message": "<the job>"} — a teammate for a layer, with its first job (or "name" and "duty" instead of "layer")',
           '  {"do": "update", "who": "<handle or name>", "name": "...", "duty": "...", "layers": [...]}',
           '  {"do": "manage", "who": "<handle or name>", "action": "stop" | "compact" | "refresh" | "restart"}',
           '  {"do": "retire", "who": "<handle or name>"}',
         ]
       : []),
-    "- Read only what you need to choose whom: the catch-up, `ruri architecture`, `ruri layer <handle>`, and the roster. The code is the teammates' to read and change: you can look, but you don't edit files or start agents of your own.",
-    `- Hand a job over with ${call("message_agent", '"send"')} (to: the teammate's handle, its name, or its layer's handle) and reply "later" — the default for you: the call returns at once and the answer comes to this chat as a message when the job is done. Then end your turn${
+    "- Read only what you need to choose whom: the catch-up, `ruri architecture`, `ruri layer <handle>`, and the roster. Never open the project's files or run its code to answer something yourself — not even a one-line read: that is a teammate's job. You can't edit files or start agents of your own here.",
+    `- Hand a job over with ${call("message_agent", '"send"')} (to: the teammate's handle, its name, or its layer's handle) — it comes back "later", always, for you: the call returns at once and the answer comes to this chat as a message when the job is done. Then end your turn${
       liaison ? "" : " with a line to the user on who has it"
     }. Write the job so it reads cold: what is wanted and why, anything said that matters, and what to report back.`,
     `- No teammate for that layer yet: ${call("add_teammate", '"add"')} with layer "<handle>" — it takes its name and duty from the layer — and the job as its message, in the same call. A project with no stack: give it a name and a duty for a part of the project, never a single task.`,
     "- A job across layers goes to the teammate of its main layer, which messages the others itself. Separate jobs go out together, each to its own teammate: every teammate may work at once.",
     liaison
-      ? "- Answer the agent that asked: when the answers you are waiting on have landed here, your last words in the turn the last one starts go back to it — so end that turn with what it needs. Until then, end each turn short; it keeps waiting. A question you can answer from the roster or the sheets alone, answer at once."
+      ? "- Answer the agent that asked: when the answers you are waiting on have landed here, your last words in the turn the last one starts go back to it — so end that turn with what it needs. Until then, end each turn short; it keeps waiting. Only a question about the team or the stack itself, which the roster or the sheets answer, is yours to answer at once; anything in the project's files or code goes to a teammate."
       : "- When an answer lands, relay what the user needs in your own words: what was done, what was found, what is left. If it falls short, hand it back saying what to change.",
     liaison
       ? "- You have no user. When a job needs a decision, don't guess and don't look for the user: answer the asking agent with the question — it has a user to ask. Don't hand outside jobs to the lead: it is the user's."
@@ -203,6 +203,7 @@ export interface AddArgs {
   layers?: string[];
   model?: string;
   message?: string;
+  /** A lead's hand-offs come back "later" ("wait" is taken as that). */
   reply?: "wait" | "later" | "none";
 }
 
@@ -246,7 +247,7 @@ export function teamTools(host: TeamHost, headId: string) {
     ),
     tool(
       "add_teammate",
-      "Add a teammate: a persistent chat in this project, out of the user's sight, that sleeps between jobs and keeps its conversation. As a rule one per layer of the stack, made the first time a job for that layer comes up: give the layer's handle and it takes its name and duty from the layer. A project with no stack: a name and a duty. With a message it starts on that job at once, and answers the way message_agent does — reply \"later\" by default.",
+      "Add a teammate: a persistent chat in this project, out of the user's sight, that sleeps between jobs and keeps its conversation. As a rule one per layer of the stack, made the first time a job for that layer comes up: give the layer's handle and it takes its name and duty from the layer. A project with no stack: a name and a duty. With a message it starts on that job at once, and its answer comes here as a message when the job is done.",
       {
         layer: z
           .string()
@@ -271,10 +272,10 @@ export function teamTools(host: TeamHost, headId: string) {
         model: z.string().optional().describe("A model for it, by name or id; the project's own by default"),
         message: z.string().optional().describe("Its first job — the one it is being added for"),
         reply: z
-          .enum(["wait", "later", "none"])
+          .enum(["later", "none"])
           .optional()
           .describe(
-            'With a message: "later" (default) has the answer come here as a message when the job is done; "wait" holds this call for it; "none" wants nothing back',
+            'With a message: "later" (the default) has the answer come here as a message when the job is done; "none" wants nothing back',
           ),
       },
       async (args, extra) =>

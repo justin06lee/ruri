@@ -493,8 +493,10 @@ export async function sendLetter(
   const had = door ? liaisonOf(found.project) : found.session;
   let target = had?.id ?? "";
   const toName = nameOf(found);
-  // a lead hands jobs on and stays free: its answers come "later"
-  const reply = args.reply ?? (headOf(ctx, channelId) ? "later" : "wait");
+  // a lead — or the liaison — hands jobs on and stays free: what it sends
+  // comes back "later", whatever it asked for
+  const head = headOf(ctx, channelId) !== undefined;
+  const reply: TalkReply = head ? (args.reply === "none" ? "none" : "later") : (args.reply ?? "wait");
   const book = ctx.talk;
   const id = randomUUID();
   const base = { id, from: channelId, to: target || found.session.id, reply, text, ts: Date.now() };
@@ -595,6 +597,14 @@ export async function sendLetter(
       text: `Sent to ${toName}${queued}. You asked for no answer: it has been told nobody is waiting on it, and nothing will come back.`,
       letter: id,
     };
+  if (reply === "later" && head)
+    return {
+      text: `Sent to ${toName}${queued}. Its answer comes to this chat as a message when the job is done${
+        args.reply === "wait" ? ' (a lead\'s hand-offs always come back "later", so it stays free)' : ""
+      } — hand out the rest of the work, then end your turn.`,
+      letter: id,
+      answered: false,
+    };
   if (reply === "later")
     return {
       text: `Sent to ${toName}${queued}. Its answer will come to this chat as a message when it has finished — carry on meanwhile. (To wait on it after all, ${waitAgain(opts.via, id)}.)`,
@@ -675,7 +685,11 @@ export async function askProject(
       text: `The user has not let you message ${where}: their talk settings say who you may message. list_agents shows where you can.`,
     };
   }
-  const reply = args.reply ?? (headOf(ctx, channelId) ? "later" : "wait");
+  const reply: TalkReply = headOf(ctx, channelId)
+    ? args.reply === "none"
+      ? "none"
+      : "later"
+    : (args.reply ?? "wait");
 
   // outside bypass mode, a folder not open yet is asked about with the
   // message, on one card; an open project's lead is asked about the way

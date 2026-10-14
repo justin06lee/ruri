@@ -413,6 +413,17 @@ function noteStop(ctx: ServerContext, chat: string, who: string): void {
   ctx.talk.stopNotes.set(chat, { who, ...(call ? { call } : {}) });
 }
 
+/** Stopping a member is stopping its work: ruri's own prompt sending it
+ *  back to work a message interrupted goes, and nothing cuts in any more.
+ *  Answers how many entries are left in its line. */
+function dropResume(ctx: ServerContext, chat: string): number {
+  const kept = (ctx.queues.entries.get(chat) ?? []).filter((entry) => !entry.resume);
+  if (kept.length) ctx.queues.entries.set(chat, kept);
+  else ctx.queues.entries.delete(chat);
+  ctx.queues.cutIn.delete(chat);
+  return kept.length;
+}
+
 /** Do something to a member. Answers what happened, in words. */
 export function actOn(ctx: ServerContext, chat: string, action: TeamAction, by: Head | "user"): string {
   const found = ctx.store.findSession(chat);
@@ -431,26 +442,22 @@ export function actOn(ctx: ServerContext, chat: string, action: TeamAction, by: 
     ctx.talk.stoppedBy.set(chat, who);
     noteStop(ctx, chat, who);
     stopTurn(ctx, chat);
-    // stopping is stopping the work: ruri's own prompt sending it back to
-    // work a message interrupted goes too — but other agents' messages
-    // waiting behind it are still owed, and go on once the turn has ended
-    const queue = ctx.queues.entries.get(chat) ?? [];
-    const kept = queue.filter((entry) => !entry.resume);
-    if (kept.length) ctx.queues.entries.set(chat, kept);
-    else ctx.queues.entries.delete(chat);
-    ctx.queues.cutIn.delete(chat);
+    // other agents' messages waiting behind it are still owed, and go on
+    // once the turn has ended
+    const kept = dropResume(ctx, chat);
     ctx.queues.releaseQueue(chat);
     ctx.queues.broadcastQueue(chat);
     pushTeamOf(ctx, chat);
     return `Stopped ${name}'s turn. ${
-      kept.length
-        ? `${kept.length} message${kept.length === 1 ? "" : "s"} waiting in its line go${kept.length === 1 ? "es" : ""} on now.`
+      kept
+        ? `${kept} message${kept === 1 ? "" : "s"} waiting in its line go${kept === 1 ? "es" : ""} on now.`
         : "Nothing new was sent: it waits for the next message."
     } A message it was answering is told it was stopped.`;
   }
   if (action === "restart") {
     if (was) noteStop(ctx, chat, who);
     stopNow(ctx, chat, `${name}'s turn on your message was cut short: ${who} restarted it.`);
+    dropResume(ctx, chat);
     wakeLine(ctx, chat);
     pushTeamOf(ctx, chat);
     return was

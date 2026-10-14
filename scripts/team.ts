@@ -419,7 +419,11 @@ if (!CONTROLS_ONLY) {
     "it read nothing itself",
     !(
       liaison &&
-      (events[liaison.id] ?? []).some((e) => e.kind === "tool" && /readme|notes\//i.test(e.summary))
+      // a Read, a shell or a search of the notes — not the job handed over
+      (events[liaison.id] ?? []).some(
+        (e) =>
+          e.kind === "tool" && /^(Read|Bash|Grep|Glob)$/.test(e.name) && /readme|notes\//i.test(e.summary),
+      )
     ),
     liaison && (events[liaison.id] ?? []).filter((e) => e.kind === "tool"),
   );
@@ -526,6 +530,16 @@ check(
   "and is sent back to its work",
   prompts(worker).some((e) => e.kind === "user" && e.text.startsWith("↩ Back to what")),
 );
+// and that turn over, not just the moment between two
+await until(
+  "the way back to end",
+  () => {
+    const list = events[worker] ?? [];
+    const back = list.findLastIndex((e) => e.kind === "user" && e.text.startsWith("↩ Back to what"));
+    return back >= 0 && list.slice(back).some((e) => e.kind === "result");
+  },
+  240_000,
+);
 await quiet("the work it went back to");
 
 // restart: the process closes mid-turn
@@ -536,10 +550,21 @@ check(
   Boolean(restarted?.text.includes("the turn it was on is stopped")),
   restarted,
 );
+const restartedAt = (events[worker] ?? []).length - 3;
 await until("it to stop", () => !busy(worker), 30_000);
+await settle(5000);
 send({ type: "team_get", projectId: project.id });
 await settle(1500);
-check("and it is asleep, its conversation kept", team.find((m) => m.id === worker)?.state === "asleep", team);
+check(
+  "and it stays asleep, its conversation kept — the stopped turn is not tried again",
+  team.find((m) => m.id === worker)?.state === "asleep" && !busy(worker),
+  (events[worker] ?? [])
+    .slice(Math.max(0, restartedAt))
+    .map(
+      (e) =>
+        `${e.kind}: ${"text" in e ? String(e.text).slice(0, 120) : ""}${e.kind === "result" ? JSON.stringify(e) : ""}${e.kind === "tool" ? e.summary : ""}`,
+    ),
+);
 
 // compact: as its turn ends
 await slow();

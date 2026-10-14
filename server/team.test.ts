@@ -532,9 +532,20 @@ describe("the lead's hand on each teammate's session — mid-turn and asleep", (
 
   test("restart, mid-turn and asleep: the process closes, the conversation stays", async () => {
     const { ctx, disposed, letter } = await busyUi();
+    // a message cut in earlier, and ruri's prompt to go back to that work
+    // behind it: the restart ends the work, so that prompt goes
+    ctx.queues.push("ui", {
+      id: "back",
+      text: "↩ Back to what you were doing",
+      uploads: [],
+      silent: false,
+      resume: true,
+    });
     expect(teamHost(ctx).manage("lead", "UI", "restart")).toContain("the turn it was on is stopped");
     expect(disposed).toContain("ui");
     expect(ctx.talk.pending.get(letter)?.ending?.text).toContain("the lead restarted it");
+    expect(ctx.queues.entries.get("ui")?.some((entry) => entry.resume)).toBe(false);
+    expect(ctx.queues.entries.get("ui")?.some((entry) => entry.from?.agent === "linux")).toBe(true);
     const calm = world();
     expect(teamHost(calm.ctx).manage("lead", "Memory", "restart")).toContain("it wasn't at work");
     expect(calm.disposed).toEqual(["memory"]);

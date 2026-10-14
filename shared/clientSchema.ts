@@ -392,7 +392,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({
     type: z.literal("team_member"),
     memberId: id,
-    action: z.enum(["restart", "compact", "clear", "retire"]),
+    action: z.enum(["stop", "restart", "compact", "refresh", "clear", "retire"]),
   }),
 ]);
 

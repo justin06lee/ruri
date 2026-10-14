@@ -27,6 +27,7 @@ import {
 import {
   getSessionMessages,
   type HookInput,
+  type PostToolBatchHookSpecificOutput,
   type PreToolUseHookSpecificOutput,
   type SessionStartHookSpecificOutput,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -181,6 +182,15 @@ export interface SessionExtras {
    * Undefined adds nothing.
    */
   afterCompact?: (info: { trigger: "manual" | "auto" }) => Promise<string | undefined>;
+  /**
+   * What the model is told about its context as it climbs mid-turn — after
+   * a step's tool calls, before its next call (server/selfCompaction.ts):
+   * a <ruri:context> line when there is something new to say, undefined
+   * the rest of the time. `added` is what the step's tool results will add
+   * to the next call, estimated (the last reading is from before them).
+   * Claude only; other harnesses hear it per prompt.
+   */
+  contextNotice?: (added: number) => string | undefined;
 }
 
 /** How the manager reaches non-Claude harnesses (see server/providers.ts). */
@@ -1038,6 +1048,8 @@ class ProjectSession implements ChannelSession {
   private readonly toolBarrier: SessionExtras["beforeTools"];
   /** What a session that compacted itself is told as it starts again. */
   private readonly afterCompact: SessionExtras["afterCompact"];
+  /** What the model hears about its context mid-turn. */
+  private readonly contextNotice: SessionExtras["contextNotice"];
   /** The last compaction Claude Code began, by its own trigger. */
   private compacting: "manual" | "auto" | undefined;
   /** Background tasks the CLI reports live (a shell run in the background,
@@ -1075,6 +1087,7 @@ class ProjectSession implements ChannelSession {
     this.secretFill = extras?.fillSecrets;
     this.toolBarrier = extras?.beforeTools;
     this.afterCompact = extras?.afterCompact;
+    this.contextNotice = extras?.contextNotice;
     this.agents = new AgentBook(project.id, events, () =>
       (extras?.transcript?.() ?? []).filter((e): e is ToolEvent => e.kind === "tool" && !!e.agent),
     );
@@ -1107,6 +1120,9 @@ class ProjectSession implements ChannelSession {
           // session handed ruri's context back as it starts again
           PreCompact: [{ hooks: [this.onPreCompact] }],
           SessionStart: [{ hooks: [this.onSessionStart] }],
+          // how full its context is, told as it climbs: once a step's tool
+          // calls are back, before the model's next call reads them
+          PostToolBatch: [{ hooks: [this.onToolBatch] }],
           PreToolUse: [
             {
               matcher: "AskUserQuestion",
@@ -1274,6 +1290,28 @@ class ProjectSession implements ChannelSession {
     });
     return text
       ? { continue: true, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: text } }
+      : { continue: true };
+  };
+
+  /** A step's tool calls are back: the context line, when there is news. */
+  private onToolBatch = async (
+    input: HookInput,
+  ): Promise<{ continue: true; hookSpecificOutput?: PostToolBatchHookSpecificOutput }> => {
+    if (input.hook_event_name !== "PostToolBatch" || !this.contextNotice) return { continue: true };
+    let text: string | undefined;
+    try {
+      // the last reading is the call that asked for these tools: what they
+      // brought back rides into the next one, at about four characters a token
+      const added = input.tool_calls.reduce(
+        (sum, call) => sum + (JSON.stringify(call.tool_response ?? "")?.length ?? 0),
+        0,
+      );
+      text = this.contextNotice(Math.round(added / 4));
+    } catch (err) {
+      warn("sessions", err, "contextNotice");
+    }
+    return text
+      ? { continue: true, hookSpecificOutput: { hookEventName: "PostToolBatch", additionalContext: text } }
       : { continue: true };
   };
 

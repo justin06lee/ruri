@@ -274,4 +274,21 @@ describe("what rides in ahead of a prompt", () => {
     archive.remove(CHAT);
     expect(catchUp(ctx, CHAT, "hello")).toEqual({ brief: "", harness: "claude" });
   });
+
+  test("and every prompt is told how full the context is, last before the prompt itself", () => {
+    archive.remove(CHAT);
+    const measured = {
+      ...ctx,
+      prefs: { all: () => ({}) },
+      turns: { contexts: new Map([[CHAT, { tokens: 412_000, window: 1_000_000 }]]) },
+      models: { windows: new Map([["m", 1_000_000]]) },
+      store: {
+        ...ctx.store,
+        defaultModel: () => "m",
+      },
+    } as unknown as ServerContext;
+    expect(catchUp(measured, CHAT, "hello").brief).toBe(
+      "<ruri:context>412k of 1M tokens used (41%). You compact yourself at 500k, 88k from here.</ruri:context>\n",
+    );
+  });
 });

@@ -20,6 +20,14 @@ import { HOME_ID, managerExtras } from "./manager.js";
 import { talkHost, talkTurnEnded } from "./handlers/talk.js";
 import { teamHost, teamStatus } from "./handlers/team.js";
 import { ParagraphGate } from "./paragraphs.js";
+import {
+  CONTEXT_TOOLS,
+  contextBriefing,
+  contextNotice,
+  contextTools,
+  selfCompact,
+  selfCompactDue,
+} from "./selfCompaction.js";
 import { SessionManager, type SessionExtras } from "./sessions.js";
 import { httpWaitMs, TALK_TOOLS, talkHttpBriefing, talkToolBriefing, talkTools } from "./talk.js";
 import { leadBriefing, memberBriefing, TEAM_TOOLS, teamTools } from "./team.js";
@@ -78,6 +86,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             });
             ctx.clients.broadcast({ type: "stats", projectId: spender, stats: ctx.ledger.stats(spender) });
           }
+          let carried = false;
           if (event.blocked && !event.ok) {
             // the connection or the account let the turn down, and every
             // prompt behind it would meet the same, one after another: the
@@ -88,11 +97,19 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           } else {
             // a turn that landed is the line answering
             if (event.ok) ctx.queues.connectionBack(projectId);
+            // the chat asked to compact itself, with a note: it is compacted
+            // now, and a prompt with its note carries on in the fresh session
+            // — ahead of the queue, which follows it there
+            const self = selfCompactDue(ctx, projectId, event);
             // a context past its share of the window is compacted now, by
             // ruri, before the harness's own compaction would — and the
             // queue moves after it, into the fresh session
-            const due = event.ok ? autoCompactDue(ctx, projectId) : undefined;
-            if (due) {
+            const due = event.ok && self === undefined ? autoCompactDue(ctx, projectId) : undefined;
+            if (self !== undefined) {
+              ctx.retries.cancelRetry(projectId);
+              carried = true;
+              setImmediate(() => selfCompact(ctx, projectId, self));
+            } else if (due) {
               ctx.retries.cancelRetry(projectId);
               setImmediate(() => compactChannel(ctx, projectId, due));
             } else if (!drainQueue(ctx, projectId)) maybeRetry(ctx, projectId, event);
@@ -102,7 +119,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           }
           // a message from another agent that started this turn is answered
           // by it — read before the next prompt (a microtask away) lands
-          talkTurnEnded(ctx, projectId, event);
+          talkTurnEnded(ctx, projectId, event, { carried });
         }
       },
       onCompacted: (projectId, info) => noteSelfCompaction(ctx, projectId, info),
@@ -242,17 +259,28 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         // told how long one call waits on this harness
         talk: claude ? talkToolBriefing() : talkHttpBriefing(talkEndpoint, httpWaitMs(harness)),
         team,
+        // how full its context is, and compacting itself: the same words
+        // in every session, the figures riding in with each prompt
+        context: owner ? contextBriefing(claude ? undefined : talkEndpoint) : "",
         stack: owner ? stackBriefing(ctx.briefs.get(owner.id)) : "",
       });
       return tagged(project.id, {
         transcript: () => ctx.archive.events(project.id),
         // Claude Code compacted on its own: ruri's context goes back in
         afterCompact: async () => afterCompactBrief(ctx, project.id) || undefined,
+        // and how full its context is, as it climbs mid-turn
+        ...(owner ? { contextNotice: (added: number) => contextNotice(ctx, project.id, added) } : {}),
         fillSecrets: (input) =>
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
         beforeTools: () => ctx.checkpoints.idle(project.id),
         // ruri asks the user about these itself, message by message
-        autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS, ...TALK_TOOLS, ...(lead ? TEAM_TOOLS : [])],
+        autoAllow: [
+          ...COMPONENT_TOOLS,
+          ...BRIDGE_TOOLS,
+          ...TALK_TOOLS,
+          ...(owner ? CONTEXT_TOOLS : []),
+          ...(lead ? TEAM_TOOLS : []),
+        ],
         options: {
           // the vault rides into the harness process here, and only here —
           // beside the `ruri` command and where it posts
@@ -260,6 +288,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           mcpServers: {
             ruri: componentTools(ctx.componentHost, project.id, [
               ...talkTools(talkHost(ctx), project.id),
+              ...(owner ? contextTools(ctx, project.id) : []),
               ...(lead ? teamTools(teamHost(ctx), project.id) : []),
             ]),
             bridge: bridgeTools(ctx.options.bridge, bridgeCtx),

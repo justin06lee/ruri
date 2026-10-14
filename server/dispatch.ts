@@ -54,6 +54,9 @@ export function dispatch(
   /** The id the user event should go by — the one the window already shows
    *  the prompt under, or the queue entry it waited in (see userEventId). */
   eventId?: string,
+  /** ruri's prompt carrying on after the chat compacted itself, still
+   *  owing the answer to this letter (server/selfCompaction.ts). */
+  carries?: string,
 ): string | undefined {
   // /compact is ruri's own, not the harness's: summaries + full-turn file
   // hooks into a fresh session, with the zigzag mark in the transcript —
@@ -103,6 +106,7 @@ export function dispatch(
     text: processed.display,
     ...(processed.attachments.length ? { attachments: processed.attachments } : {}),
     ...(from ? { from } : {}),
+    ...(carries ? { carries } : {}),
     ts: Date.now(),
   };
   recordEvent(ctx, channelId, userEvent);
@@ -228,7 +232,7 @@ export function drainQueue(ctx: ServerContext, channelId: string): boolean {
       // the user event takes the entry's id: the card the window showed in
       // the queue becomes the bubble in the transcript, in place
       if (next.split) dispatchSplit(ctx, channelId, next.text, next.uploads, false, next.id);
-      else dispatch(ctx, channelId, next.text, next.uploads, next.silent, next.from, next.id);
+      else dispatch(ctx, channelId, next.text, next.uploads, next.silent, next.from, next.id, next.carries);
     } catch (err) {
       // the send failed (the channel vanished, the harness would not
       // start): the prompt goes back to the head of the line rather than
@@ -485,6 +489,11 @@ const AUTO_COMPACT_AT: Record<string, number> = {
   goose: 0.75,
 };
 
+/** The share of the window where ruri compacts a chat on `harness`. */
+export function autoCompactShare(harness: string): number {
+  return Number(process.env["RURI_AUTO_COMPACT_AT"]) || AUTO_COMPACT_AT[harness] || 0.8;
+}
+
 /** Why a chat whose turn just ended should be compacted now — its context
  *  past its share of the window — or undefined. Never while an agent or a
  *  script it started is still running in the session. */
@@ -495,9 +504,7 @@ export function autoCompactDue(ctx: ServerContext, channelId: string): string | 
   const tokens = ctx.turns.contexts.get(channelId)?.tokens ?? ctx.archive.contextTokens(channelId) ?? 0;
   if (tokens === 0) return undefined;
   const window = contextWindow(ctx, channelId);
-  const harness = ctx.manager.harnessFor(project);
-  const share = Number(process.env["RURI_AUTO_COMPACT_AT"]) || AUTO_COMPACT_AT[harness] || 0.8;
-  if (tokens < window * share) return undefined;
+  if (tokens < window * autoCompactShare(ctx.manager.harnessFor(project))) return undefined;
   const work = ctx.manager.backgroundWork(channelId);
   if (work.agents > 0 || work.scripts > 0) return undefined;
   const k = (n: number) => (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`);

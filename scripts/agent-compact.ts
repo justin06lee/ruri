@@ -16,7 +16,7 @@
  *   3. with AGENT_COMPACT_CODEX=<model>, a Codex teammate: it hears its
  *      point only with a prompt (no mid-turn line there) and compacts over
  *      the talk endpoint ({"do": "compact"}) — the fresh session finishes
- *      the job, once. AGENT_COMPACT_SKIP_CLAUDE=1 runs just that.
+ *      the job. AGENT_COMPACT_SKIP_CLAUDE=1 runs just that.
  *
  * Costs a few real Haiku turns — run manually: bun run agent-compact-test
  */
@@ -37,6 +37,7 @@ const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-agentcompact-proj
 const WORDS = [
   ["AMBER-FALCON", "COBALT-OTTER", "SAFFRON-HERON", "UMBER-LYNX"],
   ["JADE-MARMOT", "RUSSET-CRANE", "IVORY-BADGER", "TEAL-OSPREY"],
+  ["COPPER-WREN", "SLATE-IBEX", "ONYX-TAPIR", "MAUVE-EGRET"],
 ];
 /** A file of about ten thousand tokens of ledger lines, its codeword at the
  *  very end — read whole, it climbs the context; skimmed, it says nothing. */
@@ -52,8 +53,10 @@ function writePart(dir: string, n: number, word: string): void {
 }
 fs.mkdirSync(path.join(projectDir, "lead"));
 fs.mkdirSync(path.join(projectDir, "team"));
+fs.mkdirSync(path.join(projectDir, "relay"));
 WORDS[0]!.forEach((word, i) => writePart(path.join(projectDir, "lead"), i + 1, word));
 WORDS[1]!.forEach((word, i) => writePart(path.join(projectDir, "team"), i + 1, word));
+WORDS[2]!.forEach((word, i) => writePart(path.join(projectDir, "relay"), i + 1, word));
 const git = (...args: string[]) =>
   execFileSync("git", args, {
     cwd: projectDir,
@@ -69,10 +72,10 @@ git("init", "-q", "-b", "master");
 git("add", "-A");
 git("commit", "-q", "-m", "the parts");
 
-const job = (dir: string, out: string) =>
+const job = (dir: string, out: string, reader = "your Read tool (not grep, tail or Bash — the whole file)") =>
   `In ${dir}/ there are four files, part1.txt to part4.txt, each ending with a line "CODEWORD n: <word>". ` +
-  `Work through them strictly one at a time, in order: read the whole file with your Read tool (not grep, tail or Bash — the whole file), ` +
-  `then append its codeword as a line to ${out} with your Bash tool (echo … >> ${out}), and only then go on to the next. ` +
+  `Work through them strictly one at a time, in order: read the whole file with ${reader}, ` +
+  `then append its codeword as a line to ${out} with your shell (echo … >> ${out}), and only then go on to the next. ` +
   `Don't read two files in one step. When all four are done, reply with the four codewords in order, one per line.`;
 
 let failed = 0;
@@ -334,7 +337,7 @@ if (CODEX) {
   const hired = await talkCall(lead.id, {
     do: "add",
     name: "Courier",
-    duty: "keeps team/relay.txt",
+    duty: "keeps the ledgers in relay/",
     model: CODEX,
   });
   check("a Codex teammate is added", Boolean(hired?.text.includes("Added Courier")), hired);
@@ -368,17 +371,14 @@ if (CODEX) {
   });
   await settle(500);
   console.log(`    Courier's context ${courierBase}; compaction point set just under it`);
-  const relay = path.join(projectDir, "team", "relay.txt");
   r = await talkCall(lead.id, {
     do: "send",
     to: "Courier",
     reply: "wait",
-    message:
-      "Two steps, in order. Step 1: append the line ALPHA to team/relay.txt (echo ALPHA >> team/relay.txt). " +
-      "Step 2: append the line OMEGA to it (echo OMEGA >> team/relay.txt), then reply with the file's whole content.",
+    message: job("relay", "relay/answers.txt", "cat, the whole file"),
   });
   const t0 = Date.now();
-  while (r && !r.answered && r.letter && Date.now() - t0 < 900_000)
+  while (r && !r.answered && r.letter && Date.now() - t0 < 1_200_000)
     r = await talkCall(lead.id, { do: "wait", letter: r.letter });
   await settle(1000);
   const three = compaction(courier.id);
@@ -396,11 +396,16 @@ if (CODEX) {
       ),
     },
   );
-  const relayed = fs.existsSync(relay) ? fs.readFileSync(relay, "utf8") : "";
-  check("the job was done once: ALPHA, then OMEGA", relayed.trim() === "ALPHA\nOMEGA", relayed);
+  const relayFile = path.join(projectDir, "relay", "answers.txt");
+  const relayed = fs.existsSync(relayFile) ? fs.readFileSync(relayFile, "utf8") : "";
+  check(
+    "the job was finished: every codeword in the file, none twice",
+    WORDS[2]!.every((w) => relayed.split(w).length === 2),
+    relayed,
+  );
   check(
     "and the lead's answer is the finished job",
-    Boolean(r?.answered && r.text.includes("ALPHA") && r.text.includes("OMEGA")),
+    Boolean(r?.answered) && WORDS[2]!.every((w) => r!.text.includes(w)),
     r,
   );
 }

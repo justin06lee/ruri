@@ -233,8 +233,7 @@ export function requestCompaction(ctx: ServerContext, channelId: string, raw: st
     return `That note is ${note.length} characters — the conversation again, not a note. Keep it under ${NOTE_MAX}: point at files and exchange records rather than pasting them, then call again.`;
   }
   const tokens = ctx.turns.contexts.get(channelId)?.tokens ?? ctx.archive.contextTokens(channelId) ?? 0;
-  const at =
-    heldAt(ctx, channelId, tokens) ?? Math.round(contextWindow(ctx, channelId) * SELF_COMPACT_SHARE);
+  const at = heldAt(ctx, channelId, tokens) ?? Math.round(contextWindow(ctx, channelId) * SELF_COMPACT_SHARE);
   if (tokens < at / 2) {
     return `Not yet: your context holds ${k(tokens)}, and you compact yourself at ${k(at)}. A compaction now would lose detail for nothing — carry on.`;
   }
@@ -361,7 +360,7 @@ export function selfCompact(ctx: ServerContext, channelId: string, note: string)
   compactChannel(
     ctx,
     channelId,
-    `it compacted itself${share}, from a handoff note of its own — every exchange stays on file, and the fresh session carries on from the note`,
+    `the agent compacted itself${share}, from a handoff note of its own — every exchange stays on file, and the fresh session carries on from the note`,
   );
   startedFresh(ctx, channelId);
 }
@@ -372,11 +371,6 @@ export function startedFresh(ctx: ServerContext, channelId: string): void {
   const one = mind(ctx, channelId);
   one.told = 0;
   one.fresh = true;
-}
-
-/** Forget what ruri holds for a chat — it is gone, or starts over. */
-export function forgetMind(ctx: ServerContext, channelId: string): void {
-  minds.get(ctx)?.delete(channelId);
 }
 
 /** The context tools, for the `ruri` MCP server a Claude chat gets. */

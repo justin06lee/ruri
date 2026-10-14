@@ -205,7 +205,8 @@
         "server/turnRecords.ts",
         "scripts/digest.ts",
         "scripts/memory-eval.ts",
-        "scripts/self-compact.ts"
+        "scripts/self-compact.ts",
+        "server/selfCompaction.ts"
       ]
     },
     {
@@ -1359,7 +1360,7 @@
         "Chat runs and queue — supplies prompts, turns, events and rewind entry points this layer archives and checkpoints",
         "Protocol — TranscriptEvent, TurnSummary, MemoryLine, Project/Session and brief sheet types in shared/protocol.ts",
         "Server runtime and transport — routing, auth, uploads and stores hosting projects/handlers endpoints",
-        "Agent harnesses — session ids resumed; the memory model's lane (completeMemory in server/smallmodel.ts) and Claude's PreCompact/SessionStart hooks (server/sessions.ts)",
+        "Agent harnesses — session ids resumed; the memory model's lane (completeMemory in server/smallmodel.ts); Claude's PreCompact/SessionStart hooks and the PostToolBatch hook that tells it its context mid-turn (SessionExtras.contextNotice, server/sessions.ts)",
         "Library, skills and sweeps — sweep/describe candidates feed catchup; library owns skill removal on teardown"
       ]
     },

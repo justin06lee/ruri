@@ -15,7 +15,7 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 4. **Appearance: theme, art and component library** — Theming, peek band and hero art, dragon gauges and shared UI pieces (`web/src/components/, web/src/, web/src/lib/ +3 · 23 files`) → `.ruri/layers/appearance-library.md`
 5. **App shell, state and tooling** — App entry, store, prefs, global styles, clocks, fixture and art tuner tooling (`web/src/, web/, ./ +1 · 6 files`) → `.ruri/layers/app-shell.md`
 6. **Chat runs and queue** — Live prompts, queue, turns, rewind and transcript delivery over the socket. (`server/, server/handlers/, scripts/ · 24 files`) → `.ruri/layers/chat-runs-queue.md`
-7. **Projects, memory and history** — Project sessions, checkpoints, working memory, archive, tracker and briefs. (`server/, server/handlers/, scripts/ · 40 files`) → `.ruri/layers/projects-memory-history.md`
+7. **Projects, memory and history** — Project sessions, checkpoints, working memory, archive, tracker and briefs. (`server/, server/handlers/, scripts/ · 41 files`) → `.ruri/layers/projects-memory-history.md`
 8. **Library, skills and sweeps** — Component library, skills, repo sweeps and their screenshots. (`server/, server/handlers/ · 9 files`) → `.ruri/layers/library-skills-sweeps.md`
 9. **Terminals, agents and integrations** — Composer terminals, background scripts, crew agents, music and harness integrations. (`server/, server/handlers/, scripts/ · 14 files`) → `.ruri/layers/terminals-agents-integrations.md`
 10. **Server runtime and transport** — Node HTTP+WebSocket server, routing, auth, uploads, secrets, gauges and shared stores. (`server/, scripts/, scripts/lib/ +2 · 8 files`) → `.ruri/layers/server-runtime-transport.md`

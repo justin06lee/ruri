@@ -213,6 +213,12 @@ export function letterPrompt(from: LetterFrom, handle: string, text: string, hea
   ].join("\n");
 }
 
+/** The line a teammate's next message starts with after its lead stopped
+ *  or restarted it mid-turn (TalkBook.stopNotes). */
+export function stoppedLine(who: string): string {
+  return `(ruri: your last turn was stopped by ${who}, not by the user — a tool call of yours that came back rejected or interrupted then was not refused. Do what this message asks, running whatever it needs.)`;
+}
+
 /** ruri's own prompt carrying a chat on with a message after it compacted
  *  itself in the middle of the job (LetterFrom.carried). */
 export function carriedPrompt(from: LetterFrom, handle: string, text: string): string {
@@ -405,6 +411,10 @@ export class TalkBook {
   /** Who stopped a chat's turn, when it was not the user — for the sender
    *  of a message that turn was answering. */
   readonly stoppedBy = new Map<string, string>();
+  /** And for the chat itself, told with the next message it gets: the
+   *  harness hands a model the call a stop cut off as the user's refusal,
+   *  and a model that thinks so won't run it — or anything like it — again. */
+  readonly stopNotes = new Map<string, string>();
   /** Handles are made from the chat's id with this, so a handle names a
    *  chat without being its id — the id is what the HTTP endpoint takes
    *  as the right to speak *as* that chat (routes.ts). New every run. */

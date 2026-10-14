@@ -21,7 +21,7 @@ import { backfillNotes } from "./notes.js";
 import type { QueueEntry } from "./queue.js";
 import { RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
 import { smallModelEnabled, splitPrompt } from "./smallmodel.js";
-import { answerPrompt, carriedPrompt, letterPrompt, seatName } from "./talk.js";
+import { answerPrompt, carriedPrompt, letterPrompt, seatName, stoppedLine } from "./talk.js";
 import { contextWindow, resetContext } from "./turns.js";
 import { modelPayload, processAttachments, storeAttachments } from "./uploads.js";
 
@@ -124,6 +124,14 @@ export function dispatch(
  * ruri's own words carrying the chat on with a message after compacting.
  */
 function fromAgent(ctx: ServerContext, channelId: string, from: LetterFrom, text: string): string {
+  // a teammate its lead stopped mid-turn hears first that it wasn't the user
+  const stopped = ctx.talk.stopNotes.get(channelId);
+  ctx.talk.stopNotes.delete(channelId);
+  const said = wrapped(ctx, channelId, from, text);
+  return stopped ? `${stoppedLine(stopped)}\n\n${said}` : said;
+}
+
+function wrapped(ctx: ServerContext, channelId: string, from: LetterFrom, text: string): string {
   const handle = ctx.talk.handleOf(from.agent);
   if (from.carried) return carriedPrompt(from, handle, text);
   if (!from.answer) {

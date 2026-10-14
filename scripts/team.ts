@@ -440,6 +440,13 @@ const slow = async () => {
       (events[worker] ?? []).slice(since).some((e) => e.kind === "tool" && /seq 1 25/.test(e.summary)),
     120_000,
   );
+  const ran = (events[worker] ?? []).slice(since);
+  if (!ran.some((e) => e.kind === "tool" && /seq 1 25/.test(e.summary)))
+    console.log(
+      "    (the loop never ran; it said:",
+      JSON.stringify(ran.flatMap((e) => (e.kind === "assistant" ? [e.text] : []))).slice(0, 600),
+      ")",
+    );
   return sent;
 };
 const quiet = async (what: string) => {

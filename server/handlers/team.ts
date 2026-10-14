@@ -422,6 +422,7 @@ export function actOn(ctx: ServerContext, chat: string, action: TeamAction, by: 
         : `${name} isn't at work (${memberState(ctx, chat) === "asleep" ? "asleep" : "between turns"}): nothing to stop.`;
     }
     ctx.talk.stoppedBy.set(chat, who);
+    ctx.talk.stopNotes.set(chat, who);
     stopTurn(ctx, chat);
     // stopping is stopping the work: ruri's own prompt sending it back to
     // work a message interrupted goes too — but other agents' messages
@@ -441,6 +442,7 @@ export function actOn(ctx: ServerContext, chat: string, action: TeamAction, by: 
     } A message it was answering is told it was stopped.`;
   }
   if (action === "restart") {
+    if (was) ctx.talk.stopNotes.set(chat, who);
     stopNow(ctx, chat, `${name}'s turn on your message was cut short: ${who} restarted it.`);
     wakeLine(ctx, chat);
     pushTeamOf(ctx, chat);

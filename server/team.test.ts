@@ -8,7 +8,7 @@ import { carryLetter, listSeats, sendLetter, talkTurnEnded } from "./handlers/ta
 import { actOn, atWork, hasSlot, releaseWaiting, rosterText, teamBudget, teamHost } from "./handlers/team.js";
 import { ProjectStore } from "./projects.js";
 import { SendQueues } from "./queue.js";
-import { TalkBook } from "./talk.js";
+import { stoppedLine, TalkBook } from "./talk.js";
 import { disallowedFor, leadBriefing, memberBriefing, teamCap, TeamGovernor } from "./team.js";
 
 let dir: string;
@@ -510,6 +510,9 @@ describe("the lead's hand on each teammate's session — mid-turn and asleep", (
     const said = teamHost(ctx).manage("lead", "UI", "stop");
     expect(said).toContain("Stopped UI's turn");
     expect(interrupted).toEqual(["ui"]);
+    // its next message tells it the lead stopped it, not the user
+    expect(ctx.talk.stopNotes.get("ui")).toBe("the lead");
+    expect(stoppedLine("the lead")).toContain("not by the user");
     // the line behind is not held: linux's message goes once the turn ends
     expect(ctx.queues.held.has("ui")).toBe(false);
     expect(ctx.queues.entries.get("ui")).toHaveLength(1);
@@ -562,6 +565,16 @@ describe("the lead's hand on each teammate's session — mid-turn and asleep", (
     expect(teamHost(ctx).manage("lead", "Memory", "clear")).toContain("Refreshed Memory");
     expect(projects[0]!.sessions.filter((s) => s.title === "Memory")).toHaveLength(1);
     expect(projects[0]!.sessions.some((s) => s.id === "memory")).toBe(false);
+  });
+
+  test("retire, mid-turn: the turn stops, its sender and those waiting in its line are told", async () => {
+    const { ctx, projects, disposed, letter } = await busyUi();
+    expect(teamHost(ctx).retire("lead", "UI")).toContain("Retired UI");
+    expect(disposed).toContain("ui");
+    expect(projects[0]!.sessions.some((s) => s.id === "ui")).toBe(false);
+    expect(ctx.talk.pending.get(letter)?.ending?.text).toContain("retired by the lead");
+    const queued = [...ctx.talk.pending.values()].find((p) => p.from === "linux");
+    expect(queued?.ending?.text).toContain("was closed before it answered");
   });
 
   test("retire: off the team; never the lead or the liaison", () => {

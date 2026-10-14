@@ -3,11 +3,12 @@
 One layer of ruri's stack, owning `web/src/components/Sidebar.tsx, web/src/components/HomeBoard.tsx, web/src/components/Switcher.tsx, web/src/components/Queue.tsx, web/src/components/RapidFire.tsx, web/src/components/SessionControls.tsx, web/src/components/Player.tsx, web/src/lib/fuzzy.ts, web/src/lib/runNote.ts, web/src/lib/audio.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer navigation-projects` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer navigation-projects add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
-This layer moves the user between projects: a sidebar row per project (its lead behind it, the count of teammates at work beside it), HomeBoard projects overview, ⌘K/right-Option Switcher, per-chat Queue list, Rapid Fire line, SessionControls pickers, and Player music bar. It is built as presentational React components over the app store (useRuri/send) plus three small libs (fuzzy scoring, run-note staleness, Web Audio engine). Newcomers must grasp that a project is one chat for the user — its lead; its team's members never show here — and these components navigate and display state but never own turn execution.
+This layer moves the user between projects: a sidebar row per project (its lead behind it, the count of teammates at work beside it), HomeBoard projects overview, ⌘K/right-Option Switcher, per-chat Queue list, Rapid Fire line, SessionControls pickers, and Player music bar. It is built as presentational React components over the app store (useRuri/send) plus three small libs (fuzzy scoring, run-note staleness, Web Audio engine). Newcomers must grasp that a project is one chat for the user, its lead; its team's members never show here as their own rows, and these components navigate and display state but never own turn execution.
 
 ## Where to change what
 
 - **Sidebar project rows (one a project, its lead):** web/src/components/Sidebar.tsx, web/src/components/Player.tsx
+- **Team-at-work dragon and count (row and Projects row):** web/src/components/Sidebar.tsx
 - **Home projects board:** web/src/components/HomeBoard.tsx
 - **Quick switcher (⌘K / right Option):** web/src/components/Switcher.tsx, web/src/lib/fuzzy.ts
 - **Queued prompts list:** web/src/components/Queue.tsx
@@ -25,7 +26,7 @@ This layer moves the user between projects: a sidebar row per project (its lead 
 
 ## Key files
 
-- web/src/components/Sidebar.tsx — a row per project (ProjectRow: the lead behind it, teammates at work counted, star/hide/remove), Home and Projects rows, account bar
+- web/src/components/Sidebar.tsx — project rows, team-at-work dragons and counts (teamAtWork), star/hide/remove, Home and Projects rows, account bar
 - web/src/components/HomeBoard.tsx — HomeTab/HomeDeck/ProjectsPage grid of per-project cards: the lead's last lines (LeadLines), the whole team's status
 - web/src/components/Switcher.tsx — ⌘K/right-Option fuzzy search over places and projects, each opening its lead
 - web/src/components/Queue.tsx — QueuedList/QueueStandby editable held-prompt cards with drag reorder/merge
@@ -44,6 +45,8 @@ This layer moves the user between projects: a sidebar row per project (its lead 
 - Queued prompts stay app-side until their turn; editable/removable up to dispatch only.
 - Switcher opens on right-Option tap alone; Option held for shortcuts (e.g. ⌥→) must not open it.
 - Finished run notes expire after FINAL_NOTE_MS (25s) so stale results don't linger across opens.
+- Row dragons and counts show the team's work, never the lead's: one predicate (teamAtWork in Sidebar.tsx) — every session but leadOf, liaison included, isBusy — lights a project row's dragon, its count and the Projects row; only the remove confirmation still counts the lead.
+- A question or permission card the lead is waiting on does not light the sidebar row; the unread dot marks the lead's reply instead.
 
 ## What it talks to
 

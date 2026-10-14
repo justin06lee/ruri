@@ -204,7 +204,9 @@
         "server/turnRecords.ts",
         "scripts/digest.ts",
         "scripts/memory-eval.ts",
-        "scripts/self-compact.ts"
+        "scripts/self-compact.ts",
+        "server/selfCompaction.ts",
+        "scripts/agent-compact.ts"
       ]
     },
     {
@@ -521,13 +523,19 @@
       ]
     },
     "navigation-projects": {
-      "summary": "This layer moves the user between projects: a sidebar row per project (its lead behind it, the count of teammates at work beside it), HomeBoard projects overview, ⌘K/right-Option Switcher, per-chat Queue list, Rapid Fire line, SessionControls pickers, and Player music bar. It is built as presentational React components over the app store (useRuri/send) plus three small libs (fuzzy scoring, run-note staleness, Web Audio engine). Newcomers must grasp that a project is one chat for the user — its lead; its team's members never show here — and these components navigate and display state but never own turn execution.",
+      "summary": "This layer moves the user between projects: a sidebar row per project (its lead behind it, the count of teammates at work beside it), HomeBoard projects overview, ⌘K/right-Option Switcher, per-chat Queue list, Rapid Fire line, SessionControls pickers, and Player music bar. It is built as presentational React components over the app store (useRuri/send) plus three small libs (fuzzy scoring, run-note staleness, Web Audio engine). Newcomers must grasp that a project is one chat for the user, its lead; its team's members never show here as their own rows, and these components navigate and display state but never own turn execution.",
       "map": [
         {
           "name": "Sidebar project rows (one a project, its lead)",
           "files": [
             "web/src/components/Sidebar.tsx",
             "web/src/components/Player.tsx"
+          ]
+        },
+        {
+          "name": "Team-at-work dragon and count (row and Projects row)",
+          "files": [
+            "web/src/components/Sidebar.tsx"
           ]
         },
         {
@@ -612,7 +620,7 @@
         }
       ],
       "files": [
-        "web/src/components/Sidebar.tsx — a row per project (ProjectRow: the lead behind it, teammates at work counted, star/hide/remove), Home and Projects rows, account bar",
+        "web/src/components/Sidebar.tsx — project rows, team-at-work dragons and counts (teamAtWork), star/hide/remove, Home and Projects rows, account bar",
         "web/src/components/HomeBoard.tsx — HomeTab/HomeDeck/ProjectsPage grid of per-project cards: the lead's last lines (LeadLines), the whole team's status",
         "web/src/components/Switcher.tsx — ⌘K/right-Option fuzzy search over places and projects, each opening its lead",
         "web/src/components/Queue.tsx — QueuedList/QueueStandby editable held-prompt cards with drag reorder/merge",
@@ -629,7 +637,9 @@
         "SessionControls picks are per chat (session id / Home channelId), never per project.",
         "Queued prompts stay app-side until their turn; editable/removable up to dispatch only.",
         "Switcher opens on right-Option tap alone; Option held for shortcuts (e.g. ⌥→) must not open it.",
-        "Finished run notes expire after FINAL_NOTE_MS (25s) so stale results don't linger across opens."
+        "Finished run notes expire after FINAL_NOTE_MS (25s) so stale results don't linger across opens.",
+        "Row dragons and counts show the team's work, never the lead's: one predicate (teamAtWork in Sidebar.tsx) — every session but leadOf, liaison included, isBusy — lights a project row's dragon, its count and the Projects row; only the remove confirmation still counts the lead.",
+        "A question or permission card the lead is waiting on does not light the sidebar row; the unread dot marks the lead's reply instead."
       ],
       "edges": [
         "App shell, state and tooling — reads/writes store via useRuri/send/setActive/composeInto and prefs via getPref/setPref",
@@ -1220,14 +1230,16 @@
           ]
         },
         {
-          "name": "Compaction, digests and auto-compact",
+          "name": "Compaction, digests, auto-compact and agents compacting themselves",
           "files": [
             "server/compaction.ts",
             "server/handoff.ts",
+            "server/selfCompaction.ts",
             "server/digestFold.ts",
             "server/turnRecords.ts",
             "scripts/digest.ts",
-            "scripts/self-compact.ts"
+            "scripts/self-compact.ts",
+            "scripts/agent-compact.ts"
           ]
         },
         {
@@ -1317,6 +1329,15 @@
           ]
         },
         {
+          "name": "Self-compaction",
+          "steps": [
+            "every prompt to a project's chat brings a <ruri:context> line, tokens of its window and its point (catchUp in server/handoff.ts, contextLine in server/selfCompaction.ts); on Claude a PostToolBatch hook says it again as it climbs (contextNotice, server/sessions.ts)",
+            "past its point (half the window; pref ruri-self-compact-at, RURI_SELF_COMPACT_AT) the agent writes a handoff note and calls mcp__ruri__compact, or {\"do\": \"compact\"} on /talk (server/routes.ts); the note waits for its turn's end",
+            "at the turn's end (selfCompactDue in server/chats.ts) selfCompact puts the prompt holding the note at the head of the queue, then compactChannel (server/dispatch.ts) compacts as ever and its drain sends that prompt into the fresh session",
+            "a letter the job answers rides on that prompt as carries, and the turn that finishes the job answers it (talkTurnEnded in server/handlers/talk.ts)"
+          ]
+        },
+        {
           "name": "Checkpoint and rewind",
           "steps": [
             "server/checkpoints.ts captures whole working tree into git via private index under refs/ruri/ once per prompt send and once per turn end",
@@ -1342,6 +1363,7 @@
         "server/archive.ts — live sessions/<id>.json plus append-only history/<id>.jsonl and turn summaries",
         "server/checkpoints.ts — per-prompt hidden git commits and rewind",
         "server/compaction.ts — briefs within the token budget, state lines, anchored digest sections",
+        "server/selfCompaction.ts — each chat's context in words (the per-turn line, Claude's mid-turn notice, the check), its compaction point, the compact tool and HTTP call, the note kept to the turn's end, and the prompt that carries on",
         "server/memoryLog.ts — the memory event log: actor rules, caps that archive, undo, reconcile with briefs.json; fed by server/memoryQueue.ts, checked by server/memoryCheck.ts",
         "server/projectSearch.ts — project-wide hybrid search over exchanges and memory lines (BM25 in server/recall.ts)",
         "server/brief.ts — .ruri/architecture.md shape and stack/layer sheets",
@@ -1354,13 +1376,14 @@
         "The memory changes only through MemoryBook.apply (server/memoryLog.ts), never by writing briefs.json: a line a fold leaves out stays; the model edits only its own lines; agent lines go only with a reason and evidence; user and pinned lines are never touched by the model; cap overflow archives.",
         "Building and sending a brief calls no model and never waits on one (embeddings count only if already warmed; the digest folds in the background), and the system-prompt briefing stays byte-stable so the prompt cache holds — anything dynamic (<state>, <memory-update>) rides in the prompt.",
         "Only sessions ruri did not start are offered by recent import, and one brought in joins the team as a named member (addMember) — never re-import one of ruri's own chats. A project's chats change only through its team: no new, close or rename moves, and a lead goes only with its project.",
-        "Exchange numbers are stable (seqs/nextSeq in server/archive.ts); refs and turn files use them, never a position."
+        "Exchange numbers are stable (seqs/nextSeq in server/archive.ts); refs and turn files use them, never a position.",
+        "An agent compacts itself only at a turn's end: compact keeps the note and the model ends its turn, ruri never swaps a session mid-turn. The context figures ride in prompts and Claude's PostToolBatch hook, never the system prompt (contextBriefing's words are fixed). The turn that ends to compact answers no letter; the prompt that carries on does (carries)."
       ],
       "edges": [
-        "Chat runs and queue — supplies prompts, turns, events and rewind entry points this layer archives and checkpoints",
+        "Chat runs and queue — supplies prompts, turns, events and rewind entry points this layer archives and checkpoints; a turn's end runs the self-compaction a chat asked for, and a letter it was answering is carried to the prompt that carries on (talkTurnEnded, server/chats.ts)",
         "Protocol — TranscriptEvent, TurnSummary, MemoryLine, Project/Session and brief sheet types in shared/protocol.ts",
         "Server runtime and transport — routing, auth, uploads and stores hosting projects/handlers endpoints",
-        "Agent harnesses — session ids resumed; the memory model's lane (completeMemory in server/smallmodel.ts) and Claude's PreCompact/SessionStart hooks (server/sessions.ts)",
+        "Agent harnesses — session ids resumed; the memory model's lane (completeMemory in server/smallmodel.ts) and Claude's PreCompact/SessionStart hooks (server/sessions.ts), and the PostToolBatch hook that tells Claude its context mid-turn (SessionExtras.contextNotice)",
         "Library, skills and sweeps — sweep/describe candidates feed catchup; library owns skill removal on teardown"
       ]
     },

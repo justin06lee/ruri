@@ -12,6 +12,7 @@ import type {
 import type { ServerContext } from "./context.js";
 import {
   answerTalk,
+  carryLetter,
   listSeats,
   restoreTalk,
   sendLetter,
@@ -473,6 +474,38 @@ describe("a message", () => {
     talkTurnEnded(ctx, "a", { kind: "result", id: "r", ok: false, stopped: true, ts: 1 });
     expect(ctx.permissions.size).toBe(0);
     expect(said.some((m) => m.type === "permission_resolved")).toBe(true);
+  });
+});
+
+describe("a chat that compacts itself in the middle of a message", () => {
+  test("answers it with the last words of the turn that finishes the job, in the fresh session", async () => {
+    const { ctx, events, arrive, speak, answer } = world();
+    const sent = sendLetter(ctx, "a", { to: "Backend", message: "a long job" }, { waitMs: 5_000 });
+    arrive("b");
+    // the turn that asked to be compacted ends: the letter is carried over
+    // (chats.ts, before talkTurnEnded), and no answer goes yet
+    speak("b", "Compacting now.");
+    const from = carryLetter(ctx, "b");
+    expect(from?.carried).toBe(true);
+    talkTurnEnded(ctx, "b", { kind: "result", id: "r1", ok: true, ts: 3 });
+    expect(ctx.talk.pending.size).toBe(1);
+    // the fresh session's prompt carries the letter on
+    events["b"] = [
+      { kind: "compaction", id: "m", text: "brief", entries: [], ts: 4 },
+      { kind: "user", id: "u2", text: "↻ carry on", from: from!, ts: 5 },
+    ];
+    // and its turn's last words are the answer — or, compacting again, not yet
+    speak("b", "Compacting again.");
+    carryLetter(ctx, "b");
+    talkTurnEnded(ctx, "b", { kind: "result", id: "r2", ok: true, ts: 6 });
+    expect(ctx.talk.pending.size).toBe(1);
+    events["b"]!.push({ kind: "user", id: "u3", text: "↻ carry on", from: from!, ts: 7 });
+    answer("b", "All done: the job's report.");
+    expect(await sent).toMatchObject({
+      text: "api · Backend answered:\n\nAll done: the job's report.",
+      answered: true,
+    });
+    expect(ctx.talk.pending.size).toBe(0);
   });
 });
 

@@ -21,7 +21,7 @@ import { backfillNotes } from "./notes.js";
 import type { QueueEntry } from "./queue.js";
 import { RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
 import { smallModelEnabled, splitPrompt } from "./smallmodel.js";
-import { answerPrompt, carriedPrompt, letterPrompt, seatName, stoppedLine } from "./talk.js";
+import { answerPrompt, letterPrompt, seatName, stoppedLine } from "./talk.js";
 import { contextWindow, resetContext } from "./turns.js";
 import { modelPayload, processAttachments, storeAttachments } from "./uploads.js";
 
@@ -133,7 +133,9 @@ function fromAgent(ctx: ServerContext, channelId: string, from: LetterFrom, text
 
 function wrapped(ctx: ServerContext, channelId: string, from: LetterFrom, text: string): string {
   const handle = ctx.talk.handleOf(from.agent);
-  if (from.carried) return carriedPrompt(from, handle, text);
+  // ruri's own words carrying the chat on after it compacted itself: they
+  // say whose job it is (server/selfCompaction.ts continuePrompt)
+  if (from.carried) return text;
   if (!from.answer) {
     const found = ctx.store.findSession(channelId);
     const head = !!found && (found.session.liaison === true || leadOf(found.project)?.id === channelId);
@@ -519,6 +521,11 @@ const AUTO_COMPACT_AT: Record<string, number> = {
   goose: 0.75,
 };
 
+/** The share of the window where ruri compacts a chat on `harness`. */
+export function autoCompactShare(harness: string): number {
+  return Number(process.env["RURI_AUTO_COMPACT_AT"]) || AUTO_COMPACT_AT[harness] || 0.8;
+}
+
 /** Why a chat whose turn just ended should be compacted now — its context
  *  past its share of the window — or undefined. Never while an agent or a
  *  script it started is still running in the session. */
@@ -529,9 +536,7 @@ export function autoCompactDue(ctx: ServerContext, channelId: string): string | 
   const tokens = ctx.turns.contexts.get(channelId)?.tokens ?? ctx.archive.contextTokens(channelId) ?? 0;
   if (tokens === 0) return undefined;
   const window = contextWindow(ctx, channelId);
-  const harness = ctx.manager.harnessFor(project);
-  const share = Number(process.env["RURI_AUTO_COMPACT_AT"]) || AUTO_COMPACT_AT[harness] || 0.8;
-  if (tokens < window * share) return undefined;
+  if (tokens < window * autoCompactShare(ctx.manager.harnessFor(project))) return undefined;
   const work = ctx.manager.backgroundWork(channelId);
   if (work.agents > 0 || work.scripts > 0) return undefined;
   const k = (n: number) => (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`);

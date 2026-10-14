@@ -222,21 +222,6 @@ export function stoppedLine(who: string, call?: string): string {
   return `(ruri: your last turn was stopped by ${who}, not by the user.${cut} a tool call that came back rejected or interrupted then was not refused by anyone — you may run it, or anything like it, again whenever a job asks for it. Do what this message asks.)`;
 }
 
-/** ruri's own prompt carrying a chat on with a message after it compacted
- *  itself in the middle of the job (LetterFrom.carried). */
-export function carriedPrompt(from: LetterFrom, handle: string, text: string): string {
-  const who = seatName(from.project, from.title);
-  return [
-    text,
-    "",
-    `(You are still on the message from ${who} (agent "${handle}") — the job you were doing when you compacted. ${
-      from.reply === "none"
-        ? REPLY_LINE.none
-        : "When it is done, your last words in that turn go back to it as your answer, so end with what it needs."
-    })`,
-  ].join("\n");
-}
-
 /** What a model interrupted by a message or an answer is told: the turn it
  *  was running was stopped for this, and it will be sent back to it. This
  *  turn is the message's alone — for one wanting an answer, its last words

@@ -903,9 +903,10 @@ function saidAfter(events: TranscriptEvent[], promptId: string, all = false): st
  * message is answered — or failed, or waits on the retry already on its
  * way; or, when the turn handed the job on and answers are still to come
  * back for it, waits for the turn the last of them starts; or, when the
- * chat compacted itself mid-job, for the turn that carries it on. And
- * whatever the chat itself was waiting on is released with its turn: a
- * call still holding for an answer (a curl the harness left running) is
+ * chat compacted itself mid-job (carryLetter, from the result branch in
+ * server/chats.ts), for the turn that carries it on in the fresh session.
+ * And whatever the chat itself was waiting on is released with its turn:
+ * a call still holding for an answer (a curl the harness left running) is
  * let go, and the answer, when it comes, comes to the chat as a message.
  */
 export function talkTurnEnded(

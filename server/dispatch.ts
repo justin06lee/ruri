@@ -5,7 +5,7 @@
  * tried again) and ruri's own /compact.
  */
 import { randomUUID } from "node:crypto";
-import type { AttachmentUpload, LetterFrom, TranscriptEvent } from "../shared/protocol.js";
+import { leadOf, type AttachmentUpload, type LetterFrom, type TranscriptEvent } from "../shared/protocol.js";
 import { busy, channelProject, ownerProject, running } from "./channel.js";
 import { pushTranscript } from "./clients.js";
 import { knownCommands, splitCommands } from "./commands.js";
@@ -21,7 +21,7 @@ import { backfillNotes } from "./notes.js";
 import type { QueueEntry } from "./queue.js";
 import { RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
 import { smallModelEnabled, splitPrompt } from "./smallmodel.js";
-import { answerPrompt, letterPrompt } from "./talk.js";
+import { answerPrompt, carriedPrompt, letterPrompt, seatName } from "./talk.js";
 import { contextWindow, resetContext } from "./turns.js";
 import { modelPayload, processAttachments, storeAttachments } from "./uploads.js";
 
@@ -107,9 +107,7 @@ export function dispatch(
   };
   recordEvent(ctx, channelId, userEvent);
   checkpoint(ctx, channelId, userEvent.id);
-  const said = from
-    ? (from.answer ? answerPrompt : letterPrompt)(from, ctx.talk.handleOf(from.agent), processed.text)
-    : processed.text;
+  const said = from ? fromAgent(ctx, channelId, from, processed.text) : processed.text;
   ctx.archive.noteSent(channelId, harness, userEvent.id);
   ctx.manager.send(project, brief + said + named, processed.images, undefined, true, userEvent.id);
   // a message the other chat has now started on — or an answer now in the
@@ -117,6 +115,34 @@ export function dispatch(
   // one that fails to go goes back in line, and stays in the book
   if (from) ctx.talk.arrived(from);
   return userEvent.id;
+}
+
+/**
+ * What the model reads for a prompt another agent's letter brought: the
+ * message, wrapped as whose it is — told, for a lead or a liaison, that it
+ * may hand the job on; an answer, told when it is the one owed onward; or
+ * ruri's own words carrying the chat on with a message after compacting.
+ */
+function fromAgent(ctx: ServerContext, channelId: string, from: LetterFrom, text: string): string {
+  const handle = ctx.talk.handleOf(from.agent);
+  if (from.carried) return carriedPrompt(from, handle, text);
+  if (!from.answer) {
+    const found = ctx.store.findSession(channelId);
+    const head = !!found && (found.session.liaison === true || leadOf(found.project)?.id === channelId);
+    return letterPrompt(from, handle, text, head);
+  }
+  const owed = from.owes ? ctx.talk.pending.get(from.owes) : undefined;
+  return answerPrompt(
+    from,
+    handle,
+    text,
+    owed && owed.to === channelId && !owed.ending
+      ? {
+          who: owed.sender ? seatName(owed.sender.project, owed.sender.title) : "another agent",
+          more: ctx.talk.outstanding(owed.id, from.letter),
+        }
+      : undefined,
+  );
 }
 
 /**

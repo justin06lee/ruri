@@ -159,6 +159,8 @@ async function serveTalkCall(
     name?: unknown;
     duty?: unknown;
     layers?: unknown;
+    layer?: unknown;
+    action?: unknown;
   };
   try {
     body = JSON.parse(await readBody(req, 256 * 1024)) as typeof body;
@@ -170,7 +172,8 @@ async function serveTalkCall(
     reply(200, { ok: true, text: listSeats(ctx, id) });
     return;
   }
-  // a lead's team (server/team.ts), the same calls as its tools
+  // a lead's — or the liaison's — team (server/team.ts), the same calls
+  // as its tools
   const team = teamHost(ctx);
   const str = (value: unknown) => (typeof value === "string" ? value : undefined);
   const list = (value: unknown) =>
@@ -194,9 +197,23 @@ async function serveTalkCall(
     });
     return;
   }
-  if (body?.do === "reset" && str(body.who)) {
-    const how = body.how === "restart" || body.how === "clear" ? body.how : "compact";
-    reply(200, { ok: true, text: team.reset(id, str(body.who)!, how) });
+  // "manage" with an action; "reset" with "how" is its old name
+  if ((body?.do === "manage" || body?.do === "reset") && str(body.who)) {
+    const asked = body.do === "manage" ? body.action : body.how;
+    const action =
+      asked === "stop" ||
+      asked === "restart" ||
+      asked === "refresh" ||
+      asked === "clear" ||
+      asked === "compact"
+        ? asked
+        : undefined;
+    reply(200, {
+      ok: true,
+      text: action
+        ? team.manage(id, str(body.who)!, action)
+        : 'Say what to do: "action": "stop", "compact", "refresh" or "restart".',
+    });
     return;
   }
   if (body?.do === "retire" && str(body.who)) {
@@ -204,18 +221,22 @@ async function serveTalkCall(
     return;
   }
   const waiting = { via: "http" as const, waitMs: httpWaitFor(ctx, id), signal: gone.signal };
-  if (body?.do === "add" && str(body.name) && str(body.duty)) {
+  if (body?.do === "add") {
     const layers = list(body.layers);
     const model = str(body.model);
     const message = str(body.message);
-    const mode = body.reply === "later" || body.reply === "none" ? body.reply : "wait";
+    const layer = str(body.layer);
+    const name = str(body.name);
+    const duty = str(body.duty);
+    const mode = body.reply === "wait" || body.reply === "none" ? body.reply : "later";
     reply(200, {
       ok: true,
       text: await team.add(
         id,
         {
-          name: str(body.name)!,
-          duty: str(body.duty)!,
+          ...(layer ? { layer } : {}),
+          ...(name ? { name } : {}),
+          ...(duty ? { duty } : {}),
           ...(layers ? { layers } : {}),
           ...(model ? { model } : {}),
           ...(message ? { message, reply: mode } : {}),
@@ -229,12 +250,19 @@ async function serveTalkCall(
     reply(200, { ok: true, ...(await waitAnswer(ctx, id, body.letter, waiting)) });
     return;
   }
-  // the answer comes back by default, the same as from the tool
-  const mode = body?.reply === "later" || body?.reply === "none" ? body.reply : "wait";
+  // the answer comes back by default, the same as from the tool — held
+  // for, or, for a lead, "later"
+  const mode =
+    body?.reply === "wait" || body?.reply === "later" || body?.reply === "none" ? body.reply : undefined;
   if (body?.do === "project" && typeof body.project === "string" && typeof body.message === "string") {
     reply(200, {
       ok: true,
-      ...(await askProject(ctx, id, { project: body.project, message: body.message, reply: mode }, waiting)),
+      ...(await askProject(
+        ctx,
+        id,
+        { project: body.project, message: body.message, ...(mode ? { reply: mode } : {}) },
+        waiting,
+      )),
     });
     return;
   }
@@ -242,14 +270,19 @@ async function serveTalkCall(
     reply(400, {
       ok: false,
       error:
-        'send {"do": "list"}, {"do": "send", "to": "<handle>", "message": "..."}, {"do": "project", "project": "<name or path>", "message": "..."} or {"do": "wait", "letter": "<id>"} — and, for a lead, {"do": "team"}, {"do": "add", ...}, {"do": "update", ...}, {"do": "reset", ...} or {"do": "retire", ...}',
+        'send {"do": "list"}, {"do": "send", "to": "<handle>", "message": "..."}, {"do": "project", "project": "<name or path>", "message": "..."} or {"do": "wait", "letter": "<id>"} — and, for a lead or a liaison, {"do": "team"}, {"do": "add", ...}, {"do": "update", ...}, {"do": "manage", ...} or {"do": "retire", ...}',
     });
     return;
   }
   const delivery = body.delivery === "queue" ? "queue" : "interrupt";
   reply(200, {
     ok: true,
-    ...(await sendLetter(ctx, id, { to: body.to, message: body.message, reply: mode, delivery }, waiting)),
+    ...(await sendLetter(
+      ctx,
+      id,
+      { to: body.to, message: body.message, ...(mode ? { reply: mode } : {}), delivery },
+      waiting,
+    )),
   });
 }
 

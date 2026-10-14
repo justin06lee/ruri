@@ -22,7 +22,7 @@ import { teamHost, teamStatus } from "./handlers/team.js";
 import { ParagraphGate } from "./paragraphs.js";
 import { SessionManager, type SessionExtras } from "./sessions.js";
 import { httpWaitMs, TALK_TOOLS, talkHttpBriefing, talkToolBriefing, talkTools } from "./talk.js";
-import { leadBriefing, memberBriefing, TEAM_TOOLS, teamTools } from "./team.js";
+import { disallowedFor, leadBriefing, memberBriefing, TEAM_TOOLS, teamTools, type Head } from "./team.js";
 import { contextWindow, pushContexts, pushWork } from "./turns.js";
 
 /**
@@ -209,14 +209,21 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       // which is long before any session is made
       const owner = ownerProject(ctx, project.id);
       const bridgeCtx = { channelId: project.id, projectId: owner?.id ?? project.id };
-      // the project's lead manages its team; every other chat is on it
+      // the project's lead runs its team, and so does its liaison — the lead
+      // other projects' agents reach; every other chat is on it
       const seat = owner?.sessions.find((session) => session.id === project.id);
-      const lead = !!owner && leadOf(owner)?.id === project.id;
+      const head: Head | undefined = !owner
+        ? undefined
+        : seat?.liaison
+          ? "liaison"
+          : leadOf(owner)?.id === project.id
+            ? "lead"
+            : undefined;
       const talkEndpoint = `http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`;
       const team = !owner
         ? ""
-        : lead
-          ? leadBriefing(owner.name, claude ? "tool" : "http", talkEndpoint)
+        : head
+          ? leadBriefing(owner.name, claude ? "tool" : "http", talkEndpoint, head)
           : memberBriefing({
               project: owner.name,
               name: seat?.title ?? "",
@@ -240,7 +247,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         bridge,
         // the other agents open in ruri: tools, or the same over HTTP —
         // told how long one call waits on this harness
-        talk: claude ? talkToolBriefing() : talkHttpBriefing(talkEndpoint, httpWaitMs(harness)),
+        talk: claude ? talkToolBriefing(!!head) : talkHttpBriefing(talkEndpoint, httpWaitMs(harness), !!head),
         team,
         stack: owner ? stackBriefing(ctx.briefs.get(owner.id)) : "",
       });
@@ -252,20 +259,21 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
         beforeTools: () => ctx.checkpoints.idle(project.id),
         // ruri asks the user about these itself, message by message
-        autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS, ...TALK_TOOLS, ...(lead ? TEAM_TOOLS : [])],
+        autoAllow: [...COMPONENT_TOOLS, ...BRIDGE_TOOLS, ...TALK_TOOLS, ...(head ? TEAM_TOOLS : [])],
         options: {
           // the vault rides into the harness process here, and only here —
           // beside the `ruri` command and where it posts
           env: { ...ctx.secrets.env(), ...cliEnv(libraryEndpoint(ctx, project.id)) },
           mcpServers: {
             ruri: componentTools(ctx.componentHost, project.id, [
-              ...talkTools(talkHost(ctx), project.id),
-              ...(lead ? teamTools(teamHost(ctx), project.id) : []),
+              ...talkTools(talkHost(ctx), project.id, !!head),
+              ...(head ? teamTools(teamHost(ctx), project.id) : []),
             ]),
             bridge: bridgeTools(ctx.options.bridge, bridgeCtx),
           },
-          // a member has no user to ask: nobody would ever see the card
-          ...(owner && !lead ? { disallowedTools: ["AskUserQuestion"] } : {}),
+          // a lead and the liaison delegate — no writing files, no agents
+          // of their own; a member and the liaison have no user to ask
+          ...(owner ? { disallowedTools: disallowedFor(head ?? "member") } : {}),
           // the component library as a skill, whose list changes and whose
           // description never does (server/library.ts)
           ...(owner

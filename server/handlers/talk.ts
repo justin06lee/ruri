@@ -6,7 +6,18 @@
  * that chat's turn when it ends and carried back: to the call waiting on
  * it, or, with none waiting, to the sender's chat as a message. Plus the
  * letters a relaunch finds in flight, and the talk page's two messages —
- * and a job an agent hands to another project's lead.
+ * and a job an agent hands to another project.
+ *
+ * Another project is reached through its liaison (server/team.ts): a
+ * message to it — by its name, its liaison's handle, or its lead's — lands
+ * there, never at the lead the user talks to, and the liaison is made the
+ * first time one does.
+ *
+ * A lead or a liaison hands its jobs on. A message it is answering is
+ * answered when the job is done: by the turn it started when that turn
+ * sent nothing on; otherwise by the turn the last answer to what it sent
+ * on starts (Pending.for, LetterFrom.owes) — the turn handing it on ends
+ * with the sender still waiting, and the lead stays free.
  */
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
@@ -14,6 +25,7 @@ import * as path from "node:path";
 import {
   DEFAULT_PERMISSION_MODE,
   leadOf,
+  liaisonOf,
   type LetterFrom,
   type PermissionRequest,
   type Project,
@@ -43,27 +55,41 @@ import {
 import { expandPath } from "../projects.js";
 import type { QueueEntry } from "../queue.js";
 import { createManagerHost } from "./projects.js";
-import { hasSlot, isMemberChat, noteStarting, releaseWaiting, waitForSlot } from "./team.js";
+import {
+  hasSlot,
+  headOf,
+  isMemberChat,
+  noteStarting,
+  releaseWaiting,
+  unattended,
+  waitForSlot,
+} from "./team.js";
 import type { Handlers } from "./types.js";
 
 interface Found {
   project: Project;
   session: SessionInfo;
+  /** Another project's way in: its liaison — or, until one is made, its
+   *  lead standing in for it. A message to it goes to the liaison. */
+  door?: boolean;
 }
 
-/** Who a chat can reach: the rest of its own project's team, and every
- *  other project's lead — the one chat a project speaks through. */
+/** Who a chat can reach: the rest of its own project's team — its lead,
+ *  its liaison, its members — and every other project, through its door. */
 function seats(ctx: ServerContext, self: string): Found[] {
   return ctx.store.list().flatMap((project) => {
     const mine = project.sessions.some((session) => session.id === self);
-    const lead = leadOf(project);
-    const reach = mine ? project.sessions : lead ? [lead] : [];
-    return reach.filter((session) => session.id !== self).map((session) => ({ project, session }));
+    if (mine)
+      return project.sessions
+        .filter((session) => session.id !== self)
+        .map((session) => ({ project, session }));
+    const door = liaisonOf(project) ?? leadOf(project);
+    return door ? [{ project, session: door, door: true }] : [];
   });
 }
 
 function nameOf(seat: Found): string {
-  return seatName(seat.project.name, seat.session.title ?? "");
+  return seat.door ? `${seat.project.name}'s liaison` : seatName(seat.project.name, seat.session.title ?? "");
 }
 
 /** "Frontend UI", "ruri · frontend ui", "ruri/Frontend UI" all read alike. */
@@ -79,19 +105,29 @@ function plain(text: string): string {
 function findSeat(ctx: ServerContext, to: string, self: string): Found | string {
   const want = to.trim().replace(/^@/, "");
   const all = seats(ctx, self);
-  const byHandle = all.find((seat) => ctx.talk.handleOf(seat.session.id) === want.toLowerCase());
+  const handle = want.toLowerCase();
+  const byHandle = all.find((seat) => ctx.talk.handleOf(seat.session.id) === handle);
   if (byHandle) return byHandle;
+  // another project's lead, by the handle it went by before its liaison
+  // was made: its door
+  const byLead = all.find(
+    (seat) => seat.door && ctx.talk.handleOf(leadOf(seat.project)?.id ?? "") === handle,
+  );
+  if (byLead) return byLead;
   const key = plain(want);
   const named = all.filter((seat) => {
     const title = plain(seat.session.title ?? "");
     const project = plain(seat.project.name);
     return (
       (title !== "" && (key === title || key === `${project} ${title}`)) ||
-      // a project by its name alone is its lead, the one it speaks through
-      (key === project && leadOf(seat.project)?.id === seat.session.id)
+      // a project by its name alone is its door — or, from inside it, its lead
+      (key === project && (seat.door === true || leadOf(seat.project)?.id === seat.session.id))
     );
   });
   if (named.length === 1) return named[0]!;
+  // a teammate by the layer it holds
+  const layered = all.filter((seat) => !seat.door && seat.session.layers?.includes(handle));
+  if (named.length === 0 && layered.length === 1) return layered[0]!;
   if (named.length > 1)
     return `More than one agent answers to "${to}": use its handle from list_agents (${named
       .map((seat) => `${ctx.talk.handleOf(seat.session.id)} is ${nameOf(seat)}`)
@@ -132,10 +168,10 @@ export function doing(ctx: ServerContext, chat: string): string {
   const queued = ctx.queues.pending(chat);
   const behind = queued > 0 ? ` · ${queued} queued behind it` : "";
   if (ctx.governor.waiting.includes(chat))
-    return `asleep, with ${queued} waiting on a free slot — the machine has no room for one more at work`;
+    return `asleep, with ${queued} waiting on a free slot — as many teammates are at work as RURI_TEAM_MAX allows`;
   if (status === "permission") return `waiting on the user to answer a card${behind}`;
   if (status !== "working") {
-    const rest = isMemberChat(ctx, chat) && !ctx.manager.live(chat) ? "asleep" : "idle";
+    const rest = unattended(ctx, chat) && !ctx.manager.live(chat) ? "asleep" : "idle";
     return `${ctx.turns.work.has(chat) ? `${rest}, with agents of its own still working` : rest}${behind}`;
   }
   const events = ctx.archive.events(chat);
@@ -184,12 +220,24 @@ export function listSeats(ctx: ServerContext, channelId: string): string {
     lines.push("", `${project.name}${mine ? " (your project, your team)" : ""} — ${project.path}`);
     for (const seat of here) {
       const model = channelProject(ctx, seat.session.id)?.model || ctx.store.defaultModel();
+      if (seat.door) {
+        // its liaison, or — not made yet — the lead's handle standing in
+        const made = seat.session.liaison === true;
+        lines.push(
+          `  ${ctx.talk.handleOf(seat.session.id)}  its liaison — the lead that takes other projects' messages and hands them to its team · ${
+            made ? `${model} — ${doing(ctx, seat.session.id)}` : "made when you first write"
+          }`,
+        );
+        continue;
+      }
       const role =
         seat.session.id === lead
-          ? mine
-            ? "the lead — the user's chat here"
-            : "the lead — the one chat it speaks through"
-          : `${seat.session.title || "untitled"}${seat.session.duty ? ` (duty: ${seat.session.duty})` : ""}`;
+          ? "the lead — the user's chat here"
+          : seat.session.liaison
+            ? "the liaison — takes other projects' messages and hands them to this team"
+            : `${seat.session.title || "untitled"}${seat.session.duty ? ` (duty: ${seat.session.duty})` : ""}${
+                seat.session.layers?.length ? ` [${seat.session.layers.join(", ")}]` : ""
+              }`;
       lines.push(
         `  ${ctx.talk.handleOf(seat.session.id)}  ${role} · ${model} — ${doing(ctx, seat.session.id)}`,
       );
@@ -198,7 +246,7 @@ export function listSeats(ctx: ServerContext, channelId: string): string {
   }
   lines.push(
     "",
-    'A message interrupts an agent that is working unless you send it with delivery "queue"; one asleep wakes for it, when the machine has room. ask_project (or {"do": "project"}) hands a job to another project\'s lead — or to a folder\'s, by its path, opened as a project first.',
+    'A message interrupts an agent that is working unless you send it with delivery "queue"; one asleep wakes for it. ask_project (or {"do": "project"}) hands a job to another project, through its liaison — or to a folder, by its path, opened as a project first.',
   );
   if (offLimits) lines.push("", offLimits);
   return lines.join("\n");
@@ -248,16 +296,32 @@ function interruptible(ctx: ServerContext, chat: string): boolean {
   return uninterruptible(ctx, chat) === undefined;
 }
 
+/**
+ * The message a chat's current turn owes an answer to: the one that
+ * started it, or the one it carries on with after compacting itself — or,
+ * for a turn an answer started, the one the chat sent that message on
+ * behalf of (LetterFrom.owes). Nothing when the turn owes no one.
+ */
+export function owedLetter(ctx: ServerContext, chat: string): Pending | undefined {
+  const turn = ctx.archive.events(chat).findLast((event) => event.kind === "user");
+  const from = turn?.kind === "user" ? turn.from : undefined;
+  const id = !from ? undefined : from.answer ? from.owes : from.letter;
+  const letter = id ? ctx.talk.pending.get(id) : undefined;
+  return letter && letter.to === chat && !letter.ending ? letter : undefined;
+}
+
+/** Who sent a letter, by name. */
+function senderOf(letter: Pending): string {
+  return letter.sender ? seatName(letter.sender.project, letter.sender.title) : "another agent";
+}
+
 /** Why the turn a chat is running can't be stopped for a message, in the
  *  sender's words — or nothing, when it can. */
 function uninterruptible(ctx: ServerContext, chat: string): string | undefined {
   if (ctx.manager.statuses()[chat] === "permission") return "it is waiting on the user";
   if (ctx.talk.awaiting(chat)) return "it is waiting on an answer of its own";
-  const turn = ctx.archive.events(chat).findLast((event) => event.kind === "user");
-  const from = turn?.kind === "user" ? turn.from : undefined;
-  if (from && !from.answer && from.reply !== "none") {
-    return `it is answering ${seatName(from.project, from.title)}, who is waiting on it`;
-  }
+  const owed = owedLetter(ctx, chat);
+  if (owed && owed.reply !== "none") return `it is answering ${senderOf(owed)}, who is waiting on it`;
   return undefined;
 }
 
@@ -287,10 +351,11 @@ function deliver(
   from: LetterFrom,
   delivery: TalkDelivery = "interrupt",
 ): "queued" | "working" | "cut in" | "waiting" {
-  // a member asleep wakes for it — when the machine has room for one more
-  // at work; otherwise it waits in its line for a slot (server/team.ts).
-  // Nobody stands at a member's line to send a held one on by hand, so a
-  // hold left by a stop lets go here.
+  // nobody stands at a member's or the liaison's line to send a held one
+  // on by hand, so a hold left by a stop lets go here
+  if (unattended(ctx, chat) && !running(ctx, chat)) ctx.queues.releaseQueue(chat);
+  // a member asleep wakes for it — unless RURI_TEAM_MAX is set and that
+  // many are at work: then it waits in its line for a slot (server/team.ts)
   if (isMemberChat(ctx, chat) && !running(ctx, chat)) {
     ctx.queues.releaseQueue(chat);
     const entry: QueueEntry = { id: randomUUID(), text, uploads: [], silent: false, from };
@@ -422,12 +487,17 @@ export async function sendLetter(
   if (!text) return { text: "The message is empty: say something." };
   const found = findSeat(ctx, args.to, channelId);
   if (typeof found === "string") return { text: found };
-  const target = found.session.id;
+  // another project's door is its liaison: the one it has, for now — made
+  // only once the message may go
+  const door = found.door === true;
+  const had = door ? liaisonOf(found.project) : found.session;
+  let target = had?.id ?? "";
   const toName = nameOf(found);
-  const reply = args.reply ?? "wait";
+  // a lead hands jobs on and stays free: its answers come "later"
+  const reply = args.reply ?? (headOf(ctx, channelId) ? "later" : "wait");
   const book = ctx.talk;
   const id = randomUUID();
-  const base = { id, from: channelId, to: target, reply, text, ts: Date.now() };
+  const base = { id, from: channelId, to: target || found.session.id, reply, text, ts: Date.now() };
 
   if (
     !mayMessage(
@@ -448,7 +518,7 @@ export async function sendLetter(
       text: `This has gone ${MAX_DEPTH} agents deep since the user last spoke. Stop passing it on: finish your turn with what you have.`,
     };
   }
-  if (reply === "wait" && book.waitsOn(target, channelId)) {
+  if (reply === "wait" && target && book.waitsOn(target, channelId)) {
     book.note({ ...base, status: "refused", note: "it is waiting on this chat" });
     return {
       text: `${toName} is waiting on your answer right now, so waiting on it in turn would hold you both for good. Answer it by finishing your turn (your last message goes back to it), or send this with reply "later".`,
@@ -460,10 +530,10 @@ export async function sendLetter(
   if (mode !== "bypassPermissions" && !args.approved) {
     book.note({ ...base, status: "asking" });
     const allowed = await askUser(ctx, channelId, {
-      to: target,
+      to: target || found.session.id,
       project: found.project.name,
-      // a project's lead is the project, on the card
-      title: leadOf(found.project)?.id === target ? "" : (found.session.title ?? ""),
+      // another project, through its liaison, is the project on the card
+      title: door ? "" : (found.session.title ?? ""),
       text,
       reply,
     });
@@ -471,14 +541,23 @@ export async function sendLetter(
       book.mark(id, "denied");
       return { text: `The user did not let that message go to ${toName}.` };
     }
-    if (!ctx.store.findSession(target)) {
+    if (door ? !ctx.store.get(found.project.id) : !ctx.store.findSession(target)) {
       book.mark(id, "failed", "closed before it went");
       return { text: `${toName} was closed before the message could go.` };
     }
   }
+  if (door && !target) {
+    // the first agent from another project to write: its liaison is made
+    target = ctx.store.liaison(found.project.id)?.id ?? "";
+    if (!target) return { text: `Couldn't reach ${toName}.` };
+    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+  }
 
   // in the book, and on disk, before it goes: whatever happens next —
   // this call cut off, the turn stopped, ruri quitting — it is accounted for
+  // sent on behalf of a message this chat's turn owes an answer to: that
+  // one waits for this one's answer to come back
+  const owes = reply === "none" ? undefined : owedLetter(ctx, channelId)?.id;
   const pending: Pending = {
     id,
     from: channelId,
@@ -489,6 +568,7 @@ export async function sendLetter(
     ts: base.ts,
     sender: { project: me.project.name, title: me.session.title ?? "" },
     stage: "queued",
+    ...(owes ? { for: owes } : {}),
     waiters: new Set(),
   };
   book.keep(pending);
@@ -497,12 +577,12 @@ export async function sendLetter(
   const where = deliver(ctx, target, text, letterFrom(pending), delivery);
   // a cut-in waits at the head of the line for the turn it stopped to end:
   // queued, for the moment it takes, and working from when it goes
-  book.note({ ...base, status: where === "cut in" || where === "waiting" ? "queued" : where });
+  book.note({ ...base, to: target, status: where === "cut in" || where === "waiting" ? "queued" : where });
   const queued =
     where === "cut in"
       ? ", which has stopped what it was doing to read it"
       : where === "waiting"
-        ? `, which is waiting for a free slot: as many teammates are at work as this machine has room for, and it starts the moment one finishes`
+        ? `, which is waiting for a free slot: as many teammates are at work as RURI_TEAM_MAX allows, and it starts the moment one finishes`
         : where !== "queued"
           ? ""
           : delivery === "queue"
@@ -541,10 +621,10 @@ export function modelFor(ctx: ServerContext, asked: string): { value: string; na
 
 /**
  * An agent hands a job to another project (ask_project, {"do": "project"}):
- * its lead gets it, as a message, and hands it on to its team the way it
- * would one from the user. A project is a team with one chat the outside
- * talks to, so this never makes one; within the sender's own project the
- * team is already there to message (and only the lead adds to it).
+ * its liaison gets it, as a message, and hands it on to its team the way
+ * the lead would one from the user. A project is a team with one chat the
+ * outside talks to — its liaison, made the first time one writes; within
+ * the sender's own project the team is already there to message.
  *
  * The project is one open in ruri, by its name, or a folder by its path,
  * opened as a project the way Home opens one — its lead new with it. The
@@ -569,10 +649,9 @@ export async function askProject(
   const dir = open ? open.path : expandPath(query, ctx.store.workspaceDir());
   if (open?.id === me.project.id) {
     return {
-      text:
-        leadOf(me.project)?.id === channelId
-          ? `${open.name} is your own project: hand the job to a teammate with message_agent (team shows who), or add one with add_teammate when no one's duty covers it.`
-          : `${open.name} is your own project: message the teammate whose part it is (list_agents shows the team), or ask the lead.`,
+      text: headOf(ctx, channelId)
+        ? `${open.name} is your own project: hand the job to a teammate with message_agent (team shows who), or add one with add_teammate when no one holds its layer.`
+        : `${open.name} is your own project: message the teammate whose part it is (list_agents shows the team), or ask whoever handed you the job.`,
     };
   }
   if (!open) {
@@ -596,7 +675,7 @@ export async function askProject(
       text: `The user has not let you message ${where}: their talk settings say who you may message. list_agents shows where you can.`,
     };
   }
-  const reply = args.reply ?? "wait";
+  const reply = args.reply ?? (headOf(ctx, channelId) ? "later" : "wait");
 
   // outside bypass mode, a folder not open yet is asked about with the
   // message, on one card; an open project's lead is asked about the way
@@ -623,14 +702,22 @@ export async function askProject(
     project = ctx.store.findByPath(dir);
     if (!project) return { text: `Couldn't open ${dir}: ${said}` };
   }
-  const lead = leadOf(project);
-  if (!lead) return { text: `Couldn't reach ${project.name}'s lead.` };
-
-  const handle = ctx.talk.handleOf(lead.id);
-  const sent = await sendLetter(ctx, channelId, { to: handle, message: text, reply, approved }, opts);
+  // its door: the liaison it has, or its lead's handle, which reaches the
+  // liaison made for this message
+  const door = liaisonOf(project) ?? leadOf(project);
+  if (!door) return { text: `Couldn't reach ${project.name}.` };
+  const sent = await sendLetter(
+    ctx,
+    channelId,
+    { to: ctx.talk.handleOf(door.id), message: text, ...(args.reply ? { reply: args.reply } : {}), approved },
+    opts,
+  );
+  const liaison = liaisonOf(project);
   return {
     ...sent,
-    text: `${open ? "" : `Opened ${project.name}. `}Handed to ${project.name}'s lead — handle ${handle}, for messaging it again. ${sent.text}`,
+    text: `${open ? "" : `Opened ${project.name}. `}Handed to ${project.name}'s liaison${
+      liaison ? ` — handle ${ctx.talk.handleOf(liaison.id)}, for messaging it again` : ""
+    }. ${sent.text}`,
   };
 }
 
@@ -698,8 +785,9 @@ function waitOn(ctx: ServerContext, pending: Pending, opts: WaitOptions): Promis
  *  to go on waiting. */
 function notYet(ctx: ServerContext, pending: Pending, via: WaitOptions["via"]): string {
   const who = whoIs(ctx, pending.to);
-  const state =
-    pending.stage === "working"
+  const state = ctx.talk.outstanding(pending.id)
+    ? "has handed your message on to its team, and answers when what it is waiting on comes back"
+    : pending.stage === "working"
       ? doing(ctx, pending.to) === "waiting on the user"
         ? "is on your message, waiting on its user"
         : "is still working on your message"
@@ -780,6 +868,9 @@ function sendBack(ctx: ServerContext, pending: Pending): void {
     reply: "none",
     answer: true,
     depth: pending.depth,
+    // the message the sender sent this one for: the turn this answer
+    // starts may be the one that answers it
+    ...(pending.for ? { owes: pending.for } : {}),
   });
 }
 
@@ -794,11 +885,14 @@ function saidAfter(events: TranscriptEvent[], promptId: string, all = false): st
 }
 
 /**
- * A chat's turn ended. If a message started it, that message is answered
- * — or failed, or waits on the retry already on its way. And whatever the
- * chat itself was waiting on is released with its turn: a call still
- * holding for an answer (a curl the harness left running) is let go, and
- * the answer, when it comes, comes to the chat as a message.
+ * A chat's turn ended. If it owes a message an answer (owedLetter), that
+ * message is answered — or failed, or waits on the retry already on its
+ * way; or, when the turn handed the job on and answers are still to come
+ * back for it, waits for the turn the last of them starts; or, when the
+ * chat compacted itself mid-job, for the turn that carries it on. And
+ * whatever the chat itself was waiting on is released with its turn: a
+ * call still holding for an answer (a curl the harness left running) is
+ * let go, and the answer, when it comes, comes to the chat as a message.
  */
 export function talkTurnEnded(
   ctx: ServerContext,
@@ -806,12 +900,17 @@ export function talkTurnEnded(
   event: Extract<TranscriptEvent, { kind: "result" }>,
 ): void {
   const book = ctx.talk;
+  const stopper = book.stoppedBy.get(channelId);
+  book.stoppedBy.delete(channelId);
   if (book.pending.size === 0 && book.asks.size === 0) return;
   const events = ctx.archive.events(channelId);
   const prompt = events.findLast((e) => e.kind === "user");
-  const from = prompt?.kind === "user" ? prompt.from : undefined;
-  const letter = from && !from.answer ? book.pending.get(from.letter) : undefined;
-  if (prompt && letter && letter.to === channelId && !letter.ending) {
+  const letter = owedLetter(ctx, channelId);
+  const carriedFrom = letter ? book.carried.get(letter.id) : undefined;
+  if (letter) book.carried.delete(letter.id);
+  if (prompt && letter && carriedFrom === prompt.id) {
+    // the chat compacted itself mid-job: the turn carrying it on answers
+  } else if (prompt && letter) {
     const who = whoIs(ctx, channelId);
     if (event.stopped) {
       const said = saidAfter(events, prompt.id, true);
@@ -819,11 +918,14 @@ export function talkTurnEnded(
         ctx,
         letter,
         "failed",
-        `The user stopped ${who}'s turn on your message before it answered.${said ? ` What it had said by then:\n\n${clipAnswer(said)}` : ""}`,
+        `${stopper ? stopper[0]!.toUpperCase() + stopper.slice(1) : "The user"} stopped ${who}'s turn on your message before it answered.${said ? ` What it had said by then:\n\n${clipAnswer(said)}` : ""}`,
       );
-    } else if (event.ok)
-      settle(ctx, letter, "answered", saidAfter(events, prompt.id) || "(it finished without a word)");
-    else if (!ctx.retries.has(channelId))
+    } else if (event.ok) {
+      // handed on, with answers still to come back: the turn the last of
+      // them starts is the one that answers
+      if (!book.outstanding(letter.id))
+        settle(ctx, letter, "answered", saidAfter(events, prompt.id) || "(it finished without a word)");
+    } else if (!ctx.retries.has(channelId))
       settle(
         ctx,
         letter,
@@ -846,6 +948,23 @@ export function talkTurnEnded(
   }
   if (released) book.saveLetters();
   for (const [requestId, ask] of book.asks) if (ask.from === channelId) answerTalk(ctx, requestId, false);
+}
+
+/**
+ * A chat compacting itself in the middle of a job (server/chats.ts's
+ * compaction tool): the message its turn owes an answer to is carried
+ * over — this turn's end doesn't answer it — and what comes back is the
+ * `from` for the prompt that carries the chat on in its fresh session, as
+ * a QueueEntry's or dispatch's. That turn's last words, when the job is
+ * done, are the answer, however many times it compacts on the way.
+ * Nothing when the turn owes no one: carry on with a plain prompt.
+ */
+export function carryLetter(ctx: ServerContext, chat: string): LetterFrom | undefined {
+  const letter = owedLetter(ctx, chat);
+  const prompt = ctx.archive.events(chat).findLast((event) => event.kind === "user");
+  if (!letter || !prompt) return undefined;
+  ctx.talk.carried.set(letter.id, prompt.id);
+  return { ...letterFrom(letter), carried: true };
 }
 
 /** A message — or an answer — taken out of a chat's queue by the user
@@ -878,9 +997,9 @@ export function talkDropped(ctx: ServerContext, from: LetterFrom | undefined): v
 export function talkTurnCut(ctx: ServerContext, chat: string, why: string): void {
   const events = ctx.archive.events(chat);
   const prompt = events.findLast((e) => e.kind === "user");
-  const from = prompt?.kind === "user" ? prompt.from : undefined;
-  const letter = from && !from.answer ? ctx.talk.pending.get(from.letter) : undefined;
-  if (!prompt || !letter || letter.to !== chat || letter.ending) return;
+  const letter = owedLetter(ctx, chat);
+  if (!prompt || !letter) return;
+  ctx.talk.carried.delete(letter.id);
   const said = saidAfter(events, prompt.id, true);
   settle(ctx, letter, "failed", `${why}${said ? ` What it had said by then:\n\n${clipAnswer(said)}` : ""}`);
 }
@@ -932,9 +1051,17 @@ export function restoreTalk(ctx: ServerContext): void {
     if (letter.ending) sendBack(ctx, letter);
     else if (!receiver) settle(ctx, letter, "failed", `${who} was closed before it answered your message.`);
     else if (letter.stage === "queued") deliver(ctx, letter.to, letter.text, letterFrom(letter));
+    // handed on, and what it was handed to is still out: answered when
+    // that comes back, the way it would have been
+    else if (book.outstanding(letter.id)) continue;
     else {
       const events = ctx.archive.events(letter.to);
-      const prompt = events.findLast((e) => e.kind === "user" && e.from?.letter === letter.id);
+      // the last turn on it: the one it started, one carrying it on after a
+      // compaction, or one an answer for it started
+      const prompt = events.findLast(
+        (e) =>
+          e.kind === "user" && (e.from?.answer ? e.from.owes === letter.id : e.from?.letter === letter.id),
+      );
       const result = prompt
         ? events.slice(events.indexOf(prompt) + 1).find((e) => e.kind === "result")
         : undefined;

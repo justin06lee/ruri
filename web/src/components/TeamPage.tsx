@@ -13,8 +13,8 @@ import { useConfirm } from "./Confirm";
  * project — and the lead hands work to its team: chats of their own, each
  * with a duty, asleep between jobs. This is where the user can see them
  * anyway: what each one is for, whether it is working, asleep or waiting
- * for a slot, how full its context is and what it last said — and the
- * machine's budget, how many may work at once. And do to one what the
+ * for a slot, how full its context is and what it last said — and how
+ * many are at work across ruri. And do to one what the
  * lead can: compact it, restart it, clear it, retire it. Opened from the
  * lead's header; nothing here is a chat to open.
  */
@@ -27,11 +27,6 @@ const STATE_WORD: Record<MemberState, string> = {
   queued: "waiting for a slot",
   permission: "waiting on you",
 };
-
-/** "1.2 GB", "350 MB". */
-function bytes(n: number): string {
-  return n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 ** 2)} MB`;
-}
 
 /** "3m ago", "just now". */
 function ago(ts: number, now: number): string {
@@ -206,21 +201,16 @@ export function TeamPage({ project, onClose }: { project: Project; onClose(): vo
           </button>
         </div>
         {budget && (
-          <div
-            className="team-budget"
-            title="Each teammate at work holds a harness process of a few hundred MB"
-          >
-            <span>
-              room for <b>{budget.slots}</b> at work at once{budget.slots >= budget.cap ? " (the most)" : ""}
-            </span>
+          <div className="team-budget">
             <span>
               {budget.atWork} at work across ruri
               {budget.waiting.length > 0 ? ` · ${budget.waiting.length} waiting` : ""}
             </span>
-            <span>
-              {bytes(budget.availableBytes)} of {bytes(budget.totalBytes)} free · ~
-              {bytes(budget.perAgentBytes)} each
-            </span>
+            {budget.cap !== undefined && (
+              <span>
+                at most <b>{budget.cap}</b> at once (RURI_TEAM_MAX)
+              </span>
+            )}
           </div>
         )}
         {members.map((member) => (

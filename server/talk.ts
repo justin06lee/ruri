@@ -1,7 +1,7 @@
 /**
  * Agents talking to agents: a chat's model messaging another's — a
- * teammate in its own project, or another project's lead — and hearing
- * back.
+ * teammate in its own project, or another project, through its liaison —
+ * and hearing back.
  *
  * A message arrives in the other chat as a prompt, marked as whose it is
  * (the user event's `from`), and queues behind whatever that chat is doing
@@ -187,6 +187,11 @@ export function seatName(project: string, title: string): string {
   return title ? `${project} · ${title}` : `${project} (an untitled chat)`;
 }
 
+/** What a lead or a liaison — which hands its jobs on — is told a sender
+ *  waiting on it gets back. */
+const HEAD_REPLY_LINE =
+  'It is waiting on your answer. When you can answer at once, end this turn with what it needs. When you hand the job on (reply "later"), just end your turn: it keeps waiting, and your last words in the turn the last answer you are waiting on starts go back to it.';
+
 const REPLY_LINE: Record<TalkReply, string> = {
   wait: "It is waiting on your answer: when you finish this turn, your last message goes straight back to it, so end with what it needs.",
   later:
@@ -194,15 +199,32 @@ const REPLY_LINE: Record<TalkReply, string> = {
   none: "It asked for no answer: nobody is waiting on you, and nothing you say goes back to it — just do what it asks.",
 };
 
-/** A message from another agent, as the model it is for reads it. */
-export function letterPrompt(from: LetterFrom, handle: string, text: string): string {
+/** A message from another agent, as the model it is for reads it. `head`:
+ *  the model is a lead or a liaison, which hands jobs on. */
+export function letterPrompt(from: LetterFrom, handle: string, text: string, head = false): string {
   const who = seatName(from.project, from.title);
+  const reply = head && from.reply !== "none" ? HEAD_REPLY_LINE : REPLY_LINE[from.reply];
   return [
     `<ruri:message from="${who}" agent="${handle}">`,
     text,
     "</ruri:message>",
-    `This came from another agent working in ruri — ${who} — not from the user. ${REPLY_LINE[from.reply]} To message it yourself later, use message_agent with to "${handle}".`,
+    `This came from another agent working in ruri — ${who} — not from the user. ${reply} To message it yourself later, use message_agent with to "${handle}".`,
     ...(from.cutIn ? [CUT_IN_LINE] : []),
+  ].join("\n");
+}
+
+/** ruri's own prompt carrying a chat on with a message after it compacted
+ *  itself in the middle of the job (LetterFrom.carried). */
+export function carriedPrompt(from: LetterFrom, handle: string, text: string): string {
+  const who = seatName(from.project, from.title);
+  return [
+    text,
+    "",
+    `(You are still on the message from ${who} (agent "${handle}") — the job you were doing when you compacted. ${
+      from.reply === "none"
+        ? REPLY_LINE.none
+        : "When it is done, your last words in that turn go back to it as your answer, so end with what it needs."
+    })`,
   ].join("\n");
 }
 
@@ -228,14 +250,28 @@ export function resumePrompt(who: string, running?: string): string {
   return `↩ Back to what you were doing: ${who}'s message interrupted you, and you've dealt with it. Carry on exactly where you left off — whatever the user asked of you before still stands. It was ruri that stopped you, not the user: a tool call that came back rejected or interrupted was not refused, so run it again.${cut}`;
 }
 
-/** An answer coming back to the chat that asked, for its model. */
-export function answerPrompt(from: LetterFrom, handle: string, text: string): string {
+/** An answer coming back to the chat that asked, for its model. `owed`:
+ *  the message the chat sent this one on behalf of, still waiting on it —
+ *  who sent that, and whether other answers for it are still to come. */
+export function answerPrompt(
+  from: LetterFrom,
+  handle: string,
+  text: string,
+  owed?: { who: string; more: boolean },
+): string {
   const who = seatName(from.project, from.title);
   return [
     `<ruri:answer from="${who}" agent="${handle}">`,
     text,
     "</ruri:answer>",
     `That is ${who}'s answer to the message you sent it.`,
+    ...(owed
+      ? [
+          owed.more
+            ? `You sent it for ${owed.who}'s message, which is still waiting on you — and other answers for it are still to come: end this turn short, and answer when the last has landed.`
+            : `You sent it for ${owed.who}'s message, which is still waiting on you: your last words in this turn go back to it as your answer — so end with what it needs (unless you hand more of the job on).`,
+        ]
+      : []),
     ...(from.cutIn ? [CUT_IN_LINE] : []),
   ].join("\n");
 }
@@ -281,6 +317,10 @@ export interface Pending {
   /** Where it has got to in the other chat: waiting in its line, or the
    *  turn it started running. */
   stage: "queued" | "working";
+  /** The message the sender owes an answer to and sent this one on behalf
+   *  of — a lead handing a job on. That one is answered by the turn the
+   *  last such answer starts, not by the turn that handed it on. */
+  for?: string;
   /** The sender's turn that sent it is over (or ruri has been relaunched
    *  since): nothing of it is waiting any more, so the answer goes to its
    *  chat as a message — and it no longer counts as waiting (waitsOn). */
@@ -331,6 +371,7 @@ function parseLetter(raw: unknown): KeptLetter | undefined {
       ? { sender: { project: sender["project"], title: sender["title"] } }
       : {}),
     stage: d["stage"] === "working" ? "working" : "queued",
+    ...(str("for") ? { for: str("for")! } : {}),
     ...(d["released"] === true ? { released: true } : {}),
     ...(ending && OUTCOMES.has(ending["outcome"]) && typeof ending["text"] === "string"
       ? { ending: { outcome: ending["outcome"] as Ending["outcome"], text: ending["text"] } }
@@ -357,6 +398,13 @@ export class TalkBook {
   private readonly settled = new Map<string, string>();
   /** Cards up asking the user whether a message may go, by request id. */
   readonly asks = new Map<string, { from: string; answer: (allow: boolean) => void }>();
+  /** Messages whose turn is ending because the chat compacted itself in
+   *  the middle of the job, and the prompt of that turn: its end does not
+   *  answer them — the turn carrying them on does (carryLetter). */
+  readonly carried = new Map<string, string>();
+  /** Who stopped a chat's turn, when it was not the user — for the sender
+   *  of a message that turn was answering. */
+  readonly stoppedBy = new Map<string, string>();
   /** Handles are made from the chat's id with this, so a handle names a
    *  chat without being its id — the id is what the HTTP endpoint takes
    *  as the right to speak *as* that chat (routes.ts). New every run. */
@@ -420,6 +468,12 @@ export class TalkBook {
     letter.status = status;
     if (note) letter.note = note;
     this.onChange();
+  }
+
+  /** Whether a message still has answers to come back for it: messages
+   *  its receiver sent on its behalf that are not in its hands yet. */
+  outstanding(letterId: string, except?: string): boolean {
+    return [...this.pending.values()].some((p) => p.for === letterId && p.id !== except);
   }
 
   /** Whether a chat is waiting on an answer to a message it sent: a call
@@ -564,18 +618,23 @@ const DELIVERY_DOC =
 const REPLY_DOC =
   'What you get back. By default ("wait") this call waits until that agent has finished the turn your message starts, and returns its answer — its last message. If that takes long, the call returns first with a letter id: call wait_for_answer with it to keep waiting. "later": return at once and keep working; the answer arrives in this chat as a message of its own when it is ready. "none": only when you want the other agent to just do the work in the background and need nothing back — it is told nobody is waiting, and nothing comes back. Unless you say "none", the answer always comes back: if a wait is cut short, stopped or given up, it arrives in this chat as a message instead.';
 
-/** The talk tools, for the `ruri` MCP server a Claude chat gets. */
-export function talkTools(host: TalkHost, channelId: string) {
+const HEAD_REPLY_DOC =
+  'What you get back. For a lead the default is "later": the call returns at once, you end your turn and stay free, and the answer arrives in this chat as a message of its own when the job is done. "wait": this call waits until that agent has finished the turn your message starts and returns its answer — for a quick question whose answer you need before you can go on; if it takes long, the call returns first with a letter id for wait_for_answer. "none": the other agent just does the work and nothing comes back. Unless you say "none", the answer always comes back.';
+
+/** The talk tools, for the `ruri` MCP server a Claude chat gets. `head`:
+ *  the chat is a lead or a liaison, which hands jobs on, and hears back
+ *  "later" unless it says otherwise. */
+export function talkTools(host: TalkHost, channelId: string, head = false) {
   return [
     tool(
       "list_agents",
-      "List the other agents open in ruri that you may message — your project's team, and the lead of every other open project — with each one's handle, its model, and what it is doing right now: idle, or working (for how long, on what, the tool it is running, how many prompts are queued behind it), answering another agent, waiting on an answer, or waiting on the user. Use it to decide whether a message is worth interrupting a chat for. The user decides who you may message.",
+      "List the other agents open in ruri that you may message — your project's team, and every other open project (through its liaison, the lead that takes other projects' messages) — with each one's handle, its model, and what it is doing right now: idle, or working (for how long, on what, the tool it is running, how many prompts are queued behind it), answering another agent, waiting on an answer, or waiting on the user. Use it to decide whether a message is worth interrupting a chat for. The user decides who you may message.",
       {},
       async () => ({ content: [{ type: "text", text: host.list(channelId) }] }),
     ),
     tool(
       "message_agent",
-      'Send a message to another agent open in ruri — a teammate in this project, or another project\'s lead — and get its answer back. It arrives in that chat as a prompt marked as yours. A chat at work is interrupted for it by default (delivery "queue" waits instead). Use it to ask what another agent knows or has done, to hand it something to do in its project, or to tell it something it needs. By default you wait for the answer; say reply "none" only when the other agent should just do the work in the background and you need nothing back. Outside bypass mode the user is asked first, on a card.',
+      'Send a message to another agent open in ruri — a teammate in this project, or another project (its liaison gets it) — and get its answer back. It arrives in that chat as a prompt marked as yours. A chat at work is interrupted for it by default (delivery "queue" waits instead). Use it to ask what another agent knows or has done, to hand it something to do in its project, or to tell it something it needs. By default you wait for the answer; say reply "none" only when the other agent should just do the work in the background and you need nothing back. Outside bypass mode the user is asked first, on a card.',
       {
         to: z.string().describe("The agent's handle from list_agents (or its project and chat name)"),
         message: z
@@ -583,7 +642,10 @@ export function talkTools(host: TalkHost, channelId: string) {
           .describe(
             "What to say. It reads this cold: say who you are working for and what you need, and include anything it cannot know.",
           ),
-        reply: z.enum(["wait", "later", "none"]).optional().describe(REPLY_DOC),
+        reply: z
+          .enum(["wait", "later", "none"])
+          .optional()
+          .describe(head ? HEAD_REPLY_DOC : REPLY_DOC),
         delivery: z.enum(["interrupt", "queue"]).optional().describe(DELIVERY_DOC),
       },
       async (args, extra) => ({
@@ -606,7 +668,7 @@ export function talkTools(host: TalkHost, channelId: string) {
     ),
     tool(
       "ask_project",
-      'Hand a job, or a question, to another project: its lead gets it as a message and hands it on to its own team, and answers the way message_agent does (reply "wait" by default). Any project open in ruri (list_agents lists them), or a folder path, which is opened as a project — its lead new with it — if it isn\'t. Not for your own project: there, message a teammate. Outside bypass mode the user is asked first, on a card.',
+      "Hand a job, or a question, to another project: its liaison — the lead that takes other projects' messages — gets it and hands it on to its own team, and answers the way message_agent does (reply \"wait\" by default). Any project open in ruri (list_agents lists them), or a folder path, which is opened as a project — its lead new with it — if it isn't. Not for your own project: there, message a teammate. Outside bypass mode the user is asked first, on a card.",
       {
         project: z
           .string()
@@ -614,7 +676,7 @@ export function talkTools(host: TalkHost, channelId: string) {
         message: z
           .string()
           .describe(
-            "What the lead reads. It knows nothing of you: say who you are working for, what you need, and anything it cannot find in its folder.",
+            "What its liaison reads. It knows nothing of you: say who you are working for, what you need, and anything it cannot find in its folder.",
           ),
         reply: z.enum(["wait", "later", "none"]).optional().describe(REPLY_DOC),
       },
@@ -646,13 +708,16 @@ export function talkTools(host: TalkHost, channelId: string) {
   ];
 }
 
-/** What a Claude chat is told about the tools. */
-export function talkToolBriefing(): string {
+/** What a Claude chat is told about the tools. `head`: a lead or a
+ *  liaison, whose messages come back "later" unless it says otherwise. */
+export function talkToolBriefing(head = false): string {
   return [
     "<ruri:talk>",
-    "Other agents are working in ruri too — your project's team, and the leads of the user's other open projects — and you can talk to them. mcp__ruri__list_agents shows who you may message and what each is doing right now; mcp__ruri__message_agent sends one a message and brings back its answer; mcp__ruri__ask_project hands a job or a question to another project's lead (or to a folder's, opened as a project first).",
+    "Other agents are working in ruri too — your project's team, and the user's other open projects, each reached through its liaison — and you can talk to them. mcp__ruri__list_agents shows who you may message and what each is doing right now; mcp__ruri__message_agent sends one a message and brings back its answer; mcp__ruri__ask_project hands a job or a question to another project (or to a folder, opened as a project first).",
     'A message interrupts a chat at work by default — it stops, reads yours, and goes back to what it was doing. When list_agents shows it deep in something your message can wait for, send it with delivery "queue".',
-    'The answer comes back unless you ask for none: by default message_agent waits for it (a long job returns first with a letter id — mcp__ruri__wait_for_answer keeps waiting); reply "later" keeps you working and brings the answer to this chat as a message; reply "none" is only for work the other agent should just get on with in the background, with nothing sent back.',
+    head
+      ? 'The answer comes back unless you ask for none: by default — you are a lead — message_agent returns at once and the answer comes to this chat as a message when it is ready ("later"); reply "wait" holds the call for it (a long job returns first with a letter id — mcp__ruri__wait_for_answer keeps waiting); reply "none" is only for work the other agent should just get on with in the background, with nothing sent back.'
+      : 'The answer comes back unless you ask for none: by default message_agent waits for it (a long job returns first with a letter id — mcp__ruri__wait_for_answer keeps waiting); reply "later" keeps you working and brings the answer to this chat as a message; reply "none" is only for work the other agent should just get on with in the background, with nothing sent back.',
     "For the chats in ruri use these tools, not ListAgents or SendMessage: those reach Claude sessions on this machine behind ruri's back — a message waits on another user's approval there, and no answer comes back through ruri.",
     "Reach for it when another agent holds what you need — how its side of an API works, what it just changed, a job that belongs in its project — rather than guessing or doing its work for it. A message arriving from another agent shows up as <ruri:message>: answer it by ending your turn with what it needs.",
     "</ruri:talk>",
@@ -660,24 +725,25 @@ export function talkToolBriefing(): string {
 }
 
 /** The same thing over HTTP, for every other harness. `waitMs` is how
- *  long one call waits on this chat's harness (httpWaitMs). */
-export function talkHttpBriefing(endpoint: string, waitMs = HTTP_WAIT_DEFAULT_MS): string {
+ *  long one call waits on this chat's harness (httpWaitMs); `head`, as for
+ *  the tools. */
+export function talkHttpBriefing(endpoint: string, waitMs = HTTP_WAIT_DEFAULT_MS, head = false): string {
   const slice = Math.round(waitMs / 1000);
   const allow = slice + 10;
   const call = (body: string) =>
     `  curl -s -X POST ${endpoint} -H 'content-type: application/json' -d '${body}'`;
   return [
     "<ruri:talk>",
-    `Other agents are working in ruri too — your project's team, and the leads of the user's other open projects — and you can talk to them, by POSTing JSON to ${endpoint}. Each call answers {"ok": true, "text": "...", ...}; read "text".`,
+    `Other agents are working in ruri too — your project's team, and the user's other open projects, each reached through its liaison — and you can talk to them, by POSTing JSON to ${endpoint}. Each call answers {"ok": true, "text": "...", ...}; read "text".`,
     '  {"do": "list"} — who you may message, each with a handle',
     '  {"do": "list"} also says what each is doing right now — idle, or working (for how long, on what), answering another agent, waiting on the user',
     '  {"do": "send", "to": "<handle>", "message": "...", "reply": "wait", "delivery": "interrupt"} — send one a message',
-    '  {"do": "project", "project": "<open project name, or a folder path>", "message": "...", "reply": "wait"} — hand a job or a question to another project\'s lead (a folder is opened as a project first)',
+    '  {"do": "project", "project": "<open project name, or a folder path>", "message": "...", "reply": "wait"} — hand a job or a question to another project, through its liaison (a folder is opened as a project first)',
     '  {"do": "wait", "letter": "<id>"} — keep waiting on the answer to a message you sent',
     '"delivery": "interrupt" (the default) stops the turn a busy chat is running so it reads yours now, and sends it back to that work after; "queue" waits in its line instead — for when it is deep in something your message can wait for.',
     call('{"do":"list"}'),
-    `"reply" is what you get back. "wait" (the default) waits for the answer — the other agent's last message when it has finished the turn your message starts. One call waits at most ${slice} seconds: if the answer is not in by then it returns "answered": false with the message's "letter" id, and you run {"do": "wait", "letter": "<id>"} — again and again, as long as it takes — to keep waiting. Let every call run ${allow} seconds before your shell gives up on it (set the command's timeout, or yield time, to at least ${allow * 1000} ms), and read what it prints.`,
-    `"later": the call returns at once and you keep working; the answer arrives in this chat as a message when it is ready. "none": only when you want the other agent to just do the work in the background and need nothing back — it is told nobody is waiting, and nothing comes back.`,
+    `"reply" is what you get back. ${head ? 'For you, a lead, "later" is the default — see below. "wait"' : '"wait" (the default)'} waits for the answer — the other agent's last message when it has finished the turn your message starts. One call waits at most ${slice} seconds: if the answer is not in by then it returns "answered": false with the message's "letter" id, and you run {"do": "wait", "letter": "<id>"} — again and again, as long as it takes — to keep waiting. Let every call run ${allow} seconds before your shell gives up on it (set the command's timeout, or yield time, to at least ${allow * 1000} ms), and read what it prints.`,
+    `"later"${head ? " (your default)" : ""}: the call returns at once and you keep working; the answer arrives in this chat as a message when it is ready. "none": only when you want the other agent to just do the work in the background and need nothing back — it is told nobody is waiting, and nothing comes back.`,
     'Unless you say "none", the answer always comes back: if a wait times out, is cut short or you stop waiting, it arrives in this chat as a message instead. Outside bypass mode the user is asked before each message goes.',
     "A message arriving from another agent shows up as <ruri:message>: answer it by ending your turn with what it needs. Keep the endpoint to yourself.",
     "</ruri:talk>",

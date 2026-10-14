@@ -383,7 +383,7 @@ Tags: icon, doodle, art, features
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/981feb09-a71a-4e31-a75a-85be9983f1de-feature-doodles.png
 
 ## team-page — the team page
-The figures button in a project lead's header: the lead's team — each member's state (asleep, working, waiting on an answer, waiting for a slot, waiting on you), duty, layers, context, exchanges, last words — the machine's room for members at work, Compact/Restart/Clear/Retire per member, and outside chats brought in as teammates. Server-fed by team_get/team (server/handlers/team.ts).
+The figures button in a project lead's header: the lead's team — each member's state (asleep, working, waiting on an answer, waiting for a slot, waiting on you), duty, layers, context, exchanges, last words — how many are at work across ruri (and RURI_TEAM_MAX's cap, when set), Compact/Restart/Clear/Retire per member, and outside chats brought in as teammates. Server-fed by team_get/team (server/handlers/team.ts).
 Its files: web/src/components/TeamPage.tsx
 Reaches into: web/src/styles.css, web/src/components/ChatPane.tsx, web/src/store.ts
 Tags: page, team, agents, board

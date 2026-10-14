@@ -16,9 +16,10 @@
  * every exchange on file, a brief of them for a fresh session) and the
  * first thing in its line is a prompt holding the note, telling the fresh
  * session to carry on — nobody has to say a word. A message from another
- * agent that the job was answering is still owed: the prompt carries it
- * (`carries`), and the last words of the turn that finishes the job are
- * its answer (server/handlers/talk.ts talkTurnEnded).
+ * agent that the job was answering is still owed: the turn's end leaves it
+ * to the prompt that carries on (server/handlers/talk.ts carryLetter, its
+ * `from` marked `carried`), and the last words of the turn that finishes
+ * the job are its answer (talkTurnEnded).
  *
  * ruri's own compaction at about four fifths of the window
  * (dispatch.ts autoCompactDue) stays the backstop for an agent that never
@@ -29,12 +30,13 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type { TranscriptEvent } from "../shared/protocol.js";
+import type { LetterFrom, TranscriptEvent } from "../shared/protocol.js";
 import { channelProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import { autoCompactShare, compactChannel } from "./dispatch.js";
 import { HOME_ID } from "./manager.js";
 import type { QueueEntry } from "./queue.js";
+import { owedLetter } from "./handlers/talk.js";
 import { seatName } from "./talk.js";
 import { contextWindow } from "./turns.js";
 
@@ -267,23 +269,16 @@ export function contextReport(ctx: ServerContext, channelId: string): string {
   return standing;
 }
 
-/** The letter the chat's current job answers, if any: the message that
- *  started it, or one a compaction carried into it. */
-function carriedLetter(
-  ctx: ServerContext,
-  channelId: string,
-): { letter: string; who: string; reply: string } | undefined {
-  const prompt = ctx.archive.events(channelId).findLast((event) => event.kind === "user");
-  if (prompt?.kind !== "user") return undefined;
-  const id = prompt.from && !prompt.from.answer ? prompt.from.letter : prompt.carries;
-  const pending = id ? ctx.talk.pending.get(id) : undefined;
-  if (!id || !pending || pending.to !== channelId || pending.ending) return undefined;
+/** The letter the chat's current job answers, if any (owedLetter): the
+ *  message that started it, one a compaction carried into it, or one it
+ *  handed on and is answering through an answer. */
+function carriedLetter(ctx: ServerContext, channelId: string): { who: string; reply: string } | undefined {
+  const pending = owedLetter(ctx, channelId);
+  if (!pending) return undefined;
   const who = pending.sender
     ? seatName(pending.sender.project, pending.sender.title)
-    : prompt.from
-      ? seatName(prompt.from.project, prompt.from.title)
-      : "the agent that messaged you";
-  return { letter: id, who, reply: pending.reply };
+    : "the agent that messaged you";
+  return { who, reply: pending.reply };
 }
 
 /**
@@ -341,8 +336,14 @@ export function continuePrompt(note: string, owed?: { who: string; reply: string
  * own drain sends, into the fresh session — then compactChannel does the
  * rest, saying why in the transcript.
  */
-export function selfCompact(ctx: ServerContext, channelId: string, note: string): void {
-  const owed = carriedLetter(ctx, channelId);
+export function selfCompact(
+  ctx: ServerContext,
+  channelId: string,
+  note: string,
+  /** The letter the job was answering, carried over (carryLetter). */
+  from?: LetterFrom,
+): void {
+  const owed = from ? { who: seatName(from.project, from.title), reply: from.reply } : undefined;
   const tokens = ctx.turns.contexts.get(channelId)?.tokens ?? ctx.archive.contextTokens(channelId) ?? 0;
   const window = contextWindow(ctx, channelId);
   const entry: QueueEntry = {
@@ -350,7 +351,7 @@ export function selfCompact(ctx: ServerContext, channelId: string, note: string)
     text: continuePrompt(note, owed),
     uploads: [],
     silent: false,
-    ...(owed ? { carries: owed.letter } : {}),
+    ...(from ? { from } : {}),
   };
   const queue = ctx.queues.entries.get(channelId) ?? [];
   queue.unshift(entry);

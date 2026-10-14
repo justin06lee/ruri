@@ -17,7 +17,7 @@ import { afterCompactBrief, noteSelfCompaction, recoverLostStart } from "./hando
 import { ensureLibrarySkill, libraryEndpoint } from "./handlers/components.js";
 import { cliEnv, skillDir } from "./library.js";
 import { HOME_ID, managerExtras } from "./manager.js";
-import { talkHost, talkTurnEnded } from "./handlers/talk.js";
+import { carryLetter, talkHost, talkTurnEnded } from "./handlers/talk.js";
 import { teamHost, teamStatus } from "./handlers/team.js";
 import { ParagraphGate } from "./paragraphs.js";
 import {
@@ -30,7 +30,7 @@ import {
 } from "./selfCompaction.js";
 import { SessionManager, type SessionExtras } from "./sessions.js";
 import { httpWaitMs, TALK_TOOLS, talkHttpBriefing, talkToolBriefing, talkTools } from "./talk.js";
-import { leadBriefing, memberBriefing, TEAM_TOOLS, teamTools } from "./team.js";
+import { disallowedFor, leadBriefing, memberBriefing, TEAM_TOOLS, teamTools, type Head } from "./team.js";
 import { contextWindow, pushContexts, pushWork } from "./turns.js";
 
 /**
@@ -86,7 +86,6 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             });
             ctx.clients.broadcast({ type: "stats", projectId: spender, stats: ctx.ledger.stats(spender) });
           }
-          let carried = false;
           if (event.blocked && !event.ok) {
             // the connection or the account let the turn down, and every
             // prompt behind it would meet the same, one after another: the
@@ -107,8 +106,11 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             const due = event.ok && self === undefined ? autoCompactDue(ctx, projectId) : undefined;
             if (self !== undefined) {
               ctx.retries.cancelRetry(projectId);
-              carried = true;
-              setImmediate(() => selfCompact(ctx, projectId, self));
+              // a message the job was answering goes on with it: this turn's
+              // end doesn't answer it (marked now, before talkTurnEnded
+              // below), the fresh session's turn that finishes the job does
+              const from = carryLetter(ctx, projectId);
+              setImmediate(() => selfCompact(ctx, projectId, self, from));
             } else if (due) {
               ctx.retries.cancelRetry(projectId);
               setImmediate(() => compactChannel(ctx, projectId, due));
@@ -119,7 +121,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           }
           // a message from another agent that started this turn is answered
           // by it — read before the next prompt (a microtask away) lands
-          talkTurnEnded(ctx, projectId, event, { carried });
+          talkTurnEnded(ctx, projectId, event);
         }
       },
       onCompacted: (projectId, info) => noteSelfCompaction(ctx, projectId, info),
@@ -226,14 +228,21 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       // which is long before any session is made
       const owner = ownerProject(ctx, project.id);
       const bridgeCtx = { channelId: project.id, projectId: owner?.id ?? project.id };
-      // the project's lead manages its team; every other chat is on it
+      // the project's lead runs its team, and so does its liaison — the lead
+      // other projects' agents reach; every other chat is on it
       const seat = owner?.sessions.find((session) => session.id === project.id);
-      const lead = !!owner && leadOf(owner)?.id === project.id;
+      const head: Head | undefined = !owner
+        ? undefined
+        : seat?.liaison
+          ? "liaison"
+          : leadOf(owner)?.id === project.id
+            ? "lead"
+            : undefined;
       const talkEndpoint = `http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`;
       const team = !owner
         ? ""
-        : lead
-          ? leadBriefing(owner.name, claude ? "tool" : "http", talkEndpoint)
+        : head
+          ? leadBriefing(owner.name, claude ? "tool" : "http", talkEndpoint, head)
           : memberBriefing({
               project: owner.name,
               name: seat?.title ?? "",
@@ -257,7 +266,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         bridge,
         // the other agents open in ruri: tools, or the same over HTTP —
         // told how long one call waits on this harness
-        talk: claude ? talkToolBriefing() : talkHttpBriefing(talkEndpoint, httpWaitMs(harness)),
+        talk: claude ? talkToolBriefing(!!head) : talkHttpBriefing(talkEndpoint, httpWaitMs(harness), !!head),
         team,
         // how full its context is, and compacting itself: the same words
         // in every session, the figures riding in with each prompt
@@ -279,7 +288,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           ...BRIDGE_TOOLS,
           ...TALK_TOOLS,
           ...(owner ? CONTEXT_TOOLS : []),
-          ...(lead ? TEAM_TOOLS : []),
+          ...(head ? TEAM_TOOLS : []),
         ],
         options: {
           // the vault rides into the harness process here, and only here —
@@ -287,14 +296,15 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           env: { ...ctx.secrets.env(), ...cliEnv(libraryEndpoint(ctx, project.id)) },
           mcpServers: {
             ruri: componentTools(ctx.componentHost, project.id, [
-              ...talkTools(talkHost(ctx), project.id),
+              ...talkTools(talkHost(ctx), project.id, !!head),
               ...(owner ? contextTools(ctx, project.id) : []),
-              ...(lead ? teamTools(teamHost(ctx), project.id) : []),
+              ...(head ? teamTools(teamHost(ctx), project.id) : []),
             ]),
             bridge: bridgeTools(ctx.options.bridge, bridgeCtx),
           },
-          // a member has no user to ask: nobody would ever see the card
-          ...(owner && !lead ? { disallowedTools: ["AskUserQuestion"] } : {}),
+          // a lead and the liaison delegate — no writing files, no agents
+          // of their own; a member and the liaison have no user to ask
+          ...(owner ? { disallowedTools: disallowedFor(head ?? "member") } : {}),
           // the component library as a skill, whose list changes and whose
           // description never does (server/library.ts)
           ...(owner

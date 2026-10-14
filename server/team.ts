@@ -1,172 +1,82 @@
 /**
- * A project as a team: one lead the user talks to, and the members it
- * hands work to.
+ * A project as a team: one lead the user talks to, a liaison other
+ * projects' agents talk to, and the members both hand work to.
  *
  * The sidebar used to fill with chats — one per thing the user was doing
  * in a project, each a conversation of its own to find and keep track of.
  * Now a project shows one chat, its lead (always its first session, marked
  * `lead`), and every other chat is a member of its team: a conversation
- * with a duty — a part of the project, usually some of its layers — that
- * keeps what it learns from one job to the next. Members are not in the
+ * with a duty — one layer of the project's stack, as a rule — that keeps
+ * what it learns from one job to the next. Members are not in the
  * sidebar. The lead messages them (server/talk.ts, the same letters every
  * agent sends), they message each other, and the lead looks after them:
- * adds one, widens a duty, compacts, restarts, clears or retires one.
+ * adds one, widens a duty, stops, compacts, refreshes, restarts or retires
+ * one.
+ *
+ * The lead delegates: every task goes to a teammate, and the lead talks
+ * with the user, chooses who does each job, hands it over and relays the
+ * answer — free for the user most of the time. A teammate is made the
+ * first time a job for its layer comes up, never all at once.
+ *
+ * The liaison is a second lead, out of the user's sight (marked `liaison`
+ * on its session): what an agent from another project reaches when it
+ * writes here, made the first time one does. It delegates the way the lead
+ * does, to the same team, but has no user: it answers the agent that
+ * asked.
  *
  * A member asleep costs nothing. Its process closes a moment after its
  * turn ends, as any chat nobody has open does (server/sessions.ts), and a
  * message wakes it on the session it left, with its whole conversation.
- * What a member costs is the process while it works — a few hundred MB of
- * harness and its MCP servers — so how many may work at once follows the
- * memory the machine has free. A message to one beyond that waits in its
- * line, and goes the moment one at work finishes. Nothing is lost; it
- * only waits. A member holding on an answer from another is not counted:
- * its harness is parked in a tool call, and counting it would let two
- * members waiting on each other's teammates hold every slot for good.
+ * Every member may work at once. Only the user's RURI_TEAM_MAX, when set,
+ * caps how many: a message to one beyond it waits in its line, and goes
+ * the moment one at work finishes — and a member holding on an answer from
+ * another is not counted, or two waiting on each other's teammates would
+ * hold every slot for good.
  *
- * This file is the part that needs no server: the machine's memory, the
- * budget, the words the lead and its members read, and the lead's tools.
- * server/handlers/team.ts runs it.
+ * This file is the part that needs no server: the cap, the words the
+ * leads and the members read, and the leads' tools. server/handlers/team.ts
+ * runs it.
  */
-import { execFile, execFileSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { TeamAction } from "../shared/protocol.js";
 
-/** The lead's tools, auto-allowed: they act on the lead's own team. */
+/** The leads' tools, auto-allowed: they act on the project's own team. */
 export const TEAM_TOOLS = [
   "mcp__ruri__team",
   "mcp__ruri__add_teammate",
   "mcp__ruri__update_teammate",
-  "mcp__ruri__reset_teammate",
+  "mcp__ruri__manage_teammate",
   "mcp__ruri__retire_teammate",
 ];
 
-/** What one agent at work is taken to cost before any has been measured:
- *  `claude` idles at about 200 MB and works at 300–400 with its MCP
- *  servers; Codex's app-server is lighter, ACP agents about the same. */
-export const AGENT_BYTES = 350 * 1024 ** 2;
+/**
+ * What a lead or a liaison may not do in a Claude chat: write files, or
+ * start agents of its own. It delegates — the work is its teammates'.
+ * Reading, searching and the shell stay, for looking; and every MCP tool
+ * stays, ruri's own included.
+ */
+export const LEAD_DISALLOWED = ["Edit", "Write", "NotebookEdit", "Task", "Agent"];
 
-/** Memory always left to the user's own apps: this much at least, or this
- *  share of the machine, whichever is more. */
-const RESERVE_MIN = 2 * 1024 ** 3;
-const RESERVE_SHARE = 0.12;
+/** The built-in tools a project's Claude chat may not use, by its place on
+ *  the team: a lead delegates; a member, and the liaison, have no user to
+ *  ask — nobody would ever see the card. Other harnesses are told, in their
+ *  words, but not held to it. */
+export function disallowedFor(role: Head | "member"): string[] {
+  if (role === "lead") return LEAD_DISALLOWED;
+  return role === "liaison" ? [...LEAD_DISALLOWED, "AskUserQuestion"] : ["AskUserQuestion"];
+}
 
-/** How long a reading of the machine's memory stands. */
-const FRESH_MS = 5_000;
-
-/** The most members at work at once, whatever the memory: one per two
- *  cores, between two and six — or the user's RURI_TEAM_MAX. */
-export function teamCap(cores = os.cpus().length): number {
+/** The most members at work at once across ruri: none unless the user
+ *  sets RURI_TEAM_MAX. */
+export function teamCap(): number | undefined {
   const set = Number(process.env["RURI_TEAM_MAX"]);
-  if (Number.isFinite(set) && set >= 1) return Math.floor(set);
-  return Math.max(2, Math.min(6, Math.floor(cores / 2)));
+  return Number.isFinite(set) && set >= 1 ? Math.floor(set) : undefined;
 }
 
-/**
- * How many members may be at work at once: the ones at work now (their
- * memory is already spent, so already out of `available`), and as many
- * more as fit in what is free above the reserve — never more than `cap`,
- * and never none, so a team on a machine short of memory still moves, one
- * member at a time.
- */
-export function slotsFor(input: {
-  availableBytes: number;
-  totalBytes: number;
-  perAgentBytes: number;
-  atWork: number;
-  cap: number;
-}): number {
-  const reserve = Math.max(RESERVE_MIN, input.totalBytes * RESERVE_SHARE);
-  const fit = Math.max(0, Math.floor((input.availableBytes - reserve) / Math.max(1, input.perAgentBytes)));
-  return Math.max(1, Math.min(input.cap, input.atWork + fit));
-}
-
-/**
- * What macOS could hand out now. Its own figure first: the kernel's
- * memory-free level (`kern.memorystatus_level`, a percentage — what
- * `memory_pressure` reports and Activity Monitor's pressure follows), which
- * counts what compression would win back. Failing that, `vm_stat`.
- * Never `os.freemem()`, which there is the free pages alone: on a Mac that
- * has been up an hour, a few hundred MB of a machine with gigabytes to give.
- */
-export function parseLevel(text: string, totalBytes: number): number | undefined {
-  const level = Number(text.trim());
-  return text.trim() !== "" && Number.isFinite(level) && level > 0 && level <= 100
-    ? (level / 100) * totalBytes
-    : undefined;
-}
-
-/** `vm_stat`'s free pages, and the ones macOS gives up the moment anyone
- *  asks — inactive, speculative, purgeable. */
-export function parseVmStat(text: string): number | undefined {
-  const size = Number(/page size of (\d+) bytes/.exec(text)?.[1]);
-  if (!size) return undefined;
-  const pages = (name: string): number => Number(new RegExp(`Pages ${name}:\\s+(\\d+)`).exec(text)?.[1] ?? 0);
-  const total = pages("free") + pages("inactive") + pages("speculative") + pages("purgeable");
-  return total > 0 ? total * size : undefined;
-}
-
-/** Linux says it itself: MemAvailable, in kB. */
-export function parseMeminfo(text: string): number | undefined {
-  const kb = Number(/^MemAvailable:\s+(\d+)\s*kB/m.exec(text)?.[1]);
-  return kb > 0 ? kb * 1024 : undefined;
-}
-
-const LEVEL = ["-n", "kern.memorystatus_level"];
-const QUICK = { encoding: "utf8" as const, timeout: 2_000 };
-
-function readAvailableSync(): number {
-  try {
-    if (process.platform === "linux")
-      return parseMeminfo(fs.readFileSync("/proc/meminfo", "utf8")) ?? os.freemem();
-    if (process.platform === "darwin")
-      return (
-        parseLevel(execFileSync("sysctl", LEVEL, QUICK), os.totalmem()) ??
-        parseVmStat(execFileSync("vm_stat", QUICK)) ??
-        os.freemem()
-      );
-  } catch {
-    // the system's own figure, low as it is on a Mac
-  }
-  return os.freemem();
-}
-
-/** A quick command's output, or nothing when it fails. */
-function output(command: string, args: string[]): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    execFile(command, args, QUICK, (err, stdout) => resolve(err ? undefined : stdout));
-  });
-}
-
-async function readAvailable(): Promise<number> {
-  if (process.platform === "linux") {
-    return fs.promises
-      .readFile("/proc/meminfo", "utf8")
-      .then((text) => parseMeminfo(text) ?? os.freemem())
-      .catch(() => os.freemem());
-  }
-  if (process.platform !== "darwin") return os.freemem();
-  const level = await output("sysctl", LEVEL);
-  const fromLevel = level === undefined ? undefined : parseLevel(level, os.totalmem());
-  if (fromLevel !== undefined) return fromLevel;
-  const vm = await output("vm_stat", []);
-  return (vm === undefined ? undefined : parseVmStat(vm)) ?? os.freemem();
-}
-
-/**
- * The machine's memory as last read, renewed behind the reading when it is
- * older than FRESH_MS — the budget is asked as a message goes out, which
- * must not wait on `vm_stat`. And the members waiting on a slot, oldest
- * first.
- */
+/** The cap, and the members waiting on a slot under it, oldest first. */
 export class TeamGovernor {
-  private available: number;
-  private at = Date.now();
-  private reading = false;
-  readonly totalBytes: number;
-  readonly cap: number;
+  readonly cap: number | undefined;
   /** Members with something waiting on a free slot, oldest first. */
   readonly waiting: string[] = [];
   /** Members a slot has just been handed to, and when: they hold it before
@@ -174,37 +84,9 @@ export class TeamGovernor {
   readonly starting = new Map<string, number>();
   /** The next look at the members waiting, while any are. */
   recheck: NodeJS.Timeout | undefined;
-  private readonly readLater: () => Promise<number>;
 
-  constructor(
-    machine: {
-      /** The memory free now, read as ruri starts. */
-      read?: () => number;
-      /** And again, behind a reading gone stale. */
-      readLater?: () => Promise<number>;
-      totalBytes?: number;
-      cap?: number;
-    } = {},
-  ) {
-    this.available = (machine.read ?? readAvailableSync)();
-    this.readLater = machine.readLater ?? readAvailable;
-    this.totalBytes = machine.totalBytes ?? os.totalmem();
-    this.cap = machine.cap ?? teamCap();
-  }
-
-  availableBytes(): number {
-    if (Date.now() - this.at > FRESH_MS && !this.reading) {
-      this.reading = true;
-      void this.readLater()
-        .then((bytes) => {
-          this.available = bytes;
-          this.at = Date.now();
-        })
-        .finally(() => {
-          this.reading = false;
-        });
-    }
-    return this.available;
+  constructor(opts: { cap?: number | undefined } = {}) {
+    this.cap = "cap" in opts ? opts.cap : teamCap();
   }
 
   wait(chat: string): void {
@@ -217,40 +99,68 @@ export class TeamGovernor {
   }
 }
 
-/** "1.2 GB", "350 MB". */
-export function bytes(n: number): string {
-  return n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 ** 2)} MB`;
-}
+/* ── what the leads and the members read ─────────────────────────── */
 
-/* ── what the lead and its members read ───────────────────────────── */
+/** Which of a project's two leads a chat is: the user's, or the one other
+ *  projects' agents reach. */
+export type Head = "lead" | "liaison";
 
 /**
- * What a lead is told about its team. The same words every time — the
- * roster changes, the system prompt must not, or the provider's cache
- * goes with it — so the team itself is one call away (mcp__ruri__team, or
- * {"do": "team"}).
+ * What a lead — or the liaison — is told about its team and its job. The
+ * same words every time — the roster changes, the system prompt must not,
+ * or the provider's cache goes with it — so the team itself is one call
+ * away (mcp__ruri__team, or {"do": "team"}).
  */
-export function leadBriefing(project: string, via: "tool" | "http", endpoint = ""): string {
+export function leadBriefing(
+  project: string,
+  via: "tool" | "http",
+  endpoint = "",
+  head: Head = "lead",
+): string {
   const call = (tool: string, body: string) => (via === "tool" ? `mcp__ruri__${tool}` : `{"do": ${body}}`);
+  const liaison = head === "liaison";
   return [
     "<ruri:team>",
-    `You are the lead of ${project}: the one agent the user talks to here. ruri gives a project one chat — yours — and a team behind it that only you and they see. Each teammate is a chat of its own with a duty (a part of the project, usually some of its layers), its own conversation, and what it has learned from every job it has done.`,
+    liaison
+      ? `You are the liaison of ${project}: the lead that agents from other projects reach. They write to you, as messages, with jobs and questions for this project. The user never sees this chat and you have no user to ask: the user talks to the project's lead, another chat. You don't do the work yourself — you delegate every task, and your job is choosing who does it: hand it over, follow it up, and answer the agent that asked.`
+      : `You are the lead of ${project}: the one agent the user talks to. You don't do the work yourself — you delegate every task, and your job is choosing who does it: talk with the user, decide whose job each thing is, hand it over, follow it up, and relay the answer. Every task goes to a teammate — features, fixes, investigation, reviews, even reading code to answer a question — so you stay free for the user.`,
+    `The team: one teammate per layer of the project's stack (the layers in this prompt; \`ruri architecture\`), each a chat of its own with that layer as its duty, its own conversation, and what it has learned from every job it has done. A teammate is made the first time a job for its layer comes up — never all at once — and sleeps between jobs at no cost.${
+      liaison ? " It is the lead's team too: you share it." : ""
+    }`,
     ...(via === "http"
       ? [
-          `You manage the team over the same endpoint you message agents on (${endpoint}), with these extra calls:`,
-          '  {"do": "team"} — the roster and the machine',
-          '  {"do": "add", "name": "...", "duty": "...", "layers": ["<handle>"], "model": "<optional>", "message": "<optional first job>", "reply": "wait"}',
+          `You run the team over the same endpoint you message agents on (${endpoint}), with these extra calls:`,
+          '  {"do": "team"} — the roster',
+          '  {"do": "add", "layer": "<handle>", "message": "<the job>"} — a teammate for a layer, with its first job (or "name" and "duty" instead of "layer")',
           '  {"do": "update", "who": "<handle or name>", "name": "...", "duty": "...", "layers": [...]}',
-          '  {"do": "reset", "who": "<handle or name>", "how": "compact" | "restart" | "clear"}',
+          '  {"do": "manage", "who": "<handle or name>", "action": "stop" | "compact" | "refresh" | "restart"}',
           '  {"do": "retire", "who": "<handle or name>"}',
         ]
       : []),
-    `- Hand work to the teammate whose duty it is, with ${call("message_agent", '"send"')} (to: its handle or its name). It wakes for your message, does the job, and its last words come back to you as the answer; then it sleeps — its process closes and costs nothing, and its conversation is kept for the next job. Keep coordination, quick questions and small things for yourself; hand off real work, and hand parallel work to several teammates at once (reply "later" brings each answer here as it lands).`,
-    `- ${call("team", '"team"')} shows the roster — each teammate's handle, duty, layers, state (asleep, working, waiting for a slot…), how full its context is and what it last said — and the machine: the memory free, and how many teammates may work at once.`,
-    `- Add a teammate (${call("add_teammate", '"add"')}) only when no one's duty covers work that will come back. Prefer handing the job to whoever is closest, or widening a duty (${call("update_teammate", '"update"')}). Keep the team small: a handful, each with a clear part of the project — never one per task.`,
-    "- Be easy on the machine. A teammate at work holds a harness process of a few hundred MB, so ruri lets only as many work at once as memory allows; a message beyond that waits in line and starts the moment one finishes — nothing is lost, it waits. Don't wake teammates for nothing, and don't fan one job out to many.",
-    `- Look after their context: ${call("reset_teammate", '"reset"')} compacts one whose context is filling (ruri also compacts on its own past about 80%), restarts one whose process is stuck, or clears one whose conversation has gone wrong — a fresh start that keeps only its name and duty. ${call("retire_teammate", '"retire"')} removes one for good.`,
-    "- Teammates message each other directly, and any of them can ask you. A teammate cannot reach the user; you are their voice. Tell the user what the team is doing in a line or two — they see only you.",
+    "- Read only what you need to choose whom: the catch-up, `ruri architecture`, `ruri layer <handle>`, and the roster. Never open the project's files or run its code to answer something yourself — not even a one-line read: that is a teammate's job. You can't edit files or start agents of your own here.",
+    `- Hand a job over with ${call("message_agent", '"send"')} (to: the teammate's handle, its name, or its layer's handle) — it comes back "later", always, for you: the call returns at once and the answer comes to this chat as a message when the job is done. Then end your turn${
+      liaison ? "" : " with a line to the user on who has it"
+    }. Write the job so it reads cold: what is wanted and why, anything said that matters, and what to report back.`,
+    `- No teammate for that layer yet: ${call("add_teammate", '"add"')} with layer "<handle>" — it takes its name and duty from the layer — and the job as its message, in the same call. A project with no stack: give it a name and a duty for a part of the project, never a single task.`,
+    "- A job across layers goes to the teammate of its main layer, which messages the others itself. Separate jobs go out together, each to its own teammate: every teammate may work at once.",
+    liaison
+      ? "- Answer the agent that asked: when the answers you are waiting on have landed here, your last words in the turn the last one starts go back to it — so end that turn with what it needs. Until then, end each turn short; it keeps waiting. Only a question about the team or the stack itself, which the roster or the sheets answer, is yours to answer at once; anything in the project's files or code goes to a teammate."
+      : "- When an answer lands, relay what the user needs in your own words: what was done, what was found, what is left. If it falls short, hand it back saying what to change.",
+    liaison
+      ? "- You have no user. When a job needs a decision, don't guess and don't look for the user: answer the asking agent with the question — it has a user to ask. Don't hand outside jobs to the lead: it is the user's."
+      : "- Teammates can't reach the user: you are their voice. When one needs a decision, ask the user, and hand the answer back.",
+    `- Run the team. ${call("team", '"team"')} shows each teammate's state, duty, layers, how full its context is and what it last said, which layers have no teammate yet, and what the ${
+      liaison ? "lead" : "liaison"
+    } has going. ${call("message_agent", '"send"')} with delivery "queue" waits behind what a teammate is doing; the default, "interrupt", stops its turn so it reads yours now. ${call(
+      "manage_teammate",
+      '"manage"',
+    )}: "stop" ends the turn it is on and sends nothing new; "compact" condenses its conversation into a brief it goes on from (teammates also compact themselves as their context fills); "refresh" puts a fresh session in its place for the same name, duty and layers — for one gone wrong, or carrying too much; "restart" closes a stuck process and keeps the conversation. ${call(
+      "update_teammate",
+      '"update"',
+    )} widens or narrows a duty; ${call("retire_teammate", '"retire"')} removes a teammate for good.`,
+    liaison
+      ? "- Teammates message each other directly, and can ask you about a job you handed them."
+      : "- Teammates message each other directly, and can ask you. Agents from other projects never reach you: they write to this project's liaison, a second lead out of the user's sight that hands their jobs to the same team.",
     "</ruri:team>",
   ].join("\n");
 }
@@ -270,38 +180,48 @@ export function memberBriefing(input: {
         ? ` Your layers: ${input.layers.join(", ")} — read their sheets (\`ruri layer <handle>\`) before you work there, and keep them true.`
         : ""
     }`,
-    "The user doesn't see this chat. They talk to the project's lead, which hands you work as messages. Do the job, then end your turn with a short report — what you did, what you found, anything left open: that report is your answer, and the only part of your turn the lead reads.",
-    "Never ask the user anything — they can't see you. If you're stuck, say so in your report, or ask the lead or a teammate with message_agent.",
-    "Other teammates own other parts of the project: when you need what one holds — how its side works, a change in its part — message it rather than guessing, and stay in your own part unless the lead hands you more. list_agents shows the team and each one's duty.",
-    "Be easy on the machine — every agent at work is a process of a few hundred MB on the user's computer: don't start agents of your own (the Task tool) unless the job truly splits, and never many at once.",
+    "The user doesn't see this chat. Work comes to you as messages — from the project's lead, which the user talks to; from its liaison, which takes jobs from other projects' agents; or from a teammate. Do the job, then end your turn with a short report — what you did, what you found, anything left open: that report is your answer, and the only part of your turn the sender reads.",
+    "Never ask the user anything — they can't see you. If you're stuck, say so in your report, or ask whoever handed you the job, or a teammate, with message_agent.",
+    "Other teammates own other parts of the project, one layer each: when a job reaches into another's layer, message the teammate who owns it (list_agents shows the team and each one's duty) rather than guessing or working there yourself — and if no one holds that layer yet, ask whoever handed you the job to add one. Stay in your own part unless you're handed more.",
     "Between jobs you sleep: your process closes, and your conversation is kept for the next message.",
     "</ruri:team>",
   ].join("\n");
 }
 
-/* ── the lead's tools ─────────────────────────────────────────────── */
+/* ── the leads' tools ─────────────────────────────────────────────── */
 
-/** What the lead's tools do, with the server behind them. */
+/** What a teammate's session can be told to do, from the tools: stop the
+ *  turn it is on, compact, refresh ("clear", its old name), restart. */
+export type ManageAction = Exclude<TeamAction, "retire">;
+
+/** A new teammate: for a layer of the stack, or by name and duty. */
+export interface AddArgs {
+  /** A layer's handle: the teammate's name and duty come from the layer. */
+  layer?: string;
+  name?: string;
+  duty?: string;
+  layers?: string[];
+  model?: string;
+  message?: string;
+  /** A lead's hand-offs come back "later" ("wait" is taken as that). */
+  reply?: "wait" | "later" | "none";
+}
+
+/** What the leads' tools do, with the server behind them. `headId` is the
+ *  lead or the liaison calling. */
 export interface TeamHost {
-  /** The roster and the machine, in words. */
-  roster(leadId: string): string;
+  /** The roster, in words. */
+  roster(headId: string): string;
   add(
-    leadId: string,
-    args: {
-      name: string;
-      duty: string;
-      layers?: string[];
-      model?: string;
-      message?: string;
-      reply?: "wait" | "later" | "none";
-    },
+    headId: string,
+    args: AddArgs,
     /** How a first message's answer is waited on: the tool call's own
      *  cancellation, or an HTTP call's (and its harness's shorter slice). */
     wait?: { signal?: AbortSignal; via?: "tool" | "http"; waitMs?: number },
   ): Promise<string>;
-  update(leadId: string, args: { who: string; name?: string; duty?: string; layers?: string[] }): string;
-  reset(leadId: string, who: string, how: Exclude<TeamAction, "retire">): string;
-  retire(leadId: string, who: string): string;
+  update(headId: string, args: { who: string; name?: string; duty?: string; layers?: string[] }): string;
+  manage(headId: string, who: string, action: ManageAction): string;
+  retire(headId: string, who: string): string;
 }
 
 function signalOf(extra: unknown): AbortSignal | undefined {
@@ -311,51 +231,61 @@ function signalOf(extra: unknown): AbortSignal | undefined {
 
 const text = (said: string) => ({ content: [{ type: "text" as const, text: said }] });
 
-const WHO = z.string().describe("The teammate's handle (from team or list_agents) or its name");
+const WHO = z
+  .string()
+  .describe("The teammate's handle (from team or list_agents), its name, or its layer's handle");
 
-/** The lead's tools, for the `ruri` MCP server its Claude chat gets. */
-export function teamTools(host: TeamHost, leadId: string) {
+/** The leads' tools, for the `ruri` MCP server a lead's or liaison's Claude
+ *  chat gets. */
+export function teamTools(host: TeamHost, headId: string) {
   return [
     tool(
       "team",
-      "Your team: each teammate's handle, name, duty and layers, its state right now (asleep — no process, costs nothing; working; waiting on an answer; queued for a free slot; waiting on the user), how full its context is, when it last worked and the start of what it last said — and the machine: memory free, what an agent at work costs, and how many teammates may work at once.",
+      "Your team: each teammate's handle, name, duty and layers, its state right now (asleep — no process, costs nothing; working; waiting on an answer; waiting on the user), how full its context is, when it last worked and the start of what it last said — the stack's layers that have no teammate yet — and what the project's other lead (the lead, or the liaison other projects' agents reach) has going.",
       {},
-      async () => text(host.roster(leadId)),
+      async () => text(host.roster(headId)),
     ),
     tool(
       "add_teammate",
-      "Add a teammate: a new persistent chat in this project with a name and a duty, out of the user's sight, that sleeps between jobs and keeps its conversation. Only when no one's duty covers work that will come back — prefer handing work to an existing teammate or widening its duty. With a message, it starts on that at once and answers the way message_agent does.",
+      "Add a teammate: a persistent chat in this project, out of the user's sight, that sleeps between jobs and keeps its conversation. As a rule one per layer of the stack, made the first time a job for that layer comes up: give the layer's handle and it takes its name and duty from the layer. A project with no stack: a name and a duty. With a message it starts on that job at once, and its answer comes here as a message when the job is done.",
       {
+        layer: z
+          .string()
+          .optional()
+          .describe(
+            "The handle of the layer it owns (from the stack, `ruri architecture`): its name and duty come from the layer",
+          ),
         name: z
           .string()
-          .describe('What to call it, by what it looks after: "UI", "Linux port", "Compaction"'),
+          .optional()
+          .describe('Without a layer: what to call it, by what it looks after — "UI", "Linux port"'),
         duty: z
           .string()
+          .optional()
           .describe(
-            "What it owns and does, in a sentence or two — it reads this as its standing brief, so say where its part of the project is",
+            "Without a layer: what it owns and does, in a sentence or two — it reads this as its standing brief, so say where its part of the project is",
           ),
         layers: z
           .array(z.string())
           .optional()
-          .describe(
-            "Handles of the layers it owns, from the stack (ruri architecture), when the project has one",
-          ),
+          .describe("More layers' handles it owns besides `layer`, when one teammate should hold several"),
         model: z.string().optional().describe("A model for it, by name or id; the project's own by default"),
-        message: z.string().optional().describe("Its first job, if it has one now"),
+        message: z.string().optional().describe("Its first job — the one it is being added for"),
         reply: z
-          .enum(["wait", "later", "none"])
+          .enum(["later", "none"])
           .optional()
           .describe(
-            'With a message: wait for the answer (default), "later" to have it come here as a message, or "none"',
+            'With a message: "later" (the default) has the answer come here as a message when the job is done; "none" wants nothing back',
           ),
       },
       async (args, extra) =>
         text(
           await host.add(
-            leadId,
+            headId,
             {
-              name: args.name,
-              duty: args.duty,
+              ...(args.layer ? { layer: args.layer } : {}),
+              ...(args.name ? { name: args.name } : {}),
+              ...(args.duty ? { duty: args.duty } : {}),
               ...(args.layers ? { layers: args.layers } : {}),
               ...(args.model ? { model: args.model } : {}),
               ...(args.message ? { message: args.message } : {}),
@@ -367,7 +297,7 @@ export function teamTools(host: TeamHost, leadId: string) {
     ),
     tool(
       "update_teammate",
-      "Change a teammate's name, duty or layers — to widen a duty rather than add someone, or narrow one that has sprawled. Its next session reads the new ones.",
+      "Change a teammate's name, duty or layers — to widen a duty, or narrow one that has sprawled. Its next session reads the new ones.",
       {
         who: WHO,
         name: z.string().optional(),
@@ -376,7 +306,7 @@ export function teamTools(host: TeamHost, leadId: string) {
       },
       async (args) =>
         text(
-          host.update(leadId, {
+          host.update(headId, {
             who: args.who,
             ...(args.name ? { name: args.name } : {}),
             ...(args.duty ? { duty: args.duty } : {}),
@@ -385,16 +315,16 @@ export function teamTools(host: TeamHost, leadId: string) {
         ),
     ),
     tool(
-      "reset_teammate",
-      'Look after a teammate\'s session. "compact": condense its conversation into a brief and go on from that in a fresh session — for a context filling up (ruri also does this on its own past about 80%). "restart": close its process, stopping a turn it is stuck in; the conversation is kept and the next message resumes it. "clear": throw its conversation away and start it fresh, keeping only its name, duty and layers — for one that has gone wrong; it gets a new handle.',
-      { who: WHO, how: z.enum(["compact", "restart", "clear"]) },
-      async (args) => text(host.reset(leadId, args.who, args.how)),
+      "manage_teammate",
+      'Act on a teammate\'s session. "stop": end the turn it is on, sending nothing new — a message it was answering is told so; anything waiting in its line goes on after. "compact": condense its conversation into a brief and go on from that in a fresh session — at once when it is asleep, the moment its turn ends when it is at work. "refresh": a fresh session in its place with the same name, duty and layers and nothing else — for one gone wrong, or carrying too much; it gets a new handle, and messages waiting for it move to the new one. ("clear" is the old name for refresh.) "restart": close its process, stopping a turn it is stuck in; the conversation is kept, and the next message resumes it. To queue a message behind its work or interrupt it, use message_agent\'s delivery.',
+      { who: WHO, action: z.enum(["stop", "compact", "refresh", "restart", "clear"]) },
+      async (args) => text(host.manage(headId, args.who, args.action)),
     ),
     tool(
       "retire_teammate",
       "Remove a teammate for good: its process, its conversation and its place on the team. What it learned that matters is already in the project's memory.",
       { who: WHO },
-      async (args) => text(host.retire(leadId, args.who)),
+      async (args) => text(host.retire(headId, args.who)),
     ),
   ];
 }

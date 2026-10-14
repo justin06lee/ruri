@@ -46,7 +46,8 @@ export type ModelRole = "small" | "default" | "memory";
  * A project is a team (server/team.ts): its lead — always its first
  * session — is the one chat the user sees and talks to, and every other
  * session is a member the lead hands work to, out of the sidebar, asleep
- * between jobs.
+ * between jobs — but one: its liaison, a second lead out of the user's
+ * sight that other projects' agents reach, made the first time one writes.
  */
 export interface SessionInfo {
   id: string;
@@ -55,6 +56,9 @@ export interface SessionInfo {
   title?: string;
   /** The project's lead: the chat the user talks to. */
   lead?: boolean;
+  /** The project's liaison: the lead other projects' agents talk to. Not
+   *  a member, never in the sidebar; it hands work to the same team. */
+  liaison?: boolean;
   /** A member's duty: what part of the project it looks after, in the
    *  lead's words. */
   duty?: string;
@@ -71,10 +75,11 @@ export interface SessionInfo {
 
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 
-/** What can be done to a member: its process closed (the conversation
- *  kept), its conversation compacted, cleared (a fresh start that keeps
- *  only its duty), or the member retired. */
-export type TeamAction = "restart" | "compact" | "clear" | "retire";
+/** What can be done to a member: its running turn stopped, its process
+ *  closed (the conversation kept), its conversation compacted, refreshed (a
+ *  fresh session that keeps only its name, duty and layers — "clear" is the
+ *  old name for it), or the member retired. */
+export type TeamAction = "stop" | "restart" | "compact" | "refresh" | "clear" | "retire";
 
 /** Reasoning-effort levels, yagami's shared vocabulary: Claude takes them
  *  natively, Codex maps them to model_reasoning_effort; harnesses without
@@ -122,9 +127,18 @@ export function leadOf(project: Pick<Project, "sessions">): SessionInfo | undefi
   return project.sessions.find((session) => session.lead) ?? project.sessions[0];
 }
 
-/** Whether a session is one of its project's members, not its lead. */
+/** Whether a session is one of its project's members, not its lead or
+ *  its liaison. */
 export function isMember(project: Pick<Project, "sessions">, sessionId: string): boolean {
-  return leadOf(project)?.id !== sessionId && project.sessions.some((session) => session.id === sessionId);
+  return (
+    leadOf(project)?.id !== sessionId &&
+    project.sessions.some((session) => session.id === sessionId && !session.liaison)
+  );
+}
+
+/** A project's liaison, once an outside agent has written to it. */
+export function liaisonOf(project: Pick<Project, "sessions">): SessionInfo | undefined {
+  return project.sessions.find((session) => session.liaison);
 }
 
 /** How a member stands right now, as the team page shows it. */
@@ -136,7 +150,8 @@ export type MemberState =
   | "working"
   /** In a turn, but holding on an answer from another agent. */
   | "waiting"
-  /** Something for it is waiting on a free slot (TeamBudget). */
+  /** Something for it is waiting on a free slot (TeamBudget: only ever
+   *  with RURI_TEAM_MAX set). */
   | "queued"
   /** Waiting on the user at a card. */
   | "permission";
@@ -160,24 +175,18 @@ export interface TeamMember {
 }
 
 /**
- * How many members may work at once across ruri, and why: each at work
- * holds a harness process of a few hundred MB, so the number follows the
- * memory the machine has free (server/team.ts).
+ * Members at work across ruri. Every member may work at once; only the
+ * user's RURI_TEAM_MAX, when set, caps them (server/team.ts).
  */
 export interface TeamBudget {
-  /** Members that may be at work at once right now. */
-  slots: number;
   /** Members at work now (not counting ones holding on an answer). */
   atWork: number;
-  /** Members waiting on a slot, oldest first (their chat ids). */
+  /** Members waiting on a slot, oldest first (their chat ids) — only ever
+   *  with a cap. */
   waiting: string[];
-  availableBytes: number;
-  totalBytes: number;
-  /** What one agent at work is taken to cost. */
-  perAgentBytes: number;
-  /** The most there may ever be, whatever the memory (cores, or the
-   *  user's RURI_TEAM_MAX). */
-  cap: number;
+  /** The most that may work at once, when RURI_TEAM_MAX sets it; unset,
+   *  there is no limit. */
+  cap?: number;
 }
 
 export type ProjectStatus = "idle" | "working" | "permission" | "error";
@@ -765,10 +774,18 @@ export interface LetterFrom {
   /** It stopped the turn the chat was running to be read — so the model is
    *  told to take up what it was doing again once it has dealt with this. */
   cutIn?: boolean;
+  /** With `answer`: the message the chat it comes back to owes an answer
+   *  to, which it sent this one on behalf of — a lead that handed a job
+   *  on answers it in the turn the last such answer starts. */
+  owes?: string;
+  /** ruri's own prompt carrying the chat on with this message after it
+   *  compacted itself mid-job: its last words, when the job is done, are
+   *  still the answer. */
+  carried?: boolean;
 }
 
 /** Which other projects a project's agents may reach (through each one's
- *  lead): any, only those listed, or none. Its own team may always talk. */
+ *  liaison): any, only those listed, or none. Its own team may always talk. */
 export interface TalkRule {
   to: "anyone" | "listed" | "nobody";
   projects: string[];
@@ -1086,10 +1103,6 @@ export type TranscriptEvent =
       attachments?: Attachment[];
       /** Sent by another agent, not typed by the user (server/talk.ts). */
       from?: LetterFrom;
-      /** ruri's prompt carrying on after the chat compacted itself in the
-       *  middle of answering a message (server/selfCompaction.ts): that
-       *  message's letter id, which this turn's last words now answer. */
-      carries?: string;
       ts: number;
     }
   | { kind: "assistant"; id: string; text: string; ts: number }

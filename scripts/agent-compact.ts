@@ -4,8 +4,10 @@
  * Real turns (haiku), on a temp project, with the compaction point set
  * just above what a first small turn holds — so a job that reads four big
  * files crosses it in the middle:
- *   1. the lead, on the user's prompt: told mid-turn it is past its point,
- *      it writes its handoff note and calls mcp__ruri__compact; ruri
+ *   1. a chat on a plain prompt — a teammate, the job typed into its chat
+ *      (the lead delegates, and reads no files itself): told mid-turn it is
+ *      past its point, it writes its handoff note and calls
+ *      mcp__ruri__compact; ruri
  *      compacts it when the turn ends, and the fresh session — sent the
  *      note, with no word from the user — finishes the job, every file's
  *      codeword in its answer and in the file it was keeping;
@@ -202,24 +204,46 @@ check(
 console.log(`    context ${base} after a first turn; compaction point set at ${point}`);
 
 if (!process.env["AGENT_COMPACT_SKIP_CLAUDE"]) {
-  /* ── 1. the lead, on the user's prompt ───────────────────────────────── */
+  /* ── 1. a chat on a plain prompt ───────────────────────────────────── */
 
-  const leadTurns = results(lead.id);
-  send({ type: "send", projectId: lead.id, text: job("lead", "lead/answers.txt") });
+  // the lead delegates every job, so the reading goes to a teammate — typed
+  // straight into its chat, a prompt like the user's, no letter to carry
+  const keeperAdded = await talkCall(lead.id, {
+    do: "add",
+    name: "Keeper",
+    duty: "keeps the ledgers in lead/",
+    model: MODEL,
+  });
+  check("a teammate for the job is added", Boolean(keeperAdded?.text.includes("Added Keeper")), keeperAdded);
+  await until("Keeper", () => Boolean(ours()?.sessions.find((s) => s.title === "Keeper")), 10_000);
+  const keeper = ours()?.sessions.find((s) => s.title === "Keeper");
+  if (!keeper) cleanup(1);
+  send({ type: "view", channels: [lead.id, keeper.id], live: true });
+  await settle(500);
+  send({ type: "send", projectId: keeper.id, text: "Reply with just the word ready. No tools." });
+  await until("Keeper's first turn", () => results(keeper.id) >= 1, 240_000);
+  await settle(500);
+  const keeperPoint = Math.max(point, (contexts[keeper.id]?.tokens ?? base) + HEADROOM);
+  send({ type: "set_pref", key: "ruri-self-compact-at", value: String(keeperPoint) });
+  await settle(500);
+  console.log(`    Keeper's context ${contexts[keeper.id]?.tokens}; compaction point set at ${keeperPoint}`);
+
+  const keeperTurns = results(keeper.id);
+  send({ type: "send", projectId: keeper.id, text: job("lead", "lead/answers.txt") });
   await until(
-    "the lead to finish the job",
-    () => results(lead.id) > leadTurns && finished(lead.id, WORDS[0]!),
+    "Keeper to finish the job",
+    () => results(keeper.id) > keeperTurns && finished(keeper.id, WORDS[0]!),
     1_200_000,
   );
   await settle(1500);
-  const one = compaction(lead.id);
+  const one = compaction(keeper.id);
   console.log(
-    `    the lead compacted itself ${one.info.length} time(s); its context went ${(readings[lead.id] ?? []).map((t) => Math.round(t / 1000)).join(" → ")}k`,
+    `    Keeper compacted itself ${one.info.length} time(s); its context went ${(readings[keeper.id] ?? []).map((t) => Math.round(t / 1000)).join(" → ")}k`,
   );
   check(
-    "the lead called compact with its note",
+    "the chat called compact with its note",
     one.called.length > 0,
-    (events[lead.id] ?? []).flatMap((e) => (e.kind === "tool" ? [e.name] : [])),
+    (events[keeper.id] ?? []).flatMap((e) => (e.kind === "tool" ? [e.name] : [])),
   );
   check(
     "ruri compacted it each time, says so in the transcript, and the context fell back",
@@ -227,7 +251,7 @@ if (!process.env["AGENT_COMPACT_SKIP_CLAUDE"]) {
     { info: one.info.length, marks: one.marks, fell: one.fell },
   );
   check(
-    "each fresh session was sent the lead's note, with no word from the user",
+    "each fresh session was sent its note, with no word from the user",
     one.carry.length === one.info.length &&
       one.carry.every((e) => e.kind === "user" && e.text.includes("<handoff-note>")) &&
       one.unprompted,
@@ -242,9 +266,9 @@ if (!process.env["AGENT_COMPACT_SKIP_CLAUDE"]) {
     leadFile,
   );
   check(
-    "and in the lead's last answer",
-    WORDS[0]!.every((w) => lastSaid(lead.id).includes(w)),
-    lastSaid(lead.id),
+    "and in its last answer",
+    WORDS[0]!.every((w) => lastSaid(keeper.id).includes(w)),
+    lastSaid(keeper.id),
   );
   const firstNote = one.carry[0];
   if (firstNote?.kind === "user")

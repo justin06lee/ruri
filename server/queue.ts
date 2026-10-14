@@ -39,9 +39,6 @@ export interface QueueEntry {
   combined?: { into: QueueEntry; from: QueueEntry; fromAfter: string[] };
   /** A message from another agent (server/talk.ts), not the user's. */
   from?: LetterFrom;
-  /** ruri's prompt carrying on after a self-compaction, still owing the
-   *  answer to this letter (TranscriptEvent "user" carries). */
-  carries?: string;
   /** It cut in: it stopped the turn that was running and went to the head
    *  of the line — where the next to cut in lines up behind it, not ahead. */
   cut?: boolean;

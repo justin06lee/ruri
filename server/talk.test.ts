@@ -12,6 +12,7 @@ import type {
 import type { ServerContext } from "./context.js";
 import {
   answerTalk,
+  carryLetter,
   listSeats,
   restoreTalk,
   sendLetter,
@@ -176,15 +177,27 @@ function world(
   /** Another run's archive, for a relaunch: transcripts outlive the process. */
   events: Record<string, TranscriptEvent[]> = {},
 ) {
+  // a and c are members; b is api's liaison — the chat other projects'
+  // agents reach — and each project has its lead, the user's
   const projects: Project[] = [
-    { id: "p", name: "web", path: "/tmp/web", sessions: [{ id: "a", title: "Frontend" }] },
+    {
+      id: "p",
+      name: "web",
+      path: "/tmp/web",
+      sessions: [
+        { id: "web-lead", title: "Lead", lead: true },
+        { id: "a", title: "Frontend" },
+      ],
+    },
     {
       id: "q",
       name: "api",
       path: "/tmp/api",
       sessions: [
-        { id: "b", title: "Backend" },
+        { id: "api-lead", title: "Lead", lead: true },
+        { id: "b", title: "Backend", liaison: true },
         { id: "c", title: "Docs" },
+        { id: "d", title: "Tests" },
       ],
     },
   ];
@@ -203,8 +216,19 @@ function world(
         projects.find((p) => p.id === q || p.path === q || p.name.toLowerCase() === q.toLowerCase()),
       findByPath: (dir: string) => projects.find((p) => p.path === dir),
       sessionIds: () => projects.flatMap((p) => p.sessions.map((s) => s.id)),
-      // a project's first chat is its lead; the rest are its team
-      isMember: (id: string) => projects.some((p) => p.sessions.findIndex((s) => s.id === id) > 0),
+      // a project's first chat is its lead; the rest are its team, but
+      // for its liaison
+      isMember: (id: string) =>
+        projects.some((p) => p.sessions.findIndex((s) => s.id === id && !s.liaison) > 0),
+      get: (id: string) => projects.find((p) => p.id === id),
+      liaison: (projectId: string) => {
+        const project = projects.find((p) => p.id === projectId)!;
+        const had = project.sessions.find((s) => s.liaison);
+        if (had) return had;
+        const made = { id: `liaison-${projectId}`, title: "Liaison", liaison: true };
+        project.sessions.splice(1, 0, made);
+        return made;
+      },
       defaultModel: () => "sonnet",
       findSession: (id: string) => {
         for (const project of projects) {
@@ -219,8 +243,13 @@ function world(
     permissions: new Map<string, PermissionRequest>(),
     clients: { broadcast },
     queues: new SendQueues(broadcast),
-    manager: { statuses: () => statuses, interrupt: (id: string) => interrupted.push(id), live: () => false },
-    governor: new TeamGovernor({ read: () => 64 * 1024 ** 3, totalBytes: 128 * 1024 ** 3, cap: 4 }),
+    manager: {
+      // a chat made on the way — a project's liaison — is at a card too
+      statuses: () => new Proxy(statuses, { get: (all, id: string) => all[id] ?? "permission" }),
+      interrupt: (id: string) => interrupted.push(id),
+      live: () => false,
+    },
+    governor: new TeamGovernor({ cap: 4 }),
     meters: { latest: () => undefined },
     archive: { events: (id: string) => events[id] ?? [] },
     turns: { work: new Map(), progress: new Map() },
@@ -271,7 +300,7 @@ describe("a message", () => {
   test("in bypass mode it goes straight into the other chat's line, marked as whose", async () => {
     const { ctx } = world();
     const sent = await sendLetter(ctx, "a", { to: "api · backend", message: "hello", reply: "later" });
-    expect(sent.text).toContain("Sent to api · Backend");
+    expect(sent.text).toContain("Sent to api's liaison");
     const queued = ctx.queues.entries.get("b")!;
     expect(queued).toHaveLength(1);
     expect(queued[0]!.from).toMatchObject({
@@ -288,21 +317,34 @@ describe("a message", () => {
   test("it finds the other chat by its handle too", async () => {
     const { ctx } = world();
     const handle = ctx.talk.handleOf("b");
-    expect(listSeats(ctx, "a")).toContain(`${handle}  the lead`);
+    expect(listSeats(ctx, "a")).toContain(`${handle}  its liaison`);
     await sendLetter(ctx, "a", { to: handle, message: "hi", reply: "none" });
     expect(ctx.queues.entries.get("b")).toHaveLength(1);
-    // one on another project's team is out of reach, even by its handle:
-    // a project is talked to through its lead
+    // one on another project's team is out of reach, even by its handle —
+    // and so is its lead: a project is talked to through its liaison
     expect(listSeats(ctx, "a")).not.toContain(ctx.talk.handleOf("c"));
     const sent = await sendLetter(ctx, "a", { to: ctx.talk.handleOf("c"), message: "hi", reply: "none" });
     expect(sent.text).toContain("No agent answers");
     expect(ctx.queues.entries.get("c")).toBeUndefined();
   });
 
-  test("a project by its name alone is its lead", async () => {
+  test("a project by its name alone — or by its lead's handle — is its liaison", async () => {
     const { ctx } = world();
     await sendLetter(ctx, "a", { to: "api", message: "hello", reply: "none" });
     expect(ctx.queues.entries.get("b")).toHaveLength(1);
+    await sendLetter(ctx, "a", { to: ctx.talk.handleOf("api-lead"), message: "again", reply: "none" });
+    expect(ctx.queues.entries.get("b")).toHaveLength(2);
+    expect(ctx.queues.entries.get("api-lead")).toBeUndefined();
+  });
+
+  test("a project with no liaison yet gets one, the first time an agent from another writes", async () => {
+    const { ctx, projects } = world();
+    expect(listSeats(ctx, "c")).toContain("made when you first write");
+    const sent = await sendLetter(ctx, "c", { to: "web", message: "hello", reply: "none" });
+    expect(sent.text).toContain("Sent to web's liaison");
+    expect(projects[0]!.sessions[1]).toMatchObject({ id: "liaison-p", liaison: true });
+    expect(ctx.queues.entries.get("liaison-p")).toHaveLength(1);
+    expect(ctx.queues.entries.get("web-lead")).toBeUndefined();
   });
 
   test("outside bypass mode it waits on the user's card", async () => {
@@ -335,7 +377,7 @@ describe("a message", () => {
     expect(listSeats(ctx, "a")).toContain("1 other project is off limits");
     expect(listSeats(ctx, "a")).not.toContain("Backend");
     // api's own rule lets it out; its team talks among itself either way
-    expect((await sendLetter(ctx, "c", { to: "Frontend", message: "y", reply: "none" })).text).toContain(
+    expect((await sendLetter(ctx, "c", { to: "web", message: "y", reply: "none" })).text).toContain(
       "Sent to",
     );
     ctx.talk.setPolicy({ everyone: { to: "nobody", projects: [] }, projects: {} });
@@ -392,14 +434,21 @@ describe("a message", () => {
 
   test("two chats waiting on each other is refused", async () => {
     const { ctx, arrive } = world();
-    void sendLetter(ctx, "a", { to: "Backend", message: "q" });
-    arrive("b");
-    const text = (await sendLetter(ctx, "b", { to: "Frontend", message: "q back?" })).text;
+    void sendLetter(ctx, "c", { to: "Tests", message: "q" });
+    arrive("d");
+    const text = (await sendLetter(ctx, "d", { to: "Docs", message: "q back?", reply: "wait" })).text;
     expect(text).toContain("waiting on your answer");
     // later is fine: nobody holds anybody
-    expect((await sendLetter(ctx, "b", { to: "Frontend", message: "fyi", reply: "later" })).text).toContain(
+    expect((await sendLetter(ctx, "d", { to: "Docs", message: "fyi", reply: "later" })).text).toContain(
       "Sent to",
     );
+  });
+
+  test("a lead — here, the liaison — never holds for an answer: what it sends comes back later", async () => {
+    const { ctx } = world();
+    const sent = await sendLetter(ctx, "b", { to: "Docs", message: "q", reply: "wait" });
+    expect(sent.text).toContain('a lead\'s hand-offs always come back "later"');
+    expect(ctx.talk.pending.get(sent.letter!)?.reply).toBe("later");
   });
 
   test("it stops being passed on past the depth cap", async () => {
@@ -432,21 +481,25 @@ describe("a chat that compacts itself in the middle of a message", () => {
   test("answers it with the last words of the turn that finishes the job, in the fresh session", async () => {
     const { ctx, events, arrive, speak, answer } = world();
     const sent = sendLetter(ctx, "a", { to: "Backend", message: "a long job" }, { waitMs: 5_000 });
-    const letter = arrive("b");
-    // the turn that asked to be compacted ends: no answer yet
+    arrive("b");
+    // the turn that asked to be compacted ends: the letter is carried over
+    // (chats.ts, before talkTurnEnded), and no answer goes yet
     speak("b", "Compacting now.");
-    talkTurnEnded(ctx, "b", { kind: "result", id: "r1", ok: true, ts: 3 }, { carried: true });
+    const from = carryLetter(ctx, "b");
+    expect(from?.carried).toBe(true);
+    talkTurnEnded(ctx, "b", { kind: "result", id: "r1", ok: true, ts: 3 });
     expect(ctx.talk.pending.size).toBe(1);
-    // the fresh session's prompt carries the letter
-    const id = letter.kind === "user" ? letter.from!.letter : "";
+    // the fresh session's prompt carries the letter on
     events["b"] = [
       { kind: "compaction", id: "m", text: "brief", entries: [], ts: 4 },
-      { kind: "user", id: "u2", text: "↻ carry on", carries: id, ts: 5 },
+      { kind: "user", id: "u2", text: "↻ carry on", from: from!, ts: 5 },
     ];
     // and its turn's last words are the answer — or, compacting again, not yet
     speak("b", "Compacting again.");
-    talkTurnEnded(ctx, "b", { kind: "result", id: "r2", ok: true, ts: 6 }, { carried: true });
+    carryLetter(ctx, "b");
+    talkTurnEnded(ctx, "b", { kind: "result", id: "r2", ok: true, ts: 6 });
     expect(ctx.talk.pending.size).toBe(1);
+    events["b"]!.push({ kind: "user", id: "u3", text: "↻ carry on", from: from!, ts: 7 });
     answer("b", "All done: the job's report.");
     expect(await sent).toMatchObject({
       text: "api · Backend answered:\n\nAll done: the job's report.",
@@ -683,7 +736,7 @@ describe("a message cuts in on a chat at work", () => {
 
     // c sends with "wait"; its slice runs out, but its turn is still on it
     statuses["c"] = "working";
-    await sendLetter(ctx, "c", { to: "Frontend", message: "tell me when", reply: "wait" }, { waitMs: 5 });
+    await sendLetter(ctx, "c", { to: "web", message: "tell me when", reply: "wait" }, { waitMs: 5 });
     interrupted.length = 0;
     await sendLetter(ctx, "b", { to: "Docs", message: "a word", reply: "later" });
     expect(interrupted).toEqual([]);
@@ -734,15 +787,15 @@ describe("an agent deciding who to disturb, and handing jobs to other projects",
     expect(sent.text).toContain("it could not be interrupted: it is waiting on the user");
   });
 
-  test("ask_project hands the job to the other project's lead, and opens no chat", async () => {
+  test("ask_project hands the job to the other project's liaison, and opens no chat", async () => {
     const { ctx, projects } = world();
     const sent = await askProject(ctx, "a", {
       project: "api",
       message: "where is the auth middleware?",
       reply: "later",
     });
-    expect(projects.flatMap((p) => p.sessions)).toHaveLength(3);
-    expect(sent.text).toContain("Handed to api's lead");
+    expect(projects.flatMap((p) => p.sessions)).toHaveLength(6);
+    expect(sent.text).toContain("Handed to api's liaison");
     expect(sent.text).toContain(ctx.talk.handleOf("b"));
     expect(ctx.queues.entries.get("b")![0]).toMatchObject({
       text: "where is the auth middleware?",
@@ -769,10 +822,10 @@ describe("an agent deciding who to disturb, and handing jobs to other projects",
       "has not let you message api",
     );
     ctx.talk.setPolicy(defaultPolicy());
-    expect(count()).toBe(3);
+    expect(count()).toBe(6);
   });
 
-  test("outside bypass mode the lead is asked about the way any message is, and a no sends nothing", async () => {
+  test("outside bypass mode the liaison is asked about the way any message is, and a no sends nothing", async () => {
     const { ctx, said } = world({ a: "default" });
     const going = askProject(ctx, "a", { project: "api", message: "a question" });
     const card = said.find((m) => m.type === "permission_request");
@@ -804,9 +857,9 @@ describe("letters in flight outlive a relaunch", () => {
     before.arrive("c");
     before.speak("c", "Half of it is done.");
     // and b's message to a has been answered, the answer still in b's line
-    const landed = await sendLetter(before.ctx, "b", { to: "Frontend", message: "q", reply: "later" });
-    before.arrive("a");
-    before.answer("a", "answer three");
+    const landed = await sendLetter(before.ctx, "b", { to: "web", message: "q", reply: "later" });
+    before.arrive("liaison-p");
+    before.answer("liaison-p", "answer three");
     expect(before.ctx.queues.entries.get("b")!.at(-1)!.from).toMatchObject({
       letter: landed.letter,
       answer: true,

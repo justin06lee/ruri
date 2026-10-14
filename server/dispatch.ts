@@ -5,7 +5,7 @@
  * tried again) and ruri's own /compact.
  */
 import { randomUUID } from "node:crypto";
-import type { AttachmentUpload, LetterFrom, TranscriptEvent } from "../shared/protocol.js";
+import { leadOf, type AttachmentUpload, type LetterFrom, type TranscriptEvent } from "../shared/protocol.js";
 import { busy, channelProject, ownerProject, running } from "./channel.js";
 import { pushTranscript } from "./clients.js";
 import { knownCommands, splitCommands } from "./commands.js";
@@ -21,7 +21,7 @@ import { backfillNotes } from "./notes.js";
 import type { QueueEntry } from "./queue.js";
 import { RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
 import { smallModelEnabled, splitPrompt } from "./smallmodel.js";
-import { answerPrompt, letterPrompt } from "./talk.js";
+import { answerPrompt, letterPrompt, seatName, stoppedLine } from "./talk.js";
 import { contextWindow, resetContext } from "./turns.js";
 import { modelPayload, processAttachments, storeAttachments } from "./uploads.js";
 
@@ -54,9 +54,6 @@ export function dispatch(
   /** The id the user event should go by — the one the window already shows
    *  the prompt under, or the queue entry it waited in (see userEventId). */
   eventId?: string,
-  /** ruri's prompt carrying on after the chat compacted itself, still
-   *  owing the answer to this letter (server/selfCompaction.ts). */
-  carries?: string,
 ): string | undefined {
   // /compact is ruri's own, not the harness's: summaries + full-turn file
   // hooks into a fresh session, with the zigzag mark in the transcript —
@@ -106,14 +103,11 @@ export function dispatch(
     text: processed.display,
     ...(processed.attachments.length ? { attachments: processed.attachments } : {}),
     ...(from ? { from } : {}),
-    ...(carries ? { carries } : {}),
     ts: Date.now(),
   };
   recordEvent(ctx, channelId, userEvent);
   checkpoint(ctx, channelId, userEvent.id);
-  const said = from
-    ? (from.answer ? answerPrompt : letterPrompt)(from, ctx.talk.handleOf(from.agent), processed.text)
-    : processed.text;
+  const said = from ? fromAgent(ctx, channelId, from, processed.text) : processed.text;
   ctx.archive.noteSent(channelId, harness, userEvent.id);
   ctx.manager.send(project, brief + said + named, processed.images, undefined, true, userEvent.id);
   // a message the other chat has now started on — or an answer now in the
@@ -121,6 +115,44 @@ export function dispatch(
   // one that fails to go goes back in line, and stays in the book
   if (from) ctx.talk.arrived(from);
   return userEvent.id;
+}
+
+/**
+ * What the model reads for a prompt another agent's letter brought: the
+ * message, wrapped as whose it is — told, for a lead or a liaison, that it
+ * may hand the job on; an answer, told when it is the one owed onward; or
+ * ruri's own words carrying the chat on with a message after compacting.
+ */
+function fromAgent(ctx: ServerContext, channelId: string, from: LetterFrom, text: string): string {
+  // a teammate its lead stopped mid-turn hears first that it wasn't the user
+  const stopped = ctx.talk.stopNotes.get(channelId);
+  ctx.talk.stopNotes.delete(channelId);
+  const said = wrapped(ctx, channelId, from, text);
+  return stopped ? `${stoppedLine(stopped.who, stopped.call)}\n\n${said}` : said;
+}
+
+function wrapped(ctx: ServerContext, channelId: string, from: LetterFrom, text: string): string {
+  const handle = ctx.talk.handleOf(from.agent);
+  // ruri's own words carrying the chat on after it compacted itself: they
+  // say whose job it is (server/selfCompaction.ts continuePrompt)
+  if (from.carried) return text;
+  if (!from.answer) {
+    const found = ctx.store.findSession(channelId);
+    const head = !!found && (found.session.liaison === true || leadOf(found.project)?.id === channelId);
+    return letterPrompt(from, handle, text, head);
+  }
+  const owed = from.owes ? ctx.talk.pending.get(from.owes) : undefined;
+  return answerPrompt(
+    from,
+    handle,
+    text,
+    owed && owed.to === channelId && !owed.ending
+      ? {
+          who: owed.sender ? seatName(owed.sender.project, owed.sender.title) : "another agent",
+          more: ctx.talk.outstanding(owed.id, from.letter),
+        }
+      : undefined,
+  );
 }
 
 /**
@@ -232,7 +264,7 @@ export function drainQueue(ctx: ServerContext, channelId: string): boolean {
       // the user event takes the entry's id: the card the window showed in
       // the queue becomes the bubble in the transcript, in place
       if (next.split) dispatchSplit(ctx, channelId, next.text, next.uploads, false, next.id);
-      else dispatch(ctx, channelId, next.text, next.uploads, next.silent, next.from, next.id, next.carries);
+      else dispatch(ctx, channelId, next.text, next.uploads, next.silent, next.from, next.id);
     } catch (err) {
       // the send failed (the channel vanished, the harness would not
       // start): the prompt goes back to the head of the line rather than

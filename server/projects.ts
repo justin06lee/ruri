@@ -12,6 +12,7 @@ import {
   DEFAULT_PERMISSION_MODE,
   type HomeSettings,
   leadOf,
+  liaisonOf,
   type ModelRole,
   type Project,
   type SessionInfo,
@@ -41,6 +42,9 @@ const DEFAULTS: Required<SessionSettings> = {
 
 /** What a lead is called where other agents read it ("ruri · Lead"). */
 export const LEAD_TITLE = "Lead";
+
+/** And the liaison, the lead other projects' agents reach ("ruri · Liaison"). */
+export const LIAISON_TITLE = "Liaison";
 
 function projectsFile(): string {
   return path.join(configDir(), "projects.json");
@@ -377,10 +381,29 @@ export class ProjectStore {
     return project ? leadOf(project) : undefined;
   }
 
-  /** Whether a chat is a member of its project's team, not its lead. */
+  /** Whether a chat is a member of its project's team, not its lead or
+   *  its liaison. */
   isMember(sessionId: string): boolean {
     const found = this.findSession(sessionId);
-    return !!found && leadOf(found.project)?.id !== sessionId;
+    return !!found && leadOf(found.project)?.id !== sessionId && !found.session.liaison;
+  }
+
+  /** Whether a chat is its project's liaison. */
+  isLiaison(sessionId: string): boolean {
+    return this.findSession(sessionId)?.session.liaison === true;
+  }
+
+  /** A project's liaison: the one it has, or — the first time an agent
+   *  from another project writes — a new one, after its lead. */
+  liaison(projectId: string): SessionInfo | undefined {
+    const project = this.projects.find((p) => p.id === projectId);
+    if (!project) return undefined;
+    const had = liaisonOf(project);
+    if (had) return had;
+    const made: SessionInfo = { id: randomUUID(), title: LIAISON_TITLE, liaison: true };
+    project.sessions.splice(1, 0, made);
+    this.save();
+    return made;
   }
 
   /** A new member of a project's team, named and given its duty. */

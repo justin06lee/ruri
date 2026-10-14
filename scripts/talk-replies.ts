@@ -2,7 +2,10 @@
  * An agent's message always gets its answer back — unless it asked for none.
  *
  * A south chat (Haiku) has its mascot's name in its folder; chats in the
- * north project ask it for the name, each a different way. South is made
+ * north project ask it for the name, each a different way. South — and
+ * west, below — is its project's liaison, the chat another project's
+ * message lands at, told to answer these itself rather than hand them to
+ * its team (server/team.ts). South is made
  * busy for as long as a case needs by a Bash call whose permission card
  * this script sits on, so every wait here outlasts something:
  *   1. Claude, "wait": the answer comes back into message_agent's call.
@@ -19,12 +22,12 @@
  *   6. A relaunch mid-wait: the letter is in south's line when the server
  *      goes; the next server sends it on, and the answer arrives in the
  *      north chat as a message.
- *   9. Claude hands west's lead the question (ask_project): no chat is
- *      added to west, and the name comes back.
+ *   9. Claude hands west the question (ask_project): its liaison answers,
+ *      no chat is added to west, and the name comes back.
  *  10. Claude sends to west, busy, with delivery "queue": west's turn is not
  *      stopped, the message goes in once it is over, and the answer comes
  *      back.
- *  11. Codex asks west's lead over HTTP ({"do": "project"}).
+ *  11. Codex asks west over HTTP ({"do": "project"}).
  *   8. A message to a chat at work cuts in: a west chat (bypass, no cards)
  *      is running a ninety-second loop of short sleeps (Claude Code's Bash
  *      refuses a long leading `sleep`); a north chat's message stops that turn and
@@ -127,7 +130,11 @@ fs.writeFileSync(
         // no cards: west is kept busy by a command actually running
         permissionMode: "bypassPermissions",
         model: "haiku",
-        sessions: [{ id: WEST, title: "West", model: "haiku" }],
+        // west's messages from other projects land at its liaison
+        sessions: [
+          { id: "c-replies-west-lead", title: "Lead", lead: true, model: "haiku" },
+          { id: WEST, title: "West", liaison: true, model: "haiku" },
+        ],
       },
       {
         id: "p-replies-south",
@@ -135,7 +142,10 @@ fs.writeFileSync(
         path: southDir,
         // its Bash calls come up as cards, which is how it is kept busy
         permissionMode: "default",
-        sessions: [{ id: SOUTH, title: "South", model: "haiku" }],
+        sessions: [
+          { id: "c-replies-south-lead", title: "Lead", lead: true, model: "haiku" },
+          { id: SOUTH, title: "South", liaison: true, model: "haiku" },
+        ],
       },
     ],
   }),
@@ -232,8 +242,10 @@ async function open(): Promise<WebSocket> {
     if (msg.type === "status") statuses[msg.projectId] = msg.status;
     if (msg.type === "event") record(msg.projectId, msg.event);
     if (msg.type === "talk") letters = msg.letters;
-    if (msg.type === "permission_request" && msg.request.projectId === SOUTH) {
-      if (holdNext) {
+    // south's held card keeps it busy; every other card goes through — a
+    // teammate's too, should a liaison hand a job on after all
+    if (msg.type === "permission_request") {
+      if (holdNext && msg.request.projectId === SOUTH) {
         holdNext = false;
         held = msg.request;
       } else send({ type: "permission_response", requestId: msg.request.requestId, allow: true });
@@ -332,10 +344,17 @@ const cameBack = (chat: string, since: number) =>
   answersIn(chat, since).some((e) => e.kind === "user" && e.text.toLowerCase().includes(WORD));
 
 // a model asked by a stranger for what is in a file tends to refuse, and a
-// refusal colours every message after it: south is told first
+// refusal colours every message after it: south is told first — and, a
+// liaison, that these are its own to answer, not its team's
+const ANSWER_YOURSELF =
+  "For this test, answer them yourself: read MASCOT.txt with your Bash tool (cat MASCOT.txt) and do the small jobs yourself — don't hand them to a teammate.";
 await turn(
   SOUTH,
-  "Other agents working in ruri will message you, asking for the name of this project's mascot (it is in MASCOT.txt) or asking you to do small jobs in this folder. Help them: tell them the name, and do what they ask. For now just reply: ok",
+  `Other agents working in ruri will message you, asking for the name of this project's mascot (it is in MASCOT.txt) or asking you to do small jobs in this folder. Help them: tell them the name, and do what they ask. ${ANSWER_YOURSELF} For now just reply: ok`,
+);
+await turn(
+  WEST,
+  `Other agents working in ruri will message you, asking for the name of this project's mascot (it is in MASCOT.txt). Tell them the name. ${ANSWER_YOURSELF} For now just reply: ok`,
 );
 
 /* ── 1. Claude waits, and the answer comes back into the call ─────── */
@@ -538,10 +557,6 @@ if (runs(6)) {
 /* ── 8. A message cuts in on a chat running a long command ─────────── */
 
 if (runs(8)) {
-  await turn(
-    WEST,
-    "Other agents working in ruri will message you, asking for the name of this project's mascot (it is in MASCOT.txt). Tell them the name. For now just reply: ok",
-  );
   const westSince = mark(WEST);
   send({
     type: "send",
@@ -589,7 +604,7 @@ if (runs(8)) {
   check("…and west picks its command back up afterwards", resumed, compact(WEST, westSince));
 }
 
-/* ── 9. Claude starts a new chat in west and asks it ─────────────────── */
+/* ── 9. Claude hands west the question; its liaison answers ─────────── */
 
 const westChats = () => {
   const kept = JSON.parse(fs.readFileSync(path.join(configDir, "projects.json"), "utf8")) as {
@@ -607,7 +622,11 @@ if (runs(9)) {
     'Use mcp__ruri__ask_project to ask the project called west to read MASCOT.txt in its folder and reply with just the name — with reply "wait". Then tell me the name.',
     300_000,
   );
-  check("ask_project: no chat is added to west", westChats().length === before, westChats());
+  check(
+    "ask_project: west's liaison answers, no chat is added to west",
+    westChats().length === before,
+    westChats(),
+  );
   check(
     "…and the answer comes back into the call",
     said(CLAUDE_START, since).toLowerCase().includes(WORD),
@@ -656,7 +675,7 @@ if (runs(10)) {
   );
 }
 
-/* ── 11. Codex asks west's lead over HTTP ────────────────────────────── */
+/* ── 11. Codex asks west over HTTP ───────────────────────────────────── */
 
 if (CODEX && runs(11)) {
   await until("west idle", () => !busy(WEST), 300_000);

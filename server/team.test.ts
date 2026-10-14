@@ -2,7 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { PermissionRequest, Project, ServerMessage, TranscriptEvent } from "../shared/protocol.js";
+import {
+  leadOf,
+  type PermissionRequest,
+  type Project,
+  type ServerMessage,
+  type TranscriptEvent,
+} from "../shared/protocol.js";
 import type { ServerContext } from "./context.js";
 import { carryLetter, listSeats, sendLetter, talkTurnEnded } from "./handlers/talk.js";
 import { actOn, atWork, hasSlot, releaseWaiting, rosterText, teamBudget, teamHost } from "./handlers/team.js";
@@ -150,6 +156,15 @@ describe("every project a team", () => {
     expect(s.lead(project.id)?.title).toBe("Lead");
     expect(new ProjectStore().formTeams(() => true)).toBe(false);
     expect(new ProjectStore().get(project.id)!.sessions[1]).toMatchObject({ liaison: true });
+  });
+
+  test("the liaison is never taken for the lead, wherever it stands", () => {
+    const liaison = { id: "x", title: "Liaison", liaison: true };
+    expect(leadOf({ sessions: [liaison, { id: "l", lead: true }] })?.id).toBe("l");
+    // no session marked lead: the first that is not the liaison
+    expect(leadOf({ sessions: [liaison, { id: "m" }] })?.id).toBe("m");
+    expect(leadOf({ sessions: [{ ...liaison, lead: true }, { id: "m" }] })?.id).toBe("m");
+    expect(leadOf({ sessions: [liaison] })).toBeUndefined();
   });
 });
 

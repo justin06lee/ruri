@@ -351,7 +351,7 @@ export class ProjectStore {
   formTeams(empty: (sessionId: string) => boolean): boolean {
     let changed = false;
     for (const project of this.projects) {
-      const marked = project.sessions.find((session) => session.lead);
+      const marked = project.sessions.find((session) => session.lead && !session.liaison);
       if (marked) {
         if (project.sessions[0] !== marked) {
           project.sessions = [marked, ...project.sessions.filter((session) => session !== marked)];
@@ -400,8 +400,10 @@ export class ProjectStore {
     if (!project) return undefined;
     const had = liaisonOf(project);
     if (had) return had;
+    // never lead: true, and never first — the user's lead stays first
     const made: SessionInfo = { id: randomUUID(), title: LIAISON_TITLE, liaison: true };
-    project.sessions.splice(1, 0, made);
+    const at = project.sessions.findIndex((session) => session.id === leadOf(project)?.id);
+    project.sessions.splice(at + 1 || project.sessions.length, 0, made);
     this.save();
     return made;
   }

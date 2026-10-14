@@ -122,9 +122,13 @@ export interface Project {
   sessions: SessionInfo[];
 }
 
-/** A project's lead: the session marked so, else its first. */
+/** A project's lead: the session marked so, else its first — never its
+ *  liaison, which is never marked lead and never the user's chat. */
 export function leadOf(project: Pick<Project, "sessions">): SessionInfo | undefined {
-  return project.sessions.find((session) => session.lead) ?? project.sessions[0];
+  return (
+    project.sessions.find((session) => session.lead && !session.liaison) ??
+    project.sessions.find((session) => !session.liaison)
+  );
 }
 
 /** Whether a session is one of its project's members, not its lead or

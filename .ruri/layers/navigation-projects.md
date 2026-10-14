@@ -44,6 +44,7 @@ This layer moves the user between projects: a sidebar row per project (its lead 
 - Queued prompts stay app-side until their turn; editable/removable up to dispatch only.
 - Switcher opens on right-Option tap alone; Option held for shortcuts (e.g. ⌥→) must not open it.
 - Finished run notes expire after FINAL_NOTE_MS (25s) so stale results don't linger across opens.
+- Row dragons and counts show the team's work, never the lead's: one predicate (teamAtWork in Sidebar.tsx) — every session but leadOf, liaison included, isBusy — lights a project row's dragon, its count and the Projects row; only the remove confirmation still counts the lead.
 
 ## What it talks to
 

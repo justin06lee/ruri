@@ -277,10 +277,10 @@ Reaches into: web/src/styles.css:3326, server/handlers/boards.ts, shared/protoco
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/925cb910-0dd4-4785-bf49-88bd8551445b-idea-box.png
 
 ## row-dragons — the row dragons
-Small dragon heads on busy sidebar rows: a project's row while its lead or anyone on its team is at work (where the X goes), and the Projects row beside its count. They chomp on the doodle's 500ms clock (beat "chomp", two frames), frozen when out of view or the window isn't in use; hovering a row bites twice with a shake and holds the jaws open.
+Small dragon heads on busy sidebar rows: a project's row while anyone on its team is at work — any session but the lead, the liaison included, whoever started its turn; the lead's own turn lights none (where the X goes) — and the Projects row beside its count of projects with their team at work. They chomp on the doodle's 500ms clock (beat "chomp", two frames), frozen when out of view or the window isn't in use; hovering a row bites twice with a shake and holds the jaws open.
 Its files: web/src/components/Sidebar.tsx, web/src/components/Thinking.tsx
 Reaches into: web/src/styles.css, web/src/store.ts, web/src/lib/beat.ts
-Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/280faaf0-a761-4b04-89be-78e82dfd7837-project-rows.png, /Users/huiyunlee/.config/ruri/uploads/5b809714-2feb-4186-967f-1bfaf9b727ae-shot-19.png, /Users/huiyunlee/.config/ruri/uploads/3fd796a5-edbb-4778-ac27-7fa68d35949e-row-dragon.png
+Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/716e90ad-67c2-48cf-9cfb-7598d1d11b9a-shot-3.png, /Users/huiyunlee/.config/ruri/uploads/280faaf0-a761-4b04-89be-78e82dfd7837-project-rows.png, /Users/huiyunlee/.config/ruri/uploads/5b809714-2feb-4186-967f-1bfaf9b727ae-shot-19.png, /Users/huiyunlee/.config/ruri/uploads/3fd796a5-edbb-4778-ac27-7fa68d35949e-row-dragon.png
 
 ## script-cards — the script cards
 A shell the model left running in the background, shown as an agent card with a terminal icon: running, then how it exited. Opens onto its command and the tail of the CLI's output file, re-read every 2s while it runs. Made from the Bash chip when the CLI reports a local_bash task in the background.
@@ -389,8 +389,8 @@ Tags: page, team, agents, board
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/148cfd2f-e6c0-4d6b-b027-3434ae373935-team-page.png
 
 ## project-rows — the project rows
-The sidebar's one row per project (ProjectRow): click opens the project's lead; the number beside the name is teammates at work; star kept while on, hide on hover, the X (a dragon while anything on the team works) asks before closing. Double-click renames. Replaced the folders of sessions.
+The sidebar's one row per project (ProjectRow): click opens the project's lead; the number beside the name is teammates at work (the liaison counts, the lead doesn't); star kept while on, hide on hover, the X (a dragon while anyone on the team works) asks before closing, warning when the lead is at work too. Double-click renames. Replaced the folders of sessions.
 Its files: web/src/components/Sidebar.tsx
 Reaches into: web/src/styles.css
 Tags: nav, sidebar, row
-Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/c643fae4-0cc5-4379-91b7-821ac9314dfc-project-rows.png
+Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/7002b54d-1496-4049-81b9-32e706fd0818-shot-3.png, /Users/huiyunlee/.config/ruri/uploads/c643fae4-0cc5-4379-91b7-821ac9314dfc-project-rows.png

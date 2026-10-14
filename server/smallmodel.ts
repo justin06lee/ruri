@@ -1073,21 +1073,6 @@ export async function extractTrackerItems(userText: string, existing: string[]):
   }
 }
 
-const ROLE_SYSTEM = `You name coding-agent sessions by the ROLE they serve inside a project.
-Given the session's first prompt (and response, if one exists yet), output a 2-4 word Title Case role name — what this session is FOR, not what was literally asked.
-Examples: Frontend UI, Backend API, Test Infra, Release Prep, Bug Triage, Docs.
-Output only the title — no quotes, no punctuation.`;
-
-/** Name a session's role from its first prompt — fired the moment the prompt
- *  is sent (the response, when present, is extra context, not a requirement). */
-export async function sessionRoleTitle(turn: Turn): Promise<string> {
-  const prompt =
-    `FIRST PROMPT:\n${turn.user.slice(0, 3000)}` +
-    (turn.assistant ? `\n\nRESPONSE (truncated):\n${turn.assistant.slice(0, 2000)}` : "");
-  const title = (await complete(ROLE_SYSTEM, prompt, 40, "now")).replace(/["'.]/g, "").trim();
-  return title.length > 0 && title.length <= 40 ? title : "";
-}
-
 const SPLIT_SYSTEM = `You split one user message into its separate, independent requests.
 Rules:
 - Preserve the user's wording as faithfully as possible; trim only connective tissue ("also", "and then").

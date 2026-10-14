@@ -66,25 +66,14 @@ export const settingHandlers = {
       return;
     }
     // A chat's pick is that chat's alone: it lands on the session, the
-    // live session takes it once its turn is over, and no other chat
-    // in the project moves. The project id form is wholesale.
-    if (ctx.store.findSession(msg.projectId)) {
-      if (ctx.store.effectiveSettings(msg.projectId)?.model === msg.model) return;
-      ctx.store.setSessionSettings(msg.projectId, { model: msg.model });
-      ctx.manager.setModel(msg.projectId, msg.model);
-      ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-      // the new model may have a different window — remeasure against it
-      republishContext(ctx, msg.projectId);
-      return;
-    }
-    const project = ctx.store.get(msg.projectId);
-    if (!project) return;
-    for (const s of project.sessions) delete s.model;
-    ctx.store.update(msg.projectId, { model: msg.model });
-    // live sessions are keyed by session id, not project id
-    for (const s of project.sessions) ctx.manager.setModel(s.id, msg.model);
+    // live session takes it once its turn is over, and no teammate moves.
+    if (!ctx.store.findSession(msg.projectId)) return;
+    if (ctx.store.effectiveSettings(msg.projectId)?.model === msg.model) return;
+    ctx.store.setSessionSettings(msg.projectId, { model: msg.model });
+    ctx.manager.setModel(msg.projectId, msg.model);
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-    for (const s of project.sessions) republishContext(ctx, s.id);
+    // the new model may have a different window — remeasure against it
+    republishContext(ctx, msg.projectId);
   },
   set_permission_mode: (ctx, _ws, msg) => {
     if (msg.projectId === HOME_ID) {
@@ -93,18 +82,10 @@ export const settingHandlers = {
       ctx.clients.broadcast({ type: "home_settings", home: ctx.store.homeSettings() });
       return;
     }
-    if (ctx.store.findSession(msg.projectId)) {
-      if (ctx.store.effectiveSettings(msg.projectId)?.permissionMode === msg.mode) return;
-      ctx.store.setSessionSettings(msg.projectId, { permissionMode: msg.mode });
-      ctx.manager.setPermissionMode(msg.projectId, msg.mode);
-      ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-      return;
-    }
-    const project = ctx.store.get(msg.projectId);
-    if (!project) return;
-    for (const s of project.sessions) delete s.permissionMode;
-    ctx.store.update(msg.projectId, { permissionMode: msg.mode });
-    for (const s of project.sessions) ctx.manager.setPermissionMode(s.id, msg.mode);
+    if (!ctx.store.findSession(msg.projectId)) return;
+    if (ctx.store.effectiveSettings(msg.projectId)?.permissionMode === msg.mode) return;
+    ctx.store.setSessionSettings(msg.projectId, { permissionMode: msg.mode });
+    ctx.manager.setPermissionMode(msg.projectId, msg.mode);
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
   },
   set_effort: (ctx, _ws, msg) => {
@@ -115,19 +96,10 @@ export const settingHandlers = {
       ctx.clients.broadcast({ type: "home_settings", home: ctx.store.homeSettings() });
       return;
     }
-    if (ctx.store.findSession(msg.projectId)) {
-      if (ctx.store.effectiveSettings(msg.projectId)?.effort === msg.effort) return;
-      ctx.store.setSessionSettings(msg.projectId, { effort: msg.effort });
-      ctx.manager.setEffort(msg.projectId, msg.effort);
-      ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-      return;
-    }
-    const project = ctx.store.get(msg.projectId);
-    if (!project) return;
-    if ((project.effort ?? "") === msg.effort && project.sessions.every((s) => !s.effort)) return;
-    for (const s of project.sessions) delete s.effort;
-    ctx.store.update(msg.projectId, { effort: msg.effort });
-    for (const s of project.sessions) ctx.manager.setEffort(s.id, msg.effort);
+    if (!ctx.store.findSession(msg.projectId)) return;
+    if (ctx.store.effectiveSettings(msg.projectId)?.effort === msg.effort) return;
+    ctx.store.setSessionSettings(msg.projectId, { effort: msg.effort });
+    ctx.manager.setEffort(msg.projectId, msg.effort);
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
   },
   toggle_model_star: (ctx, _ws, msg) => {

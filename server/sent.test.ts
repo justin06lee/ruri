@@ -41,6 +41,7 @@ function world(status: "idle" | "working" = "working", events: TranscriptEvent[]
     store: {
       list: () => projects,
       sessionIds: () => ["a"],
+      leadIds: () => ["a"],
       findSession: (id: string) =>
         id === "a" ? { project: projects[0]!, session: projects[0]!.sessions[0]! } : undefined,
     },

@@ -33,17 +33,16 @@ const bytes = z.string().max(150_000_000);
 const attachmentKind = z.enum(["image", "video", "file"]);
 
 const memoryPart = z.enum(["now", "decisions", "worked", "failed", "gotchas", "open"]);
-/** Who one agent may message (server/talk.ts), and the whole set of them.
- *  A few thousand chats is far more than anyone keeps open. */
+/** Which projects a project's agents may reach (server/talk.ts), and the
+ *  whole set of rules. A few thousand projects is far more than anyone
+ *  keeps open. */
 const talkRule = z.object({
   to: z.enum(["anyone", "listed", "nobody"]),
   projects: z.array(id).max(5_000),
-  chats: z.array(id).max(5_000),
 });
 const talkPolicy = z.object({
   everyone: talkRule,
   projects: z.record(id, talkRule),
-  chats: z.record(id, talkRule),
 });
 const permissionMode = z.enum(["default", "acceptEdits", "plan", "bypassPermissions"]);
 const permissionId = z.enum([
@@ -160,7 +159,6 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("agent_send"), ...projectId, key: id, text }),
   z.object({ type: z.literal("agent_stop"), ...projectId, key: id }),
   z.object({ type: z.literal("rewind"), ...projectId, eventId: id }),
-  z.object({ type: z.literal("fork"), ...projectId, eventId: id }),
   z.object({ type: z.literal("recent_list"), ...projectId }),
   z.object({ type: z.literal("transcript_get"), ...projectId, prefetch: z.literal(true).optional() }),
   z.object({
@@ -328,9 +326,6 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("toggle_star"), ...projectId }),
   z.object({ type: z.literal("toggle_hidden"), ...projectId }),
   z.object({ type: z.literal("rename_project"), ...projectId, name: label }),
-  z.object({ type: z.literal("new_session"), ...projectId }),
-  z.object({ type: z.literal("remove_session"), sessionId: id }),
-  z.object({ type: z.literal("rename_session"), sessionId: id, title: label }),
   z.object({ type: z.literal("set_workspace"), path: filePath }),
   z.object({ type: z.literal("set_music_dir"), path: filePath }),
   z.object({ type: z.literal("toggle_model_star"), model: label }),

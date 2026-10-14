@@ -2,8 +2,8 @@
  * The two-part transcript (server/archive.ts): a compaction folds the past
  * into the history, an old single-file archive is split once on load, a
  * crash between the two writes heals without duplicates, a rewind reaches
- * back into the history, a fork gets its own split, the history holds to
- * its cap, and removing a channel removes both parts.
+ * back into the history, a chat brought in gets its own split, the history
+ * holds to its cap, and removing a channel removes both parts.
  *
  *   bun run history-test
  */
@@ -100,12 +100,12 @@ const histFile = (id: string) => path.join(root, "history", `${id}.jsonl`);
   check("and it reads back the same from disk", ids(fresh.allEvents("s2")) === "u1,a1,r1,c1");
 }
 
-/* a fork gets its own split */
+/* a chat brought in gets its own split */
 {
   const archive = new SessionArchive();
-  archive.seed("s3", { events: [...turn(1), mark(1), ...turn(2)], summaries: {}, chain: {} });
+  archive.seed("s3", [...turn(1), mark(1), ...turn(2)]);
   check(
-    "a seeded fork has its own history",
+    "a seeded chat has its own history",
     ids(archive.history("s3")) === "u1,a1,r1" && ids(archive.events("s3")) === "c1,u2,a2,r2",
   );
 }

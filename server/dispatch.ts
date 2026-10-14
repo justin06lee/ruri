@@ -20,7 +20,7 @@ import { HOME_ID } from "./manager.js";
 import { backfillNotes } from "./notes.js";
 import type { QueueEntry } from "./queue.js";
 import { RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
-import { sessionRoleTitle, smallModelEnabled, splitPrompt } from "./smallmodel.js";
+import { smallModelEnabled, splitPrompt } from "./smallmodel.js";
 import { answerPrompt, letterPrompt } from "./talk.js";
 import { contextWindow, resetContext } from "./turns.js";
 import { modelPayload, processAttachments, storeAttachments } from "./uploads.js";
@@ -40,22 +40,6 @@ function checkpoint(ctx: ServerContext, channelId: string, eventId: string): voi
   const project = channelProject(ctx, channelId);
   if (!project?.path) return;
   void ctx.checkpoints.capture(project, channelId, eventId).catch(() => false);
-}
-
-// Sessions get their role title the moment their first prompt goes out —
-// in parallel with the turn, not after it. (TurnTracker's post-turn call
-// stays as the fallback if this pass fails or returns nothing.)
-export function titleSession(ctx: ServerContext, channelId: string, text: string): void {
-  if (!smallModelEnabled()) return;
-  const found = ctx.store.findSession(channelId);
-  if (!found || found.session.title) return;
-  sessionRoleTitle({ turnId: "", user: text, assistant: "", tools: [] })
-    .then((title) => {
-      if (!title || ctx.store.findSession(channelId)?.session.title) return;
-      ctx.store.setSessionTitle(channelId, title);
-      ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-    })
-    .catch(() => {});
 }
 
 export function dispatch(
@@ -80,7 +64,6 @@ export function dispatch(
   }
   const project = channelProject(ctx, channelId);
   if (!project) throw new Error("unknown session");
-  titleSession(ctx, channelId, text);
   // a prompt that names something in the component index takes that
   // entry down with it — the model's copy only, never the transcript's
   const owner = ownerProject(ctx, channelId);
@@ -188,7 +171,6 @@ export function dispatchSplit(
   // the prompt, not with whichever sub-prompt reaches a session first
   ctx.turns.startTurn(channelId);
   ctx.clients.broadcast({ type: "status", projectId: channelId, status: "working" });
-  titleSession(ctx, channelId, text);
   const epoch = ctx.queues.epochs.get(channelId) ?? 0;
   void (smallModelEnabled() ? splitPrompt(text).catch(() => [text]) : Promise.resolve([text])).then(
     (prompts) => {

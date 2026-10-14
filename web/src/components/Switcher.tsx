@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HOME_ID, leadOf } from "../../../shared/protocol";
-import { prefetchTranscript, send, useRuri } from "../store";
+import { prefetchTranscript, useRuri } from "../store";
 import { score } from "../lib/fuzzy";
 import { commandKey } from "../lib/keys";
 
@@ -59,7 +59,7 @@ export function Switcher() {
         id: "rapid",
         kind: "place",
         name: "Rapid fire",
-        where: "prompt whichever session is ready",
+        where: "prompt whichever project is ready",
         go: () => setRapid(true),
       },
       {
@@ -81,19 +81,7 @@ export function Switcher() {
         // a project is its lead: the one chat it has for the user
         go: () => {
           const lead = leadOf(project);
-          if (lead) {
-            setActive(lead.id);
-            return;
-          }
-          // no chats yet: open one, and go to it when it arrives
-          send({ type: "new_session", projectId: project.id });
-          const unsubscribe = useRuri.subscribe((s) => {
-            const p = s.projects.find((x) => x.id === project.id);
-            const fresh = p && leadOf(p);
-            if (!fresh) return;
-            unsubscribe();
-            s.setActive(fresh.id);
-          });
+          if (lead) setActive(lead.id);
         },
       });
     }
@@ -231,7 +219,7 @@ export function Switcher() {
               ref={inputRef}
               className="switcher-input"
               value={query}
-              placeholder="Go to a project, a chat, a place…"
+              placeholder="Go to a project or a place…"
               spellCheck={false}
               autoComplete="off"
               onChange={(e) => {

@@ -1069,8 +1069,6 @@ class ProjectSession implements ChannelSession {
     resume?: string,
     resumeAt?: string,
     extras?: SessionExtras,
-    /** Fork the resumed session at its tip: the same history, a new file. */
-    fork = false,
   ) {
     this.lastSessionId = resume;
     this.resumed = resume;
@@ -1136,8 +1134,6 @@ class ProjectSession implements ChannelSession {
         // a rewind resumes truncated at the kept turn's last chain entry,
         // forked so the original chain stays intact on disk
         ...(resume && resumeAt ? { resumeSessionAt: resumeAt, forkSession: true } : {}),
-        // a chat forked at its latest exchange: the whole file, then its own way
-        ...(resume && !resumeAt && fork ? { forkSession: true } : {}),
         ...extras?.options,
       },
     });
@@ -2702,7 +2698,6 @@ class ProviderAgentSession implements ChannelSession {
     resume: string | undefined,
     resumeAt: string | undefined,
     private readonly extras?: SessionExtras,
-    fork = false,
   ) {
     this.nativeModel = nativeModel;
     this.agents = new AgentBook(project.id, events);
@@ -2717,15 +2712,12 @@ class ProviderAgentSession implements ChannelSession {
       effort: project.effort || DEFAULT_EFFORT,
       ...(nativeResume ? { resume: nativeResume } : {}),
       ...(nativeResume && provider.sessionCapabilities.fork && resumeAt ? { forkAt: resumeAt } : {}),
-      ...(nativeResume && provider.sessionCapabilities.fork && !resumeAt && fork ? { fork: true } : {}),
       ...(extras?.providerSystem ? { systemPrompt: extras.providerSystem } : {}),
       native: nativePermissions(providerId, this.permissionMode),
       permissions: { decide: (req, signal) => this.decide(req, signal) },
       input: { respond: (req, signal) => this.requestInput(req, signal) },
     };
-    this.asked = nativeResume
-      ? { id: nativeResume, fork: this.openOptions.forkAt !== undefined || this.openOptions.fork === true }
-      : undefined;
+    this.asked = nativeResume ? { id: nativeResume, fork: this.openOptions.forkAt !== undefined } : undefined;
     this.session = provider.openSession(this.openOptions);
   }
 
@@ -2998,7 +2990,7 @@ class ProviderAgentSession implements ChannelSession {
         // fork it made included, which must not be made twice
         const native = this.lastSessionId?.slice(this.providerId.length + 1);
         if (native && native !== this.openOptions.resume) {
-          const { forkAt: _forkAt, fork: _fork, ...rest } = this.openOptions;
+          const { forkAt: _forkAt, ...rest } = this.openOptions;
           this.openOptions = { ...rest, resume: native };
         }
         this.session = this.provider.openSession(this.openOptions);
@@ -3421,8 +3413,6 @@ export class SessionManager {
       projectId: string,
       resumeId: string | undefined,
     ) => string | undefined = () => undefined,
-    /** A pending tip fork: true only for the session being resumed. */
-    private readonly forkFor: (projectId: string, resumeId: string | undefined) => boolean = () => false,
   ) {
     this.events = {
       ...events,
@@ -3650,9 +3640,8 @@ export class SessionManager {
     }
     if (!session || session.dead) {
       const resume = this.resumeFor(project.id, harness);
-      // a fork point or tip fork waiting in the session being resumed
+      // a rewind's fork point waiting in the session being resumed
       const resumeAt = this.resumeAtFor(project.id, resume);
-      const forkAtTip = this.forkFor(project.id, resume);
       let built: ChannelSession | undefined;
       // each session hears its own results: the end of a turn it ran is
       // what moves on what its harness's session holds (turnEnded)
@@ -3677,7 +3666,6 @@ export class SessionManager {
               resume,
               resume && this.providers.canFork?.(route.providerId) ? resumeAt : undefined,
               this.extrasFor(project),
-              resume && this.providers.canFork?.(route.providerId) ? forkAtTip : false,
             )
           : new ProviderTurnSession(
               project,
@@ -3697,7 +3685,6 @@ export class SessionManager {
           claudeResume,
           claudeResume ? resumeAt : undefined,
           this.extrasFor(project),
-          claudeResume ? forkAtTip : false,
         );
       }
       session = built;

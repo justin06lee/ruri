@@ -98,7 +98,7 @@ function ProjectsRow() {
   );
 }
 
-/** Rapid fire: the pane that always shows whichever session is ready. */
+/** Rapid fire: the pane that always shows whichever project's lead is ready. */
 function RapidRow() {
   const rapid = useRuri((s) => s.rapid);
   const setRapid = useRuri((s) => s.setRapid);
@@ -106,7 +106,7 @@ function RapidRow() {
   return (
     <div
       className={`project-row rapid-row ${rapid ? "active" : ""}`}
-      title="Rapid fire — prompt whichever session is ready, one after another"
+      title="Rapid fire — prompt whichever project is ready, one after another"
       onClick={() => setRapid(!rapid)}
     >
       <svg
@@ -232,19 +232,7 @@ function ProjectRow({ project }: { project: Project }) {
     if (name) renameProject(project.id, name);
   };
   const open = () => {
-    if (leadId) {
-      setActive(leadId);
-      return;
-    }
-    // an emptied project: a lead, and to it when it arrives
-    send({ type: "new_session", projectId: project.id });
-    const unsubscribe = useRuri.subscribe((s) => {
-      const p = s.projects.find((x) => x.id === project.id);
-      const fresh = p && leadOf(p);
-      if (!fresh) return;
-      unsubscribe();
-      s.setActive(fresh.id);
-    });
+    if (leadId) setActive(leadId);
   };
   return (
     <div

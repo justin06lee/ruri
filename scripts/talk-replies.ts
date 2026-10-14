@@ -19,12 +19,12 @@
  *   6. A relaunch mid-wait: the letter is in south's line when the server
  *      goes; the next server sends it on, and the answer arrives in the
  *      north chat as a message.
- *   9. Claude starts a new chat in west (start_chat) and asks it for the
- *      name; a chat is added to west, and the name comes back.
+ *   9. Claude hands west's lead the question (ask_project): no chat is
+ *      added to west, and the name comes back.
  *  10. Claude sends to west, busy, with delivery "queue": west's turn is not
  *      stopped, the message goes in once it is over, and the answer comes
  *      back.
- *  11. Codex starts a new chat in west over HTTP ({"do": "new"}).
+ *  11. Codex asks west's lead over HTTP ({"do": "project"}).
  *   8. A message to a chat at work cuts in: a west chat (bypass, no cards)
  *      is running a ninety-second loop of short sleeps (Claude Code's Bash
  *      refuses a long leading `sleep`); a north chat's message stops that turn and
@@ -115,9 +115,9 @@ fs.writeFileSync(
             model: "opencode:opencode/muse-spark-1.3-contributor-free",
           },
           { id: CLAUDE_CUT, title: "Cuts in", model: "haiku" },
-          { id: CLAUDE_START, title: "Starts a chat", model: "haiku" },
+          { id: CLAUDE_START, title: "Asks a project", model: "haiku" },
           { id: CLAUDE_QUEUE, title: "Queues", model: "haiku" },
-          { id: CODEX_START, title: "Codex starts a chat", model: "codex:gpt-5.6-luna" },
+          { id: CODEX_START, title: "Codex asks a project", model: "codex:gpt-5.6-luna" },
         ],
       },
       {
@@ -126,7 +126,6 @@ fs.writeFileSync(
         path: westDir,
         // no cards: west is kept busy by a command actually running
         permissionMode: "bypassPermissions",
-        // the chats agents start here run on Haiku too
         model: "haiku",
         sessions: [{ id: WEST, title: "West", model: "haiku" }],
       },
@@ -605,10 +604,10 @@ if (runs(9)) {
   const since = mark(CLAUDE_START);
   await turn(
     CLAUDE_START,
-    'Use mcp__ruri__start_chat to start a new chat in the project called west, asking it to read MASCOT.txt in its folder and reply with just the name — with reply "wait". Then tell me the name.',
+    'Use mcp__ruri__ask_project to ask the project called west to read MASCOT.txt in its folder and reply with just the name — with reply "wait". Then tell me the name.',
     300_000,
   );
-  check("start_chat: a new chat is added to west", westChats().length === before + 1, westChats());
+  check("ask_project: no chat is added to west", westChats().length === before, westChats());
   check(
     "…and the answer comes back into the call",
     said(CLAUDE_START, since).toLowerCase().includes(WORD),
@@ -657,7 +656,7 @@ if (runs(10)) {
   );
 }
 
-/* ── 11. Codex starts a new chat in west over HTTP ───────────────────── */
+/* ── 11. Codex asks west's lead over HTTP ────────────────────────────── */
 
 if (CODEX && runs(11)) {
   await until("west idle", () => !busy(WEST), 300_000);
@@ -665,10 +664,10 @@ if (CODEX && runs(11)) {
   const since = mark(CODEX_START);
   await turn(
     CODEX_START,
-    'Use the ruri talk endpoint from your instructions (curl) to start a new chat in the project called west ({"do": "new"}), asking it to read MASCOT.txt in its folder and reply with just the name — with "reply": "wait". Wait for its answer, however many times you have to wait again, then tell me the name.',
+    'Use the ruri talk endpoint from your instructions (curl) to ask the project called west ({"do": "project"}) to read MASCOT.txt in its folder and reply with just the name — with "reply": "wait". Wait for its answer, however many times you have to wait again, then tell me the name.',
     400_000,
   );
-  check('Codex, {"do": "new"}: a new chat is added to west', westChats().length === before + 1, westChats());
+  check('Codex, {"do": "project"}: no chat is added to west', westChats().length === before, westChats());
   check(
     "…and the answer comes back",
     said(CODEX_START, since).toLowerCase().includes(WORD) || cameBack(CODEX_START, since),

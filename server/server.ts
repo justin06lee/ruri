@@ -192,7 +192,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     bridge: new BridgeState(options.bridge, (channelId) => running(ctx, channelId), clients.broadcast),
     permissions: new Map<string, PermissionRequest>(),
     pendingComponents: new Map<string, PendingComponent>(),
-    talk: new TalkBook(),
+    // an old rule naming a chat reads as that chat's project
+    talk: new TalkBook((chat) => store.findSession(chat)?.project.id),
     sharing: new Sharing(),
     sweeping: new Set<string>(),
     photographers: new Map<string, string>(),

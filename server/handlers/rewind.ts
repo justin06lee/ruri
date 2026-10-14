@@ -1,9 +1,9 @@
 /**
  * Going back: a rewind (conversation and files, to just before a prompt
- * ran, the prompt back in the composer) and a fork (a new session holding
- * everything through a prompt's exchange). Each harness gets the truest
- * version it can — a native fork where there is one, ruri's own
- * checkpoint and a brief of what is kept where there is not.
+ * ran, the prompt back in the composer). Each harness gets the truest
+ * version it can — a native fork back to the kept exchange where there is
+ * one, ruri's own checkpoint and a brief of what is kept where there is
+ * not.
  */
 import { WebSocket } from "ws";
 import type { ServerMessage, TranscriptEvent } from "../../shared/protocol.js";
@@ -16,7 +16,7 @@ import { errorMessage } from "../log.js";
 import { HOME_ID } from "../manager.js";
 import { promptChain } from "../sessions.js";
 import type { RewindReport } from "../checkpoints.js";
-import { contextWindow, restoreContext } from "../turns.js";
+import { restoreContext } from "../turns.js";
 import type { Handlers } from "./types.js";
 
 /**
@@ -292,153 +292,6 @@ export const rewindHandlers = {
             JSON.stringify({
               type: "error",
               message: `rewind failed: ${errorMessage(err)}`,
-            } satisfies ServerMessage),
-          );
-        }
-      }
-    })();
-  },
-  fork: (ctx, ws, msg) => {
-    // A new session in the same project, holding everything through
-    // this prompt's exchange and carrying on from there; the original
-    // is not touched. On Claude the CLI session itself forks at that
-    // point (a shared file up to it, then its own); Codex forks its native
-    // thread at the provider turn recorded for the exchange. A harness
-    // without that primitive — or a retired pre-compaction session —
-    // opens on a brief of what the fork holds.
-    const channelId = msg.projectId;
-    void (async () => {
-      try {
-        const found = ctx.store.findSession(channelId);
-        if (!found) throw new Error("only a project's session can be forked");
-        const events = ctx.archive.allEvents(channelId);
-        const idx = events.findIndex((e) => e.id === msg.eventId);
-        const target = idx >= 0 ? events[idx] : undefined;
-        if (!target || target.kind !== "user") throw new Error("that prompt is gone");
-        let end = idx + 1;
-        while (end < events.length && events[end]!.kind !== "user" && events[end]!.kind !== "compaction")
-          end++;
-        const kept = events.slice(0, end);
-        const next = events.slice(end).find((e) => e.kind === "user");
-        const compactedSince = events.slice(end).some((e) => e.kind === "compaction");
-        const project = channelProject(ctx, channelId) ?? found.project;
-        const fresh = ctx.store.newSession(found.project.id);
-        if (!fresh) throw new Error("unknown project");
-        const title = found.session.title ? `${found.session.title} fork` : "fork";
-        ctx.store.setSessionTitle(fresh.id, title);
-        // the fork runs on what it forked from, not on whatever the
-        // project's default has become since
-        ctx.store.copySessionSettings(channelId, fresh.id);
-        const source = ctx.archive.raw(channelId);
-        ctx.archive.seed(fresh.id, {
-          events: kept,
-          summaries: source.summaries,
-          chain: source.chain ?? {},
-          ...(source.contextTokens !== undefined ? { contextTokens: source.contextTokens } : {}),
-          ...(source.contextAt ? { contextAt: source.contextAt } : {}),
-          ...(source.contextWindow !== undefined && source.contextWindowModel !== undefined
-            ? { contextWindow: source.contextWindow, contextWindowModel: source.contextWindowModel }
-            : {}),
-          seqs: ctx.archive.exchangeNumbers(channelId),
-        });
-        // the session forked is the one on the harness the chat is on now
-        const harness = ctx.manager.harnessFor(project);
-        const claude = harness === "claude";
-        const nativeFork = claude || ctx.models.registry.canForkSession(harness);
-        const sessionId = ctx.archive.sessionOn(channelId, harness);
-        const chain = ctx.archive.chain(channelId);
-        const ours = (id: string) => (chain[id]?.harness ?? harness) === harness;
-        // the newest kept exchange that went to this harness: what its
-        // session holds, up to the branch point (an untagged chain is from
-        // before the chat kept a session per harness, when it had only one)
-        const tagged = kept.some((e) => e.kind === "user" && chain[e.id]?.harness !== undefined);
-        const ranHere = tagged
-          ? kept.findLast((e) => e.kind === "user" && chain[e.id]?.harness === harness)?.id
-          : target.id;
-        let forked = false;
-        if (nativeFork && sessionId && !compactedSince) {
-          // the branch point: the last chain entry of this exchange. From
-          // the chain map when a turn recorded it, else from the CLI's
-          // own transcript as the entry before the next prompt — and a
-          // fork at the latest exchange needs no point at all.
-          let at = ours(target.id) ? chain[target.id]?.last : undefined;
-          let holds = at ? target.id : ranHere;
-          if (!at && next && claude) {
-            const ordinal = events.filter(
-              (e, i) => i < events.indexOf(next) && e.kind === "user" && e.text.trim() === next.text.trim(),
-            ).length;
-            at = (await promptChain(project, sessionId, next.text, ordinal))?.before;
-          }
-          if (at || !next) {
-            // a fork at the tip holds all its source does
-            if (!at) {
-              const seen = ctx.archive.harnessSession(channelId, harness)?.seen;
-              if (seen && kept.some((e) => e.id === seen)) holds = seen;
-            }
-            ctx.archive.adoptSession(fresh.id, sessionId, holds);
-            if (at) ctx.archive.setResumeAt(fresh.id, sessionId, at);
-            else ctx.archive.setForkNext(fresh.id, sessionId);
-            forked = true;
-          }
-        }
-        if (!forked) {
-          // the source's digest comes along when the fork keeps all it
-          // folded; one that reaches past the fork point would remember
-          // exchanges the fork never had
-          const source = ctx.archive.digest(channelId);
-          const digest =
-            source && kept.some((e) => e.kind === "user" && e.id === source.through) ? source : undefined;
-          if (digest) ctx.archive.setDigest(fresh.id, digest);
-          const built = buildCompaction(
-            fresh.id,
-            kept,
-            ctx.archive.summaries(fresh.id),
-            digest,
-            briefContext(ctx, fresh.id),
-          );
-          if (built) ctx.archive.setPendingBrief(fresh.id, built.brief);
-        }
-        ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-        ctx.clients.broadcast({
-          type: "transcript",
-          projectId: fresh.id,
-          events: ctx.readable.allowArchived({ [fresh.id]: ctx.archive.events(fresh.id) })[fresh.id] ?? [],
-          summaries: ctx.archive.allSummaries([fresh.id])[fresh.id] ?? {},
-          earlier: ctx.archive.earlier(fresh.id),
-        });
-        // What the fork's conversation holds: the source's context as this
-        // exchange left it when the fork resumes there (the source's reading
-        // now only when it forks at the tip, or has no reading from then),
-        // and nothing yet when it opens on a brief.
-        const tokens = forked
-          ? (ctx.archive.contextAfter(channelId, target.id) ?? ctx.archive.contextTokens(fresh.id))
-          : 0;
-        if (tokens !== undefined) {
-          ctx.archive.setContextTokens(fresh.id, tokens);
-          ctx.clients.broadcast({
-            type: "context",
-            projectId: fresh.id,
-            context: { tokens, window: contextWindow(ctx, fresh.id) },
-          });
-        }
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "open_session", projectId: fresh.id } satisfies ServerMessage));
-          if (!forked && nativeFork) {
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message:
-                  "forked the conversation — the session that held it is gone, so the fork starts from a brief of what it holds",
-              } satisfies ServerMessage),
-            );
-          }
-        }
-      } catch (err) {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              message: `fork failed: ${errorMessage(err)}`,
             } satisfies ServerMessage),
           );
         }

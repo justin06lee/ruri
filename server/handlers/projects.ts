@@ -1,14 +1,14 @@
 /**
- * The projects and their sessions: opened, closed, renamed, starred and
- * hidden, a session added or removed, a terminal's chat brought in — and
- * the same moves as the Home agent makes them through its tools.
+ * The projects: opened, closed, renamed, starred and hidden, a member
+ * taken off a team, a terminal's chat brought onto one — and the same
+ * moves as the Home agent makes them through its tools.
  */
 import { removeLibrarySkill } from "../library.js";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { WebSocket } from "ws";
-import { ideaDraftKey, type ServerMessage } from "../../shared/protocol.js";
+import { ideaDraftKey, type Project, type ServerMessage } from "../../shared/protocol.js";
 import {
   adoptShared,
   pushSheet,
@@ -23,56 +23,19 @@ import type { MemoryChange } from "../memoryLog.js";
 import { buildCompaction, removeTurnFiles } from "../compaction.js";
 import type { ServerContext } from "../context.js";
 import { busy } from "../channel.js";
-import { dispatch, titleSession } from "../dispatch.js";
+import { dispatch } from "../dispatch.js";
 import { findProjects } from "../finder.js";
 import { errorMessage } from "../log.js";
 import { HOME_ID, type ManagerHost } from "../manager.js";
 import { expandPath } from "../projects.js";
 import { importRecent, listRecent, titleOf } from "../recent.js";
 import { talkChatsClosed } from "./talk.js";
+import { pushTeam } from "./team.js";
 import type { Handlers } from "./types.js";
 
-/** Tear down one project and everything its sessions accumulated. */
-function closeProjectById(ctx: ServerContext, projectId: string): void {
-  const closing = ctx.store.get(projectId);
-  // messages between agents to and from its chats end with them
-  talkChatsClosed(ctx, closing?.sessions.map((s) => s.id) ?? []);
-  for (const sessionId of closing?.sessions.map((s) => s.id) ?? []) {
-    if (closing?.path) void ctx.checkpoints.forgetChannel(closing, sessionId).catch(() => undefined);
-    ctx.manager.dispose(sessionId);
-    ctx.archive.remove(sessionId);
-    ctx.clients.forgetChannel(sessionId);
-    removeTurnFiles(sessionId);
-    for (const key of ctx.crew.remove(sessionId)) ctx.crewManager.dispose(key);
-    ctx.agentLogs.remove(sessionId);
-    ctx.drafts.remove(sessionId);
-    ctx.tracker.removeProject(sessionId);
-    ctx.turns.contexts.delete(sessionId);
-    ctx.turns.progress.delete(sessionId);
-    ctx.turns.sent.delete(sessionId);
-    ctx.retries.cancelRetry(sessionId);
-    ctx.queues.entries.delete(sessionId);
-    ctx.queues.held.delete(sessionId);
-    ctx.governor.unwait(sessionId);
-    ctx.terminals.closeChannel(sessionId);
-    ctx.bridge.closeBridge(sessionId);
-  }
-  ctx.briefs.remove(projectId);
-  ctx.memory.remove(projectId);
-  ctx.ideas.removeProject(projectId);
-  ctx.drafts.remove(ideaDraftKey(projectId));
-  ctx.components.removeProject(projectId);
-  removeLibrarySkill(projectId);
-  ctx.ledger.removeProject(projectId);
-  ctx.store.remove(projectId);
-  ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-}
-
-/** Close one chat and everything it accumulated — the user's remove, or
- *  a lead retiring (or clearing) a member of its team. */
-export function closeSession(ctx: ServerContext, sessionId: string): void {
-  const owner = ctx.store.findSession(sessionId)?.project;
-  talkChatsClosed(ctx, [sessionId]);
+/** Everything one chat accumulated, let go: its process, transcript,
+ *  checkpoints, agents, queue, terminals and the rest. */
+function forgetChat(ctx: ServerContext, sessionId: string, owner: Project | undefined): void {
   if (owner?.path) void ctx.checkpoints.forgetChannel(owner, sessionId).catch(() => undefined);
   ctx.manager.dispose(sessionId);
   ctx.archive.remove(sessionId);
@@ -89,13 +52,43 @@ export function closeSession(ctx: ServerContext, sessionId: string): void {
   ctx.queues.entries.delete(sessionId);
   ctx.queues.held.delete(sessionId);
   ctx.governor.unwait(sessionId);
+  ctx.terminals.closeChannel(sessionId);
   ctx.bridge.closeBridge(sessionId);
-  ctx.store.removeSession(sessionId);
+}
+
+/** Tear down one project: its lead, its team and everything they
+ *  accumulated, and the project's own memory, sheets and library. */
+function closeProjectById(ctx: ServerContext, projectId: string): void {
+  const closing = ctx.store.get(projectId);
+  const chats = closing?.sessions.map((s) => s.id) ?? [];
+  // messages between agents to and from its chats end with them
+  talkChatsClosed(ctx, chats);
+  for (const sessionId of chats) forgetChat(ctx, sessionId, closing);
+  ctx.briefs.remove(projectId);
+  ctx.memory.remove(projectId);
+  ctx.ideas.removeProject(projectId);
+  ctx.drafts.remove(ideaDraftKey(projectId));
+  ctx.components.removeProject(projectId);
+  removeLibrarySkill(projectId);
+  ctx.ledger.removeProject(projectId);
+  ctx.store.remove(projectId);
+  ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+}
+
+/** A member off its team for good — retired, or cleared for a fresh one
+ *  in its place — and everything it accumulated with it. */
+export function closeMember(ctx: ServerContext, sessionId: string): void {
+  const owner = ctx.store.findSession(sessionId)?.project;
+  if (!owner || ctx.store.lead(owner.id)?.id === sessionId) return;
+  talkChatsClosed(ctx, [sessionId]);
+  forgetChat(ctx, sessionId, owner);
+  ctx.store.removeMember(sessionId);
   ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
 }
 
 // What the Home agent's MCP tools may do to the app: open projects (and
-// optionally kick their sessions off), close them again, and see what's open.
+// optionally hand their lead a first prompt), close them again, and see
+// what's open.
 export function createManagerHost(ctx: ServerContext): ManagerHost {
   const host: ManagerHost = {
     openProject: ({ path: projectPath, name, folder, kickoffPrompt }) => {
@@ -121,31 +114,22 @@ export function createManagerHost(ctx: ServerContext): ManagerHost {
         // works in it — Home opening a workspace of projects is not that
         adoptShared(ctx, project.id);
       }
-      let sessionId = project.sessions[0]?.id;
-      // an emptied folder (all sessions closed) gets a fresh session on reopen
-      if (!sessionId) {
-        sessionId = ctx.store.newSession(project.id)?.id;
-        ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-      }
-      if (kickoffPrompt && sessionId) {
-        // Through the same door as a prompt typed into the chat: on the
-        // chat's own model, behind its queue when it is busy, told whatever
+      const lead = ctx.store.lead(project.id)?.id;
+      if (kickoffPrompt && lead) {
+        // Through the same door as a prompt typed into the lead's chat: on
+        // its own model, behind its queue when it is busy, told whatever
         // the session it lands in has missed — a project already open may
-        // hand this to a chat with a long history on another harness. (It
-        // used to go straight to a session on the project's model, over the
-        // chat's own pick and past everything it had.) A session Home starts
-        // is named like one the user starts: from this prompt, now.
-        if (busy(ctx, sessionId)) {
-          const queue = ctx.queues.entries.get(sessionId) ?? [];
+        // hand this to a lead with a long history on another harness.
+        if (busy(ctx, lead)) {
+          const queue = ctx.queues.entries.get(lead) ?? [];
           queue.push({ id: randomUUID(), text: kickoffPrompt, uploads: [], silent: false });
-          ctx.queues.entries.set(sessionId, queue);
-          ctx.queues.broadcastQueue(sessionId);
-          titleSession(ctx, sessionId, kickoffPrompt);
-        } else dispatch(ctx, sessionId, kickoffPrompt, []);
+          ctx.queues.entries.set(lead, queue);
+          ctx.queues.broadcastQueue(lead);
+        } else dispatch(ctx, lead, kickoffPrompt, []);
       }
       return `${opened ? "opened" : "already open"}: ${project.name} (${project.path})${
         named ? ` — a project of that name is open, so ${dir} was not opened as another` : ""
-      }${kickoffPrompt ? " — session started with the kickoff prompt" : ""}`;
+      }${kickoffPrompt ? " — its lead has the kickoff prompt" : ""}`;
     },
     newProject: (name) => {
       const clean = name.trim().replace(/\/+$/, "");
@@ -262,13 +246,6 @@ export const projectHandlers = {
   remove_project: (ctx, _ws, msg) => {
     closeProjectById(ctx, msg.projectId);
   },
-  new_session: (ctx, _ws, msg) => {
-    ctx.store.newSession(msg.projectId);
-    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-  },
-  remove_session: (ctx, _ws, msg) => {
-    closeSession(ctx, msg.sessionId);
-  },
   toggle_star: (ctx, _ws, msg) => {
     const project = ctx.store.get(msg.projectId);
     if (project) {
@@ -289,13 +266,6 @@ export const projectHandlers = {
       ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
     }
   },
-  rename_session: (ctx, _ws, msg) => {
-    const title = msg.title.trim();
-    if (title && ctx.store.findSession(msg.sessionId)) {
-      ctx.store.setSessionTitle(msg.sessionId, title);
-      ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-    }
-  },
   recent_list: (ctx, ws, msg) => {
     // what the harnesses hold for this project that ruri did not make:
     // every id ruri's own chats have ever run on is left out
@@ -311,25 +281,24 @@ export const projectHandlers = {
       .catch(() => {});
   },
   recent_import: (ctx, ws, msg) => {
-    // A chat that happened in a terminal becomes a chat here: a new
-    // session holding its conversation. The next prompt resumes the
-    // real thing when the project runs on the harness it ran on;
-    // otherwise it continues from a brief of it, the way a rewind
-    // across harnesses does.
+    // A chat that happened in a terminal joins the project's team: a new
+    // member holding its conversation, for the lead to hand the rest of
+    // that work to. The next prompt resumes the real thing when the
+    // project runs on the harness it ran on; otherwise it continues from
+    // a brief of it, the way a rewind across harnesses does.
     const project = ctx.store.get(msg.projectId);
     if (!project) throw new Error("unknown project");
     const imported = importRecent(project, msg.id);
     if (!imported) throw new Error("that session's file is gone");
-    // a teammate, for the lead to hand the rest of that work to
+    const harness = imported.provider === "claude" ? "Claude Code" : "Codex";
     const opening = imported.events.find((e) => e.kind === "user");
-    const fresh = ctx.store.newSession(
-      project.id,
-      `carry on the ${imported.provider === "claude" ? "Claude Code" : "Codex"} chat it was brought in from${
-        opening?.kind === "user" ? `, which began "${titleOf(opening.text)}"` : ""
-      }`,
-    );
+    const began = opening?.kind === "user" ? titleOf(opening.text) : "";
+    const fresh = ctx.store.addMember(project.id, {
+      name: began.length > 0 && began.length <= 40 ? began : `${harness} chat`,
+      duty: `carry on the ${harness} chat it was brought in from${began ? `, which began "${began}"` : ""}`,
+    });
     if (!fresh) throw new Error("unknown project");
-    ctx.archive.seed(fresh.id, { events: imported.events, summaries: {}, chain: {} });
+    ctx.archive.seed(fresh.id, imported.events);
     const providerId = ctx.models.registry.parse(project.model).providerId;
     const sameHarness =
       imported.provider === "claude" ? providerId === undefined : providerId === imported.provider;
@@ -342,20 +311,9 @@ export const projectHandlers = {
       const built = buildCompaction(fresh.id, imported.events, {});
       if (built) ctx.archive.setPendingBrief(fresh.id, built.brief);
     }
-    const firstPrompt = imported.events.find((e) => e.kind === "user");
-    if (firstPrompt && firstPrompt.kind === "user") titleSession(ctx, fresh.id, firstPrompt.text);
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-    ctx.clients.broadcast({
-      type: "transcript",
-      projectId: fresh.id,
-      events: ctx.readable.allowArchived({ [fresh.id]: ctx.archive.events(fresh.id) })[fresh.id] ?? [],
-      summaries: {},
-    });
+    pushTeam(ctx, project.id);
     if (ws.readyState === WebSocket.OPEN) {
-      // a lead (the project had no chat left) is opened; a teammate is the
-      // lead's to talk to, and shows on the team page
-      if (fresh.lead)
-        ws.send(JSON.stringify({ type: "open_session", projectId: fresh.id } satisfies ServerMessage));
       if (!sameHarness) {
         ws.send(
           JSON.stringify({

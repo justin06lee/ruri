@@ -199,7 +199,6 @@ export const Exchange = memo(function Exchange({
   project,
   channelId,
   onRewind,
-  onFork,
   onOpen,
   onFold,
   onFoldHalf,
@@ -224,7 +223,6 @@ export const Exchange = memo(function Exchange({
   project?: Project;
   channelId?: string;
   onRewind?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
-  onFork?: (event: Extract<TranscriptEvent, { kind: "user" }>) => void;
   onOpen(turnId: string, half: Half): void;
   onFold(turnId: string): void;
   onFoldHalf(turnId: string, half: "prompt" | "reply"): void;
@@ -235,14 +233,7 @@ export const Exchange = memo(function Exchange({
   const asked = note?.user || prompt || "an exchange";
   const answered = note?.reply || reply;
   const view = (event: TranscriptEvent) => (
-    <EventView
-      key={event.id}
-      event={event}
-      project={project}
-      channelId={channelId}
-      onRewind={onRewind}
-      onFork={onFork}
-    />
+    <EventView key={event.id} event={event} project={project} channelId={channelId} onRewind={onRewind} />
   );
   return (
     <div className={`turn${folded ? " folded" : ""}${far ? " far" : ""}`} data-turn={turnId}>

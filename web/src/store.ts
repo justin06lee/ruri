@@ -453,7 +453,7 @@ interface RuriState {
   sheetFacts: Record<string, { sources: Record<string, SourceLabel>; git?: SheetGit }>;
   /** Shell tab ids per channel, in the order the tab row shows them. */
   terminals: Record<string, string[]>;
-  /** Rapid-fire mode: the main pane cycles through sessions awaiting a prompt. */
+  /** Rapid-fire mode: the main pane cycles through projects whose lead awaits a prompt. */
   rapid: boolean;
   /** The projects page, off the sidebar, is showing instead of a chat. */
   projectsOpen: boolean;
@@ -1083,14 +1083,6 @@ function sessionIn(projects: Project[], sessionId: string): SessionInfo | undefi
   return undefined;
 }
 
-export function renameSession(sessionId: string, title: string): void {
-  changeProjects(
-    { type: "rename_session", sessionId, title },
-    (projects) => onSession(projects, sessionId, (x) => ({ ...x, title })),
-    (projects) => sessionIn(projects, sessionId)?.title === title,
-  );
-}
-
 export function renameProject(projectId: string, name: string): void {
   changeProjects(
     { type: "rename_project", projectId, name },
@@ -1110,19 +1102,6 @@ export function toggleProject(projectId: string, what: "starred" | "hidden"): vo
     { type: what === "starred" ? "toggle_star" : "toggle_hidden", projectId },
     (projects) => onProject(projects, projectId, (p) => ({ ...p, [what]: to })),
     (projects) => Boolean(projects.find((p) => p.id === projectId)?.[what]) === to,
-  );
-}
-
-export function removeSession(sessionId: string): void {
-  changeProjects(
-    { type: "remove_session", sessionId },
-    (projects) =>
-      projects.map((p) =>
-        p.sessions.some((x) => x.id === sessionId)
-          ? { ...p, sessions: p.sessions.filter((x) => x.id !== sessionId) }
-          : p,
-      ),
-    (projects) => !sessionIn(projects, sessionId),
   );
 }
 
@@ -1880,10 +1859,6 @@ function apply(msg: ServerMessage): void {
           history: Object.fromEntries(Object.entries(s.history).filter(([id]) => id !== msg.projectId)),
         };
       });
-      break;
-    }
-    case "open_session": {
-      useRuri.getState().setActive(msg.projectId);
       break;
     }
     case "recent": {

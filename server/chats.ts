@@ -181,7 +181,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         const model = channelProject(ctx, projectId)?.model || ctx.store.defaultModel();
         ctx.archive.setContextTokens(projectId, tokens, window, model);
         if (window) ctx.models.windows.set(model, window);
-        // and against the turn in flight, for a rewind or a fork to go back to
+        // and against the turn in flight, for a rewind to go back to
         ctx.archive.noteTurnContext(projectId, tokens);
         const context: ContextUsage = { tokens, window: contextWindow(ctx, projectId) };
         ctx.turns.contexts.set(projectId, context);
@@ -289,7 +289,6 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       canFork: (id) => ctx.models.registry.canForkSession(id),
     },
     (projectId, resumeId) => ctx.archive.resumeAtFor(projectId, resumeId),
-    (projectId, resumeId) => ctx.archive.forkNextFor(projectId, resumeId),
   );
   // an unset model is whatever Settings crowned, read live
   manager.useDefaultModel(() => ctx.store.defaultModel());

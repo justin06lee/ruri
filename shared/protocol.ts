@@ -50,8 +50,8 @@ export type ModelRole = "small" | "default" | "memory";
  */
 export interface SessionInfo {
   id: string;
-  /** Role title, auto-named by the small model ("Frontend UI", …); a
-   *  member's is its name on the team, given when it joined. */
+  /** What it goes by: a lead is "Lead"; a member's is its name on the
+   *  team, given when it joined (and changed by the lead). */
   title?: string;
   /** The project's lead: the chat the user talks to. */
   lead?: boolean;
@@ -97,22 +97,23 @@ export interface Project {
   name: string;
   path: string;
   folder?: string;
-  /** What a new session in this project starts on — the last pick made
-   *  in any of its chats. A session that has picked its own carries it on
-   *  itself (SessionInfo); these are the fallback, never an override. */
+  /** What a new member of its team starts on — the last pick made in the
+   *  lead's composer, or for a member. A session that has picked its own
+   *  carries it on itself (SessionInfo); these are the fallback, never an
+   *  override. */
   model?: string;
-  /** Permission mode a new session starts in (DEFAULT_PERMISSION_MODE when unset). */
+  /** Permission mode a new member starts in (DEFAULT_PERMISSION_MODE when unset). */
   permissionMode?: PermissionMode;
-  /** Reasoning effort a new session starts at (EFFORT_LEVELS);
+  /** Reasoning effort a new member starts at (EFFORT_LEVELS);
    *  DEFAULT_EFFORT (xhigh) when unset. */
   effort?: string;
   /** Bookmarked: shown in the Starred section above the project tree. */
   starred?: boolean;
   /** Tucked away: out of the sidebar, rapid fire, the switcher and the
-   *  projects board, but still open — sessions and transcripts intact —
+   *  projects board, but still open — its team and transcripts intact —
    *  and one click (or the Home agent) brings it back. */
   hidden?: boolean;
-  /** The project's sessions (possibly none — an empty folder is fine). */
+  /** Its lead first, then the members of its team. */
   sessions: SessionInfo[];
 }
 
@@ -766,20 +767,18 @@ export interface LetterFrom {
   cutIn?: boolean;
 }
 
-/** Who one agent may message: anyone, only the chats and projects listed
- *  (a project meaning every chat in it, new ones too), or no one. */
+/** Which other projects a project's agents may reach (through each one's
+ *  lead): any, only those listed, or none. Its own team may always talk. */
 export interface TalkRule {
   to: "anyone" | "listed" | "nobody";
   projects: string[];
-  chats: string[];
 }
 
-/** Who may message whom: one rule for every agent, which a project's rule
- *  overrides for the chats in it, which a chat's own overrides for it. */
+/** Who may reach whom: one rule for every project, which a project's own
+ *  rule overrides. */
 export interface TalkPolicy {
   everyone: TalkRule;
   projects: Record<string, TalkRule>;
-  chats: Record<string, TalkRule>;
 }
 
 /** Where a message between agents has got to. */
@@ -810,15 +809,15 @@ export interface TalkLetter {
 
 /** What an agent asks to send, on the card that asks the user. */
 export interface TalkAsk {
-  /** The chat it is for — "" when it is for a chat not yet started. */
+  /** The chat it is for — "" when its project is not open yet. */
   to: string;
   project: string;
   title: string;
   text: string;
   reply: TalkReply;
-  /** The agent is asking to start a new chat in `project` for this, on
-   *  `model` when it named one. */
-  fresh?: { model?: string };
+  /** `project` is a folder not open yet: it opens as a project, and the
+   *  message goes to its lead. */
+  opening?: boolean;
 }
 
 export interface ComponentProposal {
@@ -1635,12 +1634,6 @@ export type ClientMessage =
    *  with the files left as they are. Either way the prompt itself returns
    *  to the composer, to edit and send like any other. */
   | { type: "rewind"; projectId: string; eventId: string }
-  /** Fork the conversation at this prompt's exchange: a new session in
-   *  the same project holding everything through this turn, carrying on
-   *  from there while this one stays exactly as it is. On Claude the CLI
-   *  session is forked at that point; elsewhere the new session opens on a
-   *  brief of what it holds. */
-  | { type: "fork"; projectId: string; eventId: string }
   /** The sessions on disk for this project that ruri did not make —
    *  answered with `recent`. */
   | { type: "recent_list"; projectId: string }
@@ -1710,8 +1703,7 @@ export type ClientMessage =
   | { type: "question_response"; requestId: string; answers?: AskAnswers }
   /** Pick a model. `projectId` is a channel — a session id or HOME_ID — and
    *  the pick is that chat's alone (it also becomes what the project's new
-   *  chats start on). A bare project id is the old wholesale form: every
-   *  session in the project, at once. */
+   *  members start on). */
   | { type: "set_model"; projectId: string; model: string }
   | { type: "set_permission_mode"; projectId: string; mode: PermissionMode }
   /** Set a chat's reasoning effort (one of EFFORT_LEVELS); same addressing. */
@@ -1869,12 +1861,6 @@ export type ClientMessage =
   /** Call a project what you like in the sidebar. The folder on disk is
    *  untouched; this is the name ruri shows and the Home agent answers to. */
   | { type: "rename_project"; projectId: string; name: string }
-  | { type: "new_session"; projectId: string }
-  | { type: "remove_session"; sessionId: string }
-  /** Give a session a title by hand. The small model names a session once,
-   *  from its first prompt, and never over a title that is already there —
-   *  so a name given here stands. */
-  | { type: "rename_session"; sessionId: string; title: string }
   | { type: "set_workspace"; path: string }
   | { type: "set_music_dir"; path: string }
   /** Cycle a model's star: none → starred → small-tasks → default → none. */
@@ -2107,8 +2093,8 @@ export type ServerMessage =
   | { type: "queued"; projectId: string; items: QueuedPrompt[]; held?: QueueHold }
   /** Transcript events were removed (a command chip was clicked away). */
   | { type: "events_removed"; projectId: string; eventIds: string[] }
-  /** A whole transcript at once — a session that came into being with
-   *  history already in it (a fork, an imported chat). */
+  /** A whole transcript at once — a chat's, asked for when it opens
+   *  (transcript_get). */
   | {
       type: "transcript";
       projectId: string;
@@ -2121,9 +2107,6 @@ export type ServerMessage =
   /** A chat's history: every event before its newest compaction mark —
    *  asked for when one of its exchanges is opened in full. */
   | { type: "history"; projectId: string; events: TranscriptEvent[] }
-  /** A session you asked for exists (a fork, an import) — go there. Sent
-   *  to the asker alone. */
-  | { type: "open_session"; projectId: string }
   /** What a project has on disk from outside ruri (see recent_list). */
   | { type: "recent"; projectId: string; items: RecentSession[] }
   /** A finished tracker review's generated prompt, for the composer. */

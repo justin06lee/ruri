@@ -13,7 +13,7 @@ import { bridgeDir, runBridge } from "./bridge.js";
 import { ownerProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import { libraryHost } from "./handlers/components.js";
-import { httpWaitFor, listSeats, sendLetter, startChat, waitAnswer } from "./handlers/talk.js";
+import { askProject, httpWaitFor, listSeats, sendLetter, waitAnswer } from "./handlers/talk.js";
 import { teamHost } from "./handlers/team.js";
 import { runLibrary } from "./library.js";
 import { MEMORY_HELP, runMemoryCommand } from "./memoryCli.js";
@@ -114,8 +114,8 @@ async function serveBridgeCall(
 /**
  * POST /talk/<channelId> — talking to the other agents, for a harness that
  * cannot hold ruri's tools (server/talk.ts): {"do": "list"},
- * {"do": "send", "to", "message", "reply", "delivery"}, {"do": "new",
- * "project", "message", "model", "reply"} or {"do": "wait", "letter"},
+ * {"do": "send", "to", "message", "reply", "delivery"}, {"do": "project",
+ * "project", "message", "reply"} or {"do": "wait", "letter"},
  * answered {"ok", "text"} — and, about a message, its "letter" id and
  * whether "answered". A wait is held no longer than this chat's harness
  * lets a shell command block (httpWaitFor), and one whose curl goes away
@@ -231,16 +231,10 @@ async function serveTalkCall(
   }
   // the answer comes back by default, the same as from the tool
   const mode = body?.reply === "later" || body?.reply === "none" ? body.reply : "wait";
-  if (body?.do === "new" && typeof body.project === "string" && typeof body.message === "string") {
-    const model = typeof body.model === "string" && body.model.trim() ? { model: body.model } : {};
+  if (body?.do === "project" && typeof body.project === "string" && typeof body.message === "string") {
     reply(200, {
       ok: true,
-      ...(await startChat(
-        ctx,
-        id,
-        { project: body.project, message: body.message, reply: mode, ...model },
-        waiting,
-      )),
+      ...(await askProject(ctx, id, { project: body.project, message: body.message, reply: mode }, waiting)),
     });
     return;
   }
@@ -248,7 +242,7 @@ async function serveTalkCall(
     reply(400, {
       ok: false,
       error:
-        'send {"do": "list"}, {"do": "send", "to": "<handle>", "message": "..."}, {"do": "new", "project": "<name or path>", "message": "..."} or {"do": "wait", "letter": "<id>"} — and, for a lead, {"do": "team"}, {"do": "add", ...}, {"do": "update", ...}, {"do": "reset", ...} or {"do": "retire", ...}',
+        'send {"do": "list"}, {"do": "send", "to": "<handle>", "message": "..."}, {"do": "project", "project": "<name or path>", "message": "..."} or {"do": "wait", "letter": "<id>"} — and, for a lead, {"do": "team"}, {"do": "add", ...}, {"do": "update", ...}, {"do": "reset", ...} or {"do": "retire", ...}',
     });
     return;
   }

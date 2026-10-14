@@ -1,11 +1,12 @@
 /**
- * A chat's model, effort and mode are its own.
+ * A chat's model, effort and mode are its own — the lead's, and each
+ * member's of its team.
  *
  * Picking one in a chat used to write it on the project, and every chat in
  * the project — including one mid-turn — moved with it. Now the pick lands
- * on the session; the project's value is only what a NEW chat starts on;
- * and a sibling that was riding the old default is pinned to it before the
- * default moves, so nothing changes under it.
+ * on the session; the project's value is only what a NEW member starts
+ * on; and a teammate that was riding the old default is pinned to it
+ * before the default moves, so nothing changes under it.
  *
  * Runs against a scratch config dir, no server, no model.
  * Run manually: bun run settings-test
@@ -31,24 +32,26 @@ function check(name: string, ok: boolean, detail?: unknown): void {
 const store = new ProjectStore();
 const project = store.add("scratch", process.env["RURI_CONFIG_DIR"]!);
 const a = project.sessions[0]!;
-const b = store.newSession(project.id)!;
+let members = 0;
+const member = () => store.addMember(project.id, { name: `m${++members}`, duty: "a part of it" })!;
+const b = member();
 
 /* ── a fresh project: everything is the built-in default ───────────── */
-check("a new chat runs on the defaults", store.effectiveSettings(a.id)?.model === DEFAULT_MODEL);
+check("a new project's lead runs on the defaults", store.effectiveSettings(a.id)?.model === DEFAULT_MODEL);
 
 /* ── a pick in one chat stays in that chat ─────────────────────────── */
 store.setSessionSettings(a.id, { model: "codex:gpt-5.6-sol" });
 check("the chat that picked runs on its pick", store.effectiveSettings(a.id)?.model === "codex:gpt-5.6-sol");
 check(
-  "its sibling does not move",
+  "its teammate does not move",
   store.effectiveSettings(b.id)?.model === DEFAULT_MODEL,
   store.effectiveSettings(b.id),
 );
-check("the sibling is pinned, not inheriting", store.findSession(b.id)?.session.model === DEFAULT_MODEL);
+check("the teammate is pinned, not inheriting", store.findSession(b.id)?.session.model === DEFAULT_MODEL);
 
-/* ── a new chat starts on the last pick ────────────────────────────── */
-const c = store.newSession(project.id)!;
-check("a new chat starts on the last pick", store.effectiveSettings(c.id)?.model === "codex:gpt-5.6-sol");
+/* ── a new member starts on the last pick ──────────────────────────── */
+const c = member();
+check("a new member starts on the last pick", store.effectiveSettings(c.id)?.model === "codex:gpt-5.6-sol");
 
 /* ── the same for effort and mode ──────────────────────────────────── */
 store.setSessionSettings(c.id, { effort: "low", permissionMode: "plan" });
@@ -71,17 +74,17 @@ check(
   store.effectiveSettings(c.id)?.model === "codex:gpt-5.6-sol",
 );
 check(
-  "and the next new chat starts on the newest pick",
-  store.effectiveSettings(store.newSession(project.id)!.id)?.model === "haiku",
+  "and the next new member starts on the newest pick",
+  store.effectiveSettings(member().id)?.model === "haiku",
 );
 
-/* ── a fork keeps what it forked from ──────────────────────────────── */
-const fork = store.newSession(project.id)!;
-store.copySessionSettings(c.id, fork.id);
+/* ── a cleared member starts again on what it ran on ───────────────── */
+const fresh = member();
+store.copySessionSettings(c.id, fresh.id);
 check(
-  "a fork keeps the source chat's settings",
-  store.effectiveSettings(fork.id)?.effort === "low" &&
-    store.effectiveSettings(fork.id)?.model === "codex:gpt-5.6-sol",
+  "a cleared member keeps the settings it had",
+  store.effectiveSettings(fresh.id)?.effort === "low" &&
+    store.effectiveSettings(fresh.id)?.model === "codex:gpt-5.6-sol",
 );
 
 /* ── it all survives a reload ──────────────────────────────────────── */
@@ -196,14 +199,6 @@ check(
 check(
   "and one without the plain id either",
   !listsOneM.foldListedModels(new Set(["sonnet"])) && listsOneM.defaultModel() === "opus[1m]",
-);
-
-/* ── the wholesale form still clears the chats' own picks ──────────── */
-for (const s of again.get(project.id)!.sessions) delete s.model;
-again.update(project.id, { model: "opus" });
-check(
-  "a project-wide pick reaches every chat",
-  again.get(project.id)!.sessions.every((s) => again.effectiveSettings(s.id)?.model === "opus"),
 );
 
 /* ── a pick during a turn waits for the turn ───────────────────────── */

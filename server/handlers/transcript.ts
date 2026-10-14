@@ -79,11 +79,11 @@ export const transcriptHandlers = {
     const sentNow = view.live ? now : new Set<string>();
     for (const id of sentBefore) if (!sentNow.has(id)) view.seen.set(id, ctx.clients.mark(id));
     for (const id of sentNow) if (!sentBefore.has(id)) catchUp(ctx, ws, view, id);
-    // the projects page coming up, or waking with it up: every chat's tail
+    // the projects page coming up, or waking with it up: every lead's tail
     // as it now stands, since the ones not on screen stopped hearing about
-    // their work
+    // their work (a team's members are the lead's to show, not the page's)
     if (view.board && view.live && !(hadBoard && wasLive)) {
-      const others = [...known].filter((id) => !now.has(id));
+      const others = [...ctx.store.leadIds(), HOME_ID].filter((id) => !now.has(id));
       ws.send(
         JSON.stringify({
           type: "tails",

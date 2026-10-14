@@ -5,11 +5,11 @@ import { getPref, setPref } from "../prefs";
 import { useRuri } from "../store";
 
 /**
- * Rapid fire: the same chat, one session at a time — whichever is ready for
- * a prompt. It builds no pane of its own; it hands the ordinary chat pane a
- * different channel to show, so the transcript, the composer and everything
- * around them are the ones you already know. The app's own active session
- * doesn't move: leaving the line puts you back where you were.
+ * Rapid fire: the same chat, one project at a time — whichever's lead is
+ * ready for a prompt. It builds no pane of its own; it hands the ordinary
+ * chat pane a different channel to show, so the transcript, the composer
+ * and everything around them are the ones you already know. The app's own
+ * active chat doesn't move: leaving the line puts you back where you were.
  *
  * A send is not a cut. The prompt lands and sits there long enough to read,
  * the card eases out, and then the next project announces itself — its name,
@@ -45,8 +45,8 @@ export interface RapidFire {
   /** True while the card is on its way out — the pane fades on this. */
   leaving: boolean;
   /** The project being handed to, while its name is on screen. */
-  intro: { name: string; title?: string } | null;
-  /** Send or skip: on to the next session waiting. */
+  intro: string | null;
+  /** Send or skip: on to the next project waiting. */
   advance: (reason?: "sent" | "skip") => void;
 }
 
@@ -57,13 +57,9 @@ function lineNow(starredOnly: boolean): Line {
   return lineOf(projects, statuses, starredOnly);
 }
 
-/** Who a session belongs to, for the card that announces it. */
-function whose(projects: Project[], sessionId: string): { name: string; title?: string } {
-  for (const project of projects) {
-    const session = project.sessions.find((s) => s.id === sessionId);
-    if (session) return { name: project.name, ...(session.title ? { title: session.title } : {}) };
-  }
-  return { name: "…" };
+/** The project a lead speaks for, for the card that announces it. */
+function whose(projects: Project[], leadId: string): string {
+  return projects.find((project) => project.sessions.some((s) => s.id === leadId))?.name ?? "…";
 }
 
 /**

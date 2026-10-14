@@ -720,14 +720,6 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   color: var(--ink-faint);
 }
 
-.recent-age {
-  margin-left: auto;
-  flex-shrink: 0;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--ink-faint);
-}
-
 .unread-pip {
   width: 6px;
   height: 6px;
@@ -1485,8 +1477,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* `.working` is also the transcript's progress line, which pins itself to
    the start of its column — a dot carrying the status word must not */
 .home-tab .dot,
-.pcard-head .dot,
-.board-session-title .dot {
+.pcard-head .dot {
   align-self: center;
 }
 
@@ -1767,16 +1758,6 @@ input[type="range"]::-webkit-slider-thumb {
 
 .board-session:active {
   transform: none;
-}
-
-.board-session-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--ink-soft);
-  margin-bottom: 1px;
 }
 
 .board-line {
@@ -2803,11 +2784,6 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 14.5px;
 }
 
-.chat-session-title {
-  font-weight: 500;
-  color: var(--ink-soft);
-}
-
 /* the page buttons read as one group, so they sit tight against each other */
 .header-controls {
   display: flex;
@@ -3042,33 +3018,6 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .rewind-pencil:hover {
-  opacity: 1;
-  color: var(--ink);
-}
-
-/* fork: the branch under the pencil, same shoulder, same manners */
-
-.fork-branch {
-  position: absolute;
-  top: 30px;
-  left: -30px;
-  width: 24px;
-  height: 24px;
-  color: var(--ink-faint);
-  opacity: 0;
-  transition: opacity 140ms ease;
-}
-
-.fork-branch svg {
-  width: 13px;
-  height: 13px;
-}
-
-.msg.user:hover .fork-branch {
-  opacity: 0.75;
-}
-
-.fork-branch:hover {
   opacity: 1;
   color: var(--ink);
 }
@@ -3862,13 +3811,6 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 82%;
   /* INTRO_MS in RapidFire.tsx: the card comes down when this ends */
   animation: rapid-name 700ms ease-out forwards;
-}
-
-.rapid-intro-title {
-  font-size: 15px;
-  color: var(--ink-faint);
-  animation: rapid-name 660ms ease-out 40ms forwards;
-  opacity: 0;
 }
 
 /* The line's controls ride above the composer, on the composer's own width
@@ -9894,14 +9836,10 @@ button.stop:hover {
   text-align: left;
 }
 
-/* a project heads its chats; a chat hangs under its project */
-.talk-who.kind-project {
-  margin-top: 6px;
+/* every project's rule heads the list; each project's own hangs under it */
+.talk-who.kind-everyone {
+  margin-bottom: 4px;
   font-weight: 700;
-}
-
-.talk-who.kind-chat {
-  padding-left: 20px;
 }
 
 .talk-who:hover {
@@ -9971,19 +9909,6 @@ button.stop:hover {
   gap: 6px;
 }
 
-.talk-project {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--line-soft, var(--edge));
-}
-
-.talk-project:first-child {
-  border-top: none;
-  padding-top: 0;
-}
-
 .talk-check {
   display: flex;
   align-items: center;
@@ -9995,21 +9920,6 @@ button.stop:hover {
 
 .talk-check input {
   accent-color: var(--ink);
-}
-
-.talk-check.one {
-  padding-left: 22px;
-  font-weight: 400;
-  color: var(--ink-soft);
-}
-
-.talk-check small {
-  font-weight: 400;
-  color: var(--ink-faint);
-}
-
-.talk-check.self {
-  opacity: 0.55;
 }
 
 .talk-lately {

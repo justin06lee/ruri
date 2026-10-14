@@ -27,8 +27,8 @@ import { removeTurnRecords } from "./turnRecords.js";
  * to now; it is what the chat shows, what every event rewrites, and so it
  * stays small. Everything before that mark is the history —
  * ~/.config/ruri/history/<id>.jsonl, one event per line — which a compaction
- * appends to and nothing else touches: it is read only for a rewind or a
- * fork that reaches back past the mark, a compaction's brief (which covers
+ * appends to and nothing else touches: it is read only for a rewind that
+ * reaches back past the mark, a compaction's brief (which covers
  * the whole conversation), and the chat's "earlier" view. The history is
  * capped (HISTORY_MAX_BYTES); past that its oldest exchanges are dropped.
  */
@@ -117,17 +117,13 @@ export interface ArchiveData {
    *  the next, which fails every resume with "No message found with
    *  message.uuid". */
   resumeAt?: { session: string; uuid: string };
-  /** The next session forks `forkNext` (a session id) at its tip — a chat
-   *  forked at its latest exchange shares the file up to there and then
-   *  goes its own way, leaving the original's file alone. */
-  forkNext?: string;
   /** Tokens in the window after the channel's last API call. Persisted so the
    *  context gauge reads the real occupancy on launch instead of zero until
    *  the next turn happens to refill it. */
   contextTokens?: number;
   /** The occupancy as each turn left it, keyed by the turn's opening
    *  user-event id — what the context was once that exchange was over, and
-   *  so what it is again when a rewind or a fork goes back to it. */
+   *  so what it is again when a rewind goes back to it. */
   contextAt?: Record<string, number>;
   /** The context window that channel's harness reported for its model —
    *  Codex names its own, and it is not one of Claude's two sizes. */
@@ -429,7 +425,6 @@ export class SessionArchive {
         typeof raw.resumeAt.uuid === "string"
           ? { resumeAt: { session: raw.resumeAt.session, uuid: raw.resumeAt.uuid } }
           : {}),
-        ...(typeof raw.forkNext === "string" ? { forkNext: raw.forkNext } : {}),
         ...(typeof raw.contextTokens === "number" ? { contextTokens: raw.contextTokens } : {}),
         ...(raw.contextAt && typeof raw.contextAt === "object" ? { contextAt: raw.contextAt } : {}),
         // an unattributed window is from before it was recorded whose it is
@@ -865,8 +860,8 @@ export class SessionArchive {
    * harness's. A new id on a harness — a fork a rewind asked for, a fresh
    * start — carries what the old one held (a fork holds it all; a fresh
    * start's entry was dropped before it began, so there is nothing to
-   * carry), and settles the fork point or tip fork that was waiting for
-   * it: that fork has now been made.
+   * carry), and settles the fork point that was waiting for it: that fork
+   * has now been made.
    *
    * Written at once when anything changed, rather than on the debounce: the
    * id is how the conversation is found again, and a quit or a crash in the
@@ -884,7 +879,6 @@ export class SessionArchive {
     entry.harnesses = { ...entry.harnesses, [harness]: { ...had, session: sessionId } };
     if (had?.session !== undefined && had.session !== sessionId) {
       if (entry.resumeAt?.session === had.session) delete entry.resumeAt;
-      if (entry.forkNext === had.session) delete entry.forkNext;
     }
     entry.sessionIds ??= [];
     if (!entry.sessionIds.includes(sessionId)) entry.sessionIds = [...entry.sessionIds.slice(-59), sessionId];
@@ -966,7 +960,7 @@ export class SessionArchive {
 
   /**
    * A session that holds exactly the conversation as it stands, through
-   * `seen` — a fork's copy of its source, an imported chat's own session.
+   * `seen` — an imported chat's own session.
    */
   adoptSession(projectId: string, sessionId: string, seen: string | undefined): void {
     this.setLastSessionId(projectId, sessionId);
@@ -981,7 +975,7 @@ export class SessionArchive {
 
   /**
    * Let go of the chat's session on one harness: the next prompt there
-   * starts afresh, briefed. A fork point or tip fork waiting in that session
+   * starts afresh, briefed. A rewind's fork point waiting in that session
    * goes with it, and the chat's current session too when it was that one.
    * The others are untouched — a Claude session that has gone missing says
    * nothing about the chat's Codex thread.
@@ -997,7 +991,6 @@ export class SessionArchive {
       id !== undefined && (harnessOfSession(id) === harness || id === had?.session);
     if (mine(entry.lastSessionId)) delete entry.lastSessionId;
     if (mine(entry.resumeAt?.session)) delete entry.resumeAt;
-    if (mine(entry.forkNext)) delete entry.forkNext;
     this.flushNow(projectId);
   }
 
@@ -1040,7 +1033,6 @@ export class SessionArchive {
     delete entry.lastSessionId;
     delete entry.harnesses;
     delete entry.resumeAt;
-    delete entry.forkNext;
     this.flushNow(projectId);
   }
 
@@ -1089,71 +1081,17 @@ export class SessionArchive {
     return at !== undefined && resumeId !== undefined && at.session === resumeId ? at.uuid : undefined;
   }
 
-  /** The next session forks `session` at its tip. */
-  setForkNext(projectId: string, session: string): void {
-    this.load(projectId).forkNext = session;
-    this.flushNow(projectId);
-  }
-
-  /** Whether a session about to resume `resumeId` is to fork it at its tip
-   *  — kept, like resumeAtFor's point, until that fork has been made. */
-  forkNextFor(projectId: string, resumeId: string | undefined): boolean {
-    const session = this.load(projectId).forkNext;
-    return session !== undefined && resumeId !== undefined && session === resumeId;
-  }
-
   /**
-   * Give a session history it did not live through: a fork's copy of the
-   * exchanges it branches from. Everything is copied — events, the notes
-   * on them, the chain uuids a later rewind would want, the context
-   * reading — so the new session is, on screen and on disk, the old one up
-   * to the branch point.
+   * Give a chat history it did not live through: the exchanges of a chat
+   * brought in from outside ruri, as the new member it becomes holds them.
    */
-  seed(
-    projectId: string,
-    from: {
-      events: TranscriptEvent[];
-      summaries: Record<string, TurnSummary>;
-      chain: Record<string, ChainEntry>;
-      contextTokens?: number;
-      contextAt?: Record<string, number>;
-      contextWindow?: number;
-      contextWindowModel?: string;
-      /** The numbers its exchanges went by, so a ref into the fork names
-       *  the same exchange as the ref into the chat it came from. */
-      seqs?: Map<string, number>;
-    },
-  ): void {
-    const kept = new Set(from.events.map((e) => e.id));
-    const seqs = from.seqs ? [...from.seqs].filter(([id]) => kept.has(id)) : undefined;
-    const entry: ArchiveData = {
-      events: from.events.map((e) => ({ ...e })),
-      summaries: Object.fromEntries(
-        Object.entries(from.summaries)
-          .filter(([id]) => kept.has(id))
-          .map(([id, n]) => [id, { ...n }]),
-      ),
-      chain: Object.fromEntries(
-        Object.entries(from.chain)
-          .filter(([id]) => kept.has(id))
-          .map(([id, c]) => [id, { ...c }]),
-      ),
-      ...(from.contextTokens !== undefined ? { contextTokens: from.contextTokens } : {}),
-      ...(from.contextAt
-        ? { contextAt: Object.fromEntries(Object.entries(from.contextAt).filter(([id]) => kept.has(id))) }
-        : {}),
-      ...(from.contextWindow !== undefined && from.contextWindowModel !== undefined
-        ? { contextWindow: from.contextWindow, contextWindowModel: from.contextWindowModel }
-        : {}),
-      ...(seqs
-        ? { seqs: Object.fromEntries(seqs), nextSeq: Math.max(0, ...seqs.map(([, n]) => n)) + 1 }
-        : {}),
-    };
+  seed(projectId: string, events: TranscriptEvent[]): void {
+    const entry: ArchiveData = { events: events.map((e) => ({ ...e })), summaries: {}, chain: {} };
     this.data.set(projectId, entry);
     this.restack(projectId);
     this.owners = undefined;
-    // a fork of a compacted conversation gets the same split: its own
-    // history up to the newest mark, its live part from there
+    // a compacted conversation gets the usual split: its own history up to
+    // the newest mark, its live part from there
     try {
       this.writeHistory(projectId, []);
     } catch (err) {
@@ -1162,11 +1100,6 @@ export class SessionArchive {
     }
     if (this.fold(projectId, entry)) this.flushNow(projectId);
     else this.scheduleWrite(projectId);
-  }
-
-  /** Everything the archive holds for a channel, for a fork to copy from. */
-  raw(projectId: string): Readonly<ArchiveData> {
-    return this.load(projectId);
   }
 
   /** Drop everything from this event to the end (a rewind's discard),

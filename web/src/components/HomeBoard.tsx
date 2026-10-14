@@ -117,14 +117,11 @@ function backgroundLine(work: BackgroundWork): string {
   return `${parts.join(" and ")} at work in the background`;
 }
 
-const SessionLines = memo(function SessionLines({ session, many }: { session: SessionInfo; many: boolean }) {
-  const events = useRuri((s) => s.transcripts[session.id] ?? NO_EVENTS);
-  const turnStatus = useRuri((s) => s.statuses[session.id] ?? "idle");
-  // the sidebar's diamond: a turn finished here and nobody has looked yet
-  const unread = useRuri((s) => s.unread[session.id] ?? false);
-  const work = useRuri((s) => s.work[session.id]);
-  // a turn over with its agents or scripts still going is still working
-  const status = work && (turnStatus === "idle" || turnStatus === "error") ? "working" : turnStatus;
+/** The last few lines of a project's lead, as its card shows them. */
+const LeadLines = memo(function LeadLines({ project, lead }: { project: Project; lead: string }) {
+  const events = useRuri((s) => s.transcripts[lead] ?? NO_EVENTS);
+  const turnStatus = useRuri((s) => s.statuses[lead] ?? "idle");
+  const work = useRuri((s) => s.work[lead]);
   const setActive = useRuri((s) => s.setActive);
   const lines = useMemo(() => {
     const out: Line[] = [];
@@ -148,16 +145,9 @@ const SessionLines = memo(function SessionLines({ session, many }: { session: Se
     <button
       type="button"
       className="board-session"
-      title={`Open ${session.title ?? "this session"}`}
-      onClick={() => setActive(session.id)}
+      title={`Open ${project.name}`}
+      onClick={() => setActive(lead)}
     >
-      {many && (
-        <span className="board-session-title">
-          <span className={`dot ${status}`} aria-hidden />
-          {session.title ?? "new session"}
-          {unread && <span className="unread-pip" title="Turn finished" />}
-        </span>
-      )}
       {lines.length === 0 ? (
         <span className="board-line note">nothing yet</span>
       ) : (
@@ -180,28 +170,21 @@ const WORD: Record<Status, string> = {
   idle: "idle",
 };
 
-function ProjectCard({
-  project,
-  status,
-  fresh,
-  sessions,
-}: {
-  project: Project;
-  status: Status;
-  /** A turn finished in one of its chats that nobody has opened since. */
-  fresh: boolean;
-  /** The sessions it lists (see shownSessions). */
-  sessions: SessionInfo[];
-}) {
+/**
+ * A project's card: the lead's last lines — the one chat the user has in
+ * it. Its team works behind it: their state is the card's status, and
+ * what came of their work is what the lead says.
+ */
+function ProjectCard({ project, status, fresh }: { project: Project; status: Status; fresh: boolean }) {
   const setActive = useRuri((s) => s.setActive);
-  const first = sessions[0];
+  const lead = leadOf(project)?.id;
   return (
     <div className={`pcard st-${status} ${fresh ? "fresh" : ""}`}>
       <div
         className="pcard-head"
-        role={first ? "button" : undefined}
-        onClick={() => first && setActive(first.id)}
-        title={first ? `Open ${project.name}` : undefined}
+        role={lead ? "button" : undefined}
+        onClick={() => lead && setActive(lead)}
+        title={lead ? `Open ${project.name}` : undefined}
       >
         <span className={`dot ${status}`} aria-hidden />
         <span className="pcard-name">{project.name}</span>
@@ -209,10 +192,10 @@ function ProjectCard({
         <span className="pcard-status">{status === "idle" && fresh ? "finished" : WORD[status]}</span>
       </div>
       <Capped max={4} className="pcard-body">
-        {sessions.length === 0 ? (
-          <span className="board-line note">no sessions open</span>
+        {lead ? (
+          <LeadLines project={project} lead={lead} />
         ) : (
-          sessions.map((session) => <SessionLines key={session.id} session={session} many={false} />)
+          <span className="board-line note">nothing yet</span>
         )}
       </Capped>
     </div>
@@ -250,16 +233,6 @@ function statusOf(
     if (RANK[status] < RANK[best]) best = status;
   }
   return best;
-}
-
-/**
- * The sessions a card lists: the lead's, the one chat the user has in a
- * project. Its team works behind it — their state is the card's status,
- * and what came of their work is what the lead says.
- */
-function shownSessions(project: Project): SessionInfo[] {
-  const lead = leadOf(project);
-  return lead ? [lead] : [];
 }
 
 /**
@@ -449,7 +422,7 @@ export function ProjectsPage() {
         const status = statusOf(project, statuses, work);
         const lead = leadOf(project);
         const fresh = !!lead && !!unread[lead.id];
-        return { project, status, fresh, sessions: shownSessions(project) };
+        return { project, status, fresh };
       })
       .sort((a, b) => RANK[a.status] - RANK[b.status] || a.project.name.localeCompare(b.project.name));
     return {
@@ -465,8 +438,8 @@ export function ProjectsPage() {
   const errored = live.filter((x) => x.status === "error").length;
   const grid = (items: typeof live) => (
     <div className="projects-grid">
-      {items.map(({ project, status, fresh, sessions }) => (
-        <ProjectCard key={project.id} project={project} status={status} fresh={fresh} sessions={sessions} />
+      {items.map(({ project, status, fresh }) => (
+        <ProjectCard key={project.id} project={project} status={status} fresh={fresh} />
       ))}
     </div>
   );

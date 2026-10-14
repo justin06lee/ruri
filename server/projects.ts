@@ -95,7 +95,7 @@ export class ProjectStore {
       );
       // migration: pre-session projects get one session whose id equals the
       // project id, so their archives/transcripts keep working untouched.
-      // An empty array is NOT migrated — that's a deliberately empty folder.
+      // One left with none gets a lead at launch (formTeams).
       for (const project of this.projects) {
         if (!Array.isArray(project.sessions)) {
           project.sessions = [{ id: project.id }];
@@ -437,43 +437,22 @@ export class ProjectStore {
     return undefined;
   }
 
-  /** A new chat in a project: its lead when it has none (an emptied
-   *  folder), else a member of its team — the sidebar shows only the lead. */
-  newSession(projectId: string, duty?: string): SessionInfo | undefined {
-    const project = this.projects.find((p) => p.id === projectId);
-    if (!project) return undefined;
-    const session: SessionInfo =
-      project.sessions.length === 0
-        ? { id: randomUUID(), title: LEAD_TITLE, lead: true }
-        : { id: randomUUID(), ...(duty ? { duty } : {}) };
-    project.sessions.push(session);
-    this.save();
-    return session;
-  }
-
-  /** Remove a session; the project stays (an empty folder), even when it
-   *  was the last one — only removing the project itself closes the folder.
-   *  A lead removed hands the lead to the first member left. */
-  removeSession(sessionId: string): void {
+  /** A member leaves its project's team. A lead never does: it is the
+   *  project's one chat, and goes only with the project. */
+  removeMember(sessionId: string): void {
     const found = this.findSession(sessionId);
-    if (!found) return;
+    if (!found || leadOf(found.project)?.id === sessionId) return;
     found.project.sessions = found.project.sessions.filter((s) => s.id !== sessionId);
-    const next = found.project.sessions[0];
-    if (found.session.lead && next) {
-      next.lead = true;
-      next.title = LEAD_TITLE;
-      delete next.duty;
-      delete next.layers;
-    }
     this.save();
   }
 
   /**
-   * A chat picks its own model, effort or mode.
+   * A chat picks its own model, effort or mode — the lead's, in the
+   * composer, or a member's.
    *
    * The pick lands on the session, and becomes the project's default so the
-   * next new chat starts on it — but a sibling that was riding the old
-   * default must not move with it: any sibling without its own value is
+   * next member starts on it — but a teammate that was riding the old
+   * default must not move with it: any teammate without its own value is
    * first pinned to what it was effectively running on. "" clears a field
    * back to the built-in default (pinned, not inherited, for the same reason).
    */
@@ -498,16 +477,6 @@ export class ProjectStore {
     this.save();
   }
 
-  /** One chat's own model, and nothing else: the project's default and its
-   *  other chats stay as they are — for a chat another agent started on a
-   *  model of its choosing (server/handlers/talk.ts startChat). */
-  setSessionModel(sessionId: string, model: string): void {
-    const found = this.findSession(sessionId);
-    if (!found) return;
-    found.session.model = model;
-    this.save();
-  }
-
   /** What a chat runs on: its own picks over the project's defaults. */
   effectiveSettings(sessionId: string): Required<SessionSettings> | undefined {
     const found = this.findSession(sessionId);
@@ -519,20 +488,14 @@ export class ProjectStore {
     };
   }
 
-  /** Copy one chat's effective settings onto another — a fork keeps what it
-   *  forked from, whatever the project's default has become since. */
+  /** Copy one chat's effective settings onto another — a cleared member
+   *  starts again on what it ran on, whatever the project's default has
+   *  become since. */
   copySessionSettings(fromId: string, toId: string): void {
     const settings = this.effectiveSettings(fromId);
     const target = this.findSession(toId)?.session;
     if (!settings || !target) return;
     Object.assign(target, settings);
-    this.save();
-  }
-
-  setSessionTitle(sessionId: string, title: string): void {
-    const found = this.findSession(sessionId);
-    if (!found) return;
-    found.session.title = title;
     this.save();
   }
 

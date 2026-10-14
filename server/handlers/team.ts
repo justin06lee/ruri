@@ -20,7 +20,7 @@ import type { ServerContext } from "../context.js";
 import { compactChannel, drainQueue, stopTurn } from "../dispatch.js";
 import type { QueueEntry } from "../queue.js";
 import { AGENT_BYTES, bytes, slotsFor, type TeamHost } from "../team.js";
-import { closeSession } from "./projects.js";
+import { closeMember } from "./projects.js";
 import { modelFor, sendLetter, talkTurnCut, type WaitOptions } from "./talk.js";
 import type { Handlers } from "./types.js";
 
@@ -379,7 +379,7 @@ export function actOn(ctx: ServerContext, chat: string, action: TeamAction, by: 
         })
       : undefined;
   if (fresh) ctx.store.copySessionSettings(chat, fresh.id);
-  closeSession(ctx, chat);
+  closeMember(ctx, chat);
   if (action === "retire") {
     releaseWaiting(ctx);
     pushTeam(ctx, project.id);

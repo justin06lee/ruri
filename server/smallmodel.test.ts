@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { quietCodex, sessionRoleTitle, setCompletionClient, summarizePrompt } from "./smallmodel.js";
+import { quietCodex, setCompletionClient, splitPrompt, summarizePrompt } from "./smallmodel.js";
 
 describe("the small model's codex", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-small-"));
@@ -64,7 +64,7 @@ describe("the small model's queue", () => {
     const started: string[] = [];
     const release: Array<() => void> = [];
     setCompletionClient(async ({ messages }) => {
-      started.push(String(messages[0]!.content).includes("FIRST PROMPT") ? "title" : "note");
+      started.push(String(messages[0]!.content).includes("SPLIT ME") ? "split" : "note");
       await new Promise<void>((resolve) => release.push(resolve));
       return "Fine";
     });
@@ -73,12 +73,12 @@ describe("the small model's queue", () => {
     await tick();
     // three notes waiting: only one of them runs
     expect(started).toEqual(["note"]);
-    const title = sessionRoleTitle({ turnId: "t", user: "fix the header", assistant: "", tools: [] });
+    const split = splitPrompt("SPLIT ME: fix the header, then the footer");
     await tick();
-    // the title doesn't wait behind the notes
-    expect(started).toEqual(["note", "title"]);
+    // the split doesn't wait behind the notes
+    expect(started).toEqual(["note", "split"]);
     let done = false;
-    const all = Promise.all([...notes, title]).then(() => {
+    const all = Promise.all([...notes, split]).then(() => {
       done = true;
     });
     for (let i = 0; i < 200 && !done; i++) {

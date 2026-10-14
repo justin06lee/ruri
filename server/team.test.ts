@@ -177,14 +177,14 @@ describe("every project a team", () => {
       title: "UI",
       duty: "the web UI and its styles",
     });
-    const plain = s.newSession(project.id, "pictures")!;
-    expect(plain.lead).toBeUndefined();
-    s.removeSession(project.sessions[0]!.id);
-    expect(s.get(project.id)!.sessions[0]).toMatchObject({ id: member.id, lead: true, title: "Lead" });
-    expect(s.get(project.id)!.sessions[0]!.duty).toBeUndefined();
+    // a member leaves; the lead never does — it goes only with the project
+    s.removeMember(project.sessions[0]!.id);
+    expect(s.get(project.id)!.sessions[0]).toMatchObject({ lead: true, title: "Lead" });
+    s.removeMember(member.id);
+    expect(s.get(project.id)!.sessions.map((x) => x.id)).toEqual([project.sessions[0]!.id]);
   });
 
-  test("an emptied project's next chat is its lead", () => {
+  test("a project left with no chat gets its lead at launch", () => {
     const s = store([{ id: "p", name: "p", path: "/tmp", sessions: [] }]);
     s.formTeams(() => true);
     expect(s.get("p")!.sessions[0]).toMatchObject({ lead: true });

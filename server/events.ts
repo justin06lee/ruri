@@ -33,7 +33,6 @@ import {
   endsIntact,
   extractTrackerItems,
   foldLayerSheet,
-  sessionRoleTitle,
   smallModelEnabled,
   summarizePrompt,
   summarizeReply,
@@ -436,16 +435,6 @@ export function createTurnTracker(ctx: ServerContext): TurnTracker {
       })
       .catch((err: unknown) => warn("events", err, "settleTurnFiles"));
     if (!smallModelEnabled()) return;
-    const found = ctx.store.findSession(projectId);
-    if (found && !found.session.title) {
-      sessionRoleTitle(turn)
-        .then((title) => {
-          if (!title) return;
-          ctx.store.setSessionTitle(projectId, title);
-          ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-        })
-        .catch(() => {});
-    }
     summarizeReply(turn)
       .then((note) => {
         if (note) noteSummary(ctx, projectId, turn.turnId, "reply", note);

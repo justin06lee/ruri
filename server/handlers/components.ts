@@ -336,11 +336,14 @@ function startPhotographer(
   const kept = prior && ctx.store.findSession(prior)?.project.id === projectId ? prior : undefined;
   if (kept && ctx.turns.progress.has(kept)) return "busy";
   const sessionId =
-    kept ?? ctx.store.newSession(projectId, "takes the pictures of the component library's entries")?.id;
+    kept ??
+    ctx.store.addMember(projectId, {
+      name: PHOTO_CHAT,
+      duty: "takes the pictures of the component library's entries",
+    })?.id;
   if (!sessionId) return undefined;
   ctx.photographers.set(projectId, sessionId);
-  ctx.store.setSessionTitle(sessionId, PHOTO_CHAT);
-  ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+  if (!kept) ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
   dispatch(ctx, sessionId, photoPrompt(targets), []);
   return "started";
 }

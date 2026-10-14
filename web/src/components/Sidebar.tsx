@@ -232,19 +232,7 @@ function ProjectRow({ project }: { project: Project }) {
     if (name) renameProject(project.id, name);
   };
   const open = () => {
-    if (leadId) {
-      setActive(leadId);
-      return;
-    }
-    // an emptied project: a lead, and to it when it arrives
-    send({ type: "new_session", projectId: project.id });
-    const unsubscribe = useRuri.subscribe((s) => {
-      const p = s.projects.find((x) => x.id === project.id);
-      const fresh = p && leadOf(p);
-      if (!fresh) return;
-      unsubscribe();
-      s.setActive(fresh.id);
-    });
+    if (leadId) setActive(leadId);
   };
   return (
     <div

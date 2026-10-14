@@ -202,18 +202,6 @@ function world(
       findByQuery: (q: string) =>
         projects.find((p) => p.id === q || p.path === q || p.name.toLowerCase() === q.toLowerCase()),
       findByPath: (dir: string) => projects.find((p) => p.path === dir),
-      // a new chat is as busy as the rest, so what is sent to it waits in its line
-      newSession: (projectId: string) => {
-        const session = { id: `new-${projects.flatMap((p) => p.sessions).length}` };
-        projects.find((p) => p.id === projectId)?.sessions.push(session);
-        statuses[session.id] = "permission";
-        return session;
-      },
-      setSessionModel: (id: string, model: string) => {
-        const session = projects.flatMap((p) => p.sessions).find((s) => s.id === id) as
-          { model?: string } | undefined;
-        if (session) session.model = model;
-      },
       sessionIds: () => projects.flatMap((p) => p.sessions.map((s) => s.id)),
       // a project's first chat is its lead; the rest are its team
       isMember: (id: string) => projects.some((p) => p.sessions.findIndex((s) => s.id === id) > 0),

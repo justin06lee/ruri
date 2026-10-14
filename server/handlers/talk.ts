@@ -627,9 +627,8 @@ export async function startChat(
     project = ctx.store.findByPath(dir);
     if (!project) return { text: `Couldn't open ${dir}: ${said}` };
   }
-  const lead = leadOf(project) ?? ctx.store.newSession(project.id);
+  const lead = leadOf(project);
   if (!lead) return { text: `Couldn't reach ${project.name}'s lead.` };
-  ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
 
   const handle = ctx.talk.handleOf(lead.id);
   const sent = await sendLetter(ctx, channelId, { to: handle, message: text, reply, approved }, opts);

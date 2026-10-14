@@ -20,7 +20,7 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 |---|---|---|
 | `paragraphs-test` | none | a streamed reply comes out a whole paragraph at a time, code blocks whole |
 | `commands-test` | none | slash commands inside a prompt: which are lifted out and run first, which stay words |
-| `settings-test` | none | a chat's model, effort and mode are its own; the project keeps only what a new chat starts on |
+| `settings-test` | none | a chat's model, effort and mode are its own — the lead's and each teammate's; the project keeps only what a new teammate starts on |
 | `history-test` | none | the two-part transcript — fold, split, rewind, a chat brought in, cap, heal after a crash |
 | `home-cap-test` | none | Home keeps its newest 50 events, cut where a turn starts |
 | `digest-test` | none | a brief lists 40 exchanges at most; the oldest fold into its digest's sections by edits, never rewritten, with the files kept by ruri (a scripted fold stands in for the model) |

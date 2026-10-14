@@ -511,8 +511,10 @@ describe("the lead's hand on each teammate's session — mid-turn and asleep", (
     expect(said).toContain("Stopped UI's turn");
     expect(interrupted).toEqual(["ui"]);
     // its next message tells it the lead stopped it, not the user
-    expect(ctx.talk.stopNotes.get("ui")).toBe("the lead");
-    expect(stoppedLine("the lead")).toContain("not by the user");
+    expect(ctx.talk.stopNotes.get("ui")?.who).toBe("the lead");
+    expect(stoppedLine("the lead", "Bash: npm test")).toContain(
+      "not by the user. The call it cut off was Bash: npm test",
+    );
     // the line behind is not held: linux's message goes once the turn ends
     expect(ctx.queues.held.has("ui")).toBe(false);
     expect(ctx.queues.entries.get("ui")).toHaveLength(1);

@@ -128,7 +128,7 @@ function fromAgent(ctx: ServerContext, channelId: string, from: LetterFrom, text
   const stopped = ctx.talk.stopNotes.get(channelId);
   ctx.talk.stopNotes.delete(channelId);
   const said = wrapped(ctx, channelId, from, text);
-  return stopped ? `${stoppedLine(stopped)}\n\n${said}` : said;
+  return stopped ? `${stoppedLine(stopped.who, stopped.call)}\n\n${said}` : said;
 }
 
 function wrapped(ctx: ServerContext, channelId: string, from: LetterFrom, text: string): string {

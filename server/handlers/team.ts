@@ -24,7 +24,7 @@ import { compactChannel, drainQueue, stopTurn } from "../dispatch.js";
 import type { QueueEntry } from "../queue.js";
 import type { AddArgs, Head, TeamHost } from "../team.js";
 import { closeMember } from "./projects.js";
-import { doing, modelFor, sendLetter, talkTurnCut, type WaitOptions } from "./talk.js";
+import { cutOff, doing, modelFor, sendLetter, talkTurnCut, type WaitOptions } from "./talk.js";
 import type { Handlers } from "./types.js";
 
 /** The most members one project's team may have: one per layer, with
@@ -406,6 +406,13 @@ function moveLetters(ctx: ServerContext, from: string, to: string): number {
   return letters.length;
 }
 
+/** A member about to be stopped mid-turn: its next message says who did
+ *  it, and names the call the stop cuts off. */
+function noteStop(ctx: ServerContext, chat: string, who: string): void {
+  const call = cutOff(ctx, chat);
+  ctx.talk.stopNotes.set(chat, { who, ...(call ? { call } : {}) });
+}
+
 /** Do something to a member. Answers what happened, in words. */
 export function actOn(ctx: ServerContext, chat: string, action: TeamAction, by: Head | "user"): string {
   const found = ctx.store.findSession(chat);
@@ -422,7 +429,7 @@ export function actOn(ctx: ServerContext, chat: string, action: TeamAction, by: 
         : `${name} isn't at work (${memberState(ctx, chat) === "asleep" ? "asleep" : "between turns"}): nothing to stop.`;
     }
     ctx.talk.stoppedBy.set(chat, who);
-    ctx.talk.stopNotes.set(chat, who);
+    noteStop(ctx, chat, who);
     stopTurn(ctx, chat);
     // stopping is stopping the work: ruri's own prompt sending it back to
     // work a message interrupted goes too — but other agents' messages
@@ -442,7 +449,7 @@ export function actOn(ctx: ServerContext, chat: string, action: TeamAction, by: 
     } A message it was answering is told it was stopped.`;
   }
   if (action === "restart") {
-    if (was) ctx.talk.stopNotes.set(chat, who);
+    if (was) noteStop(ctx, chat, who);
     stopNow(ctx, chat, `${name}'s turn on your message was cut short: ${who} restarted it.`);
     wakeLine(ctx, chat);
     pushTeamOf(ctx, chat);

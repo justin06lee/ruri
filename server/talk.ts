@@ -214,9 +214,12 @@ export function letterPrompt(from: LetterFrom, handle: string, text: string, hea
 }
 
 /** The line a teammate's next message starts with after its lead stopped
- *  or restarted it mid-turn (TalkBook.stopNotes). */
-export function stoppedLine(who: string): string {
-  return `(ruri: your last turn was stopped by ${who}, not by the user — a tool call of yours that came back rejected or interrupted then was not refused. Do what this message asks, running whatever it needs.)`;
+ *  or restarted it mid-turn (TalkBook.stopNotes): who stopped it, and the
+ *  call that stop cut off — named, as resumePrompt does, because the
+ *  harness hands it back as the user's refusal. */
+export function stoppedLine(who: string, call?: string): string {
+  const cut = call ? ` The call it cut off was ${call.length > 200 ? `${call.slice(0, 199)}…` : call};` : "";
+  return `(ruri: your last turn was stopped by ${who}, not by the user.${cut} a tool call that came back rejected or interrupted then was not refused by anyone — you may run it, or anything like it, again whenever a job asks for it. Do what this message asks.)`;
 }
 
 /** ruri's own prompt carrying a chat on with a message after it compacted
@@ -414,7 +417,7 @@ export class TalkBook {
   /** And for the chat itself, told with the next message it gets: the
    *  harness hands a model the call a stop cut off as the user's refusal,
    *  and a model that thinks so won't run it — or anything like it — again. */
-  readonly stopNotes = new Map<string, string>();
+  readonly stopNotes = new Map<string, { who: string; call?: string }>();
   /** Handles are made from the chat's id with this, so a handle names a
    *  chat without being its id — the id is what the HTTP endpoint takes
    *  as the right to speak *as* that chat (routes.ts). New every run. */

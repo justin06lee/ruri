@@ -335,113 +335,131 @@ if (process.env["TEAM_HTTP_ONLY"]) {
 
 /* ── 1. an ordinary request to a lead with an empty team ──────────── */
 
-send({
-  type: "send",
-  projectId: lead.id,
-  text: "What's the secret word in this project? Just tell me the word.",
-});
-await until("the lead to start", () => busy(lead.id), 90_000);
-await until("a teammate for the words layer", () => Boolean(holding("words")), 300_000);
-const words = holding("words");
-check("the lead adds the words layer's teammate, untold", Boolean(words), ours());
-if (!words) cleanup(1);
-await until("its job", () => prompts(words.id).length > 0, 120_000);
-const job = prompts(words.id)[0];
-check(
-  "and hands it the job, marked as the lead's, answered later",
-  job?.kind === "user" && job.from?.agent === lead.id && job.from.reply === "later",
-  job,
-);
-await until("the lead's first turn to end", () => results(lead.id).length > 0, 240_000);
-const firstEnd = results(lead.id)[0]?.ts ?? 0;
-await until("the teammate's answer", () => results(words.id).length > 0, 300_000);
-check(
-  "the lead's turn ended while the teammate worked: it stays free",
-  firstEnd > 0 && firstEnd <= (results(words.id)[0]?.ts ?? 0),
-  { lead: results(lead.id), words: results(words.id) },
-);
-await until("the lead to relay the word", () => said(lead.id).includes(WORD) && !busy(lead.id), 300_000);
-check("the answer lands, and the lead relays it", said(lead.id).includes(WORD), said(lead.id));
-check(
-  "the lead never read the file itself",
-  // a Read, a shell or a search of the file — not the job handed over
-  !(events[lead.id] ?? []).some(
-    (e) => e.kind === "tool" && /^(Read|Bash|Grep|Glob)$/.test(e.name) && /secret\.txt/i.test(e.summary),
-  ),
-  (events[lead.id] ?? []).filter((e) => e.kind === "tool"),
-);
-await settle(6000);
-send({ type: "team_get", projectId: project.id });
-await until("the team", () => team.some((m) => m.id === words.id), 10_000);
-check(
-  "and the teammate is asleep again — no process, its conversation kept",
-  team.find((m) => m.id === words.id)?.state === "asleep",
-  team,
-);
+// TEAM_CONTROLS_ONLY=1 skips 1 and 2: 3 runs on a teammate added by hand
+const CONTROLS_ONLY = Boolean(process.env["TEAM_CONTROLS_ONLY"]);
+let wordsId: string;
+if (!CONTROLS_ONLY) {
+  send({
+    type: "send",
+    projectId: lead.id,
+    text: "What's the secret word in this project? Just tell me the word.",
+  });
+  await until("the lead to start", () => busy(lead.id), 90_000);
+  await until("a teammate for the words layer", () => Boolean(holding("words")), 300_000);
+  const words = holding("words");
+  check("the lead adds the words layer's teammate, untold", Boolean(words), ours());
+  if (!words) cleanup(1);
+  await until("its job", () => prompts(words.id).length > 0, 120_000);
+  const job = prompts(words.id)[0];
+  check(
+    "and hands it the job, marked as the lead's, answered later",
+    job?.kind === "user" && job.from?.agent === lead.id && job.from.reply === "later",
+    job,
+  );
+  await until("the lead's first turn to end", () => results(lead.id).length > 0, 240_000);
+  const firstEnd = results(lead.id)[0]?.ts ?? 0;
+  await until("the teammate's answer", () => results(words.id).length > 0, 300_000);
+  check(
+    "the lead's turn ended while the teammate worked: it stays free",
+    firstEnd > 0 && firstEnd <= (results(words.id)[0]?.ts ?? 0),
+    { lead: results(lead.id), words: results(words.id) },
+  );
+  await until("the lead to relay the word", () => said(lead.id).includes(WORD) && !busy(lead.id), 300_000);
+  check("the answer lands, and the lead relays it", said(lead.id).includes(WORD), said(lead.id));
+  check(
+    "the lead never read the file itself",
+    // a Read, a shell or a search of the file — not the job handed over
+    !(events[lead.id] ?? []).some(
+      (e) => e.kind === "tool" && /^(Read|Bash|Grep|Glob)$/.test(e.name) && /secret\.txt/i.test(e.summary),
+    ),
+    (events[lead.id] ?? []).filter((e) => e.kind === "tool"),
+  );
+  await settle(6000);
+  send({ type: "team_get", projectId: project.id });
+  await until("the team", () => team.some((m) => m.id === words.id), 10_000);
+  check(
+    "and the teammate is asleep again — no process, its conversation kept",
+    team.find((m) => m.id === words.id)?.state === "asleep",
+    team,
+  );
+  wordsId = words.id;
 
-/* ── 2. another project's agent writes in: the liaison ───────────── */
+  /* ── 2. another project's agent writes in: the liaison ───────────── */
 
-const leadPrompts = prompts(lead.id).length;
-const asked = await talkCall(groveLead.id, {
-  do: "project",
-  project: "orchard",
-  message: `I'm grove's lead. What does orchard's notes say the orchard's first tree is? Reply with just the tree's name.`,
-  reply: "wait",
-});
-check(
-  "grove's question is handed to orchard's liaison",
-  Boolean(asked?.text.includes("orchard's liaison")),
-  asked,
-);
-const liaison = ours()?.sessions.find((s) => s.liaison);
-check(
-  "orchard has a liaison now — not a member, not its lead",
-  Boolean(liaison && !liaison.lead && liaison.title === "Liaison"),
-  ours(),
-);
-const answer =
-  asked?.answered === false && asked.letter ? await waitFor(groveLead.id, asked.letter, 480_000) : asked;
-check("and the answer comes back to grove", Boolean(answer?.text.toLowerCase().includes(TREE)), answer);
-check("the lead never heard of it", prompts(lead.id).length === leadPrompts, prompts(lead.id));
-const handedBy = members().find((m) =>
-  prompts(m.id).some((e) => e.kind === "user" && e.from?.agent === liaison?.id),
-);
-check("the liaison delegated it to a teammate", Boolean(handedBy), {
-  members: members(),
-  liaison: liaison && events[liaison.id],
-});
-check(
-  "it read nothing itself",
-  !(
-    liaison && (events[liaison.id] ?? []).some((e) => e.kind === "tool" && /readme|notes\//i.test(e.summary))
-  ),
-  liaison && (events[liaison.id] ?? []).filter((e) => e.kind === "tool"),
-);
-const roster = await talkCall(lead.id, { do: "team" });
-check(
-  "the lead's roster shows the liaison",
-  Boolean(roster?.text.includes("The liaison — other projects")),
-  roster,
-);
+  const leadPrompts = prompts(lead.id).length;
+  const asked = await talkCall(groveLead.id, {
+    do: "project",
+    project: "orchard",
+    message: `I'm grove's lead. What does orchard's notes say the orchard's first tree is? Reply with just the tree's name.`,
+    reply: "wait",
+  });
+  check(
+    "grove's question is handed to orchard's liaison",
+    Boolean(asked?.text.includes("orchard's liaison")),
+    asked,
+  );
+  const liaison = ours()?.sessions.find((s) => s.liaison);
+  check(
+    "orchard has a liaison now — not a member, not its lead",
+    Boolean(liaison && !liaison.lead && liaison.title === "Liaison"),
+    ours(),
+  );
+  const answer =
+    asked?.answered === false && asked.letter ? await waitFor(groveLead.id, asked.letter, 480_000) : asked;
+  check("and the answer comes back to grove", Boolean(answer?.text.toLowerCase().includes(TREE)), answer);
+  check("the lead never heard of it", prompts(lead.id).length === leadPrompts, prompts(lead.id));
+  const handedBy = members().find((m) =>
+    prompts(m.id).some((e) => e.kind === "user" && e.from?.agent === liaison?.id),
+  );
+  check("the liaison delegated it to a teammate", Boolean(handedBy), {
+    members: members(),
+    liaison: liaison && events[liaison.id],
+  });
+  check(
+    "it read nothing itself",
+    !(
+      liaison &&
+      (events[liaison.id] ?? []).some((e) => e.kind === "tool" && /readme|notes\//i.test(e.summary))
+    ),
+    liaison && (events[liaison.id] ?? []).filter((e) => e.kind === "tool"),
+  );
+  const roster = await talkCall(lead.id, { do: "team" });
+  check(
+    "the lead's roster shows the liaison",
+    Boolean(roster?.text.includes("The liaison — other projects")),
+    roster,
+  );
+} else {
+  const added = await talkCall(lead.id, { do: "add", layer: "words" });
+  check(
+    "(controls only) a teammate for the words layer",
+    Boolean(added?.text.includes("Added Word list")),
+    added,
+  );
+  await until("it", () => Boolean(holding("words")), 10_000);
+  wordsId = holding("words")?.id ?? "";
+}
 
 /* ── 3. the lead's hand on a teammate, mid-turn and asleep ────────── */
 
-let worker = words.id;
-const SLOW =
-  "Run exactly this with your Bash tool, and nothing else: for i in $(seq 1 25); do sleep 1; done — then reply with just the word done.";
+let worker = wordsId;
+// a new command each time: a model whose last run of a command was cut
+// off tends to hold off running that same one again
+let loops = 20;
 const slow = async () => {
+  const n = ++loops;
   const since = (events[worker] ?? []).length;
-  const sent = await talkCall(lead.id, { do: "send", to: "words", message: SLOW, reply: "none" });
+  const sent = await talkCall(lead.id, {
+    do: "send",
+    to: "words",
+    message: `A new job: run exactly this with your Bash tool, and nothing else: for i in $(seq 1 ${n}); do sleep 1; done — then reply with just the word done.`,
+    reply: "none",
+  });
+  const mine = (e: TranscriptEvent) => e.kind === "tool" && e.summary.includes(`seq 1 ${n}`);
   // the loop of this job running — not one from a turn before it
-  await until(
-    "the loop",
-    () =>
-      busy(worker) &&
-      (events[worker] ?? []).slice(since).some((e) => e.kind === "tool" && /seq 1 25/.test(e.summary)),
-    120_000,
-  );
+  await until("the loop", () => busy(worker) && (events[worker] ?? []).slice(since).some(mine), 120_000);
   const ran = (events[worker] ?? []).slice(since);
-  if (!ran.some((e) => e.kind === "tool" && /seq 1 25/.test(e.summary)))
+  if (!ran.some(mine))
     console.log(
       "    (the loop never ran; it said:",
       JSON.stringify(ran.flatMap((e) => (e.kind === "assistant" ? [e.text] : []))).slice(0, 600),

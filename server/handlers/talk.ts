@@ -327,7 +327,7 @@ function uninterruptible(ctx: ServerContext, chat: string): string | undefined {
 
 /** The tool call a stop of the running turn cuts off — the last the turn
  *  started, as its chip reads ("Bash: npm test") — if it started any. */
-function cutOff(ctx: ServerContext, chat: string): string | undefined {
+export function cutOff(ctx: ServerContext, chat: string): string | undefined {
   const events = ctx.archive.events(chat);
   const start = events.findLastIndex((event) => event.kind === "user");
   const tool = events.slice(start + 1).findLast((event) => event.kind === "tool");

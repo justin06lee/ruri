@@ -225,6 +225,7 @@ The eye button on a project's row tucks a project away without closing it; "show
 Its files: web/src/components/Sidebar.tsx
 Reaches into: web/src/styles.css, server/server.ts, shared/protocol.ts
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/b7f157c1-0cf7-4b10-b875-71aed669d691-project-rows.png, /Users/huiyunlee/.config/ruri/uploads/440e40d0-82de-4a35-b18e-0facf5b00e18-shot-4.png
+Its code has changed since that picture — if you change it, `ruri edit hidden-fold --shot <new picture>`
 
 ## folded-exchanges — the folded exchanges
 Exchanges above the newest compaction (and any hand-folded turn) laid out like chat, showing recall notes: prompt note in a dashed bubble, reply note beneath, click to open in full. Fed by the history outline (archive.earlier).

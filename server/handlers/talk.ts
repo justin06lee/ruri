@@ -6,7 +6,7 @@
  * that chat's turn when it ends and carried back: to the call waiting on
  * it, or, with none waiting, to the sender's chat as a message. Plus the
  * letters a relaunch finds in flight, and the talk page's two messages —
- * and a new chat an agent starts in a project to send a first message to.
+ * and a job an agent hands to another project's lead.
  */
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
@@ -33,12 +33,11 @@ import {
   MAX_DEPTH,
   mayMessage,
   resumePrompt,
-  ruleFor,
   seatName,
   WAIT_MS,
   type Ending,
   type Pending,
-  type StartArgs,
+  type ProjectAsk,
   type TalkHost,
 } from "../talk.js";
 import { expandPath } from "../projects.js";
@@ -52,12 +51,15 @@ interface Found {
   session: SessionInfo;
 }
 
-/** Every chat in every open project, but one. */
-function seats(ctx: ServerContext, except: string): Found[] {
-  return ctx.store
-    .list()
-    .flatMap((project) => project.sessions.map((session) => ({ project, session })))
-    .filter((seat) => seat.session.id !== except);
+/** Who a chat can reach: the rest of its own project's team, and every
+ *  other project's lead — the one chat a project speaks through. */
+function seats(ctx: ServerContext, self: string): Found[] {
+  return ctx.store.list().flatMap((project) => {
+    const mine = project.sessions.some((session) => session.id === self);
+    const lead = leadOf(project);
+    const reach = mine ? project.sessions : lead ? [lead] : [];
+    return reach.filter((session) => session.id !== self).map((session) => ({ project, session }));
+  });
 }
 
 function nameOf(seat: Found): string {
@@ -166,42 +168,37 @@ export function listSeats(ctx: ServerContext, channelId: string): string {
   const barred = seats(ctx, channelId).length - open.length;
   const offLimits =
     barred > 0
-      ? `${barred} other ${barred === 1 ? "agent is" : "agents are"} off limits to you by the user's talk settings.`
+      ? `${barred} other ${barred === 1 ? "project is" : "projects are"} off limits to you by the user's talk settings.`
       : "";
   if (open.length === 0) {
     return offLimits
       ? `There is no one you may message right now: ${offLimits}`
-      : "There is no one to message: no other chats are open in ruri.";
+      : "There is no one to message: no teammates yet, and no other project open in ruri.";
   }
   const lines: string[] = ["Agents you may message — handle, chat, model, what it is doing right now:"];
-  // chats the user's rules name for this one are listed wherever they are
-  const named = new Set(ruleFor(policy, channelId, me.project.id).rule.chats);
   for (const project of ctx.store.list()) {
     const mine = project.id === me.project.id;
     const lead = leadOf(project)?.id;
-    // your own project's whole team; every other project through its lead
-    const here = open.filter(
-      (seat) =>
-        seat.project.id === project.id && (mine || seat.session.id === lead || named.has(seat.session.id)),
-    );
-    const reachable = mayMessage(policy, from, { chat: "", project: project.id });
-    if (here.length === 0 && !reachable) continue;
+    const here = open.filter((seat) => seat.project.id === project.id);
+    if (here.length === 0 && !mine) continue;
     lines.push("", `${project.name}${mine ? " (your project, your team)" : ""} — ${project.path}`);
     for (const seat of here) {
       const model = channelProject(ctx, seat.session.id)?.model || ctx.store.defaultModel();
       const role =
         seat.session.id === lead
-          ? "the lead — the user's chat here"
+          ? mine
+            ? "the lead — the user's chat here"
+            : "the lead — the one chat it speaks through"
           : `${seat.session.title || "untitled"}${seat.session.duty ? ` (duty: ${seat.session.duty})` : ""}`;
       lines.push(
         `  ${ctx.talk.handleOf(seat.session.id)}  ${role} · ${model} — ${doing(ctx, seat.session.id)}`,
       );
     }
-    if (here.length === 0) lines.push(mine ? "  (no one else on the team yet)" : "  (no chat open here)");
+    if (here.length === 0) lines.push("  (no one else on the team yet)");
   }
   lines.push(
     "",
-    'A message interrupts an agent that is working unless you send it with delivery "queue"; one asleep wakes for it, when the machine has room. start_chat (or {"do": "new"}) hands a job to another project\'s lead — or to a folder\'s, by its path, opened as a project first.',
+    'A message interrupts an agent that is working unless you send it with delivery "queue"; one asleep wakes for it, when the machine has room. ask_project (or {"do": "project"}) hands a job to another project\'s lead — or to a folder\'s, by its path, opened as a project first.',
   );
   if (offLimits) lines.push("", offLimits);
   return lines.join("\n");
@@ -413,8 +410,8 @@ export async function sendLetter(
     message: string;
     reply?: TalkReply;
     delivery?: TalkDelivery;
-    /** The user has already let this one go — on start_chat's card, for
-     *  the chat it started for it. */
+    /** The user has already let this one go — on ask_project's card, with
+     *  the folder it opened for it. */
     approved?: boolean;
   },
   opts: WaitOptions = {},
@@ -542,12 +539,11 @@ export function modelFor(ctx: ServerContext, asked: string): { value: string; na
 }
 
 /**
- * An agent hands a job to another project (start_chat, {"do": "new"}):
+ * An agent hands a job to another project (ask_project, {"do": "project"}):
  * its lead gets it, as a message, and hands it on to its team the way it
  * would one from the user. A project is a team with one chat the outside
- * talks to — a new chat per job is what filled the sidebar — so this never
- * makes one; within the sender's own project the team is already there to
- * message (and only the lead adds to it).
+ * talks to, so this never makes one; within the sender's own project the
+ * team is already there to message (and only the lead adds to it).
  *
  * The project is one open in ruri, by its name, or a folder by its path,
  * opened as a project the way Home opens one — its lead new with it. The
@@ -555,13 +551,12 @@ export function modelFor(ctx: ServerContext, asked: string): { value: string; na
  * reachable only by a sender allowed to message anyone — and outside
  * bypass mode one card asks for both the folder and the message. Then the
  * message goes the way any other does (sendLetter), and its answer comes
- * back the same way. A model asked for is the lead's own business now,
- * and is left be.
+ * back the same way.
  */
-export async function startChat(
+export async function askProject(
   ctx: ServerContext,
   channelId: string,
-  args: StartArgs,
+  args: ProjectAsk,
   opts: WaitOptions = {},
 ): Promise<TalkResult> {
   const me = ctx.store.findSession(channelId);
@@ -614,7 +609,7 @@ export async function startChat(
       title: "",
       text,
       reply,
-      fresh: {},
+      opening: true,
     });
     if (!allowed) return { text: `The user did not let you open ${where}.` };
     approved = true;
@@ -634,9 +629,7 @@ export async function startChat(
   const sent = await sendLetter(ctx, channelId, { to: handle, message: text, reply, approved }, opts);
   return {
     ...sent,
-    text: `${open ? "" : `Opened ${project.name}. `}Handed to ${project.name}'s lead — handle ${handle}, for messaging it again.${
-      args.model ? " (The model is the lead's to pick: it was left as it is.)" : ""
-    } ${sent.text}`,
+    text: `${open ? "" : `Opened ${project.name}. `}Handed to ${project.name}'s lead — handle ${handle}, for messaging it again. ${sent.text}`,
   };
 }
 
@@ -974,8 +967,8 @@ export function talkHost(ctx: ServerContext): TalkHost {
       (await sendLetter(ctx, channelId, args, { via: "tool", ...(signal ? { signal } : {}) })).text,
     wait: async (channelId, letter, signal) =>
       (await waitAnswer(ctx, channelId, letter, { via: "tool", ...(signal ? { signal } : {}) })).text,
-    start: async (channelId, args, signal) =>
-      (await startChat(ctx, channelId, args, { via: "tool", ...(signal ? { signal } : {}) })).text,
+    ask: async (channelId, args, signal) =>
+      (await askProject(ctx, channelId, args, { via: "tool", ...(signal ? { signal } : {}) })).text,
   };
 }
 

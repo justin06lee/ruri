@@ -216,9 +216,8 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   talk_set: {
     type: "talk_set",
     policy: {
-      everyone: { to: "anyone", projects: [], chats: [] },
-      projects: { p: { to: "listed", projects: ["q"], chats: ["c"] } },
-      chats: { c: { to: "nobody", projects: [], chats: [] } },
+      everyone: { to: "anyone", projects: [] },
+      projects: { p: { to: "listed", projects: ["q"] }, q: { to: "nobody", projects: [] } },
     },
   },
   team_get: { type: "team_get", projectId: "p" },

@@ -9867,14 +9867,10 @@ button.stop:hover {
   text-align: left;
 }
 
-/* a project heads its chats; a chat hangs under its project */
-.talk-who.kind-project {
-  margin-top: 6px;
+/* every project's rule heads the list; each project's own hangs under it */
+.talk-who.kind-everyone {
+  margin-bottom: 4px;
   font-weight: 700;
-}
-
-.talk-who.kind-chat {
-  padding-left: 20px;
 }
 
 .talk-who:hover {
@@ -9944,19 +9940,6 @@ button.stop:hover {
   gap: 6px;
 }
 
-.talk-project {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--line-soft, var(--edge));
-}
-
-.talk-project:first-child {
-  border-top: none;
-  padding-top: 0;
-}
-
 .talk-check {
   display: flex;
   align-items: center;
@@ -9968,21 +9951,6 @@ button.stop:hover {
 
 .talk-check input {
   accent-color: var(--ink);
-}
-
-.talk-check.one {
-  padding-left: 22px;
-  font-weight: 400;
-  color: var(--ink-soft);
-}
-
-.talk-check small {
-  font-weight: 400;
-  color: var(--ink-faint);
-}
-
-.talk-check.self {
-  opacity: 0.55;
 }
 
 .talk-lately {

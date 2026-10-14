@@ -1,6 +1,7 @@
 /**
- * Agents talking to agents: a chat's model messaging another chat's — in
- * its own project or any other open one — and hearing back.
+ * Agents talking to agents: a chat's model messaging another's — a
+ * teammate in its own project, or another project's lead — and hearing
+ * back.
  *
  * A message arrives in the other chat as a prompt, marked as whose it is
  * (the user event's `from`), and queues behind whatever that chat is doing
@@ -23,9 +24,10 @@
  * dropped: the letters in flight are kept on disk (talk-letters.json), and
  * a relaunch sends on what never went and reports what never finished.
  *
- * The user decides who may message whom (the talk page, TalkPolicy): one
- * rule for every agent, a project's for the chats in it, a chat's own for
- * it. ruri holds every message to that rule, and outside bypass mode it
+ * The user decides which projects may reach which (the talk page,
+ * TalkPolicy): one rule for every project, which a project's own
+ * overrides; a team talking within its project is that project's own
+ * business. ruri holds every message to that rule, and outside bypass mode it
  * asks the user before each one goes, on a card in the sender's chat —
  * the same card the model's other asks come on.
  *
@@ -55,7 +57,7 @@ export const TALK_TOOLS = [
   "mcp__ruri__list_agents",
   "mcp__ruri__message_agent",
   "mcp__ruri__wait_for_answer",
-  "mcp__ruri__start_chat",
+  "mcp__ruri__ask_project",
 ];
 
 /**
@@ -107,60 +109,58 @@ const MAX_ANSWER = 24_000;
 /* ── who may message whom ─────────────────────────────────────────── */
 
 export function openRule(): TalkRule {
-  return { to: "anyone", projects: [], chats: [] };
+  return { to: "anyone", projects: [] };
 }
 
-/** Until the user says otherwise, any agent may message any other: every
+/** Until the user says otherwise, any project may reach any other: every
  *  message still waits on the user outside bypass mode. */
 export function defaultPolicy(): TalkPolicy {
-  return { everyone: openRule(), projects: {}, chats: {} };
+  return { everyone: openRule(), projects: {} };
 }
 
-function parseRule(raw: unknown): TalkRule | undefined {
+/** A project's id for a chat's — for the old per-chat rules' lists. */
+type ProjectOf = (chat: string) => string | undefined;
+
+function parseRule(raw: unknown, projectOf?: ProjectOf): TalkRule | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const data = raw as Record<string, unknown>;
   const to = data["to"];
   if (to !== "anyone" && to !== "listed" && to !== "nobody") return undefined;
   const ids = (value: unknown): string[] =>
-    Array.isArray(value)
-      ? [...new Set(value.filter((x): x is string => typeof x === "string" && x !== ""))]
-      : [];
-  return { to, projects: ids(data["projects"]), chats: ids(data["chats"]) };
+    Array.isArray(value) ? value.filter((x): x is string => typeof x === "string" && x !== "") : [];
+  // a chat a rule from before teams named is its project now: the outside
+  // reaches a project through its lead
+  const chats = projectOf ? ids(data["chats"]).flatMap((chat) => projectOf(chat) ?? []) : [];
+  return { to, projects: [...new Set([...ids(data["projects"]), ...chats])] };
 }
 
-function parseRules(raw: unknown): Record<string, TalkRule> {
+function parseRules(raw: unknown, projectOf?: ProjectOf): Record<string, TalkRule> {
   if (!raw || typeof raw !== "object") return {};
   const out: Record<string, TalkRule> = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    const rule = parseRule(value);
+    const rule = parseRule(value, projectOf);
     if (rule && key) out[key] = rule;
   }
   return out;
 }
 
 /** Whatever was stored, as a policy: anything unreadable is the default,
- *  and an unreadable rule is no rule (its chat falls back to the next). */
-export function parsePolicy(raw: unknown): TalkPolicy {
+ *  and an unreadable rule is no rule (its project falls back to everyone's).
+ *  A chat's own rule, from before a project was one chat for the user, is
+ *  let go: a project's rule speaks for its whole team. */
+export function parsePolicy(raw: unknown, projectOf?: ProjectOf): TalkPolicy {
   if (!raw || typeof raw !== "object") return defaultPolicy();
   const data = raw as Record<string, unknown>;
   return {
-    everyone: parseRule(data["everyone"]) ?? openRule(),
-    projects: parseRules(data["projects"]),
-    chats: parseRules(data["chats"]),
+    everyone: parseRule(data["everyone"], projectOf) ?? openRule(),
+    projects: parseRules(data["projects"], projectOf),
   };
 }
 
-/** The rule a chat goes by, and whose rule it is. */
-export function ruleFor(
-  policy: TalkPolicy,
-  chat: string,
-  project: string,
-): { rule: TalkRule; by: "chat" | "project" | "everyone" } {
-  const own = policy.chats[chat];
-  if (own) return { rule: own, by: "chat" };
-  const shared = policy.projects[project];
-  if (shared) return { rule: shared, by: "project" };
-  return { rule: policy.everyone, by: "everyone" };
+/** The rule a project goes by, and whose rule it is. */
+export function ruleFor(policy: TalkPolicy, project: string): { rule: TalkRule; by: "project" | "everyone" } {
+  const own = policy.projects[project];
+  return own ? { rule: own, by: "project" } : { rule: policy.everyone, by: "everyone" };
 }
 
 export interface Seat {
@@ -168,13 +168,16 @@ export interface Seat {
   project: string;
 }
 
-/** Whether one chat may message another, by the user's rules. */
+/** Whether one chat may message another, by the user's rules. A team
+ *  talking within its own project always may; the rules are for reaching
+ *  other projects. */
 export function mayMessage(policy: TalkPolicy, from: Seat, to: Seat): boolean {
   if (from.chat === to.chat) return false;
-  const { rule } = ruleFor(policy, from.chat, from.project);
+  if (from.project === to.project) return true;
+  const { rule } = ruleFor(policy, from.project);
   if (rule.to === "anyone") return true;
   if (rule.to === "nobody") return false;
-  return rule.chats.includes(to.chat) || rule.projects.includes(to.project);
+  return rule.projects.includes(to.project);
 }
 
 /* ── what each side reads ─────────────────────────────────────────── */
@@ -345,6 +348,8 @@ const REMEMBERED = 200;
  */
 export class TalkBook {
   private stored: TalkPolicy | null = null;
+  /** For reading old rules that named chats: the project each is in. */
+  constructor(private readonly projectOf?: ProjectOf) {}
   private log: TalkLetter[] = [];
   readonly pending = new Map<string, Pending>();
   /** Letters no longer in flight, and where their answer went — so a wait
@@ -368,7 +373,7 @@ export class TalkBook {
     } catch (err) {
       if (!isMissing(err)) warn("talk", err, "load");
     }
-    this.stored = parsePolicy(raw);
+    this.stored = parsePolicy(raw, this.projectOf);
     return this.stored;
   }
 
@@ -532,8 +537,8 @@ export interface TalkHost {
     args: { to: string; message: string; reply?: TalkReply; delivery?: TalkDelivery },
     signal?: AbortSignal,
   ): Promise<string>;
-  /** Start a new chat in a project and send it a first message. */
-  start(channelId: string, args: StartArgs, signal?: AbortSignal): Promise<string>;
+  /** Hand a job or a question to another project's lead. */
+  ask(channelId: string, args: ProjectAsk, signal?: AbortSignal): Promise<string>;
   /** Wait on the answer to a message this chat sent, by its letter id. */
   wait(channelId: string, letter: string, signal?: AbortSignal): Promise<string>;
 }
@@ -544,13 +549,12 @@ function signalOf(extra: unknown): AbortSignal | undefined {
   return signal instanceof AbortSignal ? signal : undefined;
 }
 
-/** What a new chat is started with (start_chat, {"do": "new"}). */
-export interface StartArgs {
+/** A job or a question for another project's lead (ask_project,
+ *  {"do": "project"}). */
+export interface ProjectAsk {
   /** An open project's name, or a folder's path (opened if it isn't). */
   project: string;
   message: string;
-  /** A model from the catalog, by id or name; the project's own if unset. */
-  model?: string;
   reply?: TalkReply;
 }
 
@@ -565,13 +569,13 @@ export function talkTools(host: TalkHost, channelId: string) {
   return [
     tool(
       "list_agents",
-      "List the other agents open in ruri that you may message — the chats in this project and in every other open project — with each one's handle, its model, and what it is doing right now: idle, or working (for how long, on what, the tool it is running, how many prompts are queued behind it), answering another agent, waiting on an answer, or waiting on the user. Use it to decide whether a message is worth interrupting a chat for. The user decides who you may message.",
+      "List the other agents open in ruri that you may message — your project's team, and the lead of every other open project — with each one's handle, its model, and what it is doing right now: idle, or working (for how long, on what, the tool it is running, how many prompts are queued behind it), answering another agent, waiting on an answer, or waiting on the user. Use it to decide whether a message is worth interrupting a chat for. The user decides who you may message.",
       {},
       async () => ({ content: [{ type: "text", text: host.list(channelId) }] }),
     ),
     tool(
       "message_agent",
-      'Send a message to another agent open in ruri — a chat in this project or in another one — and get its answer back. It arrives in that chat as a prompt marked as yours. A chat at work is interrupted for it by default (delivery "queue" waits instead). Use it to ask what another agent knows or has done, to hand it something to do in its project, or to tell it something it needs. By default you wait for the answer; say reply "none" only when the other agent should just do the work in the background and you need nothing back. Outside bypass mode the user is asked first, on a card.',
+      'Send a message to another agent open in ruri — a teammate in this project, or another project\'s lead — and get its answer back. It arrives in that chat as a prompt marked as yours. A chat at work is interrupted for it by default (delivery "queue" waits instead). Use it to ask what another agent knows or has done, to hand it something to do in its project, or to tell it something it needs. By default you wait for the answer; say reply "none" only when the other agent should just do the work in the background and you need nothing back. Outside bypass mode the user is asked first, on a card.',
       {
         to: z.string().describe("The agent's handle from list_agents (or its project and chat name)"),
         message: z
@@ -601,7 +605,7 @@ export function talkTools(host: TalkHost, channelId: string) {
       }),
     ),
     tool(
-      "start_chat",
+      "ask_project",
       'Hand a job, or a question, to another project: its lead gets it as a message and hands it on to its own team, and answers the way message_agent does (reply "wait" by default). Any project open in ruri (list_agents lists them), or a folder path, which is opened as a project — its lead new with it — if it isn\'t. Not for your own project: there, message a teammate. Outside bypass mode the user is asked first, on a card.',
       {
         project: z
@@ -612,19 +616,17 @@ export function talkTools(host: TalkHost, channelId: string) {
           .describe(
             "What the lead reads. It knows nothing of you: say who you are working for, what you need, and anything it cannot find in its folder.",
           ),
-        model: z.string().optional().describe("Ignored: the lead runs on the model its project picked"),
         reply: z.enum(["wait", "later", "none"]).optional().describe(REPLY_DOC),
       },
       async (args, extra) => ({
         content: [
           {
             type: "text",
-            text: await host.start(
+            text: await host.ask(
               channelId,
               {
                 project: args.project,
                 message: args.message,
-                ...(args.model ? { model: args.model } : {}),
                 ...(args.reply ? { reply: args.reply } : {}),
               },
               signalOf(extra),
@@ -648,7 +650,7 @@ export function talkTools(host: TalkHost, channelId: string) {
 export function talkToolBriefing(): string {
   return [
     "<ruri:talk>",
-    "Other agents are working in ruri too — your project's team, and the leads of the user's other open projects — and you can talk to them. mcp__ruri__list_agents shows who you may message and what each is doing right now; mcp__ruri__message_agent sends one a message and brings back its answer; mcp__ruri__start_chat hands a job or a question to another project's lead (or to a folder's, opened as a project first).",
+    "Other agents are working in ruri too — your project's team, and the leads of the user's other open projects — and you can talk to them. mcp__ruri__list_agents shows who you may message and what each is doing right now; mcp__ruri__message_agent sends one a message and brings back its answer; mcp__ruri__ask_project hands a job or a question to another project's lead (or to a folder's, opened as a project first).",
     'A message interrupts a chat at work by default — it stops, reads yours, and goes back to what it was doing. When list_agents shows it deep in something your message can wait for, send it with delivery "queue".',
     'The answer comes back unless you ask for none: by default message_agent waits for it (a long job returns first with a letter id — mcp__ruri__wait_for_answer keeps waiting); reply "later" keeps you working and brings the answer to this chat as a message; reply "none" is only for work the other agent should just get on with in the background, with nothing sent back.',
     "For the chats in ruri use these tools, not ListAgents or SendMessage: those reach Claude sessions on this machine behind ruri's back — a message waits on another user's approval there, and no answer comes back through ruri.",
@@ -670,7 +672,7 @@ export function talkHttpBriefing(endpoint: string, waitMs = HTTP_WAIT_DEFAULT_MS
     '  {"do": "list"} — who you may message, each with a handle',
     '  {"do": "list"} also says what each is doing right now — idle, or working (for how long, on what), answering another agent, waiting on the user',
     '  {"do": "send", "to": "<handle>", "message": "...", "reply": "wait", "delivery": "interrupt"} — send one a message',
-    '  {"do": "new", "project": "<open project name, or a folder path>", "message": "...", "reply": "wait"} — hand a job or a question to another project\'s lead (a folder is opened as a project first)',
+    '  {"do": "project", "project": "<open project name, or a folder path>", "message": "...", "reply": "wait"} — hand a job or a question to another project\'s lead (a folder is opened as a project first)',
     '  {"do": "wait", "letter": "<id>"} — keep waiting on the answer to a message you sent',
     '"delivery": "interrupt" (the default) stops the turn a busy chat is running so it reads yours now, and sends it back to that work after; "queue" waits in its line instead — for when it is deep in something your message can wait for.',
     call('{"do":"list"}'),

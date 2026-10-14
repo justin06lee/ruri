@@ -767,20 +767,18 @@ export interface LetterFrom {
   cutIn?: boolean;
 }
 
-/** Who one agent may message: anyone, only the chats and projects listed
- *  (a project meaning every chat in it, new ones too), or no one. */
+/** Which other projects a project's agents may reach (through each one's
+ *  lead): any, only those listed, or none. Its own team may always talk. */
 export interface TalkRule {
   to: "anyone" | "listed" | "nobody";
   projects: string[];
-  chats: string[];
 }
 
-/** Who may message whom: one rule for every agent, which a project's rule
- *  overrides for the chats in it, which a chat's own overrides for it. */
+/** Who may reach whom: one rule for every project, which a project's own
+ *  rule overrides. */
 export interface TalkPolicy {
   everyone: TalkRule;
   projects: Record<string, TalkRule>;
-  chats: Record<string, TalkRule>;
 }
 
 /** Where a message between agents has got to. */
@@ -811,15 +809,15 @@ export interface TalkLetter {
 
 /** What an agent asks to send, on the card that asks the user. */
 export interface TalkAsk {
-  /** The chat it is for — "" when it is for a chat not yet started. */
+  /** The chat it is for — "" when its project is not open yet. */
   to: string;
   project: string;
   title: string;
   text: string;
   reply: TalkReply;
-  /** The agent is asking to start a new chat in `project` for this, on
-   *  `model` when it named one. */
-  fresh?: { model?: string };
+  /** `project` is a folder not open yet: it opens as a project, and the
+   *  message goes to its lead. */
+  opening?: boolean;
 }
 
 export interface ComponentProposal {

@@ -33,17 +33,16 @@ const bytes = z.string().max(150_000_000);
 const attachmentKind = z.enum(["image", "video", "file"]);
 
 const memoryPart = z.enum(["now", "decisions", "worked", "failed", "gotchas", "open"]);
-/** Who one agent may message (server/talk.ts), and the whole set of them.
- *  A few thousand chats is far more than anyone keeps open. */
+/** Which projects a project's agents may reach (server/talk.ts), and the
+ *  whole set of rules. A few thousand projects is far more than anyone
+ *  keeps open. */
 const talkRule = z.object({
   to: z.enum(["anyone", "listed", "nobody"]),
   projects: z.array(id).max(5_000),
-  chats: z.array(id).max(5_000),
 });
 const talkPolicy = z.object({
   everyone: talkRule,
   projects: z.record(id, talkRule),
-  chats: z.record(id, talkRule),
 });
 const permissionMode = z.enum(["default", "acceptEdits", "plan", "bypassPermissions"]);
 const permissionId = z.enum([

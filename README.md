@@ -48,7 +48,7 @@ On a Linux that restricts unprivileged user namespaces (Ubuntu 24.04 and later),
 - **Edit & rewind** with ruri's own checkpoints on every harness — the discarded turns' files, commits and context go back, and nothing else does; bring a chat started outside ruri onto a project's team.
 - **MCP servers, plugins and marketplaces** for Claude Code and Codex, listed, added and removed from Settings through each CLI's own commands.
 - **Subagents and background scripts as live cards**, an agents page, and agents of your own started from a brief; an agent the model sends on again picks its own card back up.
-- **Agents talk to agents** — a teammate, its lead, or another project's lead, and hear back, waiting on the answer or having it come later; the talk page in every chat's header says who may message whom, and outside Bypass each message waits on your OK.
+- **Agents talk to agents** — a teammate, its lead, or another project's lead, and hear back, waiting on the answer or having it come later; the talk page in every chat's header says which projects may reach which, and outside Bypass each message waits on your OK.
 - **The bridge** — a session looks at and drives what it built: a hidden browser window over CDP, native apps over Accessibility (AT-SPI on Linux), previews above the composer.
 - **ruri's own `/compact`** — instant and token-free, built from per-turn recall notes; transcripts split into a live part and a capped history.
 - **A component library per project** — every piece of its interface with a picture, a name and its code, in a searchable gallery; agents find, read and install components with the `ruri` command (`ruri search`, `ruri show`, `ruri add peek-band`) and put back what they build.

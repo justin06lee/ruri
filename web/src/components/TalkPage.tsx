@@ -1,32 +1,36 @@
 import { useEffect, useState } from "react";
-import type { Project, TalkLetter, TalkPolicy, TalkRule, TalkStatus } from "../../../shared/protocol";
+import {
+  leadOf,
+  type Project,
+  type TalkLetter,
+  type TalkPolicy,
+  type TalkRule,
+  type TalkStatus,
+} from "../../../shared/protocol";
 import { useNow } from "../lib/beat";
 import { send, useRuri } from "../store";
 import { Capped } from "./Capped";
 
 /**
- * The talk page: who your agents may message.
+ * The talk page: which projects your agents may reach.
  *
- * Any chat's model can message another chat's — in its own project or any
- * other open one (server/talk.ts). Here the user says who may message
- * whom: one rule for every agent, which a project's rule overrides for the
- * chats in it, which a chat's own overrides for it. Each is "anyone",
- * "only these" (projects — every chat in one, new ones too — and single
- * chats), or "no one"; a project or a chat with no rule of its own goes
- * by the one above it. Opened from a chat's header, it starts on that
- * chat. Under the rules, the latest messages between agents and where
- * each has got to.
+ * A project's agents — its lead and its team — can message another
+ * project's lead, in any open project, and hear back (server/talk.ts);
+ * within a project the team talks freely. Here the user says which
+ * projects may reach which: one rule for every project, which a
+ * project's own rule overrides. Each is "anyone", "only these" projects,
+ * or "no one"; a project with no rule of its own goes by everyone's.
+ * Opened from a chat's header, it starts on that chat's project. Under
+ * the rules, the latest messages between agents and where each has got
+ * to.
  */
 
 type Mode = TalkRule["to"] | "inherit";
 
-/** Who a rule is for: every agent, a project's chats, or one chat. */
-type Who =
-  | { kind: "everyone" }
-  | { kind: "project"; project: Project }
-  | { kind: "chat"; project: Project; chat: string };
+/** Who a rule is for: every project, or one. */
+type Who = { kind: "everyone" } | { kind: "project"; project: Project };
 
-const OPEN: TalkRule = { to: "anyone", projects: [], chats: [] };
+const OPEN: TalkRule = { to: "anyone", projects: [] };
 
 const MODE_WORD: Record<Mode, string> = {
   inherit: "Same as",
@@ -46,8 +50,13 @@ const STATUS_WORD: Record<TalkStatus, string> = {
   dropped: "taken out",
 };
 
-function chatTitle(project: Project, chat: string): string {
-  return project.sessions.find((s) => s.id === chat)?.title || "untitled chat";
+/** A chat as the talk page names it: its project for a lead, the project
+ *  and its name for a member of the team. */
+function chatName(projects: Project[], chat: string): string {
+  const project = projects.find((p) => p.sessions.some((s) => s.id === chat));
+  if (!project) return "a closed chat";
+  if (leadOf(project)?.id === chat) return project.name;
+  return `${project.name} · ${project.sessions.find((s) => s.id === chat)?.title || "a teammate"}`;
 }
 
 /** "3m ago", "just now". */
@@ -63,54 +72,28 @@ function ago(ts: number, now: number): string {
 function summary(rule: TalkRule, projects: Project[]): string {
   if (rule.to === "anyone") return "anyone";
   if (rule.to === "nobody") return "no one";
-  const names = [
-    ...rule.projects.flatMap((id) => {
-      const p = projects.find((x) => x.id === id);
-      return p ? [`all of ${p.name}`] : [];
-    }),
-    ...rule.chats.flatMap((id) => {
-      const p = projects.find((x) => x.sessions.some((s) => s.id === id));
-      return p ? [`${p.name} · ${chatTitle(p, id)}`] : [];
-    }),
-  ];
+  const names = rule.projects.flatMap((id) => projects.find((x) => x.id === id)?.name ?? []);
   if (names.length === 0) return "no one yet";
   return names.length <= 2 ? `only ${names.join(", ")}` : `only ${names.length} picked`;
 }
 
 function keyOf(who: Who): string {
-  return who.kind === "everyone"
-    ? "everyone"
-    : who.kind === "project"
-      ? `p:${who.project.id}`
-      : `c:${who.chat}`;
+  return who.kind === "everyone" ? "everyone" : who.project.id;
 }
 
 /** The rule a who has of its own, if any — and the one it goes by. */
 function rules(policy: TalkPolicy, who: Who): { own?: TalkRule; parent?: { rule: TalkRule; label: string } } {
   if (who.kind === "everyone") return { own: policy.everyone };
-  const everyone = { rule: policy.everyone, label: "every agent" };
-  if (who.kind === "project") return { own: policy.projects[who.project.id], parent: everyone };
-  const shared = policy.projects[who.project.id];
-  return {
-    own: policy.chats[who.chat],
-    parent: shared ? { rule: shared, label: `all of ${who.project.name}` } : everyone,
-  };
+  return { own: policy.projects[who.project.id], parent: { rule: policy.everyone, label: "every project" } };
 }
 
 /** A copy of the policy with one who's rule set — or taken away. */
 function withRule(policy: TalkPolicy, who: Who, rule: TalkRule | undefined): TalkPolicy {
-  const next: TalkPolicy = {
-    everyone: policy.everyone,
-    projects: { ...policy.projects },
-    chats: { ...policy.chats },
-  };
-  if (who.kind === "everyone") next.everyone = rule ?? OPEN;
-  else if (who.kind === "project") {
-    if (rule) next.projects[who.project.id] = rule;
-    else delete next.projects[who.project.id];
-  } else if (rule) next.chats[who.chat] = rule;
-  else delete next.chats[who.chat];
-  return next;
+  if (who.kind === "everyone") return { ...policy, everyone: rule ?? OPEN };
+  const projects = { ...policy.projects };
+  if (rule) projects[who.project.id] = rule;
+  else delete projects[who.project.id];
+  return { ...policy, projects };
 }
 
 /** Set the limits: here at once, then on the server, which says so back. */
@@ -123,7 +106,9 @@ function save(policy: TalkPolicy): void {
 export function TalkPage({ channelId }: { channelId: string }) {
   const talk = useRuri((s) => s.talk);
   const projects = useRuri((s) => s.projects);
-  const [picked, setPicked] = useState(`c:${channelId}`);
+  const [picked, setPicked] = useState(
+    () => projects.find((p) => p.sessions.some((x) => x.id === channelId))?.id ?? "everyone",
+  );
   const now = useNow(30_000);
   useEffect(() => {
     send({ type: "talk_get" });
@@ -131,12 +116,10 @@ export function TalkPage({ channelId }: { channelId: string }) {
 
   const whos: Who[] = [
     { kind: "everyone" },
-    ...projects.flatMap((project) => [
-      { kind: "project" as const, project },
-      ...project.sessions.map((s) => ({ kind: "chat" as const, project, chat: s.id })),
-    ]),
+    ...projects.map((project) => ({ kind: "project" as const, project })),
   ];
   const who = whos.find((w) => keyOf(w) === picked) ?? whos[0]!;
+  const here = projects.find((p) => p.sessions.some((x) => x.id === channelId))?.id;
 
   if (!talk) {
     return (
@@ -160,39 +143,30 @@ export function TalkPage({ channelId }: { channelId: string }) {
           to: next,
           // "only these" starts from whatever list it was going by
           projects: next === "listed" && shown.to === "listed" ? shown.projects : [],
-          chats: next === "listed" && shown.to === "listed" ? shown.chats : [],
         }),
       );
   };
-  const toggle = (field: "projects" | "chats", id: string) => {
+  const toggle = (id: string) => {
     if (!own || own.to !== "listed") return;
-    const list = own[field].includes(id) ? own[field].filter((x) => x !== id) : [...own[field], id];
-    save(withRule(policy, who, { ...own, [field]: list }));
+    const list = own.projects.includes(id) ? own.projects.filter((x) => x !== id) : [...own.projects, id];
+    save(withRule(policy, who, { ...own, projects: list }));
   };
 
-  const label =
-    who.kind === "everyone"
-      ? "Every agent"
-      : who.kind === "project"
-        ? `Every chat in ${who.project.name}`
-        : `${who.project.name} · ${chatTitle(who.project, who.chat)}`;
-  const self = who.kind === "chat" ? who.chat : undefined;
-  const nameOf = (chat: string) => {
-    const p = projects.find((x) => x.sessions.some((s) => s.id === chat));
-    return p ? `${p.name} · ${chatTitle(p, chat)}` : "a closed chat";
-  };
+  const label = who.kind === "everyone" ? "Every project" : who.project.name;
+  const self = who.kind === "project" ? who.project.id : undefined;
 
   return (
     <section className="board-page talk-page">
       <div className="board-inner">
         <div className="board-head">
           <span className="board-title">Talk</span>
-          <span className="board-sub">who your agents may message</span>
+          <span className="board-sub">which projects your agents may reach</span>
         </div>
         <p className="talk-note">
-          Any chat&rsquo;s agent can message another chat&rsquo;s — in its own project or any other open one —
-          and hear back. In Bypass it sends on its own; in any other mode each message waits for you on a card
-          in the chat sending it. A project or a chat with no rule of its own goes by the one above it.
+          A project&rsquo;s agents — its lead and its team — can message another project&rsquo;s lead, in any
+          open project, and hear back; a team always talks among itself. In Bypass a message goes on its own;
+          in any other mode each waits for you on a card in its project&rsquo;s chat. A project with no rule
+          of its own goes by every project&rsquo;s.
         </p>
 
         <div className="talk-grid">
@@ -200,7 +174,6 @@ export function TalkPage({ channelId }: { channelId: string }) {
             {whos.map((w) => {
               const key = keyOf(w);
               const r = rules(policy, w);
-              const mine = w.kind === "chat" && w.chat === channelId;
               return (
                 <button
                   key={key}
@@ -210,12 +183,10 @@ export function TalkPage({ channelId }: { channelId: string }) {
                   onClick={() => setPicked(key)}
                 >
                   <span className="talk-who-name">
-                    {w.kind === "everyone"
-                      ? "Every agent"
-                      : w.kind === "project"
-                        ? w.project.name
-                        : chatTitle(w.project, w.chat)}
-                    {mine && <span className="talk-this"> · this chat</span>}
+                    {w.kind === "everyone" ? "Every project" : w.project.name}
+                    {w.kind === "project" && w.project.id === here && (
+                      <span className="talk-this"> · this project</span>
+                    )}
                   </span>
                   <span className="talk-who-rule">{r.own ? summary(r.own, projects) : "as above"}</span>
                 </button>
@@ -225,7 +196,7 @@ export function TalkPage({ channelId }: { channelId: string }) {
 
           <div className="talk-rule">
             <div className="talk-rule-head">
-              <span className="talk-rule-who">{label}</span> may message
+              <span className="talk-rule-who">{label}</span> may reach
             </div>
             <div className="seg talk-modes">
               {(who.kind === "everyone"
@@ -249,38 +220,18 @@ export function TalkPage({ channelId }: { channelId: string }) {
             )}
             {mode === "listed" && own && (
               <Capped max={10} className="talk-list">
-                {projects.map((project) => {
-                  const whole = own.projects.includes(project.id);
-                  return (
-                    <div key={project.id} className="talk-project">
-                      <label className="talk-check">
-                        <input
-                          type="checkbox"
-                          checked={whole}
-                          onChange={() => toggle("projects", project.id)}
-                        />
-                        <span>
-                          {project.name}
-                          <small> — every chat, new ones too</small>
-                        </span>
-                      </label>
-                      {project.sessions.map((s) => (
-                        <label key={s.id} className={`talk-check one ${s.id === self ? "self" : ""}`}>
-                          <input
-                            type="checkbox"
-                            disabled={whole || s.id === self}
-                            checked={s.id !== self && (whole || own.chats.includes(s.id))}
-                            onChange={() => toggle("chats", s.id)}
-                          />
-                          <span>
-                            {s.title || "untitled chat"}
-                            {s.id === self && <small> — itself</small>}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  );
-                })}
+                {projects
+                  .filter((project) => project.id !== self)
+                  .map((project) => (
+                    <label key={project.id} className="talk-check">
+                      <input
+                        type="checkbox"
+                        checked={own.projects.includes(project.id)}
+                        onChange={() => toggle(project.id)}
+                      />
+                      <span>{project.name}</span>
+                    </label>
+                  ))}
               </Capped>
             )}
           </div>
@@ -295,7 +246,8 @@ export function TalkPage({ channelId }: { channelId: string }) {
               <div key={letter.id} className={`talk-letter st-${letter.status}`}>
                 <div className="talk-letter-head">
                   <span className="talk-letter-who">
-                    {nameOf(letter.from)} <span className="talk-arrow">→</span> {nameOf(letter.to)}
+                    {chatName(projects, letter.from)} <span className="talk-arrow">→</span>{" "}
+                    {chatName(projects, letter.to)}
                   </span>
                   <span className="talk-status">{STATUS_WORD[letter.status]}</span>
                   <span className="talk-when">{ago(letter.ts, now)}</span>

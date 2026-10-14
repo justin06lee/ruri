@@ -100,10 +100,9 @@ function MessageCard({ request }: { request: PermissionRequest }) {
           <Icon d={toolIcon(request.toolName)} />
           message
         </span>
-        {ask.fresh ? (
+        {ask.opening ? (
           <>
-            wants to start a new chat in <b>{ask.project}</b>
-            {ask.fresh.model ? ` on ${ask.fresh.model}` : ""} and send it
+            wants to open <b>{ask.project}</b> as a project and send its lead
           </>
         ) : (
           <>

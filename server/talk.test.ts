@@ -15,7 +15,7 @@ import {
   listSeats,
   restoreTalk,
   sendLetter,
-  startChat,
+  askProject,
   talkChatsClosed,
   talkDropped,
   talkTurnEnded,
@@ -56,45 +56,49 @@ describe("who may message whom", () => {
     expect(mayMessage(policy, { chat: "a", project: "p" }, { chat: "a", project: "p" })).toBe(false);
   });
 
-  test("a chat's own rule beats its project's, which beats everyone's", () => {
+  test("a project's own rule beats everyone's", () => {
     const policy = parsePolicy({
-      everyone: { to: "nobody", projects: [], chats: [] },
-      projects: { p: { to: "listed", projects: ["q"], chats: [] } },
-      chats: { a2: { to: "anyone", projects: [], chats: [] } },
+      everyone: { to: "nobody", projects: [] },
+      projects: { p: { to: "listed", projects: ["q"] } },
     });
-    expect(ruleFor(policy, "x", "other").by).toBe("everyone");
-    expect(ruleFor(policy, "a", "p").by).toBe("project");
-    expect(ruleFor(policy, "a2", "p").by).toBe("chat");
+    expect(ruleFor(policy, "other").by).toBe("everyone");
+    expect(ruleFor(policy, "p").by).toBe("project");
     // everyone else: no one
     expect(mayMessage(policy, { chat: "x", project: "other" }, { chat: "b", project: "q" })).toBe(false);
-    // p's chats: anything in q, and nothing else
+    // p's team: q, and nothing else
     expect(mayMessage(policy, { chat: "a", project: "p" }, { chat: "b", project: "q" })).toBe(true);
     expect(mayMessage(policy, { chat: "a", project: "p" }, { chat: "c", project: "r" })).toBe(false);
-    // a2 is let off
-    expect(mayMessage(policy, { chat: "a2", project: "p" }, { chat: "c", project: "r" })).toBe(true);
   });
 
-  test("a listed chat is reachable even when its project is not", () => {
-    const policy = parsePolicy({
-      everyone: { to: "listed", projects: [], chats: ["b"] },
-      projects: {},
-      chats: {},
-    });
-    expect(mayMessage(policy, { chat: "a", project: "p" }, { chat: "b", project: "q" })).toBe(true);
-    expect(mayMessage(policy, { chat: "a", project: "p" }, { chat: "b2", project: "q" })).toBe(false);
+  test("a team talks within its own project whatever the rules say", () => {
+    const policy = parsePolicy({ everyone: { to: "nobody", projects: [] }, projects: {} });
+    expect(mayMessage(policy, { chat: "lead", project: "p" }, { chat: "member", project: "p" })).toBe(true);
+    expect(mayMessage(policy, { chat: "member", project: "p" }, { chat: "lead", project: "p" })).toBe(true);
+    expect(mayMessage(policy, { chat: "lead", project: "p" }, { chat: "b", project: "q" })).toBe(false);
   });
 
-  test("anything unreadable falls back: the default, or no rule for that chat", () => {
+  test("a rule from before teams: a chat it named is that chat's project, and a chat's own rule goes", () => {
+    const projectOf = (chat: string) => ({ b: "q", c: "q", d: "r" })[chat];
+    const policy = parsePolicy(
+      {
+        everyone: { to: "listed", projects: ["s"], chats: ["b", "c", "gone"] },
+        projects: {},
+        chats: { a: { to: "nobody", projects: [], chats: [] } },
+      },
+      projectOf,
+    );
+    expect(policy).toEqual({ everyone: { to: "listed", projects: ["s", "q"] }, projects: {} });
+  });
+
+  test("anything unreadable falls back: the default, or no rule for that project", () => {
     expect(parsePolicy(null)).toEqual(defaultPolicy());
     expect(parsePolicy("nope")).toEqual(defaultPolicy());
     const policy = parsePolicy({
       everyone: { to: "sideways" },
-      projects: { p: { to: "nobody", projects: "q", chats: [1, "", "c", "c"] } },
-      chats: { a: 7 },
+      projects: { p: { to: "nobody", projects: [1, "", "q", "q"] }, r: 7 },
     });
     expect(policy.everyone.to).toBe("anyone");
-    expect(policy.projects["p"]).toEqual({ to: "nobody", projects: [], chats: ["c"] });
-    expect(policy.chats).toEqual({});
+    expect(policy.projects).toEqual({ p: { to: "nobody", projects: ["q"] } });
   });
 });
 
@@ -135,11 +139,7 @@ describe("the book", () => {
 
   test("the limits are kept on disk", () => {
     const book = new TalkBook();
-    const policy = parsePolicy({
-      everyone: { to: "nobody", projects: [], chats: [] },
-      projects: {},
-      chats: {},
-    });
+    const policy = parsePolicy({ everyone: { to: "nobody", projects: [] }, projects: {} });
     book.setPolicy(policy);
     expect(new TalkBook().policy()).toEqual(policy);
     book.setPolicy(defaultPolicy());
@@ -291,11 +291,12 @@ describe("a message", () => {
     expect(listSeats(ctx, "a")).toContain(`${handle}  the lead`);
     await sendLetter(ctx, "a", { to: handle, message: "hi", reply: "none" });
     expect(ctx.queues.entries.get("b")).toHaveLength(1);
-    // one on another project's team is reached by name or handle, but not
-    // listed: a project is talked to through its lead
+    // one on another project's team is out of reach, even by its handle:
+    // a project is talked to through its lead
     expect(listSeats(ctx, "a")).not.toContain(ctx.talk.handleOf("c"));
-    await sendLetter(ctx, "a", { to: ctx.talk.handleOf("c"), message: "hi", reply: "none" });
-    expect(ctx.queues.entries.get("c")).toHaveLength(1);
+    const sent = await sendLetter(ctx, "a", { to: ctx.talk.handleOf("c"), message: "hi", reply: "none" });
+    expect(sent.text).toContain("No agent answers");
+    expect(ctx.queues.entries.get("c")).toBeUndefined();
   });
 
   test("a project by its name alone is its lead", async () => {
@@ -327,13 +328,20 @@ describe("a message", () => {
   test("the user's limits are held to", async () => {
     const { ctx } = world();
     ctx.talk.setPolicy({
-      everyone: { to: "anyone", projects: [], chats: [] },
-      projects: {},
-      chats: { a: { to: "listed", projects: [], chats: ["c"] } },
+      everyone: { to: "nobody", projects: [] },
+      projects: { q: { to: "anyone", projects: [] } },
     });
     expect((await sendLetter(ctx, "a", { to: "Backend", message: "x" })).text).toContain("has not let you");
-    expect(listSeats(ctx, "a")).toContain("1 other agent is off limits");
+    expect(listSeats(ctx, "a")).toContain("1 other project is off limits");
     expect(listSeats(ctx, "a")).not.toContain("Backend");
+    // api's own rule lets it out; its team talks among itself either way
+    expect((await sendLetter(ctx, "c", { to: "Frontend", message: "y", reply: "none" })).text).toContain(
+      "Sent to",
+    );
+    ctx.talk.setPolicy({ everyone: { to: "nobody", projects: [] }, projects: {} });
+    expect((await sendLetter(ctx, "b", { to: "Docs", message: "z", reply: "none" })).text).toContain(
+      "Sent to",
+    );
     ctx.talk.setPolicy(defaultPolicy());
   });
 
@@ -412,7 +420,7 @@ describe("a message", () => {
 
   test("the sender's turn ending takes down its cards", async () => {
     const { ctx, said } = world({ a: "default" });
-    void sendLetter(ctx, "a", { to: "Docs", message: "may I?" });
+    void sendLetter(ctx, "a", { to: "Backend", message: "may I?" });
     expect(ctx.permissions.size).toBe(1);
     talkTurnEnded(ctx, "a", { kind: "result", id: "r", ok: false, stopped: true, ts: 1 });
     expect(ctx.permissions.size).toBe(0);
@@ -490,12 +498,12 @@ describe("an answer always comes back — unless none was asked for", () => {
     await sendLetter(ctx, "a", { to: "Backend", message: "1" }, { waitMs: 5 });
     arrive("b");
     answer("b", "", { ok: false, error: "the API fell over" });
-    await sendLetter(ctx, "a", { to: "Docs", message: "2", reply: "later" });
-    talkDropped(ctx, ctx.queues.entries.get("c")![0]!.from);
+    await sendLetter(ctx, "a", { to: "Backend", message: "2", reply: "later" });
+    talkDropped(ctx, ctx.queues.entries.get("b")![0]!.from);
     const back = ctx.queues.entries.get("a")!.map((entry) => entry.text);
     expect(back).toEqual([
       "api · Backend's turn on your message failed: the API fell over.",
-      "The user took your message out of api · Docs's queue before it was read.",
+      "The user took your message out of api · Backend's queue before it was read.",
     ]);
   });
 
@@ -655,7 +663,7 @@ describe("a message cuts in on a chat at work", () => {
   });
 });
 
-describe("an agent deciding who to disturb, and starting chats of its own", () => {
+describe("an agent deciding who to disturb, and handing jobs to other projects", () => {
   test("the list says what each chat is doing: for how long, on what, running what, and what is queued", () => {
     const { ctx, statuses, events } = world();
     statuses["b"] = "working";
@@ -671,7 +679,7 @@ describe("an agent deciding who to disturb, and starting chats of its own", () =
     expect(listed).toContain('working for 3h 05m — on "watch the training run until DPO starts"');
     expect(listed).toContain("running Bash: ssh tenet");
     expect(listed).toContain("1 queued behind it");
-    expect(listed).toContain("start_chat");
+    expect(listed).toContain("ask_project");
     // its own team, each with what it is doing
     expect(listSeats(ctx, "b")).toContain("Docs");
     expect(listSeats(ctx, "b")).toContain("waiting on the user to answer a card");
@@ -698,38 +706,38 @@ describe("an agent deciding who to disturb, and starting chats of its own", () =
     expect(sent.text).toContain("it could not be interrupted: it is waiting on the user");
   });
 
-  test("start_chat hands the job to the other project's lead, and opens no chat", async () => {
+  test("ask_project hands the job to the other project's lead, and opens no chat", async () => {
     const { ctx, projects } = world();
-    const sent = await startChat(ctx, "a", {
+    const sent = await askProject(ctx, "a", {
       project: "api",
       message: "where is the auth middleware?",
-      model: "Haiku 4.5",
       reply: "later",
     });
     expect(projects.flatMap((p) => p.sessions)).toHaveLength(3);
     expect(sent.text).toContain("Handed to api's lead");
     expect(sent.text).toContain(ctx.talk.handleOf("b"));
-    expect(sent.text).toContain("left as it is");
     expect(ctx.queues.entries.get("b")![0]).toMatchObject({
       text: "where is the auth middleware?",
       from: { agent: "a" },
     });
   });
 
-  test("start_chat refuses what it can't do, and starts nothing", async () => {
+  test("ask_project refuses what it can't do, and starts nothing", async () => {
     const { ctx, projects } = world();
     const count = () => projects.flatMap((p) => p.sessions).length;
-    expect((await startChat(ctx, "a", { project: "nowhere", message: "hi" })).text).toContain(
+    expect((await askProject(ctx, "a", { project: "nowhere", message: "hi" })).text).toContain(
       'No project called "nowhere" is open',
     );
-    expect((await startChat(ctx, "a", { project: "/no/such/folder", message: "hi" })).text).toContain(
+    expect((await askProject(ctx, "a", { project: "/no/such/folder", message: "hi" })).text).toContain(
       "There is no folder at /no/such/folder",
     );
-    expect((await startChat(ctx, "a", { project: "api", message: "  " })).text).toContain("empty");
+    expect((await askProject(ctx, "a", { project: "api", message: "  " })).text).toContain("empty");
     // its own project is its team's to message
-    expect((await startChat(ctx, "a", { project: "web", message: "hi" })).text).toContain("your own project");
-    ctx.talk.setPolicy({ everyone: { to: "nobody", projects: [], chats: [] }, projects: {}, chats: {} });
-    expect((await startChat(ctx, "a", { project: "api", message: "hi" })).text).toContain(
+    expect((await askProject(ctx, "a", { project: "web", message: "hi" })).text).toContain(
+      "your own project",
+    );
+    ctx.talk.setPolicy({ everyone: { to: "nobody", projects: [] }, projects: {} });
+    expect((await askProject(ctx, "a", { project: "api", message: "hi" })).text).toContain(
       "has not let you message api",
     );
     ctx.talk.setPolicy(defaultPolicy());
@@ -738,7 +746,7 @@ describe("an agent deciding who to disturb, and starting chats of its own", () =
 
   test("outside bypass mode the lead is asked about the way any message is, and a no sends nothing", async () => {
     const { ctx, said } = world({ a: "default" });
-    const going = startChat(ctx, "a", { project: "api", message: "a question" });
+    const going = askProject(ctx, "a", { project: "api", message: "a question" });
     const card = said.find((m) => m.type === "permission_request");
     expect(card?.type === "permission_request" && card.request.input).toMatchObject({
       project: "api",
@@ -763,8 +771,8 @@ describe("letters in flight outlive a relaunch", () => {
       { to: "Backend", message: "still in line" },
       { waitMs: 5 },
     );
-    // c is halfway through a's other message
-    const halfway = await sendLetter(before.ctx, "a", { to: "Docs", message: "halfway", reply: "later" });
+    // c is halfway through its lead's message
+    const halfway = await sendLetter(before.ctx, "b", { to: "Docs", message: "halfway", reply: "later" });
     before.arrive("c");
     before.speak("c", "Half of it is done.");
     // and b's message to a has been answered, the answer still in b's line
@@ -785,14 +793,13 @@ describe("letters in flight outlive a relaunch", () => {
     const after = world({}, before.events);
     restoreTalk(after.ctx);
     const inB = after.ctx.queues.entries.get("b")!;
-    expect(inB.map((entry) => entry.from?.letter)).toEqual([queued.letter, landed.letter]);
+    expect(inB.map((entry) => entry.from?.letter)).toEqual([queued.letter, halfway.letter, landed.letter]);
     // nobody holds a call on it any more: it is told the answer comes as a message
     expect(inB[0]!.from).toMatchObject({ reply: "later", project: "web", title: "Frontend" });
-    expect(inB[1]).toMatchObject({ text: "answer three", from: { answer: true } });
-    const inA = after.ctx.queues.entries.get("a")!;
-    expect(inA).toHaveLength(1);
-    expect(inA[0]!.text).toContain("ruri was restarted while api · Docs was working on your message");
-    expect(inA[0]!.text).toContain("Half of it is done.");
+    expect(inB[1]!.text).toContain("ruri was restarted while api · Docs was working on your message");
+    expect(inB[1]!.text).toContain("Half of it is done.");
+    expect(inB[2]).toMatchObject({ text: "answer three", from: { answer: true } });
+    expect(after.ctx.queues.entries.get("a")).toBeUndefined();
     expect(after.ctx.talk.letters()).toHaveLength(3);
 
     // a wait coming back for the landed answer still collects it
@@ -802,7 +809,8 @@ describe("letters in flight outlive a relaunch", () => {
     after.answer("b", "done at last");
     expect(after.ctx.queues.entries.get("a")!.at(-1)!.text).toBe("done at last");
     after.arrive("a");
-    after.arrive("a");
+    // and b reads that c's turn never finished
+    after.arrive("b");
     expect(after.ctx.talk.pending.size).toBe(0);
     expect(JSON.parse(fs.readFileSync(lettersFile, "utf8"))).toEqual({ letters: [] });
   });

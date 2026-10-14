@@ -7,7 +7,7 @@ This layer owns project sessions and everything remembered about them: sessions/
 
 ## Where to change what
 
-- **Projects (open/close/rename/star/hide), leads and the hidden liaison, and their teams' members (closeMember, the one teardown forgetChat):** server/projects.ts, server/handlers/projects.ts, server/ruriDir.ts, server/configDir.ts
+- **Projects (open/close/rename/star/hide), leads and the hidden liaison, and their teams' members (stop/refresh/restart/retire, closeMember, the one teardown forgetChat):** server/projects.ts, server/handlers/projects.ts, server/talk.ts, server/ruriDir.ts
 - **Session archive and transcript:** server/archive.ts, server/notes.ts, server/handlers/boards.ts
 - **Checkpoints and rewind:** server/checkpoints.ts, server/gitState.ts, scripts/checkpoint.ts, scripts/rewind-compaction.ts
 - **Compaction, digests, auto-compact, self-compaction and carried delegations:** server/compaction.ts, server/handoff.ts, server/selfCompaction.ts, server/digestFold.ts
@@ -26,7 +26,7 @@ This layer owns project sessions and everything remembered about them: sessions/
 
 ## Key files
 
-- server/projects.ts — ProjectStore over projects.json plus per-chat session settings; a project's lead first and its members with duty and layers (formTeams at launch, addMember, setMember)
+- server/projects.ts — ProjectStore over projects.json plus per-chat session settings; a project's lead first and its members with duty and layers, plus the hidden liaison session (formTeams at launch, addMember, setMember)
 - server/handlers/projects.ts — socket moves for projects, a member off its team (closeMember), an outside chat brought in as a teammate
 - server/archive.ts — live sessions/<id>.json plus append-only history/<id>.jsonl and turn summaries
 - server/checkpoints.ts — per-prompt hidden git commits and rewind

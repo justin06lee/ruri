@@ -13,7 +13,7 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - **transcript delivery and history:** server/handlers/transcript.ts, server/events.ts
 - **self-compaction (context line, compact/context tools, handoff-note continuation):** server/chats.ts, server/dispatch.ts, server/queue.ts, server/handlers/talk.ts
 - **rewind:** server/handlers/rewind.ts, server/turns.ts, scripts/rewind.ts, scripts/rewind-git.ts
-- **agent-to-agent talk and project teams (lead, liaison, members, the leads' team tools, the optional RURI_TEAM_MAX cap):** server/talk.ts, server/handlers/talk.ts, server/team.ts, server/handlers/team.ts
+- **agent-to-agent talk and project teams (lead, liaison, members, the leads' team tools, the optional RURI_TEAM_MAX cap, team message liaison and freeLayers):** server/talk.ts, server/handlers/talk.ts, server/team.ts, server/handlers/team.ts
 - **slash commands in prompts:** server/commands.ts, server/dispatch.ts
 - **retry and dropped turns:** server/retry.ts, server/dispatch.ts
 
@@ -22,7 +22,7 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - **prompt to running turn:** handlers/prompts.ts accepts send, split, stop, or queue rearrange → dispatch.ts writes prompt to transcript, checkpoints, titles, splits slash commands → queue.ts holds it if channel busy, visible or silent entry → chats.ts hands it to the chat session with briefing and tools → turns.ts tracks progress and context during the run → events.ts records, redacts, archives, and pushes each event → finished turn triggers drainQueue and maybeRetry in dispatch.ts
 - **self-compact mid-job:** each prompt carries a usage line (used / window / self-compact point); any agent can check with the context tool → past its point the agent writes a handoff note and calls the compact tool, which only stores the note and tells it to end its turn → at that turn's result in chats.ts, an ok result queues the continuation at the head and runs the compaction, whose drain sends it into the fresh session → a stopped turn drops the note and settles letters as today; a failed turn keeps the note for the next ok turn → if the compacting turn was answering a letter, its letter is carried to the continuation so its last words still answer whoever waits
 - **rewind:** handlers/rewind.ts receives rewind to just before a prompt ran → restoreContext resets context gauge to the kept exchange → files and repo restored via native fork or checkpoint plus brief → transcript truncated and prompt returned to composer
-- **talk message:** handlers/talk.ts finds the seat — the sender's own team, or another project's door: its liaison, made on first outside contact — and checks TalkPolicy (mayMessage) → delivered as a prompt marked whose (only RURI_TEAM_MAX makes a sleeping member waitForSlot) → queues behind that chat's work, or cuts in → at turn end its last word goes back to the sender, unless the turn handed the job on (Pending.for): then the turn the last answer starts (LetterFrom.owes) answers; ask_project goes to another project's liaison
+- **talk message:** handlers/talk.ts finds the seat — the sender's own team, or another project's door: its liaison, made on first outside contact — and checks TalkPolicy (mayMessage) → delivered as a prompt marked whose (only RURI_TEAM_MAX makes a sleeping member waitForSlot) → queues behind that chat's work, or cuts in → at turn end its last word goes back to the sender, unless the turn handed the job on (Pending.for): then the turn the last answer starts (LetterFrom.owes) answers; ask_project goes to another project's liaison → sending a letter refreshes an open team page for both ends so liaison letters show live
 
 ## Key files
 
@@ -31,7 +31,8 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - server/turns.ts — turn in flight per channel, progress clock, context window
 - server/events.ts — transcript event intake, redact, archive, push, small-model follow-ups
 - server/chats.ts — chat session manager wiring sessions to server
-- server/team.ts — the team: the optional RURI_TEAM_MAX cap, the lead's, liaison's and members' words, disallowedFor, the leads' tools; server/handlers/team.ts has headOf, the roster, the team page and actOn (stop, compact, refresh, restart, retire)
+- server/team.ts — the team: the optional RURI_TEAM_MAX cap, the lead's, liaison's and members' words, disallowedFor, the leads' tools
+- server/handlers/team.ts — team message with roster, liaison and freeLayers, headOf, team page actOn (stop, compact, refresh, restart, retire)
 - server/handlers/prompts.ts — composer messages: send, split, queue, stop, drafts, cards
 - server/talk.ts — agent-to-agent rules, handles, wording, in-flight book, tools
 - server/handlers/rewind.ts — rewind across harnesses (a native fork back to the kept exchange, a brief, or a fresh start)
@@ -46,7 +47,6 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - Rewind must restore files, branch, transcript, composer prompt, and context gauge to the kept exchange, not the tip.
 - A letter is answered by the last words of the turn that finishes the job: owedLetter() is what a turn owes (its own letter, a carried one, or via an answer's owes); talkTurnEnded settles it only when nothing sent for it is out (TalkBook.outstanding). An answer that leaves the book any other way — a wait in another job, taken out of the queue — goes through answerOnward. Self-compaction marks the carry (carryLetter) at the turn's result, before talkTurnEnded.
 - The liaison (session.liaison) is never marked lead and leadOf skips it; it is not a member either: what takes 'every non-lead session' as the team must skip it (membersOf, store.isMember, protocol isMember); unattended() covers members and the liaison, whose held lines nobody sends on by hand.
-- A lead's stop or restart on a teammate ends its work: dropResume takes ruri's 'back to work' entry out of its line (other letters still go), and its next message starts with stoppedLine, naming the cut-off call.
 
 ## What it talks to
 

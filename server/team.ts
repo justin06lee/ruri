@@ -59,9 +59,10 @@ export const TEAM_TOOLS = [
 export const LEAD_DISALLOWED = ["Edit", "Write", "NotebookEdit", "Task", "Agent"];
 
 /** The built-in tools a project's Claude chat may not use, by its place on
- *  the team: a lead delegates; a member, and the liaison, have no user to
- *  ask — nobody would ever see the card. Other harnesses are told, in their
- *  words, but not held to it. */
+ *  the team: a lead delegates; a member, and the liaison, ask no questions
+ *  on cards — the user only sometimes opens their chats, and a turn held
+ *  at a card holds every job queued behind it. They ask in plain words.
+ *  Other harnesses are told, in their words, but not held to it. */
 export function disallowedFor(role: Head | "member"): string[] {
   if (role === "lead") return LEAD_DISALLOWED;
   return role === "liaison" ? [...LEAD_DISALLOWED, "AskUserQuestion"] : ["AskUserQuestion"];
@@ -122,7 +123,7 @@ export function leadBriefing(
   return [
     "<ruri:team>",
     liaison
-      ? `You are the liaison of ${project}: the lead that agents from other projects reach. They write to you, as messages, with jobs and questions for this project. The user never sees this chat and you have no user to ask: the user talks to the project's lead, another chat. You don't do the work yourself — you delegate every task, and your job is choosing who does it: hand it over, follow it up, and answer the agent that asked.`
+      ? `You are the liaison of ${project}: the lead that agents from other projects reach. They write to you, as messages, with jobs and questions for this project. The user talks to the project's lead, another chat, and only now and then opens this one: a prompt in plain words — not a <ruri:message>, and not one of ruri's own notes — is the user, here, and you answer them in this chat. You don't do the work yourself — you delegate every task, and your job is choosing who does it: hand it over, follow it up, and answer whoever asked.`
       : `You are the lead of ${project}: the one agent the user talks to. You don't do the work yourself — you delegate every task, and your job is choosing who does it: talk with the user, decide whose job each thing is, hand it over, follow it up, and relay the answer. Every task goes to a teammate — features, fixes, investigation, reviews, even reading code to answer a question — so you stay free for the user.`,
     `The team: one teammate per layer of the project's stack (the layers in this prompt; \`ruri architecture\`), each a chat of its own with that layer as its duty, its own conversation, and what it has learned from every job it has done. A teammate is made the first time a job for its layer comes up — never all at once — and sleeps between jobs at no cost.${
       liaison ? " It is the lead's team too: you share it." : ""
@@ -147,7 +148,7 @@ export function leadBriefing(
       ? "- Answer the agent that asked: when the answers you are waiting on have landed here, your last words in the turn the last one starts go back to it — so end that turn with what it needs. Until then, end each turn short; it keeps waiting. Only a question about the team or the stack itself, which the roster or the sheets answer, is yours to answer at once; anything in the project's files or code goes to a teammate."
       : "- When an answer lands, relay what the user needs in your own words: what was done, what was found, what is left. If it falls short, hand it back saying what to change.",
     liaison
-      ? "- You have no user. When a job needs a decision, don't guess and don't look for the user: answer the asking agent with the question — it has a user to ask. Don't hand outside jobs to the lead: it is the user's."
+      ? "- When an outside job needs a decision, don't guess and don't wait on the user, who may never look here: answer the asking agent with the question — it has a user to ask. Don't hand outside jobs to the lead: it is the user's."
       : "- Teammates can't reach the user: you are their voice. When one needs a decision, ask the user, and hand the answer back.",
     `- Run the team. ${call("team", '"team"')} shows each teammate's state, duty, layers, how full its context is and what it last said, which layers have no teammate yet, and what the ${
       liaison ? "lead" : "liaison"
@@ -180,8 +181,8 @@ export function memberBriefing(input: {
         ? ` Your layers: ${input.layers.join(", ")} — read their sheets (\`ruri layer <handle>\`) before you work there, and keep them true.`
         : ""
     }`,
-    "The user doesn't see this chat. Work comes to you as messages — from the project's lead, which the user talks to; from its liaison, which takes jobs from other projects' agents; or from a teammate. Do the job, then end your turn with a short report — what you did, what you found, anything left open: that report is your answer, and the only part of your turn the sender reads.",
-    "Never ask the user anything — they can't see you. If you're stuck, say so in your report, or ask whoever handed you the job, or a teammate, with message_agent.",
+    "Work mostly comes to you as messages — from the project's lead, which the user mostly talks to; from its liaison, which takes jobs from other projects' agents; or from a teammate. Do the job, then end your turn with a short report — what you did, what you found, anything left open: that report is your answer, and the only part of your turn the sender reads. If you're stuck on such a job, say so in your report, or ask whoever handed it to you, or a teammate, with message_agent — not the user, who may not be looking.",
+    "The user can also open this chat and talk to you directly. A prompt in plain words — not a <ruri:message>, and not one of ruri's own notes — is the user, here: answer them in this chat, normally. You have no question cards: ask what you need to know in plain words and end your turn, and they answer with their next prompt.",
     "Other teammates own other parts of the project, one layer each: when a job reaches into another's layer, message the teammate who owns it (list_agents shows the team and each one's duty) rather than guessing or working there yourself — and if no one holds that layer yet, ask whoever handed you the job to add one. Stay in your own part unless you're handed more.",
     "Between jobs you sleep: your process closes, and your conversation is kept for the next message.",
     "</ruri:team>",

@@ -554,14 +554,28 @@ interface RuriState {
  * it re-renders only when the answer changes.
  */
 /**
- * The chat the window shows for `id`: Home, or a project's lead — for a
- * member of its team, the lead (the user talks to the lead, which talks
- * to its team). Undefined when no open project has it.
+ * The chat the window shows for `id`: Home, or any session of an open
+ * project — its lead, which the user mostly talks to, or a teammate or the
+ * liaison, opened from the team page. Undefined when no open project has it.
  */
 export function shownChat(projects: Project[], id: string): string | undefined {
   if (id === HOME_ID) return id;
+  return projects.some((p) => p.sessions.some((x) => x.id === id)) ? id : undefined;
+}
+
+/** The lead of the project a chat belongs to. */
+export function leadFor(projects: Project[], id: string): string | undefined {
   const project = projects.find((p) => p.sessions.some((x) => x.id === id));
   return project ? leadOf(project)?.id : undefined;
+}
+
+/** What the window shows once the projects change: the chat it was on, or
+ *  — a teammate retired or refreshed under it — that project's lead, or
+ *  Home when the project itself is gone. */
+function stillShown(before: Project[], after: Project[], id: string | null): string {
+  if (!id) return HOME_ID;
+  const lead = leadFor(before, id);
+  return shownChat(after, id) ?? (lead ? shownChat(after, lead) : undefined) ?? HOME_ID;
 }
 
 /** The team page opening on a project: its team, and news of it while open. */
@@ -664,9 +678,7 @@ export const useRuri = create<RuriState>((set) => ({
   lastError: null,
   setActive: (asked) =>
     set((s) => {
-      // a member of a project's team is its lead's to talk to: the window
-      // goes to the lead (a fork, an import, an old link to one)
-      const id = asked === null ? null : (shownChat(s.projects, asked) ?? asked);
+      const id = asked;
       // Home is ephemeral: crossing its boundary (either direction) asks the
       // server to wipe it — ignored server-side while a turn is running.
       if ((s.activeId === HOME_ID) !== (id === HOME_ID)) send({ type: "reset_home" });
@@ -1775,7 +1787,7 @@ function apply(msg: ServerMessage): void {
         // every log goes, and the one on screen asks again below
         agentLogs: {},
         crew: msg.crew,
-        activeId: (s.activeId && shownChat(msg.projects, s.activeId)) ?? HOME_ID,
+        activeId: stillShown(s.projects, msg.projects, s.activeId),
       }));
       agentLogOrder.length = 0;
       const panel = useRuri.getState().agentPanel;
@@ -1815,7 +1827,7 @@ function apply(msg: ServerMessage): void {
       const projects = laid(projectChanges, msg.projects);
       setState((s) => ({
         projects,
-        activeId: (s.activeId && shownChat(projects, s.activeId)) ?? HOME_ID,
+        activeId: stillShown(s.projects, projects, s.activeId),
       }));
       break;
     }
@@ -2108,12 +2120,12 @@ function apply(msg: ServerMessage): void {
           // open chat is elsewhere too while the projects page or settings
           // has the pane: you went there to wait, and it is the projects
           // page that should say this one is done.
-          // A teammate's turn wears none: the user never opens its chat,
-          // and its lead says what came of it.
+          // A teammate's turn wears none: it has no row of its own, and
+          // its lead says what came of it.
           unread:
             msg.event.kind !== "result" ||
             (msg.projectId === s.activeId && !s.projectsOpen && !s.settingsOpen) ||
-            shownChat(s.projects, msg.projectId) !== msg.projectId
+            leadFor(s.projects, msg.projectId) !== msg.projectId
               ? s.unread
               : { ...s.unread, [msg.projectId]: true },
         };

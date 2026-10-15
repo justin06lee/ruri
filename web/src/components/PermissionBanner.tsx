@@ -134,10 +134,12 @@ function MessageCard({ request }: { request: PermissionRequest }) {
  *  or an allow/deny. */
 export function AskCard({ request }: { request: PermissionRequest }) {
   // a member of the lead's team asking: its card comes up in the lead's
-  // chat, the only one the user sees, saying whose it is
+  // chat too, saying whose it is — but not in the member's own chat, opened
+  // from the team page, where whose it is goes without saying
   const teammate = useRuri((s) => {
     const project = s.projects.find((p) => p.sessions.some((x) => x.id === request.projectId));
-    if (!project || leadOf(project)?.id === request.projectId) return undefined;
+    if (!project || leadOf(project)?.id === request.projectId || s.activeId === request.projectId)
+      return undefined;
     return project.sessions.find((x) => x.id === request.projectId)?.title || "a teammate";
   });
   const card =

@@ -385,7 +385,7 @@ describe("what the lead reads", () => {
     expect(rosterText(ctx, "ui")).toContain("Only a project's lead, or its liaison");
   });
 
-  test("the words: the same every time; the lead delegates everything; the liaison has no user", () => {
+  test("the words: the same every time; the lead delegates everything; the user may open any chat", () => {
     expect(leadBriefing("ruri", "tool")).toBe(leadBriefing("ruri", "tool"));
     const lead = leadBriefing("ruri", "tool");
     expect(lead).toContain("you delegate every task");
@@ -398,7 +398,8 @@ describe("what the lead reads", () => {
     expect(lead).not.toMatch(/memory|machine|slot/i);
     const liaison = leadBriefing("ruri", "tool", "", "liaison");
     expect(liaison).toContain("You are the liaison of ruri");
-    expect(liaison).toContain("you have no user to ask");
+    // the user mostly talks to the lead, but may open the liaison's chat
+    expect(liaison).toContain("is the user, here, and you answer them in this chat");
     expect(liaison).toContain("answer the asking agent");
     expect(leadBriefing("ruri", "http", "http://x/talk/1")).toContain('{"do": "manage"');
     const member = memberBriefing({
@@ -411,6 +412,12 @@ describe("what the lead reads", () => {
     expect(member).toContain("Your layers: conversation");
     expect(member).toContain("its liaison");
     expect(member).not.toMatch(/machine|MB/);
+    // a prompt the user types into its chat is the user, answered there,
+    // with questions in plain words — never on a card
+    expect(member).toContain("The user can also open this chat and talk to you directly");
+    expect(member).toContain("is the user, here: answer them in this chat");
+    expect(member).toContain("ask what you need to know in plain words");
+    expect(member).not.toContain("doesn't see this chat");
   });
 
   test("a lead and the liaison can't write files or start agents; only the lead may ask the user", () => {

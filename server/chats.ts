@@ -303,7 +303,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             bridge: bridgeTools(ctx.options.bridge, bridgeCtx),
           },
           // a lead and the liaison delegate — no writing files, no agents
-          // of their own; a member and the liaison have no user to ask
+          // of their own; a member and the liaison ask the user nothing on
+          // a card (disallowedFor says why)
           ...(owner ? { disallowedTools: disallowedFor(head ?? "member") } : {}),
           // the component library as a skill, whose list changes and whose
           // description never does (server/library.ts)

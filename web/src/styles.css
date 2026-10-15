@@ -2784,6 +2784,43 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 14.5px;
 }
 
+/* a teammate's or the liaison's chat: the way back to the lead, whose
+   chat it is, and what it is for — on one line */
+.chat-id.seat {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.chat-id.seat .chat-title {
+  flex-shrink: 0;
+}
+
+.chat-id .chat-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  align-self: center;
+  padding: 2px 8px 2px 4px;
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+
+.chat-id .chat-back .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.chat-role {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+}
+
 /* the page buttons read as one group, so they sit tight against each other */
 .header-controls {
   display: flex;
@@ -10170,11 +10207,38 @@ button.stop:hover {
   min-width: 0;
 }
 
-.team-member-name {
+.team-member {
+  cursor: pointer;
+}
+
+.team-member:hover {
+  border-color: var(--ink-faint);
+}
+
+/* the name opens its chat, like the card around it */
+button.team-member-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+button.team-member-name:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.team-here {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
 }
 
 .team-state {

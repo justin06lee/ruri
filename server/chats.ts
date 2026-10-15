@@ -324,7 +324,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             ]),
             bridge: bridgeTools(ctx.options.bridge, bridgeCtx),
           },
-          // a member and the liaison have no user to ask
+          // a member and the liaison ask the user nothing on a card
+          // (disallowedFor says why)
           ...(owner ? { disallowedTools: disallowedFor(head ?? "member") } : {}),
           // the component library as a skill, whose list changes and whose
           // description never does (server/library.ts)

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { DEFAULT_EFFORT, HOME_ID, type Project, type TranscriptEvent } from "../../../shared/protocol";
+import {
+  DEFAULT_EFFORT,
+  HOME_ID,
+  leadOf,
+  type Project,
+  type TranscriptEvent,
+} from "../../../shared/protocol";
 import { beat } from "../lib/beat";
 import { spinStar } from "../lib/spin";
 import { StreamingMarkdown } from "../markdown";
@@ -233,11 +239,27 @@ function ChatView({
     const team = new Set(teamIds.split(" "));
     return allPermissions.filter((p) => p.projectId === activeId || team.has(p.projectId));
   }, [allPermissions, activeId, teamIds]);
+  // whose chat this is: the project's lead, which the user mostly talks
+  // to — or a teammate, or the liaison, opened from the team page
+  const seat = useRuri(
+    useShallow((s) => {
+      const board = s.projects.find((p) => p.id === boardId);
+      const session = board?.sessions.find((x) => x.id === activeId);
+      return {
+        leadId: board ? leadOf(board)?.id : undefined,
+        name: session?.title ?? "",
+        duty: session?.duty ?? "",
+        liaison: session?.liaison === true,
+      };
+    }),
+  );
+  const isLead = isHome || seat.leadId === undefined || seat.leadId === activeId;
+  const seatName = seat.liaison ? "Liaison" : seat.name || "untitled";
   // teammates at work, for the header's team button
   const teamWorking = useRuri(
     (s) =>
       (s.projects.find((p) => p.id === boardId)?.sessions ?? []).filter(
-        (x) => x.id !== activeId && s.statuses[x.id] === "working",
+        (x) => x.id !== seat.leadId && s.statuses[x.id] === "working",
       ).length,
   );
   const { lastError, dismissError } = useRuri(
@@ -699,9 +721,28 @@ function ChatView({
   // tracker page still auto-opens there and closes from its own X.
   const header = !isHome && (
     <header className="chat-header">
-      <div className="chat-id">
-        <div className="chat-title">{project.name}</div>
-      </div>
+      {isLead ? (
+        <div className="chat-id">
+          <div className="chat-title">{project.name}</div>
+        </div>
+      ) : (
+        <div className="chat-id seat">
+          <button
+            className="ghost chat-back"
+            title={`Back to ${project.name}'s lead`}
+            onClick={() => seat.leadId && useRuri.getState().setActive(seat.leadId)}
+          >
+            <Icon d="M15 18l-6-6 6-6" />
+            {project.name}
+          </button>
+          <div className="chat-title">{seatName}</div>
+          <div className="chat-role" title={seat.liaison ? undefined : seat.duty || undefined}>
+            {seat.liaison
+              ? `liaison of ${project.name} · other projects’ agents reach it`
+              : `teammate of ${project.name}${seat.duty ? ` · ${seat.duty}` : ""}`}
+          </div>
+        </div>
+      )}
       <div className="header-controls">
         <button
           className={`icon-button ${page === "team" ? "active" : ""} ${teamWorking > 0 ? "badged" : ""}`}
@@ -874,7 +915,7 @@ function ChatView({
               home={isHome}
               model={model}
               {...(modelChoice ? { choice: modelChoice } : {})}
-              {...(isHome ? {} : { title: project.name })}
+              {...(isHome ? {} : { title: isLead ? project.name : seatName })}
             />
             <div className="hero-composer">
               {rapid?.on && <RapidBar rapid={rapid} />}

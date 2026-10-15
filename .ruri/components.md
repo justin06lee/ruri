@@ -177,6 +177,7 @@ The Projects row's page: a head with the project count and how many are working,
 Its files: web/src/components/HomeBoard.tsx
 Reaches into: server/ledger.ts, web/src/styles.css:1180
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/04741ce3-9c9b-474a-83d0-02e50d093d37-projects-page.png, /Users/huiyunlee/.config/ruri/uploads/6fffa3ee-eeca-456d-9c22-b49d43d38eb7-shot-6.png
+Its code has changed since that picture — if you change it, `ruri edit projects-page --shot <new picture>`
 
 ## model-role-tags — the model role tags
 The "small tasks" (filled) and "default" (outlined) tags on catalog rows in Settings; the star cycles none → starred → small → default → none, and either tag drags onto another row to hand the role over. Crowning a default pins every existing project and Home to the old one first.
@@ -384,12 +385,11 @@ Tags: icon, doodle, art, features
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/981feb09-a71a-4e31-a75a-85be9983f1de-feature-doodles.png
 
 ## team-page — the team page
-The figures button in a project lead's header: the lead's team — each member's state (asleep, just finished, working, waiting on an answer, waiting on you; waiting for a slot only with RURI_TEAM_MAX set), duty, layers, context, exchanges, last words, and Stop/Compact/Restart/Refresh/Retire; the liaison's own dashed card above them (its state, what it is doing, what it is answering and waiting on — no actions, it is a lead); the stack's layers no teammate holds yet as faint chips; how many teammates are at work across ruri (and RURI_TEAM_MAX's cap, when set); outside chats brought in as teammates. Server-fed by team_get/team (server/handlers/team.ts).
+The figures button in a project chat's header: the lead's team — each member's state (asleep, just finished, working, waiting on an answer, waiting on you; waiting for a slot only with RURI_TEAM_MAX set), duty, layers, context, exchanges, last words, and Stop/Compact/Restart/Refresh/Retire; the liaison's own dashed card above them (its state, what it is doing, what it is answering and waiting on). Every card opens that session's chat in the pane (its name, or a click anywhere but its buttons), and says 'this chat' when the page was opened from it. Also: the stack's layers no teammate holds yet as faint chips; how many teammates are at work across ruri (and RURI_TEAM_MAX's cap, when set); outside chats brought in as teammates. Server-fed by team_get/team (server/handlers/team.ts).
 Its files: web/src/components/TeamPage.tsx
 Reaches into: web/src/styles.css, web/src/components/ChatPane.tsx, web/src/store.ts
 Tags: page, team, agents, board
-Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/da000e60-b44a-450e-b1e1-43382fc2e671-shot-22.png, /Users/huiyunlee/.config/ruri/uploads/148cfd2f-e6c0-4d6b-b027-3434ae373935-team-page.png
-Its code has changed since that picture — if you change it, `ruri edit team-page --shot <new picture>`
+Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/e4921cca-1931-4f6c-bbf3-94a89988e6ea-team-page-from-liaison.png, /Users/huiyunlee/.config/ruri/uploads/da000e60-b44a-450e-b1e1-43382fc2e671-shot-22.png, /Users/huiyunlee/.config/ruri/uploads/148cfd2f-e6c0-4d6b-b027-3434ae373935-team-page.png
 
 ## project-rows — the project rows
 The sidebar's one row per project (ProjectRow): click opens the project's lead; the number beside the name is teammates at work (the liaison counts, the lead doesn't); star kept while on, hide on hover, the X (a dragon while anyone on the team works) asks before closing, warning when the lead is at work too. Double-click renames. Replaced the folders of sessions.
@@ -404,3 +404,9 @@ Its files: web/src/components/EventView.tsx
 Reaches into: web/src/styles.css, web/src/components/Exchange.tsx, shared/protocol.ts
 Tags: chat, compaction, transcript, note
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/3045fd32-916d-4311-b967-51f38a43c879-shot-21.png
+Its code has changed since that picture — if you change it, `ruri edit carry-on-note --shot <new picture>`
+
+## teammate-chat-header — the teammate header
+The chat header when the open session is a teammate or the liaison, opened from the team page: '‹ <project>' back to the lead in one click, then its name ('Liaison' for the liaison) and one faint line — 'teammate of <project> · <duty>' or 'liaison of <project> · other projects' agents reach it'. The lead's header is unchanged. Styles .chat-id.seat, .chat-back, .chat-role in web/src/styles.css.
+Its files: web/src/components/ChatPane.tsx
+Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/f86341c5-060d-4f1b-9f74-0acce6db67e6-teammate-header.png

@@ -223,7 +223,9 @@ const HOVER_MS = 90;
 function ProjectRow({ project }: { project: Project }) {
   const lead = leadOf(project);
   const leadId = lead?.id;
-  const active = useRuri((s) => leadId !== undefined && s.activeId === leadId);
+  // lit while any of its chats is open: the lead, or a teammate or the
+  // liaison opened from the team page
+  const active = useRuri((s) => project.sessions.some((x) => x.id === s.activeId));
   const unread = useRuri((s) => (leadId ? (s.unread[leadId] ?? false) : false));
   const setActive = useRuri((s) => s.setActive);
   // how many teammates are at work — one number, so the row repaints when

@@ -62,7 +62,7 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 
 ## What it does
 
-- Project workspaces: delegating lead with no edit tools, hidden liaison for cross-project jobs, layer teammates on demand, manage controls, single-open guard
+- Project workspaces: delegating lead, liaison card, layer teammates on demand, openable teammate/liaison chats with direct talk, Stop/Refresh controls, unstaffed chips, single-open guard
 - Home workspace agent: finds projects by name, opens them, hands their leads a first prompt
 - Any harness verbatim: Claude, Codex, OpenCode, Gemini, ACP, per-chat model/effort/permissions
 - Streaming markdown replies: tool chips, inline diffs, read previews, unified permission cards

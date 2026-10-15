@@ -3,7 +3,7 @@
 One layer of ruri's stack, owning `server/chats.ts, server/channel.ts, server/dispatch.ts, server/events.ts, server/queue.ts, server/turns.ts, server/retry.ts, server/blocked.ts, server/paragraphs.ts, server/drafts.ts, server/commands.ts, server/homelog.ts, server/handlers/prompts.ts, server/handlers/rewind.ts, server/handlers/transcript.ts, server/handlers/talk.ts, server/talk.ts, scripts/rewind-git.ts, scripts/rewind.ts, scripts/smoke.ts, server/team.ts, server/handlers/team.ts, scripts/team.ts, scripts/agent-compact.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer chat-runs-queue` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer chat-runs-queue add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
-This layer runs live chat turns: prompt dispatch, app-side queue, per-channel turn progress, and transcript delivery over the socket. It is built around dispatch.ts handing prompts to harness sessions, queue.ts holding what waits, turns.ts tracking the turn in flight, and events.ts recording each transcript event. Newcomers must grasp that a prompt is written, checkpointed, titled, and queued or run, that every agent sees its context usage and compacts itself past half its window via a handoff-note continuation queued at the head, and that a finished turn drains the queue or retries.
+This layer runs live chat turns: prompt dispatch, the app-side queue, turn progress and transcript delivery over the socket, and the team and talk built on them. A prompt is written, checkpointed, titled, and queued or run; every agent sees its context use and compacts itself past half its window through a handoff-note continuation queued at the head; a finished turn drains the queue or retries.
 
 ## Where to change what
 
@@ -13,7 +13,7 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - **transcript delivery and history:** server/handlers/transcript.ts, server/events.ts
 - **self-compaction (context line, compact/context tools, handoff-note continuation):** server/chats.ts, server/dispatch.ts, server/queue.ts, server/handlers/talk.ts
 - **rewind:** server/handlers/rewind.ts, server/turns.ts, scripts/rewind.ts, scripts/rewind-git.ts
-- **agent-to-agent talk and project teams (lead, liaison, members, the leads' team tools, the optional RURI_TEAM_MAX cap, team message liaison and freeLayers):** server/talk.ts, server/handlers/talk.ts, server/team.ts, server/handlers/team.ts
+- **agent-to-agent talk and project teams (lead, liaison, members, the leads' team tools and what a lead is refused, team message liaison and freeLayers):** server/talk.ts, server/handlers/talk.ts, server/team.ts, server/handlers/team.ts
 - **slash commands in prompts:** server/commands.ts, server/dispatch.ts
 - **retry and dropped turns:** server/retry.ts, server/dispatch.ts
 
@@ -31,7 +31,7 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - server/turns.ts — turn in flight per channel, progress clock, context window
 - server/events.ts — transcript event intake, redact, archive, push, small-model follow-ups
 - server/chats.ts — chat session manager wiring sessions to server
-- server/team.ts — the team: the optional RURI_TEAM_MAX cap, the lead's, liaison's and members' words, disallowedFor, the leads' tools
+- server/team.ts — the team: the optional RURI_TEAM_MAX cap, the lead's, liaison's and members' words, what a lead is refused (HEAD_REFUSED, refusal) and told mid-turn (headWatch), the leads' tools
 - server/handlers/team.ts — team message with roster, liaison and freeLayers, headOf, team page actOn (stop, compact, refresh, restart, retire)
 - server/handlers/prompts.ts — composer messages: send, split, queue, stop, drafts, cards
 - server/talk.ts — agent-to-agent rules, handles, wording, in-flight book, tools
@@ -42,11 +42,12 @@ This layer runs live chat turns: prompt dispatch, app-side queue, per-channel tu
 - Split sub-prompts ride silent under the original prompt; split only when reaching the front so earlier commands run first.
 - An entry being rewritten keeps queue place but nothing sends it until the rewrite returns.
 - Only existing commands count — ruri's own, harness prompt commands, installed skills; quoted ones ('/compact', "/compact", `/compact`) and /tmp alone on a line stay plain text to the model.
-- Every member may work at once; RURI_TEAM_MAX, when set, caps them — a member holding on an answer (talk.awaiting) does not count, or members waiting on each other's teammates hold every slot for good. Only waking a sleeping member is gated — never a lead or the liaison, never a member mid-turn.
+- RURI_TEAM_MAX, when set, caps members at work; one holding on an answer (talk.awaiting) doesn't count, or mutual waits hold every slot for good. Only waking a sleeping member is gated.
 - Turn progress lives in turns.ts not the window so the clock survives reload; broadcast deltas throttled to one message a second.
 - Rewind must restore files, branch, transcript, composer prompt, and context gauge to the kept exchange, not the tip.
 - A letter is answered by the last words of the turn that finishes the job: owedLetter() is what a turn owes (its own letter, a carried one, or via an answer's owes); talkTurnEnded settles it only when nothing sent for it is out (TalkBook.outstanding). An answer that leaves the book any other way — a wait in another job, taken out of the queue — goes through answerOnward. Self-compaction marks the carry (carryLetter) at the turn's result, before talkTurnEnded.
 - The liaison (session.liaison) is never marked lead and leadOf skips it; it is not a member either: what takes 'every non-lead session' as the team must skip it (membersOf, store.isMember, protocol isMember); unattended() covers members and the liaison, whose held lines nobody sends on by hand.
+- A lead's or the liaison's Edit/Write/NotebookEdit/Agent/Task are refused by a PreToolUse hook naming whom to hand the job to (SessionExtras.refuse), never disallowedTools: its bare 'No such tool' sent mira's lead into Bash. headWatch (afterTools) nudges at a writing or running command, or every third look.
 
 ## What it talks to
 

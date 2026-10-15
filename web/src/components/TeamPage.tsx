@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import type {
   MemberState,
   Project,
@@ -17,18 +17,19 @@ import { useConfirm } from "./Confirm";
 /**
  * The team page: who works behind a project's lead (server/team.ts).
  *
- * The user talks to the lead and nothing else — the sidebar has one row a
- * project — and the lead hands every job to its team: chats of their own,
- * one a layer of the stack, made as the work calls for them and asleep
- * between jobs. Other projects' agents never reach the lead: they write to
- * its liaison, a second lead out of the user's sight that hands their jobs
- * to the same team. This is where the user can see them anyway: what each
- * teammate is for, whether it is working, asleep or waiting on an answer,
- * how full its context is and what it last said; what the liaison is
- * doing, answering and waiting on; the layers no teammate holds yet; and
- * how many are at work across ruri. And do to a teammate what the lead
- * can: stop its turn, compact it, restart it, refresh it, retire it.
- * Opened from the lead's header; nothing here is a chat to open.
+ * The user mostly talks to the lead — the sidebar has one row a project,
+ * and it opens the lead — and the lead hands every job to its team: chats
+ * of their own, one a layer of the stack, made as the work calls for them
+ * and asleep between jobs. Other projects' agents never reach the lead:
+ * they write to its liaison, a second lead that hands their jobs to the
+ * same team. This is where the user sees them: what each teammate is for,
+ * whether it is working, asleep or waiting on an answer, how full its
+ * context is and what it last said; what the liaison is doing, answering
+ * and waiting on; the layers no teammate holds yet; and how many are at
+ * work across ruri. Every card opens that chat in the pane, to read it
+ * and talk to its agent directly; its header leads back to the lead. And
+ * the user can do to a teammate what the lead can: stop its turn, compact
+ * it, restart it, refresh it, retire it.
  */
 
 const STATE_WORD: Record<MemberState, string> = {
@@ -87,6 +88,37 @@ const ACTIONS: Array<{ action: TeamAction; label: string; title: string; ask?: s
   },
 ];
 
+/** A click on a card opens its chat — anywhere on it but its buttons, and
+ *  not while text in it is being selected. A confirm card brought up from
+ *  one of its buttons sits elsewhere in the page (a portal) but its clicks
+ *  still bubble here through React, so only the card's own DOM counts. */
+function openOnClick(id: string) {
+  return (e: MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (!e.currentTarget.contains(target) || target.closest("button")) return;
+    if (window.getSelection()?.toString()) return;
+    useRuri.getState().setActive(id);
+  };
+}
+
+/** The card's name: a button that opens its chat, and a note when that
+ *  chat is the one the page was opened from. */
+function SeatName({ id, name }: { id: string; name: string }) {
+  const here = useRuri((s) => s.activeId === id);
+  return (
+    <>
+      <button
+        className="team-member-name"
+        title={here ? "This chat" : "Open its chat — read it, and talk to it"}
+        onClick={() => useRuri.getState().setActive(id)}
+      >
+        {name}
+      </button>
+      {here && <span className="team-here">this chat</span>}
+    </>
+  );
+}
+
 /** A model by its name, as the composer's picker says it. */
 function useModelName(model: string): string {
   return useRuri((s) => s.models.find((m) => m.value === model)?.displayName) ?? roughName(model);
@@ -129,9 +161,9 @@ function MemberCard({ member, now }: { member: TeamMember; now: number }) {
   const model = useModelName(member.model);
   const atWork = busy(member.state);
   return (
-    <div className={`team-member state-${member.state}`}>
+    <div className={`team-member state-${member.state}`} onClick={openOnClick(member.id)}>
       <div className="team-member-head">
-        <span className="team-member-name">{member.name || "untitled"}</span>
+        <SeatName id={member.id} name={member.name || "untitled"} />
         <span
           className={`team-state ${member.state}`}
           title={
@@ -208,13 +240,14 @@ function Letters({ label, letters, now }: { label: string; letters: TeamLetter[]
 }
 
 /** The liaison, set apart from the team it hands other projects' jobs to:
- *  a lead, not a teammate, so nothing here acts on it. */
+ *  a lead, not a teammate, so nothing here acts on it — but its chat opens
+ *  like a teammate's. */
 function LiaisonCard({ liaison, now }: { liaison: TeamLiaison; now: number }) {
   const model = useModelName(liaison.model);
   return (
-    <div className={`team-member team-liaison state-${liaison.state}`}>
+    <div className={`team-member team-liaison state-${liaison.state}`} onClick={openOnClick(liaison.id)}>
       <div className="team-member-head">
-        <span className="team-member-name">Liaison</span>
+        <SeatName id={liaison.id} name="Liaison" />
         <span className={`team-state ${liaison.state}`}>{STATE_WORD[liaison.state]}</span>
         <SeatMeta seat={liaison} now={now} />
       </div>

@@ -3,7 +3,7 @@
 One layer of ruri's stack, owning `server/, scripts/auth.ts, scripts/lib/server.ts, scripts/port.ts, scripts/uploads-sweep.ts, shared/protocol.ts, shared/clientSchema.ts, bunfig.toml, scripts/test-config.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer server-runtime-transport` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer server-runtime-transport add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
-This layer is the Node HTTP + WebSocket transport everything else rides on: one port serving the UI, uploads, and the socket every window talks over. It is built around a single shared ServerContext (server/context.ts) assembled once in server/server.ts and handed to routes, socket, and handlers. A newcomer must grasp: this layer moves bytes and enforces origin/token gates — domain logic lives in handlers and other layers, not here — it also carries each agent's context-usage line and self-compact request path with continuation queueing and owed-answer routing, now with a CARRY_ON-prefixed continuation prompt detected by its opening text, and a window only sleeps when it cannot be seen at all (minimized, on another Space, or fully covered); a visible-but-unfocused window stays live and keeps receiving streams. It also serves the team status behind the team page: liaison state, free layers, and an optional machine cap only when RURI_TEAM_MAX is set.
+This layer is the Node HTTP + WebSocket transport everything else rides on: one port serving the UI, uploads, and the socket every window talks over. It is built around a single shared ServerContext (server/context.ts) assembled once in server/server.ts and handed to routes, socket, and handlers. A newcomer must grasp: this layer moves bytes and enforces origin/token gates — domain logic lives in handlers and other layers, not here — it also carries each agent's context-usage line and self-compact request path with continuation queueing and owed-answer routing, now with a CARRY_ON-prefixed continuation prompt detected by its opening text, and a window only sleeps when it cannot be seen at all (minimized, on another Space, or fully covered); a visible-but-unfocused window stays live and keeps receiving streams. It also serves the team status behind the team page: liaison state with current work/answering/waiting-on rows, free-layer chips, Stop/Refresh semantics, and an optional machine cap only when RURI_TEAM_MAX is set.
 
 ## Where to change what
 
@@ -16,6 +16,7 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - **Usage and machine meters:** server/usage.ts, server/gauges.ts, server/resources.ts
 - **Self-compaction and context tools:** server/selfCompaction.ts, server/chats.ts, server/routes.ts, shared/protocol.ts
 - **Carry-on continuation after compaction:** shared/protocol.ts, server/selfCompaction.ts, server/talk.ts
+- **Team page backend (teammates, liaison, slots):** server/handlers/team.ts, server/handlers/talk.ts, shared/protocol.ts, server/selfCompaction.ts
 
 ## How it works
 
@@ -35,6 +36,7 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - server/selfCompaction.ts — self-compact threshold, note validation and due check
 - server/chats.ts — turn result branch running self-compact and continuation queueing
 - server/uploads.ts — attachment persist, model payload, serve and sweep
+- server/handlers/team.ts — team actions (stop/refresh/restart/compact/retire) and liaison/free-layer status
 
 ## Rules and traps
 
@@ -45,6 +47,8 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder of its own (bunfig.toml, scripts/test-config.ts), so a test run never touches ~/.config/ruri.
 - Secrets must never enter model context, logs, or transcripts — only names/placeholders leave server/secrets.ts.
 - The compact tool must not stop the turn or settle the owed letter: call carryLetter in the chats.ts result branch only when selfCompactDue returns a note, still before talkTurnEnded, so a stopped turn drops the note and settles normally.
+- The server must refuse team actions on the liaison, and stop is only enabled while a teammate's turn is running.
+- Never show slot/waiting counts unless RURI_TEAM_MAX is set — 'waiting for a slot' can only appear then.
 
 ## What it talks to
 

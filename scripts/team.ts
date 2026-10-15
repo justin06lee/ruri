@@ -362,7 +362,8 @@ function toolResults(chat: string, dir: string): Array<{ name: string; text: str
   const logs = path.join(os.homedir(), ".claude", "projects");
   const folder = fs.realpathSync(dir).replace(/[^A-Za-z0-9]/g, "-");
   const names = new Map<string, string>();
-  const out: Array<{ name: string; text: string }> = [];
+  // by call: the log can hold a call's result twice
+  const out = new Map<string, { name: string; text: string }>();
   for (const id of ids) {
     const file = path.join(logs, folder, `${id}.jsonl`);
     if (!fs.existsSync(file)) continue;
@@ -379,12 +380,12 @@ function toolResults(chat: string, dir: string): Array<{ name: string; text: str
         if (block["type"] === "tool_use") names.set(String(block["id"]), String(block["name"]));
         if (block["type"] === "tool_result") {
           const id = String(block["tool_use_id"]);
-          out.push({ name: names.get(id) ?? "?", text: JSON.stringify(block["content"] ?? "") });
+          out.set(id, { name: names.get(id) ?? "?", text: JSON.stringify(block["content"] ?? "") });
         }
       }
     }
   }
-  return out;
+  return [...out.values()];
 }
 
 async function askedForSubagents(): Promise<void> {
@@ -452,7 +453,9 @@ async function askedForSubagents(): Promise<void> {
     ),
     leadTools,
   );
-  console.log(`    (the lead's tools: ${leadTools.map((e) => e.kind === "tool" && e.name).join(", ")})`);
+  // a card is sent again as it changes: one name per call
+  const calls = new Map(leadTools.flatMap((e) => (e.kind === "tool" ? [[e.id, e.name] as const] : [])));
+  console.log(`    (the lead's tools: ${[...calls.values()].join(", ")})`);
   // a card's last word on it: a refused subagent's says so, not "running"
   const cards = new Map(
     leadTools.flatMap((e) => (e.kind === "tool" && e.agent ? [[e.id, e.agent.status] as const] : [])),

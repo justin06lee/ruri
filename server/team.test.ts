@@ -425,7 +425,7 @@ describe("what the lead reads", () => {
 
   test("a lead and the liaison are refused files and subagents with whom to hand the job; only the lead may ask the user", () => {
     const agent = refusal("Agent", "lead")!;
-    expect(agent).toContain("the lead doesn't start subagents");
+    expect(agent).toContain("the lead doesn't start subagents, and every try is refused the same way");
     expect(agent).toContain('mcp__ruri__add_teammate with layer "<handle>"');
     expect(agent).toContain("Parallel parts go to several teammates at once");
     expect(agent).toContain("Don't do the job yourself instead");

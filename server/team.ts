@@ -72,9 +72,9 @@ const HAND_OVER =
 export function refusal(tool: string, head: Head): string | undefined {
   if (!HEAD_REFUSED.includes(tool)) return undefined;
   if (tool === "Task" || tool === "Agent") {
-    return `Refused: the ${head} doesn't start subagents. ${HAND_OVER} Parallel parts go to several teammates at once, one message each; a teammate may split its own job with subagents. Don't do the job yourself instead, through the shell or any other tool.`;
+    return `Refused: the ${head} doesn't start subagents, and every try is refused the same way. ${HAND_OVER} Parallel parts go to several teammates at once, one message each; a teammate may split its own job with subagents. Don't do the job yourself instead, through the shell or any other tool.`;
   }
-  return `Refused: the ${head} doesn't change files. ${HAND_OVER} Don't make the change yourself another way, the shell included.`;
+  return `Refused: the ${head} doesn't change files, and every try is refused the same way. ${HAND_OVER} Don't make the change yourself another way, the shell included.`;
 }
 
 /** The built-in tools a project's Claude chat goes without: a member, and
@@ -141,16 +141,18 @@ function unquoted(command: string): string {
 
 /** A shell command's simple commands, each as its words, its program first. */
 function commands(command: string): string[][] {
-  return unquoted(command)
-    .replace(/\d*>&\d*|&>/g, " ")
-    // a function's body and a subshell's are commands too: rx(){ python3 …; }
-    .split(/&&|\|\||[;|&\n(){}`]/)
-    .map((part) => {
-      const words = part.split(/\s+/).filter(Boolean);
-      while (words.length && (PREFIXES.has(words[0]!) || /^\w+=/.test(words[0]!))) words.shift();
-      return words;
-    })
-    .filter((words) => words.length > 0);
+  return (
+    unquoted(command)
+      .replace(/\d*>&\d*|&>/g, " ")
+      // a function's body and a subshell's are commands too: rx(){ python3 …; }
+      .split(/&&|\|\||[;|&\n(){}`]/)
+      .map((part) => {
+        const words = part.split(/\s+/).filter(Boolean);
+        while (words.length && (PREFIXES.has(words[0]!) || /^\w+=/.test(words[0]!))) words.shift();
+        return words;
+      })
+      .filter((words) => words.length > 0)
+  );
 }
 
 /** Whether a shell command changes files or runs a program: the job, not a look. */

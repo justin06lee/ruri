@@ -22,7 +22,17 @@ import { actOn, atWork, hasSlot, releaseWaiting, rosterText, teamBudget, teamHos
 import { ProjectStore } from "./projects.js";
 import { SendQueues } from "./queue.js";
 import { stoppedLine, TalkBook } from "./talk.js";
-import { disallowedFor, leadBriefing, memberBriefing, teamCap, TeamGovernor } from "./team.js";
+import {
+  disallowedFor,
+  HEAD_REFUSED,
+  headWatch,
+  leadBriefing,
+  memberBriefing,
+  refusal,
+  shellWorks,
+  teamCap,
+  TeamGovernor,
+} from "./team.js";
 
 let dir: string;
 let saved: string | undefined;
@@ -413,19 +423,90 @@ describe("what the lead reads", () => {
     expect(member).not.toMatch(/machine|MB/);
   });
 
-  test("a lead and the liaison can't write files or start agents; only the lead may ask the user", () => {
-    expect(disallowedFor("lead")).toEqual(["Edit", "Write", "NotebookEdit", "Task", "Agent"]);
-    expect(disallowedFor("liaison")).toEqual([
-      "Edit",
-      "Write",
-      "NotebookEdit",
-      "Task",
-      "Agent",
-      "AskUserQuestion",
-    ]);
+  test("a lead and the liaison are refused files and subagents with whom to hand the job; only the lead may ask the user", () => {
+    const agent = refusal("Agent", "lead")!;
+    expect(agent).toContain("the lead doesn't start subagents");
+    expect(agent).toContain('mcp__ruri__add_teammate with layer "<handle>"');
+    expect(agent).toContain("Parallel parts go to several teammates at once");
+    expect(agent).toContain("Don't do the job yourself instead");
+    expect(refusal("Task", "liaison")).toContain("the liaison doesn't start subagents");
+    for (const tool of ["Edit", "Write", "MultiEdit", "NotebookEdit"])
+      expect(refusal(tool, "lead")).toContain("the lead doesn't change files");
+    for (const tool of ["Bash", "Read", "Grep", "mcp__ruri__add_teammate", "AskUserQuestion"])
+      expect(refusal(tool, "lead")).toBeUndefined();
+    // refused by the hook, not taken off the list: that gave a bare "No such tool"
+    expect(disallowedFor("lead")).toEqual([]);
+    expect(disallowedFor("liaison")).toEqual(["AskUserQuestion"]);
     expect(disallowedFor("member")).toEqual(["AskUserQuestion"]);
     // no MCP tool is held back: ruri's own are every chat's
-    expect(disallowedFor("liaison").some((name) => name.startsWith("mcp__"))).toBe(false);
+    expect(HEAD_REFUSED.some((name) => name.startsWith("mcp__"))).toBe(false);
+    expect(leadBriefing("ruri", "tool")).toContain(
+      "If a tool is refused, never do the job yourself another way",
+    );
+  });
+
+  test("a shell command doing the job is told from one looking", () => {
+    // the mira lead's, refused its subagents
+    expect(shellWorks("go version 2>&1; which go")).toBe(true);
+    expect(
+      shellWorks("mkdir -p /tmp/p/go && cd /tmp/p/go && cat > main.go <<'EOF'\npackage main\nEOF\ngo run ."),
+    ).toBe(true);
+    expect(shellWorks('D=/tmp/p; rx(){ python3 -I /tmp/p/rx.py "$@"; }\nrx $D/06.html "a|b" 3')).toBe(true);
+    expect(shellWorks("curl -sL https://example.com")).toBe(true);
+    expect(shellWorks("echo hi > notes.txt")).toBe(true);
+    expect(shellWorks("sed -i '' 's/a/b/' file")).toBe(true);
+    expect(shellWorks('git commit -m "x > y"')).toBe(true);
+    expect(shellWorks("cd /tmp/p && ./probe")).toBe(true);
+    expect(shellWorks("bun run build")).toBe(true);
+    // looking
+    expect(shellWorks("ruri layer chat-runs-queue")).toBe(false);
+    expect(shellWorks("cat .ruri/catchup.md")).toBe(false);
+    expect(shellWorks("git status && git log --oneline -5 2>&1")).toBe(false);
+    expect(shellWorks('grep -n "<a [^>]*>" page.html | head -5')).toBe(false);
+    expect(shellWorks("ls src 2>/dev/null")).toBe(false);
+    expect(shellWorks("rg -n 'a|b' server")).toBe(false);
+  });
+
+  test("a lead doing the job through its shell is told to hand it over; reading the sheets is not", () => {
+    const bash = (command: string) => ({ name: "Bash", input: { command } });
+    const read = (file_path: string) => ({ name: "Read", input: { file_path } });
+    const watch = headWatch("lead");
+    // the catch-up and the sheets, as often as it likes
+    for (const call of [
+      read("/p/.ruri/catchup.md"),
+      bash("ruri architecture"),
+      bash("cd /p && ruri layer notes"),
+      bash("cat .ruri/layers/notes.md | head -40"),
+      bash("sed -n '1,80p' /p/.ruri/architecture.md"),
+      { name: "Grep", input: { pattern: "x", path: "/p/.ruri" } },
+      { name: "mcp__ruri__team", input: {} },
+    ])
+      expect(watch(1, [call])).toBeUndefined();
+    // looks into the project: the third with nothing handed on
+    expect(watch(1, [bash("ls src")])).toBeUndefined();
+    expect(watch(1, [read("/p/src/a.ts")])).toBeUndefined();
+    const told = watch(1, [{ name: "Grep", input: { pattern: "x" } }])!;
+    expect(told).toContain("you have looked into the project 3 times this turn and handed nothing on");
+    expect(told).toContain("The lead delegates, so stop here.");
+    expect(told).toContain("mcp__ruri__add_teammate");
+    // and at every three more, not each one between
+    expect(watch(1, [bash("ls web")])).toBeUndefined();
+    expect(watch(1, [bash("ls docs"), read("/p/README.md")])).toContain("6 times");
+    // a hand-off starts the count again
+    const fresh = headWatch("liaison");
+    expect(fresh(2, [bash("ls"), bash("git log -3")])).toBeUndefined();
+    expect(fresh(2, [{ name: "mcp__ruri__add_teammate", input: {} }])).toBeUndefined();
+    expect(fresh(2, [bash("ls a"), bash("ls b")])).toBeUndefined();
+    expect(fresh(2, [bash("ls c")])).toContain("The liaison delegates");
+    // so does a new turn
+    expect(fresh(3, [bash("ls a"), bash("ls b")])).toBeUndefined();
+    expect(fresh(4, [bash("ls c")])).toBeUndefined();
+    // a command that does the job: told at once
+    expect(fresh(4, [bash("mkdir -p /tmp/probe && cd /tmp/probe && go run .")])).toContain(
+      "that command changes files or runs a program",
+    );
+    // and not at all for a tool that is neither
+    expect(fresh(4, [{ name: "mcp__ruri__message_agent", input: {} }])).toBeUndefined();
   });
 
   test("the list of agents: your own team in full, another project through its liaison", () => {

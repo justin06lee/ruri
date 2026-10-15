@@ -51,20 +51,189 @@ export const TEAM_TOOLS = [
 ];
 
 /**
- * What a lead or a liaison may not do in a Claude chat: write files, or
- * start agents of its own. It delegates — the work is its teammates'.
- * Reading, searching and the shell stay, for looking; and every MCP tool
- * stays, ruri's own included.
+ * What a lead or the liaison is refused in a Claude chat: changing files,
+ * and starting subagents of its own. It delegates — the work is its
+ * teammates'. Refused by a PreToolUse hook (refusal), not taken off its
+ * tool list: Claude Code's own prompt still describes these tools, so a
+ * lead without them reached for one anyway, got a bare "No such tool
+ * available", and did the job itself through the shell. The hook's reason
+ * is what the tool answers: whom to give the job instead. Reading,
+ * searching and the shell stay, for looking (headWatch keeps an eye on
+ * the shell); and every MCP tool stays, ruri's own included.
  */
-export const LEAD_DISALLOWED = ["Edit", "Write", "NotebookEdit", "Task", "Agent"];
+export const HEAD_REFUSED = ["Edit", "Write", "MultiEdit", "NotebookEdit", "Task", "Agent"];
 
-/** The built-in tools a project's Claude chat may not use, by its place on
- *  the team: a lead delegates; a member, and the liaison, have no user to
- *  ask — nobody would ever see the card. Other harnesses are told, in their
- *  words, but not held to it. */
+/** How a lead or the liaison gives a job away, in a Claude chat. */
+const HAND_OVER =
+  'Hand it to the teammate whose layer it is: mcp__ruri__add_teammate with layer "<handle>" and the job as its message, or mcp__ruri__message_agent to a teammate you have — it comes back later — then end your turn.';
+
+/** What a refused tool answers a lead or the liaison: why, and whom the
+ *  job goes to instead. Undefined for a tool it may use. */
+export function refusal(tool: string, head: Head): string | undefined {
+  if (!HEAD_REFUSED.includes(tool)) return undefined;
+  if (tool === "Task" || tool === "Agent") {
+    return `Refused: the ${head} doesn't start subagents. ${HAND_OVER} Parallel parts go to several teammates at once, one message each; a teammate may split its own job with subagents. Don't do the job yourself instead, through the shell or any other tool.`;
+  }
+  return `Refused: the ${head} doesn't change files. ${HAND_OVER} Don't make the change yourself another way, the shell included.`;
+}
+
+/** The built-in tools a project's Claude chat goes without: a member, and
+ *  the liaison, have no user to ask — nobody would ever see the card. Other
+ *  harnesses are told, in their words, but not held to it. */
 export function disallowedFor(role: Head | "member"): string[] {
-  if (role === "lead") return LEAD_DISALLOWED;
-  return role === "liaison" ? [...LEAD_DISALLOWED, "AskUserQuestion"] : ["AskUserQuestion"];
+  return role === "lead" ? [] : ["AskUserQuestion"];
+}
+
+/* ── a lead doing the work through the shell ─────────────────────── */
+
+/** Looks into the project a lead or the liaison takes in one turn, with
+ *  nothing handed on since, before it is told to stop and hand the job
+ *  over — and again at every this many more. Enough to check a path or
+ *  the git state before choosing whom; not enough to do the job. */
+export const LOOKS_BEFORE_NUDGE = 3;
+
+/** The tools that hand a job on: after one, the looks count from zero. */
+const HAND_OFFS = new Set(["mcp__ruri__message_agent", "mcp__ruri__add_teammate", "mcp__ruri__ask_project"]);
+/** The tools that look into the project (or the web) for an answer. */
+const LOOKS = new Set(["Bash", "Read", "Grep", "Glob", "WebFetch", "WebSearch"]);
+/** Programs that change files. */
+const WRITERS = new Set([
+  ...["mkdir", "touch", "rm", "rmdir", "mv", "cp", "ln", "chmod", "chown", "tee", "install"],
+  ...["dd", "truncate", "patch", "unzip"],
+]);
+/** Programs that build or run code, or reach out over the network. */
+const RUNNERS = new Set([
+  ...["go", "cargo", "rustc", "gcc", "g++", "clang", "make", "cmake", "swift", "swiftc", "xcodebuild"],
+  ...["bun", "bunx", "npm", "npx", "pnpm", "yarn", "node", "deno", "tsx", "tsc", "jest", "vitest"],
+  ...["python", "python3", "pip", "pip3", "uv", "pytest", "ruby", "perl", "php", "java", "javac"],
+  ...["mvn", "gradle", "docker", "sh", "bash", "zsh", "osascript", "curl", "wget"],
+]);
+/** git's subcommands that change the repository. */
+const GIT_WRITES =
+  /^(?:add|am|apply|checkout|cherry-pick|clean|clone|commit|fetch|init|merge|mv|pull|push|rebase|reset|restore|revert|rm|switch)$/;
+/** Words a shell puts before the program a command runs. */
+const PREFIXES = new Set([
+  "sudo",
+  "env",
+  "time",
+  "nohup",
+  "exec",
+  "command",
+  "xargs",
+  "do",
+  "then",
+  "else",
+  "if",
+  "while",
+  "until",
+  "!",
+]);
+/** Programs that change nothing and read nothing of the project's. */
+const NEUTRAL = new Set(["cd", "pwd", "echo", "true", "printf"]);
+/** Programs that read a file, for reading ruri's own sheets. */
+const READERS = new Set(["cat", "head", "tail", "sed", "less", "wc", "grep"]);
+
+/** A shell command with its quoted text emptied, so a pattern in quotes is
+ *  not read as a pipe, a redirect or a file. */
+function unquoted(command: string): string {
+  return command.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, "''");
+}
+
+/** A shell command's simple commands, each as its words, its program first. */
+function commands(command: string): string[][] {
+  return unquoted(command)
+    .replace(/\d*>&\d*|&>/g, " ")
+    // a function's body and a subshell's are commands too: rx(){ python3 …; }
+    .split(/&&|\|\||[;|&\n(){}`]/)
+    .map((part) => {
+      const words = part.split(/\s+/).filter(Boolean);
+      while (words.length && (PREFIXES.has(words[0]!) || /^\w+=/.test(words[0]!))) words.shift();
+      return words;
+    })
+    .filter((words) => words.length > 0);
+}
+
+/** Whether a shell command changes files or runs a program: the job, not a look. */
+export function shellWorks(command: string): boolean {
+  // into a file: what is left once 2>&1 and /dev/null are taken out
+  if (/>/.test(unquoted(command).replace(/\d*>&\d*|&>\s*\/dev\/null|\d*>>?\s*\/dev\/null/g, ""))) return true;
+  return commands(command).some(([program = "", ...args]) => {
+    const name = program.split("/").at(-1) ?? program;
+    if (name === "ruri") return false;
+    if (WRITERS.has(name) || RUNNERS.has(name)) return true;
+    if (name === "git") return GIT_WRITES.test(args.find((arg) => !arg.startsWith("-")) ?? "");
+    if ((name === "sed" || name === "perl") && args.some((arg) => /^-\w*i/.test(arg))) return true;
+    // a program of its own: ./probe, /tmp/x/probe
+    return program.includes("/") && !/^\/(?:bin|usr|opt\/homebrew)\//.test(program);
+  });
+}
+
+/** Whether a shell command only runs ruri or reads ruri's own sheets — the
+ *  catch-up, the architecture, a layer — which is how a lead chooses whom. */
+function shellChooses(command: string): boolean {
+  const all = commands(command);
+  return all.every(([program = "", ...args]) => {
+    if (NEUTRAL.has(program) || program.split("/").at(-1) === "ruri") return true;
+    if (!READERS.has(program)) return false;
+    // what it reads: a file under .ruri, or the pipe it stands in
+    const files = args.filter((arg) => !arg.startsWith("-") && !/^\d+(?:,\d+)?p$/.test(arg) && arg !== "''");
+    return files.every((file) => /(?:^|\/)\.ruri(?:\/|$)/.test(file));
+  });
+}
+
+/** One of a step's tool calls, as a PostToolBatch hook gets it. */
+export interface ToolCall {
+  name: string;
+  input: unknown;
+}
+
+/** What a tool call is to a lead watching itself: the job, a look into
+ *  the project, or neither. */
+function sizeUp(call: ToolCall): "work" | "look" | undefined {
+  if (!LOOKS.has(call.name)) return undefined;
+  const input = (call.input ?? {}) as { command?: unknown; file_path?: unknown; path?: unknown };
+  if (call.name === "Bash") {
+    const command = typeof input.command === "string" ? input.command : "";
+    if (shellWorks(command)) return "work";
+    return shellChooses(command) ? undefined : "look";
+  }
+  const file =
+    typeof input.file_path === "string" ? input.file_path : typeof input.path === "string" ? input.path : "";
+  return /(?:^|\/)\.ruri(?:\/|$)/.test(file) ? undefined : "look";
+}
+
+/**
+ * Keeps a lead or the liaison off the job, mid-turn. Its shell is for
+ * looking, but on mira a lead refused its subagents ran the whole job
+ * through it. After each step's tool calls (the PostToolBatch hook) it says
+ * what the model is told: a line to stop and hand the job over when a
+ * command changed files or ran a program, or when the turn has looked into
+ * the project LOOKS_BEFORE_NUDGE times with nothing handed on — and
+ * nothing the rest of the time. Reading ruri's sheets doesn't count.
+ */
+export function headWatch(head: Head): (turn: number | undefined, calls: ToolCall[]) => string | undefined {
+  let current: number | undefined;
+  let looks = 0;
+  return (turn, calls) => {
+    if (turn !== current) {
+      current = turn;
+      looks = 0;
+    }
+    let why: string | undefined;
+    for (const call of calls) {
+      if (HAND_OFFS.has(call.name)) {
+        looks = 0;
+        continue;
+      }
+      const kind = sizeUp(call);
+      if (kind === "work") why = "that command changes files or runs a program";
+      else if (kind === "look" && ++looks % LOOKS_BEFORE_NUDGE === 0)
+        why ??= `you have looked into the project ${looks} times this turn and handed nothing on`;
+    }
+    return why
+      ? `<ruri:team>You are doing the job yourself: ${why}. The ${head} delegates, so stop here. ${HAND_OVER} Parallel parts go to several teammates at once.</ruri:team>`
+      : undefined;
+  };
 }
 
 /** The most members at work at once across ruri: none unless the user
@@ -137,7 +306,8 @@ export function leadBriefing(
           '  {"do": "retire", "who": "<handle or name>"}',
         ]
       : []),
-    "- Read only what you need to choose whom: the catch-up, `ruri architecture`, `ruri layer <handle>`, and the roster. Never open the project's files or run its code to answer something yourself — not even a one-line read: that is a teammate's job. You can't edit files or start agents of your own here.",
+    "- Read only what you need to choose whom: the catch-up, `ruri architecture`, `ruri layer <handle>`, and the roster. Never open the project's files or run its code to answer something yourself — not even a one-line read: that is a teammate's job. You can't change files or start subagents here.",
+    "- If a tool is refused, never do the job yourself another way — not through the shell, not piece by piece: hand it to a teammate. Parallel parts go to several teammates at once.",
     `- Hand a job over with ${call("message_agent", '"send"')} (to: the teammate's handle, its name, or its layer's handle) — it comes back "later", always, for you: the call returns at once and the answer comes to this chat as a message when the job is done. Then end your turn${
       liaison ? "" : " with a line to the user on who has it"
     }. Write the job so it reads cold: what is wanted and why, anything said that matters, and what to report back.`,

@@ -28,10 +28,15 @@
  *      message interrupts it and it goes back to its work; restart closes
  *      it; compact runs as its turn ends; refresh puts a fresh one in its
  *      place for the same layer — and on one asleep: a queued message goes
- *      at once, compact condenses it, retire takes it off the team.
+ *      at once, compact condenses it, retire takes it off the team;
+ *   4. a third project's lead, with an empty team, is asked to run
+ *      subagents in parallel — refused them, it is told whom to hand the
+ *      job instead (never a bare "No such tool"), and it adds a teammate
+ *      and hands the job off rather than doing it through its shell.
  *
  * Costs a dozen or so small real turns — run manually: bun run team-test
- * (TEAM_HTTP_ONLY=1 runs just the free part).
+ * (TEAM_HTTP_ONLY=1 runs just the free part, TEAM_PARALLEL_ONLY=1 the free
+ * part and 4).
  */
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -51,6 +56,9 @@ const PORT = Number(process.env["RURI_PORT"] ?? 7893);
 const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-team-config-"));
 const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-team-project-"));
 const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-team-outside-"));
+const meadowDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-team-meadow-"));
+/** meadow's three files, each one word, for a job asked of subagents (4). */
+const PROBES = { north: "heron", south: "otter", east: "wren" };
 const WORD = "marigold";
 const TREE = "quince";
 fs.writeFileSync(path.join(projectDir, "SECRET.txt"), `${WORD}\n`);
@@ -106,7 +114,8 @@ function check(name: string, ok: boolean, detail?: unknown): void {
 
 function cleanup(code: number): never {
   server.kill("SIGINT");
-  for (const dir of [configDir, projectDir, outsideDir]) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of [configDir, projectDir, outsideDir, meadowDir])
+    fs.rmSync(dir, { recursive: true, force: true });
   process.exit(code);
 }
 
@@ -331,6 +340,144 @@ check(
 if (process.env["TEAM_HTTP_ONLY"]) {
   console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
   cleanup(failed === 0 ? 0 : 1);
+}
+if (process.env["TEAM_PARALLEL_ONLY"]) {
+  await askedForSubagents();
+  console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
+  cleanup(failed === 0 ? 0 : 1);
+}
+
+/* ── 4. a lead asked to run subagents ─────────────────────────────── */
+
+/** What the CLI's own log of a chat's sessions says each tool call came
+ *  back with — the model's view, which ruri's transcript doesn't keep. */
+function toolResults(chat: string, dir: string): Array<{ name: string; text: string }> {
+  const record = path.join(configDir, "sessions", `${chat}.json`);
+  if (!fs.existsSync(record)) return [];
+  const saved = JSON.parse(fs.readFileSync(record, "utf8")) as {
+    sessionIds?: string[];
+    lastSessionId?: string;
+  };
+  const ids = new Set([...(saved.sessionIds ?? []), ...(saved.lastSessionId ? [saved.lastSessionId] : [])]);
+  const logs = path.join(os.homedir(), ".claude", "projects");
+  const folder = fs.realpathSync(dir).replace(/[^A-Za-z0-9]/g, "-");
+  const names = new Map<string, string>();
+  const out: Array<{ name: string; text: string }> = [];
+  for (const id of ids) {
+    const file = path.join(logs, folder, `${id}.jsonl`);
+    if (!fs.existsSync(file)) continue;
+    for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+      let entry: { message?: { content?: unknown } };
+      try {
+        entry = JSON.parse(line) as typeof entry;
+      } catch {
+        continue;
+      }
+      const content = entry.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content as Array<Record<string, unknown>>) {
+        if (block["type"] === "tool_use") names.set(String(block["id"]), String(block["name"]));
+        if (block["type"] === "tool_result") {
+          const id = String(block["tool_use_id"]);
+          out.push({ name: names.get(id) ?? "?", text: JSON.stringify(block["content"] ?? "") });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+async function askedForSubagents(): Promise<void> {
+  fs.mkdirSync(path.join(meadowDir, "probes"));
+  for (const [file, word] of Object.entries(PROBES))
+    fs.writeFileSync(path.join(meadowDir, "probes", `${file}.txt`), `${word}\n`);
+  fs.mkdirSync(path.join(meadowDir, ".ruri"));
+  fs.writeFileSync(
+    path.join(meadowDir, ".ruri", "architecture.json"),
+    JSON.stringify({
+      description: "A meadow with three probe files.",
+      features: ["three probe files, a word each"],
+      layers: [{ name: "Probes", what: "The probe files, in probes/", slug: "probes", paths: ["probes/"] }],
+      layerSheets: { probes: sheet("The probe files: probes/*.txt, one word each.") },
+    }),
+  );
+  const meadow = byPath(meadowDir);
+  send({ type: "add_project", name: "meadow", path: meadowDir });
+  await until("meadow", () => Boolean(meadow()?.sessions[0]), 30_000);
+  const head = meadow()?.sessions[0];
+  if (!head) {
+    check("meadow is added", false, projects);
+    return;
+  }
+  send({ type: "set_model", projectId: head.id, model: "haiku" });
+  await settle(500);
+  const crew = () => meadow()?.sessions.filter((s) => s.id !== head.id && !s.liaison) ?? [];
+  send({
+    type: "send",
+    projectId: head.id,
+    text: "Probe these three local files in parallel and report: call your Agent tool three times at once, a subagent per file — probes/north.txt, probes/south.txt and probes/east.txt. Each holds one word; tell me the three words.",
+  });
+  await until("the lead to start", () => busy(head.id), 90_000);
+  await until(
+    "a teammate with the job",
+    () => crew().some((m) => prompts(m.id).some((e) => e.kind === "user" && e.from?.agent === head.id)),
+    300_000,
+  );
+  const handed = crew().find((m) =>
+    prompts(m.id).some((e) => e.kind === "user" && e.from?.agent === head.id),
+  );
+  check("asked for subagents, the lead adds a teammate and hands it the job", Boolean(handed), {
+    crew: crew(),
+    lead: (events[head.id] ?? []).filter((e) => e.kind !== "assistant"),
+  });
+  const words = Object.values(PROBES);
+  await until(
+    "the lead to relay the words",
+    () => words.every((word) => said(head.id).includes(word)) && !busy(head.id),
+    420_000,
+  );
+  check(
+    "the answer lands, and the lead relays it",
+    words.every((word) => said(head.id).includes(word)),
+    said(head.id),
+  );
+  const leadTools = (events[head.id] ?? []).filter((e) => e.kind === "tool");
+  check(
+    "it never did the job itself: no shell, read or search of the files",
+    !leadTools.some(
+      (e) =>
+        e.kind === "tool" &&
+        /^(Read|Bash|Grep|Glob)$/.test(e.name) &&
+        /probes\/|(?:north|south|east)\.txt/i.test(e.summary),
+    ),
+    leadTools,
+  );
+  console.log(`    (the lead's tools: ${leadTools.map((e) => e.kind === "tool" && e.name).join(", ")})`);
+  // a card's last word on it: a refused subagent's says so, not "running"
+  const cards = new Map(
+    leadTools.flatMap((e) => (e.kind === "tool" && e.agent ? [[e.id, e.agent.status] as const] : [])),
+  );
+  check(
+    "a refused subagent's card doesn't stay running",
+    [...cards.values()].every((status) => status !== "running"),
+    [...cards],
+  );
+  const answered = toolResults(head.id, meadowDir);
+  check("the CLI's log of the lead's turn is there to read", answered.length > 0, answered);
+  check(
+    "no refused tool came back as a bare error",
+    !answered.some((r) => /No such tool available|is disabled for this session/i.test(r.text)),
+    answered,
+  );
+  const refused = answered.filter((r) => /^(Agent|Task|Edit|Write|MultiEdit|NotebookEdit)$/.test(r.name));
+  console.log(
+    `    (the lead reached for ${refused.length} refused tool(s): ${refused.map((r) => r.name).join(", ") || "none"})`,
+  );
+  check(
+    "and each refused one answered whom to hand the job to",
+    refused.every((r) => r.text.includes("Refused: the lead") && r.text.includes("add_teammate")),
+    refused,
+  );
 }
 
 /* ── 1. an ordinary request to a lead with an empty team ──────────── */
@@ -625,6 +772,8 @@ const retired = await talkCall(lead.id, { do: "retire", who: "words" });
 check("retire: off the team", Boolean(retired?.text.includes("Retired Word list")), retired);
 await settle(1000);
 check("and gone", !members().some((s) => s.id === worker), members());
+
+await askedForSubagents();
 
 console.log(failed === 0 ? "\nall good" : `\n${failed} failed`);
 cleanup(failed === 0 ? 0 : 1);

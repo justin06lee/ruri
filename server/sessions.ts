@@ -191,6 +191,21 @@ export interface SessionExtras {
    * Claude only; other harnesses hear it per prompt.
    */
   contextNotice?: (added: number) => string | undefined;
+  /**
+   * Built-in tools this chat is refused, and what each answers instead —
+   * a reason the model reads as the tool's result, not the bare "No such
+   * tool" a tool taken off its list gives (a lead's subagents and file
+   * edits, server/team.ts). Refused by a PreToolUse hook, which holds in
+   * every permission mode, bypassPermissions included. Claude only.
+   */
+  refuse?: { tools: string[]; reason: (tool: string) => string | undefined };
+  /**
+   * What the model is told after a step's tool calls, from the calls
+   * themselves — beside the context line, in the same PostToolBatch hook
+   * (a lead doing a job itself, server/team.ts headWatch). Undefined adds
+   * nothing. Claude only.
+   */
+  afterTools?: (calls: Array<{ name: string; input: unknown }>) => string | undefined;
 }
 
 /** How the manager reaches non-Claude harnesses (see server/providers.ts). */
@@ -1050,6 +1065,10 @@ class ProjectSession implements ChannelSession {
   private readonly afterCompact: SessionExtras["afterCompact"];
   /** What the model hears about its context mid-turn. */
   private readonly contextNotice: SessionExtras["contextNotice"];
+  /** Built-in tools this chat is refused, with their reasons. */
+  private readonly refused: SessionExtras["refuse"];
+  /** What the model hears about its own tool calls mid-turn. */
+  private readonly afterTools: SessionExtras["afterTools"];
   /** The last compaction Claude Code began, by its own trigger. */
   private compacting: "manual" | "auto" | undefined;
   /** Background tasks the CLI reports live (a shell run in the background,
@@ -1088,6 +1107,8 @@ class ProjectSession implements ChannelSession {
     this.toolBarrier = extras?.beforeTools;
     this.afterCompact = extras?.afterCompact;
     this.contextNotice = extras?.contextNotice;
+    this.refused = extras?.refuse;
+    this.afterTools = extras?.afterTools;
     this.agents = new AgentBook(project.id, events, () =>
       (extras?.transcript?.() ?? []).filter((e): e is ToolEvent => e.kind === "tool" && !!e.agent),
     );
@@ -1120,10 +1141,15 @@ class ProjectSession implements ChannelSession {
           // session handed ruri's context back as it starts again
           PreCompact: [{ hooks: [this.onPreCompact] }],
           SessionStart: [{ hooks: [this.onSessionStart] }],
-          // how full its context is, told as it climbs: once a step's tool
-          // calls are back, before the model's next call reads them
+          // how full its context is, told as it climbs, and what its own
+          // calls say about it: once a step's tool calls are back, before
+          // the model's next call reads them
           PostToolBatch: [{ hooks: [this.onToolBatch] }],
           PreToolUse: [
+            // a tool this chat may not use, answered with what to do instead
+            ...(extras?.refuse?.tools.length
+              ? [{ matcher: extras.refuse.tools.join("|"), hooks: [this.refuseTool] }]
+              : []),
             {
               matcher: "AskUserQuestion",
               timeout: QUESTION_TIMEOUT_S,
@@ -1297,22 +1323,53 @@ class ProjectSession implements ChannelSession {
   private onToolBatch = async (
     input: HookInput,
   ): Promise<{ continue: true; hookSpecificOutput?: PostToolBatchHookSpecificOutput }> => {
-    if (input.hook_event_name !== "PostToolBatch" || !this.contextNotice) return { continue: true };
-    let text: string | undefined;
-    try {
-      // the last reading is the call that asked for these tools: what they
-      // brought back rides into the next one, at about four characters a token
-      const added = input.tool_calls.reduce(
-        (sum, call) => sum + (JSON.stringify(call.tool_response ?? "")?.length ?? 0),
-        0,
-      );
-      text = this.contextNotice(Math.round(added / 4));
-    } catch (err) {
-      warn("sessions", err, "contextNotice");
+    if (input.hook_event_name !== "PostToolBatch") return { continue: true };
+    const lines: Array<string | undefined> = [];
+    if (this.contextNotice) {
+      try {
+        // the last reading is the call that asked for these tools: what they
+        // brought back rides into the next one, at about four characters a token
+        const added = input.tool_calls.reduce(
+          (sum, call) => sum + (JSON.stringify(call.tool_response ?? "")?.length ?? 0),
+          0,
+        );
+        lines.push(this.contextNotice(Math.round(added / 4)));
+      } catch (err) {
+        warn("sessions", err, "contextNotice");
+      }
     }
+    if (this.afterTools) {
+      try {
+        lines.push(
+          this.afterTools(input.tool_calls.map((call) => ({ name: call.tool_name, input: call.tool_input }))),
+        );
+      } catch (err) {
+        warn("sessions", err, "afterTools");
+      }
+    }
+    const text = lines.filter(Boolean).join("\n");
     return text
       ? { continue: true, hookSpecificOutput: { hookEventName: "PostToolBatch", additionalContext: text } }
       : { continue: true };
+  };
+
+  /** A tool this chat is refused: denied, with what to do instead as the
+   *  tool's answer. Any other tool goes on as it would. */
+  private refuseTool = async (
+    input: HookInput,
+  ): Promise<{ continue: true; hookSpecificOutput?: PreToolUseHookSpecificOutput }> => {
+    if (input.hook_event_name !== "PreToolUse" || !this.refused?.tools.includes(input.tool_name))
+      return { continue: true };
+    const reason = this.refused.reason(input.tool_name);
+    if (!reason) return { continue: true };
+    return {
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: reason,
+      },
+    };
   };
 
   private askUserQuestion = async (

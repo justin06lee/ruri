@@ -30,7 +30,17 @@ import {
 } from "./selfCompaction.js";
 import { SessionManager, type SessionExtras } from "./sessions.js";
 import { httpWaitMs, TALK_TOOLS, talkHttpBriefing, talkToolBriefing, talkTools } from "./talk.js";
-import { disallowedFor, leadBriefing, memberBriefing, TEAM_TOOLS, teamTools, type Head } from "./team.js";
+import {
+  disallowedFor,
+  HEAD_REFUSED,
+  headWatch,
+  leadBriefing,
+  memberBriefing,
+  refusal,
+  TEAM_TOOLS,
+  teamTools,
+  type Head,
+} from "./team.js";
 import { contextWindow, pushContexts, pushWork } from "./turns.js";
 
 /**
@@ -57,6 +67,13 @@ function settleCheckpoint(ctx: ServerContext, channelId: string): void {
   const prompt = ctx.archive.events(channelId).findLast((event) => event.kind === "user");
   if (!project?.path || !prompt) return;
   void ctx.checkpoints.settle(project, channelId, prompt.id).catch(() => false);
+}
+
+/** A lead's or the liaison's own tool calls, watched turn by turn — the
+ *  turn in flight is what tells one from the next (server/team.ts). */
+function leadOnTools(ctx: ServerContext, channelId: string, head: Head): SessionExtras["afterTools"] {
+  const watch = headWatch(head);
+  return (calls) => watch(ctx.turns.progress.get(channelId)?.startedAt, calls);
 }
 
 export function createChatManager(ctx: ServerContext): SessionManager {
@@ -279,6 +296,11 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         afterCompact: async () => afterCompactBrief(ctx, project.id) || undefined,
         // and how full its context is, as it climbs mid-turn
         ...(owner ? { contextNotice: (added: number) => contextNotice(ctx, project.id, added) } : {}),
+        // a lead and the liaison delegate: no changing files, no subagents
+        // of their own — refused with whom to hand the job instead — and a
+        // word mid-turn when the shell starts doing the job for them
+        ...(head ? { refuse: { tools: HEAD_REFUSED, reason: (tool: string) => refusal(tool, head) } } : {}),
+        ...(head ? { afterTools: leadOnTools(ctx, project.id, head) } : {}),
         fillSecrets: (input) =>
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
         beforeTools: () => ctx.checkpoints.idle(project.id),
@@ -302,8 +324,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             ]),
             bridge: bridgeTools(ctx.options.bridge, bridgeCtx),
           },
-          // a lead and the liaison delegate — no writing files, no agents
-          // of their own; a member and the liaison have no user to ask
+          // a member and the liaison have no user to ask
           ...(owner ? { disallowedTools: disallowedFor(head ?? "member") } : {}),
           // the component library as a skill, whose list changes and whose
           // description never does (server/library.ts)

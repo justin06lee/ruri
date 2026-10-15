@@ -6,7 +6,12 @@
  */
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
-import type { AskQuestions, ServerMessage } from "../../shared/protocol.js";
+import type {
+  AskQuestions,
+  AttachmentUpload,
+  ServerMessage,
+  TranscriptEvent,
+} from "../../shared/protocol.js";
 import { busy, channelProject, ownerProject, running } from "../channel.js";
 import { knownCommands, splitCommands } from "../commands.js";
 import type { ClientConn, ServerContext } from "../context.js";
@@ -16,13 +21,14 @@ import {
   dispatchSplit,
   drainQueue,
   holdsEvent,
+  promptEntries,
   queueWithCommands,
   stopTurn,
 } from "../dispatch.js";
 import { combine, reslot, uncombine, type QueueEntry } from "../queue.js";
 import { storeAttachments, storeUpload } from "../uploads.js";
 import { followCrew } from "./crew.js";
-import { answerTalk, talkDropped } from "./talk.js";
+import { answerTalk, onAJob, talkDropped } from "./talk.js";
 import type { Handler, Handlers } from "./types.js";
 
 type SentAs = Extract<ServerMessage, { type: "sent" }>["as"];
@@ -106,6 +112,42 @@ function freshNext(ctx: Parameters<Handler<"draft">>[0], channelId: string): boo
   return ctx.archive.hasPendingBrief(channelId) || !ctx.archive.harnessSession(channelId, harness)?.session;
 }
 
+/**
+ * "Send now" to a teammate or the liaison while its turn is another agent's
+ * job: the job is not cut short — that would end it, and its sender would
+ * get "stopped" for an answer — so the prompt goes next instead, ahead of
+ * everything else waiting, as another agent's message would, and the chat
+ * says why. Stop still ends the job. Answers whether it took the prompt.
+ */
+function nextAfterJob(
+  ctx: ServerContext,
+  channelId: string,
+  text: string,
+  uploads: AttachmentUpload[],
+  split: boolean,
+  clientId: string | undefined,
+): boolean {
+  const sender = onAJob(ctx, channelId);
+  if (!sender) return false;
+  const queue = ctx.queues.entries.get(channelId) ?? [];
+  // where a cut-in would go: behind the sub-prompts riding with the turn
+  // and what cut in already, ahead of the rest and of the way back to work
+  const front = queue.findIndex((entry) => !entry.silent && (!entry.cut || entry.resume === true));
+  const { entries } = promptEntries(ctx, channelId, text, uploads, split, clientId);
+  queue.splice(front === -1 ? queue.length : front, 0, ...entries);
+  ctx.queues.entries.set(channelId, queue);
+  ctx.queues.broadcastQueue(channelId);
+  const why: TranscriptEvent = {
+    kind: "info",
+    id: randomUUID(),
+    text: `Your message goes next: this turn is ${sender}'s job, and sending now would end it. Stop it if you mean to.`,
+    ts: Date.now(),
+  };
+  ctx.archive.append(channelId, why);
+  ctx.clients.pushEvent(channelId, why);
+  return true;
+}
+
 /** A prompt sent: now, or into the queue behind whatever is running. */
 const send: Handler<"send"> = (ctx, ws, msg) => {
   if (msg.text.trim().length === 0 && !msg.attachments?.length) return;
@@ -116,7 +158,9 @@ const send: Handler<"send"> = (ctx, ws, msg) => {
     // the user is driving again: whatever ruri was about to try again
     // for them, this prompt says it better
     ctx.retries.cancelRetry(channelId);
-    // sent to cut in: the running turn stops and this goes in its place
+    // sent to cut in: the running turn stops and this goes in its place —
+    // or, when that turn is another agent's job, straight after it
+    if (msg.now && nextAfterJob(ctx, channelId, msg.text, uploads, false, clientId)) return;
     if (msg.now && cutIn(ctx, channelId, msg.text, uploads, false, clientId)) return;
     // A queue that has been standing by since a stopped turn: this
     // prompt is the reason it stopped — a clarification, a correction —
@@ -153,6 +197,7 @@ export const promptHandlers = {
     taking(ctx, ws, channelId, clientId, () => {
       ctx.retries.cancelRetry(channelId);
       if (!channelProject(ctx, channelId)) throw new Error("unknown session");
+      if (msg.now && nextAfterJob(ctx, channelId, msg.text, uploads, true, clientId)) return;
       if (msg.now && cutIn(ctx, channelId, msg.text, uploads, true, clientId)) return;
       const ahead = ctx.queues.releaseQueue(channelId) && !running(ctx, channelId);
       if (queueWithCommands(ctx, channelId, msg.text, uploads, true, ahead, clientId)) return;

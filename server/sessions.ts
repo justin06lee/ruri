@@ -195,8 +195,10 @@ export interface SessionExtras {
    * Built-in tools this chat is refused, and what each answers instead —
    * a reason the model reads as the tool's result, not the bare "No such
    * tool" a tool taken off its list gives (a lead's subagents and file
-   * edits, server/team.ts). Refused by a PreToolUse hook, which holds in
-   * every permission mode, bypassPermissions included. Claude only.
+   * edits, a teammate's question cards: server/team.ts). Refused by a
+   * PreToolUse hook, which holds in every permission mode,
+   * bypassPermissions included; a refused AskUserQuestion puts up no card.
+   * Claude only.
    */
   refuse?: { tools: string[]; reason: (tool: string) => string | undefined };
   /**
@@ -1150,11 +1152,11 @@ class ProjectSession implements ChannelSession {
             ...(extras?.refuse?.tools.length
               ? [{ matcher: extras.refuse.tools.join("|"), hooks: [this.refuseTool] }]
               : []),
-            {
-              matcher: "AskUserQuestion",
-              timeout: QUESTION_TIMEOUT_S,
-              hooks: [this.askUserQuestion],
-            },
+            // its card — unless this chat is refused the question: then the
+            // hook above answers alone, and no card goes up for nobody
+            ...(extras?.refuse?.tools.includes("AskUserQuestion")
+              ? []
+              : [{ matcher: "AskUserQuestion", timeout: QUESTION_TIMEOUT_S, hooks: [this.askUserQuestion] }]),
             // Not a decision — a barrier. The diff under a Write or Edit
             // needs the file as it was, and a PreToolUse hook is the one
             // point the CLI is required to wait at before touching it.

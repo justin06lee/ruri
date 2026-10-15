@@ -317,6 +317,17 @@ function senderOf(letter: Pending): string {
   return letter.sender ? seatName(letter.sender.project, letter.sender.title) : "another agent";
 }
 
+/** Whose job a teammate's or the liaison's running turn is: the agent
+ *  whose message it is answering — or nothing, for a turn of the user's
+ *  own, a lead's, or a chat at rest. The user's "send now" waits behind
+ *  such a turn, as another agent's message does, rather than end the job
+ *  (handlers/prompts.ts). */
+export function onAJob(ctx: ServerContext, chat: string): string | undefined {
+  if (!unattended(ctx, chat) || !running(ctx, chat)) return undefined;
+  const owed = owedLetter(ctx, chat);
+  return owed ? senderOf(owed) : undefined;
+}
+
 /** Why the turn a chat is running can't be stopped for a message, in the
  *  sender's words — or nothing, when it can. */
 function uninterruptible(ctx: ServerContext, chat: string): string | undefined {

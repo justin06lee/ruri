@@ -213,13 +213,18 @@ export function letterPrompt(from: LetterFrom, handle: string, text: string, hea
   ].join("\n");
 }
 
-/** The line a teammate's next message starts with after its lead stopped
- *  or restarted it mid-turn (TalkBook.stopNotes): who stopped it, and the
- *  call that stop cut off — named, as resumePrompt does, because the
- *  harness hands it back as the user's refusal. */
+/** The line a teammate's next prompt starts with, whatever it is, after
+ *  its lead, the liaison or the user (from the team page) stopped or
+ *  restarted it mid-turn (TalkBook.stopNotes, dispatch.ts afterStop): who
+ *  stopped it, and the call that stop cut off — named, as resumePrompt
+ *  does, because the harness hands it back as the user's refusal. */
 export function stoppedLine(who: string, call?: string): string {
-  const cut = call ? ` The call it cut off was ${call.length > 200 ? `${call.slice(0, 199)}…` : call};` : "";
-  return `(ruri: your last turn was stopped by ${who}, not by the user.${cut} a tool call that came back rejected or interrupted then was not refused by anyone — you may run it, or anything like it, again whenever a job asks for it. Do what this message asks.)`;
+  const cut = call ? ` The call it cut off was ${call.length > 200 ? `${call.slice(0, 199)}…` : call}.` : "";
+  const by =
+    who === "the user"
+      ? "the user stopped your last turn, from the team page"
+      : `your last turn was stopped by ${who}, not by the user`;
+  return `(ruri: ${by}.${cut} Stopping a turn isn't refusing what it was doing: a tool call that came back rejected or interrupted then was refused by no one — you may run it, or anything like it, again whenever what you're asked needs it. Do what this message asks.)`;
 }
 
 /** What a model interrupted by a message or an answer is told: the turn it
@@ -412,9 +417,10 @@ export class TalkBook {
   /** Who stopped a chat's turn, when it was not the user — for the sender
    *  of a message that turn was answering. */
   readonly stoppedBy = new Map<string, string>();
-  /** And for the chat itself, told with the next message it gets: the
-   *  harness hands a model the call a stop cut off as the user's refusal,
-   *  and a model that thinks so won't run it — or anything like it — again. */
+  /** And for the chat itself, told with the next prompt it gets, of any
+   *  kind: the harness hands a model the call a stop cut off as the user's
+   *  refusal, and a model that thinks so won't run it — or anything like
+   *  it — again. */
   readonly stopNotes = new Map<string, { who: string; call?: string }>();
   /** Handles are made from the chat's id with this, so a handle names a
    *  chat without being its id — the id is what the HTTP endpoint takes

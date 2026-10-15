@@ -27,19 +27,6 @@ This layer is the conversation surface: composing prompts in Composer.tsx and re
 - **Render a reply:** ChatPane.tsx receives flat TranscriptEvent stream → Exchange.tsx groupTurns folds user prompt through following events; compaction stands solo → EventView.tsx renders each event kind with shortened paths and command chips → Markdown goes through lib/markdownHtml.ts with DOMPurify then markdown.tsx components → Code blocks highlight inline or via highlight.worker.ts with cache in highlighter.ts
 - **Answer a question:** Ask/permission event renders QuestionCard in Questions.tsx or PermissionBanner.tsx → One question shown at a time with slide navigation and persisted picks → Answer sent back in harness-native shape via store send
 
-## Key files
-
-- web/src/components/ChatPane.tsx — transcript holder, turn grouping host and composer dock
-- web/src/components/Composer.tsx — prompt textarea, attachments, commands, shell toggle and send
-- web/src/components/EventView.tsx — per-event transcript rendering, compaction marks and tool blocks
-- web/src/components/Exchange.tsx — groupTurns flat events into prompt-to-result turns and folds
-- web/src/markdown.tsx — streaming markdown components for replies
-- web/src/lib/markdownHtml.ts — marked plus DOMPurify markdown-to-HTML kept testable off components
-- web/src/lib/markers.ts — pure string handling of [image #n] and /command markers
-- web/src/components/Markers.tsx — chip mirror overlay drawn over the textarea
-- web/src/components/Attachments.tsx — composer strip, full viewer, region annotations and transcript attachments
-- web/src/components/Questions.tsx — single-card AskUserQuestion and elicitation flow with persisted state
-
 ## Rules and traps
 
 - Never put highlighting or sanitizing inline in components: markdown goes via lib/markdownHtml.ts with DOMPurify since model output is untrusted innerHTML.
@@ -48,11 +35,3 @@ This layer is the conversation surface: composing prompts in Composer.tsx and re
 - Compaction events are solo turns in groupTurns and never fold or host other events.
 - Sketch keeps shapes and redraws at export size with per-channel autosave; it closes only on its own close button, never on Escape.
 - A user event whose text opens with CARRY_ON (shared handoffNote) is ruri's carry-on after a self-compaction: render it as CarryOn, never as the user's bubble or as a letter from its `from` (with `carried` that only says whose job it still is); server continuePrompt must keep opening with CARRY_ON.
-
-## What it talks to
-
-- Protocol — TranscriptEvent, Attachment, AskQuestion and marker text shapes come from shared/protocol.ts
-- App shell, state and tooling — send, transcript, drafts and prefs come from the store/prefs; do not duplicate them here
-- Chat runs and queue — live prompts, turns, rewind and transcript delivery arrive over the socket into ChatPane.tsx
-- Navigation: sidebar, projects and queue — session switching unmounts cards so question state is keyed by request to survive
-- Bridge — BridgeStrip preview sits above the composer alongside Terminal.tsx tabs

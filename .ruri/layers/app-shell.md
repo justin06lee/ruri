@@ -18,8 +18,9 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - **Build, lint and script tests:** vite.config.ts, eslint.config.js, scripts/run-tests.ts
 - **Settings permissions Linux copy:** web/src/components/Settings.tsx
 - **Terminal and composer Linux keys:** web/src/components/Terminal.tsx, web/src/components/Composer.tsx, web/src/components/Switcher.tsx, web/src/components/Sketch.tsx
-- **Team page roster:** web/src/components/TeamPage.tsx, web/src/store.ts, web/src/styles.css
-- **Chat pane and continuation display:** web/src/components/ChatPane.tsx, web/src/components/Exchange.tsx, web/src/components/EventView.tsx, web/src/store.ts
+- **Team page roster:** web/src/components/TeamPage.tsx, web/src/components/ChatPane.tsx, web/src/store.ts, web/src/styles.css
+- **Chat pane and continuation display:** web/src/components/ChatPane.tsx, web/src/components/PermissionBanner.tsx, web/src/components/Exchange.tsx, web/src/store.ts
+- **Sidebar project rows and session navigation:** web/src/components/Sidebar.tsx, web/src/components/ChatPane.tsx, web/src/store.ts
 - **Home board and queue:** web/src/components/HomeBoard.tsx, web/src/components/Queue.tsx, web/src/styles.css
 
 ## How it works
@@ -43,6 +44,7 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - web/src/components/TeamPage.tsx — team roster, Stop/Refresh controls, liaison card and unstaffed chips
 - web/src/components/Exchange.tsx — chat exchange rendering with continuation and handoff note
 - web/src/components/ChatPane.tsx — chat pane driving store team actions
+- web/src/components/Sidebar.tsx — project rows staying lit while any of its chats is open
 - web/src/components/HomeBoard.tsx — home board surfacing team state
 
 ## Rules and traps

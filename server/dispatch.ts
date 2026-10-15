@@ -81,7 +81,14 @@ export function dispatch(
     const { brief, harness } = catchUp(ctx, channelId, text, visible);
     if (visible) ctx.archive.noteSent(channelId, harness, visible);
     const payload = modelPayload(text, uploads);
-    ctx.manager.send(project, brief + payload.text + named, payload.images, undefined, true, visible);
+    ctx.manager.send(
+      project,
+      brief + afterStop(ctx, channelId, payload.text) + named,
+      payload.images,
+      undefined,
+      true,
+      visible,
+    );
     return undefined;
   }
   // Whatever the session this goes to doesn't hold rides in ahead of it,
@@ -107,7 +114,11 @@ export function dispatch(
   };
   recordEvent(ctx, channelId, userEvent);
   checkpoint(ctx, channelId, userEvent.id);
-  const said = from ? fromAgent(ctx, channelId, from, processed.text) : processed.text;
+  const said = afterStop(
+    ctx,
+    channelId,
+    from ? wrapped(ctx, channelId, from, processed.text) : processed.text,
+  );
   ctx.archive.noteSent(channelId, harness, userEvent.id);
   ctx.manager.send(project, brief + said + named, processed.images, undefined, true, userEvent.id);
   // a message the other chat has now started on — or an answer now in the
@@ -118,19 +129,25 @@ export function dispatch(
 }
 
 /**
+ * A prompt as the model reads it, after a teammate was stopped mid-turn
+ * from the team page or by a lead: who stopped it, first — whatever the
+ * prompt is, another agent's message, the user's own words or ruri's — so
+ * the call the stop cut off isn't taken for a refusal, and the note never
+ * waits for a later prompt it isn't about.
+ */
+export function afterStop(ctx: ServerContext, channelId: string, said: string): string {
+  const stopped = ctx.talk.stopNotes.get(channelId);
+  if (!stopped) return said;
+  ctx.talk.stopNotes.delete(channelId);
+  return `${stoppedLine(stopped.who, stopped.call)}\n\n${said}`;
+}
+
+/**
  * What the model reads for a prompt another agent's letter brought: the
  * message, wrapped as whose it is — told, for a lead or a liaison, that it
  * may hand the job on; an answer, told when it is the one owed onward; or
  * ruri's own words carrying the chat on with a message after compacting.
  */
-function fromAgent(ctx: ServerContext, channelId: string, from: LetterFrom, text: string): string {
-  // a teammate its lead stopped mid-turn hears first that it wasn't the user
-  const stopped = ctx.talk.stopNotes.get(channelId);
-  ctx.talk.stopNotes.delete(channelId);
-  const said = wrapped(ctx, channelId, from, text);
-  return stopped ? `${stoppedLine(stopped.who, stopped.call)}\n\n${said}` : said;
-}
-
 function wrapped(ctx: ServerContext, channelId: string, from: LetterFrom, text: string): string {
   const handle = ctx.talk.handleOf(from.agent);
   // ruri's own words carrying the chat on after it compacted itself: they

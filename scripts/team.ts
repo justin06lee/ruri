@@ -32,7 +32,10 @@
  *   4. a third project's lead, with an empty team, is asked to run
  *      subagents in parallel — refused them, it is told whom to hand the
  *      job instead (never a bare "No such tool"), and it adds a teammate
- *      and hands the job off rather than doing it through its shell.
+ *      and hands the job off rather than doing it through its shell; then,
+ *      typed into that teammate's own chat, a request for a question card
+ *      is refused with how to ask instead — no card, no bare error — and
+ *      it asks in plain words.
  *
  * Costs a dozen or so small real turns — run manually: bun run team-test
  * (TEAM_HTTP_ONLY=1 runs just the free part, TEAM_PARALLEL_ONLY=1 the free
@@ -150,6 +153,8 @@ const events: Record<string, TranscriptEvent[]> = {};
 let team: TeamMember[] = [];
 /** Chats whose transcript came whole with a compaction mark in it. */
 const compacted = new Set<string>();
+/** Chats a card went up for: a permission or a question, as the window sees them. */
+const carded = new Set<string>();
 const waiters = new Set<() => void>();
 
 const ws = await connect(wsUrl(PORT));
@@ -160,6 +165,7 @@ ws.on("message", (raw) => {
   if (msg.type === "status") statuses[msg.projectId] = msg.status;
   if (msg.type === "event") (events[msg.projectId] ??= []).push(msg.event);
   if (msg.type === "team") team = msg.members;
+  if (msg.type === "permission_request") carded.add(msg.request.projectId);
   // a compaction comes as the chat's transcript, whole
   if (msg.type === "transcript" && msg.events.some((e) => e.kind === "compaction"))
     compacted.add(msg.projectId);
@@ -481,6 +487,35 @@ async function askedForSubagents(): Promise<void> {
     refused.every((r) => r.text.includes("Refused: the lead") && r.text.includes("add_teammate")),
     refused,
   );
+
+  // the user opens the teammate's own chat and asks it for a question card:
+  // refused with how to ask instead — no card goes up, no bare error
+  if (!handed) return;
+  const ended = results(handed.id).length;
+  const since = (events[handed.id] ?? []).length;
+  send({
+    type: "send",
+    projectId: handed.id,
+    text: "Call your AskUserQuestion tool now to ask me which of the three words I like best, with the three words as its options.",
+  });
+  await until("the teammate's turn", () => results(handed.id).length > ended && !busy(handed.id), 300_000);
+  const asked = toolResults(handed.id, meadowDir).filter((r) => r.name === "AskUserQuestion");
+  const replied = (events[handed.id] ?? [])
+    .slice(since)
+    .flatMap((e) => (e.kind === "assistant" ? [e.text] : []))
+    .join("\n");
+  console.log(
+    `    (the teammate reached for AskUserQuestion ${asked.length} time(s), and said: ${JSON.stringify(replied.slice(0, 300))})`,
+  );
+  check("no question card goes up in a teammate's chat", !carded.has(handed.id), [...carded]);
+  check(
+    "a refused question answers how to ask instead, never a bare error",
+    asked.every(
+      (r) => r.text.includes("no question card reaches the user") && !/No such tool available/i.test(r.text),
+    ),
+    asked,
+  );
+  check("and it asks in plain words", replied.includes("?"), replied);
 }
 
 /* ── 1. an ordinary request to a lead with an empty team ──────────── */

@@ -21,14 +21,16 @@ import {
 import { actOn, atWork, hasSlot, releaseWaiting, rosterText, teamBudget, teamHost } from "./handlers/team.js";
 import { ProjectStore } from "./projects.js";
 import { SendQueues } from "./queue.js";
+import { afterStop } from "./dispatch.js";
+import { promptHandlers } from "./handlers/prompts.js";
 import { stoppedLine, TalkBook } from "./talk.js";
 import {
-  disallowedFor,
   HEAD_REFUSED,
   headWatch,
   leadBriefing,
   memberBriefing,
   refusal,
+  refusedFor,
   shellWorks,
   teamCap,
   TeamGovernor,
@@ -274,7 +276,7 @@ function world(opts: { cap?: number } = {}) {
     },
     talk: new TalkBook(),
     permissions: new Map<string, PermissionRequest>(),
-    clients: { broadcast, forgetChannel: noop },
+    clients: { broadcast, forgetChannel: noop, pushEvent: noop },
     queues: new SendQueues(broadcast),
     manager: {
       statuses: () => statuses,
@@ -284,7 +286,12 @@ function world(opts: { cap?: number } = {}) {
       send: noop,
     },
     governor: new TeamGovernor({ cap: opts.cap }),
-    archive: { events: (id: string) => events[id] ?? [], turnIds: () => [], remove: noop },
+    archive: {
+      events: (id: string) => events[id] ?? [],
+      append: (id: string, event: TranscriptEvent) => (events[id] = [...(events[id] ?? []), event]),
+      turnIds: () => [],
+      remove: noop,
+    },
     turns: { work: new Map(), progress: new Map(), contexts: new Map(), sent: new Map() },
     briefs: {
       get: () => ({
@@ -445,14 +452,30 @@ describe("what the lead reads", () => {
     for (const tool of ["Bash", "Read", "Grep", "mcp__ruri__add_teammate", "AskUserQuestion"])
       expect(refusal(tool, "lead")).toBeUndefined();
     // refused by the hook, not taken off the list: that gave a bare "No such tool"
-    expect(disallowedFor("lead")).toEqual([]);
-    expect(disallowedFor("liaison")).toEqual(["AskUserQuestion"]);
-    expect(disallowedFor("member")).toEqual(["AskUserQuestion"]);
+    expect(refusedFor("lead")).toEqual(HEAD_REFUSED);
+    expect(refusedFor("liaison")).toEqual([...HEAD_REFUSED, "AskUserQuestion"]);
+    expect(refusedFor("member")).toEqual(["AskUserQuestion"]);
     // no MCP tool is held back: ruri's own are every chat's
-    expect(HEAD_REFUSED.some((name) => name.startsWith("mcp__"))).toBe(false);
+    expect(refusedFor("liaison").some((name) => name.startsWith("mcp__"))).toBe(false);
     expect(leadBriefing("ruri", "tool")).toContain(
       "If a tool is refused, never do the job yourself another way",
     );
+  });
+
+  test("a member and the liaison are refused question cards, told to ask in plain words; the lead may ask", () => {
+    const member = refusal("AskUserQuestion", "member")!;
+    expect(member).toContain("no question card reaches the user from a teammate's chat");
+    expect(member).toContain(
+      "If the user typed the prompt you are on, ask them in plain words and end your turn",
+    );
+    expect(member).toContain("ask whoever handed it to you, with mcp__ruri__message_agent");
+    const liaison = refusal("AskUserQuestion", "liaison")!;
+    expect(liaison).toContain("from the liaison's chat");
+    expect(liaison).toContain("answer the asking agent with the question");
+    expect(refusal("AskUserQuestion", "lead")).toBeUndefined();
+    // a member may change files and start subagents: the job is its own
+    for (const tool of ["Edit", "Write", "Agent", "Task"]) expect(refusal(tool, "member")).toBeUndefined();
+    expect(refusal("Agent", "liaison")).toContain("the liaison doesn't start subagents");
   });
 
   test("a shell command doing the job is told from one looking", () => {
@@ -635,6 +658,85 @@ describe("the lead's hand on each teammate's session — mid-turn and asleep", (
     set["ui"] = "idle";
     end("ui", { ok: false, stopped: true });
     expect(ctx.talk.pending.get(letter)?.ending?.text).toContain("The lead stopped ruri · UI's turn");
+  });
+
+  test("the stop note rides on the next prompt of any kind — the user's own words too — and only once", async () => {
+    const { ctx } = await busyUi();
+    teamHost(ctx).manage("lead", "UI", "stop");
+    const typed = afterStop(ctx, "ui", "what were you doing?");
+    expect(typed.startsWith("(ruri: your last turn was stopped by the lead, not by the user.")).toBe(true);
+    expect(typed.endsWith("\n\nwhat were you doing?")).toBe(true);
+    expect(ctx.talk.stopNotes.has("ui")).toBe(false);
+    expect(afterStop(ctx, "ui", "and now?")).toBe("and now?");
+  });
+
+  test("stopped by the user from the team page, it is told so — not 'by the user, not by the user'", async () => {
+    const { ctx } = await busyUi();
+    actOn(ctx, "ui", "stop", "user");
+    const note = afterStop(ctx, "ui", "carry on");
+    expect(note).toContain("(ruri: the user stopped your last turn, from the team page.");
+    expect(note).not.toContain("not by the user");
+    expect(note).toContain("Stopping a turn isn't refusing what it was doing");
+    expect(stoppedLine("the user")).not.toMatch(/\. [a-z]/);
+    expect(stoppedLine("the lead", "Bash: npm test")).toContain(
+      "not by the user. The call it cut off was Bash: npm test. Stopping a turn",
+    );
+  });
+
+  test("the user's 'send now' to a teammate on another agent's job goes next, not in its place", async () => {
+    const { ctx, interrupted, events } = await busyUi();
+    promptHandlers.send(ctx, {} as never, {
+      type: "send",
+      projectId: "ui",
+      text: "quick question",
+      now: true,
+    });
+    // the job goes on: nothing stopped, the user's prompt first in line
+    expect(interrupted).toEqual([]);
+    const line = ctx.queues.entries.get("ui")!;
+    expect(line.map((entry) => entry.text)).toEqual(["quick question", line[1]!.text]);
+    expect(line[1]!.from?.agent).toBe("linux");
+    const why = events["ui"]?.at(-1);
+    expect(why?.kind).toBe("info");
+    expect(why?.kind === "info" ? why.text : "").toContain(
+      "this turn is ruri · Lead's job, and sending now would end it",
+    );
+    // the liaison on an outside agent's job, the same
+    const w = world();
+    w.fallback.status = "permission";
+    await sendLetter(w.ctx, "site-lead", { to: "ruri", message: "what's your stack?", reply: "later" });
+    const liaison = w.projects[0]!.sessions.find((s) => s.liaison)!.id;
+    w.arrive(liaison);
+    w.set[liaison] = "working";
+    promptHandlers.send(w.ctx, {} as never, { type: "send", projectId: liaison, text: "hello", now: true });
+    expect(w.interrupted).toEqual([]);
+    expect(w.ctx.queues.entries.get(liaison)?.[0]?.text).toBe("hello");
+  });
+
+  test("on a turn of the user's own — or in the lead's chat — 'send now' still cuts in", async () => {
+    const w = world();
+    w.set["ui"] = "working";
+    w.events["ui"] = [{ kind: "user", id: "u-mine", text: "the user's own", ts: 1 }];
+    promptHandlers.send(w.ctx, {} as never, { type: "send", projectId: "ui", text: "instead", now: true });
+    expect(w.interrupted).toEqual(["ui"]);
+    // the lead answering a teammate: the user's chat, the user's call
+    const l = world();
+    l.fallback.status = "permission";
+    const asked = await sendLetter(l.ctx, "ui", {
+      to: l.ctx.talk.handleOf("lead"),
+      message: "which layer?",
+      reply: "later",
+    });
+    expect(asked.text).toContain("Sent to");
+    l.arrive("lead");
+    l.set["lead"] = "working";
+    promptHandlers.send(l.ctx, {} as never, {
+      type: "send",
+      projectId: "lead",
+      text: "stop that",
+      now: true,
+    });
+    expect(l.interrupted).toEqual(["lead"]);
   });
 
   test("stop, asleep: nothing to stop", () => {

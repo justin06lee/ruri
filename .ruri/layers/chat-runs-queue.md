@@ -44,10 +44,10 @@ This layer runs live chat turns: prompt dispatch, the app-side queue, turn progr
 - Only existing commands count — ruri's own, harness prompt commands, installed skills; quoted ones ('/compact', "/compact", `/compact`) and /tmp alone on a line stay plain text to the model.
 - RURI_TEAM_MAX, when set, caps members at work; one holding on an answer (talk.awaiting) doesn't count, or mutual waits hold every slot for good. Only waking a sleeping member is gated.
 - Turn progress lives in turns.ts not the window so the clock survives reload; broadcast deltas throttled to one message a second.
-- Rewind must restore files, branch, transcript, composer prompt, and context gauge to the kept exchange, not the tip.
+- Rewind restores files, branch, transcript, composer prompt and context gauge to the kept exchange, not the tip.
 - A letter is answered by the last words of the turn that finishes the job: owedLetter() is what a turn owes (its own letter, a carried one, or via an answer's owes); talkTurnEnded settles it only when nothing sent for it is out (TalkBook.outstanding). An answer that leaves the book any other way — a wait in another job, taken out of the queue — goes through answerOnward. Self-compaction marks the carry (carryLetter) at the turn's result, before talkTurnEnded.
-- The liaison (session.liaison) is never marked lead and leadOf skips it; it is not a member either: what takes 'every non-lead session' as the team must skip it (membersOf, store.isMember, protocol isMember); unattended() covers members and the liaison, whose held lines nobody sends on by hand.
-- A lead's or the liaison's Edit/Write/NotebookEdit/Agent/Task are refused by a PreToolUse hook naming whom to hand the job to (SessionExtras.refuse), never disallowedTools: its bare 'No such tool' sent mira's lead into Bash. headWatch (afterTools) nudges at a writing or running command, or every third look.
+- The liaison (session.liaison) is never lead (leadOf skips it) nor a member: code taking 'every non-lead session' as the team must skip it (membersOf, isMember). unattended() covers members and the liaison: held lines let go for letters; the user's 'send now' waits behind a turn on another agent's job (onAJob).
+- Tools a chat may not use are refused by a PreToolUse hook with what to do instead (SessionExtras.refuse, team.ts refusedFor/refusal), never disallowedTools, whose bare 'No such tool' sent mira's lead into Bash: a lead's or the liaison's Edit/Write/Agent/Task, a member's or the liaison's AskUserQuestion (its card hook stands down). headWatch nudges a lead's shell.
 
 ## What it talks to
 

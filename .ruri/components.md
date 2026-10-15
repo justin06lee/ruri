@@ -284,6 +284,7 @@ Small dragon heads on busy sidebar rows: a project's row while anyone on its tea
 Its files: web/src/components/Sidebar.tsx, web/src/components/Thinking.tsx
 Reaches into: web/src/styles.css, web/src/store.ts, web/src/lib/beat.ts
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/716e90ad-67c2-48cf-9cfb-7598d1d11b9a-shot-3.png, /Users/huiyunlee/.config/ruri/uploads/280faaf0-a761-4b04-89be-78e82dfd7837-project-rows.png, /Users/huiyunlee/.config/ruri/uploads/5b809714-2feb-4186-967f-1bfaf9b727ae-shot-19.png, /Users/huiyunlee/.config/ruri/uploads/3fd796a5-edbb-4778-ac27-7fa68d35949e-row-dragon.png
+Its code has changed since that picture — if you change it, `ruri edit row-dragons --shot <new picture>`
 
 ## script-cards — the script cards
 A shell the model left running in the background, shown as an agent card with a terminal icon: running, then how it exited. Opens onto its command and the tail of the CLI's output file, re-read every 2s while it runs. Made from the Bash chip when the CLI reports a local_bash task in the background.
@@ -390,6 +391,7 @@ Its files: web/src/components/TeamPage.tsx
 Reaches into: web/src/styles.css, web/src/components/ChatPane.tsx, web/src/store.ts
 Tags: page, team, agents, board
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/e4921cca-1931-4f6c-bbf3-94a89988e6ea-team-page-from-liaison.png, /Users/huiyunlee/.config/ruri/uploads/da000e60-b44a-450e-b1e1-43382fc2e671-shot-22.png, /Users/huiyunlee/.config/ruri/uploads/148cfd2f-e6c0-4d6b-b027-3434ae373935-team-page.png
+Its code has changed since that picture — if you change it, `ruri edit team-page --shot <new picture>`
 
 ## project-rows — the project rows
 The sidebar's one row per project (ProjectRow): click opens the project's lead; the number beside the name is teammates at work (the liaison counts, the lead doesn't); star kept while on, hide on hover, the X (a dragon while anyone on the team works) asks before closing, warning when the lead is at work too. Double-click renames. Replaced the folders of sessions.
@@ -397,6 +399,7 @@ Its files: web/src/components/Sidebar.tsx
 Reaches into: web/src/styles.css
 Tags: nav, sidebar, row
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/7002b54d-1496-4049-81b9-32e706fd0818-shot-3.png, /Users/huiyunlee/.config/ruri/uploads/c643fae4-0cc5-4379-91b7-821ac9314dfc-project-rows.png
+Its code has changed since that picture — if you change it, `ruri edit project-rows --shot <new picture>`
 
 ## carry-on-note — the carry-on note
 ruri's prompt carrying an agent on after it compacted itself (CarryOn, picked by shared handoffNote): under the compaction mark, "↻ carried on from its handoff note" (· for <agent> when the job is another agent's message) over the agent's own note, folded to four lines with "the whole note". Never drawn as a user bubble or a letter. Folded above a newer compaction it is a dotted slip (Exchange.tsx).
@@ -410,3 +413,4 @@ Its code has changed since that picture — if you change it, `ruri edit carry-o
 The chat header when the open session is a teammate or the liaison, opened from the team page: '‹ <project>' back to the lead in one click, then its name ('Liaison' for the liaison) and one faint line — 'teammate of <project> · <duty>' or 'liaison of <project> · other projects' agents reach it'. The lead's header is unchanged. Styles .chat-id.seat, .chat-back, .chat-role in web/src/styles.css.
 Its files: web/src/components/ChatPane.tsx
 Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/f86341c5-060d-4f1b-9f74-0acce6db67e6-teammate-header.png
+Its code has changed since that picture — if you change it, `ruri edit teammate-chat-header --shot <new picture>`

@@ -31,12 +31,11 @@ import {
 import { SessionManager, type SessionExtras } from "./sessions.js";
 import { httpWaitMs, TALK_TOOLS, talkHttpBriefing, talkToolBriefing, talkTools } from "./talk.js";
 import {
-  disallowedFor,
-  HEAD_REFUSED,
   headWatch,
   leadBriefing,
   memberBriefing,
   refusal,
+  refusedFor,
   TEAM_TOOLS,
   teamTools,
   type Head,
@@ -255,6 +254,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           : leadOf(owner)?.id === project.id
             ? "lead"
             : undefined;
+      const role = head ?? "member";
       const talkEndpoint = `http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`;
       const team = !owner
         ? ""
@@ -298,8 +298,11 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         ...(owner ? { contextNotice: (added: number) => contextNotice(ctx, project.id, added) } : {}),
         // a lead and the liaison delegate: no changing files, no subagents
         // of their own — refused with whom to hand the job instead — and a
-        // word mid-turn when the shell starts doing the job for them
-        ...(head ? { refuse: { tools: HEAD_REFUSED, reason: (tool: string) => refusal(tool, head) } } : {}),
+        // member and the liaison ask no questions on cards; then a word
+        // mid-turn when a lead's shell starts doing the job for it
+        ...(owner
+          ? { refuse: { tools: refusedFor(role), reason: (tool: string) => refusal(tool, role) } }
+          : {}),
         ...(head ? { afterTools: leadOnTools(ctx, project.id, head) } : {}),
         fillSecrets: (input) =>
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
@@ -324,9 +327,6 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             ]),
             bridge: bridgeTools(ctx.options.bridge, bridgeCtx),
           },
-          // a member and the liaison ask the user nothing on a card
-          // (disallowedFor says why)
-          ...(owner ? { disallowedTools: disallowedFor(head ?? "member") } : {}),
           // the component library as a skill, whose list changes and whose
           // description never does (server/library.ts)
           ...(owner

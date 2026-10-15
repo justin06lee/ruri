@@ -67,23 +67,35 @@ export const HEAD_REFUSED = ["Edit", "Write", "MultiEdit", "NotebookEdit", "Task
 const HAND_OVER =
   'Hand it to the teammate whose layer it is: mcp__ruri__add_teammate with layer "<handle>" and the job as its message, or mcp__ruri__message_agent to a teammate you have — it comes back later — then end your turn.';
 
-/** What a refused tool answers a lead or the liaison: why, and whom the
- *  job goes to instead. Undefined for a tool it may use. */
-export function refusal(tool: string, head: Head): string | undefined {
-  if (!HEAD_REFUSED.includes(tool)) return undefined;
-  if (tool === "Task" || tool === "Agent") {
-    return `Refused: the ${head} doesn't start subagents, and every try is refused the same way. ${HAND_OVER} Parallel parts go to several teammates at once, one message each; a teammate may split its own job with subagents. Don't do the job yourself instead, through the shell or any other tool.`;
-  }
-  return `Refused: the ${head} doesn't change files, and every try is refused the same way. ${HAND_OVER} Don't make the change yourself another way, the shell included.`;
+/** The built-in tools a project's Claude chat is refused, by its place on
+ *  the team: a lead and the liaison delegate (HEAD_REFUSED); a member, and
+ *  the liaison, ask no questions on cards — the user only sometimes opens
+ *  their chats, and a turn held at a card holds every job queued behind it.
+ *  Refused through the same hook as a lead's, so the model is told to ask
+ *  in plain words instead. Other harnesses are told, in their words, but
+ *  not held to it. */
+export function refusedFor(role: Head | "member"): string[] {
+  if (role === "lead") return HEAD_REFUSED;
+  return role === "liaison" ? [...HEAD_REFUSED, "AskUserQuestion"] : ["AskUserQuestion"];
 }
 
-/** The built-in tools a project's Claude chat goes without: a member, and
- *  the liaison, ask no questions on cards — the user only sometimes opens
- *  their chats, and a turn held at a card holds every job queued behind
- *  it. They ask in plain words. Other harnesses are told, in their words,
- *  but not held to it. */
-export function disallowedFor(role: Head | "member"): string[] {
-  return role === "lead" ? [] : ["AskUserQuestion"];
+/** What a refused tool answers: why, and what to do instead — for a lead
+ *  or the liaison, whom the job goes to. Undefined for a tool this chat
+ *  may use. */
+export function refusal(tool: string, role: Head | "member"): string | undefined {
+  if (!refusedFor(role).includes(tool)) return undefined;
+  if (tool === "AskUserQuestion") {
+    const whose = role === "liaison" ? "the liaison's" : "a teammate's";
+    const job =
+      role === "liaison"
+        ? "On an outside job, answer the asking agent with the question: it has a user to ask."
+        : "On a job from another agent, ask whoever handed it to you, with mcp__ruri__message_agent, or say what you need in your report.";
+    return `Refused: no question card reaches the user from ${whose} chat, and every try is refused the same way. If the user typed the prompt you are on, ask them in plain words and end your turn: they answer with their next prompt. ${job}`;
+  }
+  if (tool === "Task" || tool === "Agent") {
+    return `Refused: the ${role} doesn't start subagents, and every try is refused the same way. ${HAND_OVER} Parallel parts go to several teammates at once, one message each; a teammate may split its own job with subagents. Don't do the job yourself instead, through the shell or any other tool.`;
+  }
+  return `Refused: the ${role} doesn't change files, and every try is refused the same way. ${HAND_OVER} Don't make the change yourself another way, the shell included.`;
 }
 
 /* ── a lead doing the work through the shell ─────────────────────── */

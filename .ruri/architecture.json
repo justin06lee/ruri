@@ -503,18 +503,7 @@
           ]
         }
       ],
-      "files": [
-        "web/src/components/ChatPane.tsx — transcript holder, turn grouping host and composer dock",
-        "web/src/components/Composer.tsx — prompt textarea, attachments, commands, shell toggle and send",
-        "web/src/components/EventView.tsx — per-event transcript rendering, compaction marks and tool blocks",
-        "web/src/components/Exchange.tsx — groupTurns flat events into prompt-to-result turns and folds",
-        "web/src/markdown.tsx — streaming markdown components for replies",
-        "web/src/lib/markdownHtml.ts — marked plus DOMPurify markdown-to-HTML kept testable off components",
-        "web/src/lib/markers.ts — pure string handling of [image #n] and /command markers",
-        "web/src/components/Markers.tsx — chip mirror overlay drawn over the textarea",
-        "web/src/components/Attachments.tsx — composer strip, full viewer, region annotations and transcript attachments",
-        "web/src/components/Questions.tsx — single-card AskUserQuestion and elicitation flow with persisted state"
-      ],
+      "files": [],
       "rules": [
         "Never put highlighting or sanitizing inline in components: markdown goes via lib/markdownHtml.ts with DOMPurify since model output is untrusted innerHTML.",
         "Do not re-highlight from scratch: highlighter.ts caches by language plus text and only long blocks go to highlight.worker.ts; short blocks stay inline.",
@@ -523,13 +512,7 @@
         "Sketch keeps shapes and redraws at export size with per-channel autosave; it closes only on its own close button, never on Escape.",
         "A user event whose text opens with CARRY_ON (shared handoffNote) is ruri's carry-on after a self-compaction: render it as CarryOn, never as the user's bubble or as a letter from its `from` (with `carried` that only says whose job it still is); server continuePrompt must keep opening with CARRY_ON."
       ],
-      "edges": [
-        "Protocol — TranscriptEvent, Attachment, AskQuestion and marker text shapes come from shared/protocol.ts",
-        "App shell, state and tooling — send, transcript, drafts and prefs come from the store/prefs; do not duplicate them here",
-        "Chat runs and queue — live prompts, turns, rewind and transcript delivery arrive over the socket into ChatPane.tsx",
-        "Navigation: sidebar, projects and queue — session switching unmounts cards so question state is keyed by request to survive",
-        "Bridge — BridgeStrip preview sits above the composer alongside Terminal.tsx tabs"
-      ]
+      "edges": []
     },
     "navigation-projects": {
       "summary": "This layer moves the user between projects: a sidebar row per project (its lead behind it, the count of teammates at work beside it), HomeBoard projects overview, ⌘K/right-Option Switcher, per-chat Queue list, Rapid Fire line, SessionControls pickers, and Player music bar. It is built as presentational React components over the app store (useRuri/send) plus three small libs (fuzzy scoring, run-note staleness, Web Audio engine). Newcomers must grasp that a project is one chat for the user, its lead; its team's members never show here as their own rows, and these components navigate and display state but never own turn execution.",
@@ -1008,6 +991,7 @@
           "name": "Team page roster",
           "files": [
             "web/src/components/TeamPage.tsx",
+            "web/src/components/ChatPane.tsx",
             "web/src/store.ts",
             "web/src/styles.css"
           ]
@@ -1016,8 +1000,16 @@
           "name": "Chat pane and continuation display",
           "files": [
             "web/src/components/ChatPane.tsx",
+            "web/src/components/PermissionBanner.tsx",
             "web/src/components/Exchange.tsx",
-            "web/src/components/EventView.tsx",
+            "web/src/store.ts"
+          ]
+        },
+        {
+          "name": "Sidebar project rows and session navigation",
+          "files": [
+            "web/src/components/Sidebar.tsx",
+            "web/src/components/ChatPane.tsx",
             "web/src/store.ts"
           ]
         },
@@ -1074,6 +1066,7 @@
         "web/src/components/TeamPage.tsx — team roster, Stop/Refresh controls, liaison card and unstaffed chips",
         "web/src/components/Exchange.tsx — chat exchange rendering with continuation and handoff note",
         "web/src/components/ChatPane.tsx — chat pane driving store team actions",
+        "web/src/components/Sidebar.tsx — project rows staying lit while any of its chats is open",
         "web/src/components/HomeBoard.tsx — home board surfacing team state"
       ],
       "rules": [
@@ -1228,10 +1221,10 @@
         "Only existing commands count — ruri's own, harness prompt commands, installed skills; quoted ones ('/compact', \"/compact\", `/compact`) and /tmp alone on a line stay plain text to the model.",
         "RURI_TEAM_MAX, when set, caps members at work; one holding on an answer (talk.awaiting) doesn't count, or mutual waits hold every slot for good. Only waking a sleeping member is gated.",
         "Turn progress lives in turns.ts not the window so the clock survives reload; broadcast deltas throttled to one message a second.",
-        "Rewind must restore files, branch, transcript, composer prompt, and context gauge to the kept exchange, not the tip.",
+        "Rewind restores files, branch, transcript, composer prompt and context gauge to the kept exchange, not the tip.",
         "A letter is answered by the last words of the turn that finishes the job: owedLetter() is what a turn owes (its own letter, a carried one, or via an answer's owes); talkTurnEnded settles it only when nothing sent for it is out (TalkBook.outstanding). An answer that leaves the book any other way — a wait in another job, taken out of the queue — goes through answerOnward. Self-compaction marks the carry (carryLetter) at the turn's result, before talkTurnEnded.",
-        "The liaison (session.liaison) is never marked lead and leadOf skips it; it is not a member either: what takes 'every non-lead session' as the team must skip it (membersOf, store.isMember, protocol isMember); unattended() covers members and the liaison, whose held lines nobody sends on by hand.",
-        "A lead's or the liaison's Edit/Write/NotebookEdit/Agent/Task are refused by a PreToolUse hook naming whom to hand the job to (SessionExtras.refuse), never disallowedTools: its bare 'No such tool' sent mira's lead into Bash. headWatch (afterTools) nudges at a writing or running command, or every third look."
+        "The liaison (session.liaison) is never lead (leadOf skips it) nor a member: code taking 'every non-lead session' as the team must skip it (membersOf, isMember). unattended() covers members and the liaison: held lines let go for letters; the user's 'send now' waits behind a turn on another agent's job (onAJob).",
+        "Tools a chat may not use are refused by a PreToolUse hook with what to do instead (SessionExtras.refuse, team.ts refusedFor/refusal), never disallowedTools, whose bare 'No such tool' sent mira's lead into Bash: a lead's or the liaison's Edit/Write/Agent/Task, a member's or the liaison's AskUserQuestion (its card hook stands down). headWatch nudges a lead's shell."
       ],
       "edges": [
         "Protocol — every socket message and transcript event is typed in shared/protocol.ts",

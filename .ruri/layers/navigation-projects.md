@@ -20,7 +20,7 @@ This layer moves the user between projects: a sidebar row per project (its lead 
 
 ## How it works
 
-- **Switch project:** Sidebar row, Switcher Enter, HomeBoard card, or RapidBar hand-off calls setActive/go on the project's lead → setActive turns a member's id into its lead's (store.ts shownChat) while app active session is preserved where required (RapidFire) → Chat pane renders the lead's transcript → Unread pips and recent-note lines update from store (teammates' turns wear none)
+- **Switch project:** Sidebar row, Switcher Enter, HomeBoard card, or RapidBar hand-off calls setActive/go on the project's lead; the team page opens any teammate or the liaison, and setActive keeps that id (store.ts shownChat) → Chat pane renders that chat's transcript; a retired or refreshed teammate falls back to its lead (stillShown) → The project's row is active while any of its sessions is open → Unread pips and recent-note lines update from store (teammates' turns wear none, leadFor)
 - **Hold and dispatch a queued prompt:** Queue.tsx holds prompt app-side while a turn runs (nothing reaches harness) → User edits, merges (drop on body), reorders (drop on edge), or removes card up to dispatch → Fold can be undone within UNDO_MS (8000ms) → composeInto/send releases the prompt when its turn comes
 - **Rapid Fire pass through ready projects:** Line membership resolved via lib/rapid — each project once, as its lead; all open vs starred-only, hidden excluded → RapidFire hands the ordinary chat pane a different channel to show (builds no pane) → Prompt lands and sits readable, card eases out → Next project's name announces big (the project alone) before its lead's chat rises → Leaving the line restores the prior active chat
 
@@ -40,7 +40,7 @@ This layer moves the user between projects: a sidebar row per project (its lead 
 ## Rules and traps
 
 - HomeBoard never animates: streaming reply words and anything moving belong only to the open chat.
-- A project's team never shows here: the sidebar, switcher, rapid fire line and projects board give each project once, as its lead (leadOf), and setActive sends a member's id to its lead. RapidFire must not move the app's active session; leaving the line returns to where the user was.
+- Each project shows once here, as its lead (leadOf): the sidebar row, switcher, rapid fire line and projects board all open the lead, never a teammate. Only the team page opens a teammate or the liaison; then the row stays active. RapidFire must not move the app's active session; leaving the line returns to where the user was.
 - SessionControls picks are per chat (session id / Home channelId), never per project.
 - Queued prompts stay app-side until their turn; editable/removable up to dispatch only.
 - Switcher opens on right-Option tap alone; Option held for shortcuts (e.g. ⌥→) must not open it.

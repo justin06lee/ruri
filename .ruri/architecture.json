@@ -602,10 +602,10 @@
         {
           "name": "Switch project",
           "steps": [
-            "Sidebar row, Switcher Enter, HomeBoard card, or RapidBar hand-off calls setActive/go on the project's lead",
-            "setActive turns a member's id into its lead's (store.ts shownChat) while app active session is preserved where required (RapidFire)",
-            "Chat pane renders the lead's transcript",
-            "Unread pips and recent-note lines update from store (teammates' turns wear none)"
+            "Sidebar row, Switcher Enter, HomeBoard card, or RapidBar hand-off calls setActive/go on the project's lead; the team page opens any teammate or the liaison, and setActive keeps that id (store.ts shownChat)",
+            "Chat pane renders that chat's transcript; a retired or refreshed teammate falls back to its lead (stillShown)",
+            "The project's row is active while any of its sessions is open",
+            "Unread pips and recent-note lines update from store (teammates' turns wear none, leadFor)"
           ]
         },
         {
@@ -642,7 +642,7 @@
       ],
       "rules": [
         "HomeBoard never animates: streaming reply words and anything moving belong only to the open chat.",
-        "A project's team never shows here: the sidebar, switcher, rapid fire line and projects board give each project once, as its lead (leadOf), and setActive sends a member's id to its lead. RapidFire must not move the app's active session; leaving the line returns to where the user was.",
+        "Each project shows once here, as its lead (leadOf): the sidebar row, switcher, rapid fire line and projects board all open the lead, never a teammate. Only the team page opens a teammate or the liaison; then the row stays active. RapidFire must not move the app's active session; leaving the line returns to where the user was.",
         "SessionControls picks are per chat (session id / Home channelId), never per project.",
         "Queued prompts stay app-side until their turn; editable/removable up to dispatch only.",
         "Switcher opens on right-Option tap alone; Option held for shortcuts (e.g. ⌥→) must not open it.",

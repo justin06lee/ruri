@@ -4677,7 +4677,8 @@ input[type="range"]::-webkit-slider-thumb {
   }
 }
 
-/* a mark on the picture: its code has moved on, or it is an older one */
+/* a mark on the picture: its code has moved on, or it is an older one;
+   on the left, its files are gone */
 .lib-badge {
   position: absolute;
   right: 6px;
@@ -4688,6 +4689,13 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--paper-bright);
   border: 1px dashed var(--line-soft);
   border-radius: 99px;
+}
+
+.lib-badge.left {
+  right: auto;
+  left: 6px;
+  border-style: solid;
+  color: var(--ink);
 }
 
 .lib-tile-blank {
@@ -4747,6 +4755,12 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* a name an agent or the sweep chose and the user hasn't kept yet */
+.lib-tile-name-text.unsure {
+  text-decoration: underline dotted var(--ink-faint);
+  text-underline-offset: 3px;
 }
 
 /* the first of its note, two lines at most — enough to tell two cards apart */
@@ -4859,14 +4873,29 @@ input[type="range"]::-webkit-slider-thumb {
   height: 16px;
 }
 
+/* the code moved on from the picture or note — and "still right" */
 .lib-behind {
-  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: var(--fs-sm);
   color: var(--ink-soft);
 }
 
-/* the sweep's guess, and the button that says it holds */
-.lib-found {
+.lib-behind > span {
+  flex: 1;
+}
+
+.lib-behind button {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  font-size: var(--fs-sm);
+  border: 1.5px solid var(--line-soft);
+}
+
+/* a question about it the user is the one to answer: is this its name,
+   and where did its files go */
+.lib-ask {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -4874,20 +4903,25 @@ input[type="range"]::-webkit-slider-thumb {
   border: 1.5px dashed var(--line-soft);
   border-radius: var(--radius-s);
   font-size: var(--fs-md);
+  line-height: 1.5;
   color: var(--ink-soft);
 }
 
-.lib-found span {
+.lib-ask > span {
   flex: 1;
 }
 
-.lib-found b {
+.lib-ask b {
   color: var(--ink);
 }
 
-.lib-found button {
+.lib-ask button {
   flex-shrink: 0;
   font-size: var(--fs-md);
+}
+
+.lib-ask.lost {
+  background-image: var(--stripes);
 }
 
 /* the command an agent installs it with */
@@ -4995,6 +5029,11 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 100%;
   max-height: 460px;
   object-fit: contain;
+}
+
+.lib-preview-blank p {
+  margin: 0;
+  max-width: 420px;
 }
 
 .lib-preview-blank {
@@ -5159,7 +5198,7 @@ input[type="range"]::-webkit-slider-thumb {
   min-height: 0;
   resize: none;
   line-height: 1.5;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 /* an empty field says so, faintly — never in words that pass for a value */

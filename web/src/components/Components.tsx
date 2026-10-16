@@ -10,6 +10,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from "react";
+import { searchComponents, stem, words as wordsIn } from "../../../shared/librarySearch";
 import { componentStale, type Attachment, type ComponentFile, type NamedComponent } from "../../../shared/protocol";
 import { Viewer } from "./Attachments";
 import { useConfirm } from "./Confirm";
@@ -49,9 +50,10 @@ import { HTTP_BASE, send, useRuri } from "../store";
  * its picture says so. Correcting any of it is what this page is for.
  *
  * A library runs to hundreds, so the gallery is built for finding: a search
- * that marks what it matched, chips that narrow it to what is new, what
- * needs a picture, what is out of date and what the sweep only guessed,
- * arrow keys through the cards, and a way back that lands where you left.
+ * that marks what it matched (the same search as `ruri search`), chips
+ * that narrow it to what is new, names nobody has kept, what needs a
+ * picture, what is out of date and what has lost its files, arrow keys
+ * through the cards, and a way back that lands where you left.
  * Its cards show small copies of the pictures (lib/thumbs.ts), never the
  * screenshots themselves.
  *
@@ -115,39 +117,35 @@ function slugify(name: string): string {
   return slug || "component";
 }
 
-/** The words of a search, as typed. */
-function wordsOf(query: string): string[] {
-  return query
-    .toLowerCase()
-    .split(/[\s,]+/)
-    .filter(Boolean);
+/** Short words a search drops, which would otherwise be marked everywhere. */
+const UNMARKED = new Set(["the", "and", "for", "with", "that", "this", "its", "our", "your"]);
+
+/**
+ * What a search looks for, to mark in what it found: its words cut down the
+ * way the search cuts them (shared/librarySearch.ts), so "navigation" is
+ * marked for "nav" and "prices" for "pricing". The search is the same one
+ * `ruri search` uses — the page and the agents find the same things.
+ */
+function marksOf(query: string): string[] {
+  const all = wordsIn(query).map(stem);
+  const kept = all.filter((w) => w.length >= 3 && !UNMARKED.has(w));
+  return [...new Set(kept.length ? kept : all)];
 }
 
-/** How well an entry answers a search — 0 when it doesn't: every word has
- *  to be somewhere in it, and one in its name, handle or tags counts for
- *  more than one in its note or its files (server/library.ts ranks the
- *  same way for `ruri search`). */
-function score(item: NamedComponent, words: string[]): number {
-  const strong = [item.slug, item.name, ...item.aliases, ...(item.tags ?? [])].join(" ").toLowerCase();
-  const weak = [item.note, ...item.files, ...(item.uses ?? [])].join(" ").toLowerCase();
-  let total = 0;
-  for (const word of words) {
-    if (strong.includes(word)) total += 3;
-    else if (weak.includes(word)) total += 1;
-    else return 0;
-  }
-  return total;
+/** Whether a word of an entry is one a search was looking for. */
+function marked(word: string, marks: string[]): boolean {
+  const own = stem(word);
+  return marks.some((m) => own.startsWith(m) || (own.length >= 4 && m.startsWith(own)));
 }
 
-/** Text with the words of the search marked in it. */
-function Marked({ text, words }: { text: string; words: string[] }) {
-  if (words.length === 0) return <>{text}</>;
-  const pattern = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
-  // split on a captured pattern puts every match at an odd index
+/** Text with what the search matched marked in it. */
+function Marked({ text, marks }: { text: string; marks: string[] }) {
+  if (marks.length === 0) return <>{text}</>;
+  // split on a captured word puts every word at an odd index
   return (
     <>
-      {text.split(pattern).map((part, i) =>
-        i % 2 === 1 ? (
+      {text.split(/([\p{L}\p{N}]+)/u).map((part, i) =>
+        i % 2 === 1 && marked(part, marks) ? (
           <mark key={i} className="lib-mark">
             {part}
           </mark>
@@ -176,11 +174,16 @@ function unpictured(item: NamedComponent, gone: ReadonlySet<string>): boolean {
 }
 
 /** What the gallery can be narrowed to. */
-type Filter = "all" | "new" | "unpictured" | "outdated" | "found";
+type Filter = "all" | "new" | "unsure" | "unpictured" | "outdated" | "lost";
 
 const FILTERS: Array<{ id: Filter; label: string; title: string }> = [
   { id: "all", label: "All", title: "Everything in the library" },
   { id: "new", label: "New", title: "Named since you last looked" },
+  {
+    id: "unsure",
+    label: "Names to check",
+    title: "An agent or the repo sweep chose these names — open one to keep it or call it what you call it",
+  },
   {
     id: "unpictured",
     label: "Needs a picture",
@@ -191,7 +194,11 @@ const FILTERS: Array<{ id: Filter; label: string; title: string }> = [
     label: "Outdated",
     title: "Its code changed after its picture was taken — Update everything retakes them",
   },
-  { id: "found", label: "Found by the sweep", title: "Named by the repo sweep — a guess until you correct it" },
+  {
+    id: "lost",
+    label: "Files gone",
+    title: "Its files are in neither the project nor any of its worktrees — say where they went, or take it out",
+  },
 ];
 
 function inFilter(item: NamedComponent, filter: Filter, gone: ReadonlySet<string>): boolean {
@@ -204,8 +211,10 @@ function inFilter(item: NamedComponent, filter: Filter, gone: ReadonlySet<string
       return unpictured(item, gone);
     case "outdated":
       return !unpictured(item, gone) && componentStale(item).picture;
-    case "found":
-      return item.found === true;
+    case "unsure":
+      return !item.confirmed;
+    case "lost":
+      return (item.missing?.length ?? 0) > 0;
   }
 }
 
@@ -388,12 +397,12 @@ function useNear(ref: RefObject<Element | null>): boolean {
 function Tile({
   projectId,
   item,
-  words,
+  marks,
   onOpen,
 }: {
   projectId: string;
   item: NamedComponent;
-  words: string[];
+  marks: string[];
   onOpen(): void;
 }) {
   const box = useRef<HTMLButtonElement>(null);
@@ -402,6 +411,7 @@ function Tile({
   const { src, index } = useThumb(srcs, near);
   const [over, setOver] = useState(false);
   const behind = componentStale(item).picture;
+  const lost = item.missing?.length ?? 0;
   const note = item.note.trim().split("\n")[0] ?? "";
   return (
     <button
@@ -460,17 +470,31 @@ function Tile({
             <span className="lib-tile-hint">drop one here</span>
           </span>
         ) : null}
+        {lost > 0 && (
+          <span className="lib-badge left" title={`Not in the project or any of its worktrees: ${item.missing!.join(", ")}`}>
+            {lost === item.files.length ? "files gone" : `${lost} file${lost === 1 ? "" : "s"} gone`}
+          </span>
+        )}
         {over && <span className="lib-tile-dropping">Drop to add the picture</span>}
       </span>
       <span className="lib-tile-name">
-        <span className="lib-tile-name-text">
-          <Marked text={item.name} words={words} />
+        <span
+          className={`lib-tile-name-text${item.confirmed ? "" : " unsure"}`}
+          title={
+            item.confirmed
+              ? undefined
+              : item.found
+                ? "The repo sweep's guess at a name — open it to keep it or rename it"
+                : "An agent chose this name — open it to keep it or rename it"
+          }
+        >
+          <Marked text={item.name} marks={marks} />
         </span>
         {item.star === "just" && <Star where="just" />}
       </span>
-      <span className="lib-tile-note">{note ? <Marked text={note} words={words} /> : "No note yet."}</span>
+      <span className="lib-tile-note">{note ? <Marked text={note} marks={marks} /> : "No note yet."}</span>
       <span className="lib-tile-slug">
-        <Marked text={item.slug} words={words} />
+        <Marked text={item.slug} marks={marks} />
       </span>
     </button>
   );
@@ -723,7 +747,6 @@ type Patch = Partial<{
   selector: string;
   route: string;
   clicks: string[];
-  found: boolean;
 }>;
 
 /** One of a component's pictures, small, in the strip under the big one. */
@@ -893,17 +916,44 @@ function Detail({
         )}
       </div>
 
-      {item.found && (
-        <div className="lib-found">
+      {/* Most names come from an agent, and this page is the one place the
+          user says what they call a thing: keeping it, or renaming it above,
+          makes the name theirs (server/components.ts confirm). */}
+      {!item.confirmed && (
+        <div className="lib-ask">
           <span>
-            <b>Found by the sweep.</b> Its name, note and files are a guess until you correct them — or say they
-            hold.
+            {item.found ? (
+              <>
+                <b>The repo sweep's guess.</b> Is “{item.name}” what you call it? Its note and files are a guess
+                too.
+              </>
+            ) : (
+              <>
+                <b>An agent named this.</b> Is “{item.name}” what you call it? If not, rename it above.
+              </>
+            )}
           </span>
-          <button type="button" onClick={() => patch({ found: false })}>
-            Looks right
+          <button type="button" onClick={() => patch({ name: item.name })}>
+            That's right
           </button>
         </div>
       )}
+
+      {item.missing?.length ? (
+        <div className="lib-ask lost">
+          <span>
+            <b>
+              {item.missing.length === item.files.length
+                ? "Its files are gone"
+                : `${item.missing.length} of its files ${item.missing.length === 1 ? "is" : "are"} gone`}
+              :
+            </b>{" "}
+            <span className="mono">{item.missing.join(", ")}</span> — in neither the project nor any of its
+            worktrees. Say where {item.missing.length === 1 ? "it is" : "they are"} now under “its files”, or take
+            it out of the library.
+          </span>
+        </div>
+      ) : null}
 
       <div className="lib-install">
         <code>{install}</code>
@@ -950,15 +1000,15 @@ function Detail({
             ) : (
               <div className="lib-preview-blank">
                 {missing > 0 ? (
-                  <>
+                  <p>
                     Its {missing === 1 ? "picture is" : "pictures are"} missing — the file
                     {missing === 1 ? " is" : "s are"} gone. Drop or paste a new one here, or press{" "}
                     <b>Update everything</b> to have it taken.
-                  </>
+                  </p>
                 ) : (
-                  <>
+                  <p>
                     No picture yet. Drop or paste one here — or press <b>Update everything</b> to have it taken.
-                  </>
+                  </p>
                 )}
               </div>
             )}
@@ -971,9 +1021,19 @@ function Detail({
           )}
           {(behind.picture || behind.note) && (
             <div className="lib-behind">
-              Its code has changed since {behind.picture ? "this picture" : "its note was written"}
-              {item.changedAt ? ` (${new Date(item.changedAt).toLocaleDateString()})` : ""} —{" "}
-              <b>Update everything</b> {behind.picture ? "retakes it" : "rereads it"}.
+              <span>
+                Its code has changed since {behind.picture ? "this picture" : "its note was written"}
+                {item.changedAt ? ` (${new Date(item.changedAt).toLocaleDateString()})` : ""} —{" "}
+                <b>Update everything</b> {behind.picture ? "retakes it" : "rereads it"}, or say it still holds.
+              </span>
+              <button
+                type="button"
+                className="ghost"
+                title="The picture and note still show it as it is: take the mark off without a new picture"
+                onClick={() => send({ type: "component_current", projectId, componentId: item.id })}
+              >
+                Still right
+              </button>
             </div>
           )}
           <div className="lib-thumbs">
@@ -1212,28 +1272,23 @@ function Library({ projectId }: { projectId: string }) {
 
   // one taken out while it was open simply isn't open any more
   const open = openId ? items.find((item) => item.id === openId) : undefined;
-  const words = useMemo(() => wordsOf(view.query), [view.query]);
-  // what the search finds, best first — the chips count within it
-  const found = useMemo(() => {
-    if (!words.length) return items;
-    return items
-      .map((item) => ({ item, score: score(item, words) }))
-      .filter((hit) => hit.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .map((hit) => hit.item);
-  }, [items, words]);
+  const searching = view.query.trim() !== "";
+  const marks = useMemo(() => marksOf(view.query), [view.query]);
+  // what the search finds, best first — the same search as `ruri search`
+  // (shared/librarySearch.ts) — and the chips count within it
+  const hits = useMemo(() => (searching ? searchComponents(items, view.query) : items), [items, view.query, searching]);
   const counts = useMemo(() => {
-    const out = { all: 0, new: 0, unpictured: 0, outdated: 0, found: 0 } satisfies Record<Filter, number>;
-    for (const item of found) for (const f of FILTERS) if (inFilter(item, f.id, gone)) out[f.id] += 1;
+    const out = { all: 0, new: 0, unsure: 0, unpictured: 0, outdated: 0, lost: 0 } satisfies Record<Filter, number>;
+    for (const item of hits) for (const f of FILTERS) if (inFilter(item, f.id, gone)) out[f.id] += 1;
     return out;
-  }, [found, gone]);
+  }, [hits, gone]);
   const shown = useMemo(() => {
-    const kept = found.filter((item) => inFilter(item, view.filter, gone));
-    if (words.length) return kept;
+    const kept = hits.filter((item) => inFilter(item, view.filter, gone));
+    if (searching) return kept;
     return view.sort === "name"
       ? [...kept].sort((a, b) => a.name.localeCompare(b.name))
       : [...kept].sort((a, b) => lastTouched(b) - lastTouched(a));
-  }, [found, view.filter, view.sort, words, gone]);
+  }, [hits, view.filter, view.sort, searching, gone]);
 
   const openOne = (id: string) => {
     if (!open) {
@@ -1430,7 +1485,7 @@ function Library({ projectId }: { projectId: string }) {
                       </button>
                     ))}
                     <span className="lib-filters-gap" />
-                    <div className="seg lib-sort" title={words.length ? "A search is shown best match first" : undefined}>
+                    <div className="seg lib-sort" title={searching ? "A search is shown best match first" : undefined}>
                       {(
                         [
                           ["recent", "Recent"],
@@ -1440,8 +1495,8 @@ function Library({ projectId }: { projectId: string }) {
                         <button
                           key={id}
                           type="button"
-                          className={`seg-option${view.sort === id && !words.length ? " active" : ""}`}
-                          disabled={words.length > 0}
+                          className={`seg-option${view.sort === id && !searching ? " active" : ""}`}
+                          disabled={searching}
                           onClick={() => change({ sort: id })}
                         >
                           {label}
@@ -1452,7 +1507,7 @@ function Library({ projectId }: { projectId: string }) {
 
                   {shown.length === 0 ? (
                     <div className="lib-none">
-                      {words.length ? (
+                      {searching ? (
                         <>
                           Nothing {view.filter === "all" ? "" : `under “${filterLabel}” `}matches “{view.query}”.
                           <button type="button" className="ghost" onClick={() => change({ query: "" })}>
@@ -1475,7 +1530,7 @@ function Library({ projectId }: { projectId: string }) {
                           key={item.id}
                           projectId={projectId}
                           item={item}
-                          words={words}
+                          marks={marks}
                           onOpen={() => openOne(item.id)}
                         />
                       ))}

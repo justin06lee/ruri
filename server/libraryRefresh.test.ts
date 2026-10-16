@@ -350,6 +350,10 @@ describe("what git says", () => {
 
     expect(await renamedTo(dir, "web/Band.tsx")).toBe("web/PeekBand.tsx");
     expect(await renamedTo(dir, "web/Old.tsx")).toBeUndefined();
+    // staged, not committed yet
+    git(["mv", "web/Card.tsx", "web/PriceCard.tsx"], 1_700_000_600);
+    expect(await renamedTo(dir, "web/Card.tsx")).toBe("web/PriceCard.tsx");
+    git(["mv", "web/PriceCard.tsx", "web/Card.tsx"], 1_700_000_600);
 
     const tidy = await tidyFiles(dir, [
       entry({ id: "band", files: ["web/Band.tsx"], uses: ["web/styles.css:12"] }),

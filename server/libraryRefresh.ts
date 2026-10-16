@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import type { NamedComponent } from "../shared/protocol.js";
+import { anchorable } from "./checkouts.js";
 import { parseRef } from "./library.js";
 import { errorCode, isMissing, warn } from "./log.js";
 
@@ -106,6 +107,13 @@ export async function dirtyFiles(dir: string): Promise<Set<string>> {
  * (or git doesn't know it).
  */
 export async function renamedTo(dir: string, rel: string, hops = 3): Promise<string | undefined> {
+  // a rename not committed yet (git mv) is in the index
+  const pending = await git(dir, ["status", "--porcelain", "--untracked-files=no"]);
+  for (const line of (pending ?? "").split("\n")) {
+    if (!line.startsWith("R")) continue;
+    const [from, to] = line.slice(3).split(" -> ").map((p) => p.trim().replace(/^"|"$/g, ""));
+    if (from === rel && to && fs.existsSync(path.join(dir, to))) return to;
+  }
   const last = (await git(dir, ["log", "-1", "--format=%H", "--", rel]))?.trim();
   if (!last) return undefined;
   const out = await git(dir, ["show", "-M", "--name-status", "--format=", last]);
@@ -286,12 +294,6 @@ export function mtimeIn(dir: string): (rel: string) => number | undefined {
 }
 
 /* ── lines that move ──────────────────────────────────────────────── */
-
-/** A line's text is worth finding again only when it says something: not
- *  a brace, not a blank. */
-function anchorable(text: string | undefined): text is string {
-  return !!text && text.length >= 6 && /[\p{L}\p{N}]/u.test(text);
-}
 
 /**
  * Each place an entry reaches at a line ("styles.css:2864"), found again

@@ -910,6 +910,8 @@ export interface ComponentProposal {
   checkout?: string;
   /** Server-side only: what its code said there (checkouts.ts codeSig). */
   sig?: string;
+  /** Server-side only: the text on each line it reaches into, there. */
+  anchors?: Record<string, string>;
 }
 
 /** An installed Claude Code skill, global or local to one project. */

@@ -8,7 +8,7 @@ import {
   type NamedComponent,
 } from "../shared/protocol.js";
 import { scoreComponent, searchComponents } from "../shared/librarySearch.js";
-import { checkoutFor, codeSig } from "./checkouts.js";
+import { anchorsAt, checkoutFor, codeSig } from "./checkouts.js";
 import { configPath } from "./configDir.js";
 import { isMissing, warn } from "./log.js";
 import { storedFilePath } from "./uploads.js";
@@ -287,7 +287,15 @@ export function entryLines(item: NamedComponent, view: EntryView = "full"): stri
   if (item.note.trim()) lines.push(item.note.trim());
   if (item.aliases.length) lines.push(`Also called: ${item.aliases.join(", ")}`);
   if (item.files.length) lines.push(`Its files: ${item.files.join(", ")}`);
-  if (item.uses?.length) lines.push(`Reaches into: ${item.uses.join(", ")}`);
+  if (item.uses?.length) {
+    // the committed file names a line by what is on it, which moves with
+    // the code; a number would change with every edit above it
+    const place = (ref: string) => {
+      const anchor = item.anchors?.[ref];
+      return view === "file" && anchor ? `${parseRef(ref).path} (at \`${anchor}\`)` : ref;
+    };
+    lines.push(`Reaches into: ${item.uses.map(place).join(", ")}`);
+  }
   if (view !== "prompt" && item.installs?.length)
     lines.push(`Copies installed at: ${item.installs.join(", ")}`);
   if (item.tags?.length) lines.push(`Tags: ${item.tags.join(", ")}`);
@@ -742,6 +750,8 @@ export interface LibraryHost {
 export interface Filed {
   sig?: string;
   in?: string;
+  /** The text on each line its new `uses` name, there. */
+  anchors?: Record<string, string>;
 }
 
 /** What `ruri edit` may change. */
@@ -1128,6 +1138,9 @@ function register(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAns
   const shot = oneFlag(args, "shot");
   const picture = shot ? shotFile(where, shot) : undefined;
   if (picture && !fs.existsSync(picture)) return no(`no picture at ${shot}`);
+  const shares = host
+    .items(here.id)
+    .flatMap((item) => files.filter((f) => item.files.includes(f)).map((f) => `${f} (with ${item.slug})`));
   const sig = codeSig(where.root, files);
   const outcome = host.ask({
     name,
@@ -1140,11 +1153,9 @@ function register(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAns
     ...(picture ? { shot: picture } : {}),
     ...(where.root !== here.path ? { checkout: where.root } : {}),
     ...(sig ? { sig } : {}),
+    ...(uses.length ? { anchors: anchorsAt(where.roots, uses) } : {}),
   });
   const missingUses = uses.filter((f) => !exists(f));
-  const shares = host
-    .items(here.id)
-    .flatMap((item) => files.filter((f) => item.files.includes(f)).map((f) => `${f} (with ${item.slug})`));
   const notes = [
     ...(shared.length
       ? [`  ${shared.join(", ")}: a place it reaches into, not its own — kept under "reaches into"`]
@@ -1225,7 +1236,11 @@ function edit(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAnswer 
   if (unreadable.length)
     return no(`no picture at ${unreadable.map((s) => s.shot).join(", ")} — nothing was changed`);
   const sig = codeSig(where.root, patch.files ?? item.files);
-  const filed: Filed = { ...(sig ? { sig } : {}), ...(where.root !== here.path ? { in: where.root } : {}) };
+  const filed: Filed = {
+    ...(sig ? { sig } : {}),
+    ...(where.root !== here.path ? { in: where.root } : {}),
+    ...(patch.uses ? { anchors: anchorsAt(where.roots, patch.uses) } : {}),
+  };
   host.update(here.id, item.id, patch, filed);
   if (current) host.current(here.id, item.id, filed);
   // each new picture goes in front, so the first one given is filed last

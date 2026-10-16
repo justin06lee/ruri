@@ -21,7 +21,7 @@ import {
   type ServerMessage,
 } from "../../shared/protocol.js";
 import { channelProject, ownerProject } from "../channel.js";
-import { codeSig, worktreesOf } from "../checkouts.js";
+import { anchorsAt, codeSig, worktreesOf } from "../checkouts.js";
 import { type ComponentHost, writeIndexFile } from "../components.js";
 import type { ServerContext } from "../context.js";
 import {
@@ -73,6 +73,7 @@ function fromProposal(proposal: ComponentProposal, name: string, confirmed: bool
     ...(proposal.deps ? { deps: proposal.deps } : {}),
     ...(proposal.sig ? { sig: proposal.sig } : {}),
     ...(proposal.checkout ? { filedIn: proposal.checkout } : {}),
+    ...(proposal.anchors ? { anchors: proposal.anchors } : {}),
     ...(confirmed ? { confirmed: true } : {}),
   };
 }
@@ -138,6 +139,19 @@ export function createComponentHost(ctx: ServerContext): ComponentHost {
           ...(shot ? { image: shot } : {}),
           ...(sig ? { sig } : {}),
           ...(filedIn ? { checkout: filedIn } : {}),
+          ...(proposal.uses?.length || proposal.files.some((f) => parseRef(f).line !== undefined)
+            ? {
+                anchors:
+                  proposal.anchors ??
+                  anchorsAt(
+                    [checkout],
+                    [
+                      ...(proposal.uses ?? []),
+                      ...proposal.files.filter((f) => parseRef(f).line !== undefined),
+                    ],
+                  ),
+              }
+            : {}),
         };
         // Where nobody is to be asked, the card would only ever be a
         // confirmation: the model has already named the thing and
@@ -251,6 +265,7 @@ export function libraryHost(ctx: ServerContext, channelId: string): LibraryHost 
       ctx.components.update(projectId, componentId, patch, {
         ...(filed?.sig ? { sig: filed.sig } : {}),
         ...(filed?.in ? { filedIn: filed.in } : {}),
+        ...(filed?.anchors ? { anchors: filed.anchors } : {}),
       }),
     remove: (projectId, componentId) => ctx.components.remove(projectId, componentId),
     shoot: (projectId, componentId, file, filed) => {
@@ -736,6 +751,7 @@ export const componentHandlers = {
     const project = ctx.store.get(msg.projectId);
     // the user is the one renaming it here: the name is theirs now
     const sig = project && msg.files ? codeSig(project.path, msg.files) : undefined;
+    const anchors = project && msg.uses ? anchorsAt([project.path], msg.uses) : undefined;
     ctx.components.update(
       msg.projectId,
       msg.componentId,
@@ -752,7 +768,7 @@ export const componentHandlers = {
         ...(msg.route !== undefined ? { route: msg.route } : {}),
         ...(msg.clicks !== undefined ? { clicks: msg.clicks } : {}),
       },
-      { confirm: true, ...(sig ? { sig } : {}) },
+      { confirm: true, ...(sig ? { sig } : {}), ...(anchors ? { anchors } : {}) },
     );
     pushComponents(ctx, msg.projectId, project?.path);
   },

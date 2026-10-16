@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import type { NamedComponent } from "../shared/protocol.js";
+import { anchorable } from "./checkouts.js";
 import { parseRef } from "./library.js";
 import { errorCode, isMissing, warn } from "./log.js";
 
@@ -106,6 +107,16 @@ export async function dirtyFiles(dir: string): Promise<Set<string>> {
  * (or git doesn't know it).
  */
 export async function renamedTo(dir: string, rel: string, hops = 3): Promise<string | undefined> {
+  // a rename not committed yet (git mv) is in the index
+  const pending = await git(dir, ["status", "--porcelain", "--untracked-files=no"]);
+  for (const line of (pending ?? "").split("\n")) {
+    if (!line.startsWith("R")) continue;
+    const [from, to] = line
+      .slice(3)
+      .split(" -> ")
+      .map((p) => p.trim().replace(/^"|"$/g, ""));
+    if (from === rel && to && fs.existsSync(path.join(dir, to))) return to;
+  }
   const last = (await git(dir, ["log", "-1", "--format=%H", "--", rel]))?.trim();
   if (!last) return undefined;
   const out = await git(dir, ["show", "-M", "--name-status", "--format=", last]);
@@ -124,14 +135,19 @@ function repoint(ref: string, to: string): string {
   return line !== undefined ? `${to}:${line}` : to;
 }
 
-function exists(dir: string, ref: string): boolean {
-  try {
-    fs.statSync(path.join(dir, parseRef(ref).path));
-    return true;
-  } catch (err) {
-    if (!isMissing(err)) warn("libraryRefresh", err, "exists");
-    return false;
-  }
+/** Whether a ref's file is in the project — or in one of `also`, the
+ *  project's worktrees, where a branch not merged yet keeps it. */
+function exists(dirs: string[], ref: string): boolean {
+  const rel = parseRef(ref).path;
+  return dirs.some((dir) => {
+    try {
+      fs.statSync(path.join(dir, rel));
+      return true;
+    } catch (err) {
+      if (!isMissing(err)) warn("libraryRefresh", err, "exists");
+      return false;
+    }
+  });
 }
 
 /** What the files of one entry have become. */
@@ -145,8 +161,14 @@ export interface EntryFiles {
 }
 
 /** Each entry's files checked against the tree: moved ones followed,
- *  deleted ones dropped. Answers only the entries that need a change. */
-export async function tidyFiles(dir: string, items: NamedComponent[]): Promise<EntryFiles[]> {
+ *  deleted ones dropped — where a file still in one of the project's
+ *  worktrees (`also`) counts as there. Answers only the entries that need
+ *  a change. */
+export async function tidyFiles(
+  dir: string,
+  items: NamedComponent[],
+  also: string[] = [],
+): Promise<EntryFiles[]> {
   const out: EntryFiles[] = [];
   const followed = new Map<string, string | undefined>();
   const follow = async (ref: string): Promise<string | undefined> => {
@@ -159,7 +181,7 @@ export async function tidyFiles(dir: string, items: NamedComponent[]): Promise<E
     let changed = false;
     const next: string[] = [];
     for (const ref of list) {
-      if (exists(dir, ref)) {
+      if (exists([dir, ...also], ref)) {
         next.push(ref);
         continue;
       }
@@ -272,4 +294,171 @@ export function mtimeIn(dir: string): (rel: string) => number | undefined {
       return undefined;
     }
   };
+}
+
+/* ── lines that move ──────────────────────────────────────────────── */
+
+/**
+ * Each place an entry reaches at a line ("styles.css:2864"), found again
+ * when the file has moved under it: the line is known by its text (the
+ * anchor), and when the line now holds something else, the nearest line
+ * holding that text is the one meant. A place with no anchor yet takes the
+ * text on its line now. Answers the new lists, or undefined when nothing
+ * moved; `files` is a cache of what was read, shared across entries.
+ */
+export function reanchor(
+  dir: string,
+  uses: string[],
+  anchors: Record<string, string> | undefined,
+  files: Map<string, string[] | null> = new Map(),
+  /** What the component's own code is known by — for a place with no
+   *  anchor yet, whose line may long since have drifted (relocate). */
+  marks?: CodeMarks,
+): { uses: string[]; anchors: Record<string, string> } | undefined {
+  const read = (rel: string): string[] | null => {
+    if (!files.has(rel)) {
+      try {
+        files.set(rel, fs.readFileSync(path.join(dir, rel), "utf8").split("\n"));
+      } catch (err) {
+        if (!isMissing(err)) warn("libraryRefresh", err, "reanchor");
+        files.set(rel, null);
+      }
+    }
+    return files.get(rel)!;
+  };
+  let changed = false;
+  const next: string[] = [];
+  const kept: Record<string, string> = {};
+  for (const ref of uses) {
+    const { path: rel, line } = parseRef(ref);
+    const lines = line !== undefined ? read(rel) : null;
+    if (line === undefined || !lines) {
+      next.push(ref);
+      if (anchors?.[ref]) kept[ref] = anchors[ref];
+      continue;
+    }
+    const anchor = anchors?.[ref];
+    const now = lines[line - 1]?.trim();
+    if (anchor === undefined) {
+      // a place from before anchors: its number may have drifted far from
+      // what it meant — found again by the component's own classes when
+      // it no longer sits on one, else taken as it stands
+      const at = marks ? relocate(lines, line, marks, rel) : line;
+      const text = lines[at - 1]?.trim();
+      const placed = at === line ? ref : `${rel}:${at}`;
+      next.push(placed);
+      if (anchorable(text)) kept[placed] = text;
+      if (placed !== ref || anchorable(text)) changed = true;
+      continue;
+    }
+    if (now === anchor) {
+      next.push(ref);
+      kept[ref] = anchor;
+      continue;
+    }
+    let best = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i]!.trim() !== anchor) continue;
+      if (best < 0 || Math.abs(i + 1 - line) < Math.abs(best + 1 - line)) best = i;
+    }
+    if (best < 0) {
+      // its text is gone from the file: nothing says where it went
+      next.push(ref);
+      kept[ref] = anchor;
+      continue;
+    }
+    const moved = `${rel}:${best + 1}`;
+    next.push(moved);
+    kept[moved] = anchor;
+    changed = true;
+  }
+  return changed ? { uses: [...new Set(next)], anchors: kept } : undefined;
+}
+
+/* ── what a component's code is known by ─────────────────────────── */
+
+/** The classes a component's own code sets and the names it exports — what
+ *  its stretch of a shared stylesheet, or the screen it sits on, mentions. */
+export interface CodeMarks {
+  classes: string[];
+  names: string[];
+  /** The words of its handle ("component", "library"): a line saying them
+   *  all — a section's heading — is about it. */
+  words?: string[];
+}
+
+export function codeMarks(dir: string, files: string[], slug?: string): CodeMarks {
+  const classes = new Set<string>();
+  const names = new Set<string>();
+  for (const ref of files) {
+    let text: string;
+    try {
+      text = fs.readFileSync(path.join(dir, parseRef(ref).path), "utf8");
+    } catch (err) {
+      if (!isMissing(err)) warn("libraryRefresh", err, "codeMarks");
+      continue;
+    }
+    for (const m of text.matchAll(/\bclass(?:Name)?\s*=\s*\{?\s*["'`]([^"'`]{1,200})["'`]/g)) {
+      for (const name of m[1]!.split(/\s+/)) if (/^[a-z][\w-]{2,}$/i.test(name)) classes.add(name);
+    }
+    for (const m of text.matchAll(/export\s+(?:default\s+)?(?:function|class|const)\s+([A-Z]\w+)/g))
+      names.add(m[1]!);
+  }
+  const words = (slug ?? "").split("-").filter((w) => w.length >= 3);
+  return { classes: [...classes], names: [...names], ...(words.length ? { words } : {}) };
+}
+
+const STYLE_FILE = /\.(css|scss|sass|less|styl|pcss)$/i;
+
+/** A class or name on more lines of a file than this is the app's, not one
+ *  component's. */
+const MAX_MENTIONS = 3;
+
+/**
+ * Where a drifted line meant to be: in a stylesheet, the nearest selector
+ * naming one of the component's classes; in code, the nearest line setting
+ * one of them or drawing one of its components. The line as it is when it
+ * already does, or when nothing does.
+ */
+export function relocate(lines: string[], line: number, marks: CodeMarks, file: string): number {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const style = STYLE_FILE.test(file);
+  const tests: RegExp[] = style
+    ? marks.classes.map((c) => new RegExp(`(^|[\\s,>+~(])\\.${esc(c)}(?![\\w-])[^{]*[{,]\\s*$`))
+    : [
+        ...marks.classes.map((c) => new RegExp(`class(Name)?\\s*=.*\\b${esc(c)}\\b`)),
+        ...marks.names.map((n) => new RegExp(`<${esc(n)}\\b`)),
+      ];
+  // a class the whole app uses ("icon-button", "ghost") says nothing about
+  // which component is meant: only what few lines of the file mention count
+  const distinct = tests.filter((t) => {
+    let n = 0;
+    for (const text of lines) if (t.test(text) && ++n > MAX_MENTIONS) return false;
+    return n > 0;
+  });
+  const hits = (i: number) => distinct.some((t) => t.test(lines[i] ?? ""));
+  if (line >= 1 && line <= lines.length) {
+    const text = (lines[line - 1] ?? "").toLowerCase().replace(/[-_]/g, " ");
+    // a line that names it — a section's heading — is about it
+    if (marks.words?.length && marks.words.every((w) => text.includes(w))) return line;
+    if (distinct.length === 0) return line;
+    if (hits(line - 1)) return line;
+    // inside one of its own rules: the selector above it says so
+    if (style) {
+      for (let i = line - 1; i >= 0 && i >= line - 60; i--) {
+        if (!lines[i]!.includes("{")) continue;
+        let first = i;
+        while (first > 0 && /,\s*$/.test(lines[first - 1]!)) first--;
+        for (let j = first; j <= i; j++) if (hits(j)) return line;
+        break;
+      }
+    }
+  }
+  if (distinct.length === 0) return line;
+  let best = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (!hits(i)) continue;
+    if (best < 0 || Math.abs(i + 1 - line) < Math.abs(best + 1 - line)) best = i;
+  }
+  return best < 0 ? line : best + 1;
 }

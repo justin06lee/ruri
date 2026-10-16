@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { ComponentProposal, Attachment, NamedComponent } from "../shared/protocol.js";
 import { isMissing, warn } from "./log.js";
 import { removeRuriFile, ruriDir } from "./ruriDir.js";
+import { componentStale } from "../shared/protocol.js";
 import { entryLines, isUiEntry, libraryListing, splitFiles, slugify, uniqueSlug } from "./library.js";
 import { storedFilePath } from "./uploads.js";
 
@@ -59,17 +60,21 @@ function names(item: NamedComponent): string[] {
 }
 
 /** What a component's file on disk holds: the entries, when the repo was
- *  last swept, the folder `ruri add` installs to, and which shape the
- *  entries are in (2: the library's — slugs, own files apart from uses;
- *  3: pictures newest first, with when the picture and note were current). */
+ *  last swept, the folder `ruri add` installs to, which shape the entries
+ *  are in (2: the library's — slugs, own files apart from uses; 3: pictures
+ *  newest first, with when the picture and note were current; 4: what the
+ *  code said when they were), and when its entries were first held up
+ *  against their code that way (`checked` — until then, a turn's edits
+ *  were taken for changes, and git is asked once which really were). */
 interface LibraryFile {
   items?: NamedComponent[];
   sweptAt?: number;
   dir?: string;
   version?: number;
+  checked?: number;
 }
 
-const VERSION = 3;
+const VERSION = 4;
 
 /** Pictures an entry keeps. The first is the one shown; the rest are what
  *  it used to look like, and past a handful they are only clutter. */
@@ -118,13 +123,6 @@ function setAside(projectId: string, items: NamedComponent[]): void {
   }
 }
 
-/** Regex-safe, and forgiving about the spacing between words. */
-function pattern(name: string): RegExp {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-  // \b would refuse to fire on a name that starts or ends in punctuation
-  return new RegExp(`(^|[^\\p{L}\\p{N}_])${escaped}([^\\p{L}\\p{N}_]|$)`, "iu");
-}
-
 export class ComponentStore {
   private readonly data = new Map<string, NamedComponent[]>();
   /** When each project's repo was last swept — the sweep reads only what
@@ -132,6 +130,9 @@ export class ComponentStore {
   private readonly swept = new Map<string, number>();
   /** The folder each project's `ruri add` copies into. */
   private readonly dirs = new Map<string, string>();
+  /** When each project's entries were first held up against their code
+   *  (LibraryFile.checked). */
+  private readonly checkedAt = new Map<string, number>();
 
   private load(projectId: string): NamedComponent[] {
     let items = this.data.get(projectId);
@@ -153,6 +154,7 @@ export class ComponentStore {
       }));
       if (typeof raw.sweptAt === "number") this.swept.set(projectId, raw.sweptAt);
       if (typeof raw.dir === "string" && raw.dir) this.dirs.set(projectId, raw.dir);
+      if (typeof raw.checked === "number") this.checkedAt.set(projectId, raw.checked);
       if ((raw.version ?? 1) < VERSION) {
         // An index of names becomes a library of interface. What was named
         // but is no part of the interface — a server module, a pipeline —
@@ -179,6 +181,23 @@ export class ComponentStore {
       if (!isMissing(err)) warn("components", err, "load");
       items = [];
     }
+    // a picture whose file is gone is no picture: the page drew a broken
+    // image for it and sessions were sent to read a file that isn't there
+    for (const item of items) {
+      const kept = item.shots.filter((shot) => !shot.url || fs.existsSync(storedFilePath(shot.url)));
+      if (kept.length === item.shots.length) continue;
+      warn(
+        "components",
+        `${item.slug}: ${item.shots.length - kept.length} picture(s) gone from disk`,
+        "load",
+      );
+      item.shots = kept;
+      if (kept.length === 0) {
+        delete item.shotAt;
+        delete item.shotSig;
+      }
+      migrated = true;
+    }
     // an entry that came in without a handle (an older write) gets one
     const taken = new Set(items.map((item) => item.slug).filter(Boolean));
     for (const item of items) {
@@ -196,6 +215,7 @@ export class ComponentStore {
     try {
       const sweptAt = this.swept.get(projectId);
       const dir = this.dirs.get(projectId);
+      const checked = this.checkedAt.get(projectId);
       writeJsonAtomic(
         path.join(componentsDir(), `${projectId}.json`),
         {
@@ -203,6 +223,7 @@ export class ComponentStore {
           items: this.data.get(projectId) ?? [],
           ...(sweptAt ? { sweptAt } : {}),
           ...(dir ? { dir } : {}),
+          ...(checked ? { checked } : {}),
         } satisfies LibraryFile,
         2,
       );
@@ -256,6 +277,24 @@ export class ComponentStore {
     this.save(projectId);
   }
 
+  /** Let go of pictures whose files have gone since the library loaded —
+   *  an entry left with none needs a picture. Answers whether any went. */
+  pruneShots(projectId: string): boolean {
+    let moved = false;
+    for (const item of this.load(projectId)) {
+      const kept = item.shots.filter((shot) => !shot.url || fs.existsSync(storedFilePath(shot.url)));
+      if (kept.length === item.shots.length) continue;
+      item.shots = kept;
+      if (kept.length === 0) {
+        delete item.shotAt;
+        delete item.shotSig;
+      }
+      moved = true;
+    }
+    if (moved) this.save(projectId);
+    return moved;
+  }
+
   /** When this project was last read end to end (0 = never). */
   sweptAt(projectId: string): number {
     this.load(projectId);
@@ -273,8 +312,43 @@ export class ComponentStore {
     return this.load(projectId);
   }
 
+  /** Whether this project's entries have been held up against their code
+   *  yet (see LibraryFile.checked) — false until the first check after
+   *  coming from a library that went by turns. */
+  checked(projectId: string): boolean {
+    this.load(projectId);
+    return this.checkedAt.has(projectId);
+  }
+
+  /**
+   * The one-time move from turns to code: an entry's out-of-date mark
+   * was stamped whenever a turn touched its files — a merge of a branch
+   * whose agent had already re-taken the picture included — so those marks
+   * are let go, and git's word on which entries really changed since their
+   * picture or note (`changed`, id → when) is taken instead. Those stay
+   * out of date, with nothing yet saying what the code was when they were
+   * right; the rest are right as the code is now (check adopts it). Names
+   * from before are taken as the user's, but for the sweep's guesses.
+   */
+  rebase(projectId: string, changed: Map<string, number>): void {
+    for (const item of this.load(projectId)) {
+      // a name from before `confirmed` was answered on a card or has been
+      // lived with since: it is the user's; only the sweep's guesses aren't
+      if (!item.found) item.confirmed = true;
+      delete item.seenSig;
+      delete item.shotSig;
+      delete item.noteSig;
+      const at = changed.get(item.id);
+      if (at) item.changedAt = at;
+      else delete item.changedAt;
+    }
+    this.checkedAt.set(projectId, Date.now());
+    this.save(projectId);
+  }
+
   /** Add one, or fold it into the entry of the same name if there is one —
-   *  a component built twice is one component with better notes. */
+   *  a component built twice is one component with better notes. `sig` is
+   *  what its code says where it was written (checkouts.ts codeSig). */
   add(
     projectId: string,
     input: {
@@ -291,6 +365,13 @@ export class ComponentStore {
       found?: boolean;
       /** Its files were named as its own on purpose — see splitFiles. */
       exact?: boolean;
+      sig?: string;
+      /** The worktree it was named from, when not the project's folder. */
+      filedIn?: string;
+      /** The text on each line it reaches into, where it was named. */
+      anchors?: Record<string, string>;
+      /** The user gave it its name (a naming card answered). */
+      confirmed?: boolean;
     },
   ): NamedComponent {
     const name = input.name.trim();
@@ -306,15 +387,19 @@ export class ComponentStore {
       ? splitFiles(input.files, wantedSlug ?? slugify(name), input.uses, input.exact)
       : undefined;
     if (existing) {
-      if (split?.files.length) existing.files = [...new Set([...existing.files, ...split.files])];
+      const files = [...new Set([...existing.files, ...(split?.files ?? [])])];
+      if (files.length !== existing.files.length) this.refile(existing, files, input.sig, input.filedIn);
       if (split?.uses?.length) existing.uses = [...new Set([...(existing.uses ?? []), ...split.uses])];
+      this.anchor(existing, input.anchors);
       if (input.tags?.length) existing.tags = [...new Set([...(existing.tags ?? []), ...input.tags])];
       if (input.deps?.length) existing.deps = [...new Set([...(existing.deps ?? []), ...input.deps])];
       if (input.note?.trim()) {
         existing.note = input.note.trim();
         existing.noteAt = Date.now();
+        this.sign(existing, "noteSig", input.sig, input.filedIn);
       }
       if (input.selector?.trim()) existing.selector = input.selector.trim();
+      if (input.confirmed) this.confirm(existing);
       existing.updated = Date.now();
       this.save(projectId);
       return existing;
@@ -330,14 +415,24 @@ export class ComponentStore {
       files: split?.files ?? [],
       ...(split?.uses?.length ? { uses: split.uses } : {}),
       ...(input.tags?.length ? { tags: input.tags } : {}),
+      ...(input.anchors && split?.uses?.some((ref) => input.anchors![ref])
+        ? {
+            anchors: Object.fromEntries(
+              split.uses.filter((ref) => input.anchors![ref]).map((ref) => [ref, input.anchors![ref]!]),
+            ),
+          }
+        : {}),
       ...(input.deps?.length ? { deps: input.deps } : {}),
       note: input.note?.trim() ?? "",
       noteAt: Date.now(),
+      ...(input.sig ? { noteSig: input.sig } : {}),
+      ...(input.sig && input.filedIn ? { filedIn: input.filedIn } : {}),
       shots: [],
       ...(input.selector?.trim() ? { selector: input.selector.trim() } : {}),
       ...(input.route?.trim() ? { route: input.route.trim() } : {}),
       ...(input.clicks?.length ? { clicks: input.clicks } : {}),
       ...(input.found ? { found: true } : {}),
+      ...(input.confirmed ? { confirmed: true as const } : {}),
       // everything arrives new, and wears a star until it has been looked at
       star: "just",
       ts: Date.now(),
@@ -345,6 +440,49 @@ export class ComponentStore {
     this.load(projectId).push(item);
     this.save(projectId);
     return item;
+  }
+
+  /** A signature for a picture or note just made current: the one given
+   *  (read in `filedIn`, a worktree, when not the project's folder), or —
+   *  unknown — none, for the next check to take the code as it is. */
+  private sign(
+    item: NamedComponent,
+    key: "shotSig" | "noteSig",
+    sig: string | undefined,
+    filedIn?: string,
+  ): void {
+    if (sig) item[key] = sig;
+    else delete item[key];
+    if (sig && filedIn) item.filedIn = filedIn;
+  }
+
+  /** What the lines it reaches into said where they were named — kept
+   *  for the places it still reaches, and only those. */
+  private anchor(item: NamedComponent, given: Record<string, string> | undefined): void {
+    const all = { ...item.anchors, ...given };
+    const kept = Object.entries(all).filter(([ref]) => item.uses?.includes(ref));
+    if (kept.length) item.anchors = Object.fromEntries(kept);
+    else delete item.anchors;
+  }
+
+  /** The user's name for it, now — and no longer the sweep's guess. */
+  private confirm(item: NamedComponent): void {
+    item.confirmed = true;
+    delete item.found;
+  }
+
+  /**
+   * Its own files are now these. What the picture and note were taken
+   * against was the old list, so a picture that was current stays current
+   * against the new one (`sig`, what the new list says where it was
+   * named); one already behind stays behind.
+   */
+  private refile(item: NamedComponent, files: string[], sig: string | undefined, filedIn?: string): void {
+    const behind = componentStale(item);
+    item.files = files;
+    if (!behind.picture && item.shots.length) this.sign(item, "shotSig", sig, filedIn);
+    if (!behind.note) this.sign(item, "noteSig", sig, filedIn);
+    delete item.missing;
   }
 
   /**
@@ -378,6 +516,9 @@ export class ComponentStore {
     return changed;
   }
 
+  /** Change an entry. `sig` is what its code (its new files, when they
+   *  change) says where the change was made; `confirm` says the name is
+   *  the user's own. */
   update(
     projectId: string,
     componentId: string,
@@ -394,12 +535,25 @@ export class ComponentStore {
       route?: string;
       clicks?: string[];
     },
+    opts: {
+      sig?: string;
+      filedIn?: string;
+      anchors?: Record<string, string>;
+      /** The user renamed it, or said its name is right. */
+      confirm?: boolean;
+      /** The user said the sweep's guess holds: confirmed as it stands. */
+      accept?: boolean;
+    } = {},
   ): boolean {
     const items = this.load(projectId);
     const item = items.find((i) => i.id === componentId);
     if (!item) return false;
     const clean = (list: string[]) => [...new Set(list.map((v) => v.trim()).filter(Boolean))];
-    if (patch.name !== undefined && patch.name.trim()) item.name = patch.name.trim();
+    if (patch.name !== undefined && patch.name.trim()) {
+      item.name = patch.name.trim();
+      if (opts.confirm) this.confirm(item);
+    }
+    if (opts.accept) this.confirm(item);
     if (patch.slug !== undefined && patch.slug.trim()) {
       item.slug = uniqueSlug(
         slugify(patch.slug),
@@ -407,7 +561,10 @@ export class ComponentStore {
       );
     }
     if (patch.aliases !== undefined) item.aliases = clean(patch.aliases);
-    if (patch.files !== undefined) item.files = clean(patch.files);
+    if (patch.files !== undefined) {
+      const files = clean(patch.files);
+      if (files.join("\n") !== item.files.join("\n")) this.refile(item, files, opts.sig, opts.filedIn);
+    }
     const lists = { uses: patch.uses, tags: patch.tags, deps: patch.deps };
     for (const [key, value] of Object.entries(lists) as Array<[keyof typeof lists, string[] | undefined]>) {
       if (value === undefined) continue;
@@ -415,9 +572,12 @@ export class ComponentStore {
       if (next.length) item[key] = next;
       else delete item[key];
     }
+    // an anchor is kept for a place still named, at the same line
+    if (patch.uses !== undefined) this.anchor(item, opts.anchors);
     if (patch.note !== undefined && patch.note !== item.note) {
       item.note = patch.note;
       item.noteAt = Date.now();
+      this.sign(item, "noteSig", opts.sig, opts.filedIn);
     }
     if (patch.selector !== undefined) {
       const selector = patch.selector.trim();
@@ -439,60 +599,153 @@ export class ComponentStore {
     return true;
   }
 
-  /** A new picture, which becomes the one shown. */
-  addShot(projectId: string, componentId: string, shot: Attachment): boolean {
+  /** A new picture, which becomes the one shown. `sig`: what its code said
+   *  where the picture was taken. */
+  addShot(projectId: string, componentId: string, shot: Attachment, sig?: string, filedIn?: string): boolean {
     const item = this.load(projectId).find((i) => i.id === componentId);
     if (!item) return false;
     item.shots = [shot, ...item.shots].slice(0, MAX_SHOTS);
     item.shotAt = Date.now();
+    this.sign(item, "shotSig", sig, filedIn);
+    this.save(projectId);
+    return true;
+  }
+
+  /** Its picture and note still show it as it is (`sig`, the code now):
+   *  the out-of-date mark comes off without a new picture. */
+  current(projectId: string, componentId: string, sig: string | undefined, filedIn?: string): boolean {
+    const item = this.load(projectId).find((i) => i.id === componentId);
+    if (!item) return false;
+    const now = Date.now();
+    delete item.filedIn;
+    if (item.shots.length) {
+      item.shotAt = now;
+      this.sign(item, "shotSig", sig, filedIn);
+    }
+    item.noteAt = now;
+    this.sign(item, "noteSig", sig, filedIn);
+    delete item.changedAt;
+    delete item.seenSig;
+    item.updated = now;
     this.save(projectId);
     return true;
   }
 
   /**
-   * A finished turn edited these files (repo-relative). Every entry they
-   * belong to has changed — unless the turn also gave it a new picture or
-   * note, which was done after the edit and so is current: that part is
-   * stamped with the change, and only what the turn left alone falls behind.
-   * Answers whether anything moved.
+   * Hold every entry up against its code as it is now. `read` answers, for
+   * one entry, what its own files say in the project (checkouts.ts codeSig
+   * — undefined when none of them can be read), which of them are nowhere,
+   * and its reach-ins re-anchored when the lines under them moved.
+   *
+   * A picture is out of date exactly when the code differs from what it
+   * said when the picture was filed, and the same for the note: so work
+   * merged from a branch that re-took the picture there is current, and a
+   * change undone is no change. `changedAt` is stamped the first time the
+   * code is seen to differ (again for each new difference), and the picture
+   * or note still matching it is moved up to it — the page tells "out of
+   * date" by those stamps (componentStale). An entry with nothing yet
+   * saying what its code was takes it as it is now, unless it is already
+   * out of date. Answers whether anything moved.
    */
-  touch(projectId: string, files: string[], turnStarted: number): boolean {
-    const edited = new Set(files);
-    const now = Date.now();
+  check(
+    projectId: string,
+    read: (item: NamedComponent) => {
+      sig?: string;
+      /** What its code says in `filedIn`, the worktree its picture or note
+       *  came from — undefined when there is none, or it is gone. */
+      wip?: string;
+      missing: string[];
+      uses?: string[];
+      anchors?: Record<string, string>;
+    },
+  ): boolean {
     let moved = false;
+    const now = Date.now();
+    const state = (item: NamedComponent) =>
+      JSON.stringify([
+        item.changedAt,
+        item.shotAt,
+        item.noteAt,
+        item.shotSig,
+        item.noteSig,
+        item.filedIn,
+        item.missing,
+        item.uses,
+        item.anchors,
+      ]);
     for (const item of this.load(projectId)) {
-      if (!item.files.some((f) => edited.has(f.split(":")[0]!.trim()))) continue;
-      if ((item.shotAt ?? 0) >= turnStarted) item.shotAt = now;
-      if ((item.noteAt ?? 0) >= turnStarted) item.noteAt = now;
-      item.changedAt = now;
-      moved = true;
+      const before = state(item);
+      const seen = read(item);
+      if (seen.missing.length) item.missing = seen.missing;
+      else delete item.missing;
+      if (seen.uses) item.uses = seen.uses;
+      if (seen.anchors) {
+        if (Object.keys(seen.anchors).length) item.anchors = seen.anchors;
+        else delete item.anchors;
+      }
+      const { sig: cur, wip } = seen;
+      // the worktree it was filed from is gone, or its work is in
+      if (
+        item.filedIn &&
+        (!wip || (cur && (!item.shots.length || item.shotSig === cur) && item.noteSig === cur))
+      ) {
+        delete item.filedIn;
+      }
+      const base = cur ?? wip;
+      if (base) {
+        const was = componentStale(item);
+        if (item.shots.length && !item.shotSig && !was.picture) item.shotSig = base;
+        if (!item.noteSig && !was.note) item.noteSig = base;
+        const holds = (sig: string | undefined) => sig !== undefined && (sig === cur || sig === wip);
+        const picture = item.shots.length === 0 || holds(item.shotSig);
+        const note = holds(item.noteSig);
+        if (picture && note) {
+          delete item.changedAt;
+          delete item.seenSig;
+        } else {
+          if (item.seenSig !== base) {
+            // a mark from before signatures keeps its date the first time
+            if (item.seenSig !== undefined || !item.changedAt) item.changedAt = now;
+            item.seenSig = base;
+          }
+          // the stamps say what the signatures say (componentStale reads
+          // the stamps), even within one millisecond
+          let at = item.changedAt ?? now;
+          if (!picture && item.shots.length) at = Math.max(at, (item.shotAt ?? 0) + 1);
+          if (!note) at = Math.max(at, (item.noteAt ?? item.ts) + 1);
+          item.changedAt = at;
+          if (picture && item.shots.length && (item.shotAt ?? 0) < at) item.shotAt = at;
+          if (note && (item.noteAt ?? item.ts) < at) item.noteAt = at;
+        }
+      }
+      if (state(item) !== before) moved = true;
     }
     if (moved) this.save(projectId);
     return moved;
-  }
-
-  /** What git says about when an entry's files last changed — only ever
-   *  moves the stamp forward. */
-  noteChange(projectId: string, componentId: string, at: number): boolean {
-    const item = this.load(projectId).find((i) => i.id === componentId);
-    if (!item || at <= (item.changedAt ?? 0)) return false;
-    item.changedAt = at;
-    this.save(projectId);
-    return true;
   }
 
   /**
    * A change to an entry has been looked at: its note rewritten (or found
    * still true), and its look judged. A look that didn't change keeps the
    * picture it has; one that did is left out of date, for a new picture.
+   * `sig` is the code that was read.
    */
-  reviewed(projectId: string, componentId: string, outcome: { note?: string; looks: boolean }): void {
+  reviewed(
+    projectId: string,
+    componentId: string,
+    outcome: { note?: string; looks: boolean },
+    sig?: string,
+  ): void {
     const item = this.load(projectId).find((i) => i.id === componentId);
     if (!item) return;
     const now = Date.now();
     if (outcome.note?.trim()) item.note = outcome.note.trim();
     item.noteAt = now;
-    if (!outcome.looks && item.shots.length) item.shotAt = now;
+    this.sign(item, "noteSig", sig);
+    if (!outcome.looks && item.shots.length) {
+      item.shotAt = now;
+      this.sign(item, "shotSig", sig);
+    }
     item.updated = now;
     this.save(projectId);
   }
@@ -562,6 +815,12 @@ export class ComponentStore {
  * Rewrite `<project>/.ruri/components.md`. Every harness can read a file;
  * none of them can read ruri's config dir and know what it means.
  *
+ * It holds what lasts: names, handles, notes, files. Pictures (paths into
+ * this machine's config folder) and "its code has changed since" are left
+ * to `ruri show`, the skill and the prompt — in a file a project commits,
+ * they turned every merge into a change to it. Written only when what it
+ * says changes.
+ *
  * An empty library removes the file rather than leaving an empty one
  * behind — a stale list is worse than none — and a project that is still
  * blank gets no file at all (server/ruriDir.ts).
@@ -577,19 +836,27 @@ export function writeIndexFile(projectDir: string, items: NamedComponent[]): voi
       "# Component library",
       "",
       "Every piece of this project's interface ruri has on file: the user's own",
-      "name for it, its handle, its files, and a picture. When the user names",
-      "something here, this is what they mean — go straight to its files rather",
-      "than searching for their words. Before building interface, look here",
-      "first and reuse what exists: `ruri show <slug>` reads one with its code,",
-      "`ruri add <slug>` copies it into place, `ruri help` says the rest.",
+      "name for it, its handle, and its files. When the user names something",
+      "here, this is what they mean — go straight to its files rather than",
+      "searching for their words. Before building interface, look here first",
+      "and reuse what exists: `ruri search <words>` finds one, `ruri show <slug>`",
+      "reads it with its code and its pictures, `ruri add <slug>` copies it into",
+      "place, `ruri help` says the rest.",
       "",
       "ruri maintains this file. Don't edit it by hand; it is rewritten whenever",
       "the library changes.",
       "",
-      libraryListing(items),
+      libraryListing(items, "file"),
       "",
     ].join("\n");
-    fs.writeFileSync(path.join(dir, "components.md"), body);
+    const file = path.join(dir, "components.md");
+    let before: string | undefined;
+    try {
+      before = fs.readFileSync(file, "utf8");
+    } catch (err) {
+      if (!isMissing(err)) warn("components", err, "writeIndexFile");
+    }
+    if (before !== body) fs.writeFileSync(file, body);
   } catch (err) {
     warn("components", err, "writeIndexFile");
     // a read-only project directory is not worth failing a save over
@@ -602,9 +869,13 @@ export function writeIndexFile(projectDir: string, items: NamedComponent[]): voi
  *  id — the card belongs in the session that raised it, and the app maps that
  *  back to the project whose index it is. */
 export interface ComponentHost {
-  /** Put the card up and wait. Resolves with the name kept, or null if the
-   *  user waved it away. */
-  propose(channelId: string, proposal: ComponentProposal): Promise<string | null>;
+  /** Put it in: at once when nobody is to be asked (bypass, or a chat the
+   *  user isn't in), on a card otherwise — resolving with the name kept and
+   *  whether the user chose it, or null if they waved it away. */
+  propose(
+    channelId: string,
+    proposal: ComponentProposal,
+  ): Promise<{ name: string; slug: string; asked: boolean } | null>;
   /** What's already named, for "what component is what". */
   list(channelId: string): NamedComponent[];
 }
@@ -627,12 +898,12 @@ export function componentTools(
     tools: [
       tool(
         "name_component",
-        "Put a piece of this project's interface you have just built into its component library, so the user can refer to it by name and later sessions can find and reuse it. Interface only — a screen, panel, card, control or dialog, never backend code. Shows the user a card with your suggested name and your screenshot of it; they edit the name and confirm. Call it once per component, right after you finish it. For one already in the library that you changed, update it instead (`ruri edit <slug> --shot <new screenshot>`) — naming it again under its own name or handle also updates it.",
+        "Put a piece of this project's interface you have just built into its component library, so the user can refer to it by name and later sessions can find and reuse it. Interface only — a screen, panel, card, control or dialog, never backend code. Call it once per component, right after you finish it, with a screenshot of it. When the user can be asked, they get a card with your name and picture to correct; otherwise it goes straight in under your name, and they rename it on the Components page. For one already in the library that you changed, update it instead (`ruri edit <slug> --shot <new screenshot>`).",
         {
           name: z
             .string()
             .describe(
-              "Suggested name, in the words a user would use — 'the dragon gauges', not 'DragonGauge'",
+              "What a person calls it — the user's own words for it when it came from them ('the price cards', 'the dragon gauges'), never a file or class name ('PriceCard')",
             ),
           slug: z
             .string()
@@ -643,7 +914,7 @@ export function componentTools(
           files: z
             .array(z.string())
             .describe(
-              "Its own code: repo-relative paths of the files that make it up (what `ruri add` copies)",
+              "Its own code: repo-relative paths of the files that make it up (what `ruri add` copies) — not the screen it sits on or the app's shared stylesheet",
             ),
           uses: z
             .array(z.string())
@@ -660,9 +931,15 @@ export function componentTools(
             .string()
             .optional()
             .describe(
-              "Path to a picture of it — take one if you don't have one. The card shows this, " +
+              "Absolute path to a picture of it — take one if you don't have one. The card shows this, " +
                 "and a card without it asks the user to name something they cannot see. It is " +
                 "kept with the entry, so later sessions can look at it too.",
+            ),
+          checkout: z
+            .string()
+            .optional()
+            .describe(
+              "Absolute path of the git worktree you built it in, when that isn't the project's own folder — its files are read there",
             ),
         },
         async (args) => {
@@ -674,14 +951,17 @@ export function componentTools(
             ...(args.uses?.length ? { uses: args.uses } : {}),
             ...(args.tags?.length ? { tags: args.tags } : {}),
             ...(args.screenshot ? { shot: args.screenshot } : {}),
+            ...(args.checkout ? { checkout: args.checkout } : {}),
           });
           return {
             content: [
               {
                 type: "text",
-                text: kept
-                  ? `The user named it "${kept}". Call it that from now on.`
-                  : "The user skipped naming this one.",
+                text: !kept
+                  ? "The user skipped naming this one."
+                  : kept.asked
+                    ? `The user named it "${kept.name}" (handle ${kept.slug}). Call it that from now on.`
+                    : `In the library as "${kept.name}" (handle ${kept.slug}). The user may rename it on the Components page.`,
               },
             ],
           };
@@ -705,9 +985,62 @@ export function componentTools(
   });
 }
 
-/** The components in the library a prompt actually names. */
+/* ── a prompt that names one ──────────────────────────────────────── */
+
+/** A name as a prompt would say it: lower case, hyphens as spaces, no
+ *  article in front — "the rapid-fire bar" is "rapid fire bar". */
+function spoken(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(the|a|an) /, "");
+}
+
+/** Regex-safe, and forgiving about the spacing between words. */
+function pattern(name: string): RegExp {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+");
+  // \b would refuse to fire on a name that starts or ends in punctuation
+  return new RegExp(`(^|[^\\p{L}\\p{N}_])(${escaped})(?=[^\\p{L}\\p{N}_]|$)`, "giu");
+}
+
+/** The most entries one prompt carries down: past this it is a list, and
+ *  the library is the place for lists. */
+const MAX_MENTIONS = 5;
+
+/**
+ * The components in the library a prompt actually names: by any of its
+ * names, said with or without its article and with spaces or hyphens.
+ * Where one name sits inside a longer one ("the drawing page" in "the
+ * drawing page text box"), the longer is meant. A one-word name the sweep
+ * guessed and nobody has confirmed — "the patch", "the player" — is too
+ * ordinary a word to count.
+ */
 export function mentionedIn(text: string, items: NamedComponent[]): NamedComponent[] {
-  return items.filter((item) => names(item).some((name) => pattern(name).test(text)));
+  const said = text.replace(/[-_]+/g, " ");
+  const hits: Array<{ item: NamedComponent; start: number; end: number }> = [];
+  for (const item of items) {
+    const guessed = item.found && !item.confirmed;
+    let best: { start: number; end: number } | undefined;
+    for (const name of new Set([item.name, ...item.aliases, item.slug].map(spoken).filter(Boolean))) {
+      if (guessed && !name.includes(" ")) continue;
+      const re = pattern(name);
+      for (let m = re.exec(said); m; m = re.exec(said)) {
+        const start = m.index + m[1]!.length;
+        const end = start + m[2]!.length;
+        if (!best || end - start > best.end - best.start) best = { start, end };
+      }
+    }
+    if (best) hits.push({ item, ...best });
+  }
+  const inside = (a: { start: number; end: number }, b: { start: number; end: number }) =>
+    b.start <= a.start && a.end <= b.end && b.end - b.start > a.end - a.start;
+  return hits
+    .filter((hit) => !hits.some((other) => other !== hit && inside(hit, other)))
+    .sort((a, b) => a.start - b.start)
+    .slice(0, MAX_MENTIONS)
+    .map((hit) => hit.item);
 }
 
 /**
@@ -723,7 +1056,7 @@ export function mentionBlock(matched: NamedComponent[]): string {
     "<ruri:components>",
     "The prompt above names parts of this project that are in its component library:",
     "",
-    ...matched.flatMap((item) => [...entryLines(item), ""]),
+    ...matched.flatMap((item) => [...entryLines(item, "prompt"), ""]),
     "</ruri:components>",
   ].join("\n");
 }

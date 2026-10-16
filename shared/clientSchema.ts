@@ -246,6 +246,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     selector: label.optional(),
     route: label.optional(),
     clicks: z.array(label).max(100).optional(),
+    found: z.literal(false).optional(),
   }),
   z.object({ type: z.literal("component_remove"), ...projectId, componentId: id }),
   z.object({ type: z.literal("component_shot"), ...projectId, componentId: id, upload: attachmentUpload }),
@@ -288,6 +289,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("component_seen"), ...projectId, componentId: id.optional() }),
   z.object({ type: z.literal("component_code"), ...projectId, componentId: id }),
   z.object({ type: z.literal("library_dir"), ...projectId, dir: filePath }),
+  z.object({ type: z.literal("component_current"), ...projectId, componentId: id }),
   z.object({
     type: z.literal("secret_save"),
     id: id.optional(),

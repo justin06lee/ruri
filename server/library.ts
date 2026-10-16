@@ -7,6 +7,8 @@ import {
   type ComponentProposal,
   type NamedComponent,
 } from "../shared/protocol.js";
+import { scoreComponent, searchComponents } from "../shared/librarySearch.js";
+import { anchorsAt, checkoutFor, codeSig } from "./checkouts.js";
 import { configPath } from "./configDir.js";
 import { isMissing, warn } from "./log.js";
 import { storedFilePath } from "./uploads.js";
@@ -222,21 +224,26 @@ const AFTER = 170;
 /** Past this a file is not read at all. */
 const MAX_BYTES = 3_000_000;
 
-/** One file of a component, whole or the stretch that matters. */
-export function readFile(projectDir: string, ref: string, own: boolean): ComponentFile {
+/** One file of a component, whole or the stretch that matters — read in
+ *  the first of `roots` that has it (a session's worktree, then the
+ *  project's own folder). */
+export function readFile(roots: string | string[], ref: string, own: boolean): ComponentFile {
   const { path: file, line } = parseRef(ref);
   const base: ComponentFile = { path: file, own, ...(line !== undefined ? { line } : {}) };
-  const full = inside(projectDir, file);
-  if (!full) return { ...base, missing: true };
-  let raw: string;
-  try {
-    const stat = fs.statSync(full);
-    if (!stat.isFile() || stat.size > MAX_BYTES) return { ...base, missing: true };
-    raw = fs.readFileSync(full, "utf8");
-  } catch (err) {
-    if (!isMissing(err)) warn("library", err, "readFile");
-    return { ...base, missing: true };
+  let raw: string | undefined;
+  for (const root of typeof roots === "string" ? [roots] : roots) {
+    const full = inside(root, file);
+    if (!full) return { ...base, missing: true };
+    try {
+      const stat = fs.statSync(full);
+      if (!stat.isFile() || stat.size > MAX_BYTES) continue;
+      raw = fs.readFileSync(full, "utf8");
+      break;
+    } catch (err) {
+      if (!isMissing(err)) warn("library", err, "readFile");
+    }
   }
+  if (raw === undefined) return { ...base, missing: true };
   const lines = raw.split("\n");
   if (line !== undefined && lines.length > 400) {
     const from = Math.max(1, line - BEFORE);
@@ -250,10 +257,10 @@ export function readFile(projectDir: string, ref: string, own: boolean): Compone
 }
 
 /** Everything a component is made of, its own files first. */
-export function readComponent(projectDir: string, item: NamedComponent): ComponentFile[] {
+export function readComponent(roots: string | string[], item: NamedComponent): ComponentFile[] {
   return [
-    ...item.files.map((f) => readFile(projectDir, f, true)),
-    ...(item.uses ?? []).map((f) => readFile(projectDir, f, false)),
+    ...item.files.map((f) => readFile(roots, f, true)),
+    ...(item.uses ?? []).map((f) => readFile(roots, f, false)),
   ];
 }
 
@@ -263,71 +270,139 @@ function shotPaths(shots: Attachment[]): string[] {
   return shots.flatMap((shot) => (shot.url ? [storedFilePath(shot.url)] : []));
 }
 
+/**
+ * How an entry is written out, by where it is read:
+ *  - "full": everything — the skill, `ruri show`, list_components.
+ *  - "prompt": what rides down with a prompt that names it — its newest
+ *    picture only, and nothing a session would only need when changing it.
+ *  - "file": `.ruri/components.md`, which a project may commit — only what
+ *    lasts: no pictures (paths into this machine's config folder) and no
+ *    "out of date", which every merge would flip.
+ */
+export type EntryView = "full" | "prompt" | "file";
+
 /** One entry the way a model should read it. */
-export function entryLines(item: NamedComponent): string[] {
+export function entryLines(item: NamedComponent, view: EntryView = "full"): string[] {
   const lines = [`## ${item.slug} — ${item.name}`];
   if (item.note.trim()) lines.push(item.note.trim());
   if (item.aliases.length) lines.push(`Also called: ${item.aliases.join(", ")}`);
   if (item.files.length) lines.push(`Its files: ${item.files.join(", ")}`);
-  if (item.uses?.length) lines.push(`Reaches into: ${item.uses.join(", ")}`);
-  if (item.installs?.length) lines.push(`Copies installed at: ${item.installs.join(", ")}`);
+  if (item.uses?.length) {
+    // the committed file names a line by what is on it, which moves with
+    // the code; a number would change with every edit above it
+    const place = (ref: string) => {
+      const anchor = item.anchors?.[ref];
+      return view === "file" && anchor ? `${parseRef(ref).path} (at \`${anchor}\`)` : ref;
+    };
+    lines.push(`Reaches into: ${item.uses.map(place).join(", ")}`);
+  }
+  if (view !== "prompt" && item.installs?.length)
+    lines.push(`Copies installed at: ${item.installs.join(", ")}`);
   if (item.tags?.length) lines.push(`Tags: ${item.tags.join(", ")}`);
   if (item.deps?.length) lines.push(`Needs packages: ${item.deps.join(", ")}`);
-  if (item.selector) lines.push(`On screen: ${item.selector}`);
+  if (view !== "prompt" && item.selector) lines.push(`On screen: ${item.selector}`);
+  if (view === "file") return lines;
+  if (item.missing?.length) {
+    lines.push(
+      `Gone from the project: ${item.missing.join(", ")} — if it moved, \`ruri edit ${item.slug} --files <paths>\``,
+    );
+  }
   const paths = shotPaths(item.shots);
-  if (paths.length) {
+  if (view === "prompt" && paths.length) {
+    lines.push(`Screenshot (read it if you need to see it): ${paths[0]}`);
+  } else if (paths.length) {
     lines.push(
       paths.length === 1
         ? `Screenshot (read it if you need to see it): ${paths[0]}`
         : `Screenshots, newest first (read them if you need to see it): ${paths.join(", ")}`,
     );
+  } else if (view === "full") {
+    lines.push(`No picture yet — \`ruri edit ${item.slug} --shot <image>\` files one.`);
   }
   if (componentStale(item).picture) {
     lines.push(
-      `Its code has changed since that picture — if you change it, \`ruri edit ${item.slug} --shot <new picture>\``,
+      view === "prompt"
+        ? "Its code has changed since that picture."
+        : `Its code has changed since that picture — after changing it, \`ruri edit ${item.slug} --shot <new picture>\`; if it still looks like that, \`ruri edit ${item.slug} --current\``,
     );
   }
   return lines;
 }
 
 /** The whole library as a model reads it, one entry after another. */
-export function libraryListing(items: NamedComponent[]): string {
-  return items.map((item) => entryLines(item).join("\n")).join("\n\n");
+export function libraryListing(items: NamedComponent[], view: EntryView = "full"): string {
+  return items.map((item) => entryLines(item, view).join("\n")).join("\n\n");
 }
 
-/** One line per entry, for a quick look. */
-function shortLine(item: NamedComponent): string {
+/** One line per entry, for a quick look — with what it still needs. */
+function shortLine(item: NamedComponent, prefix = ""): string {
   const note = item.note.trim().split("\n")[0] ?? "";
-  return `${item.slug} — ${item.name}${note ? `: ${note}` : ""}`;
+  const needs = [
+    ...(item.missing?.length ? ["files gone"] : []),
+    ...(item.shots.length === 0
+      ? ["no picture"]
+      : componentStale(item).picture
+        ? ["picture out of date"]
+        : []),
+  ];
+  return `${prefix}${item.slug} — ${item.name}${note ? `: ${note}` : ""}${needs.length ? ` [${needs.join(", ")}]` : ""}`;
 }
 
 /* ── finding it ────────────────────────────────────────────────────── */
 
-/** How well an entry answers a search: every word has to be somewhere in
- *  it, and a word in the handle or the name counts for more. */
+/** How well an entry answers a search (shared/librarySearch.ts — the page
+ *  searches the same way). */
 export function score(item: NamedComponent, query: string): number {
-  const words = query
-    .toLowerCase()
-    .split(/[\s,]+/)
-    .filter(Boolean);
-  if (words.length === 0) return 0;
-  const strong = [item.slug, item.name, ...item.aliases, ...(item.tags ?? [])].join(" ").toLowerCase();
-  const weak = [item.note, ...item.files, ...(item.uses ?? [])].join(" ").toLowerCase();
-  let total = 0;
-  for (const word of words) {
-    if (strong.includes(word)) total += 3;
-    else if (weak.includes(word)) total += 1;
-    else return 0;
-  }
-  return total;
+  return scoreComponent(item, query);
 }
 
-export function search(items: NamedComponent[], query: string): NamedComponent[] {
-  return items
-    .map((item) => ({ item, score: score(item, query) }))
-    .filter((hit) => hit.score > 0)
-    .sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug))
-    .map((hit) => hit.item);
+/** The entries a search finds, best first; `roots` adds the top of each
+ *  one's code to what it is found by. */
+export function search(items: NamedComponent[], query: string, roots?: string[]): NamedComponent[] {
+  return searchComponents(items, query, roots ? (item) => codeHead(roots, item) : undefined);
+}
+
+/** What the top of a component's code says it is: the opening comment and
+ *  what it exports, for a search to find it by. */
+function codeHead(roots: string[], item: NamedComponent): string {
+  return item.files
+    .slice(0, 3)
+    .map((ref) => {
+      const file = readFile(roots, ref, true);
+      if (!file.text) return "";
+      const exported = [
+        ...file.text.matchAll(/export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const)\s+(\w+)/g),
+      ]
+        .map((m) => m[1])
+        .join(" ");
+      return `${file.text.slice(0, 600)} ${exported}`;
+    })
+    .join(" ");
+}
+
+/** Levenshtein distance, for a handle typed nearly right. */
+function distance(a: string, b: string): number {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0]!;
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const was = row[j]!;
+      row[j] = Math.min(row[j]! + 1, row[j - 1]! + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = was;
+    }
+  }
+  return row[b.length]!;
+}
+
+/** What a handle that matched nothing might have meant: handles typed
+ *  nearly right, then whatever a search for its words finds. */
+function nearest(items: NamedComponent[], handle: string): NamedComponent[] {
+  const wanted = slugify(handle);
+  const typo = items.filter(
+    (item) => distance(item.slug, wanted) <= Math.max(1, Math.floor(wanted.length / 5)),
+  );
+  return [...new Set([...typo, ...search(items, handle.replace(/[-_/]/g, " "))])].slice(0, 5);
 }
 
 /* ── copying it into place ─────────────────────────────────────────── */
@@ -357,14 +432,17 @@ function commonDir(files: string[]): string {
  * folder they share (one folder of them lands flat, as shadcn's do).
  */
 export function planCopy(
-  sourceDir: string,
+  sourceDir: string | string[],
   files: string[],
   targetDir: string,
   destDir: string,
 ): Placement[] {
+  const sources = typeof sourceDir === "string" ? [sourceDir] : sourceDir;
   const root = commonDir(files);
   return files.map((file) => {
-    const from = inside(sourceDir, file);
+    const from =
+      sources.map((dir) => inside(dir, file)).find((full) => full && fs.existsSync(full)) ??
+      inside(sources[0]!, file);
     const rel = root ? path.relative(root, file) : file;
     const to = path.join(destDir, rel).split(path.sep).join("/");
     if (!from || !fs.existsSync(from)) return { from: from ?? file, to, state: "missing" as const };
@@ -401,6 +479,117 @@ export function installCommand(projectDir: string, deps: string[]): string {
   return `${tool} ${deps.join(" ")}`;
 }
 
+/** Where a project's components live, when nobody has said: the folder
+ *  most of its library's own views sit in, or the usual places. */
+export function guessDir(root: string, items: NamedComponent[]): string | undefined {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    for (const file of item.files) {
+      if (!VIEW_EXT.has(path.extname(file).toLowerCase())) continue;
+      const dir = path.dirname(file);
+      counts.set(dir, (counts.get(dir) ?? 0) + 1);
+    }
+  }
+  const [top] = [...counts].sort((a, b) => b[1] - a[1]);
+  if (top && top[1] >= 2 && top[0] !== ".") return top[0];
+  return [
+    "src/components/ui",
+    "components/ui",
+    "src/components",
+    "app/components",
+    "components",
+    "src/lib/components",
+    "web/src/components",
+    "src/ui",
+  ].find((dir) => fs.existsSync(path.join(root, dir)));
+}
+
+/** The node packages a project already has. */
+function packagesOf(root: string): Set<string> | undefined {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as Record<
+      string,
+      Record<string, string> | undefined
+    >;
+    return new Set(
+      ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"].flatMap((key) =>
+        Object.keys(pkg[key] ?? {}),
+      ),
+    );
+  } catch (err) {
+    if (!isMissing(err)) warn("library", err, "packagesOf");
+    return undefined;
+  }
+}
+
+/** Extensions an import without one may mean, and the index files a folder
+ *  import may mean. */
+const RESOLVE_EXT = [
+  "",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".mts",
+  ".vue",
+  ".svelte",
+  ".css",
+  ".scss",
+  ".json",
+];
+
+/** Node's own modules, which no package.json lists. */
+const BUILTIN =
+  /^(node:|(fs|path|os|url|util|crypto|http|https|events|stream|child_process|assert|buffer|zlib|net|tls|dns|readline|worker_threads|process|module|querystring|timers)(\/|$))/;
+
+/**
+ * What a copied file imports that won't be there: relative imports that
+ * no longer resolve from where it landed, and packages the project doesn't
+ * have. Read from the copy itself, so it is exact rather than a reminder
+ * to go and check.
+ */
+export function importGaps(root: string, files: string[]): { unresolved: string[]; packages: string[] } {
+  const unresolved: string[] = [];
+  const wanted = new Set<string>();
+  const have = packagesOf(root);
+  for (const rel of files) {
+    let text: string;
+    try {
+      text = fs.readFileSync(path.join(root, rel), "utf8");
+    } catch (err) {
+      if (!isMissing(err)) warn("library", err, "importGaps");
+      continue;
+    }
+    const specs = [
+      ...text.matchAll(/(?:import|export)\s[^'"`;]*?from\s*["']([^"']+)["']/g),
+      ...text.matchAll(/import\s*\(?\s*["']([^"']+)["']/g),
+      ...text.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g),
+      ...text.matchAll(/@import\s+(?:url\()?["']([^"']+)["']/g),
+    ].map((m) => m[1]!);
+    for (const spec of new Set(specs)) {
+      if (spec.startsWith(".")) {
+        const base = path.resolve(root, path.dirname(rel), spec);
+        const found = RESOLVE_EXT.some(
+          (ext) => fs.existsSync(base + ext) || (ext && fs.existsSync(path.join(base, `index${ext}`))),
+        );
+        if (!found) unresolved.push(`${rel} imports ${spec}`);
+        continue;
+      }
+      if (spec.startsWith("/") || BUILTIN.test(spec) || /^[a-z]+:/i.test(spec)) continue;
+      // "@scope/name/sub" and "name/sub" are the packages "@scope/name" and "name"
+      const name = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0]!;
+      // an alias the project resolves itself ("@/lib/x", "~/x") is not a package
+      if (/^[@~]\//.test(spec) || name === "@" || name === "~") {
+        unresolved.push(`${rel} imports ${spec} (a path alias — check it means the same here)`);
+        continue;
+      }
+      if (have && !have.has(name)) wanted.add(name);
+    }
+  }
+  return { unresolved, packages: [...wanted] };
+}
+
 /* ── the command ───────────────────────────────────────────────────── */
 
 /** Flags that take a value; every other flag is a switch. */
@@ -418,6 +607,7 @@ const VALUED = new Set([
   "tags",
   "deps",
   "aliases",
+  "alias",
   "shot",
   "selector",
   "route",
@@ -470,25 +660,31 @@ function oneFlag(args: ParsedArgs, key: string): string | undefined {
 
 export const HELP = `ruri — this project's component library, and its memory
 
-  ruri list                          everything in the library
-  ruri search <words>                find components by what they are
-  ruri show <slug> [--no-code]       one component: what it is, its files, screenshots, and its code
+  ruri list [<project>]              everything in the library (or another open project's)
+  ruri search <words> [--all]        find components by what they are; --all looks in every open project
+  ruri show <slug> [--no-code]       one component: what it is, its files, pictures, and its code
+  ruri show <project>/<slug>         one from another open project's library
   ruri add <slug> [--dir <folder>] [--overwrite]
-                                     copy a component's files into the project; the folder is
-                                     remembered, so later adds need no --dir
+                                     copy a component's files into the project (the checkout you are in);
+                                     --dir is remembered, and without one it goes where the project's
+                                     components live
   ruri add <project>/<slug> ...      copy one from another open project's library (it joins this one's)
-  ruri register <slug> --files <paths> --note "<one line>" [--name "<what the user calls it>"]
+  ruri register <slug> --name "<what a person calls it>" --files <paths> --note "<one line>"
                 [--uses <paths:line>] [--tags a,b] [--deps pkg,pkg] [--shot <image>]
-                                     put a piece of interface you built into the library
-  ruri edit <slug> [--name] [--slug] [--note] [--files] [--uses] [--tags] [--deps] [--aliases] [--shot]
-                                     change an entry (lists replace what was there; --shot adds a picture,
-                                     which becomes the one shown) — do this after changing one that is
-                                     already in the library, so its picture and note show it as it is now
+                                     put a piece of interface you built into the library — the name is the
+                                     user's own words for it, never a file or class name
+  ruri edit <slug> [--name] [--slug] [--note] [--files] [--uses] [--tags] [--deps] [--aliases]
+                [--alias "<another name>"] [--shot <image>] [--current]
+                                     change an entry (lists replace what was there; --alias adds a name the
+                                     user calls it by; --shot adds a picture, which becomes the one shown;
+                                     --current says its picture and note still show it as it is) — do this
+                                     after changing one that is already in the library
   ruri remove <slug>                 take it out of the library (its code stays in the project)
   ruri dir [<folder>]                show or set the folder \`ruri add\` copies into
 
 Interface only: screens, panels, cards, controls, dialogs, their styles and pictures — never backend code.
-Paths are relative to the project's root. Lists take commas: --files a.tsx,a.css`;
+Paths are from the root of the checkout you are in (a git worktree of the project counts), or from where
+you are. Lists take commas: --files a.tsx,a.css`;
 
 /** A project the command can reach. */
 export interface LibraryProject {
@@ -504,8 +700,9 @@ export interface LibraryHost {
   /** Every open project, for `ruri add <project>/<slug>`. */
   projects(): LibraryProject[];
   /** Put something into the library the way the naming tool does: at once
-   *  in bypass ("added"), or on a card asking the user what to call it
-   *  ("asked") — which the command does not wait on. */
+   *  in bypass or from a chat the user isn't in ("added"), or on a card
+   *  asking the user what to call it ("asked") — which the command does
+   *  not wait on. */
   ask(proposal: ComponentProposal): "added" | "asked";
   items(projectId: string): NamedComponent[];
   find(projectId: string, handle: string): NamedComponent | undefined;
@@ -522,19 +719,39 @@ export interface LibraryHost {
       selector?: string;
       route?: string;
       exact?: boolean;
+      sig?: string;
+      filedIn?: string;
     },
   ): NamedComponent;
-  update(projectId: string, componentId: string, patch: LibraryPatch): boolean;
+  /** `filed`: what its code says where the change was made, and that
+   *  checkout when it is a worktree (see Filed). */
+  update(projectId: string, componentId: string, patch: LibraryPatch, filed?: Filed): boolean;
   remove(projectId: string, componentId: string): void;
   /** Keep a picture with an entry — false when the file can't be read. */
-  shoot(projectId: string, componentId: string, file: string): boolean;
+  shoot(projectId: string, componentId: string, file: string, filed?: Filed): boolean;
   /** Give an entry another's pictures. */
   copyShots(projectId: string, componentId: string, shots: Attachment[]): void;
+  /** Its picture and note still show it as its code is where it was
+   *  said (`filed`). */
+  current(projectId: string, componentId: string, filed?: Filed): void;
   dir(projectId: string): string | undefined;
   setDir(projectId: string, dir: string): void;
   noteInstall(projectId: string, componentId: string, paths: string[]): void;
+  /** Follow an entry's files that are no longer where it says, through
+   *  git's renames, before it is read or copied. */
+  follow(projectId: string, componentId: string): Promise<void>;
   /** Something changed: the files in the project, the skill, the windows. */
   changed(projectId: string): void;
+}
+
+/** Where a picture or note was filed: what the component's code said
+ *  there (checkouts.ts codeSig), and that checkout when it is a worktree
+ *  rather than the project's own folder. */
+export interface Filed {
+  sig?: string;
+  in?: string;
+  /** The text on each line its new `uses` name, there. */
+  anchors?: Record<string, string>;
 }
 
 /** What `ruri edit` may change. */
@@ -559,24 +776,68 @@ export interface LibraryAnswer {
 const yes = (text: string): LibraryAnswer => ({ ok: true, text });
 const no = (text: string): LibraryAnswer => ({ ok: false, text });
 
-/** What a session's working directory is, relative to its project — so a
- *  path an agent types from a subfolder still means that file. */
-function fromCwd(project: LibraryProject, cwd: string | undefined, file: string): string {
-  if (!cwd || path.isAbsolute(file)) {
-    return path.isAbsolute(file) ? path.relative(project.path, file) : file;
+/** Where a session stands: the checkout its shell is in (the project, or a
+ *  worktree of it), and the folder it typed from. */
+interface Where {
+  root: string;
+  cwd: string;
+  /** Where to read: its checkout, then the project's own folder. */
+  roots: string[];
+}
+
+function whereFor(project: LibraryProject, cwd: string | undefined): Where {
+  const root = checkoutFor(project.path, cwd);
+  return { root, cwd: cwd ?? root, roots: root === project.path ? [root] : [root, project.path] };
+}
+
+/**
+ * A path a session typed, from the root of its checkout. From where its
+ * shell stands first — but a root-relative path typed from a subfolder,
+ * which is how most paths are written, is taken as that when that is the
+ * one that exists. An absolute path into the project or the checkout is
+ * made relative; anything else is kept as typed.
+ */
+function fromCwd(project: LibraryProject, where: Where, typed: string): string {
+  const { path: file } = parseRef(typed);
+  // ":2864" (and a column) rides along untouched
+  const suffix = typed.trim().slice(file.length);
+  const back = (rel: string) => rel.split(path.sep).join("/") + suffix;
+  const absolute = path.isAbsolute(file);
+  const fromHere = absolute ? file : path.resolve(where.cwd, file);
+  for (const root of [where.root, project.path]) {
+    const rel = path.relative(root, fromHere);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+    if (absolute || fs.existsSync(fromHere) || !fs.existsSync(path.join(where.root, file))) return back(rel);
+    break;
   }
-  const rel = path.relative(project.path, path.resolve(cwd, file));
-  return rel.startsWith("..") ? file : rel;
+  return back(path.normalize(file));
+}
+
+/** A shot file a session typed, resolved from where it stands. */
+function shotFile(where: Where, typed: string): string {
+  return path.isAbsolute(typed) ? typed : path.resolve(where.cwd, typed);
+}
+
+/** Whether a name reads like code rather than words a person says. */
+function codeLike(name: string): boolean {
+  const t = name.trim();
+  return (
+    /^[a-z0-9]+(-[a-z0-9]+)+$/.test(t) || // kebab-case: a handle
+    /^[a-z0-9]+(_[a-z0-9]+)+$/i.test(t) || // snake_case
+    /^[A-Z][a-z0-9]+([A-Z][a-z0-9]*)+$/.test(t) || // PascalCase
+    /^[a-z][a-z0-9]*([A-Z][a-z0-9]*)+$/.test(t) || // camelCase
+    /\.[a-z]{2,4}$/i.test(t) // a file
+  );
 }
 
 /** Most of a code file an answer carries before it stops. */
 const SHOW_BUDGET = 60_000;
 
-function showText(project: LibraryProject, item: NamedComponent, code: boolean): string {
-  const parts = [entryLines(item).join("\n"), "", `Install: ruri add ${item.slug}`];
+function showText(roots: string[], item: NamedComponent, code: boolean, handle: string): string {
+  const parts = [entryLines(item).join("\n"), "", `Install: ruri add ${handle}`];
   if (!code) return parts.join("\n");
   let budget = SHOW_BUDGET;
-  for (const file of readComponent(project.path, item)) {
+  for (const file of readComponent(roots, item)) {
     const label = `${file.path}${file.line ? `:${file.line}` : ""}${file.own ? "" : " (reaches into)"}`;
     if (file.missing) {
       parts.push("", `--- ${label} — not found ---`);
@@ -601,67 +862,98 @@ function showText(project: LibraryProject, item: NamedComponent, code: boolean):
   return parts.join("\n");
 }
 
-/** The handle in `add other-project/peek-band`: which project, which one. */
-function resolveSource(
+/** Another open project, by its name, its folder's name, or its id. */
+function projectNamed(host: LibraryHost, name: string): LibraryProject | undefined {
+  const wanted = name.toLowerCase();
+  return host
+    .projects()
+    .find(
+      (p) =>
+        p.name.toLowerCase() === wanted ||
+        slugify(p.name) === slugify(wanted) ||
+        path.basename(p.path).toLowerCase() === wanted ||
+        p.id === name,
+    );
+}
+
+/** The handle in `add other-project/peek-band`: which project, which one —
+ *  with its files followed first if they moved. */
+async function resolveSource(
   host: LibraryHost,
   handle: string,
-): { project: LibraryProject; item: NamedComponent } | string {
+): Promise<{ project: LibraryProject; item: NamedComponent } | string> {
   const slash = handle.lastIndexOf("/");
+  let project = host.here;
+  let wanted = handle;
   if (slash > 0) {
-    const name = handle.slice(0, slash).toLowerCase();
-    const slug = handle.slice(slash + 1);
-    const project = host
-      .projects()
-      .find((p) => p.name.toLowerCase() === name || slugify(p.name) === slugify(name) || p.id === name);
-    if (!project) {
+    const found = projectNamed(host, handle.slice(0, slash));
+    if (!found) {
       return `no open project called "${handle.slice(0, slash)}" — open ones: ${host
         .projects()
         .map((p) => p.name)
         .join(", ")}`;
     }
-    const item = host.find(project.id, slug);
-    return item ? { project, item } : `${project.name}'s library has nothing called "${slug}"`;
+    project = found;
+    wanted = handle.slice(slash + 1);
   }
-  const item = host.find(host.here.id, handle);
-  if (item) return { project: host.here, item };
-  const near = search(host.items(host.here.id), handle.replace(/-/g, " ")).slice(0, 5);
-  return `nothing called "${handle}" in the library${near.length ? ` — did you mean: ${near.map((i) => i.slug).join(", ")}?` : ""}`;
+  const item = host.find(project.id, wanted);
+  if (!item) {
+    const near = nearest(host.items(project.id), wanted);
+    const where = project.id === host.here.id ? "the library" : `${project.name}'s library`;
+    const prefix = project.id === host.here.id ? "" : `${project.name}/`;
+    return `nothing called "${wanted}" in ${where}${near.length ? ` — did you mean: ${near.map((i) => prefix + i.slug).join(", ")}?` : ""}`;
+  }
+  const lost = item.files.some((f) => !fs.existsSync(path.join(project.path, parseRef(f).path)));
+  if (!lost) return { project, item };
+  await host.follow(project.id, item.id);
+  return { project, item: host.find(project.id, item.slug) ?? item };
 }
 
-function add(host: LibraryHost, args: ParsedArgs): LibraryAnswer {
+async function add(host: LibraryHost, args: ParsedArgs, cwd?: string): Promise<LibraryAnswer> {
   const handles = args.words.slice(1);
   if (handles.length === 0) return no("ruri add <slug> [--dir <folder>] — which component?");
   const here = host.here;
+  const where = whereFor(here, cwd);
   const asked = oneFlag(args, "dir")?.trim().replace(/\/+$/, "");
   const saved = host.dir(here.id);
-  const destDir = asked || saved;
+  const guessed = asked || saved ? undefined : guessDir(where.root, host.items(here.id));
+  const destDir = asked ? fromCwd(here, where, asked) : (saved ?? guessed);
   if (!destDir) {
     return no(
-      "This project has no components folder yet. Say where they go once — `ruri add <slug> --dir src/components/ui` (or `ruri dir <folder>`) — and it is remembered.",
+      "This project has no components folder yet, and none to guess from. Say where they go once — `ruri add <slug> --dir src/components/ui` (or `ruri dir <folder>`) — and it is remembered.",
     );
   }
-  if (!inside(here.path, destDir)) return no(`${destDir} is outside the project`);
-  if (asked && !saved) host.setDir(here.id, asked);
+  if (!inside(where.root, destDir)) return no(`${destDir} is outside the project`);
+  if (asked && !saved) host.setDir(here.id, destDir);
   const overwrite = args.switches.has("overwrite");
   const out: string[] = [];
+  if (guessed) {
+    out.push(`into ${guessed} — where this project's components live (\`ruri dir <folder>\` sets another)`);
+  }
+  if (where.root !== here.path) out.push(`into the checkout you are in: ${where.root}`);
   let failed = false;
   for (const handle of handles) {
-    const found = resolveSource(host, handle);
+    const found = await resolveSource(host, handle);
     if (typeof found === "string") {
       out.push(found);
       failed = true;
       continue;
     }
     const { project, item } = found;
+    const label = project.id === here.id ? item.slug : `${project.name}/${item.slug}`;
     if (item.files.length === 0) {
       out.push(
-        `${item.slug} has no files of its own to copy — it lives inside ${(item.uses ?? []).join(", ") || "other files"}. \`ruri show ${item.slug}\` shows it.`,
+        `${label} has no files of its own to copy — it lives inside ${(item.uses ?? []).join(", ") || "other files"}. \`ruri show ${label}\` shows it.`,
       );
       failed = true;
       continue;
     }
-    const plan = planCopy(project.path, item.files, here.path, destDir);
+    // this project's own come from the checkout you are in; another's from
+    // that project's folder
+    const sources = project.id === here.id ? where.roots : [project.path];
+    const plan = planCopy(sources, item.files, where.root, destDir);
     const written: string[] = [];
+    const copied: string[] = [];
     const lines: string[] = [];
     for (const place of plan) {
       if (place.state === "missing") {
@@ -679,72 +971,177 @@ function add(host: LibraryHost, args: ParsedArgs): LibraryAnswer {
         continue;
       }
       try {
-        const target = inside(here.path, place.to)!;
+        const target = inside(where.root, place.to)!;
         fs.mkdirSync(path.dirname(target), { recursive: true });
         fs.copyFileSync(place.from, target);
         lines.push(`  ${place.to} — ${place.state === "new" ? "written" : "replaced"}`);
         written.push(place.to);
+        copied.push(place.to);
       } catch (err) {
         lines.push(`  ${place.to} — could not be written: ${(err as Error).message}`);
         failed = true;
       }
     }
-    const from = project.id === here.id ? "" : ` from ${project.name}`;
-    out.push(`${item.slug}${from}:`, ...lines);
+    out.push(`${label}:`, ...lines);
     if (written.length === 0) continue;
     if (project.id === here.id) {
       // a copy of one of this project's own is still that component
       const elsewhere = written.filter((w) => !item.files.includes(w));
       host.noteInstall(here.id, item.id, elsewhere);
     } else {
-      // one taken from another project joins this one's library (the
-      // entry of the same name, when there is one)
-      const entry = host.add(here.id, {
-        name: item.name,
-        slug: item.slug,
-        files: written,
-        exact: true,
-        ...(item.tags?.length ? { tags: item.tags } : {}),
-        ...(item.deps?.length ? { deps: item.deps } : {}),
-        note: item.note,
-      });
-      if (entry.shots.length === 0 && item.shots.length > 0) host.copyShots(here.id, entry.id, item.shots);
-      out.push(`  now in this project's library as ${entry.slug}`);
+      const entry = joinLibrary(host, project, item, written, where);
+      out.push(
+        `  now in this project's library as ${entry.slug}${entry.name !== item.name ? ` ("${entry.name}")` : ""}`,
+      );
     }
-    const moved =
-      plan.some((p) => p.state !== "missing" && !item.files.includes(p.to)) || project.id !== here.id;
-    if (moved)
-      out.push("  check its imports: anything it imported by a relative path now sits somewhere else");
-    if (item.deps?.length) out.push(`  it needs packages: ${installCommand(here.path, item.deps)}`);
+    // what the copy needs that isn't where it landed
+    const gaps = importGaps(where.root, copied);
+    for (const gap of gaps.unresolved) out.push(`  ${gap} — not there; copy it too or change the import`);
+    const packages = [...new Set([...(item.deps ?? []), ...gaps.packages])].filter(
+      (dep) => !packagesOf(where.root)?.has(dep),
+    );
+    if (packages.length) out.push(`  it needs packages: ${installCommand(where.root, packages)}`);
+    if (project.id !== here.id && item.uses?.length) {
+      out.push(
+        `  not copied — it also reaches into ${item.uses.join(", ")} there (styles, the screen it sits on); \`ruri show ${label}\` has that code`,
+      );
+    }
   }
   host.changed(here.id);
   return { ok: !failed, text: out.join("\n") };
 }
 
+/**
+ * One taken from another project, in this one's library: the entry it
+ * already became, when the same files were added before; otherwise a new
+ * entry — never folded into a different component that happens to share
+ * its handle or name.
+ */
+function joinLibrary(
+  host: LibraryHost,
+  project: LibraryProject,
+  item: NamedComponent,
+  written: string[],
+  where: Where,
+): NamedComponent {
+  const here = host.here;
+  const items = host.items(here.id);
+  const same = items.find(
+    (entry) => entry.files.length === written.length && written.every((f) => entry.files.includes(f)),
+  );
+  const sig = codeSig(where.root, written);
+  const filedIn = where.root !== here.path ? where.root : undefined;
+  if (same) {
+    host.update(
+      here.id,
+      same.id,
+      { note: item.note },
+      { ...(sig ? { sig } : {}), ...(filedIn ? { in: filedIn } : {}) },
+    );
+    if (same.shots.length === 0 && item.shots.length > 0) host.copyShots(here.id, same.id, item.shots);
+    return same;
+  }
+  const taken = items.some((entry) => entry.name.toLowerCase() === item.name.toLowerCase());
+  const entry = host.add(here.id, {
+    name: taken ? `${item.name} (from ${project.name})` : item.name,
+    slug: uniqueSlug(
+      item.slug,
+      items.map((entry) => entry.slug),
+    ),
+    files: written,
+    exact: true,
+    ...(item.tags?.length ? { tags: item.tags } : {}),
+    ...(item.deps?.length ? { deps: item.deps } : {}),
+    note: item.note,
+    ...(sig ? { sig } : {}),
+    ...(sig && filedIn ? { filedIn } : {}),
+  });
+  if (entry.shots.length === 0 && item.shots.length > 0) host.copyShots(here.id, entry.id, item.shots);
+  return entry;
+}
+
 function register(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAnswer {
   const here = host.here;
+  const where = whereFor(here, cwd);
   const handle = args.words[1];
-  if (!handle) return no('ruri register <slug> --files <paths> --note "<one line>" — what is it called?');
-  const slug = slugify(handle);
-  if (host.find(here.id, slug)?.slug === slug) {
-    return no(`${slug} is already in the library — \`ruri edit ${slug} ...\` changes it`);
+  if (!handle) {
+    return no(
+      'ruri register <slug> --name "<what a person calls it>" --files <paths> --note "<one line>" — what is it?',
+    );
   }
-  const files = (listFlag(args, "files") ?? []).map((f) => fromCwd(here, cwd, f));
-  const uses = (listFlag(args, "uses") ?? []).map((f) => fromCwd(here, cwd, f));
-  if (files.length === 0) return no(`ruri register ${slug} --files <paths> — which files is it?`);
-  const all = [...files, ...uses];
+  const slug = slugify(handle);
+  const taken = host.find(here.id, slug);
+  if (taken?.slug === slug) {
+    return no(`${slug} is already in the library ("${taken.name}") — \`ruri edit ${slug} ...\` changes it`);
+  }
+  const name = oneFlag(args, "name")?.trim();
+  if (!name || codeLike(name)) {
+    return no(
+      [
+        name
+          ? `"${name}" is a name for code, not one a person says.`
+          : `ruri register ${slug} needs --name "<what a person calls it>".`,
+        `The name is how the user will refer to it, and how a prompt that mentions it is recognised: the user's own words for it when it came from them ("the price cards", "the confirm dialog"), or what they would call it on sight — never a file, class or handle.`,
+      ].join(" "),
+    );
+  }
+  const sameName = host.items(here.id).find((item) => item.name.toLowerCase() === name.toLowerCase());
+  if (sameName) {
+    return no(
+      `"${name}" is already ${sameName.slug}'s name — if this is that one, \`ruri edit ${sameName.slug} ...\`; if not, name it apart`,
+    );
+  }
+  const typed = (listFlag(args, "files") ?? []).map((f) => fromCwd(here, where, f));
+  const usesTyped = (listFlag(args, "uses") ?? []).map((f) => fromCwd(here, where, f));
+  if (typed.length === 0 && usesTyped.length === 0) {
+    return no(
+      `ruri register ${slug} --files <paths> — which files are its own? (a part that lives inside other files: --uses <file>:<line>)`,
+    );
+  }
+  const all = [...typed, ...usesTyped];
   if (!all.some(isUiFile)) {
     return no(
       `None of ${all.join(", ")} looks like interface. The library holds screens, panels, cards, controls and dialogs — the files a person sees — never backend code.`,
     );
   }
-  const outside = all.filter((f) => !inside(here.path, parseRef(f).path));
+  const outside = all.filter((f) => !inside(where.root, parseRef(f).path));
   if (outside.length) return no(`outside the project: ${outside.join(", ")}`);
-  const missing = all.filter((f) => !fs.existsSync(path.join(here.path, parseRef(f).path)));
-  const name = oneFlag(args, "name")?.trim() || slug.replace(/-/g, " ");
+  // the app's shared stylesheet and a file named at a line are places it
+  // reaches into: `ruri add` must not copy them as if they were its own
+  const shared = typed.filter(
+    (f) => parseRef(f).line !== undefined || SHARED_STYLES.has(path.basename(parseRef(f).path).toLowerCase()),
+  );
+  const files = typed.filter((f) => !shared.includes(f));
+  const uses = [...new Set([...usesTyped, ...shared])];
+  if (files.length === 0 && shared.length > 0 && usesTyped.length === 0) {
+    return no(
+      `${shared.join(", ")} ${shared.length === 1 ? "is a place" : "are places"} it reaches into (a shared stylesheet, or a stretch of a bigger file), not its own code. Name its own files with --files, and the rest with --uses — a part that lives inside other files takes --uses alone.`,
+    );
+  }
+  const exists = (ref: string) =>
+    where.roots.some((root) => fs.existsSync(path.join(root, parseRef(ref).path)));
+  const absent = files.filter((f) => !exists(f));
+  if (absent.length) {
+    return no(
+      `not found: ${absent.join(", ")} — register what exists, with paths from the root of the checkout you are in (${where.root})`,
+    );
+  }
+  // the same code under another handle is the same component
+  for (const item of host.items(here.id)) {
+    const overlap = files.filter((f) => item.files.includes(f));
+    if (files.length > 0 && overlap.length === files.length) {
+      return no(
+        `${overlap.join(", ")} ${overlap.length === 1 ? "is" : "are"} already ${item.slug}'s ("${item.name}") — if this is that component, \`ruri edit ${item.slug} ...\` (--alias "${name}" adds your name for it); if it is a part inside it, register the part with --uses ${overlap[0]}:<line> instead of --files`,
+      );
+    }
+  }
   const shot = oneFlag(args, "shot");
-  const shotFile = shot ? (cwd ? path.resolve(cwd, shot) : path.resolve(here.path, shot)) : undefined;
-  if (shotFile && !fs.existsSync(shotFile)) return no(`no picture at ${shot}`);
+  const picture = shot ? shotFile(where, shot) : undefined;
+  if (picture && !fs.existsSync(picture)) return no(`no picture at ${shot}`);
+  const shares = host
+    .items(here.id)
+    .flatMap((item) => files.filter((f) => item.files.includes(f)).map((f) => `${f} (with ${item.slug})`));
+  const sig = codeSig(where.root, files);
   const outcome = host.ask({
     name,
     slug,
@@ -753,11 +1150,23 @@ function register(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAns
     ...(uses.length ? { uses } : {}),
     ...(listFlag(args, "tags") ? { tags: listFlag(args, "tags")! } : {}),
     ...(listFlag(args, "deps") ? { deps: listFlag(args, "deps")! } : {}),
-    ...(shotFile ? { shot: shotFile } : {}),
+    ...(picture ? { shot: picture } : {}),
+    ...(where.root !== here.path ? { checkout: where.root } : {}),
+    ...(sig ? { sig } : {}),
+    ...(uses.length ? { anchors: anchorsAt(where.roots, uses) } : {}),
   });
+  const missingUses = uses.filter((f) => !exists(f));
   const notes = [
-    ...(missing.length ? [`  not found (yet?): ${missing.join(", ")}`] : []),
-    ...(shot ? [] : ["  no screenshot — the card is much easier to answer with one (--shot <image>)"]),
+    ...(shared.length
+      ? [`  ${shared.join(", ")}: a place it reaches into, not its own — kept under "reaches into"`]
+      : []),
+    ...(shares.length ? [`  shares ${shares.join(", ")}`] : []),
+    ...(missingUses.length ? [`  not found: ${missingUses.join(", ")}`] : []),
+    ...(shot
+      ? []
+      : [
+          `  no picture — \`ruri edit ${slug} --shot <image>\` files one; an entry without one is hard to tell apart`,
+        ]),
   ];
   if (outcome === "asked") {
     return yes(
@@ -780,12 +1189,20 @@ function register(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAns
 
 function edit(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAnswer {
   const here = host.here;
+  const where = whereFor(here, cwd);
   const handle = args.words[1];
   if (!handle) return no("ruri edit <slug> [--name ...] — which one?");
   const item = host.find(here.id, handle);
-  if (!item) return no(`nothing called "${handle}" in the library`);
-  const rel = (list: string[] | undefined) => list?.map((f) => fromCwd(here, cwd, f));
-  const patch = {
+  if (!item) {
+    const near = nearest(host.items(here.id), handle);
+    return no(
+      `nothing called "${handle}" in the library${near.length ? ` — did you mean: ${near.map((i) => i.slug).join(", ")}?` : ""}`,
+    );
+  }
+  const rel = (list: string[] | undefined) => list?.map((f) => fromCwd(here, where, f));
+  const added = listFlag(args, "alias");
+  const aliases = listFlag(args, "aliases") ?? (added ? [...item.aliases, ...added] : undefined);
+  const patch: LibraryPatch = {
     ...(oneFlag(args, "name") !== undefined ? { name: oneFlag(args, "name")! } : {}),
     ...(oneFlag(args, "slug") !== undefined ? { slug: oneFlag(args, "slug")! } : {}),
     ...(oneFlag(args, "note") !== undefined ? { note: oneFlag(args, "note")! } : {}),
@@ -793,36 +1210,124 @@ function edit(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAnswer 
     ...(listFlag(args, "uses") ? { uses: rel(listFlag(args, "uses"))! } : {}),
     ...(listFlag(args, "tags") ? { tags: listFlag(args, "tags")! } : {}),
     ...(listFlag(args, "deps") ? { deps: listFlag(args, "deps")! } : {}),
-    ...(listFlag(args, "aliases") ? { aliases: listFlag(args, "aliases")! } : {}),
+    ...(aliases ? { aliases } : {}),
     ...(oneFlag(args, "selector") !== undefined ? { selector: oneFlag(args, "selector")! } : {}),
     ...(oneFlag(args, "route") !== undefined ? { route: oneFlag(args, "route")! } : {}),
   };
-  const shots = args.flags.get("shot") ?? [];
-  if (Object.keys(patch).length === 0 && shots.length === 0) {
+  const shots = (args.flags.get("shot") ?? []).map((shot) => ({ shot, file: shotFile(where, shot) }));
+  const current = args.switches.has("current");
+  if (Object.keys(patch).length === 0 && shots.length === 0 && !current) {
     return no(`nothing to change — ruri edit ${item.slug} --note "..." (see ruri help)`);
+  }
+  if (patch.name !== undefined && codeLike(patch.name)) {
+    return no(`"${patch.name}" is a name for code, not one a person says — the user's own words for it`);
   }
   if (patch.files && !patch.files.some(isUiFile) && !(patch.uses ?? item.uses ?? []).some(isUiFile)) {
     return no("none of those files looks like interface — the library holds interface only");
   }
-  host.update(here.id, item.id, patch);
+  if (patch.files) {
+    const absent = patch.files.filter(
+      (f) => !where.roots.some((root) => fs.existsSync(path.join(root, parseRef(f).path))),
+    );
+    if (absent.length)
+      return no(`not found: ${absent.join(", ")} (paths are from the root of ${where.root})`);
+  }
+  const unreadable = shots.filter((s) => !fs.existsSync(s.file));
+  if (unreadable.length)
+    return no(`no picture at ${unreadable.map((s) => s.shot).join(", ")} — nothing was changed`);
+  const sig = codeSig(where.root, patch.files ?? item.files);
+  const filed: Filed = {
+    ...(sig ? { sig } : {}),
+    ...(where.root !== here.path ? { in: where.root } : {}),
+    ...(patch.uses ? { anchors: anchorsAt(where.roots, patch.uses) } : {}),
+  };
+  host.update(here.id, item.id, patch, filed);
+  if (current) host.current(here.id, item.id, filed);
   // each new picture goes in front, so the first one given is filed last
   // and ends up the one shown
-  const unread = [...shots]
-    .reverse()
-    .filter((shot) => !host.shoot(here.id, item.id, cwd ? path.resolve(cwd, shot) : shot));
+  const unread = [...shots].reverse().filter((s) => !host.shoot(here.id, item.id, s.file, filed));
   host.changed(here.id);
   const now = host.find(here.id, patch.slug ?? item.slug) ?? item;
+  if (unread.length)
+    return no(`updated ${now.slug}, but could not file: ${unread.map((s) => s.shot).join(", ")}`);
   return yes(
-    [`updated ${now.slug}`, ...(unread.length ? [`  could not read: ${unread.join(", ")}`] : [])].join("\n"),
+    [
+      `updated ${now.slug}`,
+      ...(shots.length
+        ? [`  ${shots.length === 1 ? "the picture is" : "the first picture is"} now the one shown`]
+        : []),
+      ...(current ? ["  its picture and note are marked as showing it as it is"] : []),
+    ].join("\n"),
   );
+}
+
+function listing(host: LibraryHost, project: LibraryProject): LibraryAnswer {
+  const items = host.items(project.id);
+  const prefix = project.id === host.here.id ? "" : `${project.name}/`;
+  if (items.length === 0) {
+    return yes(
+      prefix
+        ? `${project.name}'s library is empty.`
+        : 'The library is empty. Register what you build: ruri register <slug> --name "<what a person calls it>" --files <paths> --note "..." --shot <image>',
+    );
+  }
+  const dir = host.dir(project.id);
+  return yes(
+    [
+      `${project.name} — ${items.length} component${items.length === 1 ? "" : "s"}${dir ? ` (installs into ${dir})` : ""}`,
+      "",
+      ...items.map((item) => shortLine(item, prefix)),
+      "",
+      `ruri show ${prefix}<slug> for one in full, with its code.`,
+    ].join("\n"),
+  );
+}
+
+function searching(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAnswer {
+  const query = args.words.slice(1).join(" ");
+  if (!query.trim()) return no("ruri search <words> [--all]");
+  const here = host.here;
+  const where = whereFor(here, cwd);
+  const others = host.projects().filter((p) => p.id !== here.id);
+  const elsewhere = (limit: number) =>
+    others
+      .flatMap((p) => search(host.items(p.id), query).map((item) => shortLine(item, `${p.name}/`)))
+      .slice(0, limit);
+  const hits = search(host.items(here.id), query, where.roots).map((item) => shortLine(item));
+  if (args.switches.has("all")) {
+    const all = [...hits, ...elsewhere(20)];
+    if (all.length === 0) return yes(`nothing in any open project's library matches "${query}"`);
+    return yes(
+      [...all.slice(0, 24), "", "ruri show <slug> (or <project>/<slug>) for one in full."].join("\n"),
+    );
+  }
+  if (hits.length === 0) {
+    const there = elsewhere(5);
+    return yes(
+      [
+        `nothing in this project's library matches "${query}" — \`ruri list\` shows everything`,
+        ...(there.length
+          ? [
+              "",
+              "Other projects have:",
+              ...there,
+              "",
+              "ruri show <project>/<slug> reads one; ruri add <project>/<slug> copies it here.",
+            ]
+          : []),
+      ].join("\n"),
+    );
+  }
+  return yes([...hits.slice(0, 12), "", "ruri show <slug> for one in full."].join("\n"));
 }
 
 /**
  * Run one `ruri` command for a session in `host.here`. `cwd` is where the
- * session's shell stood, so paths typed from a subfolder mean what they
- * say. Never throws: every failure is an answer the agent can read.
+ * session's shell stood — in the project or a worktree of it — so paths
+ * typed from there mean what they say, and copies land there. Never
+ * throws: every failure is an answer the agent can read.
  */
-export function runLibrary(host: LibraryHost, argv: string[], cwd?: string): LibraryAnswer {
+export async function runLibrary(host: LibraryHost, argv: string[], cwd?: string): Promise<LibraryAnswer> {
   const args = parseArgs(argv);
   const command = (args.words[0] ?? "help").toLowerCase();
   const here = host.here;
@@ -833,44 +1338,35 @@ export function runLibrary(host: LibraryHost, argv: string[], cwd?: string): Lib
         return yes(HELP);
       case "list":
       case "ls": {
-        const items = host.items(here.id);
-        if (items.length === 0) {
-          return yes(
-            'The library is empty. Register what you build: ruri register <slug> --files <paths> --note "..." --shot <image>',
-          );
-        }
-        const dir = host.dir(here.id);
-        return yes(
-          [
-            `${here.name} — ${items.length} component${items.length === 1 ? "" : "s"}${dir ? ` (installs into ${dir})` : ""}`,
-            "",
-            ...items.map(shortLine),
-            "",
-            "ruri show <slug> for one in full, with its code.",
-          ].join("\n"),
-        );
+        const named = args.words[1];
+        if (!named) return listing(host, here);
+        const project = projectNamed(host, named);
+        return project
+          ? listing(host, project)
+          : no(
+              `no open project called "${named}" — open ones: ${host
+                .projects()
+                .map((p) => p.name)
+                .join(", ")}`,
+            );
       }
       case "search":
-      case "find": {
-        const query = args.words.slice(1).join(" ");
-        if (!query.trim()) return no("ruri search <words>");
-        const hits = search(host.items(here.id), query);
-        if (hits.length === 0) {
-          return yes(`nothing in the library matches "${query}" — \`ruri list\` shows everything`);
-        }
-        return yes([...hits.slice(0, 12).map(shortLine), "", "ruri show <slug> for one in full."].join("\n"));
-      }
+      case "find":
+        return searching(host, args, cwd);
       case "show":
       case "view": {
         const handle = args.words[1];
         if (!handle) return no("ruri show <slug>");
-        const found = resolveSource(host, handle);
+        const found = await resolveSource(host, handle);
         if (typeof found === "string") return no(found);
-        return yes(showText(found.project, found.item, !args.switches.has("no-code")));
+        const theirs = found.project.id !== here.id;
+        const roots = theirs ? [found.project.path] : whereFor(here, cwd).roots;
+        const label = theirs ? `${found.project.name}/${found.item.slug}` : found.item.slug;
+        return yes(showText(roots, found.item, !args.switches.has("no-code"), label));
       }
       case "add":
       case "install":
-        return add(host, args);
+        return await add(host, args, cwd);
       case "register":
       case "new":
         return register(host, args, cwd);
@@ -891,12 +1387,18 @@ export function runLibrary(host: LibraryHost, argv: string[], cwd?: string): Lib
         const dir = args.words[1];
         if (dir === undefined) {
           const set = host.dir(here.id);
+          const guess = set ? undefined : guessDir(whereFor(here, cwd).root, host.items(here.id));
           return yes(
-            set ? `components install into ${set}` : "no components folder set yet — ruri dir <folder>",
+            set
+              ? `components install into ${set}`
+              : guess
+                ? `no components folder set — \`ruri add\` would use ${guess}, where this project's components live; ruri dir <folder> sets one`
+                : "no components folder set yet — ruri dir <folder>",
           );
         }
-        const rel = fromCwd(here, undefined, dir.replace(/\/+$/, ""));
-        if (!inside(here.path, rel)) return no(`${dir} is outside the project`);
+        const where = whereFor(here, cwd);
+        const rel = fromCwd(here, where, dir.replace(/\/+$/, ""));
+        if (!inside(where.root, rel)) return no(`${dir} is outside the project`);
         host.setDir(here.id, rel);
         host.changed(here.id);
         return yes(`components install into ${rel} from now on`);
@@ -1006,10 +1508,14 @@ export function writeLibrarySkill(
       ? "Nothing is in the library yet."
       : `${items.length} component${items.length === 1 ? "" : "s"}, as of ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC.${dir ? ` \`ruri add\` installs into ${dir}.` : ""}`,
     "",
-    'Before building any interface here, look for it below (or `ruri search <words>`), and reuse or extend what exists. After building a reusable piece of interface, put it in the library: `ruri register <slug> --files <paths> --note "<one line>" --shot <screenshot>` (or name it with mcp__ruri__name_component, which asks the user what to call it). After changing one that is already here, update its entry: `ruri edit <slug> --shot <new screenshot>`, and `--note` if it no longer holds.',
+    "Before building any interface here, look for it below (or `ruri search <words>`; `--all` looks in every open project), and reuse or extend what exists.",
     "",
-    "- `ruri show <slug>` — one in full, with its code",
-    "- `ruri add <slug> [--dir <folder>]` — copy it into the project; `ruri add <project>/<slug>` takes one from another open project",
+    'After building a reusable piece of interface, put it in the library: `ruri register <slug> --name "<what a person calls it>" --files <paths> --note "<one line>" --shot <screenshot>` (or name it with mcp__ruri__name_component). The name is the user\'s own words for it when it came from them — "the price cards", never "PriceCard" — because it is how they will refer to it, and how a prompt that names it is recognised. Its files are its own code; the app\'s shared stylesheet and the screen it sits on go under `--uses`.',
+    "",
+    'After changing one that is already here, update its entry: `ruri edit <slug> --shot <new screenshot>`, and `--note` if it no longer holds; if it still looks the same, `ruri edit <slug> --current`. When the user calls one by a name it doesn\'t have, add theirs: `ruri edit <slug> --alias "<their words>"`.',
+    "",
+    "- `ruri show <slug>` — one in full, with its code and pictures (`ruri show <project>/<slug>` for another project's)",
+    "- `ruri add <slug> [--dir <folder>]` — copy it into the checkout you are in; `ruri add <project>/<slug>` takes one from another open project and says what it needs that isn't there",
     "- `ruri edit <slug> ...`, `ruri remove <slug>`, `ruri help`",
     "",
     "This list is rewritten whenever the library changes; if this session has been going a while, `ruri list` has anything added since.",

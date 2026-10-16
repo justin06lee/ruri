@@ -54,23 +54,68 @@ function hostFor(here: LibraryProject, store: ComponentStore, others: LibraryPro
     projects: () => [here, ...others],
     // as in bypass: straight in
     ask: (proposal) => {
-      store.add(here.id, { ...proposal, exact: true });
+      store.add(here.id, {
+        ...proposal,
+        exact: true,
+        ...(proposal.checkout ? { filedIn: proposal.checkout } : {}),
+      });
       return "added";
     },
     items: (id) => store.items(id),
     find: (id, handle) => store.find(id, handle),
     add: (id, input) => store.add(id, input),
-    update: (id, componentId, patch) => store.update(id, componentId, patch),
+    update: (id, componentId, patch, filed) =>
+      store.update(id, componentId, patch, {
+        ...(filed?.sig ? { sig: filed.sig } : {}),
+        ...(filed?.in ? { filedIn: filed.in } : {}),
+      }),
     remove: (id, componentId) => store.remove(id, componentId),
-    shoot: () => false,
+    shoot: (id, componentId, file, filed) =>
+      fs.existsSync(file) &&
+      store.addShot(
+        id,
+        componentId,
+        { id: path.basename(file), kind: "image", mediaType: "image/png", name: path.basename(file), n: 1 },
+        filed?.sig,
+        filed?.in,
+      ),
     copyShots: (id, componentId, shots) => {
       for (const shot of shots) store.addShot(id, componentId, shot);
+    },
+    current: (id, componentId, filed) => {
+      store.current(id, componentId, filed?.sig, filed?.in);
     },
     dir: (id) => store.dir(id),
     setDir: (id, dir) => store.setDir(id, dir),
     noteInstall: (id, componentId, paths) => store.noteInstall(id, componentId, paths),
+    follow: async () => {},
     changed: () => {},
   };
+}
+
+/** A real git repository with these files committed, and a worktree of it
+ *  on a branch of its own. */
+function repoWithWorktree(files: Record<string, string>): { main: LibraryProject; tree: string } {
+  const main = project("repo", files);
+  const git = (cwd: string, args: string[]) =>
+    execFileSync("git", args, {
+      cwd,
+      stdio: "pipe",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "t",
+        GIT_AUTHOR_EMAIL: "t@t",
+        GIT_COMMITTER_NAME: "t",
+        GIT_COMMITTER_EMAIL: "t@t",
+      },
+    });
+  git(main.path, ["init", "-q", "-b", "master"]);
+  git(main.path, ["add", "-A"]);
+  git(main.path, ["commit", "-q", "-m", "first"]);
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-lib-tree-"));
+  fs.rmSync(tree, { recursive: true });
+  git(main.path, ["worktree", "add", "-q", tree, "-b", "feat/x"]);
+  return { main, tree };
 }
 
 describe("handles", () => {
@@ -169,7 +214,7 @@ describe("interface only", () => {
     const aside = JSON.parse(fs.readFileSync(path.join(config, "components", "p.not-ui.json"), "utf8"));
     expect(aside.items.map((i: { name: string }) => i.name)).toEqual(["compaction"]);
     // migrated once: the file now says so, and a reload changes nothing
-    expect(JSON.parse(fs.readFileSync(file, "utf8")).version).toBe(3);
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).version).toBe(4);
     expect(new ComponentStore().items("p").map((i) => i.slug)).toEqual(["talk-page"]);
   });
 });
@@ -183,7 +228,7 @@ describe("the command", () => {
     expect([...args.switches]).toEqual(["overwrite"]);
   });
 
-  test("register, list, search, show, edit and remove", () => {
+  test("register, list, search, show, edit and remove", async () => {
     const here = project("app", {
       "src/components/ConfirmCard.tsx": "export function ConfirmCard() {}\n",
       "src/components/confirm.css": ".confirm { color: red }\n",
@@ -192,13 +237,15 @@ describe("the command", () => {
     const store = new ComponentStore();
     const host = hostFor(here, store);
 
-    const refused = runLibrary(host, ["register", "db", "--files", "server/db.ts"]);
+    const refused = await runLibrary(host, ["register", "db", "--name", "the db", "--files", "server/db.ts"]);
     expect(refused.ok).toBe(false);
     expect(refused.text).toContain("interface");
 
-    const made = runLibrary(host, [
+    const made = await runLibrary(host, [
       "register",
       "confirm-card",
+      "--name",
+      "the confirm card",
       "--files",
       "src/components/ConfirmCard.tsx,src/components/confirm.css",
       "--note",
@@ -208,53 +255,232 @@ describe("the command", () => {
     ]);
     expect(made.ok).toBe(true);
     expect(made.text).toContain("registered confirm-card");
-    expect(
-      runLibrary(host, ["register", "confirm-card", "--files", "src/components/ConfirmCard.tsx"]).ok,
-    ).toBe(false);
+    expect(made.text).toContain("no picture");
+    const again = await runLibrary(host, [
+      "register",
+      "confirm-card",
+      "--name",
+      "another",
+      "--files",
+      "src/components/ConfirmCard.tsx",
+    ]);
+    expect(again.ok).toBe(false);
 
-    expect(runLibrary(host, ["list"]).text).toContain("confirm-card — confirm card: asks yes or no");
-    expect(runLibrary(host, ["search", "dialog"]).text).toContain("confirm-card");
-    expect(runLibrary(host, ["search", "spaceship"]).text).toContain("nothing in the library matches");
+    expect((await runLibrary(host, ["list"])).text).toContain(
+      "confirm-card — the confirm card: asks yes or no over the pane [no picture]",
+    );
+    expect((await runLibrary(host, ["search", "dialog"])).text).toContain("confirm-card");
+    expect((await runLibrary(host, ["search", "spaceship"])).text).toContain(
+      "nothing in this project's library",
+    );
 
-    const shown = runLibrary(host, ["show", "confirm-card"]);
+    const shown = await runLibrary(host, ["show", "confirm-card"]);
     expect(shown.text).toContain("export function ConfirmCard()");
     expect(shown.text).toContain(".confirm { color: red }");
     expect(shown.text).toContain("Install: ruri add confirm-card");
 
-    expect(runLibrary(host, ["edit", "confirm-card", "--name", "the yes-no card"]).ok).toBe(true);
+    expect((await runLibrary(host, ["edit", "confirm-card", "--name", "the yes-no card"])).ok).toBe(true);
     expect(store.find(here.id, "confirm-card")?.name).toBe("the yes-no card");
-    expect(runLibrary(host, ["show", "the yes-no card", "--no-code"]).text).not.toContain("export function");
+    expect((await runLibrary(host, ["show", "the yes-no card", "--no-code"])).text).not.toContain(
+      "export function",
+    );
 
-    expect(runLibrary(host, ["remove", "confirm-card"]).ok).toBe(true);
+    expect((await runLibrary(host, ["remove", "confirm-card"])).ok).toBe(true);
     expect(store.items(here.id)).toEqual([]);
     expect(fs.existsSync(path.join(here.path, "src/components/ConfirmCard.tsx"))).toBe(true);
   });
 
-  test("a path typed from a subfolder means that file", () => {
-    const here = project("app", { "web/src/Card.tsx": "x\n" });
-    const store = new ComponentStore();
-    const host = hostFor(here, store);
+  test("a name is a person's words: required, and never code", async () => {
+    const here = project("app", { "src/NavBar.tsx": "x\n" });
+    const host = hostFor(here, new ComponentStore());
+    const bare = await runLibrary(host, ["register", "navbar", "--files", "src/NavBar.tsx"]);
+    expect(bare.ok).toBe(false);
+    expect(bare.text).toContain('--name "<what a person calls it>"');
+    for (const name of ["NavBar", "nav-bar", "navBar", "NavBar.tsx", "nav_bar"]) {
+      const out = await runLibrary(host, ["register", "navbar", "--name", name, "--files", "src/NavBar.tsx"]);
+      expect(out.ok).toBe(false);
+      expect(out.text).toContain("a name for code");
+    }
     expect(
-      runLibrary(host, ["register", "card", "--files", "src/Card.tsx"], path.join(here.path, "web")).ok,
+      (await runLibrary(host, ["register", "navbar", "--name", "the top nav", "--files", "src/NavBar.tsx"]))
+        .ok,
     ).toBe(true);
-    expect(store.find(here.id, "card")?.files).toEqual(["web/src/Card.tsx"]);
+    expect((await runLibrary(host, ["edit", "navbar", "--name", "TopNav"])).ok).toBe(false);
   });
 
-  test("add wants a folder once, remembers it, and never clobbers without --overwrite", () => {
+  test("the same code, the same name, a shared stylesheet and files that aren't there", async () => {
+    const here = project("app", {
+      "src/Dialog.tsx": "d\n",
+      "src/Dialog.css": ".d{}\n",
+      "src/styles.css": "body{}\n",
+      "src/Big.tsx": "big\n",
+    });
+    const store = new ComponentStore();
+    const host = hostFor(here, store);
+    await runLibrary(host, [
+      "register",
+      "dialog",
+      "--name",
+      "the dialog",
+      "--files",
+      "src/Dialog.tsx,src/Dialog.css",
+    ]);
+
+    const twin = await runLibrary(host, [
+      "register",
+      "modal",
+      "--name",
+      "the modal",
+      "--files",
+      "src/Dialog.tsx",
+    ]);
+    expect(twin.ok).toBe(false);
+    expect(twin.text).toContain("already dialog's");
+    expect(twin.text).toContain('--alias "the modal"');
+
+    const named = await runLibrary(host, [
+      "register",
+      "big",
+      "--name",
+      "The Dialog",
+      "--files",
+      "src/Big.tsx",
+    ]);
+    expect(named.ok).toBe(false);
+    expect(named.text).toContain("already dialog's name");
+
+    const styled = await runLibrary(host, [
+      "register",
+      "big",
+      "--name",
+      "the big panel",
+      "--files",
+      "src/Big.tsx,src/styles.css",
+    ]);
+    expect(styled.ok).toBe(true);
+    expect(store.find(here.id, "big")?.files).toEqual(["src/Big.tsx"]);
+    expect(store.find(here.id, "big")?.uses).toEqual(["src/styles.css"]);
+
+    const ghost = await runLibrary(host, [
+      "register",
+      "ghost",
+      "--name",
+      "the ghost",
+      "--files",
+      "src/Ghost.tsx",
+    ]);
+    expect(ghost.ok).toBe(false);
+    expect(ghost.text).toContain("not found: src/Ghost.tsx");
+
+    // a part that lives inside another's file is registered by where it sits
+    const part = await runLibrary(host, [
+      "register",
+      "dialog-title",
+      "--name",
+      "the dialog title",
+      "--uses",
+      "src/Dialog.tsx:1",
+    ]);
+    expect(part.ok).toBe(true);
+    expect(store.find(here.id, "dialog-title")?.files).toEqual([]);
+  });
+
+  test("edit: a picture that can't be read changes nothing; --alias adds a name", async () => {
+    const here = project("app", { "src/Card.tsx": "c\n", "shot.png": "png" });
+    const store = new ComponentStore();
+    const host = hostFor(here, store);
+    await runLibrary(host, ["register", "card", "--name", "the card", "--files", "src/Card.tsx"]);
+    const bad = await runLibrary(host, ["edit", "card", "--note", "changed", "--shot", "nope.png"]);
+    expect(bad.ok).toBe(false);
+    expect(store.find(here.id, "card")?.note).toBe("");
+    const good = await runLibrary(
+      host,
+      ["edit", "card", "--shot", "shot.png", "--alias", "the tile"],
+      here.path,
+    );
+    expect(good.ok).toBe(true);
+    expect(store.find(here.id, "card")?.shots).toHaveLength(1);
+    await runLibrary(host, ["edit", "card", "--alias", "the box"]);
+    // the page's "Looks right" on a sweep's guess
+    const guess = store.add(here.id, { name: "the guess", files: ["src/Card.tsx"], found: true });
+    store.update(here.id, guess.id, {}, { accept: true });
+    expect(store.find(here.id, "the guess")?.found).toBeUndefined();
+    expect(store.find(here.id, "the guess")?.confirmed).toBe(true);
+    expect(store.find(here.id, "card")?.aliases).toEqual(["the tile", "the box"]);
+    expect(store.find(here.id, "the box")?.slug).toBe("card");
+  });
+
+  test("a path typed from a subfolder means that file, and so does one from the root", async () => {
+    const here = project("app", { "web/src/Card.tsx": "x\n", "web/src/Tile.tsx": "y\n" });
+    const store = new ComponentStore();
+    const host = hostFor(here, store);
+    const sub = path.join(here.path, "web");
+    expect(
+      (await runLibrary(host, ["register", "card", "--name", "the card", "--files", "src/Card.tsx"], sub)).ok,
+    ).toBe(true);
+    expect(store.find(here.id, "card")?.files).toEqual(["web/src/Card.tsx"]);
+    expect(
+      (await runLibrary(host, ["register", "tile", "--name", "the tile", "--files", "web/src/Tile.tsx"], sub))
+        .ok,
+    ).toBe(true);
+    expect(store.find(here.id, "tile")?.files).toEqual(["web/src/Tile.tsx"]);
+  });
+
+  test("from a worktree: its files are read there, and copies land there", async () => {
+    const { main, tree } = repoWithWorktree({
+      "src/components/Dial.tsx": "dial\n",
+      "src/components/Knob.tsx": "knob\n",
+    });
+    fs.writeFileSync(path.join(tree, "src/components/Toast.tsx"), "toast\n");
+    const store = new ComponentStore();
+    const host = hostFor(main, store);
+    const made = await runLibrary(
+      host,
+      ["register", "toast", "--name", "the toast", "--files", "src/components/Toast.tsx"],
+      path.join(tree, "src"),
+    );
+    expect(made.ok).toBe(true);
+    const toast = store.find(main.id, "toast")!;
+    expect(toast.files).toEqual(["src/components/Toast.tsx"]);
+    expect(fs.realpathSync(toast.filedIn!)).toBe(fs.realpathSync(tree));
+    expect(toast.noteSig).toBeTruthy();
+    expect((await runLibrary(host, ["show", "toast"], tree)).text).toContain("toast\n");
+
+    await runLibrary(
+      host,
+      ["register", "dial", "--name", "the dial", "--files", "src/components/Dial.tsx"],
+      main.path,
+    );
+    const copied = await runLibrary(host, ["add", "dial", "--dir", "src/ui"], tree);
+    expect(copied.ok).toBe(true);
+    expect(copied.text).toContain("into the checkout you are in");
+    expect(fs.existsSync(path.join(tree, "src/ui/Dial.tsx"))).toBe(true);
+    expect(fs.existsSync(path.join(main.path, "src/ui/Dial.tsx"))).toBe(false);
+  });
+
+  test("add wants a folder once, remembers it, and never clobbers without --overwrite", async () => {
     const here = project("app", {
       "web/ui/Dial.tsx": "dial v1\n",
       "web/ui/dial.css": ".dial{}\n",
     });
     const store = new ComponentStore();
     const host = hostFor(here, store);
-    runLibrary(host, ["register", "dial", "--files", "web/ui/Dial.tsx,web/ui/dial.css"]);
+    await runLibrary(host, [
+      "register",
+      "dial",
+      "--name",
+      "the dial",
+      "--files",
+      "web/ui/Dial.tsx,web/ui/dial.css",
+    ]);
 
-    const unset = runLibrary(host, ["add", "dial"]);
+    const unset = await runLibrary(host, ["add", "dial"]);
     expect(unset.ok).toBe(false);
     expect(unset.text).toContain("--dir");
 
-    const first = runLibrary(host, ["add", "dial", "--dir", "desktop/src/ui"]);
+    const first = await runLibrary(host, ["add", "dial", "--dir", "desktop/src/ui"]);
     expect(first.ok).toBe(true);
+    expect(first.text).not.toContain("imports");
     expect(fs.readFileSync(path.join(here.path, "desktop/src/ui/Dial.tsx"), "utf8")).toBe("dial v1\n");
     expect(fs.readFileSync(path.join(here.path, "desktop/src/ui/dial.css"), "utf8")).toBe(".dial{}\n");
     expect(store.dir(here.id)).toBe("desktop/src/ui");
@@ -265,49 +491,117 @@ describe("the command", () => {
 
     // the copy was changed there; the next add leaves it alone
     fs.writeFileSync(path.join(here.path, "desktop/src/ui/Dial.tsx"), "dial, edited\n");
-    const again = runLibrary(host, ["add", "dial"]);
+    const again = await runLibrary(host, ["add", "dial"]);
     expect(again.text).toContain("already there and different");
     expect(fs.readFileSync(path.join(here.path, "desktop/src/ui/Dial.tsx"), "utf8")).toBe("dial, edited\n");
-    runLibrary(host, ["add", "dial", "--overwrite"]);
+    await runLibrary(host, ["add", "dial", "--overwrite"]);
     expect(fs.readFileSync(path.join(here.path, "desktop/src/ui/Dial.tsx"), "utf8")).toBe("dial v1\n");
 
-    expect(runLibrary(host, ["add", "dial", "--dir", "../outside"]).ok).toBe(false);
+    expect((await runLibrary(host, ["add", "dial", "--dir", "../outside"])).ok).toBe(false);
   });
 
-  test("add from another project copies it over and joins this project's library", () => {
-    const there = project("gallery", {
-      "src/components/gallery/CrtMonitor.tsx": "crt\n",
-      "src/components/gallery/crt-gl.ts": "gl\n",
-    });
-    const here = project("site", { "package.json": "{}", "bun.lock": "" });
+  test("with no folder set, add goes where the project's components live", async () => {
+    const here = project("app", { "src/components/A.tsx": "a", "src/components/B.tsx": "b" });
+    const there = project("gallery", { "ui/Crt.tsx": "crt\n" });
     const store = new ComponentStore();
-    hostFor(there, store);
+    store.add(there.id, { name: "the crt", files: ["ui/Crt.tsx"] });
+    const host = hostFor(here, store, [there]);
+    const out = await runLibrary(host, ["add", "gallery/crt"]);
+    expect(out.ok).toBe(true);
+    expect(out.text).toContain("into src/components — where this project's components live");
+    expect(fs.readFileSync(path.join(here.path, "src/components/Crt.tsx"), "utf8")).toBe("crt\n");
+    // a guess is not remembered: saying where is
+    expect(store.dir(here.id)).toBeUndefined();
+  });
+
+  test("add from another project copies it over, joins this library, and says what it needs", async () => {
+    const there = project("gallery", {
+      "src/components/gallery/CrtMonitor.tsx":
+        'import { Canvas } from "@react-three/fiber";\nimport { glow } from "./crt-gl";\nimport { theme } from "../../theme";\nimport * as fs from "node:fs";\n',
+      "src/components/gallery/crt-gl.ts": 'import * as THREE from "three";\n',
+      "src/theme.ts": "export const theme = {};\n",
+      "src/styles.css": ".crt{}\n",
+    });
+    const here = project("site", {
+      "package.json": JSON.stringify({ dependencies: { three: "1" } }),
+      "bun.lock": "",
+      "app/ui/Other.tsx": "other",
+    });
+    const store = new ComponentStore();
     store.add(there.id, {
       name: "the crt monitor",
       files: ["src/components/gallery/CrtMonitor.tsx", "src/components/gallery/crt-gl.ts"],
-      deps: ["three"],
+      uses: ["src/styles.css:1"],
       note: "a CRT that renders its children",
     });
+    // this project already has something else under that handle
+    store.add(here.id, { name: "the crt monitor", slug: "crt-monitor", files: ["app/ui/Other.tsx"] });
     const host = hostFor(here, store, [there]);
     store.setDir(here.id, "app/ui");
-    const out = runLibrary(host, ["add", "gallery/crt-monitor"]);
+    const out = await runLibrary(host, ["add", "gallery/crt-monitor"]);
     expect(out.ok).toBe(true);
-    expect(fs.readFileSync(path.join(here.path, "app/ui/CrtMonitor.tsx"), "utf8")).toBe("crt\n");
-    expect(fs.readFileSync(path.join(here.path, "app/ui/crt-gl.ts"), "utf8")).toBe("gl\n");
-    expect(out.text).toContain("bun add three");
-    const joined = store.find(here.id, "crt-monitor");
-    expect(joined?.files).toEqual(["app/ui/CrtMonitor.tsx", "app/ui/crt-gl.ts"]);
+    expect(fs.readFileSync(path.join(here.path, "app/ui/crt-gl.ts"), "utf8")).toContain("three");
+    expect(out.text).toContain("bun add @react-three/fiber");
+    expect(out.text).not.toContain("bun add @react-three/fiber three");
+    expect(out.text).toContain("app/ui/CrtMonitor.tsx imports ../../theme — not there");
+    expect(out.text).not.toContain("./crt-gl —");
+    expect(out.text).toContain("not copied — it also reaches into src/styles.css:1");
+    // the one already here is left alone; this one is a new entry
+    expect(store.find(here.id, "crt-monitor")?.files).toEqual(["app/ui/Other.tsx"]);
+    const joined = store.items(here.id).find((i) => i.files.includes("app/ui/CrtMonitor.tsx"));
+    expect(joined?.slug).toBe("crt-monitor-2");
+    expect(joined?.name).toBe("the crt monitor (from gallery)");
     expect(joined?.note).toBe("a CRT that renders its children");
 
-    expect(runLibrary(host, ["add", "nowhere/crt-monitor"]).text).toContain("no open project");
+    expect((await runLibrary(host, ["add", "nowhere/crt-monitor"])).text).toContain("no open project");
   });
 
-  test("an unknown handle suggests what is close", () => {
-    const here = project("app", { "src/PeekBand.tsx": "x" });
+  test("an unknown handle suggests what is close, typos included", async () => {
+    const here = project("app", { "src/PeekBand.tsx": "x", "src/ConfirmDialog.tsx": "y" });
     const store = new ComponentStore();
     const host = hostFor(here, store);
-    runLibrary(host, ["register", "peek-band", "--files", "src/PeekBand.tsx"]);
-    expect(runLibrary(host, ["show", "peek"]).text).toContain("did you mean: peek-band");
+    await runLibrary(host, [
+      "register",
+      "peek-band",
+      "--name",
+      "the peek band",
+      "--files",
+      "src/PeekBand.tsx",
+    ]);
+    await runLibrary(host, [
+      "register",
+      "confirm-dialog",
+      "--name",
+      "the confirm dialog",
+      "--files",
+      "src/ConfirmDialog.tsx",
+    ]);
+    expect((await runLibrary(host, ["show", "peek"])).text).toContain("did you mean: peek-band");
+    expect((await runLibrary(host, ["show", "confirm-dialg"])).text).toContain(
+      "did you mean: confirm-dialog",
+    );
+    expect((await runLibrary(host, ["edit", "peek-bnd", "--note", "x"])).text).toContain(
+      "did you mean: peek-band",
+    );
+  });
+
+  test("search reaches the other open projects: --all, list <project>, and when nothing here matches", async () => {
+    const here = project("app", { "src/Card.tsx": "x" });
+    const there = project("gallery", { "ui/Toast.tsx": "t" });
+    const store = new ComponentStore();
+    store.add(here.id, { name: "the card", files: ["src/Card.tsx"] });
+    store.add(there.id, { name: "the toast", files: ["ui/Toast.tsx"], note: "slides in at the bottom" });
+    const host = hostFor(here, store, [there]);
+    const none = await runLibrary(host, ["search", "notification"]);
+    expect(none.text).toContain("nothing in this project's library");
+    expect(none.text).toContain("gallery/toast — the toast");
+    const all = await runLibrary(host, ["search", "card", "toast", "--all"]);
+    expect(all.text).toContain("card — the card");
+    expect(all.text).toContain("gallery/toast");
+    expect((await runLibrary(host, ["list", "gallery"])).text).toContain("gallery/toast — the toast");
+    expect((await runLibrary(host, ["show", "gallery/toast", "--no-code"])).text).toContain(
+      "Install: ruri add gallery/toast",
+    );
   });
 });
 
@@ -338,7 +632,19 @@ describe("reading and copying", () => {
     const store = new ComponentStore();
     store.add("p", { name: "the dialog", files: ["src/Dialog.tsx"] });
     store.add("p", { name: "the menu", files: ["src/dialog/Menu.tsx"] });
-    expect(search(store.items("p"), "dialog").map((i) => i.slug)).toEqual(["dialog", "menu"]);
+    expect(search(store.items("p"), "dialog").map((i) => i.slug)).toEqual(["dialog"]);
+    store.add("p", { name: "the menu bar", files: ["src/MenuBar.tsx"], note: "has a dialog in it" });
+    expect(search(store.items("p"), "dialog").map((i) => i.slug)).toEqual(["dialog", "menu-bar"]);
+  });
+
+  test("search finds a component by the top of its code", () => {
+    const here = project("app", {
+      "src/Thing.tsx": "/** A toast that slides in from the bottom. */\nexport function Thing() {}",
+    });
+    const store = new ComponentStore();
+    store.add(here.id, { name: "the thing", files: ["src/Thing.tsx"] });
+    expect(search(store.items(here.id), "slides").map((i) => i.slug)).toEqual([]);
+    expect(search(store.items(here.id), "slides", [here.path]).map((i) => i.slug)).toEqual(["thing"]);
   });
 });
 

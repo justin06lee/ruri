@@ -18,7 +18,7 @@ This layer keeps each project's component library — user names, handles, code 
 
 ## How it works
 
-- **Register and reuse a component:** Agent builds UI and registers it via server/library.ts (ruri register) into server/components.ts store → server/handlers/components.ts hosts naming card and stores shot via storeShot → Later agent searches with ruri search/show and copies with planCopy/installCommand → server/libraryRefresh.ts marks entry changed/stale as files move
+- **Register and reuse a component:** agent runs ruri register --name (server/library.ts, paths read in its checkout via checkouts.ts) → the naming card or straight in (handlers/components.ts propose: bypass, or a teammate's chat) with the code's signature → later agents ruri search/show/add (copies land in their checkout; gaps reported) → after each turn and at launch checkLibrary holds signatures against the code (out of date, missing files followed, line anchors)
 - **Sweep and photograph a repo:** server/sweep.ts skims source tops, exports, CSS classes for candidates → Names proposed and written via server/components.ts index → server/shots.ts boots dev server and captures selector rectangles → Unreachable entries go to agent photo chat via server/photographer.ts prompt
 - **Skills management:** server/skills.ts scans global and project skill dirs → server/handlers/skills.ts pushes list and serves bodies → toggle moves folder to skills-off/, install/remove/update shell out to bmo
 
@@ -37,9 +37,11 @@ This layer keeps each project's component library — user names, handles, code 
 ## Rules and traps
 
 - Never invent components or screenshots: files, selectors, and pictures must be observed from source or a running app.
-- Entries drift — always consult libraryRefresh changes/tidyFiles and ComponentStore.touch semantics before trusting notes or shots.
+- Out of date is decided by code signatures (shotSig/noteSig, plus filedIn for a worktree's work), not timestamps from turns: anything that files a picture or note must pass the signature of the checkout it was made in, or the next check adopts the project's code as current.
 - Do not delete on skill disable: park to skills-off/ so bmo metadata and updates survive.
 - Shots cannot cover login-gated, state-dependent, or non-web UI — route those to photographer agent flow, not shots.ts.
+- Every path a session gives (files, shots, --dir) resolves against its checkout (checkoutFor), never project.path directly — teammates work in worktrees, and copies or reads in the main checkout were the bug.
+- .ruri/components.md is committed: it holds only what lasts (no picture paths, no out-of-date lines, line refs by anchor text) and is written only when it changes — volatile detail goes to the skill, ruri show and the prompt block.
 
 ## What it talks to
 

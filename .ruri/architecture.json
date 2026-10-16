@@ -894,7 +894,8 @@
         "Theme is per machine via prefs/localStorage, not per project.",
         "Dragon art is committed traced paths; only regenerate via scripts/trace-dragon.py and scripts/png-slim.ts if drawings change.",
         "Gauges belong to the channel model's harness, never default to Claude's numbers; missing limits show empty dragons.",
-        "A visible window keeps streaming, clocks and animated pictures live even without focus; only hidden/minimized/covered goes quiet, so visible-but-unfocused ruri still uses CPU."
+        "A visible window keeps streaming, clocks and animated pictures live even without focus; only hidden/minimized/covered goes quiet, so visible-but-unfocused ruri still uses CPU.",
+        "The Components page never shows a stored screenshot at full size in a card or thumbnail — lib/thumbs.ts makes small copies; a shot whose file is gone counts as needing a picture, not as one"
       ],
       "edges": [
         "App shell, state and tooling — store, prefs, beat clock, styles and tuner drive all live copies",
@@ -1089,7 +1090,7 @@
       "summary": "This layer runs live chat turns: prompt dispatch, the app-side queue, turn progress and transcript delivery over the socket, and the team and talk built on them. A prompt is written, checkpointed, titled, and queued or run; every agent sees its context use and compacts itself past half its window through a handoff-note continuation queued at the head; a finished turn drains the queue or retries.",
       "map": [
         {
-          "name": "sending a prompt",
+          "name": "sending a prompt (send-now waits behind another agent's job)",
           "files": [
             "server/dispatch.ts",
             "server/handlers/prompts.ts",
@@ -1223,8 +1224,7 @@
         "Turn progress lives in turns.ts not the window so the clock survives reload; broadcast deltas throttled to one message a second.",
         "Rewind restores files, branch, transcript, composer prompt and context gauge to the kept exchange, not the tip.",
         "A letter is answered by the last words of the turn that finishes the job: owedLetter() is what a turn owes (its own letter, a carried one, or via an answer's owes); talkTurnEnded settles it only when nothing sent for it is out (TalkBook.outstanding). An answer that leaves the book any other way — a wait in another job, taken out of the queue — goes through answerOnward. Self-compaction marks the carry (carryLetter) at the turn's result, before talkTurnEnded.",
-        "The liaison (session.liaison) is never lead (leadOf skips it) nor a member: code taking 'every non-lead session' as the team must skip it (membersOf, isMember). unattended() covers members and the liaison: held lines let go for letters; the user's 'send now' waits behind a turn on another agent's job (onAJob).",
-        "Tools a chat may not use are refused by a PreToolUse hook with what to do instead (SessionExtras.refuse, team.ts refusedFor/refusal), never disallowedTools, whose bare 'No such tool' sent mira's lead into Bash: a lead's or the liaison's Edit/Write/Agent/Task, a member's or the liaison's AskUserQuestion (its card hook stands down). headWatch nudges a lead's shell."
+        "The liaison (session.liaison) is never lead (leadOf skips it) nor a member: code taking 'every non-lead session' as the team must skip it (membersOf, isMember). unattended() covers members and the liaison: held lines let go for letters; the user's 'send now' waits behind a turn on another agent's job (onAJob)."
       ],
       "edges": [
         "Protocol — every socket message and transcript event is typed in shared/protocol.ts",
@@ -1457,10 +1457,10 @@
         {
           "name": "Register and reuse a component",
           "steps": [
-            "Agent builds UI and registers it via server/library.ts (ruri register) into server/components.ts store",
-            "server/handlers/components.ts hosts naming card and stores shot via storeShot",
-            "Later agent searches with ruri search/show and copies with planCopy/installCommand",
-            "server/libraryRefresh.ts marks entry changed/stale as files move"
+            "agent runs ruri register --name (server/library.ts, paths read in its checkout via checkouts.ts)",
+            "the naming card or straight in (handlers/components.ts propose: bypass, or a teammate's chat) with the code's signature",
+            "later agents ruri search/show/add (copies land in their checkout; gaps reported)",
+            "after each turn and at launch checkLibrary holds signatures against the code (out of date, missing files followed, line anchors)"
           ]
         },
         {
@@ -1494,9 +1494,11 @@
       ],
       "rules": [
         "Never invent components or screenshots: files, selectors, and pictures must be observed from source or a running app.",
-        "Entries drift — always consult libraryRefresh changes/tidyFiles and ComponentStore.touch semantics before trusting notes or shots.",
+        "Out of date is decided by code signatures (shotSig/noteSig, plus filedIn for a worktree's work), not timestamps from turns: anything that files a picture or note must pass the signature of the checkout it was made in, or the next check adopts the project's code as current.",
         "Do not delete on skill disable: park to skills-off/ so bmo metadata and updates survive.",
-        "Shots cannot cover login-gated, state-dependent, or non-web UI — route those to photographer agent flow, not shots.ts."
+        "Shots cannot cover login-gated, state-dependent, or non-web UI — route those to photographer agent flow, not shots.ts.",
+        "Every path a session gives (files, shots, --dir) resolves against its checkout (checkoutFor), never project.path directly — teammates work in worktrees, and copies or reads in the main checkout were the bug.",
+        ".ruri/components.md is committed: it holds only what lasts (no picture paths, no out-of-date lines, line refs by anchor text) and is written only when it changes — volatile detail goes to the skill, ruri show and the prompt block."
       ],
       "edges": [
         "Protocol — NamedComponent, ComponentProposal, Attachment, SkillInfo types in shared/protocol.ts",
@@ -1637,7 +1639,7 @@
       ]
     },
     "server-runtime-transport": {
-      "summary": "This layer is the Node HTTP + WebSocket transport everything else rides on: one port serving the UI, uploads, and the socket every window talks over. It is built around a single shared ServerContext (server/context.ts) assembled once in server/server.ts and handed to routes, socket, and handlers. A newcomer must grasp: this layer moves bytes and enforces origin/token gates — domain logic lives in handlers and other layers, not here — it also carries each agent's context-usage line and self-compact request path with continuation queueing and owed-answer routing, now with a CARRY_ON-prefixed continuation prompt detected by its opening text, and a window only sleeps when it cannot be seen at all (minimized, on another Space, or fully covered); a visible-but-unfocused window stays live and keeps receiving streams. It also serves the team status behind the team page: liaison state with current work/answering/waiting-on rows, free-layer chips, Stop/Refresh semantics, and an optional machine cap only when RURI_TEAM_MAX is set.",
+      "summary": "This layer is the Node HTTP + WebSocket transport everything else rides on: one port serving the UI, uploads, and the socket every window talks over. It is built around a single shared ServerContext (server/context.ts) assembled once in server/server.ts and handed to routes, socket, and handlers. A newcomer must grasp: this layer moves bytes and enforces origin/token gates — domain logic lives in handlers and other layers, not here — it also carries each agent's context-usage line and self-compact request path with continuation queueing and owed-answer routing, now with a CARRY_ON-prefixed continuation prompt detected by its opening text, and a window only sleeps when it cannot be seen at all (minimized, on another Space, or fully covered); a visible-but-unfocused window stays live and keeps receiving streams. It also serves the team status behind the team page: liaison state with current work/answering/waiting-on rows, free-layer chips, Stop/Refresh semantics with a stop note carried once on the next prompt, send-now-next queueing behind another agent's job, and hook-refused AskUserQuestion, plus an optional machine cap only when RURI_TEAM_MAX is set.",
       "map": [
         {
           "name": "Server assembly and startup",
@@ -1785,8 +1787,7 @@
         "Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder of its own (bunfig.toml, scripts/test-config.ts), so a test run never touches ~/.config/ruri.",
         "Secrets must never enter model context, logs, or transcripts — only names/placeholders leave server/secrets.ts.",
         "The compact tool must not stop the turn or settle the owed letter: call carryLetter in the chats.ts result branch only when selfCompactDue returns a note, still before talkTurnEnded, so a stopped turn drops the note and settles normally.",
-        "The server must refuse team actions on the liaison, and stop is only enabled while a teammate's turn is running.",
-        "Never show slot/waiting counts unless RURI_TEAM_MAX is set — 'waiting for a slot' can only appear then."
+        "The server must refuse team actions on the liaison, and stop is only enabled while a teammate's turn is running."
       ],
       "edges": [
         "Protocol — every socket message is typed/validated in shared/protocol.ts and shared/clientSchema.ts",

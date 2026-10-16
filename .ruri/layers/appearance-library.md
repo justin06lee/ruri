@@ -44,6 +44,7 @@ Appearance owns ruri's look: light/dark/ember theming, the sidebar peek band, th
 - Dragon art is committed traced paths; only regenerate via scripts/trace-dragon.py and scripts/png-slim.ts if drawings change.
 - Gauges belong to the channel model's harness, never default to Claude's numbers; missing limits show empty dragons.
 - A visible window keeps streaming, clocks and animated pictures live even without focus; only hidden/minimized/covered goes quiet, so visible-but-unfocused ruri still uses CPU.
+- The Components page never shows a stored screenshot at full size in a card or thumbnail — lib/thumbs.ts makes small copies; a shot whose file is gone counts as needing a picture, not as one
 
 ## What it talks to
 

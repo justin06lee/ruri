@@ -147,7 +147,8 @@ export type ClientConn = WebSocket;
 export interface PendingComponent {
   channelId: string;
   proposal: ComponentProposal;
-  resolve(name: string | null): void;
+  /** The name kept and its handle (asked: the user chose it), or null. */
+  resolve(kept: { name: string; slug: string; asked: boolean } | null): void;
 }
 
 export interface ServerContext {

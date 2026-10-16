@@ -18,7 +18,7 @@ import {
 import { layerOfFile, stacked } from "./brief.js";
 import { editedSince, noteToolRead } from "./sheetEdits.js";
 import { writeIndexFile } from "./components.js";
-import { pushComponents } from "./handlers/components.js";
+import { libraryAfterTurn } from "./handlers/components.js";
 import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
 import { warn } from "./log.js";
@@ -418,11 +418,9 @@ export function createTurnTracker(ctx: ServerContext): TurnTracker {
     if (!owner) return;
     void settleTurnFiles(ctx, projectId, turn)
       .then((files) => {
-        // what it changed may be in the library, whose picture and note now
-        // show it as it was
-        if (files.length && ctx.components.touch(owner.id, files, turn.started ?? Date.now())) {
-          pushComponents(ctx, owner.id, owner.path);
-        }
+        // what it changed may be in the library: held up against the code
+        // it left (server/handlers/components.ts)
+        libraryAfterTurn(ctx, owner.id);
         // a file it made finds its layer; one it removed is let go
         adoptFiles(ctx, owner.id, owner.path, files);
         if (smallModelEnabled()) {

@@ -319,10 +319,11 @@ Reaches into: server/talk.ts, server/handlers/talk.ts, web/src/styles.css, web/s
 Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/61fd1314-2faa-4c1a-ae86-2ded29a79366-talk-page.png, /Users/huiyunlee/.config/ruri/uploads/b073d0a8-c42e-4dcd-9dca-587cadf4fca7-shot-39.png
 
 ## component-library — the component library
-The Components page as a per-project gallery: search over picture cards (newest picture shown; 'outdated' when its code changed after it); a card opens its page with pictures, `ruri add <slug>`, fields, and its code in tabs. Agents reach the same library with the `ruri` command.
+The Components page: a per-project gallery under the board strip (Components, count, Update everything). Search is shared/librarySearch.ts, the same as ruri search (stems, prefixes, synonyms, typos), and marks what it matched; chips narrow it to New / Names to check / Needs a picture / Outdated / Files gone, counted within the search; Recent | A–Z order. Cards show the whole picture as a small copy (lib/thumbs.ts), a line of the note and the handle; a name nobody has kept has a dotted underline. A card opens its page: ← → through the gallery, 'is this what you call it?' with That's right, files-gone notice, outdated notice with Still right, ruri add with Copy, pictures (newest first, × asks first), fields that show what is kept, and its code in tabs.
 Its files: web/src/components/Components.tsx
-Reaches into: web/src/styles.css:4217, server/library.ts, server/components.ts
-Screenshot (read it if you need to see it): /Users/huiyunlee/.config/ruri/uploads/0bf85425-0f7f-4cc5-b1f7-848b7bcfbd1b-shot-39.png
+Reaches into: web/src/styles.css:4383, web/src/lib/thumbs.ts, server/library.ts, server/components.ts
+Tags: gallery, search, filters, library
+Screenshots, newest first (read them if you need to see it): /Users/huiyunlee/.config/ruri/uploads/3f604938-f739-41b7-aa81-25c205600ee7-library-gallery-2.png, /Users/huiyunlee/.config/ruri/uploads/9db19a53-cee2-487a-8e7f-7a67f0c213b3-library-component-page-2.png, /Users/huiyunlee/.config/ruri/uploads/bf73962b-8389-4989-b623-574cb05735f0-library-gallery.png, /Users/huiyunlee/.config/ruri/uploads/cc24c06b-59ba-4e5f-9e97-05ac67f2b33d-library-component-page.png, /Users/huiyunlee/.config/ruri/uploads/bf5a4011-4742-4da8-9ec8-c6b597380c84-library-component-code.png, /Users/huiyunlee/.config/ruri/uploads/b8254237-9133-45d4-b13d-e80f7b3ae8fe-library-needs-a-picture.png
 
 ## architecture-page — the architecture page
 Layers-icon page in the chat header: the project's stack as bars (the index every session is shown), each bar opening its layer's own sheet underneath — where to change what, how it works, key files, rules, what it talks to, what sessions learned there, and who last changed it; then flows, where things are, how to run it, what it does. Every line rewritable or strikable on hover; Read the repo writes it all afresh.

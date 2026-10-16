@@ -34,7 +34,7 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 | `subagents-test` | none | a fake harness's agents become cards in the chat and logs of their own |
 | `hidden-test` | none | hidden projects, Home's drop file, the finder, and a toggle over the real server |
 | `asleep-test` | none | a window that goes to sleep stops the meters sampling, and wakes them again — the `awake` flag end to end, from the schema to the handler |
-| `naming-test` | none | `ruri register` over `POST /library`: in bypass a component goes straight into the library under its handle; otherwise a card comes up, the command doesn't wait on it, and the answer's name is the one kept; backend files are turned away |
+| `naming-test` | none | `ruri register` over `POST /library`: in bypass a component goes straight into the library under its handle; otherwise a card comes up in the lead's chat, the command doesn't wait on it, and the answer's name is the one kept and marked the user's; a teammate's naming goes straight in with no card even outside bypass; a register with no name, and backend files, are turned away |
 | `terminal-test` | none | a shell printing forty thousand lines: every one arrives, in order and in fewer messages than lines, and a window attaching later is given a capped scrollback ending where the shell did |
 | `rewind-compaction-test` | none | rewinding either side of a compaction, against the real server, no turn run |
 | `rewind-git-test` | none | a rewind through the real server on a scratch repo: only the discarded turns' changes out, the commit taken back, the context gauge back to the kept exchange |
@@ -42,6 +42,7 @@ bun run build            # no tokens; produces dist-app/mac-arm64/ruri.app, sign
 | `bridge-test` | none, needs a display | drives the bridge end to end: a hidden browser window over CDP, then TextEdit over Accessibility (a GTK window of its own over AT-SPI on Linux) |
 | `chips-test` | none, needs a display | the composer's marker chips survive a window resize (needs `bun run build:web && bun run build:main` first) |
 | `sweep-test` | tokens | runs the component sweep against a project and prints what the small model would name |
+| `library-test` | tokens | the component library on four Haiku turns in a scratch git project: `ruri register` from the agent's shell (one with no name refused), a hyphenated mention carrying the entry down to the model, a turn's edit leaving the picture out of date and `ruri edit --current` clearing it, and a `.ruri/components.md` with no picture paths or out-of-date lines |
 | `meters-test` | tokens (one short Haiku turn) | the statistics page's resource meters against a real harness: nothing sampled until a window asks, the chat's own process found and named as that chat, and the sampling stopped when the window looks away |
 | `smoke` | tokens | three real turns: a plain reply, a Bash turn, a WebFetch turn with a permission round-trip |
 | `idle-reap-test` | tokens | an open chat keeps its process; leaving it closes it; the next prompt resumes |

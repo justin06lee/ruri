@@ -238,7 +238,8 @@ check(
 // and backend code is turned away
 const backend = await (async () => {
   const form = new URLSearchParams({ cwd: projectDir });
-  for (const arg of ["register", "db", "--name", "the database", "--files", "server/db.ts"]) form.append("a", arg);
+  for (const arg of ["register", "db", "--name", "the database", "--files", "server/db.ts"])
+    form.append("a", arg);
   const res = await fetch(`http://127.0.0.1:${PORT}/library/${projectId}`, { method: "POST", body: form });
   return { status: res.status, text: await res.text() };
 })();

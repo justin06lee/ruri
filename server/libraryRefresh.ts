@@ -111,7 +111,10 @@ export async function renamedTo(dir: string, rel: string, hops = 3): Promise<str
   const pending = await git(dir, ["status", "--porcelain", "--untracked-files=no"]);
   for (const line of (pending ?? "").split("\n")) {
     if (!line.startsWith("R")) continue;
-    const [from, to] = line.slice(3).split(" -> ").map((p) => p.trim().replace(/^"|"$/g, ""));
+    const [from, to] = line
+      .slice(3)
+      .split(" -> ")
+      .map((p) => p.trim().replace(/^"|"$/g, ""));
     if (from === rel && to && fs.existsSync(path.join(dir, to))) return to;
   }
   const last = (await git(dir, ["log", "-1", "--format=%H", "--", rel]))?.trim();

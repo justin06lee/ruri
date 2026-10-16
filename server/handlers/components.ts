@@ -15,14 +15,17 @@ import {
   type AttachmentUpload,
   type ComponentProposal,
   DEFAULT_PERMISSION_MODE,
+  leadOf,
   type NamedComponent,
   type PermissionRequest,
   type ServerMessage,
 } from "../../shared/protocol.js";
 import { channelProject, ownerProject } from "../channel.js";
+import { codeSig, worktreesOf } from "../checkouts.js";
 import { type ComponentHost, writeIndexFile } from "../components.js";
 import type { ServerContext } from "../context.js";
 import {
+  parseRef,
   readComponent,
   skillDir,
   writeLibrarySkill,
@@ -37,7 +40,9 @@ import {
   currentAsOf,
   dirtyFiles,
   fileHistory,
+  lineSince,
   mtimeIn,
+  reanchor,
   tidyFiles,
   type EntryChange,
   type FileCommit,
@@ -56,7 +61,7 @@ import type { Handlers } from "./types.js";
  * guesswork splitFiles does for a sweep is not done here; a file named
  * with a line is still a place it reaches.
  */
-function fromProposal(proposal: ComponentProposal, name: string) {
+function fromProposal(proposal: ComponentProposal, name: string, confirmed: boolean) {
   return {
     name,
     files: proposal.files,
@@ -66,7 +71,34 @@ function fromProposal(proposal: ComponentProposal, name: string) {
     ...(proposal.uses ? { uses: proposal.uses } : {}),
     ...(proposal.tags ? { tags: proposal.tags } : {}),
     ...(proposal.deps ? { deps: proposal.deps } : {}),
+    ...(proposal.sig ? { sig: proposal.sig } : {}),
+    ...(proposal.checkout ? { filedIn: proposal.checkout } : {}),
+    ...(confirmed ? { confirmed: true } : {}),
   };
+}
+
+/**
+ * Whether naming from this chat puts a card up for the user. Not in
+ * bypass, where ruri stops asking. And not from a teammate's chat or the
+ * liaison's: the user talks to the lead, and a card in a chat they aren't
+ * in sat there unanswered while the agent's turn waited on it — the entry
+ * goes straight in, and they rename it on the Components page.
+ */
+function asksUser(ctx: ServerContext, channelId: string): boolean {
+  const owner = ownerProject(ctx, channelId);
+  if (!owner || leadOf(owner)?.id !== channelId) return false;
+  const mode = channelProject(ctx, channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
+  return mode !== "bypassPermissions";
+}
+
+/** The checkout a proposal's files are in: the one it names, or — for a
+ *  tool call that didn't say — the project's folder or the first of its
+ *  worktrees that has all of them. */
+function checkoutOf(projectDir: string, proposal: ComponentProposal): string {
+  if (proposal.checkout) return proposal.checkout;
+  const has = (root: string) => proposal.files.every((f) => fs.existsSync(path.join(root, parseRef(f).path)));
+  if (has(projectDir)) return projectDir;
+  return worktreesOf(projectDir).find(has) ?? projectDir;
 }
 
 export function createComponentHost(ctx: ServerContext): ComponentHost {
@@ -76,17 +108,25 @@ export function createComponentHost(ctx: ServerContext): ComponentHost {
       return owner ? ctx.components.items(owner.id) : [];
     },
     propose: (channelId, proposal) =>
-      new Promise<string | null>((resolve) => {
+      new Promise((resolve) => {
         const owner = ownerProject(ctx, channelId);
         if (!owner) {
           resolve(null);
           return;
         }
+        const checkout = checkoutOf(owner.path, proposal);
         // The screenshot is copied now, not when the card is answered. The
         // card is the whole point of it — being asked to name something you
         // cannot see is being asked to guess — and the model's own copy is
         // routinely a scratch file that will not survive the wait.
-        const shot = proposal.shot ? storeShot(proposal.shot, owner.path) : undefined;
+        const shot = proposal.shot ? storeShot(proposal.shot, checkout) : undefined;
+        const sig =
+          proposal.sig ??
+          codeSig(
+            checkout,
+            proposal.files.filter((f) => parseRef(f).line === undefined),
+          );
+        const filedIn = checkout !== owner.path ? checkout : undefined;
         const shown: ComponentProposal = {
           name: proposal.name,
           files: proposal.files,
@@ -96,19 +136,24 @@ export function createComponentHost(ctx: ServerContext): ComponentHost {
           ...(proposal.tags?.length ? { tags: proposal.tags } : {}),
           ...(proposal.deps?.length ? { deps: proposal.deps } : {}),
           ...(shot ? { image: shot } : {}),
+          ...(sig ? { sig } : {}),
+          ...(filedIn ? { checkout: filedIn } : {}),
         };
-        // Bypass is the mode where ruri stops asking, and the card is only
-        // ever a confirmation: the model has already named the thing and
-        // photographed it. So in bypass the entry is written the moment it
-        // is proposed, star and screenshot and all, and the name stays
-        // yours to change on the components page whenever you look.
-        const mode = channelProject(ctx, channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
+        // Where nobody is to be asked, the card would only ever be a
+        // confirmation: the model has already named the thing and
+        // photographed it. So the entry is written the moment it is
+        // proposed, star and screenshot and all, and the name stays the
+        // user's to change on the components page whenever they look.
         const straight = shown.name.trim();
-        if (mode === "bypassPermissions" && straight) {
-          const item = ctx.components.add(owner.id, fromProposal(shown, straight));
-          if (shown.image) ctx.components.addShot(owner.id, item.id, shown.image);
+        if (!asksUser(ctx, channelId)) {
+          if (!straight) {
+            resolve(null);
+            return;
+          }
+          const item = ctx.components.add(owner.id, fromProposal(shown, straight, false));
+          if (shown.image) ctx.components.addShot(owner.id, item.id, shown.image, sig, filedIn);
           pushComponents(ctx, owner.id, owner.path);
-          resolve(straight);
+          resolve({ name: item.name, slug: item.slug, asked: false });
           return;
         }
         const requestId = randomUUID();
@@ -191,32 +236,187 @@ export function libraryHost(ctx: ServerContext, channelId: string): LibraryHost 
   return {
     here: { id: owner.id, name: owner.name, path: owner.path },
     projects: open,
-    // the card the naming tool puts up, from the shell: written at once in
-    // bypass (inside propose, before this returns), asked about otherwise
+    // the card the naming tool puts up, from the shell: written at once
+    // where nobody is asked (inside propose, before this returns), asked
+    // about otherwise
     ask: (proposal) => {
-      const mode = channelProject(ctx, channelId)?.permissionMode ?? DEFAULT_PERMISSION_MODE;
+      const asked = asksUser(ctx, channelId);
       void ctx.componentHost.propose(channelId, proposal);
-      return mode === "bypassPermissions" ? "added" : "asked";
+      return asked ? "asked" : "added";
     },
     items: (projectId) => ctx.components.items(projectId),
     find: (projectId, handle) => ctx.components.find(projectId, handle),
     add: (projectId, input) => ctx.components.add(projectId, input),
-    update: (projectId, componentId, patch) => ctx.components.update(projectId, componentId, patch),
+    update: (projectId, componentId, patch, filed) =>
+      ctx.components.update(projectId, componentId, patch, {
+        ...(filed?.sig ? { sig: filed.sig } : {}),
+        ...(filed?.in ? { filedIn: filed.in } : {}),
+      }),
     remove: (projectId, componentId) => ctx.components.remove(projectId, componentId),
-    shoot: (projectId, componentId, file) => {
+    shoot: (projectId, componentId, file, filed) => {
       const project = ctx.store.get(projectId);
       const shot = storeShot(file, project?.path);
-      return shot ? ctx.components.addShot(projectId, componentId, shot) : false;
+      return shot ? ctx.components.addShot(projectId, componentId, shot, filed?.sig, filed?.in) : false;
     },
     copyShots: (projectId, componentId, shots) => {
       // newest first there, newest first here
       for (const shot of [...shots].reverse()) ctx.components.addShot(projectId, componentId, shot);
     },
+    current: (projectId, componentId, filed) => {
+      ctx.components.current(projectId, componentId, filed?.sig, filed?.in);
+    },
     dir: (projectId) => ctx.components.dir(projectId),
     setDir: (projectId, dir) => ctx.components.setDir(projectId, dir),
     noteInstall: (projectId, componentId, paths) => ctx.components.noteInstall(projectId, componentId, paths),
+    follow: async (projectId, componentId) => {
+      const item = ctx.components.items(projectId).find((i) => i.id === componentId);
+      if (item) await followFiles(ctx, projectId, [item]);
+    },
     changed: (projectId) => pushComponents(ctx, projectId, ctx.store.get(projectId)?.path),
   };
+}
+
+/* ── keeping it true to the code ──────────────────────────────────── */
+
+/**
+ * Hold a project's entries up against its code now (ComponentStore.check):
+ * what each one's own files say in the project's folder, which of them are
+ * nowhere — not there, not in any of its worktrees — and its line refs
+ * found again. Answers whether anything moved.
+ */
+export function checkLibrary(ctx: ServerContext, projectId: string): boolean {
+  const project = ctx.store.get(projectId);
+  if (!project) return false;
+  const trees = worktreesOf(project.path);
+  const read = new Map<string, string[] | null>();
+  return ctx.components.check(projectId, (item) => {
+    const missing = item.files.filter((ref) => {
+      const rel = parseRef(ref).path;
+      return ![project.path, ...trees].some((dir) => fs.existsSync(path.join(dir, rel)));
+    });
+    const anchored = item.uses?.length ? reanchor(project.path, item.uses, item.anchors, read) : undefined;
+    const sig = codeSig(project.path, item.files);
+    const wip = item.filedIn && fs.existsSync(item.filedIn) ? codeSig(item.filedIn, item.files) : undefined;
+    return { missing, ...(sig ? { sig } : {}), ...(wip ? { wip } : {}), ...(anchored ?? {}) };
+  });
+}
+
+/** Files already followed through git and found nowhere, per project — not
+ *  asked about again after every turn (forgotten on a refresh). */
+const lostFiles = new Map<string, Set<string>>();
+
+/**
+ * Follow entries' files that are no longer where they say through git's
+ * renames, and write down where they went. A file in one of the project's
+ * worktrees is still there. An entry whose own code is all gone stays as
+ * it is, marked missing — taking it out is left to the refresh the user
+ * asks for.
+ */
+async function followFiles(ctx: ServerContext, projectId: string, items: NamedComponent[]): Promise<boolean> {
+  const project = ctx.store.get(projectId);
+  if (!project || items.length === 0) return false;
+  const tidy = await tidyFiles(project.path, items, worktreesOf(project.path));
+  let moved = false;
+  const lost = lostFiles.get(projectId) ?? new Set<string>();
+  for (const entry of tidy) {
+    const item = items.find((i) => i.id === entry.id);
+    if (entry.gone || !item) {
+      for (const ref of item?.files ?? []) lost.add(parseRef(ref).path);
+      continue;
+    }
+    // moved ones re-pointed; one that went nowhere is let go, as long as
+    // the entry has code of its own left
+    ctx.components.update(projectId, entry.id, {
+      ...(entry.files ? { files: entry.files } : {}),
+      ...(entry.uses ? { uses: entry.uses } : {}),
+    });
+    moved = true;
+  }
+  lostFiles.set(projectId, lost);
+  if (moved) checkLibrary(ctx, projectId);
+  if (moved) pushComponents(ctx, projectId, project.path);
+  return moved;
+}
+
+/**
+ * The library's first look at its code the new way (ComponentStore.rebase):
+ * the places it reaches at a line put where git says those lines went since
+ * the entry was written, then git's word on which entries really changed
+ * since their picture and note — the marks turns used to stamp let go.
+ */
+async function settleLibrary(ctx: ServerContext, projectId: string): Promise<void> {
+  const project = ctx.store.get(projectId);
+  if (!project || ctx.components.checked(projectId) || settling.has(projectId)) return;
+  settling.add(projectId);
+  try {
+    for (const item of ctx.components.items(projectId)) {
+      if (!item.uses?.some((ref) => parseRef(ref).line !== undefined)) continue;
+      const uses: string[] = [];
+      for (const ref of item.uses) {
+        const { path: rel, line } = parseRef(ref);
+        if (line === undefined || item.anchors?.[ref]) {
+          uses.push(ref);
+          continue;
+        }
+        const now = await lineSince(project.path, rel, line, item.ts);
+        uses.push(now !== undefined && now !== line ? `${rel}:${now}` : ref);
+      }
+      if (uses.join("\n") !== item.uses.join("\n")) ctx.components.update(projectId, item.id, { uses });
+    }
+    const items = ctx.components.items(projectId).map((item) => {
+      // what a turn stamped is not evidence: git is asked from the picture
+      // and note on
+      const { changedAt: _changedAt, ...rest } = item;
+      return rest as NamedComponent;
+    });
+    const oldest = Math.min(Date.now(), ...items.map(currentAsOf));
+    const [history, dirty] = await Promise.all([fileHistory(project.path, oldest), dirtyFiles(project.path)]);
+    const changed = changesSince(items, history, dirty, mtimeIn(project.path));
+    ctx.components.rebase(projectId, new Map(changed.map((change) => [change.id, change.at])));
+    checkLibrary(ctx, projectId);
+    pushComponents(ctx, projectId, project.path);
+  } catch (err) {
+    warn("components", err, "settleLibrary");
+  } finally {
+    settling.delete(projectId);
+  }
+}
+const settling = new Set<string>();
+
+/**
+ * A turn in the project has finished: hold the library up against the code
+ * it left (a merge of a branch whose agent re-took a picture is no change),
+ * and follow any of its files that went missing. A library not yet settled
+ * the new way is settled first.
+ */
+export function libraryAfterTurn(ctx: ServerContext, projectId: string): void {
+  const project = ctx.store.get(projectId);
+  if (!project) return;
+  if (!ctx.components.checked(projectId)) {
+    void settleLibrary(ctx, projectId);
+    return;
+  }
+  const moved = checkLibrary(ctx, projectId);
+  if (moved) pushComponents(ctx, projectId, project.path);
+  const lost = lostFiles.get(projectId);
+  const astray = ctx.components
+    .items(projectId)
+    .filter((item) => item.missing?.some((ref) => !lost?.has(parseRef(ref).path)));
+  if (astray.length)
+    void followFiles(ctx, projectId, astray).catch((err: unknown) => warn("components", err, "followFiles"));
+}
+
+/** Every project's library settled and checked, one after another, as the
+ *  app starts — in the background, so nothing waits on git. */
+export async function settleLibraries(ctx: ServerContext): Promise<void> {
+  for (const project of ctx.store.list()) {
+    try {
+      if (!ctx.components.checked(project.id)) await settleLibrary(ctx, project.id);
+      else if (checkLibrary(ctx, project.id)) pushComponents(ctx, project.id, project.path);
+    } catch (err) {
+      warn("components", err, "settleLibraries");
+    }
+  }
 }
 
 /* ── the repo sweep ───────────────────────────────────────────────── */
@@ -237,7 +437,14 @@ function pinShot(ctx: ServerContext, projectId: string, item: NamedComponent, da
   };
   const { url } = storeUpload(upload);
   const { data: _data, regions: _regions, ...meta } = upload;
-  ctx.components.addShot(projectId, item.id, { ...meta, url });
+  // taken of the app running from the project's own folder
+  const project = ctx.store.get(projectId);
+  ctx.components.addShot(
+    projectId,
+    item.id,
+    { ...meta, url },
+    project ? codeSig(project.path, item.files) : undefined,
+  );
 }
 
 /** Review batches: entries per small-model call, and calls at once. */
@@ -274,7 +481,12 @@ async function reviewStale(
   // is behind is retaken rather than guessed at
   const blind = stale.filter((item) => !changes.get(item.id));
   for (const item of blind) {
-    ctx.components.reviewed(project.id, item.id, { looks: componentStale(item).picture });
+    ctx.components.reviewed(
+      project.id,
+      item.id,
+      { looks: componentStale(item).picture },
+      codeSig(project.path, item.files),
+    );
   }
   const readable = stale.filter((item) => changes.get(item.id));
   if (readable.length === 0 || !smallModelEnabled()) return 0;
@@ -309,10 +521,12 @@ async function reviewStale(
         const item = batch.find((i) => i.slug === outcome.slug);
         if (!item) continue;
         if (outcome.note && outcome.note !== item.note) rewritten += 1;
-        ctx.components.reviewed(project.id, item.id, {
-          ...(outcome.note ? { note: outcome.note } : {}),
-          looks: outcome.looks,
-        });
+        ctx.components.reviewed(
+          project.id,
+          item.id,
+          { ...(outcome.note ? { note: outcome.note } : {}), looks: outcome.looks },
+          codeSig(project.path, item.files),
+        );
       }
       done += 1;
       onNote(`reading what changed — ${done} of ${batches.length}`);
@@ -382,7 +596,9 @@ async function runSweep(ctx: ServerContext, projectId: string, wantShots: boolea
     const startedAt = Date.now();
 
     note("checking the library against the repo…");
-    const tidy = await tidyFiles(project.path, ctx.components.items(projectId));
+    if (!ctx.components.checked(projectId)) await settleLibrary(ctx, projectId);
+    lostFiles.delete(projectId);
+    const tidy = await tidyFiles(project.path, ctx.components.items(projectId), worktreesOf(project.path));
     for (const entry of tidy) {
       if (entry.gone) continue;
       ctx.components.update(projectId, entry.id, {
@@ -401,10 +617,12 @@ async function runSweep(ctx: ServerContext, projectId: string, wantShots: boolea
     const items = ctx.components.items(projectId);
     const oldest = Math.min(Date.now(), ...items.map(currentAsOf));
     const [history, dirty] = await Promise.all([fileHistory(project.path, oldest), dirtyFiles(project.path)]);
+    // what changed is decided by the code (checkLibrary); git's commits
+    // are what the review reads to say how
+    checkLibrary(ctx, projectId);
     const changes = new Map(
       changesSince(items, history, dirty, mtimeIn(project.path)).map((change) => [change.id, change]),
     );
-    for (const change of changes.values()) ctx.components.noteChange(projectId, change.id, change.at);
 
     const { found } = await sweepProject(
       project,
@@ -497,29 +715,46 @@ export const componentHandlers = {
           note: msg.note ?? pending.proposal.note,
         },
         name,
+        true,
       ),
     );
     // already copied when the card went up, so it is kept with the
     // entry no matter what has happened to the model's own file
-    if (pending.proposal.image) ctx.components.addShot(owner.id, item.id, pending.proposal.image);
+    if (pending.proposal.image) {
+      ctx.components.addShot(
+        owner.id,
+        item.id,
+        pending.proposal.image,
+        pending.proposal.sig,
+        pending.proposal.checkout,
+      );
+    }
     pushComponents(ctx, owner.id, owner.path);
-    pending.resolve(name);
+    pending.resolve({ name: item.name, slug: item.slug, asked: true });
   },
   component_update: (ctx, _ws, msg) => {
-    ctx.components.update(msg.projectId, msg.componentId, {
-      ...(msg.name !== undefined ? { name: msg.name } : {}),
-      ...(msg.slug !== undefined ? { slug: msg.slug } : {}),
-      ...(msg.aliases !== undefined ? { aliases: msg.aliases } : {}),
-      ...(msg.files !== undefined ? { files: msg.files } : {}),
-      ...(msg.uses !== undefined ? { uses: msg.uses } : {}),
-      ...(msg.tags !== undefined ? { tags: msg.tags } : {}),
-      ...(msg.deps !== undefined ? { deps: msg.deps } : {}),
-      ...(msg.note !== undefined ? { note: msg.note } : {}),
-      ...(msg.selector !== undefined ? { selector: msg.selector } : {}),
-      ...(msg.route !== undefined ? { route: msg.route } : {}),
-      ...(msg.clicks !== undefined ? { clicks: msg.clicks } : {}),
-    });
-    pushComponents(ctx, msg.projectId, ctx.store.get(msg.projectId)?.path);
+    const project = ctx.store.get(msg.projectId);
+    // the user is the one renaming it here: the name is theirs now
+    const sig = project && msg.files ? codeSig(project.path, msg.files) : undefined;
+    ctx.components.update(
+      msg.projectId,
+      msg.componentId,
+      {
+        ...(msg.name !== undefined ? { name: msg.name } : {}),
+        ...(msg.slug !== undefined ? { slug: msg.slug } : {}),
+        ...(msg.aliases !== undefined ? { aliases: msg.aliases } : {}),
+        ...(msg.files !== undefined ? { files: msg.files } : {}),
+        ...(msg.uses !== undefined ? { uses: msg.uses } : {}),
+        ...(msg.tags !== undefined ? { tags: msg.tags } : {}),
+        ...(msg.deps !== undefined ? { deps: msg.deps } : {}),
+        ...(msg.note !== undefined ? { note: msg.note } : {}),
+        ...(msg.selector !== undefined ? { selector: msg.selector } : {}),
+        ...(msg.route !== undefined ? { route: msg.route } : {}),
+        ...(msg.clicks !== undefined ? { clicks: msg.clicks } : {}),
+      },
+      { confirm: true, ...(sig ? { sig } : {}) },
+    );
+    pushComponents(ctx, msg.projectId, project?.path);
   },
   component_remove: (ctx, _ws, msg) => {
     ctx.components.remove(msg.projectId, msg.componentId);
@@ -528,8 +763,20 @@ export const componentHandlers = {
   component_shot: (ctx, _ws, msg) => {
     const { url } = storeUpload(msg.upload);
     const { data: _data, regions: _regions, ...meta } = msg.upload;
-    ctx.components.addShot(msg.projectId, msg.componentId, { ...meta, url });
-    pushComponents(ctx, msg.projectId, ctx.store.get(msg.projectId)?.path);
+    // a picture dropped on the page now shows the code as it is now
+    const project = ctx.store.get(msg.projectId);
+    const item = ctx.components.items(msg.projectId).find((i) => i.id === msg.componentId);
+    const sig = project && item ? codeSig(project.path, item.files) : undefined;
+    ctx.components.addShot(msg.projectId, msg.componentId, { ...meta, url }, sig);
+    pushComponents(ctx, msg.projectId, project?.path);
+  },
+  /** "Still right": its picture and note show it as its code is now. */
+  component_current: (ctx, _ws, msg) => {
+    const project = ctx.store.get(msg.projectId);
+    const item = ctx.components.items(msg.projectId).find((i) => i.id === msg.componentId);
+    if (!project || !item) return;
+    ctx.components.current(msg.projectId, msg.componentId, codeSig(project.path, item.files));
+    pushComponents(ctx, msg.projectId, project.path);
   },
   component_unshot: (ctx, _ws, msg) => {
     ctx.components.removeShot(msg.projectId, msg.componentId, msg.shotId);
@@ -549,12 +796,13 @@ export const componentHandlers = {
     const project = ctx.store.get(msg.projectId);
     const item = ctx.components.items(msg.projectId).find((i) => i.id === msg.componentId);
     if (!project || !item) return;
+    // a file only on a branch not merged yet is read from its worktree
     ws.send(
       JSON.stringify({
         type: "component_code",
         projectId: msg.projectId,
         componentId: msg.componentId,
-        files: readComponent(project.path, item),
+        files: readComponent([project.path, ...worktreesOf(project.path)], item),
       } satisfies ServerMessage),
     );
   },

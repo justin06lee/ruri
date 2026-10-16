@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { componentStale, type Attachment, type NamedComponent } from "../shared/protocol.js";
+import { codeSig } from "./checkouts.js";
 import { ComponentStore } from "./components.js";
 import { entryLines } from "./library.js";
 import {
@@ -11,7 +12,11 @@ import {
   changesSince,
   dirtyFiles,
   fileHistory,
+  lineSince,
+  mapLine,
   parseHistory,
+  parseHunks,
+  reanchor,
   renamedTo,
   seenChange,
   tidyFiles,
@@ -122,27 +127,112 @@ describe("pictures, newest first", () => {
 });
 
 describe("falling behind the code", () => {
-  test("a turn that edits its files leaves the picture and note behind", () => {
+  /** A folder holding a component's file, and the store's check against it. */
+  function bench(text: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-refresh-code-"));
+    fs.writeFileSync(path.join(dir, "a.tsx"), text);
     const store = new ComponentStore();
-    const item = store.add("p", { name: "the peek band", files: ["web/src/components/PeekBand.tsx"] });
-    store.addShot("p", item.id, shot("s"));
-    // pretend the picture and note are from well before this turn
-    const e = store.items("p")[0]!;
-    e.shotAt = 10;
-    e.noteAt = 10;
-    expect(store.touch("p", ["web/src/components/Other.tsx"], 100)).toBe(false);
-    expect(store.touch("p", ["web/src/components/PeekBand.tsx"], 100)).toBe(true);
+    const sig = () => codeSig(dir, ["a.tsx"]);
+    const check = (wip?: { dir: string }) =>
+      store.check("p", (item) => ({
+        missing: [],
+        ...(sig() ? { sig: sig()! } : {}),
+        ...(wip && item.filedIn ? { wip: codeSig(wip.dir, item.files)! } : {}),
+      }));
+    const write = (next: string) => {
+      fs.writeFileSync(path.join(dir, "a.tsx"), next);
+      // a new mtime, so the hash is read again
+      const later = Date.now() / 1000 + Math.random() * 100;
+      fs.utimesSync(path.join(dir, "a.tsx"), later, later);
+    };
+    return { dir, store, sig, check, write };
+  }
+
+  test("a change to its code leaves picture and note behind; undoing it is no change", () => {
+    const { store, sig, check, write } = bench("v1");
+    const item = store.add("p", { name: "the peek band", files: ["a.tsx"], sig: sig()! });
+    store.addShot("p", item.id, shot("s"), sig());
+    expect(check()).toBe(false);
+    expect(componentStale(store.items("p")[0]!)).toEqual({ picture: false, note: false });
+    write("v2");
+    expect(check()).toBe(true);
     expect(componentStale(store.items("p")[0]!)).toEqual({ picture: true, note: true });
+    // checked again with nothing new: nothing moves
+    expect(check()).toBe(false);
+    write("v1");
+    expect(check()).toBe(true);
+    expect(componentStale(store.items("p")[0]!)).toEqual({ picture: false, note: false });
   });
 
-  test("a turn that also retook the picture keeps it current", () => {
-    const store = new ComponentStore();
-    const item = store.add("p", { name: "the peek band", files: ["web/src/components/PeekBand.tsx"] });
-    const turnStarted = Date.now() - 1_000;
-    store.addShot("p", item.id, shot("s")); // during the turn
-    store.items("p")[0]!.noteAt = 10; // the note is old
-    store.touch("p", ["web/src/components/PeekBand.tsx"], turnStarted);
+  test("a new picture of the changed code is current; the note it left alone is not", () => {
+    const { store, sig, check, write } = bench("v1");
+    const item = store.add("p", { name: "the peek band", files: ["a.tsx"], sig: sig()! });
+    store.addShot("p", item.id, shot("s"), sig());
+    write("v2");
+    check();
+    store.addShot("p", item.id, shot("t"), sig());
+    check();
     expect(componentStale(store.items("p")[0]!)).toEqual({ picture: false, note: true });
+    store.update("p", item.id, { note: "now with GIFs" }, { sig: sig()! });
+    check();
+    expect(componentStale(store.items("p")[0]!)).toEqual({ picture: false, note: false });
+  });
+
+  test("a picture re-taken in a worktree is not out of date before its merge, nor after", () => {
+    const main = bench("v1");
+    const tree = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-refresh-tree-"));
+    fs.writeFileSync(path.join(tree, "a.tsx"), "v2");
+    const { store, sig, check } = main;
+    const item = store.add("p", { name: "the peek band", files: ["a.tsx"], sig: sig()! });
+    store.addShot("p", item.id, shot("s"), sig());
+    // the branch changes it, and files a new picture and note from there
+    const there = codeSig(tree, ["a.tsx"])!;
+    store.addShot("p", item.id, shot("t"), there, tree);
+    store.update("p", item.id, { note: "v2" }, { sig: there, filedIn: tree });
+    check({ dir: tree });
+    expect(componentStale(store.items("p")[0]!)).toEqual({ picture: false, note: false });
+    // merged: the project's folder has what the worktree had
+    main.write("v2");
+    check({ dir: tree });
+    const merged = store.items("p")[0]!;
+    expect(componentStale(merged)).toEqual({ picture: false, note: false });
+    expect(merged.filedIn).toBeUndefined();
+  });
+
+  test("an entry from before signatures takes the code as it is, unless it is already behind", () => {
+    const { store, sig, check } = bench("v1");
+    const a = store.add("p", { name: "the band", files: ["a.tsx"] });
+    const b = store.add("p", { name: "the strip", files: ["a.tsx"] });
+    store.addShot("p", a.id, shot("s"));
+    store.addShot("p", b.id, shot("t"));
+    for (const item of store.items("p")) {
+      delete item.shotSig;
+      delete item.noteSig;
+    }
+    store.items("p")[1]!.changedAt = Date.now() + 1_000;
+    check();
+    expect(store.items("p")[0]!.shotSig).toBe(sig()!);
+    expect(componentStale(store.items("p")[0]!).picture).toBe(false);
+    expect(componentStale(store.items("p")[1]!).picture).toBe(true);
+    // "still right": the mark comes off without a new picture
+    store.current("p", b.id, sig());
+    check();
+    expect(componentStale(store.items("p")[1]!)).toEqual({ picture: false, note: false });
+  });
+
+  test("the move from turns: git's word on what changed, the rest let go", () => {
+    const store = new ComponentStore();
+    const a = store.add("p", { name: "the band", files: ["a.tsx"] });
+    const b = store.add("p", { name: "the strip", files: ["b.tsx"] });
+    store.addShot("p", a.id, shot("s"));
+    store.addShot("p", b.id, shot("t"));
+    for (const item of store.items("p")) item.changedAt = Date.now() + 5_000;
+    expect(store.checked("p")).toBe(false);
+    store.rebase("p", new Map([[b.id, Date.now() + 10_000]]));
+    expect(store.checked("p")).toBe(true);
+    expect(componentStale(store.items("p")[0]!).picture).toBe(false);
+    expect(componentStale(store.items("p")[1]!).picture).toBe(true);
+    expect(new ComponentStore().checked("p")).toBe(true);
   });
 
   test("a review keeps an untouched look's picture and takes a new note", () => {
@@ -152,15 +242,37 @@ describe("falling behind the code", () => {
     const e = store.items("p")[0]!;
     e.shotAt = 10;
     e.noteAt = 10;
-    store.noteChange("p", item.id, 50);
-    store.reviewed("p", item.id, { note: "the strip, now draggable", looks: false });
+    e.changedAt = 50;
+    store.reviewed("p", item.id, { note: "the strip, now draggable", looks: false }, "sig2");
     const after = store.items("p")[0]!;
     expect(after.note).toBe("the strip, now draggable");
+    expect(after.shotSig).toBe("sig2");
     expect(componentStale(after)).toEqual({ picture: false, note: false });
 
-    store.noteChange("p", item.id, Date.now() + 10);
-    store.reviewed("p", item.id, { looks: true });
+    after.changedAt = Date.now() + 10;
+    store.reviewed("p", item.id, { looks: true }, "sig3");
     expect(componentStale(store.items("p")[0]!).picture).toBe(true);
+  });
+
+  test("pictures whose files are gone are let go as the library loads", () => {
+    const uploads = path.join(config, "uploads");
+    fs.mkdirSync(uploads, { recursive: true });
+    fs.writeFileSync(path.join(uploads, "kept.png"), "x");
+    fs.mkdirSync(path.join(config, "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(config, "components", "p.json"),
+      JSON.stringify({
+        version: 4,
+        items: [
+          entry({ id: "a", shots: [shot("gone"), shot("kept")], shotAt: 5 }),
+          entry({ id: "b", slug: "b", name: "b", shots: [shot("gone2")], shotAt: 5, shotSig: "x" }),
+        ],
+      }),
+    );
+    const items = new ComponentStore().items("p");
+    expect(items[0]!.shots.map((s) => s.id)).toEqual(["kept"]);
+    expect(items[1]!.shots).toEqual([]);
+    expect(items[1]!.shotAt).toBeUndefined();
   });
 
   test("a stale picture says so where a model reads the entry", () => {
@@ -257,6 +369,61 @@ describe("what git says", () => {
     expect(history.get("web/PeekBand.tsx")![0]!.subject).toBe("move things");
     fs.writeFileSync(path.join(dir, "web/Card.tsx"), "card, edited");
     expect([...(await dirtyFiles(dir))]).toEqual(["web/Card.tsx"]);
+  });
+
+  test("a file still in one of the project's worktrees is not gone", async () => {
+    const { dir } = repo({ "web/Card.tsx": "card" });
+    const tree = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-refresh-wt-"));
+    fs.mkdirSync(path.join(tree, "web"));
+    fs.writeFileSync(path.join(tree, "web/Toast.tsx"), "toast");
+    const item = entry({ id: "toast", files: ["web/Toast.tsx"] });
+    expect(await tidyFiles(dir, [item])).toEqual([{ id: "toast", gone: true }]);
+    expect(await tidyFiles(dir, [item], [tree])).toEqual([]);
+  });
+});
+
+describe("lines that move", () => {
+  test("a place at a line is found again by its text", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-refresh-lines-"));
+    const css = (top: number) =>
+      [
+        ...Array.from({ length: top }, (_, i) => `.filler-${i} { color: red; }`),
+        ".lib-grid {",
+        "  gap: 4px;",
+        "}",
+      ].join("\n");
+    fs.writeFileSync(path.join(dir, "styles.css"), css(10));
+    // first sight: the line's text becomes its anchor
+    const first = reanchor(dir, ["styles.css:11", "other.css"], undefined)!;
+    expect(first.uses).toEqual(["styles.css:11", "other.css"]);
+    expect(first.anchors).toEqual({ "styles.css:11": ".lib-grid {" });
+    expect(reanchor(dir, first.uses, first.anchors)).toBeUndefined();
+    // forty lines go in above it
+    fs.writeFileSync(path.join(dir, "styles.css"), css(50));
+    const moved = reanchor(dir, first.uses, first.anchors)!;
+    expect(moved.uses).toEqual(["styles.css:51", "other.css"]);
+    expect(moved.anchors).toEqual({ "styles.css:51": ".lib-grid {" });
+    // a brace says nothing: no anchor for it
+    expect(reanchor(dir, ["styles.css:53"], undefined)).toBeUndefined();
+  });
+
+  test("a line is followed through git's hunks", async () => {
+    const hunks = parseHunks(
+      ["@@ -3,0 +4,2 @@", "+a", "+b", "@@ -10,2 +12 @@", "-x", "-y", "+z", "@@ -20 +20,0 @@", "-gone"].join(
+        "\n",
+      ),
+    );
+    expect(mapLine(hunks, 2)).toBe(2);
+    expect(mapLine(hunks, 3)).toBe(3);
+    expect(mapLine(hunks, 4)).toBe(6);
+    expect(mapLine(hunks, 11)).toBe(12);
+    expect(mapLine(hunks, 15)).toBe(16);
+    expect(mapLine(hunks, 25)).toBe(25);
+
+    const { dir, git } = repo({ "s.css": ["a", "b", ".target {", "c"].join("\n") });
+    fs.writeFileSync(path.join(dir, "s.css"), ["new1", "new2", "a", "b", ".target {", "c"].join("\n"));
+    git(["commit", "-qam", "more"], 1_700_000_900);
+    expect(await lineSince(dir, "s.css", 3, 1_700_000_100_000)).toBe(5);
   });
 });
 

@@ -31,7 +31,7 @@ import type { PendingComponent, RuriServer, ServerContext, StartServerOptions } 
 import { DraftStore } from "./drafts.js";
 import { createTurnTracker } from "./events.js";
 import { UsageGauges } from "./gauges.js";
-import { createComponentHost } from "./handlers/components.js";
+import { createComponentHost, settleLibraries } from "./handlers/components.js";
 import { createCrewManager } from "./handlers/crew.js";
 import { createManagerHost } from "./handlers/projects.js";
 import { announceRoles } from "./handlers/settings.js";
@@ -243,6 +243,11 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   const allNotes = () => backfillNotes(ctx, store.sessionIds());
   const firstNotes = setTimeout(allNotes, 5_000);
   firstNotes.unref();
+  // every library held up against its code as it is now — picture marks
+  // decided by what the code says, files that moved followed — just after
+  // launch, in the background (server/handlers/components.ts)
+  const libraries = setTimeout(() => void settleLibraries(ctx), 3_000);
+  libraries.unref();
   const notesTimer = setInterval(allNotes, 60 * 60_000);
   notesTimer.unref();
   // turns that were waiting to be folded into a memory when ruri stopped

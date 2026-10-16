@@ -1,10 +1,23 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { componentStale, type ComponentFile, type NamedComponent } from "../../../shared/protocol";
-import { ToolImage } from "./Attachments";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from "react";
+import { componentStale, type Attachment, type ComponentFile, type NamedComponent } from "../../../shared/protocol";
+import { Viewer } from "./Attachments";
+import { useConfirm } from "./Confirm";
 import { fileToBase64 } from "../lib/files";
 import { highlightFor } from "../lib/highlighter";
 import { useNoteStale } from "../lib/runNote";
 import { spinStar } from "../lib/spin";
+import { probe, useGone, useThumb } from "../lib/thumbs";
 import { HTTP_BASE, send, useRuri } from "../store";
 
 /**
@@ -34,6 +47,13 @@ import { HTTP_BASE, send, useRuri } from "../store";
  * where that reaches, and by an agent in a "Library pictures" chat where it
  * doesn't (server/handlers/components.ts). A card whose code changed after
  * its picture says so. Correcting any of it is what this page is for.
+ *
+ * A library runs to hundreds, so the gallery is built for finding: a search
+ * that marks what it matched, chips that narrow it to what is new, what
+ * needs a picture, what is out of date and what the sweep only guessed,
+ * arrow keys through the cards, and a way back that lands where you left.
+ * Its cards show small copies of the pictures (lib/thumbs.ts), never the
+ * screenshots themselves.
  *
  * Interface only — screens, panels, cards, controls. Backend code has no
  * place in a component library, and nothing puts it here.
@@ -79,15 +99,35 @@ function showPath(item: NamedComponent): string {
   return [item.route ?? "", ...(item.clicks ?? []), item.selector].filter(Boolean).join(" >> ");
 }
 
+/** A handle the way the server will keep it (server/library.ts slugify),
+ *  so the field shows what was saved rather than what was typed. */
+function slugify(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .replace(/^(the|a|an)\s+/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+    .replace(/-+$/, "");
+  return slug || "component";
+}
+
+/** The words of a search, as typed. */
+function wordsOf(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[\s,]+/)
+    .filter(Boolean);
+}
+
 /** How well an entry answers a search — 0 when it doesn't: every word has
  *  to be somewhere in it, and one in its name, handle or tags counts for
  *  more than one in its note or its files (server/library.ts ranks the
  *  same way for `ruri search`). */
-function score(item: NamedComponent, query: string): number {
-  const words = query
-    .toLowerCase()
-    .split(/[\s,]+/)
-    .filter(Boolean);
+function score(item: NamedComponent, words: string[]): number {
   const strong = [item.slug, item.name, ...item.aliases, ...(item.tags ?? [])].join(" ").toLowerCase();
   const weak = [item.note, ...item.files, ...(item.uses ?? [])].join(" ").toLowerCase();
   let total = 0;
@@ -98,6 +138,99 @@ function score(item: NamedComponent, query: string): number {
   }
   return total;
 }
+
+/** Text with the words of the search marked in it. */
+function Marked({ text, words }: { text: string; words: string[] }) {
+  if (words.length === 0) return <>{text}</>;
+  const pattern = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  // split on a captured pattern puts every match at an odd index
+  return (
+    <>
+      {text.split(pattern).map((part, i) =>
+        i % 2 === 1 ? (
+          <mark key={i} className="lib-mark">
+            {part}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
+/** A picture's address on this server. */
+function srcOf(shot: Attachment): string {
+  return HTTP_BASE + (shot.url ?? "");
+}
+
+/** The pictures of an entry that can be shown, by address. */
+function srcsOf(item: NamedComponent): string[] {
+  return item.shots.flatMap((shot) => (shot.url ? [srcOf(shot)] : []));
+}
+
+/** Whether an entry has no picture to show: none taken, or every one of
+ *  them found gone. */
+function unpictured(item: NamedComponent, gone: ReadonlySet<string>): boolean {
+  return srcsOf(item).every((src) => gone.has(src));
+}
+
+/** What the gallery can be narrowed to. */
+type Filter = "all" | "new" | "unpictured" | "outdated" | "found";
+
+const FILTERS: Array<{ id: Filter; label: string; title: string }> = [
+  { id: "all", label: "All", title: "Everything in the library" },
+  { id: "new", label: "New", title: "Named since you last looked" },
+  {
+    id: "unpictured",
+    label: "Needs a picture",
+    title: "No picture yet, or its picture is missing — Update everything takes them",
+  },
+  {
+    id: "outdated",
+    label: "Outdated",
+    title: "Its code changed after its picture was taken — Update everything retakes them",
+  },
+  { id: "found", label: "Found by the sweep", title: "Named by the repo sweep — a guess until you correct it" },
+];
+
+function inFilter(item: NamedComponent, filter: Filter, gone: ReadonlySet<string>): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "new":
+      return item.star !== undefined;
+    case "unpictured":
+      return unpictured(item, gone);
+    case "outdated":
+      return !unpictured(item, gone) && componentStale(item).picture;
+    case "found":
+      return item.found === true;
+  }
+}
+
+type Sort = "recent" | "name";
+
+/** When an entry was last given something — made, edited, or pictured. */
+function lastTouched(item: NamedComponent): number {
+  return Math.max(item.ts, item.updated ?? 0, item.shotAt ?? 0);
+}
+
+/**
+ * How the gallery was left, per project: the search, the chip, the order
+ * and how far down it was. Coming back from a component, or from another
+ * page, lands where you were — in a library of three hundred, starting
+ * again from the top every time was most of the work of browsing it.
+ */
+interface View {
+  query: string;
+  filter: Filter;
+  sort: Sort;
+  scroll: number;
+}
+
+const views = new Map<string, View>();
+const FRESH: View = { query: "", filter: "all", sort: "recent", scroll: 0 };
 
 /**
  * The star a new component wears. It turns, because a page of identical
@@ -171,25 +304,125 @@ function useDraft(value: string): [string, (next: string) => void] {
   return [draft, setDraft];
 }
 
-/* ── the gallery ───────────────────────────────────────────────────── */
+/** True for a moment after `mark()` — long enough to see "saved". */
+function useFlash(): [boolean, () => void] {
+  const [at, setAt] = useState(0);
+  useEffect(() => {
+    if (!at) return;
+    const timer = setTimeout(() => setAt(0), 1400);
+    return () => clearTimeout(timer);
+  }, [at]);
+  return [at > 0, () => setAt(Date.now())];
+}
 
-/** One entry in the grid: its picture, what it's called, its handle. */
-function Tile({ projectId, item, onOpen }: { projectId: string; item: NamedComponent; onOpen(): void }) {
-  const shot = item.shots[0];
-  const [broken, setBroken] = useState(false);
-  const behind = componentStale(item).picture;
+/** A button that copies `text`, and says so. */
+function CopyButton({ text, label = "Copy", title }: { text: string | undefined; label?: string; title: string }) {
+  const [copied, flash] = useFlash();
   return (
     <button
       type="button"
-      className={`lib-tile${item.star ? " fresh" : ""}`}
+      className={`lib-copy${copied ? " copied" : ""}`}
+      disabled={!text}
+      title={title}
+      onClick={() => {
+        if (text) void navigator.clipboard.writeText(text).then(flash);
+      }}
+    >
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+/* ── seeing the cards that are near ────────────────────────────────── */
+
+type Watch = (el: Element, onNear: () => void) => () => void;
+
+/** Tells a card when it comes within a screen or so of being seen, so its
+ *  picture is made only then. One observer for the page, on its scroller. */
+const NearContext = createContext<Watch | null>(null);
+
+function useWatcher(root: RefObject<HTMLElement | null>): Watch {
+  const observer = useRef<IntersectionObserver | null>(null);
+  const calls = useRef(new Map<Element, () => void>());
+  useEffect(() => () => observer.current?.disconnect(), []);
+  return useCallback(
+    (el, onNear) => {
+      observer.current ??= new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            calls.current.get(entry.target)?.();
+            calls.current.delete(entry.target);
+            observer.current?.unobserve(entry.target);
+          }
+        },
+        { root: root.current, rootMargin: "700px 0px" },
+      );
+      calls.current.set(el, onNear);
+      observer.current.observe(el);
+      return () => {
+        calls.current.delete(el);
+        observer.current?.unobserve(el);
+      };
+    },
+    [root],
+  );
+}
+
+/** Whether the element has come near the screen — and stays so once it has. */
+function useNear(ref: RefObject<Element | null>): boolean {
+  const watch = useContext(NearContext);
+  const [near, setNear] = useState(watch === null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || near || !watch) return;
+    return watch(el, () => setNear(true));
+  }, [ref, near, watch]);
+  return near;
+}
+
+/* ── the gallery ───────────────────────────────────────────────────── */
+
+/** One entry in the grid: its picture, what it's called, a line of its
+ *  note, its handle. */
+function Tile({
+  projectId,
+  item,
+  words,
+  onOpen,
+}: {
+  projectId: string;
+  item: NamedComponent;
+  words: string[];
+  onOpen(): void;
+}) {
+  const box = useRef<HTMLButtonElement>(null);
+  const near = useNear(box);
+  const srcs = srcsOf(item);
+  const { src, index } = useThumb(srcs, near);
+  const [over, setOver] = useState(false);
+  const behind = componentStale(item).picture;
+  const note = item.note.trim().split("\n")[0] ?? "";
+  return (
+    <button
+      ref={box}
+      type="button"
+      className={`lib-tile${item.star ? " fresh" : ""}${over ? " drop" : ""}`}
+      data-id={item.id}
       // Hovering a card is having looked at it: the star has done its job
       // the moment the eye is on the thing it was pointing at.
       onMouseEnter={() => {
         if (item.star) send({ type: "component_seen", projectId, componentId: item.id });
       }}
       onClick={onOpen}
-      onDragOver={(e) => e.preventDefault()}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
       onDrop={(e) => {
+        setOver(false);
         const dropped = [...e.dataTransfer.files];
         if (dropped.length === 0) return;
         e.preventDefault();
@@ -197,31 +430,48 @@ function Tile({ projectId, item, onOpen }: { projectId: string; item: NamedCompo
       }}
     >
       {item.star === "still" && <Star where="still" />}
-      <span className="lib-tile-shot">
-        {shot?.url && !broken ? (
+      <span className={`lib-tile-shot${src ? "" : " empty"}`}>
+        {src ? (
           <>
-            <img src={HTTP_BASE + shot.url} alt="" loading="lazy" onError={() => setBroken(true)} />
-            {behind && (
+            <img src={src} alt="" decoding="async" draggable={false} />
+            {behind ? (
               <span
-                className="lib-tile-behind"
+                className="lib-badge"
                 title="Its code changed after this picture was taken — Update everything retakes it"
               >
                 outdated
               </span>
-            )}
+            ) : index > 0 ? (
+              <span className="lib-badge" title="Its newest picture is missing — this is an older one">
+                older picture
+              </span>
+            ) : null}
           </>
-        ) : (
+        ) : src === null ? (
           <span className="lib-tile-blank">
             <span className="lib-tile-glyph">{(item.slug[0] ?? "?").toUpperCase()}</span>
-            no picture yet — drop one here
+            {srcs.length > 0 ? (
+              <span className="lib-tile-why" title="Its picture's file is gone — Update everything retakes it">
+                picture missing
+              </span>
+            ) : (
+              <span className="lib-tile-why">no picture yet</span>
+            )}
+            <span className="lib-tile-hint">drop one here</span>
           </span>
-        )}
+        ) : null}
+        {over && <span className="lib-tile-dropping">Drop to add the picture</span>}
       </span>
       <span className="lib-tile-name">
-        {item.name}
+        <span className="lib-tile-name-text">
+          <Marked text={item.name} words={words} />
+        </span>
         {item.star === "just" && <Star where="just" />}
       </span>
-      <span className="lib-tile-slug">{item.slug}</span>
+      <span className="lib-tile-note">{note ? <Marked text={note} words={words} /> : "No note yet."}</span>
+      <span className="lib-tile-slug">
+        <Marked text={item.slug} words={words} />
+      </span>
     </button>
   );
 }
@@ -296,32 +546,37 @@ function CodeView({ file }: { file: ComponentFile }) {
   if (file.missing) {
     return <div className="lib-code-missing">Not found in the project — moved, renamed, or deleted.</div>;
   }
-  const cut = file.lines !== undefined && (from > 1 || count < file.lines);
   return (
-    <>
-      {cut && (
-        <div className="lib-code-cut">
-          Lines {from}–{from + count - 1} of {file.lines}
-        </div>
-      )}
-      <div className="lib-code" ref={scroller}>
-        <div className="lib-code-inner" style={{ ["--lib-line" as string]: `${LINE_PX}px` }}>
-          {file.line !== undefined && file.line >= from && file.line < from + count && (
-            <div className="lib-code-mark" style={{ top: (file.line - from) * LINE_PX }} />
-          )}
-          <pre className="lib-code-gutter" aria-hidden>
-            {numbers}
-          </pre>
-          <pre className="lib-code-text">
-            <code
-              className="hljs"
-              {...(name ? { "data-hl": name } : {})}
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          </pre>
-        </div>
+    <div className="lib-code" ref={scroller}>
+      <div className="lib-code-inner" style={{ ["--lib-line" as string]: `${LINE_PX}px` }}>
+        {file.line !== undefined && file.line >= from && file.line < from + count && (
+          <div className="lib-code-mark" style={{ top: (file.line - from) * LINE_PX }} />
+        )}
+        <pre className="lib-code-gutter" aria-hidden>
+          {numbers}
+        </pre>
+        <pre className="lib-code-text">
+          <code className="hljs" {...(name ? { "data-hl": name } : {})} dangerouslySetInnerHTML={{ __html: html }} />
+        </pre>
       </div>
-    </>
+    </div>
+  );
+}
+
+/** The faint lines that stand where code is on its way. */
+function CodeLoading() {
+  return (
+    <div className="lib-codebox loading" aria-busy>
+      <div className="lib-tabs">
+        <span className="lib-skel tab" />
+        <span className="lib-skel tab" />
+      </div>
+      <div className="lib-code-skel">
+        {[62, 48, 75, 30, 55, 68, 40].map((w, i) => (
+          <span key={i} className="lib-skel line" style={{ width: `${w}%` }} />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -330,17 +585,20 @@ function CodeView({ file }: { file: ComponentFile }) {
 function CodeTabs({ projectId, item }: { projectId: string; item: NamedComponent }) {
   const files = useRuri((s) => s.componentCode[item.id]);
   const [tab, setTab] = useState(0);
-  const [copied, setCopied] = useState(false);
   // read again whenever the entry changes: its files may have
   const key = `${item.files.join("|")}#${(item.uses ?? []).join("|")}#${item.updated ?? item.ts}`;
   useEffect(() => {
     send({ type: "component_code", projectId, componentId: item.id });
   }, [projectId, item.id, key]);
-  if (!files) return <div className="lib-code-missing">Reading…</div>;
+  if (!files) return <CodeLoading />;
   if (files.length === 0) {
-    return <div className="lib-code-missing">No files on this one yet — say which under Details.</div>;
+    return <div className="lib-code-missing boxed">No files on this one yet — list them under “its files”.</div>;
   }
   const open = files[Math.min(tab, files.length - 1)]!;
+  const from = open.from ?? 1;
+  const count = (open.text ?? "").split("\n").length;
+  // a long file comes as the stretch that matters: Copy copies what is shown
+  const cut = open.lines !== undefined && (from > 1 || count < open.lines);
   return (
     <div className="lib-codebox">
       <div className="lib-tabs" role="tablist">
@@ -351,70 +609,107 @@ function CodeTabs({ projectId, item }: { projectId: string; item: NamedComponent
             role="tab"
             aria-selected={i === tab}
             className={`lib-tab${i === tab ? " on" : ""}${file.own ? "" : " reach"}${file.missing ? " gone" : ""}`}
-            title={`${file.path}${file.line ? `:${file.line}` : ""}${file.own ? "" : " — a place it reaches into"}`}
+            title={`${file.path}${file.line ? `:${file.line}` : ""}${file.own ? "" : " — a place it reaches into"}${file.missing ? " — not found" : ""}`}
             onClick={() => setTab(i)}
           >
             {file.path.slice(file.path.lastIndexOf("/") + 1)}
             {file.line ? <span className="lib-tab-line">:{file.line}</span> : null}
           </button>
         ))}
-        <span className="lib-tabs-gap" />
-        <button
-          type="button"
-          className={`lib-copy${copied ? " copied" : ""}`}
-          disabled={!open.text}
-          title="Copy this file"
-          onClick={() => {
-            void navigator.clipboard.writeText(open.text ?? "").then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1200);
-            });
-          }}
-        >
-          {copied ? "Copied" : "Copy"}
-        </button>
       </div>
       <div className="lib-code-path">
-        {open.path}
-        {open.own ? "" : " — reaches into"}
+        <span className="lib-code-file">
+          {open.path}
+          {open.own ? "" : " — reaches into"}
+        </span>
+        {cut && (
+          <span className="lib-code-cut">
+            lines {from}–{from + count - 1} of {open.lines}
+          </span>
+        )}
+        <CopyButton
+          text={open.text}
+          label={cut ? "Copy these lines" : "Copy"}
+          title={cut ? `Copy lines ${from}–${from + count - 1}` : "Copy this file"}
+        />
       </div>
       <CodeView file={open} />
     </div>
   );
 }
 
-/** A labelled one-line field that saves when it loses focus. */
+/**
+ * A labelled one-line field that saves when it loses focus. `normalize`
+ * turns what was typed into what will be kept — or null for something that
+ * can't be (an empty handle), which puts the saved value back — so the
+ * field never goes on showing something the library doesn't hold.
+ */
 function Field({
   label,
   value,
   placeholder,
+  title,
   mono,
+  wrap,
+  normalize = (v) => v.trim(),
   onSave,
 }: {
   label: string;
   value: string;
   placeholder?: string;
+  title?: string;
   mono?: boolean;
+  /** Long values — a list of paths — wrap onto more lines rather than
+   *  running out of the box. */
+  wrap?: boolean;
+  normalize?(typed: string): string | null;
   onSave(next: string): void;
 }) {
   const [draft, setDraft] = useDraft(value);
+  const [saved, flash] = useFlash();
+  const commit = () => {
+    const next = normalize(draft);
+    if (next === null) {
+      setDraft(value);
+      return;
+    }
+    setDraft(next);
+    if (next !== value) {
+      onSave(next);
+      flash();
+    }
+  };
+  const props = {
+    className: mono ? "mono" : undefined,
+    value: draft,
+    placeholder,
+    spellCheck: !mono,
+    onBlur: commit,
+    onKeyDown: (e: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        e.currentTarget.blur();
+      } else if (e.key === "Escape") {
+        // Escape lets go of an edit, and only then leaves the page
+        setDraft(value);
+        e.currentTarget.blur();
+        e.stopPropagation();
+      }
+    },
+  };
   return (
-    <label className="lib-field">
-      <span>{label}</span>
-      <input
-        className={mono ? "mono" : undefined}
-        value={draft}
-        placeholder={placeholder}
-        spellCheck={!mono}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => draft !== value && onSave(draft)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-        }}
-      />
+    <label className={`lib-field${wrap ? " wrap" : ""}`} title={title}>
+      <span>{saved ? <b className="lib-saved">saved</b> : label}</span>
+      {wrap ? (
+        <textarea rows={1} {...props} onChange={(e) => setDraft(e.target.value)} />
+      ) : (
+        <input {...props} onChange={(e) => setDraft(e.target.value)} />
+      )}
     </label>
   );
 }
+
+const asList = (typed: string) => parseList(typed).join(", ");
 
 type Patch = Partial<{
   name: string;
@@ -428,26 +723,124 @@ type Patch = Partial<{
   selector: string;
   route: string;
   clicks: string[];
+  found: boolean;
 }>;
 
-function Detail({ projectId, item, onBack }: { projectId: string; item: NamedComponent; onBack(): void }) {
+/** One of a component's pictures, small, in the strip under the big one. */
+function ShotThumb({
+  shot,
+  on,
+  onPick,
+  onRemove,
+}: {
+  shot: Attachment;
+  on: boolean;
+  onPick(): void;
+  onRemove(gone: boolean): void;
+}) {
+  const { src } = useThumb([srcOf(shot)], true);
+  return (
+    <div className={`lib-thumb${on ? " on" : ""}${src === null ? " gone" : ""}`}>
+      <button
+        type="button"
+        className="lib-thumb-pick"
+        title={src === null ? `${shot.name} — its file is gone` : shot.name}
+        disabled={src === null}
+        onClick={onPick}
+      >
+        {src ? <img src={src} alt="" draggable={false} /> : src === null ? <span>missing</span> : null}
+      </button>
+      {/* The picture opens; only the × takes it away — looking at a
+          screenshot must never be what deletes it. */}
+      <button
+        type="button"
+        className="att-remove"
+        title={src === null ? "Forget this missing picture" : "Remove this picture"}
+        onClick={() => onRemove(src === null)}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+function Detail({
+  projectId,
+  item,
+  trail,
+  onGo,
+  onBack,
+}: {
+  projectId: string;
+  item: NamedComponent;
+  /** The gallery as it stood when this was opened, for ← and →. */
+  trail: string[];
+  onGo(id: string): void;
+  onBack(): void;
+}) {
+  const dir = useRuri((s) => s.componentDirs[projectId]);
   const [name, setName] = useDraft(item.name);
   const [note, setNote] = useDraft(item.note);
-  const [shown, setShown] = useState(0);
-  const [copied, setCopied] = useState(false);
+  const [noteSaved, flashNote] = useFlash();
+  const [shownId, setShownId] = useState<string>();
+  const [viewing, setViewing] = useState(false);
   const [sure, setSure] = useState(false);
+  // pictures this page failed to load, on top of those found gone elsewhere
+  const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
+  const gone = useGone();
+  const { confirm, card } = useConfirm();
   useEffect(() => {
     if (item.star) send({ type: "component_seen", projectId, componentId: item.id });
   }, [projectId, item.id, item.star]);
 
-  const patch = (extra: Patch) =>
-    send({ type: "component_update", projectId, componentId: item.id, ...extra });
+  const patch = (extra: Patch) => send({ type: "component_update", projectId, componentId: item.id, ...extra });
   const install = `ruri add ${item.slug}`;
-  const shot = item.shots[Math.min(shown, item.shots.length - 1)];
+  // the one picked, by id — a new picture arriving at the front of the
+  // list must not swap what is on screen — else the newest still there
+  const live = item.shots.filter((s) => s.url && !gone.has(srcOf(s)) && !broken.has(s.id));
+  const shot = live.find((s) => s.id === shownId) ?? live[0];
+  const missing = item.shots.length - live.length;
   const behind = componentStale(item);
+  const at = trail.indexOf(item.id);
+  const prev = at > 0 ? trail[at - 1] : undefined;
+  const next = at >= 0 && at < trail.length - 1 ? trail[at + 1] : undefined;
+
+  // ← and → step through the gallery, as it was when this was opened
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
+      if (document.querySelector(".viewer-overlay, .confirm-overlay")) return;
+      const to = e.key === "ArrowLeft" ? prev : e.key === "ArrowRight" ? next : undefined;
+      if (!to) return;
+      e.preventDefault();
+      onGo(to);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [prev, next, onGo]);
+
+  const removeShot = async (s: Attachment, isGone: boolean) => {
+    // a picture whose file is already gone has nothing left to lose
+    if (
+      !isGone &&
+      !(await confirm({
+        title: "Remove this picture?",
+        body: "It comes out of the library for good — nothing brings it back.",
+        ok: "Remove",
+      }))
+    ) {
+      return;
+    }
+    send({ type: "component_unshot", projectId, componentId: item.id, shotId: s.id });
+  };
 
   return (
     <div className="lib-detail">
+      {card}
       <div className="lib-detail-top">
         <button type="button" className="ghost lib-back" onClick={onBack} title="Back to the library (Esc)">
           <Icon d="M15 18l-6-6 6-6" />
@@ -457,34 +850,69 @@ function Detail({ projectId, item, onBack }: { projectId: string; item: NamedCom
           className="lib-detail-name"
           value={name}
           placeholder="what you call it"
+          title="What you call it — click to rename"
           onChange={(e) => setName(e.target.value)}
-          onBlur={() => name.trim() && name !== item.name && patch({ name: name.trim() })}
+          onBlur={() => {
+            const clean = name.trim();
+            if (!clean) setName(item.name);
+            else if (clean !== item.name) patch({ name: clean });
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();
+            else if (e.key === "Escape") {
+              setName(item.name);
+              e.currentTarget.blur();
+              e.stopPropagation();
+            }
           }}
         />
-        {item.found && (
-          <span className="lib-found" title="The repo sweep named this one — a guess until you correct it">
-            found by the sweep
-          </span>
+        {trail.length > 1 && at >= 0 && (
+          <div className="lib-step">
+            <button
+              type="button"
+              className="ghost"
+              disabled={!prev}
+              title="The one before (←)"
+              onClick={() => prev && onGo(prev)}
+            >
+              <Icon d="M15 18l-6-6 6-6" />
+            </button>
+            <span>
+              {at + 1} of {trail.length}
+            </span>
+            <button
+              type="button"
+              className="ghost"
+              disabled={!next}
+              title="The one after (→)"
+              onClick={() => next && onGo(next)}
+            >
+              <Icon d="M9 18l6-6-6-6" />
+            </button>
+          </div>
         )}
       </div>
 
+      {item.found && (
+        <div className="lib-found">
+          <span>
+            <b>Found by the sweep.</b> Its name, note and files are a guess until you correct them — or say they
+            hold.
+          </span>
+          <button type="button" onClick={() => patch({ found: false })}>
+            Looks right
+          </button>
+        </div>
+      )}
+
       <div className="lib-install">
         <code>{install}</code>
-        <button
-          type="button"
-          className={`lib-copy${copied ? " copied" : ""}`}
-          title="Copy the command an agent installs it with"
-          onClick={() => {
-            void navigator.clipboard.writeText(install).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1200);
-            });
-          }}
-        >
-          {copied ? "Copied" : "Copy"}
-        </button>
+        {dir && (
+          <span className="lib-install-dir" title="Where `ruri add` copies it — set at the foot of the library">
+            into {dir}/
+          </span>
+        )}
+        <CopyButton text={install} title="Copy the command an agent installs it with" />
       </div>
 
       <div className="lib-detail-body">
@@ -505,14 +933,42 @@ function Detail({ projectId, item, onBack }: { projectId: string; item: NamedCom
           }}
         >
           <div className="lib-preview-main">
-            {shot?.url ? (
-              <ToolImage key={shot.id} image={{ url: shot.url, name: shot.name }} />
+            {shot ? (
+              <button
+                type="button"
+                className="lib-preview-pick"
+                title={`${shot.name} — click to see it full size`}
+                onClick={() => setViewing(true)}
+              >
+                <img
+                  key={shot.id}
+                  src={srcOf(shot)}
+                  alt={item.name}
+                  onError={() => setBroken((was) => new Set([...was, shot.id]))}
+                />
+              </button>
             ) : (
               <div className="lib-preview-blank">
-                No picture yet. Drop or paste one here — or press <b>Update everything</b> to have it taken.
+                {missing > 0 ? (
+                  <>
+                    Its {missing === 1 ? "picture is" : "pictures are"} missing — the file
+                    {missing === 1 ? " is" : "s are"} gone. Drop or paste a new one here, or press{" "}
+                    <b>Update everything</b> to have it taken.
+                  </>
+                ) : (
+                  <>
+                    No picture yet. Drop or paste one here — or press <b>Update everything</b> to have it taken.
+                  </>
+                )}
               </div>
             )}
           </div>
+          {viewing && shot && (
+            <Viewer
+              target={{ kind: "image", src: srcOf(shot), label: `${item.name} — ${shot.name}`, name: shot.name }}
+              onClose={() => setViewing(false)}
+            />
+          )}
           {(behind.picture || behind.note) && (
             <div className="lib-behind">
               Its code has changed since {behind.picture ? "this picture" : "its note was written"}
@@ -521,36 +977,16 @@ function Detail({ projectId, item, onBack }: { projectId: string; item: NamedCom
             </div>
           )}
           <div className="lib-thumbs">
-            {/* The picture opens; only the × takes it away — looking at a
-                screenshot must never be what deletes it. */}
-            {item.shots.map((s, i) => (
-              <div key={s.id} className={`lib-thumb${i === shown ? " on" : ""}`}>
-                <button type="button" className="lib-thumb-pick" title={s.name} onClick={() => setShown(i)}>
-                  <img src={HTTP_BASE + (s.url ?? "")} alt="" />
-                </button>
-                <button
-                  type="button"
-                  className="att-remove"
-                  title="Remove this screenshot"
-                  onClick={() => {
-                    send({ type: "component_unshot", projectId, componentId: item.id, shotId: s.id });
-                    setShown(0);
-                  }}
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    aria-hidden
-                  >
-                    <path d="M6 6l12 12M18 6L6 18" />
-                  </svg>
-                </button>
-              </div>
+            {item.shots.map((s) => (
+              <ShotThumb
+                key={s.id}
+                shot={s}
+                on={s.id === shot?.id}
+                onPick={() => setShownId(s.id)}
+                onRemove={(isGone) => void removeShot(s, isGone)}
+              />
             ))}
-            <label className="lib-thumb add" title="Add a screenshot">
+            <label className="lib-thumb add" title="Add a picture — or drop or paste one onto the big one">
               <input
                 type="file"
                 accept="image/*"
@@ -562,49 +998,76 @@ function Detail({ projectId, item, onBack }: { projectId: string; item: NamedCom
               />
               <Icon d="M12 5v14M5 12h14" />
             </label>
+            {item.shots.length > 1 && <span className="lib-thumbs-say">newest first</span>}
           </div>
         </div>
 
         <div className="lib-meta">
-          <textarea
-            className="lib-note"
-            value={note}
-            placeholder="What it is, and anything to know before touching it…"
-            onChange={(e) => setNote(e.target.value)}
-            onBlur={() => note !== item.note && patch({ note })}
+          <div className="lib-note-box">
+            <textarea
+              className="lib-note"
+              value={note}
+              placeholder="What it is, and anything to know before touching it…"
+              onChange={(e) => setNote(e.target.value)}
+              onBlur={() => {
+                if (note === item.note) return;
+                patch({ note });
+                flashNote();
+              }}
+            />
+            {noteSaved && <b className="lib-saved lib-note-saved">saved</b>}
+          </div>
+          <Field
+            label="handle"
+            value={item.slug}
+            mono
+            title="What `ruri add` and `ruri show` know it by"
+            normalize={(typed) => (typed.trim() ? slugify(typed) : null)}
+            onSave={(slug) => patch({ slug })}
           />
-          <Field label="handle" value={item.slug} mono onSave={(slug) => slug.trim() && patch({ slug })} />
           <Field
             label="also called"
             value={item.aliases.join(", ")}
-            placeholder="the gauges, the bars"
+            placeholder="none"
+            title="Other names that mean it, comma-separated — the gauges, the bars"
+            normalize={asList}
             onSave={(v) => patch({ aliases: parseList(v) })}
           />
           <Field
             label="tags"
             value={(item.tags ?? []).join(", ")}
-            placeholder="dialog, nav, animation"
+            placeholder="none"
+            title="Words to find it by, comma-separated — dialog, nav, animation"
+            normalize={asList}
             onSave={(v) => patch({ tags: parseList(v) })}
           />
           <Field
             label="its files"
             value={item.files.join(", ")}
-            placeholder="src/components/Card.tsx, src/components/card.css"
+            placeholder="none — say which"
+            title="Its own code, from the project's root: what `ruri add` copies — src/components/Card.tsx"
             mono
+            wrap
+            normalize={asList}
             onSave={(v) => patch({ files: parseList(v) })}
           />
           <Field
             label="reaches into"
             value={(item.uses ?? []).join(", ")}
-            placeholder="src/styles.css:120, src/App.tsx"
+            placeholder="none"
+            title="Other places it touches, read but never copied, a line after a colon — src/styles.css:120"
             mono
+            wrap
+            normalize={asList}
             onSave={(v) => patch({ uses: parseList(v) })}
           />
           <Field
             label="packages"
             value={(item.deps ?? []).join(", ")}
-            placeholder="framer-motion"
+            placeholder="none"
+            title="Packages its code needs, which `ruri add` names for installing — framer-motion"
             mono
+            normalize={asList}
             onSave={(v) => patch({ deps: parseList(v) })}
           />
           {/* What finds it in the running app — this is what gets
@@ -614,8 +1077,16 @@ function Detail({ projectId, item, onBack }: { projectId: string; item: NamedCom
           <Field
             label="on screen"
             value={showPath(item)}
-            placeholder=".dragon-gauges  ·  /settings >> .tab >> .panel"
+            placeholder="not set"
+            title="A selector that finds it in the running app, so it can be photographed: .dragon-gauges — or a page and clicks first: /settings >> .tab >> .panel"
             mono
+            normalize={(typed) =>
+              typed
+                .split(">>")
+                .map((part) => part.trim())
+                .filter(Boolean)
+                .join(" >> ")
+            }
             onSave={(v) => patch(parsePath(v))}
           />
           {item.installs?.length ? (
@@ -664,20 +1135,22 @@ function InstallDir({ projectId }: { projectId: string }) {
   const dir = useRuri((s) => s.componentDirs[projectId]) ?? "";
   const [draft, setDraft] = useDraft(dir);
   return (
-    <label className="lib-dir" title="The folder `ruri add` copies components into, from the project's root">
-      installs into
-      <input
-        className="mono"
-        value={draft}
-        placeholder="not set yet"
-        spellCheck={false}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => draft.trim() !== dir && send({ type: "library_dir", projectId, dir: draft.trim() })}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-        }}
-      />
-    </label>
+    <input
+      className="mono lib-dir"
+      value={draft}
+      placeholder="a folder, not set yet"
+      title="The folder `ruri add` copies components into, from the project's root"
+      spellCheck={false}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        const clean = draft.trim().replace(/\/+$/, "");
+        setDraft(clean);
+        if (clean !== dir) send({ type: "library_dir", projectId, dir: clean });
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+    />
   );
 }
 
@@ -685,14 +1158,31 @@ function InstallDir({ projectId }: { projectId: string }) {
 const NO_COMPONENTS: NamedComponent[] = [];
 
 export function Components({ projectId }: { projectId: string }) {
+  // a page of its own per project: one project's search, chip and place
+  // never carry into another's
+  return <Library key={projectId} projectId={projectId} />;
+}
+
+function Library({ projectId }: { projectId: string }) {
   const items = useRuri((s) => s.components[projectId]) ?? NO_COMPONENTS;
-  const title = useRuri((s) => s.projects.find((p) => p.id === projectId)?.name) ?? "This project";
   const sweep = useRuri((s) => s.sweeps[projectId]);
   const busy = sweep?.busy === true;
-  const [query, setQuery] = useState("");
+  const gone = useGone();
+  const [view, setView] = useState<View>(() => views.get(projectId) ?? FRESH);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [trail, setTrail] = useState<string[]>([]);
   const page = useRef<HTMLElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
+  const grid = useRef<HTMLDivElement>(null);
+  const cameFrom = useRef<string | null>(null);
+  const watch = useWatcher(page);
+
+  const change = (next: Partial<View>) => {
+    const now = { ...view, ...next };
+    setView(now);
+    // how far down it is, the scroll listener keeps
+    views.set(projectId, { ...now, scroll: views.get(projectId)?.scroll ?? 0 });
+  };
 
   // The sweep's last word stays up for a moment after it finishes — long
   // enough to read what it did, not long enough to still be there next time
@@ -715,28 +1205,86 @@ export function Components({ projectId }: { projectId: string }) {
     [projectId],
   );
 
+  // which pictures are gone, for the counts, before the cards are seen
+  useEffect(() => {
+    void probe(items.flatMap(srcsOf));
+  }, [items]);
+
   // one taken out while it was open simply isn't open any more
   const open = openId ? items.find((item) => item.id === openId) : undefined;
-  const shown = useMemo(() => {
-    if (!query.trim()) return items;
+  const words = useMemo(() => wordsOf(view.query), [view.query]);
+  // what the search finds, best first — the chips count within it
+  const found = useMemo(() => {
+    if (!words.length) return items;
     return items
-      .map((item) => ({ item, score: score(item, query) }))
+      .map((item) => ({ item, score: score(item, words) }))
       .filter((hit) => hit.score > 0)
       .sort((a, b) => b.score - a.score)
       .map((hit) => hit.item);
-  }, [items, query]);
+  }, [items, words]);
+  const counts = useMemo(() => {
+    const out = { all: 0, new: 0, unpictured: 0, outdated: 0, found: 0 } satisfies Record<Filter, number>;
+    for (const item of found) for (const f of FILTERS) if (inFilter(item, f.id, gone)) out[f.id] += 1;
+    return out;
+  }, [found, gone]);
+  const shown = useMemo(() => {
+    const kept = found.filter((item) => inFilter(item, view.filter, gone));
+    if (words.length) return kept;
+    return view.sort === "name"
+      ? [...kept].sort((a, b) => a.name.localeCompare(b.name))
+      : [...kept].sort((a, b) => lastTouched(b) - lastTouched(a));
+  }, [found, view.filter, view.sort, words, gone]);
 
-  // each view starts at its own top
+  const openOne = (id: string) => {
+    if (!open) {
+      // the gallery as it stands now is what ← and → walk
+      views.set(projectId, { ...view, scroll: page.current?.scrollTop ?? 0 });
+      setTrail(shown.map((item) => item.id));
+    }
+    cameFrom.current = id;
+    setOpenId(id);
+  };
+
+  // A component starts at its own top; the gallery comes back where it was
+  // left, with the card you came from in focus.
+  const openKey = open?.id;
   useLayoutEffect(() => {
-    page.current?.scrollTo({ top: 0 });
-  }, [open?.id]);
+    const box = page.current;
+    if (!box) return;
+    if (openKey) {
+      box.scrollTo({ top: 0 });
+      return;
+    }
+    box.scrollTo({ top: views.get(projectId)?.scroll ?? 0 });
+    const from = cameFrom.current;
+    const tile = from ? grid.current?.querySelector<HTMLElement>(`[data-id="${from}"]`) : null;
+    if (tile) {
+      tile.focus({ preventScroll: true });
+      // stepped along with → past where the gallery was left: show it
+      tile.scrollIntoView({ block: "nearest" });
+    }
+  }, [openKey, projectId]);
+
+  // remember how far down the gallery is, for coming back to it
+  useEffect(() => {
+    const box = page.current;
+    if (!box || open) return;
+    const onScroll = () => {
+      const was = views.get(projectId) ?? view;
+      views.set(projectId, { ...was, scroll: box.scrollTop });
+    };
+    box.addEventListener("scroll", onScroll, { passive: true });
+    return () => box.removeEventListener("scroll", onScroll);
+  }, [open, projectId, view]);
 
   // Esc from a component goes back to the gallery; "/" searches it —
-  // neither while something is being typed into
+  // neither while something is being typed into, nor under a dialog
   const opened = open !== undefined;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      if (document.querySelector(".viewer-overlay, .confirm-overlay")) return;
       if (e.key === "Escape" && opened && !typing) {
         e.preventDefault();
         setOpenId(null);
@@ -749,84 +1297,203 @@ export function Components({ projectId }: { projectId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [opened]);
 
+  /** Arrow keys between the cards, the way they sit on screen. */
+  const moveFocus = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
+    if (!keys.includes(e.key) || !(e.target instanceof HTMLElement)) return;
+    const tiles = [...(grid.current?.querySelectorAll<HTMLElement>(".lib-tile") ?? [])];
+    const at = tiles.indexOf(e.target);
+    if (at < 0) return;
+    const columns = grid.current
+      ? getComputedStyle(grid.current).gridTemplateColumns.split(" ").filter(Boolean).length
+      : 1;
+    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns, ArrowDown: columns }[e.key] ?? 0;
+    e.preventDefault();
+    const to = at + step;
+    if (to < 0 && e.key === "ArrowUp") searchBox.current?.focus();
+    else tiles[Math.max(0, Math.min(tiles.length - 1, to))]?.focus();
+  };
+
+  const sweepButton = (
+    <button
+      type="button"
+      className="comp-sweep"
+      disabled={busy}
+      title={
+        "Bring the library up to date with the code: follow files that moved, retire what's " +
+        "gone, rewrite notes the code has outgrown, name what nobody has — then photograph " +
+        "everything without a current picture, in a “Library pictures” chat where it takes an agent"
+      }
+      onClick={() => send({ type: "components_sweep", projectId })}
+    >
+      {busy ? "Updating…" : "Update everything"}
+    </button>
+  );
+
+  const filterLabel = FILTERS.find((f) => f.id === view.filter)?.label ?? "";
+
   return (
-    <section className="board-page lib-page" ref={page}>
-      <div className="board-inner lib-inner">
-        {open ? (
-          <Detail key={open.id} projectId={projectId} item={open} onBack={() => setOpenId(null)} />
-        ) : (
-          <>
-            <div className="lib-head">
-              <div className="lib-title">{title}</div>
-              <div className="lib-sub">
-                {note ?? `${items.length} component${items.length === 1 ? "" : "s"}`}
-                <span className="lib-sub-sep">·</span>
-                <InstallDir projectId={projectId} />
-                <button
-                  className="comp-sweep"
-                  disabled={busy}
-                  title={
-                    "Bring the library up to date with the code: follow files that moved, retire what's " +
-                    "gone, rewrite notes the code has outgrown, name what nobody has — then photograph " +
-                    "everything without a current picture, in a “Library pictures” chat where it takes an agent"
-                  }
-                  onClick={() => send({ type: "components_sweep", projectId })}
-                >
-                  {busy ? "Updating…" : "Update everything"}
-                </button>
+    <NearContext.Provider value={watch}>
+      <section className="board-page lib-page" ref={page}>
+        <div className="board-inner lib-inner">
+          {open ? (
+            <Detail
+              key={open.id}
+              projectId={projectId}
+              item={open}
+              trail={trail}
+              onGo={openOne}
+              onBack={() => setOpenId(null)}
+            />
+          ) : (
+            <>
+              <div className="board-head lib-head">
+                <span className="board-title">Components</span>
+                <span className={`board-sub${busy ? " lib-busy" : ""}`}>
+                  {note ??
+                    (items.length === 0
+                      ? "none yet"
+                      : `${items.length} in the library${counts.new ? ` · ${counts.new} new` : ""}`)}
+                </span>
+                {items.length > 0 && sweepButton}
               </div>
-            </div>
 
-            <label className="lib-search">
-              <Icon d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4" />
-              <input
-                ref={searchBox}
-                value={query}
-                placeholder="Search the library — a name, a handle, a tag, a file…"
-                spellCheck={false}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setQuery("");
-                    e.currentTarget.blur();
-                  } else if (e.key === "Enter" && shown.length === 1) setOpenId(shown[0]!.id);
-                }}
-              />
-              {query && (
-                <button type="button" className="lib-search-clear" title="Clear" onClick={() => setQuery("")}>
-                  <Icon d="M6 6l12 12M18 6L6 18" />
-                </button>
+              {items.length === 0 ? (
+                <div className="lib-empty-card">
+                  <div className="lib-empty-art" aria-hidden>
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                  <div className="lib-empty-title">No components yet</div>
+                  <p>
+                    Pieces arrive as sessions build this project's interface — each comes up in the chat under a
+                    name you can change, and agents look here before building anything new.
+                  </p>
+                  <p>
+                    For what was built before that, <b>Update everything</b> reads the repo, names each piece of
+                    interface it finds and takes its picture.
+                  </p>
+                  {sweepButton}
+                </div>
+              ) : (
+                <>
+                  <label className="lib-search">
+                    <Icon d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4" />
+                    <input
+                      ref={searchBox}
+                      value={view.query}
+                      placeholder="Search — a name, a handle, a tag, a file…"
+                      spellCheck={false}
+                      onChange={(e) => change({ query: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          if (view.query) change({ query: "" });
+                          else e.currentTarget.blur();
+                          e.preventDefault();
+                        } else if (e.key === "Enter" && shown[0]) {
+                          openOne(shown[0].id);
+                        } else if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          grid.current?.querySelector<HTMLElement>(".lib-tile")?.focus();
+                        }
+                      }}
+                    />
+                    {view.query ? (
+                      <button
+                        type="button"
+                        className="lib-search-clear"
+                        title="Clear (Esc)"
+                        onClick={() => change({ query: "" })}
+                      >
+                        <Icon d="M6 6l12 12M18 6L6 18" />
+                      </button>
+                    ) : (
+                      <kbd className="lib-key" title="Press / to search">
+                        /
+                      </kbd>
+                    )}
+                  </label>
+
+                  <div className="lib-filters">
+                    {FILTERS.filter((f) => f.id === "all" || counts[f.id] > 0 || view.filter === f.id).map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        className={`lib-chip${view.filter === f.id ? " on" : ""}`}
+                        title={f.title}
+                        aria-pressed={view.filter === f.id}
+                        onClick={() => change({ filter: view.filter === f.id ? "all" : f.id })}
+                      >
+                        {f.label}
+                        <span className="lib-chip-count">{counts[f.id]}</span>
+                      </button>
+                    ))}
+                    <span className="lib-filters-gap" />
+                    <div className="seg lib-sort" title={words.length ? "A search is shown best match first" : undefined}>
+                      {(
+                        [
+                          ["recent", "Recent"],
+                          ["name", "A–Z"],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`seg-option${view.sort === id && !words.length ? " active" : ""}`}
+                          disabled={words.length > 0}
+                          onClick={() => change({ sort: id })}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {shown.length === 0 ? (
+                    <div className="lib-none">
+                      {words.length ? (
+                        <>
+                          Nothing {view.filter === "all" ? "" : `under “${filterLabel}” `}matches “{view.query}”.
+                          <button type="button" className="ghost" onClick={() => change({ query: "" })}>
+                            Clear the search
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          Nothing under “{filterLabel}”.
+                          <button type="button" className="ghost" onClick={() => change({ filter: "all" })}>
+                            Show everything
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="lib-grid" ref={grid} onKeyDown={moveFocus}>
+                      {shown.map((item) => (
+                        <Tile
+                          key={item.id}
+                          projectId={projectId}
+                          item={item}
+                          words={words}
+                          onOpen={() => openOne(item.id)}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="board-foot lib-foot">
+                    Agents copy one into place with <code>ruri add &lt;handle&gt;</code>, into{" "}
+                    <InstallDir projectId={projectId} />. The library is also written to{" "}
+                    <code>.ruri/components.md</code> and to a skill for Claude, and handed to the model whenever a
+                    prompt names one.
+                  </div>
+                </>
               )}
-            </label>
-
-            {items.length === 0 ? (
-              <div className="board-empty lib-empty">
-                Nothing in the library yet. Pieces arrive on their own — when a session builds part of this
-                project's interface it puts it in, under a name you get to change; agents look here before
-                building, and copy what they need with <code>ruri add</code>. For everything that was here
-                before any of that, <b>Update everything</b> reads the repo, names each piece of interface it
-                finds, and takes its picture.
-              </div>
-            ) : shown.length === 0 ? (
-              <div className="board-empty lib-empty">Nothing matches “{query}”.</div>
-            ) : (
-              <div className="lib-grid">
-                {shown.map((item) => (
-                  <Tile key={item.id} projectId={projectId} item={item} onOpen={() => setOpenId(item.id)} />
-                ))}
-              </div>
-            )}
-
-            {items.length > 0 && (
-              <div className="board-foot">
-                Written to <code>.ruri/components.md</code> in the project and to a skill for Claude, and
-                handed to the model whenever a prompt names one. Agents search and install it with the{" "}
-                <code>ruri</code> command.
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </section>
+            </>
+          )}
+        </div>
+      </section>
+    </NearContext.Provider>
   );
 }

@@ -40,8 +40,8 @@ import {
   currentAsOf,
   dirtyFiles,
   fileHistory,
-  lineSince,
   mtimeIn,
+  codeMarks,
   reanchor,
   tidyFiles,
   type EntryChange,
@@ -309,7 +309,13 @@ export function checkLibrary(ctx: ServerContext, projectId: string): boolean {
       const rel = parseRef(ref).path;
       return ![project.path, ...trees].some((dir) => fs.existsSync(path.join(dir, rel)));
     });
-    const anchored = item.uses?.length ? reanchor(project.path, item.uses, item.anchors, read) : undefined;
+    // the classes and names of its own code, only for a place with no
+    // anchor yet — most entries never need them read
+    const unanchored = item.uses?.some((ref) => parseRef(ref).line !== undefined && !item.anchors?.[ref]);
+    const marks = unanchored ? codeMarks(project.path, item.files, item.slug) : undefined;
+    const anchored = item.uses?.length
+      ? reanchor(project.path, item.uses, item.anchors, read, marks)
+      : undefined;
     const sig = codeSig(project.path, item.files);
     const wip = item.filedIn && fs.existsSync(item.filedIn) ? codeSig(item.filedIn, item.files) : undefined;
     return { missing, ...(sig ? { sig } : {}), ...(wip ? { wip } : {}), ...(anchored ?? {}) };
@@ -355,29 +361,15 @@ async function followFiles(ctx: ServerContext, projectId: string, items: NamedCo
 
 /**
  * The library's first look at its code the new way (ComponentStore.rebase):
- * the places it reaches at a line put where git says those lines went since
- * the entry was written, then git's word on which entries really changed
- * since their picture and note — the marks turns used to stamp let go.
+ * git's word on which entries really changed since their picture and note
+ * — the marks turns used to stamp let go — and then the first check, which
+ * finds each drifted line it reaches again by its own classes.
  */
 async function settleLibrary(ctx: ServerContext, projectId: string): Promise<void> {
   const project = ctx.store.get(projectId);
   if (!project || ctx.components.checked(projectId) || settling.has(projectId)) return;
   settling.add(projectId);
   try {
-    for (const item of ctx.components.items(projectId)) {
-      if (!item.uses?.some((ref) => parseRef(ref).line !== undefined)) continue;
-      const uses: string[] = [];
-      for (const ref of item.uses) {
-        const { path: rel, line } = parseRef(ref);
-        if (line === undefined || item.anchors?.[ref]) {
-          uses.push(ref);
-          continue;
-        }
-        const now = await lineSince(project.path, rel, line, item.ts);
-        uses.push(now !== undefined && now !== line ? `${rel}:${now}` : ref);
-      }
-      if (uses.join("\n") !== item.uses.join("\n")) ctx.components.update(projectId, item.id, { uses });
-    }
     const items = ctx.components.items(projectId).map((item) => {
       // what a turn stamped is not evidence: git is asked from the picture
       // and note on

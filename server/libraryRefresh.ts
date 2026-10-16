@@ -311,6 +311,9 @@ export function reanchor(
   uses: string[],
   anchors: Record<string, string> | undefined,
   files: Map<string, string[] | null> = new Map(),
+  /** What the component's own code is known by — for a place with no
+   *  anchor yet, whose line may long since have drifted (relocate). */
+  marks?: CodeMarks,
 ): { uses: string[]; anchors: Record<string, string> } | undefined {
   const read = (rel: string): string[] | null => {
     if (!files.has(rel)) {
@@ -337,11 +340,15 @@ export function reanchor(
     const anchor = anchors?.[ref];
     const now = lines[line - 1]?.trim();
     if (anchor === undefined) {
-      next.push(ref);
-      if (anchorable(now)) {
-        kept[ref] = now;
-        changed = true;
-      }
+      // a place from before anchors: its number may have drifted far from
+      // what it meant — found again by the component's own classes when
+      // it no longer sits on one, else taken as it stands
+      const at = marks ? relocate(lines, line, marks, rel) : line;
+      const text = lines[at - 1]?.trim();
+      const placed = at === line ? ref : `${rel}:${at}`;
+      next.push(placed);
+      if (anchorable(text)) kept[placed] = text;
+      if (placed !== ref || anchorable(text)) changed = true;
       continue;
     }
     if (now === anchor) {
@@ -368,49 +375,90 @@ export function reanchor(
   return changed ? { uses: [...new Set(next)], anchors: kept } : undefined;
 }
 
-/** `git diff -U0` hunks: where each run of old lines went. */
-export function parseHunks(diff: string): Array<{ from: number; count: number; to: number; added: number }> {
-  const out: Array<{ from: number; count: number; to: number; added: number }> = [];
-  for (const m of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
-    out.push({
-      from: Number(m[1]),
-      count: m[2] === undefined ? 1 : Number(m[2]),
-      to: Number(m[3]),
-      added: m[4] === undefined ? 1 : Number(m[4]),
-    });
-  }
-  return out;
+/* ── what a component's code is known by ─────────────────────────── */
+
+/** The classes a component's own code sets and the names it exports — what
+ *  its stretch of a shared stylesheet, or the screen it sits on, mentions. */
+export interface CodeMarks {
+  classes: string[];
+  names: string[];
+  /** The words of its handle ("component", "library"): a line saying them
+   *  all — a section's heading — is about it. */
+  words?: string[];
 }
 
-/** Where line `line` of a file went through a diff's hunks: shifted by
- *  what was added and taken out above it, or — when its own line was
- *  rewritten — the start of what replaced it. */
-export function mapLine(hunks: ReturnType<typeof parseHunks>, line: number): number {
-  let shift = 0;
-  for (const hunk of hunks) {
-    if (hunk.count === 0 ? line <= hunk.from : line < hunk.from) break;
-    if (hunk.count > 0 && line < hunk.from + hunk.count) {
-      return Math.max(1, hunk.added > 0 ? hunk.to + Math.min(line - hunk.from, hunk.added - 1) : hunk.to);
+export function codeMarks(dir: string, files: string[], slug?: string): CodeMarks {
+  const classes = new Set<string>();
+  const names = new Set<string>();
+  for (const ref of files) {
+    let text: string;
+    try {
+      text = fs.readFileSync(path.join(dir, parseRef(ref).path), "utf8");
+    } catch (err) {
+      if (!isMissing(err)) warn("libraryRefresh", err, "codeMarks");
+      continue;
     }
-    shift += hunk.added - hunk.count;
+    for (const m of text.matchAll(/\bclass(?:Name)?\s*=\s*\{?\s*["'`]([^"'`]{1,200})["'`]/g)) {
+      for (const name of m[1]!.split(/\s+/)) if (/^[a-z][\w-]{2,}$/i.test(name)) classes.add(name);
+    }
+    for (const m of text.matchAll(/export\s+(?:default\s+)?(?:function|class|const)\s+([A-Z]\w+)/g))
+      names.add(m[1]!);
   }
-  return Math.max(1, line + shift);
+  const words = (slug ?? "").split("-").filter((w) => w.length >= 3);
+  return { classes: [...classes], names: [...names], ...(words.length ? { words } : {}) };
 }
+
+const STYLE_FILE = /\.(css|scss|sass|less|styl|pcss)$/i;
+
+/** A class or name on more lines of a file than this is the app's, not one
+ *  component's. */
+const MAX_MENTIONS = 3;
 
 /**
- * Where a line named as of `since` (ms) is in the file now: through
- * git's diff from the commit the project was at then to the working tree.
- * Undefined when git can't say (no repo, no commit that old, the file new).
+ * Where a drifted line meant to be: in a stylesheet, the nearest selector
+ * naming one of the component's classes; in code, the nearest line setting
+ * one of them or drawing one of its components. The line as it is when it
+ * already does, or when nothing does.
  */
-export async function lineSince(
-  dir: string,
-  rel: string,
-  line: number,
-  since: number,
-): Promise<number | undefined> {
-  const base = (await git(dir, ["rev-list", "-1", `--before=@${Math.floor(since / 1000)}`, "HEAD"]))?.trim();
-  if (!base) return undefined;
-  const diff = await git(dir, ["diff", "-U0", "--no-color", base, "--", rel]);
-  if (diff === undefined) return undefined;
-  return mapLine(parseHunks(diff), line);
+export function relocate(lines: string[], line: number, marks: CodeMarks, file: string): number {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const style = STYLE_FILE.test(file);
+  const tests: RegExp[] = style
+    ? marks.classes.map((c) => new RegExp(`(^|[\\s,>+~(])\\.${esc(c)}(?![\\w-])[^{]*[{,]\\s*$`))
+    : [
+        ...marks.classes.map((c) => new RegExp(`class(Name)?\\s*=.*\\b${esc(c)}\\b`)),
+        ...marks.names.map((n) => new RegExp(`<${esc(n)}\\b`)),
+      ];
+  // a class the whole app uses ("icon-button", "ghost") says nothing about
+  // which component is meant: only what few lines of the file mention count
+  const distinct = tests.filter((t) => {
+    let n = 0;
+    for (const text of lines) if (t.test(text) && ++n > MAX_MENTIONS) return false;
+    return n > 0;
+  });
+  const hits = (i: number) => distinct.some((t) => t.test(lines[i] ?? ""));
+  if (line >= 1 && line <= lines.length) {
+    const text = (lines[line - 1] ?? "").toLowerCase().replace(/[-_]/g, " ");
+    // a line that names it — a section's heading — is about it
+    if (marks.words?.length && marks.words.every((w) => text.includes(w))) return line;
+    if (distinct.length === 0) return line;
+    if (hits(line - 1)) return line;
+    // inside one of its own rules: the selector above it says so
+    if (style) {
+      for (let i = line - 1; i >= 0 && i >= line - 60; i--) {
+        if (!lines[i]!.includes("{")) continue;
+        let first = i;
+        while (first > 0 && /,\s*$/.test(lines[first - 1]!)) first--;
+        for (let j = first; j <= i; j++) if (hits(j)) return line;
+        break;
+      }
+    }
+  }
+  if (distinct.length === 0) return line;
+  let best = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (!hits(i)) continue;
+    if (best < 0 || Math.abs(i + 1 - line) < Math.abs(best + 1 - line)) best = i;
+  }
+  return best < 0 ? line : best + 1;
 }

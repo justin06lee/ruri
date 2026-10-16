@@ -327,10 +327,14 @@ export class ComponentStore {
    * are let go, and git's word on which entries really changed since their
    * picture or note (`changed`, id → when) is taken instead. Those stay
    * out of date, with nothing yet saying what the code was when they were
-   * right; the rest are right as the code is now (check adopts it).
+   * right; the rest are right as the code is now (check adopts it). Names
+   * from before are taken as the user's, but for the sweep's guesses.
    */
   rebase(projectId: string, changed: Map<string, number>): void {
     for (const item of this.load(projectId)) {
+      // a name from before `confirmed` was answered on a card or has been
+      // lived with since: it is the user's; only the sweep's guesses aren't
+      if (!item.found) item.confirmed = true;
       delete item.seenSig;
       delete item.shotSig;
       delete item.noteSig;

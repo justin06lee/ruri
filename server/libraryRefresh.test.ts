@@ -231,6 +231,7 @@ describe("falling behind the code", () => {
     expect(store.checked("p")).toBe(true);
     expect(componentStale(store.items("p")[0]!).picture).toBe(false);
     expect(componentStale(store.items("p")[1]!).picture).toBe(true);
+    expect(store.items("p").map((i) => i.confirmed)).toEqual([true, true]);
     expect(new ComponentStore().checked("p")).toBe(true);
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { NamedComponent } from "./protocol.js";
-import { searchComponents, stem, words } from "./librarySearch.js";
+import { searchComponents, searchTerms, stem, wordMatches, words } from "./librarySearch.js";
 
 function entry(slug: string, name: string, over: Partial<NamedComponent> = {}): NamedComponent {
   return { id: slug, slug, name, aliases: [], files: [], note: "", shots: [], ts: 1, ...over };
@@ -68,5 +68,15 @@ describe("finding what someone means", () => {
     expect(find("styles")).toEqual(["sidebar", "toast"]);
     expect(find("the top nav")[0]).toBe("navbar");
     expect(find("sidebar")[0]).toBe("sidebar");
+  });
+
+  test("what matched can be marked the way it was matched", () => {
+    const terms = searchTerms("the confirmation popup");
+    expect(terms).toContain("confirm");
+    expect(terms).toContain("dialog");
+    expect(wordMatches("Confirm", terms)).toBe(true);
+    expect(wordMatches("dialogs", terms)).toBe(true);
+    expect(wordMatches("the", terms)).toBe(false);
+    expect(wordMatches("card", terms)).toBe(false);
   });
 });

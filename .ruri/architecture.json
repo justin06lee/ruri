@@ -259,7 +259,8 @@
         "shared/protocol.ts",
         "shared/clientSchema.ts",
         "bunfig.toml",
-        "scripts/test-config.ts"
+        "scripts/test-config.ts",
+        "shared/librarySearch.ts"
       ]
     },
     {

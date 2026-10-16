@@ -4387,57 +4387,27 @@ input[type="range"]::-webkit-slider-thumb {
   max-width: 1120px;
 }
 
-/* the project's name over the library, and one line of what it holds */
-.lib-head {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 0 18px;
-}
-
-.lib-title {
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  text-align: center;
-}
-
-.lib-sub {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px 10px;
-  font-size: var(--fs-sm);
-  color: var(--ink-faint);
-}
-
-.lib-sub-sep {
-  color: var(--line-soft);
-}
-
-.lib-dir {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.lib-dir input {
-  width: 190px;
-  padding: 2px 8px;
-  font-size: var(--fs-sm);
-}
-
 .mono {
   font-family: var(--mono);
   font-size: 0.92em;
+}
+
+/* the same dotted strip as Skills, Ideas and the tracker */
+.lib-head .board-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-busy {
+  color: var(--ink-soft);
 }
 
 .lib-search {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-top: 12px;
   padding: 0 12px;
   border: 1.5px solid var(--line-soft);
   border-radius: var(--radius-m);
@@ -4459,7 +4429,7 @@ input[type="range"]::-webkit-slider-thumb {
 .lib-search input {
   flex: 1;
   min-width: 0;
-  padding: 11px 0;
+  padding: 10px 0;
   border: none;
   background: transparent;
   font-size: 14px;
@@ -4483,18 +4453,155 @@ input[type="range"]::-webkit-slider-thumb {
   height: 14px;
 }
 
-.lib-empty {
-  padding: 22px 2px 10px;
+.lib-key {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: 5px;
+  color: var(--ink-faint);
+  line-height: 1;
+}
+
+/* what the gallery is narrowed to, and in what order */
+.lib-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 10px;
+}
+
+.lib-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1.5px solid var(--line-soft);
+  border-radius: 99px;
+}
+
+.lib-chip:hover {
+  color: var(--ink);
+  background: var(--paper-dim);
+}
+
+.lib-chip.on {
+  color: var(--paper);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.lib-chip-count {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  opacity: 0.7;
+}
+
+.lib-filters-gap {
+  flex: 1;
+}
+
+.lib-sort .seg-option {
+  font-size: var(--fs-sm);
+  padding: 2px 10px;
+}
+
+.lib-sort .seg-option:disabled {
+  opacity: 0.5;
+}
+
+.lib-none {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 26px 2px 14px;
+  font-size: var(--fs-md);
+  color: var(--ink-faint);
+}
+
+/* An empty library: what it is, and the one button that fills it. */
+.lib-empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 34px 28px 30px;
+  border: 1.5px dashed var(--line-soft);
+  border-radius: var(--radius-m);
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: var(--fs-md);
+  line-height: 1.65;
+}
+
+.lib-empty-card p {
+  margin: 0;
+  max-width: 520px;
+}
+
+.lib-empty-card .comp-sweep {
+  margin-top: 10px;
+  font-size: var(--fs-md);
+  padding: 5px 16px;
+}
+
+.lib-empty-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+/* three blank cards, fanned */
+.lib-empty-art {
+  position: relative;
+  width: 120px;
+  height: 64px;
+  margin-bottom: 8px;
+}
+
+.lib-empty-art span {
+  position: absolute;
+  top: 6px;
+  left: 30px;
+  width: 60px;
+  height: 46px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: var(--radius-s);
+  background-color: var(--paper);
+  background-image: var(--tone);
+  background-size: 6px 6px;
+}
+
+.lib-empty-art span:nth-child(1) {
+  transform: translateX(-26px) rotate(-9deg);
+}
+
+.lib-empty-art span:nth-child(3) {
+  transform: translateX(26px) rotate(9deg);
+}
+
+.lib-empty-art span:nth-child(2) {
+  z-index: 1;
+  border-color: var(--ink-soft);
 }
 
 .lib-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
   gap: 16px;
-  padding: 16px 0 18px;
+  padding: 14px 0 18px;
 }
 
-/* A card: the picture, then what it's called and its handle. */
+/* A card: the picture, then what it's called, a line of its note, and its
+   handle. Off screen it is neither laid out nor painted — a library runs to
+   hundreds, and only the dozen in view need drawing. */
 .lib-tile {
   position: relative;
   display: flex;
@@ -4507,13 +4614,20 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--paper);
   text-align: left;
   font-weight: 400;
-  animation: rise 160ms ease-out;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
   transition: border-color 120ms ease-out;
 }
 
-.lib-tile:hover {
+.lib-tile:hover,
+.lib-tile:focus-visible {
   background: var(--paper);
   border-color: var(--ink);
+}
+
+.lib-tile:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
 .lib-tile:active {
@@ -4526,27 +4640,46 @@ input[type="range"]::-webkit-slider-thumb {
   border-color: var(--line);
 }
 
+/* a picture is being dragged over it */
+.lib-tile.drop {
+  border-color: var(--ink);
+  border-style: dashed;
+}
+
+/* The whole picture, on the dotted ground: a full-window shot and a thin
+   strip both show as what they are, rather than cropped to a corner. */
 .lib-tile-shot {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   aspect-ratio: 16 / 10;
   margin-bottom: 6px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-s);
-  background: var(--paper-dim);
+  background-color: var(--paper-dim);
+  background-image: var(--tone);
+  background-size: 6px 6px;
   overflow: hidden;
 }
 
 .lib-tile-shot img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: top left;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
   display: block;
+  animation: lib-in 180ms ease-out;
 }
 
-/* a picture its code has moved on from: still shown, but marked */
-.lib-tile-behind {
+@keyframes lib-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* a mark on the picture: its code has moved on, or it is an older one;
+   on the left, its files are gone */
+.lib-badge {
   position: absolute;
   right: 6px;
   bottom: 6px;
@@ -4558,24 +4691,53 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 99px;
 }
 
+.lib-badge.left {
+  right: auto;
+  left: 6px;
+  border-style: solid;
+  color: var(--ink);
+}
+
 .lib-tile-blank {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  height: 100%;
-  background-image: var(--tone);
-  background-size: 6px 6px;
+  gap: 3px;
   color: var(--ink-faint);
   font-size: var(--fs-xs);
 }
 
 .lib-tile-glyph {
-  font-size: 30px;
+  font-size: 28px;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.1;
   color: var(--ink-soft);
+}
+
+.lib-tile-why {
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+
+.lib-tile-hint {
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.lib-tile:hover .lib-tile-hint {
+  opacity: 1;
+}
+
+.lib-tile-dropping {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  font-size: var(--fs-md);
+  font-weight: 600;
 }
 
 .lib-tile-name {
@@ -4588,6 +4750,32 @@ input[type="range"]::-webkit-slider-thumb {
   line-height: 1.3;
 }
 
+.lib-tile-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* a name an agent or the sweep chose and the user hasn't kept yet */
+.lib-tile-name-text.unsure {
+  text-decoration: underline dotted var(--ink-faint);
+  text-underline-offset: 3px;
+}
+
+/* the first of its note, two lines at most — enough to tell two cards apart */
+.lib-tile-note {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  min-height: calc(2 * 1.45em);
+  padding: 0 2px;
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
 .lib-tile-slug {
   padding: 0 2px;
   font-family: var(--mono);
@@ -4596,6 +4784,25 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* what a search matched */
+.lib-mark {
+  color: inherit;
+  background: var(--paper-deep);
+  box-shadow: 0 1.5px 0 var(--ink-soft);
+  border-radius: 2px;
+}
+
+.lib-foot {
+  line-height: 1.8;
+}
+
+.lib-dir {
+  width: 200px;
+  padding: 1px 7px;
+  font-size: var(--fs-sm);
+  vertical-align: baseline;
 }
 
 /* ── one component ── */
@@ -4641,19 +4848,80 @@ input[type="range"]::-webkit-slider-thumb {
   border-color: var(--line-soft);
 }
 
+/* ‹ 12 of 66 › */
+.lib-step {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.lib-step span {
+  padding: 0 4px;
+}
+
+.lib-step button {
+  padding: 4px;
+  line-height: 0;
+}
+
+.lib-step svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* the code moved on from the picture or note — and "still right" */
 .lib-behind {
-  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: var(--fs-sm);
   color: var(--ink-soft);
 }
 
-.lib-found {
+.lib-behind > span {
+  flex: 1;
+}
+
+.lib-behind button {
   flex-shrink: 0;
-  font-size: var(--fs-xs);
-  color: var(--ink-faint);
-  border: 1px dashed var(--line-soft);
-  border-radius: 99px;
-  padding: 2px 8px;
+  padding: 2px 10px;
+  font-size: var(--fs-sm);
+  border: 1.5px solid var(--line-soft);
+}
+
+/* a question about it the user is the one to answer: is this its name,
+   and where did its files go */
+.lib-ask {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 14px;
+  border: 1.5px dashed var(--line-soft);
+  border-radius: var(--radius-s);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.lib-ask > span {
+  flex: 1;
+}
+
+.lib-ask b {
+  color: var(--ink);
+}
+
+.lib-ask button {
+  flex-shrink: 0;
+  font-size: var(--fs-md);
+}
+
+.lib-ask.lost {
+  background-image: var(--stripes);
 }
 
 /* the command an agent installs it with */
@@ -4670,6 +4938,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .lib-install code {
   flex: 1;
+  min-width: 0;
   font-family: var(--mono);
   font-size: 13px;
   font-weight: 600;
@@ -4679,6 +4948,15 @@ input[type="range"]::-webkit-slider-thumb {
   content: "$ ";
   color: var(--ink-faint);
   font-weight: 400;
+}
+
+.lib-install-dir {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lib-copy {
@@ -4716,7 +4994,9 @@ input[type="range"]::-webkit-slider-thumb {
 .lib-preview-main {
   border: 1.5px solid var(--line-soft);
   border-radius: var(--radius-m);
-  background: var(--paper-dim);
+  background-color: var(--paper-dim);
+  background-image: var(--tone);
+  background-size: 6px 6px;
   overflow: hidden;
   min-height: 180px;
   display: flex;
@@ -4724,20 +5004,36 @@ input[type="range"]::-webkit-slider-thumb {
   justify-content: center;
 }
 
-.lib-preview-main .tool-image {
+.lib-preview-pick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   padding: 0;
   border: none;
   border-radius: 0;
   background: none;
+  cursor: zoom-in;
 }
 
-.lib-preview-main .tool-image img {
+.lib-preview-pick:hover {
+  background: none;
+}
+
+.lib-preview-pick:active {
+  transform: none;
+}
+
+.lib-preview-pick img {
   display: block;
-  width: 100%;
-  max-width: none;
+  max-width: 100%;
   max-height: 460px;
   object-fit: contain;
+}
+
+.lib-preview-blank p {
+  margin: 0;
+  max-width: 420px;
 }
 
 .lib-preview-blank {
@@ -4746,8 +5042,6 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: var(--fs-md);
   line-height: 1.6;
   color: var(--ink-faint);
-  background-image: var(--tone);
-  background-size: 6px 6px;
   align-self: stretch;
   display: flex;
   align-items: center;
@@ -4757,7 +5051,13 @@ input[type="range"]::-webkit-slider-thumb {
 .lib-thumbs {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+}
+
+.lib-thumbs-say {
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
 }
 
 /* the × rides the corner of the picture, so the picture itself is free to
@@ -4768,7 +5068,9 @@ input[type="range"]::-webkit-slider-thumb {
   height: 52px;
   border: 1.5px solid var(--line-soft);
   border-radius: var(--radius-s);
-  background: var(--paper-dim);
+  background-color: var(--paper-dim);
+  background-image: var(--tone);
+  background-size: 6px 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4781,8 +5083,14 @@ input[type="range"]::-webkit-slider-thumb {
   border-color: var(--ink);
 }
 
+.lib-thumb.gone {
+  border-style: dashed;
+  cursor: default;
+}
+
 .lib-thumb.add {
   border-style: dashed;
+  background-image: none;
 }
 
 .lib-thumb.add input {
@@ -4795,6 +5103,9 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .lib-thumb-pick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   height: 100%;
   padding: 0;
@@ -4802,12 +5113,18 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: calc(var(--radius-s) - 1px);
   background: none;
   overflow: hidden;
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+}
+
+.lib-thumb-pick:disabled {
+  opacity: 1;
 }
 
 .lib-thumb-pick img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 
@@ -4817,11 +5134,32 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 8px;
 }
 
+.lib-note-box {
+  position: relative;
+}
+
+/* grows with what it says, up to a point, so a note is read rather than
+   scrolled inside a box */
 .lib-note {
+  width: 100%;
   min-height: 132px;
+  max-height: 420px;
+  field-sizing: content;
   resize: vertical;
   font-size: 13.5px;
   line-height: 1.6;
+}
+
+.lib-saved {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lib-note-saved {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: var(--fs-xs);
 }
 
 .lib-field {
@@ -4838,11 +5176,38 @@ input[type="range"]::-webkit-slider-thumb {
   text-align: right;
 }
 
-.lib-field input {
+.lib-field input,
+.lib-field textarea {
   flex: 1;
   min-width: 0;
   font-size: var(--fs-md);
   padding: 4px 8px;
+}
+
+/* a list of paths, wrapped onto as many lines as it takes */
+.lib-field.wrap {
+  align-items: flex-start;
+}
+
+.lib-field.wrap > span {
+  padding-top: 5px;
+}
+
+.lib-field textarea {
+  field-sizing: content;
+  min-height: 0;
+  resize: none;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+/* an empty field says so, faintly — never in words that pass for a value */
+.lib-field input::placeholder,
+.lib-field textarea::placeholder {
+  font-family: inherit;
+  font-style: italic;
+  color: var(--ink-faint);
+  opacity: 0.6;
 }
 
 .lib-field.static > div {
@@ -4932,24 +5297,31 @@ input[type="range"]::-webkit-slider-thumb {
   font-weight: 400;
 }
 
-.lib-tabs-gap {
-  flex: 1;
-}
-
-.lib-tabs .lib-copy {
-  margin-bottom: 5px;
-}
-
-.lib-code-path,
-.lib-code-cut {
-  padding: 6px 14px 0;
+/* the file's path, how much of it is shown, and Copy */
+.lib-code-path {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 0 14px;
   font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--ink-faint);
 }
 
+.lib-code-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .lib-code-cut {
-  padding-top: 2px;
+  flex-shrink: 0;
+}
+
+.lib-code-path .lib-copy {
+  font-family: inherit;
 }
 
 .lib-code {
@@ -5012,6 +5384,36 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 16px;
   font-size: var(--fs-md);
   color: var(--ink-faint);
+}
+
+.lib-code-missing.boxed {
+  border: 1.5px dashed var(--line-soft);
+  border-radius: var(--radius-m);
+}
+
+/* where code is on its way: still bars, no shimmer — it is usually here
+   within a frame, and a page you read shouldn't flicker for it */
+.lib-skel {
+  display: block;
+  border-radius: 3px;
+  background: var(--paper-dim);
+}
+
+.lib-skel.tab {
+  width: 96px;
+  height: 14px;
+  margin: 4px 6px 8px;
+}
+
+.lib-code-skel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 16px 18px 22px 52px;
+}
+
+.lib-skel.line {
+  height: 10px;
 }
 
 /* ── the architecture page ────────────────────────────────────────── */

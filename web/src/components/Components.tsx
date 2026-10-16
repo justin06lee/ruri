@@ -10,7 +10,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from "react";
-import { searchComponents, stem, words as wordsIn } from "../../../shared/librarySearch";
+import { searchComponents, searchTerms, wordMatches } from "../../../shared/librarySearch";
 import { componentStale, type Attachment, type ComponentFile, type NamedComponent } from "../../../shared/protocol";
 import { Viewer } from "./Attachments";
 import { useConfirm } from "./Confirm";
@@ -117,25 +117,14 @@ function slugify(name: string): string {
   return slug || "component";
 }
 
-/** Short words a search drops, which would otherwise be marked everywhere. */
-const UNMARKED = new Set(["the", "and", "for", "with", "that", "this", "its", "our", "your"]);
-
 /**
- * What a search looks for, to mark in what it found: its words cut down the
- * way the search cuts them (shared/librarySearch.ts), so "navigation" is
- * marked for "nav" and "prices" for "pricing". The search is the same one
- * `ruri search` uses — the page and the agents find the same things.
+ * What a search looks for, to mark in what it found: its words stemmed,
+ * with their synonyms (shared/librarySearch.ts) — the same search as
+ * `ruri search`, so a card marks exactly what made it a match: "confirm"
+ * in "confirmation", "dialog" for "popup".
  */
 function marksOf(query: string): string[] {
-  const all = wordsIn(query).map(stem);
-  const kept = all.filter((w) => w.length >= 3 && !UNMARKED.has(w));
-  return [...new Set(kept.length ? kept : all)];
-}
-
-/** Whether a word of an entry is one a search was looking for. */
-function marked(word: string, marks: string[]): boolean {
-  const own = stem(word);
-  return marks.some((m) => own.startsWith(m) || (own.length >= 4 && m.startsWith(own)));
+  return query.trim() ? searchTerms(query) : [];
 }
 
 /** Text with what the search matched marked in it. */
@@ -145,7 +134,7 @@ function Marked({ text, marks }: { text: string; marks: string[] }) {
   return (
     <>
       {text.split(/([\p{L}\p{N}]+)/u).map((part, i) =>
-        i % 2 === 1 && marked(part, marks) ? (
+        i % 2 === 1 && wordMatches(part, marks) ? (
           <mark key={i} className="lib-mark">
             {part}
           </mark>

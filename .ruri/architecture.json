@@ -113,7 +113,8 @@
         "scripts/draw-icon.ts",
         "build/icon.png",
         "web/src/lib/featureDoodles.ts",
-        "assets/feature-doodles.png"
+        "assets/feature-doodles.png",
+        "web/src/lib/thumbs.ts"
       ]
     },
     {
@@ -821,9 +822,11 @@
           ]
         },
         {
-          "name": "Component library gallery",
+          "name": "Component library gallery (search, filter chips, cards, a component's page)",
           "files": [
-            "web/src/components/Components.tsx"
+            "web/src/components/Components.tsx",
+            "web/src/lib/thumbs.ts",
+            "shared/librarySearch.ts"
           ]
         },
         {
@@ -888,7 +891,8 @@
         "web/src/components/PeekBand.tsx — sidebar band display and BandPic",
         "web/src/components/HeroFace.tsx — empty-chat face display",
         "web/src/components/Dragon.tsx — context/limit dragon gauges",
-        "web/src/dragonArt.ts — traced calm/sweat dragon paths"
+        "web/src/dragonArt.ts — traced calm/sweat dragon paths",
+        "web/src/lib/thumbs.ts — the library's small pictures: each upload drawn ~560px wide once and kept in Cache Storage by its URL; gone files (404) remembered, and probed by HEAD so counts are right before scrolling"
       ],
       "rules": [
         "Band is the window title bar: while ruri is active it must not be a drag region or hover never arrives; press-and-drag moves via shell windowDrag. Focus only controls whether the picture strip along the top of the sidebar drags the window.",
@@ -904,7 +908,8 @@
         "Protocol — HarnessInfo, ModelRole, usage/limits and sheet types arrive typed from shared/protocol.ts",
         "Desktop shell — windowDrag carries band presses; theme/prefs persist via server copy",
         "Chat runs and queue — composer flanks read harness usage for dragon fills",
-        "Management — Integrations and model catalog surface inside Settings"
+        "Management — Integrations and model catalog surface inside Settings",
+        "Library, skills and sweeps — the page reads NamedComponent (confirmed, missing, componentStale) and searches with shared/librarySearch.ts, the same search as ruri search; it sends component_update (a name confirms it) and component_current"
       ]
     },
     "app-shell": {

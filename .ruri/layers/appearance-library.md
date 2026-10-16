@@ -1,6 +1,6 @@
 # ruri — Appearance: theme, art and component library
 
-One layer of ruri's stack, owning `web/src/components/Components.tsx, web/src/components/Architecture.tsx, web/src/components/Settings.tsx, web/src/components/SettingsRows.tsx, web/src/components/BandEditor.tsx, web/src/components/PeekBand.tsx, web/src/components/Dragon.tsx, web/src/components/Dropdown.tsx, web/src/components/Capped.tsx, web/src/components/Confirm.tsx, web/src/components/NameCard.tsx, web/src/band.ts, web/src/pictures.ts, web/src/dragonArt.ts, web/src/theme.ts, web/src/icons.ts, web/src/lib/effects.ts, web/src/lib/peekBand.ts, web/src/press.ts, scripts/draw-icon.ts, build/icon.png, web/src/lib/featureDoodles.ts, assets/feature-doodles.png`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
+One layer of ruri's stack, owning `web/src/components/Components.tsx, web/src/components/Architecture.tsx, web/src/components/Settings.tsx, web/src/components/SettingsRows.tsx, web/src/components/BandEditor.tsx, web/src/components/PeekBand.tsx, web/src/components/Dragon.tsx, web/src/components/Dropdown.tsx, web/src/components/Capped.tsx, web/src/components/Confirm.tsx, web/src/components/NameCard.tsx, web/src/band.ts, web/src/pictures.ts, web/src/dragonArt.ts, web/src/theme.ts, web/src/icons.ts, web/src/lib/effects.ts, web/src/lib/peekBand.ts, web/src/press.ts, scripts/draw-icon.ts, build/icon.png, web/src/lib/featureDoodles.ts, assets/feature-doodles.png, web/src/lib/thumbs.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer appearance-library` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer appearance-library add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
 Appearance owns ruri's look: light/dark/ember theming, the sidebar peek band, the empty-chat hero face, the dragon usage gauges, and the shared UI pieces (dropdown, confirm, settings rows). It is built as pure presentational state plus editors — shape/parse helpers in lib, live window copies in band.ts/hero.ts/pictures.ts, and manga-styled components. A newcomer must grasp that band/hero are stored shapes read back checked from disk, with live bytes and animation state kept separately, and that a visible window keeps animating whether or not it has focus.
@@ -12,7 +12,7 @@ Appearance owns ruri's look: light/dark/ember theming, the sidebar peek band, th
 - **Peek band editor:** web/src/components/BandEditor.tsx, web/src/lib/peekBand.ts
 - **Dragon gauges:** web/src/components/Dragon.tsx, web/src/dragonArt.ts
 - **Settings page:** web/src/components/Settings.tsx, web/src/components/SettingsRows.tsx
-- **Component library gallery:** web/src/components/Components.tsx
+- **Component library gallery (search, filter chips, cards, a component's page):** web/src/components/Components.tsx, web/src/lib/thumbs.ts, shared/librarySearch.ts
 - **Architecture page:** web/src/components/Architecture.tsx
 - **Shared primitives:** web/src/components/Dropdown.tsx, web/src/components/Confirm.tsx, web/src/components/Capped.tsx
 - **Pictures and animation:** web/src/pictures.ts, web/src/lib/effects.ts
@@ -35,6 +35,7 @@ Appearance owns ruri's look: light/dark/ember theming, the sidebar peek band, th
 - web/src/components/HeroFace.tsx — empty-chat face display
 - web/src/components/Dragon.tsx — context/limit dragon gauges
 - web/src/dragonArt.ts — traced calm/sweat dragon paths
+- web/src/lib/thumbs.ts — the library's small pictures: each upload drawn ~560px wide once and kept in Cache Storage by its URL; gone files (404) remembered, and probed by HEAD so counts are right before scrolling
 
 ## Rules and traps
 
@@ -53,3 +54,4 @@ Appearance owns ruri's look: light/dark/ember theming, the sidebar peek band, th
 - Desktop shell — windowDrag carries band presses; theme/prefs persist via server copy
 - Chat runs and queue — composer flanks read harness usage for dragon fills
 - Management — Integrations and model catalog surface inside Settings
+- Library, skills and sweeps — the page reads NamedComponent (confirmed, missing, componentStale) and searches with shared/librarySearch.ts, the same search as ruri search; it sends component_update (a name confirms it) and component_current

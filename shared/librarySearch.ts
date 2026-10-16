@@ -199,6 +199,20 @@ export function scoreComponent(item: NamedComponent, query: string, extra = ""):
   return total * coverage * coverage + (whole ? 10 : 0);
 }
 
+/** The forms a query is matched on: its words that count, stemmed, and
+ *  their synonyms — for marking what matched (wordMatches). */
+export function searchTerms(query: string): string[] {
+  const own = terms(query);
+  return [...new Set([...own, ...own.flatMap((term) => [...(SYNONYM_OF.get(term) ?? [])])])];
+}
+
+/** Whether a word of an entry is one a query matched on, the way the
+ *  search matched it: the same stem, a prefix, a synonym or a typo. */
+export function wordMatches(word: string, terms: string[]): boolean {
+  const stemmed = stem(word);
+  return terms.some((term) => match(term, stemmed) > 0);
+}
+
 /** The entries a query finds, best first. */
 export function searchComponents(
   items: NamedComponent[],

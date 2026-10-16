@@ -222,7 +222,9 @@
         "server/sweep.ts",
         "server/skills.ts",
         "server/handlers/components.ts",
-        "server/handlers/skills.ts"
+        "server/handlers/skills.ts",
+        "server/checkouts.ts",
+        "shared/librarySearch.ts"
       ]
     },
     {
@@ -259,8 +261,7 @@
         "shared/protocol.ts",
         "shared/clientSchema.ts",
         "bunfig.toml",
-        "scripts/test-config.ts",
-        "shared/librarySearch.ts"
+        "scripts/test-config.ts"
       ]
     },
     {
@@ -1415,11 +1416,11 @@
           ]
         },
         {
-          "name": "Library refresh against git",
+          "name": "Keeping it true to the code (after each turn, at launch, Update everything)",
           "files": [
-            "server/libraryRefresh.ts",
-            "server/components.ts",
-            "server/handlers/components.ts"
+            "server/handlers/components.ts",
+            "server/checkouts.ts",
+            "server/libraryRefresh.ts"
           ]
         },
         {
@@ -1451,6 +1452,13 @@
           "files": [
             "server/skills.ts",
             "server/handlers/skills.ts"
+          ]
+        },
+        {
+          "name": "Search shared by agents and the page",
+          "files": [
+            "shared/librarySearch.ts",
+            "server/library.ts"
           ]
         }
       ],
@@ -1487,11 +1495,13 @@
         "server/library.ts — agent ruri CLI: search/show/add/register, copy planning, arg parsing",
         "server/handlers/components.ts — app-side host, naming tools, refresh orchestration, library endpoint",
         "server/sweep.ts — repo skim naming pass for unnamed UI files",
-        "server/libraryRefresh.ts — git-based staleness: renames, deletions, changes since last seen",
+        "server/libraryRefresh.ts — files followed through git's renames (staged too) and the project's worktrees, line refs found again by anchor text or the component's own classes, commit history for the review",
         "server/shots.ts — dev-server boot and selector screenshot capture via CaptureHost",
         "server/skills.ts — filesystem-backed skill listing, toggle via skills-off, bmo shell-outs",
         "server/photographer.ts — prompt for agent-driven photos of unpictured/changed entries",
-        "server/handlers/skills.ts — skills page messages, command menu data, pushSkills"
+        "server/handlers/skills.ts — skills page messages, command menu data, pushSkills",
+        "server/checkouts.ts — which checkout a session's shell is in (a git worktree counts), the project's worktrees, a component's code signature (codeSig) and the text of lines it reaches (anchorsAt)",
+        "shared/librarySearch.ts — the one search the ruri command and the Components page share (stems, prefixes, UI synonyms, typos, partial matches ranked), and searchTerms/wordMatches for marking what matched"
       ],
       "rules": [
         "Never invent components or screenshots: files, selectors, and pictures must be observed from source or a running app.",
@@ -1505,7 +1515,8 @@
         "Protocol — NamedComponent, ComponentProposal, Attachment, SkillInfo types in shared/protocol.ts",
         "Server runtime and transport — uploads storedFilePath, config/ruri dirs, dispatch, channel project resolution",
         "Bridge / Desktop shell — CaptureHost loads URLs in hidden window and captures element rectangles",
-        "Agent harnesses — smallmodel naming pass feeds sweep; harnesses consume skills and library via ruri CLI"
+        "Agent harnesses — smallmodel naming pass feeds sweep; harnesses consume skills and library via ruri CLI",
+        "Appearance (Components page) — imports shared/librarySearch.ts; reads NamedComponent confirmed/missing; sends component_current and component_update found:false"
       ]
     },
     "terminals-agents-integrations": {

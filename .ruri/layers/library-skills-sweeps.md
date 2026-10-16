@@ -1,6 +1,6 @@
 # ruri — Library, skills and sweeps
 
-One layer of ruri's stack, owning `server/components.ts, server/library.ts, server/libraryRefresh.ts, server/shots.ts, server/photographer.ts, server/sweep.ts, server/skills.ts, server/handlers/components.ts, server/handlers/skills.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
+One layer of ruri's stack, owning `server/components.ts, server/library.ts, server/libraryRefresh.ts, server/shots.ts, server/photographer.ts, server/sweep.ts, server/skills.ts, server/handlers/components.ts, server/handlers/skills.ts, server/checkouts.ts, shared/librarySearch.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer library-skills-sweeps` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer library-skills-sweeps add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
 This layer keeps each project's component library — user names, handles, code refs, and screenshots — plus repo-wide naming sweeps and harness skills. The store is server/components.ts with the agent CLI in server/library.ts; handlers, refresh, screenshots, sweeps, and skills orbit it. Newcomer idea: the filesystem and git are truth — this layer indexes, names, and photographs what exists, never renders it.
@@ -10,11 +10,12 @@ This layer keeps each project's component library — user names, handles, code 
 - **Component store and naming tools:** server/components.ts, server/library.ts, server/handlers/components.ts
 - **Agent library CLI (search/show/add/register):** server/library.ts, server/components.ts
 - **Library page and app-side host:** server/handlers/components.ts, server/components.ts, server/library.ts
-- **Library refresh against git:** server/libraryRefresh.ts, server/components.ts, server/handlers/components.ts
+- **Keeping it true to the code (after each turn, at launch, Update everything):** server/handlers/components.ts, server/checkouts.ts, server/libraryRefresh.ts
 - **Repo sweep naming unnamed UI:** server/sweep.ts, server/library.ts, server/components.ts
 - **Mechanical screenshots of components:** server/shots.ts, server/handlers/components.ts, server/sweep.ts
 - **Agent-taken photographs:** server/photographer.ts, server/handlers/components.ts, server/components.ts
 - **Skills list/toggle/install:** server/skills.ts, server/handlers/skills.ts
+- **Search shared by agents and the page:** shared/librarySearch.ts, server/library.ts
 
 ## How it works
 
@@ -28,11 +29,13 @@ This layer keeps each project's component library — user names, handles, code 
 - server/library.ts — agent ruri CLI: search/show/add/register, copy planning, arg parsing
 - server/handlers/components.ts — app-side host, naming tools, refresh orchestration, library endpoint
 - server/sweep.ts — repo skim naming pass for unnamed UI files
-- server/libraryRefresh.ts — git-based staleness: renames, deletions, changes since last seen
+- server/libraryRefresh.ts — files followed through git's renames (staged too) and the project's worktrees, line refs found again by anchor text or the component's own classes, commit history for the review
 - server/shots.ts — dev-server boot and selector screenshot capture via CaptureHost
 - server/skills.ts — filesystem-backed skill listing, toggle via skills-off, bmo shell-outs
 - server/photographer.ts — prompt for agent-driven photos of unpictured/changed entries
 - server/handlers/skills.ts — skills page messages, command menu data, pushSkills
+- server/checkouts.ts — which checkout a session's shell is in (a git worktree counts), the project's worktrees, a component's code signature (codeSig) and the text of lines it reaches (anchorsAt)
+- shared/librarySearch.ts — the one search the ruri command and the Components page share (stems, prefixes, UI synonyms, typos, partial matches ranked), and searchTerms/wordMatches for marking what matched
 
 ## Rules and traps
 
@@ -49,3 +52,4 @@ This layer keeps each project's component library — user names, handles, code 
 - Server runtime and transport — uploads storedFilePath, config/ruri dirs, dispatch, channel project resolution
 - Bridge / Desktop shell — CaptureHost loads URLs in hidden window and captures element rectangles
 - Agent harnesses — smallmodel naming pass feeds sweep; harnesses consume skills and library via ruri CLI
+- Appearance (Components page) — imports shared/librarySearch.ts; reads NamedComponent confirmed/missing; sends component_current and component_update found:false

@@ -21,7 +21,7 @@ import {
   type ServerMessage,
 } from "../../shared/protocol.js";
 import { channelProject, ownerProject } from "../channel.js";
-import { codeSig, worktreesOf } from "../checkouts.js";
+import { anchorsAt, codeSig, worktreesOf } from "../checkouts.js";
 import { type ComponentHost, writeIndexFile } from "../components.js";
 import type { ServerContext } from "../context.js";
 import {
@@ -40,8 +40,8 @@ import {
   currentAsOf,
   dirtyFiles,
   fileHistory,
-  lineSince,
   mtimeIn,
+  codeMarks,
   reanchor,
   tidyFiles,
   type EntryChange,
@@ -73,6 +73,7 @@ function fromProposal(proposal: ComponentProposal, name: string, confirmed: bool
     ...(proposal.deps ? { deps: proposal.deps } : {}),
     ...(proposal.sig ? { sig: proposal.sig } : {}),
     ...(proposal.checkout ? { filedIn: proposal.checkout } : {}),
+    ...(proposal.anchors ? { anchors: proposal.anchors } : {}),
     ...(confirmed ? { confirmed: true } : {}),
   };
 }
@@ -138,6 +139,19 @@ export function createComponentHost(ctx: ServerContext): ComponentHost {
           ...(shot ? { image: shot } : {}),
           ...(sig ? { sig } : {}),
           ...(filedIn ? { checkout: filedIn } : {}),
+          ...(proposal.uses?.length || proposal.files.some((f) => parseRef(f).line !== undefined)
+            ? {
+                anchors:
+                  proposal.anchors ??
+                  anchorsAt(
+                    [checkout],
+                    [
+                      ...(proposal.uses ?? []),
+                      ...proposal.files.filter((f) => parseRef(f).line !== undefined),
+                    ],
+                  ),
+              }
+            : {}),
         };
         // Where nobody is to be asked, the card would only ever be a
         // confirmation: the model has already named the thing and
@@ -251,6 +265,7 @@ export function libraryHost(ctx: ServerContext, channelId: string): LibraryHost 
       ctx.components.update(projectId, componentId, patch, {
         ...(filed?.sig ? { sig: filed.sig } : {}),
         ...(filed?.in ? { filedIn: filed.in } : {}),
+        ...(filed?.anchors ? { anchors: filed.anchors } : {}),
       }),
     remove: (projectId, componentId) => ctx.components.remove(projectId, componentId),
     shoot: (projectId, componentId, file, filed) => {
@@ -294,7 +309,13 @@ export function checkLibrary(ctx: ServerContext, projectId: string): boolean {
       const rel = parseRef(ref).path;
       return ![project.path, ...trees].some((dir) => fs.existsSync(path.join(dir, rel)));
     });
-    const anchored = item.uses?.length ? reanchor(project.path, item.uses, item.anchors, read) : undefined;
+    // the classes and names of its own code, only for a place with no
+    // anchor yet — most entries never need them read
+    const unanchored = item.uses?.some((ref) => parseRef(ref).line !== undefined && !item.anchors?.[ref]);
+    const marks = unanchored ? codeMarks(project.path, item.files, item.slug) : undefined;
+    const anchored = item.uses?.length
+      ? reanchor(project.path, item.uses, item.anchors, read, marks)
+      : undefined;
     const sig = codeSig(project.path, item.files);
     const wip = item.filedIn && fs.existsSync(item.filedIn) ? codeSig(item.filedIn, item.files) : undefined;
     return { missing, ...(sig ? { sig } : {}), ...(wip ? { wip } : {}), ...(anchored ?? {}) };
@@ -340,29 +361,15 @@ async function followFiles(ctx: ServerContext, projectId: string, items: NamedCo
 
 /**
  * The library's first look at its code the new way (ComponentStore.rebase):
- * the places it reaches at a line put where git says those lines went since
- * the entry was written, then git's word on which entries really changed
- * since their picture and note — the marks turns used to stamp let go.
+ * git's word on which entries really changed since their picture and note
+ * — the marks turns used to stamp let go — and then the first check, which
+ * finds each drifted line it reaches again by its own classes.
  */
 async function settleLibrary(ctx: ServerContext, projectId: string): Promise<void> {
   const project = ctx.store.get(projectId);
   if (!project || ctx.components.checked(projectId) || settling.has(projectId)) return;
   settling.add(projectId);
   try {
-    for (const item of ctx.components.items(projectId)) {
-      if (!item.uses?.some((ref) => parseRef(ref).line !== undefined)) continue;
-      const uses: string[] = [];
-      for (const ref of item.uses) {
-        const { path: rel, line } = parseRef(ref);
-        if (line === undefined || item.anchors?.[ref]) {
-          uses.push(ref);
-          continue;
-        }
-        const now = await lineSince(project.path, rel, line, item.ts);
-        uses.push(now !== undefined && now !== line ? `${rel}:${now}` : ref);
-      }
-      if (uses.join("\n") !== item.uses.join("\n")) ctx.components.update(projectId, item.id, { uses });
-    }
     const items = ctx.components.items(projectId).map((item) => {
       // what a turn stamped is not evidence: git is asked from the picture
       // and note on
@@ -597,6 +604,9 @@ async function runSweep(ctx: ServerContext, projectId: string, wantShots: boolea
 
     note("checking the library against the repo…");
     if (!ctx.components.checked(projectId)) await settleLibrary(ctx, projectId);
+    // pictures whose files went since the library loaded are no pictures:
+    // their entries are photographed with the rest
+    ctx.components.pruneShots(projectId);
     lostFiles.delete(projectId);
     const tidy = await tidyFiles(project.path, ctx.components.items(projectId), worktreesOf(project.path));
     for (const entry of tidy) {
@@ -736,6 +746,7 @@ export const componentHandlers = {
     const project = ctx.store.get(msg.projectId);
     // the user is the one renaming it here: the name is theirs now
     const sig = project && msg.files ? codeSig(project.path, msg.files) : undefined;
+    const anchors = project && msg.uses ? anchorsAt([project.path], msg.uses) : undefined;
     ctx.components.update(
       msg.projectId,
       msg.componentId,
@@ -752,7 +763,12 @@ export const componentHandlers = {
         ...(msg.route !== undefined ? { route: msg.route } : {}),
         ...(msg.clicks !== undefined ? { clicks: msg.clicks } : {}),
       },
-      { confirm: true, ...(sig ? { sig } : {}) },
+      {
+        confirm: true,
+        ...(msg.found === false ? { accept: true } : {}),
+        ...(sig ? { sig } : {}),
+        ...(anchors ? { anchors } : {}),
+      },
     );
     pushComponents(ctx, msg.projectId, project?.path);
   },

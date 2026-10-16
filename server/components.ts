@@ -277,6 +277,24 @@ export class ComponentStore {
     this.save(projectId);
   }
 
+  /** Let go of pictures whose files have gone since the library loaded —
+   *  an entry left with none needs a picture. Answers whether any went. */
+  pruneShots(projectId: string): boolean {
+    let moved = false;
+    for (const item of this.load(projectId)) {
+      const kept = item.shots.filter((shot) => !shot.url || fs.existsSync(storedFilePath(shot.url)));
+      if (kept.length === item.shots.length) continue;
+      item.shots = kept;
+      if (kept.length === 0) {
+        delete item.shotAt;
+        delete item.shotSig;
+      }
+      moved = true;
+    }
+    if (moved) this.save(projectId);
+    return moved;
+  }
+
   /** When this project was last read end to end (0 = never). */
   sweptAt(projectId: string): number {
     this.load(projectId);
@@ -346,6 +364,8 @@ export class ComponentStore {
       sig?: string;
       /** The worktree it was named from, when not the project's folder. */
       filedIn?: string;
+      /** The text on each line it reaches into, where it was named. */
+      anchors?: Record<string, string>;
       /** The user gave it its name (a naming card answered). */
       confirmed?: boolean;
     },
@@ -366,6 +386,7 @@ export class ComponentStore {
       const files = [...new Set([...existing.files, ...(split?.files ?? [])])];
       if (files.length !== existing.files.length) this.refile(existing, files, input.sig, input.filedIn);
       if (split?.uses?.length) existing.uses = [...new Set([...(existing.uses ?? []), ...split.uses])];
+      this.anchor(existing, input.anchors);
       if (input.tags?.length) existing.tags = [...new Set([...(existing.tags ?? []), ...input.tags])];
       if (input.deps?.length) existing.deps = [...new Set([...(existing.deps ?? []), ...input.deps])];
       if (input.note?.trim()) {
@@ -390,6 +411,13 @@ export class ComponentStore {
       files: split?.files ?? [],
       ...(split?.uses?.length ? { uses: split.uses } : {}),
       ...(input.tags?.length ? { tags: input.tags } : {}),
+      ...(input.anchors && split?.uses?.some((ref) => input.anchors![ref])
+        ? {
+            anchors: Object.fromEntries(
+              split.uses.filter((ref) => input.anchors![ref]).map((ref) => [ref, input.anchors![ref]!]),
+            ),
+          }
+        : {}),
       ...(input.deps?.length ? { deps: input.deps } : {}),
       note: input.note?.trim() ?? "",
       noteAt: Date.now(),
@@ -422,6 +450,15 @@ export class ComponentStore {
     if (sig) item[key] = sig;
     else delete item[key];
     if (sig && filedIn) item.filedIn = filedIn;
+  }
+
+  /** What the lines it reaches into said where they were named — kept
+   *  for the places it still reaches, and only those. */
+  private anchor(item: NamedComponent, given: Record<string, string> | undefined): void {
+    const all = { ...item.anchors, ...given };
+    const kept = Object.entries(all).filter(([ref]) => item.uses?.includes(ref));
+    if (kept.length) item.anchors = Object.fromEntries(kept);
+    else delete item.anchors;
   }
 
   /** The user's name for it, now — and no longer the sweep's guess. */
@@ -494,7 +531,15 @@ export class ComponentStore {
       route?: string;
       clicks?: string[];
     },
-    opts: { sig?: string; filedIn?: string; confirm?: boolean } = {},
+    opts: {
+      sig?: string;
+      filedIn?: string;
+      anchors?: Record<string, string>;
+      /** The user renamed it, or said its name is right. */
+      confirm?: boolean;
+      /** The user said the sweep's guess holds: confirmed as it stands. */
+      accept?: boolean;
+    } = {},
   ): boolean {
     const items = this.load(projectId);
     const item = items.find((i) => i.id === componentId);
@@ -504,6 +549,7 @@ export class ComponentStore {
       item.name = patch.name.trim();
       if (opts.confirm) this.confirm(item);
     }
+    if (opts.accept) this.confirm(item);
     if (patch.slug !== undefined && patch.slug.trim()) {
       item.slug = uniqueSlug(
         slugify(patch.slug),
@@ -522,12 +568,8 @@ export class ComponentStore {
       if (next.length) item[key] = next;
       else delete item[key];
     }
-    if (patch.uses !== undefined && item.anchors) {
-      // an anchor is kept for a place still named, at the same line
-      const kept = Object.entries(item.anchors).filter(([ref]) => item.uses?.includes(ref));
-      if (kept.length) item.anchors = Object.fromEntries(kept);
-      else delete item.anchors;
-    }
+    // an anchor is kept for a place still named, at the same line
+    if (patch.uses !== undefined) this.anchor(item, opts.anchors);
     if (patch.note !== undefined && patch.note !== item.note) {
       item.note = patch.note;
       item.noteAt = Date.now();

@@ -12,11 +12,10 @@ import {
   changesSince,
   dirtyFiles,
   fileHistory,
-  lineSince,
-  mapLine,
+  codeMarks,
   parseHistory,
-  parseHunks,
   reanchor,
+  relocate,
   renamedTo,
   seenChange,
   tidyFiles,
@@ -273,6 +272,13 @@ describe("falling behind the code", () => {
     expect(items[0]!.shots.map((s) => s.id)).toEqual(["kept"]);
     expect(items[1]!.shots).toEqual([]);
     expect(items[1]!.shotAt).toBeUndefined();
+    // and one that goes while it is loaded, at the next prune
+    const store = new ComponentStore();
+    store.items("p");
+    fs.rmSync(path.join(uploads, "kept.png"));
+    expect(store.pruneShots("p")).toBe(true);
+    expect(store.items("p")[0]!.shots).toEqual([]);
+    expect(store.pruneShots("p")).toBe(false);
   });
 
   test("a stale picture says so where a model reads the entry", () => {
@@ -350,6 +356,10 @@ describe("what git says", () => {
 
     expect(await renamedTo(dir, "web/Band.tsx")).toBe("web/PeekBand.tsx");
     expect(await renamedTo(dir, "web/Old.tsx")).toBeUndefined();
+    // staged, not committed yet
+    git(["mv", "web/Card.tsx", "web/PriceCard.tsx"], 1_700_000_600);
+    expect(await renamedTo(dir, "web/Card.tsx")).toBe("web/PriceCard.tsx");
+    git(["mv", "web/PriceCard.tsx", "web/Card.tsx"], 1_700_000_600);
 
     const tidy = await tidyFiles(dir, [
       entry({ id: "band", files: ["web/Band.tsx"], uses: ["web/styles.css:12"] }),
@@ -407,23 +417,44 @@ describe("lines that move", () => {
     expect(reanchor(dir, ["styles.css:53"], undefined)).toBeUndefined();
   });
 
-  test("a line is followed through git's hunks", async () => {
-    const hunks = parseHunks(
-      ["@@ -3,0 +4,2 @@", "+a", "+b", "@@ -10,2 +12 @@", "-x", "-y", "+z", "@@ -20 +20,0 @@", "-gone"].join(
-        "\n",
-      ),
+  test("a line from before anchors is found again by the component's own classes", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-refresh-marks-"));
+    fs.writeFileSync(
+      path.join(dir, "Grid.tsx"),
+      'export function LibGrid() { return <div className="lib-grid wide"><Tile /></div>; }',
     );
-    expect(mapLine(hunks, 2)).toBe(2);
-    expect(mapLine(hunks, 3)).toBe(3);
-    expect(mapLine(hunks, 4)).toBe(6);
-    expect(mapLine(hunks, 11)).toBe(12);
-    expect(mapLine(hunks, 15)).toBe(16);
-    expect(mapLine(hunks, 25)).toBe(25);
-
-    const { dir, git } = repo({ "s.css": ["a", "b", ".target {", "c"].join("\n") });
-    fs.writeFileSync(path.join(dir, "s.css"), ["new1", "new2", "a", "b", ".target {", "c"].join("\n"));
-    git(["commit", "-qam", "more"], 1_700_000_900);
-    expect(await lineSince(dir, "s.css", 3, 1_700_000_100_000)).toBe(5);
+    const css = [
+      ...Array.from({ length: 30 }, (_, i) => `.filler-${i} { color: red; }`),
+      ".lib-grid,",
+      ".lib-grid.wide {",
+      "  gap: 4px;",
+      "}",
+      ".other { color: blue; }",
+    ].join("\n");
+    fs.writeFileSync(path.join(dir, "styles.css"), css);
+    const marks = codeMarks(dir, ["Grid.tsx"]);
+    expect(marks.classes).toEqual(["lib-grid", "wide"]);
+    expect(marks.names).toEqual(["LibGrid"]);
+    // drifted onto a filler: the nearest selector of its own is the one
+    expect(relocate(css.split("\n"), 5, marks, "styles.css")).toBe(31);
+    // already on one of its own: it stays
+    expect(relocate(css.split("\n"), 32, marks, "styles.css")).toBe(32);
+    // nothing of its own in the file: left as it is
+    expect(relocate(css.split("\n"), 5, { classes: ["nope"], names: [] }, "styles.css")).toBe(5);
+    const placed = reanchor(dir, ["styles.css:5"], undefined, new Map(), marks)!;
+    expect(placed.uses).toEqual(["styles.css:31"]);
+    expect(placed.anchors).toEqual({ "styles.css:31": ".lib-grid," });
+    // inside one of its own rules, or on a heading naming it: it stays
+    expect(relocate(css.split("\n"), 33, marks, "styles.css")).toBe(33);
+    const headed = ["/* ── the lib grid ── */", ".other {", "}", ".lib-grid {"];
+    expect(relocate(headed, 1, { ...marks, words: ["lib", "grid"] }, "styles.css")).toBe(1);
+    expect(relocate(headed, 1, marks, "styles.css")).toBe(4);
+    // a class on every other line is nobody's in particular
+    const busy = [".wide {", ".x .wide {", ".y .wide {", ".z .wide {", ".filler {"];
+    expect(relocate(busy, 5, { classes: ["wide"], names: [] }, "styles.css")).toBe(5);
+    // in code, the line that draws it
+    const screen = ["import x;", "", "function Page() {", "  return <LibGrid />;", "}"];
+    expect(relocate(screen, 1, marks, "Page.tsx")).toBe(4);
   });
 });
 

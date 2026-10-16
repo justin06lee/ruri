@@ -101,6 +101,8 @@ describe(".ruri/components.md", () => {
     fs.writeFileSync(path.join(dir, "web", "team-page.tsx"), "x");
     const item = entry("team-page", "the team page", {
       note: "who is on the team",
+      uses: ["web/styles.css:120"],
+      anchors: { "web/styles.css:120": ".team-grid {" },
       shots: [{ id: "a", kind: "image", mediaType: "image/png", name: "a.png", n: 1, url: "/uploads/a.png" }],
       shotAt: 10,
       changedAt: 20,
@@ -112,10 +114,19 @@ describe(".ruri/components.md", () => {
     expect(text).toContain("who is on the team");
     expect(text).not.toContain("uploads");
     expect(text).not.toContain("changed since");
+    expect(text).toContain("Reaches into: web/styles.css (at `.team-grid {`)");
     // the code moving on, or a new picture, leaves the file as it was
     const before = new Date(1_700_000_000_000);
     fs.utimesSync(file, before, before);
-    writeIndexFile(dir, [{ ...item, changedAt: 99, shots: [...item.shots, ...item.shots] }]);
+    writeIndexFile(dir, [
+      {
+        ...item,
+        changedAt: 99,
+        shots: [...item.shots, ...item.shots],
+        uses: ["web/styles.css:180"],
+        anchors: { "web/styles.css:180": ".team-grid {" },
+      },
+    ]);
     expect(fs.statSync(file).mtimeMs).toBe(1_700_000_000_000);
     writeIndexFile(dir, [{ ...item, note: "who is on it now" }]);
     expect(fs.readFileSync(file, "utf8")).toContain("who is on it now");

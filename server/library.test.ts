@@ -401,6 +401,11 @@ describe("the command", () => {
     expect(good.ok).toBe(true);
     expect(store.find(here.id, "card")?.shots).toHaveLength(1);
     await runLibrary(host, ["edit", "card", "--alias", "the box"]);
+    // the page's "Looks right" on a sweep's guess
+    const guess = store.add(here.id, { name: "the guess", files: ["src/Card.tsx"], found: true });
+    store.update(here.id, guess.id, {}, { accept: true });
+    expect(store.find(here.id, "the guess")?.found).toBeUndefined();
+    expect(store.find(here.id, "the guess")?.confirmed).toBe(true);
     expect(store.find(here.id, "card")?.aliases).toEqual(["the tile", "the box"]);
     expect(store.find(here.id, "the box")?.slug).toBe("card");
   });

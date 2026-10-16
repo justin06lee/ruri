@@ -246,6 +246,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     selector: label.optional(),
     route: label.optional(),
     clicks: z.array(label).max(100).optional(),
+    found: z.literal(false).optional(),
   }),
   z.object({ type: z.literal("component_remove"), ...projectId, componentId: id }),
   z.object({ type: z.literal("component_shot"), ...projectId, componentId: id, upload: attachmentUpload }),

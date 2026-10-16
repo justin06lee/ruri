@@ -161,3 +161,36 @@ export function codeSig(root: string, files: string[]): string | undefined {
   }
   return any ? sum.digest("hex").slice(0, 16) : undefined;
 }
+
+/** A line's text is worth finding again only when it says something: not
+ *  a brace, not a blank. */
+export function anchorable(text: string | undefined): text is string {
+  return !!text && text.length >= 6 && /[\p{L}\p{N}]/u.test(text);
+}
+
+/**
+ * The text on each line a component reaches into ("styles.css:2864"), as
+ * the file is where the reference was given — the first of `roots` that
+ * has it — so the line can be found again when the file moves under it
+ * (libraryRefresh.ts reanchor).
+ */
+export function anchorsAt(roots: string[], refs: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const ref of refs) {
+    const m = /^(.*?):(\d+)(?::\d+)?$/.exec(ref.trim());
+    if (!m) continue;
+    for (const root of roots) {
+      let text: string;
+      try {
+        text = fs.readFileSync(path.join(root, m[1]!), "utf8");
+      } catch (err) {
+        if (!isMissing(err)) warn("checkouts", err, "anchorsAt");
+        continue;
+      }
+      const line = text.split("\n")[Number(m[2]) - 1]?.trim();
+      if (anchorable(line)) out[ref.trim()] = line;
+      break;
+    }
+  }
+  return out;
+}

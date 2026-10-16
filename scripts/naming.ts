@@ -6,7 +6,9 @@
  * for confirmations, so there the entry is written the moment it is
  * proposed — and the name is still yours to change on the library page.
  * In every other mode the card still comes up, and the entry is written
- * when it is answered.
+ * when it is answered — from the lead's chat. A teammate's chat is one the
+ * user isn't in, so naming from there never waits on a card. And a name is
+ * a person's words: a register without one is refused.
  *
  * Drives the path every harness has — the `ruri register` command, whose
  * shell script posts to POST /library/<chat> (server/library.ts) — so it
@@ -74,6 +76,8 @@ async function connect(url: string): Promise<WebSocket> {
 let projectId: string | undefined;
 /** The project the session belongs to — the permission mode is set on it. */
 let boardId: string | undefined;
+/** A teammate's chat, once the lead has added one. */
+let memberId: string | undefined;
 let named: NamedComponent[] = [];
 let cards = 0;
 let cardId: string | undefined;
@@ -87,6 +91,10 @@ ws.on("message", (raw) => {
     const project = msg.projects[msg.projects.length - 1]!;
     boardId = project.id;
     projectId = project.sessions[0]!.id;
+  }
+  if (msg.type === "projects" && projectId) {
+    const project = msg.projects.find((p) => p.id === boardId);
+    memberId = project?.sessions.find((s) => s.id !== projectId && !s.liaison)?.id ?? memberId;
   }
   if (msg.type === "components") named = msg.items;
   if (msg.type === "permission_request" && msg.request.kind === "component") {
@@ -116,13 +124,20 @@ function until(what: string, done: () => boolean, ms: number): Promise<void> {
 
 const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** What an agent's `ruri register` sends, and what it hears back. */
-async function register(slug: string, name: string): Promise<{ status: number; text: string }> {
+/** What an agent's `ruri register` sends, and what it hears back — from
+ *  the lead's chat, or another. Each registers a file of its own. */
+async function register(
+  slug: string,
+  name: string,
+  chat = projectId,
+): Promise<{ status: number; text: string }> {
+  const file = `src/${slug}.tsx`;
+  fs.writeFileSync(path.join(projectDir, file), `export function Thing() {}\n`);
   const form = new URLSearchParams({ cwd: projectDir });
-  for (const arg of ["register", slug, "--files", "src/thing.tsx", "--note", "a thing", "--name", name]) {
+  for (const arg of ["register", slug, "--files", file, "--note", "a thing", "--name", name]) {
     form.append("a", arg);
   }
-  const res = await fetch(`http://127.0.0.1:${PORT}/library/${projectId}`, { method: "POST", body: form });
+  const res = await fetch(`http://127.0.0.1:${PORT}/library/${chat}`, { method: "POST", body: form });
   return { status: res.status, text: await res.text() };
 }
 
@@ -152,7 +167,8 @@ check("and puts nothing up to confirm", cards === 0, { cards });
 check("and says so", first.status === 200 && first.text.startsWith("registered amber-rail"), first);
 
 // every other mode still asks
-send({ type: "set_permission_mode", projectId: boardId!, mode: "default" });
+// the mode is each chat's own
+send({ type: "set_permission_mode", projectId: projectId!, mode: "default" });
 await settle(500);
 const second = await register("copper-dial", "the copper dial");
 await until("the card", () => cards === 1, 5_000);
@@ -175,10 +191,55 @@ check(
   named.map((c) => [c.name, c.slug]),
 );
 
+check(
+  "and the name is marked as the user's own",
+  named.some((c) => c.name === "the copper knob" && c.confirmed === true),
+  named.map((c) => [c.name, c.confirmed]),
+);
+check(
+  "an agent's name in bypass is not",
+  named.some((c) => c.name === "the amber rail" && !c.confirmed),
+  named.map((c) => [c.name, c.confirmed]),
+);
+
+// a teammate's chat is one the user isn't in: no card waits there, even
+// outside bypass — the entry goes straight in, to be renamed on the page
+const added = await fetch(`http://127.0.0.1:${PORT}/talk/${projectId}`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ do: "add", name: "Painter", duty: "builds the interface" }),
+});
+check("a teammate is added", added.status === 200, await added.text());
+await until("the teammate", () => Boolean(memberId), 5_000);
+send({ type: "set_permission_mode", projectId: memberId!, mode: "default" });
+await settle(500);
+const fromMember = await register("brass-lever", "the brass lever", memberId);
+await until("the entry", () => named.some((c) => c.name === "the brass lever"), 5_000);
+check(
+  "a teammate's naming goes straight in",
+  fromMember.status === 200 && fromMember.text.startsWith("registered"),
+  fromMember,
+);
+check("with no card put up for it", cards === 1, { cards });
+
+// a name is a person's words, and has to be given
+const nameless = await (async () => {
+  const form = new URLSearchParams({ cwd: projectDir });
+  for (const arg of ["register", "BrassLever", "--files", "src/thing.tsx"]) form.append("a", arg);
+  const res = await fetch(`http://127.0.0.1:${PORT}/library/${projectId}`, { method: "POST", body: form });
+  return { status: res.status, text: await res.text() };
+})();
+check(
+  "a register with no name is refused, saying why",
+  nameless.status === 400 && nameless.text.includes("--name"),
+  nameless,
+);
+
 // and backend code is turned away
 const backend = await (async () => {
   const form = new URLSearchParams({ cwd: projectDir });
-  for (const arg of ["register", "db", "--files", "server/db.ts"]) form.append("a", arg);
+  for (const arg of ["register", "db", "--name", "the database", "--files", "server/db.ts"])
+    form.append("a", arg);
   const res = await fetch(`http://127.0.0.1:${PORT}/library/${projectId}`, { method: "POST", body: form });
   return { status: res.status, text: await res.text() };
 })();

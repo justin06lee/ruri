@@ -148,6 +148,7 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   component_seen: { type: "component_seen", projectId: "p", componentId: "c" },
   component_code: { type: "component_code", projectId: "p", componentId: "c" },
   library_dir: { type: "library_dir", projectId: "p", dir: "src/components/ui" },
+  component_current: { type: "component_current", projectId: "p", componentId: "c" },
   secret_save: { type: "secret_save", id: "s", name: "box", username: "root", note: "n", secret: "hunter2" },
   secret_remove: { type: "secret_remove", id: "s" },
   skills_refresh: { type: "skills_refresh", projectId: "p" },

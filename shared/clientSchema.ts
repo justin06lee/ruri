@@ -288,6 +288,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("component_seen"), ...projectId, componentId: id.optional() }),
   z.object({ type: z.literal("component_code"), ...projectId, componentId: id }),
   z.object({ type: z.literal("library_dir"), ...projectId, dir: filePath }),
+  z.object({ type: z.literal("component_current"), ...projectId, componentId: id }),
   z.object({
     type: z.literal("secret_save"),
     id: id.optional(),

@@ -430,6 +430,26 @@ export interface NamedComponent {
   /** The repo sweep found this one, rather than a session naming it as it
    *  built it — so the name is a guess until the user corrects it. */
   found?: boolean;
+  /** The user gave it this name or kept it: answered its naming card, or
+   *  renamed it on the page. Absent, an agent (or the sweep) chose it. */
+  confirmed?: true;
+  /** Its own files that are nowhere — not in the project, not in any of its
+   *  worktrees — and that git can't follow to a new name. */
+  missing?: string[];
+  /** What its own code said (a hash of its files) when its picture, and its
+   *  note, were last known to show it — how `changedAt` is decided, and
+   *  why a merge of a branch that re-took the picture is not a change.
+   *  `seenSig` is the code the current `changedAt` was stamped for. */
+  shotSig?: string;
+  noteSig?: string;
+  seenSig?: string;
+  /** The worktree its picture or note was last filed from, while that work
+   *  isn't in the project yet: measured against that checkout, it isn't
+   *  out of date for being ahead of the project's own folder. */
+  filedIn?: string;
+  /** For each place it reaches at a line ("styles.css:2864"), the text on
+   *  that line — so the line is found again when the file moves under it. */
+  anchors?: Record<string, string>;
   ts: number;
   /** When the entry last changed. */
   updated?: number;
@@ -885,6 +905,11 @@ export interface ComponentProposal {
    *  arrives — so the card can show the user what is being named, and so a
    *  file the model wrote to /tmp is still there when they answer. */
   image?: Attachment;
+  /** Server-side only: the checkout it was built in (a git worktree of the
+   *  project, server/checkouts.ts), its files and picture read there. */
+  checkout?: string;
+  /** Server-side only: what its code said there (checkouts.ts codeSig). */
+  sig?: string;
 }
 
 /** An installed Claude Code skill, global or local to one project. */
@@ -1880,6 +1905,9 @@ export type ClientMessage =
   | { type: "component_code"; projectId: string; componentId: string }
   /** The folder `ruri add` copies components into ("" forgets it). */
   | { type: "library_dir"; projectId: string; dir: string }
+  /** Its picture and note still show it as it is: the "out of date" mark
+   *  comes off without a new picture. */
+  | { type: "component_current"; projectId: string; componentId: string }
   /* ── the vault ──────────────────────────────────────────────────── */
   /** Save (or overwrite) one credential. An absent `secret` keeps the
    *  stored value and edits only the fields around it. */

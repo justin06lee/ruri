@@ -124,14 +124,19 @@ function repoint(ref: string, to: string): string {
   return line !== undefined ? `${to}:${line}` : to;
 }
 
-function exists(dir: string, ref: string): boolean {
-  try {
-    fs.statSync(path.join(dir, parseRef(ref).path));
-    return true;
-  } catch (err) {
-    if (!isMissing(err)) warn("libraryRefresh", err, "exists");
-    return false;
-  }
+/** Whether a ref's file is in the project — or in one of `also`, the
+ *  project's worktrees, where a branch not merged yet keeps it. */
+function exists(dirs: string[], ref: string): boolean {
+  const rel = parseRef(ref).path;
+  return dirs.some((dir) => {
+    try {
+      fs.statSync(path.join(dir, rel));
+      return true;
+    } catch (err) {
+      if (!isMissing(err)) warn("libraryRefresh", err, "exists");
+      return false;
+    }
+  });
 }
 
 /** What the files of one entry have become. */
@@ -145,8 +150,14 @@ export interface EntryFiles {
 }
 
 /** Each entry's files checked against the tree: moved ones followed,
- *  deleted ones dropped. Answers only the entries that need a change. */
-export async function tidyFiles(dir: string, items: NamedComponent[]): Promise<EntryFiles[]> {
+ *  deleted ones dropped — where a file still in one of the project's
+ *  worktrees (`also`) counts as there. Answers only the entries that need
+ *  a change. */
+export async function tidyFiles(
+  dir: string,
+  items: NamedComponent[],
+  also: string[] = [],
+): Promise<EntryFiles[]> {
   const out: EntryFiles[] = [];
   const followed = new Map<string, string | undefined>();
   const follow = async (ref: string): Promise<string | undefined> => {
@@ -159,7 +170,7 @@ export async function tidyFiles(dir: string, items: NamedComponent[]): Promise<E
     let changed = false;
     const next: string[] = [];
     for (const ref of list) {
-      if (exists(dir, ref)) {
+      if (exists([dir, ...also], ref)) {
         next.push(ref);
         continue;
       }
@@ -272,4 +283,129 @@ export function mtimeIn(dir: string): (rel: string) => number | undefined {
       return undefined;
     }
   };
+}
+
+/* ── lines that move ──────────────────────────────────────────────── */
+
+/** A line's text is worth finding again only when it says something: not
+ *  a brace, not a blank. */
+function anchorable(text: string | undefined): text is string {
+  return !!text && text.length >= 6 && /[\p{L}\p{N}]/u.test(text);
+}
+
+/**
+ * Each place an entry reaches at a line ("styles.css:2864"), found again
+ * when the file has moved under it: the line is known by its text (the
+ * anchor), and when the line now holds something else, the nearest line
+ * holding that text is the one meant. A place with no anchor yet takes the
+ * text on its line now. Answers the new lists, or undefined when nothing
+ * moved; `files` is a cache of what was read, shared across entries.
+ */
+export function reanchor(
+  dir: string,
+  uses: string[],
+  anchors: Record<string, string> | undefined,
+  files: Map<string, string[] | null> = new Map(),
+): { uses: string[]; anchors: Record<string, string> } | undefined {
+  const read = (rel: string): string[] | null => {
+    if (!files.has(rel)) {
+      try {
+        files.set(rel, fs.readFileSync(path.join(dir, rel), "utf8").split("\n"));
+      } catch (err) {
+        if (!isMissing(err)) warn("libraryRefresh", err, "reanchor");
+        files.set(rel, null);
+      }
+    }
+    return files.get(rel)!;
+  };
+  let changed = false;
+  const next: string[] = [];
+  const kept: Record<string, string> = {};
+  for (const ref of uses) {
+    const { path: rel, line } = parseRef(ref);
+    const lines = line !== undefined ? read(rel) : null;
+    if (line === undefined || !lines) {
+      next.push(ref);
+      if (anchors?.[ref]) kept[ref] = anchors[ref];
+      continue;
+    }
+    const anchor = anchors?.[ref];
+    const now = lines[line - 1]?.trim();
+    if (anchor === undefined) {
+      next.push(ref);
+      if (anchorable(now)) {
+        kept[ref] = now;
+        changed = true;
+      }
+      continue;
+    }
+    if (now === anchor) {
+      next.push(ref);
+      kept[ref] = anchor;
+      continue;
+    }
+    let best = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i]!.trim() !== anchor) continue;
+      if (best < 0 || Math.abs(i + 1 - line) < Math.abs(best + 1 - line)) best = i;
+    }
+    if (best < 0) {
+      // its text is gone from the file: nothing says where it went
+      next.push(ref);
+      kept[ref] = anchor;
+      continue;
+    }
+    const moved = `${rel}:${best + 1}`;
+    next.push(moved);
+    kept[moved] = anchor;
+    changed = true;
+  }
+  return changed ? { uses: [...new Set(next)], anchors: kept } : undefined;
+}
+
+/** `git diff -U0` hunks: where each run of old lines went. */
+export function parseHunks(diff: string): Array<{ from: number; count: number; to: number; added: number }> {
+  const out: Array<{ from: number; count: number; to: number; added: number }> = [];
+  for (const m of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+    out.push({
+      from: Number(m[1]),
+      count: m[2] === undefined ? 1 : Number(m[2]),
+      to: Number(m[3]),
+      added: m[4] === undefined ? 1 : Number(m[4]),
+    });
+  }
+  return out;
+}
+
+/** Where line `line` of a file went through a diff's hunks: shifted by
+ *  what was added and taken out above it, or — when its own line was
+ *  rewritten — the start of what replaced it. */
+export function mapLine(hunks: ReturnType<typeof parseHunks>, line: number): number {
+  let shift = 0;
+  for (const hunk of hunks) {
+    if (hunk.count === 0 ? line <= hunk.from : line < hunk.from) break;
+    if (hunk.count > 0 && line < hunk.from + hunk.count) {
+      return Math.max(1, hunk.added > 0 ? hunk.to + Math.min(line - hunk.from, hunk.added - 1) : hunk.to);
+    }
+    shift += hunk.added - hunk.count;
+  }
+  return Math.max(1, line + shift);
+}
+
+/**
+ * Where a line named as of `since` (ms) is in the file now: through
+ * git's diff from the commit the project was at then to the working tree.
+ * Undefined when git can't say (no repo, no commit that old, the file new).
+ */
+export async function lineSince(
+  dir: string,
+  rel: string,
+  line: number,
+  since: number,
+): Promise<number | undefined> {
+  const base = (await git(dir, ["rev-list", "-1", `--before=@${Math.floor(since / 1000)}`, "HEAD"]))?.trim();
+  if (!base) return undefined;
+  const diff = await git(dir, ["diff", "-U0", "--no-color", base, "--", rel]);
+  if (diff === undefined) return undefined;
+  return mapLine(parseHunks(diff), line);
 }

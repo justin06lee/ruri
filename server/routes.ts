@@ -342,7 +342,7 @@ async function serveLibraryCall(
     reply(memory.ok ? 200 : 400, memory.text);
     return;
   }
-  const answer = runLibrary(host, argv, form.get("cwd") ?? undefined);
+  const answer = await runLibrary(host, argv, form.get("cwd") ?? undefined);
   const help =
     ["help", "-h", undefined].includes(argv[0]?.toLowerCase()) ||
     (!answer.ok && answer.text.startsWith("ruri: no command"));

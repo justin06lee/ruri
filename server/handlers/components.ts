@@ -604,6 +604,9 @@ async function runSweep(ctx: ServerContext, projectId: string, wantShots: boolea
 
     note("checking the library against the repo…");
     if (!ctx.components.checked(projectId)) await settleLibrary(ctx, projectId);
+    // pictures whose files went since the library loaded are no pictures:
+    // their entries are photographed with the rest
+    ctx.components.pruneShots(projectId);
     lostFiles.delete(projectId);
     const tidy = await tidyFiles(project.path, ctx.components.items(projectId), worktreesOf(project.path));
     for (const entry of tidy) {
@@ -760,7 +763,12 @@ export const componentHandlers = {
         ...(msg.route !== undefined ? { route: msg.route } : {}),
         ...(msg.clicks !== undefined ? { clicks: msg.clicks } : {}),
       },
-      { confirm: true, ...(sig ? { sig } : {}), ...(anchors ? { anchors } : {}) },
+      {
+        confirm: true,
+        ...(msg.found === false ? { accept: true } : {}),
+        ...(sig ? { sig } : {}),
+        ...(anchors ? { anchors } : {}),
+      },
     );
     pushComponents(ctx, msg.projectId, project?.path);
   },

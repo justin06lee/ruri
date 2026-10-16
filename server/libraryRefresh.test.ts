@@ -272,6 +272,13 @@ describe("falling behind the code", () => {
     expect(items[0]!.shots.map((s) => s.id)).toEqual(["kept"]);
     expect(items[1]!.shots).toEqual([]);
     expect(items[1]!.shotAt).toBeUndefined();
+    // and one that goes while it is loaded, at the next prune
+    const store = new ComponentStore();
+    store.items("p");
+    fs.rmSync(path.join(uploads, "kept.png"));
+    expect(store.pruneShots("p")).toBe(true);
+    expect(store.items("p")[0]!.shots).toEqual([]);
+    expect(store.pruneShots("p")).toBe(false);
   });
 
   test("a stale picture says so where a model reads the entry", () => {

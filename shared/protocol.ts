@@ -1838,6 +1838,9 @@ export type ClientMessage =
       selector?: string;
       route?: string;
       clicks?: string[];
+      /** false: the user says the sweep's guess is right ("Looks right") —
+       *  it is no longer marked found, and its name is theirs. */
+      found?: false;
     }
   | { type: "component_remove"; projectId: string; componentId: string }
   | { type: "component_shot"; projectId: string; componentId: string; upload: AttachmentUpload }

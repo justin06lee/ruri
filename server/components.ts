@@ -277,6 +277,24 @@ export class ComponentStore {
     this.save(projectId);
   }
 
+  /** Let go of pictures whose files have gone since the library loaded —
+   *  an entry left with none needs a picture. Answers whether any went. */
+  pruneShots(projectId: string): boolean {
+    let moved = false;
+    for (const item of this.load(projectId)) {
+      const kept = item.shots.filter((shot) => !shot.url || fs.existsSync(storedFilePath(shot.url)));
+      if (kept.length === item.shots.length) continue;
+      item.shots = kept;
+      if (kept.length === 0) {
+        delete item.shotAt;
+        delete item.shotSig;
+      }
+      moved = true;
+    }
+    if (moved) this.save(projectId);
+    return moved;
+  }
+
   /** When this project was last read end to end (0 = never). */
   sweptAt(projectId: string): number {
     this.load(projectId);
@@ -513,7 +531,15 @@ export class ComponentStore {
       route?: string;
       clicks?: string[];
     },
-    opts: { sig?: string; filedIn?: string; anchors?: Record<string, string>; confirm?: boolean } = {},
+    opts: {
+      sig?: string;
+      filedIn?: string;
+      anchors?: Record<string, string>;
+      /** The user renamed it, or said its name is right. */
+      confirm?: boolean;
+      /** The user said the sweep's guess holds: confirmed as it stands. */
+      accept?: boolean;
+    } = {},
   ): boolean {
     const items = this.load(projectId);
     const item = items.find((i) => i.id === componentId);
@@ -523,6 +549,7 @@ export class ComponentStore {
       item.name = patch.name.trim();
       if (opts.confirm) this.confirm(item);
     }
+    if (opts.accept) this.confirm(item);
     if (patch.slug !== undefined && patch.slug.trim()) {
       item.slug = uniqueSlug(
         slugify(patch.slug),

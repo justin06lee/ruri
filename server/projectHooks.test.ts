@@ -9,13 +9,16 @@ import type { ServerContext } from "./context.js";
 import {
   buildPayload,
   fireProjectEvent,
+  fitPayload,
   HookCenter,
   MIDNA_COMMAND,
   projectBusy,
   realIo,
+  refusalPasses,
   sendTestEvent,
   trimSummary,
   useHooks,
+  webhookBody,
   type Attempt,
   type HookIo,
 } from "./projectHooks.js";
@@ -316,6 +319,19 @@ describe("delivering", () => {
     expect(heard).toBeGreaterThan(5);
   });
 
+  test("a retry sends the same event again, id and all — midna drops it if the first got through", async () => {
+    const world = fakeWorld({ answers: [{ ok: false, retry: true, result: "exit 1" }] });
+    const center = new HookCenter(world.io, () => {}, files());
+    center.set({ command: "cat", url: "http://127.0.0.1:9/v1/inbound" });
+    center.deliver(samplePayload({ id: "same-every-time" }), center.targets(), dir);
+    await settle();
+    await world.retry();
+    const commands = world.calls.filter((c) => c.kind === "command");
+    expect(commands).toHaveLength(2);
+    expect(commands[0]?.input).toBe(commands[1]?.input);
+    expect(JSON.parse(commands[1]!.input).id).toBe("same-every-time");
+  });
+
   test("one that comes good on a retry is ok", async () => {
     const world = fakeWorld({ answers: [{ ok: false, retry: true, result: "HTTP 503" }] });
     const center = new HookCenter(world.io, () => {}, files());
@@ -374,6 +390,72 @@ describe("delivering", () => {
   });
 });
 
+describe("midna's contract (docs/inbound-events.md in midna)", () => {
+  test("a webhook to midna's /v1/inbound gets midna's envelope; any other URL the event as it is", () => {
+    const payload = samplePayload({ id: "e9", kind: "project.blocked" });
+    expect(JSON.parse(webhookBody("http://jetson.local:7337/v1/inbound", payload))).toEqual({
+      source: "ruri",
+      title: "Una is blocked",
+      id: "e9",
+      data: payload,
+    });
+    expect(JSON.parse(webhookBody("https://m.example/v1/inbound/", payload)).data).toEqual(payload);
+    expect(JSON.parse(webhookBody("https://hooks.example/ruri", payload))).toEqual(payload);
+  });
+
+  test("what midna's CLI prints on a refusal says whether to try again", () => {
+    // midna answered, and it won't change its mind: 401, 413, 400
+    expect(refusalPasses({ ok: false, error: "midna: unauthorized — pair this device first" })).toBe(false);
+    expect(refusalPasses({ ok: false, error: "midna: an event's data can be at most 64 KB of JSON" })).toBe(
+      false,
+    );
+    expect(refusalPasses({ ok: false, error: 'midna: [\n  {\n    "code": "too_small"' })).toBe(false);
+    expect(
+      refusalPasses({
+        ok: false,
+        error: "usage: midna event --source <name> --title <text> [--json -|<file>]",
+      }),
+    ).toBe(false);
+    expect(refusalPasses({ ok: false, error: "--json -: not JSON (Unexpected end)" })).toBe(false);
+    // not there, or something on its side that may pass
+    expect(refusalPasses({ ok: false, error: "can't reach midna — is it running? (`midna serve`)" })).toBe(
+      true,
+    );
+    expect(refusalPasses({ ok: false, error: "midna: database is locked" })).toBe(true);
+    // a status, if the CLI ever prints one, decides
+    expect(refusalPasses({ ok: false, status: 429, error: "midna: slow down" })).toBe(true);
+    expect(refusalPasses({ ok: false, status: 413, error: "midna: too big" })).toBe(false);
+  });
+
+  test("a big team's payload stays under midna's 64 KB, the waiting chat's summary kept longest", () => {
+    // 4-byte characters, 600 of them, in 200 chats: over 900 KB as it stands
+    const wide = "𝄞".repeat(300);
+    const chats = Array.from({ length: 200 }, (_, i) => ({
+      id: `c${i}`,
+      name: `Teammate ${i}`,
+      role: i === 0 ? ("lead" as const) : ("teammate" as const),
+      lastSummary: wide,
+    }));
+    const big = samplePayload({ chats });
+    expect(Buffer.byteLength(JSON.stringify(big))).toBeGreaterThan(64 * 1024);
+    const fitted = fitPayload(big);
+    expect(Buffer.byteLength(JSON.stringify(fitted))).toBeLessThanOrEqual(60 * 1024);
+    expect(fitted.chats[0]?.lastSummary).toBe(wide);
+    expect(fitted.chats).toHaveLength(200);
+    // and one so big only leaving chats out will do
+    const huge = samplePayload({
+      chats: Array.from({ length: 3_000 }, (_, i) => ({ ...chats[1]!, id: `c${i}` })),
+    });
+    const cut = fitPayload(huge);
+    expect(Buffer.byteLength(JSON.stringify(cut))).toBeLessThanOrEqual(60 * 1024);
+    expect(cut.chats.length).toBeGreaterThan(100);
+    expect(cut.chats[0]?.id).toBe("c0");
+    // one that fits is left alone
+    const small = samplePayload({ chats: chats.slice(0, 3).map((c) => ({ ...c, lastSummary: "done" })) });
+    expect(fitPayload(small)).toBe(small);
+  });
+});
+
 describe("the real world", () => {
   test("a command reads stdin, sees the event's variables, and runs in the folder it is given", async () => {
     const out = path.join(dir, "got.txt");
@@ -413,6 +495,32 @@ describe("the real world", () => {
     expect(missing.result).toStartWith("exit 127");
   });
 
+  test("a command that answers in JSON, as midna's CLI does: its receipt is kept, its refusal read", async () => {
+    const run = (printed: string, code: number) =>
+      realIo.runCommand(`cat > /dev/null; printf '%s\\n' '${printed}'; exit ${code}`, "{}\n", {
+        cwd: dir,
+        env: process.env,
+        timeoutMs: 5_000,
+      });
+    expect(
+      await run('{"ok":true,"status":"queued","eventId":7,"wakeupId":31,"dueAt":1792447200000}', 0),
+    ).toEqual({
+      ok: true,
+      retry: false,
+      result: "exit 0 · queued, event 7",
+    });
+    expect(
+      await run('{"ok":false,"error":"midna: an event\'"\'"\'s data can be at most 64 KB of JSON"}', 1),
+    ).toEqual({
+      ok: false,
+      retry: false,
+      result: "exit 1: midna: an event's data can be at most 64 KB of JSON",
+    });
+    expect((await run('{"ok":false,"error":"can\'"\'"\'t reach midna — is it running?"}', 1)).retry).toBe(
+      true,
+    );
+  });
+
   test("a command that ignores its stdin is fine", async () => {
     const attempt = await realIo.runCommand("true", "x".repeat(1_000_000), {
       cwd: dir,
@@ -437,6 +545,16 @@ describe("the real world", () => {
             ...(req.headers["content-type"] ? { type: req.headers["content-type"] } : {}),
             body,
           });
+          if (req.url === "/v1/inbound") {
+            res.writeHead(202, { "content-type": "application/json" });
+            res.end(JSON.stringify({ status: "merged", eventId: 12, wakeupId: 4, dueAt: 1 }));
+            return;
+          }
+          if (req.url === "/big/v1/inbound") {
+            res.writeHead(413, { "content-type": "application/json" });
+            res.end(JSON.stringify({ error: "an event's data can be at most 64 KB of JSON" }));
+            return;
+          }
           const status = Number((req.url ?? "").split("/").pop()) || 200;
           if (status === 999) return; // never answers
           res.writeHead(status).end(status >= 400 ? "down for a bit" : "ok");
@@ -464,6 +582,21 @@ describe("the real world", () => {
       });
       await realIo.post(`${base}/hook/204`, "{}", undefined, 5_000);
       expect(got.at(-1)?.auth).toBeUndefined();
+    });
+
+    test("midna's receipt is kept; its 413 is read and not tried again", async () => {
+      expect(await realIo.post(`${base}/v1/inbound`, "{}", "t", 5_000)).toEqual({
+        ok: true,
+        retry: false,
+        result: "HTTP 202 · merged, event 12",
+      });
+      expect(await realIo.post(`${base}/big/v1/inbound`, "{}", "t", 5_000)).toEqual({
+        ok: false,
+        retry: false,
+        result: "HTTP 413: an event's data can be at most 64 KB of JSON",
+      });
+      for (const status of [400, 401])
+        expect((await realIo.post(`${base}/hook/${status}`, "{}", "t", 5_000)).retry).toBe(false);
     });
 
     test("a 5xx or 429 is tried again, a 404 isn't, and a dead port or a silent one is", async () => {
@@ -635,6 +768,8 @@ describe("the payload", () => {
     expect(trimmed.endsWith("word…")).toBe(true);
     expect(trimSummary("  short  ")).toBe("short");
     expect(trimSummary("x".repeat(700))).toBe(`${"x".repeat(600)}…`);
+    // a character in two halves is never cut between them
+    expect(trimSummary(`a${"😀".repeat(400)}`, 10)).toBe(`a${"😀".repeat(4)}…`);
   });
 });
 

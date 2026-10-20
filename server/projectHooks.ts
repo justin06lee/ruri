@@ -56,6 +56,8 @@ const RETRY_DELAYS_MS = [5_000, 30_000, 120_000, 600_000];
 const KEEP_DELIVERIES = 50;
 /** About this much of a chat's last reply goes in `lastSummary`. */
 const SUMMARY_CHARS = 600;
+/** The most a payload may be, as JSON: midna takes 64 KB of it. */
+const MAX_PAYLOAD_BYTES = 60 * 1024;
 /** How long a look for midna is believed. */
 const MIDNA_TTL_MS = 60_000;
 
@@ -185,10 +187,14 @@ function runCommand(
       return;
     }
     let said = "";
+    let printed = "";
     const keep = (chunk: Buffer): void => {
       said = (said + chunk.toString("utf8")).slice(-4_000);
     };
-    child.stdout?.on("data", keep);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      printed = (printed + chunk.toString("utf8")).slice(-8_000);
+      keep(chunk);
+    });
     child.stderr?.on("data", keep);
     const signal = (name: NodeJS.Signals): void => {
       try {
@@ -217,9 +223,17 @@ function runCommand(
           result: `timed out after ${Math.round(options.timeoutMs / 1000)}s`,
         });
       } else if (code === 0) {
-        settle({ ok: true, retry: false, result: "exit 0" });
+        const receipt = receiptSays(lastJson(printed));
+        settle({ ok: true, retry: false, result: receipt ? `exit 0 · ${receipt}` : "exit 0" });
       } else {
         const what = code === null ? `killed by ${killedBy ?? "a signal"}` : `exit ${code}`;
+        // a command that answers in JSON, the way `midna event --json`
+        // does, says what went wrong there — and whether it could pass
+        const answer = lastJson(printed);
+        if (answer?.["ok"] === false && typeof answer["error"] === "string") {
+          settle({ ok: false, retry: refusalPasses(answer), result: `${what}: ${clip(answer["error"])}` });
+          return;
+        }
         const tail = clip(said);
         // 126 and 127: the shell could not run it, and won't next time
         settle({ ok: false, retry: code !== 126 && code !== 127, result: tail ? `${what}: ${tail}` : what });
@@ -249,10 +263,15 @@ async function post(
       signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await response.text().catch(() => "");
-    if (response.ok) return { ok: true, retry: false, result: `HTTP ${response.status}` };
-    // a refusal stands until someone changes something; the rest may pass
+    const answer = lastJson(text);
+    if (response.ok) {
+      const receipt = receiptSays(answer);
+      return { ok: true, retry: false, result: `HTTP ${response.status}${receipt ? ` · ${receipt}` : ""}` };
+    }
+    // a refusal stands until someone changes something (400, 401, 413…);
+    // the rest may pass
     const retry = response.status >= 500 || response.status === 408 || response.status === 429;
-    const said = clip(text);
+    const said = clip(typeof answer?.["error"] === "string" ? answer["error"] : text);
     return { ok: false, retry, result: `HTTP ${response.status}${said ? `: ${said}` : ""}` };
   } catch (err) {
     const name = err instanceof Error ? err.name : "";
@@ -262,6 +281,71 @@ async function post(
     const code = errorCode(err);
     return { ok: false, retry: true, result: code ? `${errorMessage(err)} (${code})` : errorMessage(err) };
   }
+}
+
+/** The last line of `text` that is a JSON object, parsed. */
+function lastJson(text: string): Record<string, unknown> | undefined {
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]?.trim();
+    if (!line?.startsWith("{")) continue;
+    try {
+      const parsed = JSON.parse(line) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+        return parsed as Record<string, unknown>;
+    } catch {
+      // not this one
+    }
+  }
+  return undefined;
+}
+
+/** A receipt — midna's EventReceipt — in a few words: "queued, event 7". */
+function receiptSays(answer: Record<string, unknown> | undefined): string | undefined {
+  const status = answer?.["status"];
+  if (typeof status !== "string") return undefined;
+  const id = answer?.["eventId"];
+  return typeof id === "number" || typeof id === "string" ? `${status}, event ${id}` : status;
+}
+
+/**
+ * Whether a refusal a command printed as {"ok":false,"error":…} could
+ * pass if tried again. midna's CLI says "can't reach midna" when it
+ * couldn't get there, and "midna: …" with midna's own words when midna
+ * answered: a device not paired (401), data over 64 KB (413), a field it
+ * won't take (400, zod's issues) stand until something changes; anything
+ * else it says (a 500's message) may pass. A `status` beside the error,
+ * should the CLI ever print one, decides it outright.
+ */
+export function refusalPasses(answer: Record<string, unknown>): boolean {
+  const status = answer["status"];
+  if (typeof status === "number") return status >= 500 || status === 408 || status === 429;
+  const error = typeof answer["error"] === "string" ? answer["error"] : "";
+  if (/^usage:|not JSON|^no such file/i.test(error)) return false;
+  if (/^midna: (unauthorized|an event's data can be at most|\s*[[{])/i.test(error)) return false;
+  return true;
+}
+
+/** A webhook that is midna's own API — POST /v1/inbound — takes the event
+ *  in its envelope: who it's from, a title, the id it is deduplicated by,
+ *  and the event itself as `data`. Any other URL gets the event as it is. */
+function isMidnaInbound(url: string): boolean {
+  try {
+    return new URL(url).pathname.replace(/\/+$/, "").endsWith("/v1/inbound");
+  } catch {
+    return false;
+  }
+}
+
+/** What a webhook is sent. */
+export function webhookBody(url: string, payload: ProjectEventPayload): string {
+  if (!isMidnaInbound(url)) return JSON.stringify(payload);
+  return JSON.stringify({
+    source: "ruri",
+    title: eventTitle(payload.kind, payload.project.name),
+    id: payload.id,
+    data: payload,
+  });
 }
 
 function retryDelays(): number[] {
@@ -539,7 +623,7 @@ export class HookCenter {
               env: this.commandEnv(payload),
               timeoutMs: COMMAND_TIMEOUT_MS,
             })
-          : await this.io.post(target.to, body, target.token, WEBHOOK_TIMEOUT_MS);
+          : await this.io.post(target.to, webhookBody(target.to, payload), target.token, WEBHOOK_TIMEOUT_MS);
     } catch (err) {
       attempt = { ok: false, retry: true, result: errorMessage(err) };
     }
@@ -662,7 +746,10 @@ export function eventTitle(kind: ProjectEventKind, project: string): string {
 export function trimSummary(text: string, max = SUMMARY_CHARS): string {
   const clean = text.trim();
   if (clean.length <= max) return clean;
-  const cut = clean.slice(0, max);
+  if (max <= 0) return "";
+  let cut = clean.slice(0, max);
+  // never half of a character that takes two code units (emoji, 𝄞)
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
   const space = cut.search(/\s\S*$/);
   return `${(space > max * 0.8 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
@@ -781,7 +868,7 @@ export function buildPayload(
     if (session.id === options.chatId) chats.unshift(row);
     else chats.push(row);
   }
-  return {
+  return fitPayload({
     id: randomUUID(),
     source: "ruri",
     kind,
@@ -789,7 +876,40 @@ export function buildPayload(
     chats,
     costUsd: options.costUsd,
     at: new Date(options.at ?? Date.now()).toISOString(),
-  };
+  });
+}
+
+/**
+ * The payload, kept under midna's cap on an event's data (64 KB of JSON,
+ * MAX_EVENT_DATA_BYTES; over it, midna answers 413 and the event is lost)
+ * with room to spare. A team's chats fit many times over at 600 characters
+ * each; a very big team, or replies in a script that takes three or four
+ * bytes a character, has its summaries cut shorter — the first chat's (the
+ * one waiting, or the lead) last — and only then its last chats left out.
+ */
+export function fitPayload(payload: ProjectEventPayload, max = MAX_PAYLOAD_BYTES): ProjectEventPayload {
+  const fits = (p: ProjectEventPayload): boolean => Buffer.byteLength(JSON.stringify(p)) <= max;
+  if (fits(payload)) return payload;
+  const cut = (first: number, rest: number, chats = payload.chats): ProjectEventPayload => ({
+    ...payload,
+    chats: chats.map((chat, i) => ({
+      ...chat,
+      lastSummary: trimSummary(chat.lastSummary, i === 0 ? first : rest),
+    })),
+  });
+  for (const [first, rest] of [
+    [SUMMARY_CHARS, 300],
+    [SUMMARY_CHARS, 120],
+    [SUMMARY_CHARS, 0],
+    [200, 0],
+    [0, 0],
+  ] as const) {
+    const fitted = cut(first, rest);
+    if (fits(fitted)) return fitted;
+  }
+  let fitted = cut(0, 0);
+  while (fitted.chats.length > 1 && !fits(fitted)) fitted = { ...fitted, chats: fitted.chats.slice(0, -1) };
+  return fitted;
 }
 
 /* ── for the rest of the server ────────────────────────────────────── */

@@ -31,8 +31,10 @@ import * as path from "node:path";
 import WebSocket from "ws";
 import { bootServer, wsUrl } from "./lib/server.js";
 import type {
+  AskQuestions,
   ClientMessage,
   HooksView,
+  PermissionRequest,
   Project,
   ProjectEventPayload,
   ServerMessage,
@@ -176,7 +178,8 @@ let hooks: HooksView | undefined;
 let hooksError: string | undefined;
 const statuses: Record<string, string> = {};
 const events: Record<string, TranscriptEvent[]> = {};
-const cards: Array<{ requestId: string; projectId: string; kind?: string }> = [];
+const cards: PermissionRequest[] = [];
+const openCards = new Set<string>();
 const waiters = new Set<() => void>();
 /** Every raw message, to look for a token that should never be in one. */
 let heard = "";
@@ -189,7 +192,11 @@ ws.on("message", (raw) => {
   if (msg.type === "projects" || msg.type === "snapshot") projects = msg.projects;
   if (msg.type === "status") statuses[msg.projectId] = msg.status;
   if (msg.type === "event") (events[msg.projectId] ??= []).push(msg.event);
-  if (msg.type === "permission_request") cards.push(msg.request);
+  if (msg.type === "permission_request") {
+    cards.push(msg.request);
+    openCards.add(msg.request.requestId);
+  }
+  if (msg.type === "permission_resolved") openCards.delete(msg.requestId);
   if (msg.type === "hooks") {
     hooks = msg.hooks;
     if (msg.error) hooksError = msg.error;
@@ -443,22 +450,39 @@ if (!process.env["HOOKS_DELIVERY_ONLY"]) {
       /apple|pear/i.test(blocked.chats[0]?.lastSummary ?? ""),
     blocked,
   );
-  // answer the card, so the project can go on
+  // answer the card, by its questions, so the project can go on
   const card = cards.find((c) => c.projectId === lead.id && c.kind === "question");
+  check("the lead's card is up", Boolean(card), cards);
   if (card) {
+    const asked = ((card.input as Partial<AskQuestions> | undefined)?.questions ?? []).map((q) => q.question);
     send({
       type: "question_response",
       requestId: card.requestId,
-      answers: { answers: { "": "pears" }, response: "pears" },
+      answers: { answers: Object.fromEntries(asked.map((question) => [question, "Pears"])) },
     });
+    await until("the card to go", () => !openCards.has(card.requestId), 30_000);
   }
   await until("the lead to finish", () => teamQuiet(), 240_000);
-  // and the period to close, so its idle can't reach the hooks 5 sets up
-  const idlesBefore = ofKind(commandEvents(), "project.idle").length;
-  await until(
-    "the period's idle",
-    () => ofKind(commandEvents(), "project.idle").length > idlesBefore,
-    IDLE_MS + 30_000,
+  // the period then closes with exactly one more event — idle, or blocked
+  // again if the lead's last words ask the user something — and before 5
+  // sets up hooks of the project's own
+  const before4 = commandEvents().length;
+  await until("the period to close", () => commandEvents().length > before4, IDLE_MS + 30_000);
+  await settle(IDLE_MS);
+  const closing = commandEvents().slice(before4);
+  const lastWords = (events[lead.id] ?? []).findLast((e) => e.kind === "assistant");
+  const closedBy = closing[0];
+  console.log(
+    `    (it closed with ${closedBy?.kind ?? "nothing"}; the lead's last words: ${JSON.stringify(
+      lastWords?.kind === "assistant" ? lastWords.text : "",
+    ).slice(0, 240)})`,
+  );
+  check(
+    "answered, the period closes with exactly one more event: idle, or blocked if the lead ends asking",
+    closing.length === 1 &&
+      (closedBy?.kind === "project.idle" ||
+        (closedBy?.kind === "project.blocked" && closedBy.chats[0]?.id === lead.id)),
+    closing,
   );
 }
 

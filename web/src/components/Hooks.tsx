@@ -269,9 +269,14 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
             {view.midna ? (
               <>
                 midna found at <code>{view.midna}</code>
-                {global.custom
-                  ? " — your own hook below is used instead"
-                  : " — every event goes to it by default"}
+                {/* switching the default off saves it as a custom hook holding midna's command */}
+                {!global.enabled
+                  ? " — the global hooks are switched off"
+                  : !global.custom
+                    ? " — every event goes to it by default"
+                    : global.command === view.midnaCommand
+                      ? " — the command below runs it"
+                      : " — your own hook below is used instead"}
               </>
             ) : (
               "midna isn’t on this machine’s PATH — set a command or a URL for events to go to"

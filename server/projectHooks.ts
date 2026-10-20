@@ -470,12 +470,6 @@ export class HookCenter {
       made.push(delivery);
       this.deliveries.unshift(delivery);
     }
-    // the oldest go — but never one still on its way
-    while (this.deliveries.length > KEEP_DELIVERIES) {
-      const at = this.deliveries.findLastIndex((d) => d.state === "ok" || d.state === "failed");
-      if (at < 0) break;
-      this.deliveries.splice(at, 1);
-    }
     if (made.length) this.logChanged();
     made.forEach((delivery, i) => {
       const target = targets[i];
@@ -497,7 +491,7 @@ export class HookCenter {
     try {
       attempt =
         target.target === "command"
-          ? await this.io.runCommand(target.to, `${body}\n`, {
+          ? await this.io.runCommand(this.runnable(target.to), `${body}\n`, {
               cwd,
               env: this.commandEnv(payload),
               timeoutMs: COMMAND_TIMEOUT_MS,
@@ -538,6 +532,15 @@ export class HookCenter {
     this.logChanged();
   }
 
+  /** The command line to run. midna's own command runs the midna that was
+   *  found, by its path: by name it could be another one further down the
+   *  PATH — the real one, under a test that pointed RURI_MIDNA at a stub. */
+  private runnable(command: string): string {
+    const midna = this.midnaPath();
+    if (command !== MIDNA_COMMAND || !midna) return command;
+    return `'${midna.replaceAll("'", `'\\''`)}'${MIDNA_COMMAND.slice("midna".length)}`;
+  }
+
   /** What a command is run with: ruri's own environment, midna where the
    *  shell will find it, and the event in a few variables for a command
    *  line to use — never spliced into the command itself. */
@@ -561,6 +564,12 @@ export class HookCenter {
   }
 
   private logChanged(): void {
+    // the oldest go — but never one still on its way
+    while (this.deliveries.length > KEEP_DELIVERIES) {
+      const at = this.deliveries.findLastIndex((d) => d.state === "ok" || d.state === "failed");
+      if (at < 0) break;
+      this.deliveries.splice(at, 1);
+    }
     this.changed();
     if (this.saveLog) return;
     this.saveLog = this.io.later(() => {

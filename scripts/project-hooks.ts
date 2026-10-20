@@ -453,6 +453,13 @@ if (!process.env["HOOKS_DELIVERY_ONLY"]) {
     });
   }
   await until("the lead to finish", () => teamQuiet(), 240_000);
+  // and the period to close, so its idle can't reach the hooks 5 sets up
+  const idlesBefore = ofKind(commandEvents(), "project.idle").length;
+  await until(
+    "the period's idle",
+    () => ofKind(commandEvents(), "project.idle").length > idlesBefore,
+    IDLE_MS + 30_000,
+  );
 }
 
 /* ── 5. a failing hook and a slow one never hold the project up ────── */

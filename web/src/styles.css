@@ -10013,6 +10013,181 @@ button.stop:hover {
   font-size: 12px;
 }
 
+/* ── project hooks ─────────────────────────────────────────────────────
+   (Hooks.tsx, under Integrations.) A hook's command, webhook and token as
+   labelled lines, the test button, what a hook is given folded away, and
+   the recent deliveries — one line each, how it went first. */
+
+.hooks-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+
+.hooks-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hooks-label {
+  flex-shrink: 0;
+  width: 92px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.hooks-hint {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.hooks-field .hooks-label .hooks-hint {
+  display: block;
+}
+
+.hooks-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.hooks-field input.hooks-default {
+  color: var(--ink-faint);
+}
+
+.hooks-token {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.hooks-token button,
+.hooks .int-form-row button {
+  padding: 2px 8px;
+  font-size: var(--fs-sm);
+}
+
+.hooks-midna code,
+.hooks-what-it-gets code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.hooks-global-here {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 8px 0 2px;
+}
+
+.hooks-global-says {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hooks-sub {
+  margin-top: 10px;
+}
+
+.hooks-test {
+  margin-top: 6px;
+}
+
+.hooks-what-it-gets {
+  margin: 8px 0 2px;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.hooks-what-it-gets summary {
+  cursor: pointer;
+  color: var(--ink-faint);
+}
+
+.hooks-what-it-gets p {
+  margin: 6px 0 0;
+}
+
+.hooks-head {
+  margin: 14px 0 2px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.hooks-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 0;
+  border-top: 1px dashed var(--line-soft, var(--edge));
+  font-size: var(--fs-sm);
+}
+
+.hooks-state {
+  flex-shrink: 0;
+  width: 64px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.hooks-state.failed,
+.hooks-state.retrying {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.hooks-what {
+  flex-shrink: 0;
+  color: var(--ink-soft);
+}
+
+.hooks-to {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.hooks-result {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.hooks-when {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
 .int-given-box {
   font-family: var(--mono);
   font-size: 12px;

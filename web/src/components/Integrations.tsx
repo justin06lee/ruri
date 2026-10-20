@@ -3,6 +3,7 @@ import type { IntegrationHarness, McpAdd, McpServerRow, PluginRow } from "../../
 import { splitCommand } from "../lib/commandLine";
 import { send, useRuri } from "../store";
 import { Capped } from "./Capped";
+import { Hooks } from "./Hooks";
 
 /**
  * Settings → Integrations: what Claude Code and Codex plug in — MCP
@@ -186,6 +187,10 @@ export function Integrations() {
           <AddMarketplace busy={busy} onAct={act} />
         </>
       )}
+
+      {/* ruri's own, not a harness's: there whether the CLIs answered or not */}
+      <h3 className="int-head">Hooks</h3>
+      <Hooks projectId={projectId} {...(project ? { projectName: project.name } : {})} />
     </div>
   );
 }

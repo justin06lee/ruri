@@ -338,6 +338,17 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("set_harness_auto"), id, auto: z.boolean() }),
   z.object({ type: z.literal("integrations_get"), projectId: id.optional() }),
   z.object({ type: z.literal("plugins_search"), harness: integrationHarness, query: z.string().max(200) }),
+  z.object({ type: z.literal("hooks_get") }),
+  z.object({
+    type: z.literal("hooks_set"),
+    projectId: id.optional(),
+    command: z.string().max(8_000).optional(),
+    url: z.string().max(4_000).optional(),
+    token: z.string().max(8_000).optional(),
+    useGlobal: z.boolean().optional(),
+    reset: z.boolean().optional(),
+  }),
+  z.object({ type: z.literal("hooks_test"), projectId: id.optional() }),
   z.object({
     type: z.literal("mcp_add"),
     add: z.object({

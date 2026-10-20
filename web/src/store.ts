@@ -17,6 +17,7 @@ import {
   type TalkPolicy,
   type TeamAction,
   type TeamBudget,
+  type HooksView,
   type TeamLiaison,
   type TeamMember,
   type PluginRow,
@@ -507,6 +508,10 @@ interface RuriState {
   pluginsFound: { harness: IntegrationHarness; query: string; plugins: PluginRow[]; total: number } | null;
   /** How the last change to the integrations went. */
   integrationNote: { ok: boolean; message: string; at: number } | null;
+  /** The project hooks — global and per project — and their latest
+   *  deliveries (Settings → Integrations, server/projectHooks.ts), with
+   *  what the server refused of the last change this window made. */
+  hooks: { view: HooksView; error?: string; at: number } | null;
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
   canPermissions: boolean;
@@ -667,6 +672,7 @@ export const useRuri = create<RuriState>((set) => ({
   team: {},
   pluginsFound: null,
   integrationNote: null,
+  hooks: null,
   canPickFolder: false,
   canPermissions: false,
   platform: "",
@@ -2220,6 +2226,10 @@ function apply(msg: ServerMessage): void {
       setState({
         pluginsFound: { harness: msg.harness, query: msg.query, plugins: msg.plugins, total: msg.total },
       });
+      break;
+    }
+    case "hooks": {
+      setState({ hooks: { view: msg.hooks, ...(msg.error ? { error: msg.error } : {}), at: Date.now() } });
       break;
     }
     case "integration_done": {

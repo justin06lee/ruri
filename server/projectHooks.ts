@@ -470,12 +470,6 @@ export class HookCenter {
       made.push(delivery);
       this.deliveries.unshift(delivery);
     }
-    // the oldest go — but never one still on its way
-    while (this.deliveries.length > KEEP_DELIVERIES) {
-      const at = this.deliveries.findLastIndex((d) => d.state === "ok" || d.state === "failed");
-      if (at < 0) break;
-      this.deliveries.splice(at, 1);
-    }
     if (made.length) this.logChanged();
     made.forEach((delivery, i) => {
       const target = targets[i];
@@ -561,6 +555,12 @@ export class HookCenter {
   }
 
   private logChanged(): void {
+    // the oldest go — but never one still on its way
+    while (this.deliveries.length > KEEP_DELIVERIES) {
+      const at = this.deliveries.findLastIndex((d) => d.state === "ok" || d.state === "failed");
+      if (at < 0) break;
+      this.deliveries.splice(at, 1);
+    }
     this.changed();
     if (this.saveLog) return;
     this.saveLog = this.io.later(() => {

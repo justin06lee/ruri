@@ -1,6 +1,6 @@
 {
   "name": "ruri",
-  "version": "0.76.0",
+  "version": "0.77.0",
   "description": "One desktop workspace for all your projects, each one lead you talk to, with a team of agents behind it.",
   "private": true,
   "type": "module",

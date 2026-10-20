@@ -491,7 +491,7 @@ export class HookCenter {
     try {
       attempt =
         target.target === "command"
-          ? await this.io.runCommand(target.to, `${body}\n`, {
+          ? await this.io.runCommand(this.runnable(target.to), `${body}\n`, {
               cwd,
               env: this.commandEnv(payload),
               timeoutMs: COMMAND_TIMEOUT_MS,
@@ -530,6 +530,15 @@ export class HookCenter {
       );
     }
     this.logChanged();
+  }
+
+  /** The command line to run. midna's own command runs the midna that was
+   *  found, by its path: by name it could be another one further down the
+   *  PATH — the real one, under a test that pointed RURI_MIDNA at a stub. */
+  private runnable(command: string): string {
+    const midna = this.midnaPath();
+    if (command !== MIDNA_COMMAND || !midna) return command;
+    return `'${midna.replaceAll("'", `'\\''`)}'${MIDNA_COMMAND.slice("midna".length)}`;
   }
 
   /** What a command is run with: ruri's own environment, midna where the

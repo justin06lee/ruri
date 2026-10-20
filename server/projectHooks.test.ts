@@ -220,13 +220,32 @@ describe("delivering", () => {
     expect(shown?.result).toBe("exit 0");
   });
 
-  test("midna's own folder is first on the command's PATH", async () => {
-    const world = fakeWorld({ midna: "/opt/midna-here/midna" });
+  test("midna's command runs the midna that was found, by its path — and its folder is first on the PATH", async () => {
+    const world = fakeWorld({ midna: "/opt/midna's here/midna" });
     const center = new HookCenter(world.io, () => {}, files());
-    center.deliver(samplePayload(), center.targets(), dir);
+    const [delivery] = center.deliver(samplePayload(), center.targets(), dir);
     await settle();
-    expect(world.calls[0]?.to).toBe(MIDNA_COMMAND);
-    expect(world.calls[0]?.env?.["PATH"]?.split(path.delimiter)[0]).toBe("/opt/midna-here");
+    expect(world.calls[0]?.to).toBe(
+      `'/opt/midna'\\''s here/midna' event --source ruri --title "$RURI_EVENT_TITLE" --json -`,
+    );
+    // the page still shows the command as the user would write it
+    expect(delivery?.to).toBe(MIDNA_COMMAND);
+    expect(world.calls[0]?.env?.["PATH"]?.split(path.delimiter)[0]).toBe("/opt/midna's here");
+  });
+
+  test("a stub midna by any name is the one run, never one further down the PATH", async () => {
+    const stub = path.join(dir, "not-called-midna");
+    const got = path.join(dir, "stub-got.txt");
+    fs.writeFileSync(stub, `#!/bin/sh\nprintf '%s ' "$@" > '${got}'\ncat >> '${got}'\n`, { mode: 0o755 });
+    const center = new HookCenter({ ...realIo, findMidna: () => stub }, () => {}, files());
+    center.deliver(samplePayload(), center.targets(), dir);
+    for (let i = 0; i < 50 && center.view().deliveries[0]?.state === "pending"; i++) await Bun.sleep(20);
+    expect(center.view().deliveries[0]?.state).toBe("ok");
+    const written = fs.readFileSync(got, "utf8");
+    const at = written.indexOf("{");
+    expect(written.slice(0, at)).toBe("event --source ruri --title Una is idle --json - ");
+    expect(JSON.parse(written.slice(at))).toEqual(samplePayload());
+    center.close();
   });
 
   test("a webhook gets the same JSON and the bearer token", async () => {

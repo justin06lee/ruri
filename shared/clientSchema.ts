@@ -345,6 +345,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     command: z.string().max(8_000).optional(),
     url: z.string().max(4_000).optional(),
     token: z.string().max(8_000).optional(),
+    enabled: z.boolean().optional(),
     useGlobal: z.boolean().optional(),
     reset: z.boolean().optional(),
   }),

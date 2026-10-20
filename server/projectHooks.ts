@@ -64,6 +64,8 @@ interface StoredTarget {
   command?: string;
   url?: string;
   token?: string;
+  /** False turns these hooks off and keeps them for later. */
+  enabled?: boolean;
 }
 
 interface StoredProject extends StoredTarget {
@@ -112,6 +114,7 @@ export interface HookChange {
   command?: string;
   url?: string;
   token?: string;
+  enabled?: boolean;
   useGlobal?: boolean;
   reset?: boolean;
 }
@@ -287,7 +290,12 @@ export const realIo: HookIo = {
 
 /** How a target looks to a window: everything but the token. */
 function targetView(target: StoredTarget | undefined): HookTargetView {
-  return { command: target?.command ?? "", url: target?.url ?? "", hasToken: !!target?.token };
+  return {
+    command: target?.command ?? "",
+    url: target?.url ?? "",
+    hasToken: !!target?.token,
+    enabled: target?.enabled !== false,
+  };
 }
 
 /** A URL a webhook can go to, or why not. */
@@ -312,6 +320,9 @@ function patched<T extends StoredTarget>(target: T, change: HookChange): T {
     if (trimmed) next[key] = trimmed;
     else delete next[key];
   }
+  if (change.enabled !== undefined) next.enabled = change.enabled;
+  // on is what unset means
+  if (next.enabled !== false) delete next.enabled;
   return next;
 }
 
@@ -399,8 +410,10 @@ export class HookCenter {
         const own = patched<StoredProject>(projects[change.projectId] ?? {}, change);
         if (change.useGlobal !== undefined) own.useGlobal = change.useGlobal;
         if (own.useGlobal !== false) delete own.useGlobal;
-        // nothing of its own left: the project is back to the global hooks
-        if (Object.keys(own).length === 0) delete projects[change.projectId];
+        // nothing of its own left (on or off, no hook is no hook): the
+        // project is back to the global hooks
+        if (!own.command && !own.url && !own.token && own.useGlobal !== false)
+          delete projects[change.projectId];
         else projects[change.projectId] = own;
       }
     }
@@ -414,8 +427,9 @@ export class HookCenter {
   targets(projectId?: string): HookTarget[] {
     const own = projectId === undefined ? undefined : this.stored.projects?.[projectId];
     const from: Array<[HookTarget["scope"], StoredTarget]> = [];
-    if (own?.useGlobal !== false) from.push(["global", this.globalTarget()]);
-    if (own) from.push(["project", own]);
+    const global = this.globalTarget();
+    if (own?.useGlobal !== false && global.enabled !== false) from.push(["global", global]);
+    if (own && own.enabled !== false) from.push(["project", own]);
     const out: HookTarget[] = [];
     const seen = new Set<string>();
     for (const [scope, target] of from) {

@@ -21,6 +21,7 @@
  *      try, the command finishes, and the global hooks hear nothing of it.
  *
  * Costs a handful of small real turns — run manually: bun run project-hooks-test
+ * (HOOKS_DELIVERY_ONLY=1 runs 1, 2 and 5 only: delivery, no detection).
  */
 import * as fs from "node:fs";
 import * as http from "node:http";
@@ -349,107 +350,110 @@ check(
   hooks?.deliveries,
 );
 
-/* ── 3. the team goes to work, hands off, and goes idle ────────────── */
+/* HOOKS_DELIVERY_ONLY=1 skips 3 and 4: no idle or blocked detection needed */
+if (!process.env["HOOKS_DELIVERY_ONLY"]) {
+  /* ── 3. the team goes to work, hands off, and goes idle ────────────── */
 
-const idleBefore = () => ofKind(commandEvents(), "project.idle").length;
-send({
-  type: "send",
-  projectId: lead.id,
-  text: "What does the orchard's notes say its first tree is? Just tell me the tree's name.",
-});
-await until("the lead to start", () => busy(lead.id), 90_000);
-const notesMate = () =>
-  ours()?.sessions.find((s) => s.id !== lead.id && !s.liaison && (s.layers?.includes("notes") ?? false));
-await until("a teammate for the notes", () => Boolean(notesMate()), 300_000);
-const mate = notesMate();
-check("the lead hands the job to the notes layer's teammate", Boolean(mate), ours());
-await until("the lead to relay the tree", () => said(lead.id).includes(TREE) && teamQuiet(), 480_000);
-const quietAt = Date.now();
-check("the answer lands, and the lead relays it", said(lead.id).includes(TREE), said(lead.id));
-check(
-  "no project.idle while the lead had handed off and the teammate worked",
-  idleBefore() === 0,
-  ofKind(commandEvents(), "project.idle"),
-);
-await until(
-  "the project.idle",
-  () => idleBefore() >= 1 && ofKind(webhookEvents(), "project.idle").length >= 1,
-  IDLE_MS + 60_000,
-);
-// and nothing more, a while after
-await settle(IDLE_MS + 5_000);
-const idles = ofKind(commandEvents(), "project.idle");
-const idleHooks = ofKind(webhookEvents(), "project.idle");
-check("exactly one project.idle at the command", idles.length === 1, idles);
-check(
-  "and exactly one at the webhook, the same one",
-  idleHooks.length === 1 && idleHooks[0]?.id === idles[0]?.id,
-  idleHooks,
-);
-const idle = idles[0];
-check("in midna's shape", exactShape(idle), idle);
-check(
-  "after the team had been quiet the debounce, not before",
-  Boolean(idle) && Date.parse(idle!.at) >= quietAt + IDLE_MS - 5_000,
-  { at: idle?.at, quietAt: new Date(quietAt).toISOString() },
-);
-const leadRow = idle?.chats.find((c) => c.id === lead.id);
-const mateRow = idle?.chats.find((c) => c.id === mate?.id);
-check(
-  "naming the lead, with its last reply",
-  leadRow?.role === "lead" && leadRow.name === "Lead" && leadRow.lastSummary.toLowerCase().includes(TREE),
-  idle?.chats,
-);
-check(
-  "and the teammate that worked, with its",
-  mateRow?.role === "teammate" && mateRow.lastSummary.length > 0 && mateRow.name === mate?.title,
-  idle?.chats,
-);
-const spent = [lead.id, mate?.id ?? ""]
-  .flatMap((id) => results(id))
-  .reduce((sum, r) => sum + (r.kind === "result" ? (r.costUsd ?? 0) : 0), 0);
-check(
-  "costUsd is what the team spent since it went busy",
-  Boolean(idle) && idle!.costUsd > 0 && Math.abs(idle!.costUsd - spent) < 0.01,
-  { costUsd: idle?.costUsd, spent },
-);
-
-/* ── 4. a chat that ends its turn asking: project.blocked ─────────── */
-
-send({
-  type: "send",
-  projectId: lead.id,
-  text:
-    "Before you do anything else: ask me, with a question card (AskUserQuestion), whether I prefer apples or pears. " +
-    "Don't delegate this one — it's for me. Then stop and wait for my answer.",
-});
-await until("the project.blocked", () => ofKind(commandEvents(), "project.blocked").length >= 1, 300_000);
-await settle(5_000);
-const blocks = ofKind(commandEvents(), "project.blocked");
-const blocked = blocks[0];
-check("one project.blocked", blocks.length === 1, blocks);
-check(
-  "at the webhook too",
-  ofKind(webhookEvents(), "project.blocked").length === 1,
-  hits.map((h) => h.path),
-);
-check(
-  "in midna's shape, the waiting chat first, saying what it asks",
-  exactShape(blocked) &&
-    blocked?.chats[0]?.id === lead.id &&
-    /apple|pear/i.test(blocked.chats[0]?.lastSummary ?? ""),
-  blocked,
-);
-// answer the card, so the project can go on
-const card = cards.find((c) => c.projectId === lead.id && c.kind === "question");
-if (card) {
+  const idleBefore = () => ofKind(commandEvents(), "project.idle").length;
   send({
-    type: "question_response",
-    requestId: card.requestId,
-    answers: { answers: { "": "pears" }, response: "pears" },
+    type: "send",
+    projectId: lead.id,
+    text: "What does the orchard's notes say its first tree is? Just tell me the tree's name.",
   });
+  await until("the lead to start", () => busy(lead.id), 90_000);
+  const notesMate = () =>
+    ours()?.sessions.find((s) => s.id !== lead.id && !s.liaison && (s.layers?.includes("notes") ?? false));
+  await until("a teammate for the notes", () => Boolean(notesMate()), 300_000);
+  const mate = notesMate();
+  check("the lead hands the job to the notes layer's teammate", Boolean(mate), ours());
+  await until("the lead to relay the tree", () => said(lead.id).includes(TREE) && teamQuiet(), 480_000);
+  const quietAt = Date.now();
+  check("the answer lands, and the lead relays it", said(lead.id).includes(TREE), said(lead.id));
+  check(
+    "no project.idle while the lead had handed off and the teammate worked",
+    idleBefore() === 0,
+    ofKind(commandEvents(), "project.idle"),
+  );
+  await until(
+    "the project.idle",
+    () => idleBefore() >= 1 && ofKind(webhookEvents(), "project.idle").length >= 1,
+    IDLE_MS + 60_000,
+  );
+  // and nothing more, a while after
+  await settle(IDLE_MS + 5_000);
+  const idles = ofKind(commandEvents(), "project.idle");
+  const idleHooks = ofKind(webhookEvents(), "project.idle");
+  check("exactly one project.idle at the command", idles.length === 1, idles);
+  check(
+    "and exactly one at the webhook, the same one",
+    idleHooks.length === 1 && idleHooks[0]?.id === idles[0]?.id,
+    idleHooks,
+  );
+  const idle = idles[0];
+  check("in midna's shape", exactShape(idle), idle);
+  check(
+    "after the team had been quiet the debounce, not before",
+    Boolean(idle) && Date.parse(idle!.at) >= quietAt + IDLE_MS - 5_000,
+    { at: idle?.at, quietAt: new Date(quietAt).toISOString() },
+  );
+  const leadRow = idle?.chats.find((c) => c.id === lead.id);
+  const mateRow = idle?.chats.find((c) => c.id === mate?.id);
+  check(
+    "naming the lead, with its last reply",
+    leadRow?.role === "lead" && leadRow.name === "Lead" && leadRow.lastSummary.toLowerCase().includes(TREE),
+    idle?.chats,
+  );
+  check(
+    "and the teammate that worked, with its",
+    mateRow?.role === "teammate" && mateRow.lastSummary.length > 0 && mateRow.name === mate?.title,
+    idle?.chats,
+  );
+  const spent = [lead.id, mate?.id ?? ""]
+    .flatMap((id) => results(id))
+    .reduce((sum, r) => sum + (r.kind === "result" ? (r.costUsd ?? 0) : 0), 0);
+  check(
+    "costUsd is what the team spent since it went busy",
+    Boolean(idle) && idle!.costUsd > 0 && Math.abs(idle!.costUsd - spent) < 0.01,
+    { costUsd: idle?.costUsd, spent },
+  );
+
+  /* ── 4. a chat that ends its turn asking: project.blocked ─────────── */
+
+  send({
+    type: "send",
+    projectId: lead.id,
+    text:
+      "Before you do anything else: ask me, with a question card (AskUserQuestion), whether I prefer apples or pears. " +
+      "Don't delegate this one — it's for me. Then stop and wait for my answer.",
+  });
+  await until("the project.blocked", () => ofKind(commandEvents(), "project.blocked").length >= 1, 300_000);
+  await settle(5_000);
+  const blocks = ofKind(commandEvents(), "project.blocked");
+  const blocked = blocks[0];
+  check("one project.blocked", blocks.length === 1, blocks);
+  check(
+    "at the webhook too",
+    ofKind(webhookEvents(), "project.blocked").length === 1,
+    hits.map((h) => h.path),
+  );
+  check(
+    "in midna's shape, the waiting chat first, saying what it asks",
+    exactShape(blocked) &&
+      blocked?.chats[0]?.id === lead.id &&
+      /apple|pear/i.test(blocked.chats[0]?.lastSummary ?? ""),
+    blocked,
+  );
+  // answer the card, so the project can go on
+  const card = cards.find((c) => c.projectId === lead.id && c.kind === "question");
+  if (card) {
+    send({
+      type: "question_response",
+      requestId: card.requestId,
+      answers: { answers: { "": "pears" }, response: "pears" },
+    });
+  }
+  await until("the lead to finish", () => teamQuiet(), 240_000);
 }
-await until("the lead to finish", () => teamQuiet(), 240_000);
 
 /* ── 5. a failing hook and a slow one never hold the project up ────── */
 

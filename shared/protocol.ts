@@ -1635,6 +1635,8 @@ export interface HookTargetView {
   /** "" for none. */
   url: string;
   hasToken: boolean;
+  /** Off: kept as they are, and sent nothing. */
+  enabled: boolean;
 }
 
 /** One event on its way to one hook. */
@@ -2067,8 +2069,10 @@ export type ClientMessage =
   | { type: "hooks_get" }
   /**
    * Change the global hooks, or with `projectId` that project's own. A
-   * field left out stays as it is; "" clears it (`token` included). For a
-   * project, `useGlobal` false keeps the global hooks off it. `reset` puts
+   * field left out stays as it is; "" clears it (`token` included).
+   * `enabled` false turns that scope's own hooks off, kept as they are (for
+   * the global ones, off for every project). For a project, `useGlobal`
+   * false keeps the global hooks off it. `reset` puts
    * the global hooks back to the default, or takes the project's own away.
    * Every window hears `hooks`; a bad URL is answered with its `error`.
    */
@@ -2078,6 +2082,7 @@ export type ClientMessage =
       command?: string;
       url?: string;
       token?: string;
+      enabled?: boolean;
       useGlobal?: boolean;
       reset?: boolean;
     }

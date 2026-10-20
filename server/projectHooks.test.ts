@@ -93,7 +93,13 @@ describe("which hooks an event goes to", () => {
   test("with nothing set, midna's command when midna is here, and nothing when it isn't", () => {
     const here = new HookCenter(fakeWorld({ midna: "/u/.local/bin/midna" }).io, () => {}, files());
     expect(here.targets("p1")).toEqual([{ scope: "global", target: "command", to: MIDNA_COMMAND }]);
-    expect(here.view().global).toEqual({ command: MIDNA_COMMAND, url: "", hasToken: false, custom: false });
+    expect(here.view().global).toEqual({
+      command: MIDNA_COMMAND,
+      url: "",
+      hasToken: false,
+      enabled: true,
+      custom: false,
+    });
     expect(here.view().midna).toBe("/u/.local/bin/midna");
     const away = new HookCenter(fakeWorld({ midna: null }).io, () => {}, files());
     expect(away.targets("p1")).toEqual([]);
@@ -115,6 +121,31 @@ describe("which hooks an event goes to", () => {
     expect(center.targets("p1")).toEqual([{ scope: "project", target: "command", to: "notify-send done" }]);
     // another project still gets the global ones
     expect(center.targets("p2").map((t) => t.scope)).toEqual(["global"]);
+  });
+
+  test("off keeps the hooks as they are and sends nothing; on again sends to them", () => {
+    const center = new HookCenter(fakeWorld({ midna: "/m/midna" }).io, () => {}, files());
+    // turning the default off keeps midna's command, switched off
+    center.set({ enabled: false });
+    expect(center.view().global).toEqual({
+      command: MIDNA_COMMAND,
+      url: "",
+      hasToken: false,
+      enabled: false,
+      custom: true,
+    });
+    expect(center.targets("p1")).toEqual([]);
+    center.set({ projectId: "p1", command: "cat" });
+    expect(center.targets("p1")).toEqual([{ scope: "project", target: "command", to: "cat" }]);
+    center.set({ projectId: "p1", enabled: false });
+    expect(center.view().projects["p1"]?.enabled).toBe(false);
+    expect(center.targets("p1")).toEqual([]);
+    center.set({ enabled: true });
+    center.set({ projectId: "p1", enabled: true });
+    expect(center.targets("p1").map((t) => t.to)).toEqual([MIDNA_COMMAND, "cat"]);
+    // a project switched off with nothing of its own isn't kept
+    center.set({ projectId: "p2", enabled: false });
+    expect(center.view().projects["p2"]).toBeUndefined();
   });
 
   test("the same command in both goes once", () => {
@@ -150,6 +181,7 @@ describe("changing the hooks", () => {
       command: "cat",
       url: "http://127.0.0.1:9/h",
       hasToken: true,
+      enabled: true,
       custom: true,
     });
     center.set({ token: "" });
@@ -172,6 +204,7 @@ describe("changing the hooks", () => {
       command: "cat",
       url: "",
       hasToken: false,
+      enabled: true,
       useGlobal: false,
     });
     center.set({ projectId: "p1", command: "", useGlobal: true });

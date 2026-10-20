@@ -191,6 +191,7 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
     command: "cat",
     url: "http://127.0.0.1:9/hook",
     token: "t",
+    enabled: true,
     useGlobal: false,
     reset: false,
   },

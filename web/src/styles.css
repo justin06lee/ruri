@@ -10058,6 +10058,10 @@ button.stop:hover {
   font-size: 12px;
 }
 
+.hooks-field input.hooks-default {
+  color: var(--ink-faint);
+}
+
 .hooks-token {
   display: flex;
   align-items: center;

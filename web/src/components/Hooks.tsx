@@ -92,7 +92,8 @@ function TargetForm({
           command{commandHint && <span className="hooks-hint"> · {commandHint}</span>}
         </span>
         <input
-          className="int-line"
+          // the default greyed until it is changed: it is ruri's, not the user's
+          className={commandHint && command === target.command ? "int-line hooks-default" : "int-line"}
           placeholder="run with the event's JSON on stdin (optional)"
           value={command}
           spellCheck={false}

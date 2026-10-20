@@ -1593,6 +1593,92 @@ export interface McpAdd {
   headers?: Record<string, string>;
 }
 
+/* ── project hooks (server/projectHooks.ts) ─────────────────────────── */
+
+/** What a project's hooks are told: its whole team done (`project.idle`),
+ *  a chat of it waiting on someone (`project.blocked`), or the user
+ *  pressing "send test event" (`project.test`). */
+export type ProjectEventKind = "project.idle" | "project.blocked" | "project.test";
+
+/**
+ * What a hook is handed — on a command's stdin, or as a webhook's JSON
+ * body. A contract with whatever reads it (midna, first): add nothing,
+ * rename nothing, without telling them.
+ */
+export interface ProjectEventPayload {
+  id: string;
+  source: "ruri";
+  kind: ProjectEventKind;
+  project: { id: string; name: string; path: string };
+  /** The chats that worked since the team went busy, the lead always — a
+   *  blocked event's waiting chat first. */
+  chats: Array<{
+    id: string;
+    name: string;
+    role: "lead" | "teammate" | "liaison";
+    /** Its last reply, trimmed to about 600 characters — or, for a chat
+     *  waiting at a card, what the card asks. */
+    lastSummary: string;
+  }>;
+  /** What the project's chats spent since the team went busy, in dollars. */
+  costUsd: number;
+  /** When it happened, ISO 8601. */
+  at: string;
+}
+
+/** Where a project's events go: a command run with the event on its stdin,
+ *  and/or a URL the event is POSTed to. As a window sees it: the bearer
+ *  token never leaves the server, only whether there is one. */
+export interface HookTargetView {
+  /** "" for none. */
+  command: string;
+  /** "" for none. */
+  url: string;
+  hasToken: boolean;
+  /** Off: kept as they are, and sent nothing. */
+  enabled: boolean;
+}
+
+/** One event on its way to one hook. */
+export interface HookDelivery {
+  id: string;
+  eventId: string;
+  kind: ProjectEventKind;
+  projectId: string;
+  projectName: string;
+  /** The global hooks', or the project's own. */
+  scope: "global" | "project";
+  target: "command" | "webhook";
+  /** The command, or the URL. */
+  to: string;
+  /** When the event happened (epoch ms). */
+  at: number;
+  state: "pending" | "ok" | "retrying" | "failed";
+  attempts: number;
+  /** When the next try is due, while retrying. */
+  nextAt?: number;
+  /** How the last try went, in a few words: "exit 0", "HTTP 503", "timed
+   *  out after 30s", with the start of what it said on a failure. */
+  result?: string;
+  /** When the last try finished. */
+  doneAt?: number;
+}
+
+/** The hooks as they stand, and the latest deliveries. */
+export interface HooksView {
+  /** Where midna was found on this machine, when it was. */
+  midna: string | null;
+  /** The command the global hook is, untouched, when midna is here. */
+  midnaCommand: string;
+  /** Every project's hooks, unless it opts out. `custom` false is the
+   *  default: midna's command when midna is here, else nothing. */
+  global: HookTargetView & { custom: boolean };
+  /** A project's own, by project id — only projects that have set any. */
+  projects: Record<string, HookTargetView & { useGlobal: boolean }>;
+  /** The newest first. */
+  deliveries: HookDelivery[];
+}
+
 /** Home-agent settings (the Home composer's model/effort/permission dropdowns). */
 export interface HomeSettings {
   model?: string;
@@ -1978,6 +2064,31 @@ export type ClientMessage =
   | { type: "integrations_get"; projectId?: string }
   /** Plugins on offer that match `query`. Answered with `plugins_found`. */
   | { type: "plugins_search"; harness: IntegrationHarness; query: string }
+  /* ── project hooks ─────────────────────────────────────────────────── */
+  /** The hooks and the latest deliveries. Answered with `hooks`. */
+  | { type: "hooks_get" }
+  /**
+   * Change the global hooks, or with `projectId` that project's own. A
+   * field left out stays as it is; "" clears it (`token` included).
+   * `enabled` false turns that scope's own hooks off, kept as they are (for
+   * the global ones, off for every project). For a project, `useGlobal`
+   * false keeps the global hooks off it. `reset` puts
+   * the global hooks back to the default, or takes the project's own away.
+   * Every window hears `hooks`; a bad URL is answered with its `error`.
+   */
+  | {
+      type: "hooks_set";
+      projectId?: string;
+      command?: string;
+      url?: string;
+      token?: string;
+      enabled?: boolean;
+      useGlobal?: boolean;
+      reset?: boolean;
+    }
+  /** Send a `project.test` event: with `projectId`, to every hook that
+   *  project's events go to, about it; without, to the global hooks. */
+  | { type: "hooks_test"; projectId?: string }
   | { type: "mcp_add"; add: McpAdd; projectId?: string }
   | {
       type: "mcp_remove";
@@ -2171,6 +2282,9 @@ export type ServerMessage =
   | { type: "memory_model"; model: string }
   | { type: "default_model"; model: string }
   | { type: "integrations"; projectId?: string; integrations: Integrations }
+  /** The hooks and their latest deliveries, to every window when either
+   *  changes — and `error` to the one whose change was refused. */
+  | { type: "hooks"; hooks: HooksView; error?: string }
   /** Who may message whom, and the latest messages between agents. */
   | { type: "talk"; policy: TalkPolicy; letters: TalkLetter[] }
   /** A project's team as it stands: its members, its liaison once an

@@ -184,6 +184,18 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   set_harness_auto: { type: "set_harness_auto", id: "claude", auto: false },
   integrations_get: { type: "integrations_get", projectId: "p" },
   plugins_search: { type: "plugins_search", harness: "claude", query: "stripe" },
+  hooks_get: { type: "hooks_get" },
+  hooks_set: {
+    type: "hooks_set",
+    projectId: "p",
+    command: "cat",
+    url: "http://127.0.0.1:9/hook",
+    token: "t",
+    enabled: true,
+    useGlobal: false,
+    reset: false,
+  },
+  hooks_test: { type: "hooks_test", projectId: "p" },
   mcp_add: {
     type: "mcp_add",
     add: {

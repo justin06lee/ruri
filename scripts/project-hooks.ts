@@ -3,10 +3,15 @@
  * idle and blocked detection): a scratch server on a temp config, a temp
  * project with a two-layer stack, and two hooks — a command that appends
  * what it is handed to a file, and a webhook on a tiny local HTTP server
- * that wants a bearer token. midna is kept out (RURI_MIDNA="").
+ * that wants a bearer token. A real midna is never reached: where midna
+ * 0.7+ is installed, its CLI is the default hook, pointed (MIDNA_URL,
+ * MIDNA_TOKEN) at a stand-in for midna's POST /v1/inbound on that same
+ * local server; where it isn't, there is no midna (RURI_MIDNA="").
  *
- *   1. the hooks over the socket: none to start with, then the global
- *      ones set — the token never comes back — and a bad URL refused;
+ *   1. the hooks over the socket: midna's command the default global hook
+ *      (or nothing, without midna) — and with midna, a test event through
+ *      midna's own CLI to the stand-in, its receipt kept; then the global
+ *      hooks set — the token never comes back — and a bad URL refused;
  *   2. "send test event": one project.test at the command and one at the
  *      webhook, the same event, in exactly the shape midna reads;
  *   3. real turns (haiku): the lead hands a question to a teammate, the
@@ -28,6 +33,7 @@ import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 import WebSocket from "ws";
 import { bootServer, wsUrl } from "./lib/server.js";
 import type {
@@ -46,6 +52,23 @@ const PORT = Number(process.env["RURI_PORT"] ?? 7894);
  *  debounce, shortened so the test doesn't sit a minute each time. */
 const IDLE_MS = Number(process.env["HOOKS_IDLE_MS"] ?? 15_000);
 const TOKEN = "e2e-bearer-token";
+/** midna's CLI, when one that has `midna event` is installed. */
+const MIDNA_CLI = ((): string | undefined => {
+  const cli = process.env["RURI_MIDNA_CLI"] ?? path.join(os.homedir(), ".local", "bin", "midna");
+  if (!fs.existsSync(cli)) return undefined;
+  try {
+    return execFileSync(cli, ["event", "--help"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).includes("--source")
+      ? cli
+      : undefined;
+  } catch (err) {
+    const out =
+      String((err as { stdout?: string }).stdout ?? "") + String((err as { stderr?: string }).stderr ?? "");
+    return out.includes("midna event --source") ? cli : undefined;
+  }
+})();
 const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-hooks-config-"));
 const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-hooks-project-"));
 const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-hooks-out-"));
@@ -102,6 +125,19 @@ const hookServer = http.createServer((req, res) => {
       body,
       at: Date.now(),
     });
+    // the stand-in for midna's POST /v1/inbound
+    if (req.url === "/v1/inbound") {
+      const ok = req.headers.authorization === "Bearer stand-in-token";
+      res.writeHead(ok ? 202 : 401, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify(
+          ok
+            ? { status: "queued", eventId: hits.length, wakeupId: 1, dueAt: Date.now() }
+            : { error: "unauthorized — pair this device first" },
+        ),
+      );
+      return;
+    }
     if (req.url === "/flaky" && ++flaky <= 2) {
       res.writeHead(503).end("not yet");
       return;
@@ -125,7 +161,9 @@ const server = bootServer({
   env: {
     RURI_NO_MEMORY: "1",
     RURI_NO_HARNESS_UPDATES: "1",
-    RURI_MIDNA: "",
+    RURI_MIDNA: MIDNA_CLI ?? "",
+    MIDNA_URL: hookBase,
+    MIDNA_TOKEN: "stand-in-token",
     RURI_HOOK_RETRY_MS: "1000,2000,2000,2000",
     RURI_IDLE_MS: String(IDLE_MS),
   },
@@ -278,14 +316,52 @@ const teamQuiet = () => (ours()?.sessions ?? []).every((s) => !busy(s.id));
 
 send({ type: "hooks_get" });
 await until("the hooks", () => hooks !== undefined, 30_000);
-check(
-  "to start with: no midna, the default global hook, which is nothing",
-  hooks?.midna === null &&
-    hooks.global.custom === false &&
-    hooks.global.command === "" &&
-    hooks.global.url === "",
-  hooks,
-);
+if (!MIDNA_CLI) {
+  check(
+    "to start with: no midna, the default global hook, which is nothing",
+    hooks?.midna === null &&
+      hooks.global.custom === false &&
+      hooks.global.command === "" &&
+      hooks.global.url === "",
+    hooks,
+  );
+} else {
+  console.log(`    (midna's CLI: ${MIDNA_CLI}, pointed at the stand-in)`);
+  check(
+    "to start with: midna found, and its command the default global hook",
+    hooks?.midna === MIDNA_CLI &&
+      hooks.global.custom === false &&
+      hooks.global.command === hooks.midnaCommand &&
+      hooks.global.enabled,
+    hooks,
+  );
+  send({ type: "hooks_test" });
+  const inbound = () => hits.filter((h) => h.path === "/v1/inbound");
+  await until("midna's CLI to post it", () => inbound().length >= 1, 30_000);
+  const sent = inbound()[0];
+  const envelope = sent
+    ? (JSON.parse(sent.body) as { source?: string; title?: string; data?: ProjectEventPayload })
+    : {};
+  check(
+    "a test event goes through midna's own CLI to /v1/inbound, with the device's bearer",
+    inbound().length === 1 && sent?.auth === "Bearer stand-in-token",
+    hits,
+  );
+  check(
+    "as midna takes it: source ruri, the title, the event as data",
+    envelope.source === "ruri" &&
+      envelope.title === "ruri: test event from ruri" &&
+      exactShape(envelope.data) &&
+      envelope.data?.kind === "project.test",
+    envelope,
+  );
+  await until("the delivery to settle", () => hooks?.deliveries[0]?.state === "ok", 15_000);
+  check(
+    "and midna's receipt is kept with the delivery",
+    /^exit 0 · queued, event \d+$/.test(hooks?.deliveries[0]?.result ?? ""),
+    hooks?.deliveries[0],
+  );
+}
 send({ type: "hooks_set", command: `cat >> '${commandOut}'`, url: `${hookBase}/hook`, token: TOKEN });
 await until("the global hooks", () => hooks?.global.custom === true, 10_000);
 check(
@@ -352,8 +428,9 @@ await until(
 );
 check(
   "the page's deliveries say both went, first try",
-  (hooks?.deliveries ?? []).filter((d) => d.kind === "project.test" && d.state === "ok" && d.attempts === 1)
-    .length === 2,
+  (hooks?.deliveries ?? []).filter(
+    (d) => d.eventId === testCommand?.id && d.state === "ok" && d.attempts === 1,
+  ).length === 2,
   hooks?.deliveries,
 );
 

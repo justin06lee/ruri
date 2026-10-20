@@ -3,7 +3,7 @@
 One layer of ruri's stack, owning `web/src/, web/index.html, eslint.config.js, scripts/run-tests.ts, vite.config.ts, scripts/session-settings.ts, scripts/sharing.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer app-shell` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer app-shell add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
-This layer is the web app shell: entry HTML, React root, global zustand store with socket wiring, local-first prefs, and global manga-theme styles. It freezes a window nobody can see (minimised, hidden, another Space, or fully covered — not merely unfocused): inbound updates are held with only the latest kept and applied in one redraw on wake, while agents and terminals keep running. It also carries the Linux shell adaptations: Permissions settings renders a no-grants message instead of macOS calls and shortcuts use Ctrl on Linux. Newcomers must grasp that store.ts is the single state/socket hub all feature layers read, that held.ts owns the asleep hold-and-catch-up, and that styles.css plus the beat/awake/spin clocks define how anything may look or move.
+This layer is the web app shell: entry HTML, React root, global zustand store with socket wiring, local-first prefs, and global manga-theme styles. It freezes a window nobody can see (minimised, hidden, another Space, or fully covered, not merely unfocused): inbound updates are held with only the latest kept and applied in one redraw on wake, while agents and terminals keep running. It also carries the Linux shell adaptations: Permissions settings renders a no-grants message instead of macOS calls and shortcuts use Ctrl on Linux. Newcomers must grasp that store.ts is the single state/socket hub all feature layers read, that held.ts owns the asleep hold-and-catch-up, and that styles.css plus the beat/awake/spin clocks define how anything may look or move.
 
 ## Where to change what
 
@@ -22,6 +22,7 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - **Chat pane and continuation display:** web/src/components/ChatPane.tsx, web/src/components/PermissionBanner.tsx, web/src/components/Exchange.tsx, web/src/store.ts
 - **Sidebar project rows and session navigation:** web/src/components/Sidebar.tsx, web/src/components/ChatPane.tsx, web/src/store.ts
 - **Home board and queue:** web/src/components/HomeBoard.tsx, web/src/components/Queue.tsx, web/src/styles.css
+- **Project hooks state and styling:** web/src/store.ts, web/src/styles.css
 
 ## How it works
 
@@ -62,4 +63,5 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - Appearance — tuner.tsx writes src/peek.ts and styles.css carries theme tokens theme.ts paints into
 - Chat runs and queue — store watchers deliver server transcripts, queue, progress and permissions
 - Terminals, agents and integrations — prefs.ts cache fronts server/prefs.ts over the socket
+- Project hooks — store.ts and styles.css carry the hooks UI state and styling; the hook logic itself lives in the integrations layer
 - Test scripts: composer, windows and previews — ?fixture and ?awake flags exist to be driven by shot/chips scripts

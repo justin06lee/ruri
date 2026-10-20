@@ -16,7 +16,6 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - **Usage and machine meters:** server/usage.ts, server/gauges.ts, server/resources.ts
 - **Self-compaction and context tools:** server/selfCompaction.ts, server/chats.ts, server/routes.ts, shared/protocol.ts
 - **Carry-on continuation after compaction:** shared/protocol.ts, server/selfCompaction.ts, server/talk.ts
-- **Team page backend (teammates, liaison, slots):** server/handlers/team.ts, server/handlers/talk.ts, shared/protocol.ts, server/selfCompaction.ts
 
 ## How it works
 
@@ -36,7 +35,6 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - server/selfCompaction.ts — self-compact threshold, note validation and due check
 - server/chats.ts — turn result branch running self-compact and continuation queueing
 - server/uploads.ts — attachment persist, model payload, serve and sweep
-- server/handlers/team.ts — team actions (stop/refresh/restart/compact/retire) and liaison/free-layer status
 
 ## Rules and traps
 
@@ -47,7 +45,6 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder of its own (bunfig.toml, scripts/test-config.ts), so a test run never touches ~/.config/ruri.
 - Secrets must never enter model context, logs, or transcripts — only names/placeholders leave server/secrets.ts.
 - The compact tool must not stop the turn or settle the owed letter: call carryLetter in the chats.ts result branch only when selfCompactDue returns a note, still before talkTurnEnded, so a stopped turn drops the note and settles normally.
-- The server must refuse team actions on the liaison, and stop is only enabled while a teammate's turn is running.
 
 ## What it talks to
 
@@ -56,3 +53,4 @@ This layer is the Node HTTP + WebSocket transport everything else rides on: one 
 - Agent harnesses — session managers and usage/resource sources (agents, sessions, providers) plug into server.ts assembly
 - Bridge — HTTP routes proxy bridge pictures/calls via bridge state, not directly; native-app driving needs X11 plus AT-SPI and must refuse on Wayland
 - Desktop shell — single-instance lock and served UI origin depend on the claimed port
+- Terminals, agents and integrations — project hooks wire types live in shared/protocol.ts and are validated in shared/clientSchema.ts; the hook logic itself lives in server/projectHooks.ts and server/handlers/hooks.ts

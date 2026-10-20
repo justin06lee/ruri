@@ -1,6 +1,6 @@
 # ruri — Management: agents, skills and tracking
 
-One layer of ruri's stack, owning `web/src/components/AgentsPage.tsx, web/src/components/Integrations.tsx, web/src/components/Skills.tsx, web/src/components/Ideas.tsx, web/src/components/Tracker.tsx, web/src/components/TalkPage.tsx, web/src/components/Statistics.tsx, web/src/components/Bridge.tsx, web/src/components/figures.ts, web/src/lib/models.ts, scripts/meters.ts, web/src/components/TeamPage.tsx`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
+One layer of ruri's stack, owning `web/src/components/AgentsPage.tsx, web/src/components/Integrations.tsx, web/src/components/Skills.tsx, web/src/components/Ideas.tsx, web/src/components/Tracker.tsx, web/src/components/TalkPage.tsx, web/src/components/Statistics.tsx, web/src/components/Bridge.tsx, web/src/components/figures.ts, web/src/lib/models.ts, scripts/meters.ts, web/src/components/TeamPage.tsx, web/src/components/Hooks.tsx`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer management-pages` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer management-pages add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
 Management layer holds the secondary boards and settings pages: agents/scripts, harness integrations, skills, ideas, tracker review, talk rules, and cost/machine statistics. Pages are thin views over server state via the store's `send`/`useRuri`, with formatting shared in figures.ts and model-name helpers in models.ts. Newcomer idea: ruri never owns harness config here — it displays and delegates to harness CLIs, bmo, ledger, and tracker/talk servers.
@@ -17,6 +17,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - **Bridge preview strip:** web/src/components/Bridge.tsx
 - **Number formatting:** web/src/components/figures.ts
 - **Model/harness naming:** web/src/lib/models.ts
+- **Project hooks: global and per-project command/webhook, send test event, recent deliveries:** web/src/components/Hooks.tsx
 
 ## How it works
 
@@ -37,6 +38,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - web/src/components/Bridge.tsx — live hidden-window plate above composer with take-over
 - web/src/components/TalkPage.tsx — which projects may reach which (every project's rule, a project's own over it) plus recent letters (figures.ts formats money/counts/spans for every page)
 - web/src/lib/models.ts — harnessName and roughName label helpers
+- web/src/components/Hooks.tsx — the hooks section on the Integrations page: on/off, command, webhook, write-only token, midna's default, test event, recent deliveries
 
 ## Rules and traps
 

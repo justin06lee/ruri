@@ -1,6 +1,6 @@
 # ruri — Chat runs and queue
 
-One layer of ruri's stack, owning `server/chats.ts, server/channel.ts, server/dispatch.ts, server/events.ts, server/queue.ts, server/turns.ts, server/retry.ts, server/blocked.ts, server/paragraphs.ts, server/drafts.ts, server/commands.ts, server/homelog.ts, server/handlers/prompts.ts, server/handlers/rewind.ts, server/handlers/transcript.ts, server/handlers/talk.ts, server/talk.ts, scripts/rewind-git.ts, scripts/rewind.ts, scripts/smoke.ts, server/team.ts, server/handlers/team.ts, scripts/team.ts, scripts/agent-compact.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
+One layer of ruri's stack, owning `server/chats.ts, server/channel.ts, server/dispatch.ts, server/events.ts, server/queue.ts, server/turns.ts, server/retry.ts, server/blocked.ts, server/paragraphs.ts, server/drafts.ts, server/commands.ts, server/homelog.ts, server/handlers/prompts.ts, server/handlers/rewind.ts, server/handlers/transcript.ts, server/handlers/talk.ts, server/talk.ts, scripts/rewind-git.ts, scripts/rewind.ts, scripts/smoke.ts, server/team.ts, server/handlers/team.ts, scripts/team.ts, scripts/agent-compact.ts, server/projectWatch.ts, server/projectWatch.test.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer chat-runs-queue` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer chat-runs-queue add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
 This layer runs live chat turns: prompt dispatch, the app-side queue, turn progress and transcript delivery over the socket, and the team and talk built on them. A prompt is written, checkpointed, titled, and queued or run; every agent sees its context use and compacts itself past half its window through a handoff-note continuation queued at the head; a finished turn drains the queue or retries.
@@ -16,6 +16,7 @@ This layer runs live chat turns: prompt dispatch, the app-side queue, turn progr
 - **agent-to-agent talk and project teams (lead, liaison, members, the leads' team tools and what a lead is refused, team message liaison and freeLayers):** server/talk.ts, server/handlers/talk.ts, server/team.ts, server/handlers/team.ts
 - **slash commands in prompts:** server/commands.ts, server/dispatch.ts
 - **retry and dropped turns:** server/retry.ts, server/dispatch.ts
+- **project idle and blocked detection for the hooks:** server/projectWatch.ts
 
 ## How it works
 

@@ -11,10 +11,10 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 
 1. **Conversation: composer and chat** — Composing prompts and reading replies, with attachments, markdown, diffs and questions (`web/src/components/, web/src/, web/src/lib/ · 24 files`) → `.ruri/layers/conversation.md`
 2. **Navigation: sidebar, projects and queue** — Moving between projects (each its lead), with sidebar, home board, switcher, queue and rapid fire (`web/src/components/, web/src/lib/ · 10 files`) → `.ruri/layers/navigation-projects.md`
-3. **Management: agents, skills and tracking** — Managing agents, integrations, skills, ideas, talk and cost/tracker pages (`web/src/components/, web/src/lib/, scripts/ · 12 files`) → `.ruri/layers/management-pages.md`
+3. **Management: agents, skills and tracking** — Managing agents, integrations, skills, ideas, talk and cost/tracker pages (`web/src/components/, web/src/lib/, scripts/ · 13 files`) → `.ruri/layers/management-pages.md`
 4. **Appearance: theme, art and component library** — Theming, peek band and hero art, dragon gauges and shared UI pieces (`web/src/components/, web/src/, web/src/lib/ +3 · 24 files`) → `.ruri/layers/appearance-library.md`
 5. **App shell, state and tooling** — App entry, store, prefs, global styles, clocks, fixture and art tuner tooling (`web/src/, web/, ./ +1 · 6 files`) → `.ruri/layers/app-shell.md`
-6. **Chat runs and queue** — Live prompts, queue, turns, rewind and transcript delivery over the socket. (`server/, server/handlers/, scripts/ · 24 files`) → `.ruri/layers/chat-runs-queue.md`
+6. **Chat runs and queue** — Live prompts, queue, turns, rewind and transcript delivery over the socket. (`server/, server/handlers/, scripts/ · 26 files`) → `.ruri/layers/chat-runs-queue.md`
 7. **Projects, memory and history** — Project sessions, checkpoints, working memory, archive, tracker and briefs. (`server/, server/handlers/, scripts/ · 41 files`) → `.ruri/layers/projects-memory-history.md`
 8. **Library, skills and sweeps** — Component library, skills, repo sweeps and their screenshots. (`server/, server/handlers/, shared/ · 11 files`) → `.ruri/layers/library-skills-sweeps.md`
 9. **Terminals, agents and integrations** — Composer terminals, background scripts, crew agents, music and harness integrations. (`server/, server/handlers/, scripts/ · 19 files`) → `.ruri/layers/terminals-agents-integrations.md`

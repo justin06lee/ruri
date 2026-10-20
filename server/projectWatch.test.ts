@@ -64,7 +64,12 @@ function world() {
   } as unknown as ServerContext;
   let now = 1_000_000;
   const heard: ProjectEvent[] = [];
-  const watch = new ProjectWatch(ctx, { now: () => now, emit: (event) => heard.push(event) });
+  const began: Array<{ projectId: string; busySince: number }> = [];
+  const watch = new ProjectWatch(ctx, {
+    now: () => now,
+    emit: (event) => heard.push(event),
+    busy: (projectId, busySince) => began.push({ projectId, busySince }),
+  });
   /** Time passing, the watch sweeping as it goes. */
   const pass = (ms: number) => {
     for (let gone = 0; gone < ms; gone += SWEEP_MS) {
@@ -116,6 +121,7 @@ function world() {
     events,
     retrying,
     heard,
+    began,
     pass,
     start,
     end,
@@ -183,6 +189,8 @@ describe("a project's team done", () => {
     w.end("lead", "UI fixed it.");
     w.pass(IDLE_AFTER_MS + SWEEP_MS);
     expect(w.idles()).toEqual([expect.objectContaining({ projectId: "p", busySince: began })]);
+    // the hooks heard the stretch begin once, however many chats went busy in it
+    expect(w.began).toEqual([{ projectId: "p", busySince: began }]);
   });
 
   test("an interrupted turn — a message cutting in — and a dropped one to retry, never fire it", () => {
@@ -497,7 +505,7 @@ test("listeners hear events, and one that throws doesn't stop the rest", () => {
   });
   const off2 = onProjectEvent((event) => heard.push(event.kind));
   const world2 = world();
-  const watch = new ProjectWatch(world2.ctx);
+  const watch = new ProjectWatch(world2.ctx, { busy: () => {} });
   world2.start("lead");
   watch.status("lead", "working");
   world2.end("lead");

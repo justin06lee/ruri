@@ -7,6 +7,7 @@ import type { ClientConn, ServerContext } from "../context.js";
 import { boardHandlers } from "./boards.js";
 import { componentHandlers } from "./components.js";
 import { crewHandlers } from "./crew.js";
+import { hookHandlers } from "./hooks.js";
 import { hostHandlers } from "./host.js";
 import { integrationHandlers } from "./integrations.js";
 import { projectHandlers } from "./projects.js";
@@ -35,6 +36,7 @@ const HANDLERS: Handlers = {
   ...hostHandlers,
   ...sharingHandlers,
   ...integrationHandlers,
+  ...hookHandlers,
   ...talkHandlers,
   ...teamHandlers,
 };

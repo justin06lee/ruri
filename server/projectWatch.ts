@@ -23,6 +23,10 @@
  * Neither fires for what the user ended themselves (Stop, a rewind), nor at
  * a launch: what was at work before it is not seen ending.
  *
+ * Every event goes to the hooks (server/projectHooks.ts fireProjectEvent),
+ * which deliver it and try again; each stretch's start goes there too
+ * (projectBusy), the baseline its spend is measured from.
+ *
  * The state is read where it lives, every SWEEP_MS, rather than followed
  * through every path that changes it; only a turn starting is told as it
  * happens, so one shorter than a sweep is still a stretch at work.
@@ -31,6 +35,7 @@ import type { Project, ProjectStatus, TranscriptEvent } from "../shared/protocol
 import { ownerProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import { warn } from "./log.js";
+import { fireProjectEvent, projectBusy } from "./projectHooks.js";
 
 /** What midna hears about a project. Times are epoch ms. */
 export type ProjectEvent =
@@ -56,10 +61,16 @@ export type ProjectEvent =
       at: number;
     };
 
+/** A wait the environment may shorten, for a test run (RURI_IDLE_MS,
+ *  RURI_BLOCKED_MS). */
+function waitFrom(name: string, fallback: number): number {
+  const set = Number(process.env[name]);
+  return Number.isFinite(set) && set > 0 ? set : fallback;
+}
 /** How long a project stays still before its team counts as done. */
-export const IDLE_AFTER_MS = 60_000;
+export const IDLE_AFTER_MS = waitFrom("RURI_IDLE_MS", 60_000);
 /** How long a question or a card goes unanswered before it is news. */
-export const BLOCKED_AFTER_MS = 15_000;
+export const BLOCKED_AFTER_MS = waitFrom("RURI_BLOCKED_MS", 15_000);
 /** How long after a chat's last turn a shell it left running still counts
  *  as its work: a build or a test run is over by then; a dev server is not
  *  the team at work. */
@@ -67,8 +78,11 @@ export const SCRIPTS_COUNT_MS = 15 * 60_000;
 /** A message to another project still waiting on its answer after this is
  *  not the team at work: something lost it. */
 export const LETTER_WAITS_MS = 6 * 60 * 60_000;
-/** How often the state is read. */
-export const SWEEP_MS = 5_000;
+/** How often the state is read: often enough for the shortest wait. */
+export const SWEEP_MS = Math.min(
+  5_000,
+  Math.max(250, Math.floor(Math.min(IDLE_AFTER_MS, BLOCKED_AFTER_MS) / 3)),
+);
 /** How long a chat the user stopped takes to wind down: at work, still,
  *  without that being new work. */
 const STOP_SETTLES_MS = 10_000;
@@ -129,16 +143,28 @@ export class ProjectWatch {
   private timer: NodeJS.Timeout | undefined;
   private readonly now: () => number;
   private readonly emit: Listener;
+  private readonly stretchBegan: (projectId: string, busySince: number) => void;
   /** When this server began watching: a card up since before was told, if
    *  at all, by the run before it. */
   private readonly began: number;
 
   constructor(
     private readonly ctx: ServerContext,
-    opts: { now?: () => number; emit?: Listener } = {},
+    opts: {
+      now?: () => number;
+      emit?: Listener;
+      /** A stretch at work began. */
+      busy?: (projectId: string, busySince: number) => void;
+    } = {},
   ) {
     this.now = opts.now ?? Date.now;
-    this.emit = opts.emit ?? tell;
+    this.emit =
+      opts.emit ??
+      ((event) => {
+        fireProjectEvent(ctx, event);
+        tell(event);
+      });
+    this.stretchBegan = opts.busy ?? ((projectId, busySince) => projectBusy(ctx, projectId, busySince));
     this.began = this.now();
   }
 
@@ -226,7 +252,14 @@ export class ProjectWatch {
 
   private busy(projectId: string, now = this.now()): void {
     const stretch = this.stretch(projectId);
-    stretch.busySince ??= now;
+    if (stretch.busySince === undefined) {
+      stretch.busySince = now;
+      try {
+        this.stretchBegan(projectId, now);
+      } catch (err) {
+        warn("projectWatch", err, "projectBusy");
+      }
+    }
     stretch.quietSince = undefined;
     // a chat the user stopped is still at work for a moment, winding down
     if (stretch.userEnded === undefined || now - stretch.userEnded > STOP_SETTLES_MS) stretch.lastBusy = now;

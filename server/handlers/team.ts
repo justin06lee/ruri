@@ -24,6 +24,7 @@ import { channelProject, running } from "../channel.js";
 import type { ServerContext } from "../context.js";
 import { compactChannel, drainQueue, stopTurn } from "../dispatch.js";
 import type { QueueEntry } from "../queue.js";
+import { projectWatch } from "../projectWatch.js";
 import type { AddArgs, Head, TeamHost } from "../team.js";
 import { closeMember } from "./projects.js";
 import { cutOff, doing, modelFor, sendLetter, talkTurnCut, type WaitOptions } from "./talk.js";
@@ -477,6 +478,8 @@ export function actOn(ctx: ServerContext, chat: string, action: TeamAction, by: 
   const name = found.session.title || "that teammate";
   const who = byWords(by);
   const was = running(ctx, chat);
+  // the user's own hand on it: not the team done
+  if (by === "user" && was && (action === "stop" || action === "restart")) projectWatch(ctx).userEnded(chat);
   if (action === "stop") {
     if (!was) {
       return ctx.governor.waiting.includes(chat)

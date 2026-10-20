@@ -20,6 +20,7 @@ import { HOME_ID, managerExtras } from "./manager.js";
 import { carryLetter, talkHost, talkTurnEnded } from "./handlers/talk.js";
 import { teamHost, teamStatus } from "./handlers/team.js";
 import { ParagraphGate } from "./paragraphs.js";
+import { projectWatch } from "./projectWatch.js";
 import {
   CONTEXT_TOOLS,
   contextBriefing,
@@ -76,6 +77,8 @@ function leadOnTools(ctx: ServerContext, channelId: string, head: Head): Session
 }
 
 export function createChatManager(ctx: ServerContext): SessionManager {
+  // whether each project's team is at work, done, or waiting on the user
+  projectWatch(ctx).start();
   const manager = new SessionManager(
     {
       onEvent: (projectId, event) => {
@@ -135,6 +138,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             // than a nudge is, and it has just gone out
             else ctx.retries.cancelRetry(projectId);
           }
+          // a question it ended on for the user, read before the next prompt lands
+          projectWatch(ctx).turnEnded(projectId, event);
           // a message from another agent that started this turn is answered
           // by it — read before the next prompt (a microtask away) lands
           talkTurnEnded(ctx, projectId, event);
@@ -166,6 +171,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         ctx.clients.toViewers(projectId, { type: "delta", projectId, messageId, delta: ready });
       },
       onStatus: (projectId, status) => {
+        projectWatch(ctx).status(projectId, status);
         if (status === "working" || status === "permission") {
           ctx.bridge.cancelBridgeClose(projectId);
           ctx.turns.startTurn(projectId);

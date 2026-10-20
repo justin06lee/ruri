@@ -14,6 +14,7 @@ import type { ServerContext } from "../context.js";
 import { briefContext } from "../handoff.js";
 import { errorMessage } from "../log.js";
 import { HOME_ID } from "../manager.js";
+import { projectWatch } from "../projectWatch.js";
 import { promptChain } from "../sessions.js";
 import type { RewindReport } from "../checkpoints.js";
 import { restoreContext } from "../turns.js";
@@ -230,6 +231,8 @@ export const rewindHandlers = {
         const removed = ctx.archive.truncateFrom(channelId, eventId);
         if (removed.length > 0) {
           ctx.clients.broadcast({ type: "events_removed", projectId: channelId, eventIds: removed });
+          // what the rewound turns did, and a question they ended on, is gone
+          projectWatch(ctx).userEnded(channelId);
           pushTranscript(ctx, channelId);
           // items are tied to the prompts they were split from — the
           // rewound prompt's items (and every discarded later prompt's)

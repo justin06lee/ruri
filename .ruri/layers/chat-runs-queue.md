@@ -47,6 +47,7 @@ This layer runs live chat turns: prompt dispatch, the app-side queue, turn progr
 - Rewind restores files, branch, transcript, composer prompt and context gauge to the kept exchange, not the tip.
 - A letter is answered by the last words of the turn that finishes the job: owedLetter() is what a turn owes (its own letter, a carried one, or via an answer's owes); talkTurnEnded settles it only when nothing sent for it is out (TalkBook.outstanding). An answer that leaves the book any other way — a wait in another job, taken out of the queue — goes through answerOnward. Self-compaction marks the carry (carryLetter) at the turn's result, before talkTurnEnded.
 - The liaison (session.liaison) is never lead (leadOf skips it) nor a member: code taking 'every non-lead session' as the team must skip it (membersOf, isMember). unattended() covers members and the liaison: held lines let go for letters; the user's 'send now' waits behind a turn on another agent's job (onAJob).
+- projectWatch.atWork is the one list of what keeps a team at work (turns, lines, slots, retries, background work, letters out): a new way for a chat to be at work goes there, or midna hears 'done' while it runs.
 
 ## What it talks to
 

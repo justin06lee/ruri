@@ -33,14 +33,19 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 
 - server/ — Node backend: sessions, chats, queue, checkpoints, memory, bridge, routes
 - server/handlers/ — WebSocket/HTTP handlers per surface: projects, prompts, rewind, talk, skills
+- server/projectHooks.ts — idle/blocked hook config, midna detection, payload, retried delivery
+- server/projectWatch.ts — busy-period tracking and idle/blocked detection that fires project events
+- server/handlers/hooks.ts — hooks_get, hooks_set and hooks_test socket handlers
 - web/src/ — React UI: ChatPane, Composer, Queue, Sidebar, Settings, theming
 - web/src/components/ — chat, attachments, bridge, agents, architecture, ideas, tracker views
+- web/src/components/Hooks.tsx — hooks settings: global and per-project on/off, command, webhook, token, deliveries
 - web/src/lib/ — markdown, markers, models, transcript, effects, peek band helpers
 - shared/ — single wire contract: protocol.ts, client schema, question input
 - desktop/ — Electron shell: main, permissions, hidden bridge windows, native apps (linuxApps.ts on Linux)
 - scripts/ — per-capability smoke/dev scripts run via bun run *-test
 - docs/ — features, permissions, long-form capability docs
 - assets/ — ruri.svg, dragon art
+- ~/.config/ruri/hooks.json — hook settings (mode 0600), kept out of synced prefs
 
 ## How to run it
 
@@ -77,4 +82,4 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 - Sessions edit layer sheets only after reading, by line number with stale-read guard
 - Frontend component library with freshness stamps, auto-refresh and picture capture
 - Self-compaction at half-window: handoff note, owed letters carried forward
-- Linux: per-user make install, GNOME app grid entry, Ctrl for ⌘ shortcuts, no grants to ask for
+- Idle/blocked project hooks: command, webhook, or midna inbound events

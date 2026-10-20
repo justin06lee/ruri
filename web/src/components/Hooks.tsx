@@ -159,6 +159,36 @@ function TargetForm({
   );
 }
 
+/** A scope's hooks switched on or off: off keeps the command, URL and
+ *  token as they are, and sends nothing. */
+function OnOff({
+  label,
+  on,
+  busy,
+  title,
+  onFlip,
+}: {
+  label: string;
+  on: boolean;
+  busy: boolean;
+  title: string;
+  onFlip(on: boolean): void;
+}) {
+  return (
+    <div className="hooks-global-here">
+      <span className="hooks-label">{label}</span>
+      <button
+        className={`seg-option toggle ${on ? "active" : ""}`}
+        disabled={busy}
+        title={title}
+        onClick={() => onFlip(!on)}
+      >
+        {on ? "On" : "Off"}
+      </button>
+    </div>
+  );
+}
+
 /** One event on its way to one hook: how it went, where, and when. */
 function DeliveryRow({ delivery, now }: { delivery: HookDelivery; now: number }) {
   const tries =
@@ -214,11 +244,14 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
   const global = view.global;
   const own = projectId ? view.projects[projectId] : undefined;
   const scope = projectId ? { projectId } : {};
-  const globalSays = global.command
-    ? `$ ${global.command}`
-    : global.url
-      ? global.url
-      : "nothing — no global hook is set";
+  const globalSays = !global.enabled
+    ? "switched off for every project"
+    : global.command
+      ? `$ ${global.command}`
+      : global.url
+        ? global.url
+        : "nothing — no global hook is set";
+  const ownSet = !!own && (own.command !== "" || own.url !== "" || own.hasToken);
   return (
     <div className="hooks">
       <p className="settings-note grants-note">
@@ -243,6 +276,13 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
               "midna isn’t on this machine’s PATH — set a command or a URL for events to go to"
             )}
           </p>
+          <OnOff
+            label="global hooks"
+            on={global.enabled}
+            busy={busy}
+            title="Off keeps the command, URL and token, and no project gets the global hooks; a project's own still go"
+            onFlip={(enabled) => act({ type: "hooks_set", enabled })}
+          />
           <TargetForm
             target={global}
             {...(!global.custom && global.command ? { commandHint: "midna’s, the default" } : {})}
@@ -287,12 +327,21 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
             </span>
           </div>
           <p className="settings-note hooks-sub">Its own, as well:</p>
+          {ownSet && (
+            <OnOff
+              label="its own"
+              on={own.enabled}
+              busy={busy}
+              title="Off keeps its command, URL and token, and sends it nothing of its own; the global hooks still reach it unless kept off"
+              onFlip={(enabled) => act({ type: "hooks_set", projectId, enabled })}
+            />
+          )}
           <TargetForm
-            target={own ?? { command: "", url: "", hasToken: false }}
+            target={own ?? { command: "", url: "", hasToken: false, enabled: true }}
             busy={busy}
             onSave={(changes) => act({ type: "hooks_set", projectId, ...changes })}
           />
-          {own && (own.command || own.url || own.hasToken || own.useGlobal === false) && (
+          {own && (ownSet || own.useGlobal === false) && (
             <div className="int-form-row">
               <button
                 className="ghost"
@@ -327,6 +376,14 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
           <code>RURI_PROJECT_ID</code>, <code>RURI_PROJECT_NAME</code> and <code>RURI_PROJECT_PATH</code> set.
           It has 30 seconds. A webhook gets the JSON as a POST, with <code>Authorization: Bearer …</code> when
           a token is set.
+        </p>
+        <p>
+          The JSON:{" "}
+          <code>{`{"id", "source": "ruri", "kind", "project": {"id", "name", "path"}, "chats": [{"id", "name", "role", "lastSummary"}], "costUsd", "at"}`}</code>
+          . <code>kind</code> is <code>project.idle</code>, <code>project.blocked</code> or{" "}
+          <code>project.test</code>; <code>chats</code> are the ones that worked since the team went busy —
+          the lead always, and on a blocked event the chat that is waiting first — each with its last reply
+          (or what its card asks) in about 600 characters; <code>costUsd</code> is what was spent since then.
         </p>
         <p>
           One that fails is tried again after 5s, 30s, 2m and 10m — five tries in all — unless it can’t get

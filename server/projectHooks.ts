@@ -463,6 +463,11 @@ export class HookCenter {
     return base?.busySince === busySince ? base.costUsd : undefined;
   }
 
+  /** When the project's latest busy period this server saw began. */
+  busySince(projectId: string): number | undefined {
+    return this.baselines.get(projectId)?.busySince;
+  }
+
   /** Hand an event to each target, and keep at it until each has it. */
   deliver(payload: ProjectEventPayload, targets: HookTarget[], cwd: string): HookDelivery[] {
     const body = JSON.stringify(payload);
@@ -663,15 +668,31 @@ function cardSays(request: PermissionRequest): string | undefined {
 }
 
 /** The chat's last word: the card it waits at, else its last reply. */
-function lastSummary(ctx: ServerContext, sessionId: string, events: TranscriptEvent[]): string {
+function lastSummary(
+  ctx: ServerContext,
+  sessionId: string,
+  events: TranscriptEvent[],
+  why?: BlockedWhy,
+): string {
   const card = [...ctx.permissions.values()]
     .filter((request) => request.projectId === sessionId)
     .sort((a, b) => b.ts - a.ts)
     .map(cardSays)
     .find((said) => said !== undefined);
   if (card) return trimSummary(card);
+  if (why?.reason === "error" && why.text) return trimSummary(`Stopped on an error: ${why.text}`);
   const reply = events.findLast((event) => event.kind === "assistant");
-  return reply?.kind === "assistant" ? trimSummary(reply.text) : "";
+  if (reply?.kind === "assistant" && reply.text.trim()) return trimSummary(reply.text);
+  if (why?.text)
+    return trimSummary(why.reason === "card" ? `Waiting on approval: ${why.text}` : `Asks: ${why.text}`);
+  return "";
+}
+
+/** Why a blocked chat is waiting, as the chat runs saw it. */
+export interface BlockedWhy {
+  reason?: "question" | "card" | "error";
+  /** The question, or what the card asks about, or the error. */
+  text?: string;
 }
 
 /** A chat's events, back to `since` if the live part doesn't reach it. */
@@ -710,7 +731,7 @@ export function buildPayload(
   ctx: ServerContext,
   kind: ProjectEventKind,
   project: Project,
-  options: { busySince?: number; chatId?: string; costUsd: number; at?: number },
+  options: { busySince?: number; chatId?: string; why?: BlockedWhy; costUsd: number; at?: number },
 ): ProjectEventPayload {
   const leadId = leadOf(project)?.id;
   const chats: ProjectEventPayload["chats"] = [];
@@ -726,7 +747,12 @@ export function buildPayload(
       id: session.id,
       name: session.title ?? (role === "lead" ? "Lead" : role === "liaison" ? "Liaison" : "Teammate"),
       role,
-      lastSummary: lastSummary(ctx, session.id, events),
+      lastSummary: lastSummary(
+        ctx,
+        session.id,
+        events,
+        session.id === options.chatId ? options.why : undefined,
+      ),
     } as const;
     if (session.id === options.chatId) chats.unshift(row);
     else chats.push(row);
@@ -788,15 +814,27 @@ export function projectBusy(ctx: ServerContext, projectId: string, busySince: nu
   hooksOf(ctx).noteBusy(projectId, busySince, ctx.ledger.stats(projectId).total.costUsd);
 }
 
+/** What the chat runs hand fireProjectEvent: their ProjectEvent
+ *  (server/projectWatch.ts) fits it as it is. */
+export interface ProjectEventInput {
+  kind: "project.idle" | "project.blocked";
+  projectId: string;
+  /** When the busy period began (epoch ms). */
+  busySince?: number;
+  /** The chat waiting on someone, for project.blocked: first in `chats`. */
+  chatId?: string;
+  reason?: BlockedWhy["reason"];
+  text?: string;
+  /** When it happened (epoch ms); now, without. */
+  at?: number;
+}
+
 /**
  * A project went idle, or one of its chats is waiting on someone: tell its
  * hooks. Returns at once; never throws. The payload is built a moment
  * later, so a turn's spend recorded in the same breath as its end is in it.
  */
-export function fireProjectEvent(
-  ctx: ServerContext,
-  event: { kind: "project.idle" | "project.blocked"; projectId: string; busySince: number; chatId?: string },
-): void {
+export function fireProjectEvent(ctx: ServerContext, event: ProjectEventInput): void {
   setImmediate(() => {
     try {
       const project = ctx.store.get(event.projectId);
@@ -804,10 +842,16 @@ export function fireProjectEvent(
       const center = hooksOf(ctx);
       const targets = center.targets(project.id);
       if (!targets.length) return;
+      const at = event.at ?? Date.now();
+      // a blocked event should carry when its period began; one that
+      // doesn't takes the last this server saw, or names only who is waiting
+      const busySince = event.busySince ?? center.busySince(project.id);
       const payload = buildPayload(ctx, event.kind, project, {
-        busySince: event.busySince,
-        costUsd: spentSince(ctx, project, event.busySince),
+        busySince: busySince ?? at,
+        costUsd: busySince === undefined ? 0 : spentSince(ctx, project, busySince),
+        at,
         ...(event.chatId ? { chatId: event.chatId } : {}),
+        ...(event.reason || event.text ? { why: { reason: event.reason, text: event.text } } : {}),
       });
       center.deliver(payload, targets, workDir(project));
     } catch (err) {

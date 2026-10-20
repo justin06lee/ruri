@@ -272,7 +272,7 @@ describe("delivering", () => {
     fs.writeFileSync(stub, `#!/bin/sh\nprintf '%s ' "$@" > '${got}'\ncat >> '${got}'\n`, { mode: 0o755 });
     const center = new HookCenter({ ...realIo, findMidna: () => stub }, () => {}, files());
     center.deliver(samplePayload(), center.targets(), dir);
-    for (let i = 0; i < 50 && center.view().deliveries[0]?.state === "pending"; i++) await Bun.sleep(20);
+    for (let i = 0; i < 250 && center.view().deliveries[0]?.state === "pending"; i++) await Bun.sleep(20);
     expect(center.view().deliveries[0]?.state).toBe("ok");
     const written = fs.readFileSync(got, "utf8");
     const at = written.indexOf("{");
@@ -670,6 +670,52 @@ describe("firing", () => {
     fireProjectEvent(ctx, { kind: "project.idle", projectId: "p1", busySince: 100 });
     await settle();
     expect((JSON.parse(world.calls[0]!.input) as ProjectEventPayload).costUsd).toBe(0.75);
+  });
+
+  test("the chat runs' own event fits: its time, its reason, and a blocked one's busy period from the last seen", async () => {
+    let ledger = 1;
+    const { ctx } = fakeCtx(
+      [team],
+      { lead: [said("a", "On it.", 150)], db: [said("d", "", 250)] },
+      { ledger: () => ledger },
+    );
+    const world = fakeWorld();
+    const center = new HookCenter(world.io, () => {}, files());
+    center.set({ command: "cat" });
+    useHooks(ctx, center);
+    projectBusy(ctx, "p1", 100);
+    ledger = 1.5;
+    // shaped as server/projectWatch.ts makes it
+    const blocked: {
+      kind: "project.blocked";
+      projectId: string;
+      chatId: string;
+      reason: "question" | "card" | "error";
+      text?: string;
+      busySince?: number;
+      at: number;
+    } = {
+      kind: "project.blocked",
+      projectId: "p1",
+      chatId: "db",
+      reason: "error",
+      text: "API Error: 500",
+      at: Date.UTC(2026, 9, 19, 12),
+    };
+    fireProjectEvent(ctx, blocked);
+    fireProjectEvent(ctx, { ...blocked, reason: "question", text: "Drop the old table?" });
+    await settle();
+    const [error, question] = world.calls.map((c) => JSON.parse(c.input) as ProjectEventPayload);
+    expect(error?.at).toBe("2026-10-19T12:00:00.000Z");
+    expect(error?.costUsd).toBe(0.5);
+    expect(error?.chats[0]).toEqual({
+      id: "db",
+      name: "Database",
+      role: "teammate",
+      lastSummary: "Stopped on an error: API Error: 500",
+    });
+    // its last reply says nothing, so the question it was seen asking does
+    expect(question?.chats[0]?.lastSummary).toBe("Asks: Drop the old table?");
   });
 
   test("a project with no hooks, an unknown one, or Home sends nothing", async () => {

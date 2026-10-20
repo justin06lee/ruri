@@ -450,6 +450,30 @@ export class HookCenter {
     return out;
   }
 
+  /** Why a project's events — or, with none named, the global hooks' —
+   *  go nowhere, in words: none set, or set and switched off. */
+  nowhere(projectId?: string, name = "This project"): string {
+    const global = this.globalTarget();
+    const globalOff = !!(global.command || global.url) && global.enabled === false;
+    if (projectId === undefined) {
+      return globalOff
+        ? "The global hooks are switched off: turn them on to send a test."
+        : "There are no global hooks to send it to: add a command or a webhook first.";
+    }
+    const own = this.stored.projects?.[projectId];
+    const why = [
+      own?.useGlobal === false
+        ? "the global hooks are kept off it"
+        : globalOff
+          ? "the global hooks are switched off"
+          : "there are no global hooks",
+      own && (own.command || own.url) && own.enabled === false
+        ? "its own are switched off"
+        : "it has none of its own",
+    ];
+    return `${name}'s events go nowhere: ${why.join(", and ")}.`;
+  }
+
   /** The team went busy: what it spends from here is the next event's. */
   noteBusy(projectId: string, busySince: number, ledgerCostUsd: number): void {
     if (this.baselines.get(projectId)?.busySince === busySince) return;
@@ -874,11 +898,7 @@ export function sendTestEvent(ctx: ServerContext, projectId?: string): string | 
       : (ctx.store.get(projectId) ?? ctx.store.findSession(projectId)?.project);
   if (projectId !== undefined && !named) return "That project isn't open.";
   const targets = center.targets(named?.id);
-  if (!targets.length) {
-    return named
-      ? `${named.name}'s events go nowhere yet: give it a command or a webhook, or turn the global hooks on for it.`
-      : "There are no global hooks to send it to: add a command or a webhook first.";
-  }
+  if (!targets.length) return center.nowhere(named?.id, named?.name);
   const project = named ??
     ctx.store.list().find((p) => !p.hidden) ??
     ctx.store.list()[0] ?? { id: "test", name: "ruri", path: os.homedir(), sessions: [] };

@@ -746,7 +746,22 @@ describe("firing", () => {
     const center = new HookCenter(world.io, () => {}, files());
     useHooks(ctx, center);
     expect(sendTestEvent(ctx)).toContain("no global hooks");
-    expect(sendTestEvent(ctx, "p1")).toContain("Una's events go nowhere");
+    expect(sendTestEvent(ctx, "p1")).toBe(
+      "Una's events go nowhere: there are no global hooks, and it has none of its own.",
+    );
+    // set but switched off says so
+    center.set({ command: "cat", enabled: false });
+    expect(sendTestEvent(ctx)).toBe("The global hooks are switched off: turn them on to send a test.");
+    center.set({ projectId: "p1", command: "cat", enabled: false });
+    expect(sendTestEvent(ctx, "p1")).toBe(
+      "Una's events go nowhere: the global hooks are switched off, and its own are switched off.",
+    );
+    center.set({ projectId: "p1", useGlobal: false, command: "", enabled: true });
+    expect(sendTestEvent(ctx, "p1")).toBe(
+      "Una's events go nowhere: the global hooks are kept off it, and it has none of its own.",
+    );
+    center.set({ reset: true });
+    center.set({ projectId: "p1", reset: true });
     expect(sendTestEvent(ctx, "nope")).toContain("isn't open");
     center.set({ projectId: "p1", url: "http://127.0.0.1:9/h" });
     // a chat's id stands for its project

@@ -26,6 +26,7 @@ import {
   stopTurn,
 } from "../dispatch.js";
 import { combine, reslot, uncombine, type QueueEntry } from "../queue.js";
+import { projectWatch } from "../projectWatch.js";
 import { storeAttachments, storeUpload } from "../uploads.js";
 import { followCrew } from "./crew.js";
 import { answerTalk, onAJob, talkDropped } from "./talk.js";
@@ -338,6 +339,8 @@ export const promptHandlers = {
     // moves again on the next prompt (which goes ahead of it) or when
     // it is sent on from its own card.
     ctx.queues.cutIn.delete(msg.projectId);
+    // the user ended it: not the team done, and nothing to tell them
+    if (running(ctx, msg.projectId)) projectWatch(ctx).userEnded(msg.projectId);
     stopTurn(ctx, msg.projectId);
   },
   draft: (ctx, _ws, msg) => {

@@ -7,6 +7,7 @@ import type { BackgroundWork, ContextUsage, ServerMessage, TurnProgress } from "
 import { channelProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import type { ParagraphGate } from "./paragraphs.js";
+import { projectWatch } from "./projectWatch.js";
 
 /** Last broadcast per channel, so a stream of deltas is one message a
  *  second rather than one a token. */
@@ -165,7 +166,11 @@ export function pushWork(ctx: ServerContext, channelId: string): void {
   const none = work.agents === 0 && work.scripts === 0;
   if (none ? !before : before?.agents === work.agents && before.scripts === work.scripts) return;
   if (none) ctx.turns.work.delete(channelId);
-  else ctx.turns.work.set(channelId, work);
+  else {
+    ctx.turns.work.set(channelId, work);
+    // its project at work, however briefly
+    projectWatch(ctx).working(channelId);
+  }
   ctx.clients.broadcast({ type: "work", projectId: channelId, ...(none ? {} : { work }) });
 }
 

@@ -445,7 +445,10 @@ export function createRequestHandler(
     // invite at all (server/sharing.ts pairDirect), or a phone's, scoped to
     // the status ({"scope": "status"}): this computer's own door only,
     // token and all, never one come in through sharing
-    if (req.method === "POST" && (req.url === "/sharing/invite" || req.url === "/sharing/pair-local")) {
+    if (
+      req.method === "POST" &&
+      (req.url === "/sharing/invite" || req.url === "/sharing/phone" || req.url === "/sharing/pair-local")
+    ) {
       const answer = (made: Promise<unknown>) =>
         made.then(
           (value) => {
@@ -459,6 +462,12 @@ export function createRequestHandler(
         );
       if (req.url === "/sharing/invite") {
         void answer(ctx.sharing.invite());
+        return;
+      }
+      // a phone's QR code — its link opens the app on a simulator too
+      // (xcrun simctl openurl booted '<link>')
+      if (req.url === "/sharing/phone") {
+        void answer(ctx.sharing.phoneCode());
         return;
       }
       if (admitted) {

@@ -1,14 +1,15 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { randomBytes } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
+import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as https from "node:https";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as tls from "node:tls";
 import type { StatusReport } from "../shared/protocol.js";
 import type { ServerContext } from "./context.js";
 import { createRequestHandler } from "./routes.js";
-import { Sharing, type Pairing } from "./sharing.js";
+import { pairLink, Sharing, type Pairing, type PhoneCode } from "./sharing.js";
 import { createSocketServer } from "./socket.js";
 
 const TOKEN = "local-token";
@@ -61,6 +62,7 @@ function ask(
   pathname: string,
   key: string | undefined,
   method = "GET",
+  body = "{}",
 ): Promise<{ status: number; type: string; body: string }> {
   return new Promise((resolve, reject) => {
     const req = https.request(
@@ -90,7 +92,7 @@ function ask(
       },
     );
     req.on("error", reject);
-    req.end(method === "POST" ? "{}" : undefined);
+    req.end(method === "POST" ? body : undefined);
   });
 }
 
@@ -207,6 +209,104 @@ describe("making a phone's key", () => {
       expect(made.fingerprint).toBeTruthy();
       expect(sharing.deviceFor(showing(made.key))?.scope).toBe("status");
       expect((await ask("/healthz", made.key)).status).toBe(403);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+/** The certificate the door serves, as a phone pins it: SHA-256 over its
+ *  DER bytes, base64url. */
+function servedPin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = tls.connect({ host: "127.0.0.1", port: phone.port, rejectUnauthorized: false }, () => {
+      resolve(createHash("sha256").update(socket.getPeerCertificate().raw).digest("base64url"));
+      socket.end();
+    });
+    socket.on("error", reject);
+  });
+}
+
+/** A phone redeeming a ticket. */
+const redeem = (ticket: string, name = "Justin's iPhone") =>
+  ask("/pair/ticket", undefined, "POST", JSON.stringify({ ticket, name }));
+
+describe("a phone's QR code", () => {
+  test("its link: the Mac, the door, the pin, the ticket, and where to look — tailnet first", () => {
+    const link = pairLink({
+      name: "Justin's MacBook Pro",
+      port: 7775,
+      fingerprint: "pin_-",
+      ticket: "tick_-",
+      expires: 1_800_000_000_500,
+      addresses: ["Justins-MacBook-Pro", "192.168.1.20", "100.101.2.3", "10.77.0.2"],
+    });
+    expect(link.startsWith("ruri://pair?")).toBe(true);
+    // a space is %20, never "+", which Foundation would read as itself
+    expect(link).toContain("name=Justin's%20MacBook%20Pro");
+    const query = new URL(link).searchParams;
+    expect(query.get("v")).toBe("1");
+    expect(query.get("name")).toBe("Justin's MacBook Pro");
+    expect(query.get("port")).toBe("7775");
+    expect(query.get("fp")).toBe("pin_-");
+    expect(query.get("ticket")).toBe("tick_-");
+    expect(query.get("exp")).toBe("1800000000");
+    expect(query.getAll("addr")).toEqual(["100.101.2.3", "192.168.1.20", "10.77.0.2", "Justins-MacBook-Pro"]);
+  });
+
+  test("pins the certificate the door serves, and lets one phone in, once, read-only", async () => {
+    const code: PhoneCode = await sharing.phoneCode();
+    expect(code.qr.startsWith("<svg")).toBe(true);
+    const query = new URL(code.link).searchParams;
+    expect(query.get("fp")).toBe(await servedPin());
+    expect(query.get("port")).toBe(String(phone.port));
+    expect(Number(query.get("exp"))).toBe(Math.floor(code.expires / 1000));
+    const ticket = query.get("ticket")!;
+    // only the ticket's hash is kept
+    expect(fs.readFileSync(path.join(dir, "sharing.json"), "utf8")).not.toContain(ticket);
+    const answer = await redeem(ticket);
+    expect(answer.status).toBe(200);
+    const paired = JSON.parse(answer.body) as Pairing;
+    expect(paired.fingerprint).toBe(query.get("fp")!);
+    expect(sharing.info().devices.find((d) => d.id === paired.deviceId)).toMatchObject({
+      name: "Justin's iPhone",
+      scope: "status",
+    });
+    expect((await ask("/status", paired.key)).status).toBe(200);
+    expect((await ask("/healthz", paired.key)).status).toBe(403);
+    // used: the next phone needs a new one
+    const again = await redeem(ticket);
+    expect(again.status).toBe(403);
+    expect(JSON.parse(again.body).error).toContain("Pair a phone");
+    sharing.forget(paired.deviceId);
+  });
+
+  test("a ticket that ran out, or never was, lets nothing in", async () => {
+    const code = await sharing.phoneCode();
+    const ticket = new URL(code.link).searchParams.get("ticket")!;
+    expect((await redeem("not-a-ticket")).status).toBe(403);
+    expect((await redeem("")).status).toBe(403);
+    setSystemTime(new Date(code.expires + 1));
+    try {
+      expect((await redeem(ticket)).status).toBe(403);
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("asked for on this computer's own port, with the token", async () => {
+    const handle = createRequestHandler(ctx);
+    const server = http.createServer((req, res) => handle(req, res));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    const base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+    try {
+      expect((await fetch(`${base}/sharing/phone`, { method: "POST" })).status).toBe(401);
+      const made = await fetch(`${base}/sharing/phone`, { method: "POST", headers: { "x-ruri-token": TOKEN } });
+      expect(made.status).toBe(200);
+      const code = (await made.json()) as PhoneCode;
+      expect(code.link.startsWith("ruri://pair?")).toBe(true);
+      expect(code.qr).toContain("<svg");
     } finally {
       server.close();
     }

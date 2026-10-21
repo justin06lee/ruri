@@ -2207,6 +2207,9 @@ export type ClientMessage =
   | { type: "sharing_set"; on: boolean }
   /** An invite for one more device — sharing is turned on if it was off. */
   | { type: "sharing_invite" }
+  /** A QR code that pairs one phone, read-only — sharing is turned on if
+   *  it was off. */
+  | { type: "sharing_phone" }
   /** Unpair a device: its key stops working and its windows are closed. */
   | { type: "sharing_forget"; deviceId: string }
   /** The talk page opened: send who may message whom, and what has been
@@ -2311,6 +2314,10 @@ export type ServerMessage =
   /** The invite a window asked for: six words that pair one device, once,
    *  until `expires` (server/invite.ts). */
   | { type: "sharing_invite"; words: string[]; expires: number }
+  /** The phone code a window asked for: its ruri:// link and that link as
+   *  a QR code (an SVG), good for one phone, once, until `expires`
+   *  (server/sharing.ts phoneCode). */
+  | { type: "sharing_phone"; link: string; qr: string; expires: number }
   /** Where a store_picture is served from now — null if it could not be kept. */
   | { type: "picture_stored"; id: string; url: string | null }
   /** The grants, and the privacy database's rows behind them. */

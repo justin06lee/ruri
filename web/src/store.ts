@@ -526,6 +526,9 @@ interface RuriState {
   /** The invite this window last asked for — its six words — until it
    *  runs out. */
   invite: { words: string[]; expires: number } | null;
+  /** The phone pairing this window last asked for — a QR code holding a
+   *  one-time ticket for a key that reads status only — until it runs out. */
+  phonePairing: { link: string; qr: string; expires: number } | null;
   /** The macOS grants as last read (Settings asks), or null before that. */
   grants: { items: PermissionState[]; rows: TccRow[] } | null;
   /** Latest native-picker result, tagged with what the pick was for. */
@@ -679,6 +682,7 @@ export const useRuri = create<RuriState>((set) => ({
   sharing: null,
   remoteDevice: null,
   invite: null,
+  phonePairing: null,
   grants: null,
   picked: null,
   lastError: null,
@@ -2281,6 +2285,10 @@ function apply(msg: ServerMessage): void {
     }
     case "sharing_invite": {
       setState({ invite: { words: msg.words, expires: msg.expires } });
+      break;
+    }
+    case "sharing_phone": {
+      setState({ phonePairing: { link: msg.link, qr: msg.qr, expires: msg.expires } });
       break;
     }
     case "folder_picked": {

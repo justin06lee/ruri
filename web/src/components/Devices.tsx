@@ -143,6 +143,8 @@ export function Devices() {
         </div>
       </div>
 
+      <PhonePairing name={name} on={on} now={now} />
+
       {sharing.devices.length > 0 && (
         <div className="devices-list">
           {sharing.devices.map((device) => (
@@ -169,6 +171,7 @@ function DeviceRow({ device, here, now }: { device: SharedDevice; here: boolean;
           {here && <span className="harness-version">this window</span>}
         </span>
         <span className="grant-why">
+          {device.scope === "status" && "phone · reads status only · "}
           paired {ago(device.pairedAt, now)}
           {!device.online && device.lastSeen ? ` · last here ${ago(device.lastSeen, now)}` : ""}
         </span>
@@ -189,6 +192,88 @@ function DeviceRow({ device, here, now }: { device: SharedDevice; here: boolean;
       >
         {sure ? "Unpair?" : "Unpair"}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Pair a phone: a QR code for the ruri app on an iPhone, holding a one-time
+ * ticket for a key that reads this computer's status and nothing else
+ * (server/sharing.ts). The link itself is never shown, since the ticket is
+ * in it, but it can be copied for the Simulator, which has no camera.
+ */
+function PhonePairing({ name, on, now }: { name: string; on: boolean; now: number }) {
+  const pairing = useRuri((s) => s.phonePairing);
+  const [askedAt, setAskedAt] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
+  // a code that has run out is put away, and the button comes back
+  const live = pairing && pairing.expires > now ? pairing : null;
+  // the asking is over once a code made after it has come; one that never
+  // comes (the server said why, on the error line) lets go after a while
+  const asking = askedAt !== null && !(pairing && pairing.expires > askedAt);
+  useEffect(() => {
+    if (askedAt === null) return;
+    const timer = setTimeout(() => setAskedAt(null), 10_000);
+    return () => clearTimeout(timer);
+  }, [askedAt]);
+
+  const copyLink = () => {
+    if (!live) return;
+    void navigator.clipboard.writeText(live.link).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    });
+  };
+
+  return (
+    <div className="settings-row tall">
+      <span className="settings-label">Phone</span>
+      <div className="settings-value devices-invite">
+        {live ? (
+          <div className="devices-phone">
+            <img
+              className="devices-qr"
+              src={`data:image/svg+xml;utf8,${encodeURIComponent(live.qr)}`}
+              alt="A QR code that pairs a phone"
+              width={200}
+              height={200}
+            />
+            <div className="devices-phone-side">
+              <span className="settings-note">
+                Scan with the ruri app on your iPhone. Good for one phone, for 15 minutes; it reads {name}'s
+                status and nothing else.
+              </span>
+              <span className="settings-note">
+                {Math.max(1, Math.ceil((live.expires - now) / 60_000))} min left · until {clock(live.expires)}
+              </span>
+              <button
+                className="ghost grant-ask"
+                title="The link the code holds, for the Simulator, which has no camera. It carries the one-time ticket."
+                onClick={copyLink}
+              >
+                {copied ? "Copied" : "Copy link"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="devices-code-row">
+            <button
+              className="ghost grant-ask"
+              disabled={asking}
+              onClick={() => {
+                setAskedAt(Date.now());
+                send({ type: "sharing_phone" });
+              }}
+            >
+              {asking ? "making…" : "Pair a phone"}
+            </button>
+            <span className="settings-note">
+              A code for the ruri app on your iPhone, which reads status only.
+              {on ? "" : " Turns sharing on."}
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

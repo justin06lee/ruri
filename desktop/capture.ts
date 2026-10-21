@@ -1,4 +1,5 @@
 import { BrowserWindow, type NativeImage } from "electron";
+import { HEADLESS_WINDOW } from "./headless.js";
 import type { ShotTarget } from "../server/shots.js";
 
 /**
@@ -157,6 +158,7 @@ async function open(win: BrowserWindow, href: string): Promise<boolean> {
 export async function captureTargets(url: string, targets: ShotTarget[]): Promise<Record<string, string>> {
   const win = new BrowserWindow({
     ...PREVIEW_SIZE,
+    ...HEADLESS_WINDOW,
     show: false,
     backgroundColor: "#ffffff",
     webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },

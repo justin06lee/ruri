@@ -139,7 +139,8 @@
     ],
     "npmRebuild": false,
     "electronLanguages": [
-      "en"
+      "en",
+      "en-US"
     ],
     "mac": {
       "target": [

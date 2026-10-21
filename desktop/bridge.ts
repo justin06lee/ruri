@@ -7,6 +7,7 @@ import type { BridgeCall, BridgeContext, BridgeHost, BridgeResult } from "../ser
 import { bridgeDir } from "../server/configDir.js";
 import { PageDriver, sleep, stringify, type CdpLink } from "../server/cdp.js";
 import * as apps from "./apps.js";
+import { HEADLESS_WINDOW } from "./headless.js";
 
 /**
  * The bridge's hands: the half that needs Electron.
@@ -198,6 +199,7 @@ export class Bridge implements BridgeHost {
     if (channel.web && !channel.web.win.isDestroyed()) return channel.web;
     const win = new BrowserWindow({
       ...WINDOW,
+      ...HEADLESS_WINDOW,
       show: false,
       backgroundColor: "#ffffff",
       title: "ruri bridge",

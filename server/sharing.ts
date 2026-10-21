@@ -12,10 +12,13 @@
  * nothing in the middle can pass for this computer. Behind it, every
  * request and every socket shows a device key — kept here only as a hash,
  * taken back without touching anyone else's. A device gets its key one of
- * two ways: by proving the six words of an invite (server/invite.ts says
- * how, without the words ever crossing the wire), or over SSH, where the
+ * three ways: by proving the six words of an invite (server/invite.ts says
+ * how, without the words ever crossing the wire); over SSH, where the
  * login is the proof and the device's shell asks this computer's own port
- * for a key directly (pairDirect, desktop/sshSetup.ts). Devices on the same
+ * for a key directly (pairDirect, desktop/sshSetup.ts); or, a phone, by
+ * scanning a QR code whose certificate fingerprint it pins before it hands
+ * back the code's one-time ticket (phoneCode, pairTicket) — for a key that
+ * reads the status alone (scope "status"). Devices on the same
  * LAN find it by a broadcast it answers; ones on a mesh, from the mesh's
  * own list of machines.
  *
@@ -31,8 +34,9 @@ import * as fs from "node:fs";
 import type * as http from "node:http";
 import * as https from "node:https";
 import * as os from "node:os";
+import { renderSVG } from "uqr";
 import type { WebSocketServer } from "ws";
-import type { SharedDevice, SharingInfo } from "../shared/protocol.js";
+import type { DeviceScope, SharedDevice, SharingInfo } from "../shared/protocol.js";
 import { writeJsonAtomic, writeTextAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import { macsMatch, makeWords, nonce, pairMac, wordsKey } from "./invite.js";
@@ -54,6 +58,11 @@ const INVITE_MS = 15 * 60_000;
 /** Invites open at once; the oldest goes when another is made. */
 const OPEN_INVITES = 5;
 
+/** How long a phone's code lets it in for, and how many are open at once
+ *  — the oldest goes when another is made. */
+const TICKET_MS = 15 * 60_000;
+const OPEN_TICKETS = 5;
+
 /** Wrong proofs an invite takes before it is put away. */
 const INVITE_MISSES = 5;
 
@@ -74,6 +83,8 @@ interface StoredDevice {
   lastSeen?: number;
   /** sha256 of its key, hex: the key itself is only ever on the device. */
   keyHash: string;
+  /** What its key may reach, when that is less than everything. */
+  scope?: DeviceScope;
 }
 
 interface Stored {
@@ -102,10 +113,77 @@ interface OpenInvite {
   misses: number;
 }
 
+/** An open phone code: its ticket's hash (never the ticket), until when. */
+interface OpenTicket {
+  hash: Buffer;
+  expires: number;
+}
+
+/** What "Pair a phone" shows: the code's link, drawn as a QR code (SVG),
+ *  and until when it lets a phone in. */
+export interface PhoneCode {
+  link: string;
+  qr: string;
+  expires: number;
+  name: string;
+}
+
+/** A tailnet's address (100.64.0.0/10): the one that reaches this
+ *  computer from anywhere. */
+function tailnet(address: string): boolean {
+  const [a, b] = address.split(".").map(Number);
+  return a === 100 && b !== undefined && b >= 64 && b <= 127;
+}
+
+/**
+ * What a phone's QR code says (agreed with the iPhone app, ios/): a ruri://
+ * link, so the Camera opens the app — the Mac's name, the door's port, its
+ * certificate's fingerprint to pin, the one-time ticket and when it runs
+ * out (epoch seconds), and where to look for it: tailnet addresses first,
+ * then the LAN's, then names. The phone tries them all, keeps the first
+ * whose certificate is the one pinned, and only then sends the ticket
+ * (POST /pair/ticket).
+ */
+export function pairLink(code: {
+  name: string;
+  port: number;
+  fingerprint: string;
+  ticket: string;
+  expires: number;
+  addresses: string[];
+}): string {
+  const ip = (a: string) => /^\d+\.\d+\.\d+\.\d+$/.test(a);
+  const rank = (a: string) => (tailnet(a) ? 0 : ip(a) ? 1 : 2);
+  const addresses = [...code.addresses].sort((a, b) => rank(a) - rank(b));
+  const pairs: Array<[string, string]> = [
+    ["v", "1"],
+    ["name", code.name],
+    ["port", String(code.port)],
+    ["fp", code.fingerprint],
+    ["ticket", code.ticket],
+    ["exp", String(Math.floor(code.expires / 1000))],
+    ...addresses.map((a): [string, string] => ["addr", a]),
+  ];
+  // %20, never "+": Foundation reads a "+" in a query as itself
+  return `ruri://pair?${pairs.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&")}`;
+}
+
 /** Which device a window that came in through sharing belongs to. */
 export interface Seat {
   deviceId: string;
   name: string;
+  scope?: DeviceScope;
+}
+
+/** What a key scoped to the status may reach — nothing else, the socket
+ *  included (docs/mobile-app.md). */
+const STATUS_PATHS = new Set(["/status", "/status/live"]);
+
+/** A scope as a request names it: none, or one ruri knows — or undefined
+ *  for one it doesn't, which is refused rather than taken as everything. */
+export function readScope(raw: unknown): { scope?: DeviceScope } | undefined {
+  if (raw === undefined || raw === null || raw === "") return {};
+  return raw === "status" ? { scope: "status" } : undefined;
 }
 
 /** What sharing needs of the rest of the server. */
@@ -121,6 +199,7 @@ export interface SharingHooks {
 }
 
 const hashKey = (key: string) => createHash("sha256").update(key).digest("hex");
+const hashTicket = (ticket: string) => createHash("sha256").update(ticket).digest();
 
 /** A device's name, as it gave it: one line, not too long. */
 function cleanName(raw: unknown): string {
@@ -208,6 +287,8 @@ export class Sharing {
   private error: string | undefined;
   /** The invites not yet used, newest last. */
   private invites: OpenInvite[] = [];
+  /** The phone codes not yet used, newest last. */
+  private tickets: OpenTicket[] = [];
   /** Each hello's number, and until when a proof may follow it. */
   private readonly hellos = new Map<string, number>();
   /** What answers a LAN's "is ruri here?". */
@@ -238,6 +319,7 @@ export class Sharing {
       devices: this.stored.devices.map((d): SharedDevice => ({
         id: d.id,
         name: d.name,
+        ...(d.scope ? { scope: d.scope } : {}),
         pairedAt: d.pairedAt,
         ...(d.lastSeen ? { lastSeen: d.lastSeen } : {}),
         online: (this.windows.get(d.id) ?? 0) > 0,
@@ -272,13 +354,35 @@ export class Sharing {
   }
 
   /**
+   * A QR code that lets one phone in, once, for fifteen minutes — with a
+   * key that reads the status alone (docs/mobile-app.md). Sharing on first,
+   * if it was off. The ticket goes to whoever asked; only its hash is kept.
+   */
+  async phoneCode(): Promise<PhoneCode> {
+    await this.ensureOpen();
+    const ticket = randomBytes(32).toString("base64url");
+    const expires = Date.now() + TICKET_MS;
+    this.tickets = [...this.liveTickets().slice(-(OPEN_TICKETS - 1)), { hash: hashTicket(ticket), expires }];
+    const link = pairLink({
+      name: computerName(),
+      port: this.port(),
+      fingerprint: fingerprint(this.identity().cert),
+      ticket,
+      expires,
+      addresses: reachableAddresses(),
+    });
+    return { link, qr: renderSVG(link, { ecc: "M", border: 2 }), expires, name: computerName() };
+  }
+
+  /**
    * A key for a device, with no invite: for the device's own shell, signed
    * in here over SSH and asking on this computer's local port with its
-   * token (desktop/sshSetup.ts). Sharing on first, if it was off.
+   * token (desktop/sshSetup.ts) — or a phone's key, scoped to the status,
+   * made here for it. Sharing on first, if it was off.
    */
-  async pairDirect(name: unknown): Promise<Pairing> {
+  async pairDirect(name: unknown, scope?: DeviceScope): Promise<Pairing> {
     await this.ensureOpen();
-    return this.admit(name);
+    return this.admit(name, scope);
   }
 
   /** Unpair a device: its key stops working, its windows close. */
@@ -315,13 +419,18 @@ export class Sharing {
       const stored = Buffer.from(d.keyHash, "hex");
       return stored.length === hash.length && timingSafeEqual(stored, hash);
     });
-    return device ? { deviceId: device.id, name: device.name } : undefined;
+    return device
+      ? { deviceId: device.id, name: device.name, ...(device.scope ? { scope: device.scope } : {}) }
+      : undefined;
   }
 
-  /** What a socket upgrade at this door is refused with — 0 lets it in. */
+  /** What a socket upgrade at this door is refused with — 0 lets it in.
+   *  The socket is the whole app: a key scoped to less never opens it. */
   refusal(origin: string | undefined, req: http.IncomingMessage): number {
     if (origin !== undefined && origin !== `https://${req.headers.host ?? ""}`) return 403;
-    return this.deviceFor(req) ? 0 : 401;
+    const seat = this.deviceFor(req);
+    if (!seat) return 401;
+    return seat.scope ? 403 : 0;
   }
 
   /** Shut the door, for the server's own close. */
@@ -340,6 +449,13 @@ export class Sharing {
     if (!this.listening()) throw new Error(this.error ?? "sharing could not be turned on");
   }
 
+  /** The phone codes still open, the run-out ones put away. */
+  private liveTickets(): OpenTicket[] {
+    const now = Date.now();
+    this.tickets = this.tickets.filter((t) => t.expires > now);
+    return this.tickets;
+  }
+
   /** The invites still open, the run-out ones put away. */
   private live(): OpenInvite[] {
     const now = Date.now();
@@ -349,13 +465,14 @@ export class Sharing {
 
   /** A new device, its key made and handed back with everything it needs
    *  to find and trust this computer. */
-  private admit(rawName: unknown): Pairing {
+  private admit(rawName: unknown, scope?: DeviceScope): Pairing {
     const key = randomBytes(32).toString("base64url");
     const device: StoredDevice = {
       id: randomBytes(6).toString("hex"),
       name: cleanName(rawName),
       pairedAt: Date.now(),
       keyHash: hashKey(key),
+      ...(scope ? { scope } : {}),
     };
     this.stored.devices.push(device);
     this.save();
@@ -472,6 +589,7 @@ export class Sharing {
     this.server = undefined;
     this.wss = undefined;
     this.invites = [];
+    this.tickets = [];
     this.hellos.clear();
     this.beacon?.close();
     this.beacon = undefined;
@@ -508,6 +626,10 @@ export class Sharing {
       void this.pairProve(req, res);
       return;
     }
+    if (pathname === "/pair/ticket" && req.method === "POST") {
+      void this.pairTicket(req, res);
+      return;
+    }
     if (!originOk(req)) {
       res.writeHead(403);
       res.end();
@@ -518,6 +640,11 @@ export class Sharing {
     if (!seat) {
       res.writeHead(401, { "content-type": "text/plain; charset=utf-8" });
       res.end(`This device is not paired with ${computerName()}.`);
+      return;
+    }
+    if (seat.scope && !STATUS_PATHS.has(pathname)) {
+      res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+      res.end(`This device's key reads ${computerName()}'s status only (/status, /status/live).`);
       return;
     }
     // the page came with its key in the URL: everything it loads by
@@ -614,6 +741,28 @@ export class Sharing {
     }
     this.invites = this.invites.filter((i) => i !== matched);
     json(res, 200, this.admit(body["name"]));
+  }
+
+  /** A phone redeeming its QR code's ticket: once, while it lasts, for a
+   *  key that reads the status alone. The phone has pinned the certificate
+   *  the code named before it sends the ticket. */
+  private async pairTicket(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    if (this.hammered(res)) return;
+    const body = await this.body(req, res);
+    if (!body) return;
+    const ticket = typeof body["ticket"] === "string" ? body["ticket"] : "";
+    const hash = hashTicket(ticket);
+    const matched = ticket ? this.liveTickets().find((t) => timingSafeEqual(t.hash, hash)) : undefined;
+    if (!matched) {
+      this.failures.push(Date.now());
+      json(res, 403, {
+        ok: false,
+        error: `That code has run out or was used already — make a new one on ${computerName()} (Settings, Devices, Pair a phone).`,
+      });
+      return;
+    }
+    this.tickets = this.tickets.filter((t) => t !== matched);
+    json(res, 200, this.admit(body["name"], "status"));
   }
 
   /* ── what is kept ─────────────────────────────────────────────────── */

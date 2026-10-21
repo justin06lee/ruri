@@ -473,6 +473,31 @@ describe("a project waiting on the user", () => {
   });
 });
 
+describe("how a project stands, for the phone", () => {
+  test("at work, its stretch winding down, and the questions its turns ended on", () => {
+    const w = world();
+    const project = w.ctx.store.list()[0]!;
+    expect(w.watch.standing(project)).toEqual({ atWork: false, asks: [] });
+    const began = w.now();
+    w.start("ui");
+    expect(w.watch.standing(project)).toEqual({ atWork: true, busySince: began, asks: [] });
+    w.pass(SWEEP_MS);
+    w.end("ui", "Two ways to go. Which one do you want?");
+    const asked = w.now();
+    // quiet, but the stretch is not over until the watch says so
+    expect(w.watch.standing(project)).toEqual({
+      atWork: false,
+      busySince: began,
+      asks: [{ chatId: "ui", text: "Which one do you want?", since: asked }],
+    });
+    // another project's chats are not this one's
+    expect(w.watch.standing(w.ctx.store.list()[1]!).asks).toEqual([]);
+    // the chat goes on: the question has had its answer
+    w.start("ui");
+    expect(w.watch.standing(project).asks).toEqual([]);
+  });
+});
+
 describe("whether a reply asks the user something", () => {
   test.each([
     ["Should I also push it?", "Should I also push it?"],

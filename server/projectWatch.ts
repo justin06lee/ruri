@@ -244,6 +244,32 @@ export class ProjectWatch {
     for (const block of this.questions.values()) this.tellBlock(block, now);
   }
 
+  /**
+   * How a project stands right now, for the phone's status
+   * (server/status.ts) — read only. Quiet but still `busySince` is a
+   * stretch at work winding down: not done until IDLE_AFTER_MS says so.
+   * `asks` are the questions turns ended on since this server began, each
+   * until its chat goes on; cards are in ctx.permissions, not here.
+   */
+  standing(
+    project: Project,
+    now = this.now(),
+  ): { atWork: boolean; busySince?: number; asks: Array<{ chatId: string; text?: string; since: number }> } {
+    const chats = new Set(project.sessions.map((session) => session.id));
+    const busySince = this.stretches.get(project.id)?.busySince;
+    return {
+      atWork: this.atWork(project, now),
+      ...(busySince !== undefined ? { busySince } : {}),
+      asks: [...this.questions.values()]
+        .filter((block) => chats.has(block.chatId))
+        .map((block) => ({
+          chatId: block.chatId,
+          ...(block.text !== undefined ? { text: block.text } : {}),
+          since: block.since,
+        })),
+    };
+  }
+
   private stretch(projectId: string): Stretch {
     let stretch = this.stretches.get(projectId);
     if (!stretch) this.stretches.set(projectId, (stretch = {}));

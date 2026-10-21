@@ -22,6 +22,7 @@ import { HOME_ID } from "./manager.js";
 import { MUSIC_CORS, scan as scanMusic, serveTrack } from "./music.js";
 import { contextReport, noteFromCall, requestCompaction } from "./selfCompaction.js";
 import { serveStatic } from "./staticFiles.js";
+import { isStatusPath, serveStatus } from "./status.js";
 import { serveUpload } from "./uploads.js";
 
 /** A request body, whole, or an error past `limit` bytes. */
@@ -388,6 +389,21 @@ export function createRequestHandler(
       // the pid is how the next launch tells a ruri that outlived its app
       // from some other program on the port — see server/port.ts
       res.end(JSON.stringify({ ok: true, service: "ruri", pid: options.appPid ?? process.pid }));
+      return;
+    }
+    // every project's state, for the phone: never open, as other GETs are
+    // here — the token on this port, a paired device's key through sharing
+    if (isStatusPath((req.url ?? "/").split("?")[0] ?? "/")) {
+      if (
+        !admitted &&
+        (!originAllowed(req.headers.origin, ctx.listeningPort, !options.staticDir) ||
+          !tokenMatches(presentedToken(req), options.token))
+      ) {
+        res.writeHead(401);
+        res.end();
+        return;
+      }
+      serveStatus(ctx, req, res);
       return;
     }
     if (req.url === "/music/playlists") {

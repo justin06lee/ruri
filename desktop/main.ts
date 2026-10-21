@@ -19,6 +19,7 @@ import {
 } from "electron";
 import { Bridge } from "./bridge.js";
 import { captureTargets } from "./capture.js";
+import { HEADLESS, HEADLESS_WINDOW } from "./headless.js";
 import { movingPage, offlinePage } from "./offline.js";
 import { askAgainIfNewBuild, permissions } from "./permissions.js";
 import { discover, type Peer } from "./peers.js";
@@ -243,6 +244,7 @@ function createWindow(target: Target): BrowserWindow {
     // Linux desktop keeps its own title bar (a frameless window there has
     // no buttons to close it by, nor the desktop's own look)
     ...(MAC ? { titleBarStyle: "hiddenInset" as const } : {}),
+    ...HEADLESS_WINDOW,
     title: "ruri",
     webPreferences: {
       contextIsolation: true,
@@ -326,10 +328,6 @@ function sharingOn(): boolean {
 
 /** `ruri --serve`: up with no window, for a computer other devices use. */
 const SERVE = process.argv.includes("--serve");
-
-/** No screen to draw on: Linux with neither X nor Wayland — a computer
- *  reached over SSH, a service started at boot before anyone logs in. */
-const HEADLESS = process.platform === "linux" && !process.env["DISPLAY"] && !process.env["WAYLAND_DISPLAY"];
 
 /** How an invite's words are put on a terminal: numbered, three a line. */
 function inviteText(words: string[], expires: number): string {

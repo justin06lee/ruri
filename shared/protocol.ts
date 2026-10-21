@@ -1469,10 +1469,17 @@ export interface TccRow {
 }
 
 /** A device let in to use this computer (server/sharing.ts). */
+/** What a paired device's key may reach: "status" is GET /status and
+ *  /status/live alone — a phone's — and no scope at all is everything a
+ *  window can. */
+export type DeviceScope = "status";
+
 export interface SharedDevice {
   id: string;
   /** What the device calls itself (its hostname), as it paired. */
   name: string;
+  /** Only with a key that reaches less than everything. */
+  scope?: DeviceScope;
   pairedAt: number;
   /** When it last connected or left (epoch ms). */
   lastSeen?: number;

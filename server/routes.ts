@@ -21,6 +21,7 @@ import { errorMessage, isMissing, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
 import { MUSIC_CORS, scan as scanMusic, serveTrack } from "./music.js";
 import { contextReport, noteFromCall, requestCompaction } from "./selfCompaction.js";
+import { readScope } from "./sharing.js";
 import { serveStatic } from "./staticFiles.js";
 import { isStatusPath, serveStatus } from "./status.js";
 import { serveUpload } from "./uploads.js";
@@ -441,8 +442,9 @@ export function createRequestHandler(
     }
     // an invite's words, for `ruri --invite` on a computer nobody is
     // sitting at — and, for a device signed in here over SSH, a key with no
-    // invite at all (server/sharing.ts pairDirect): this computer's own
-    // door only, token and all, never one come in through sharing
+    // invite at all (server/sharing.ts pairDirect), or a phone's, scoped to
+    // the status ({"scope": "status"}): this computer's own door only,
+    // token and all, never one come in through sharing
     if (req.method === "POST" && (req.url === "/sharing/invite" || req.url === "/sharing/pair-local")) {
       const answer = (made: Promise<unknown>) =>
         made.then(
@@ -465,8 +467,12 @@ export function createRequestHandler(
         return;
       }
       void readBody(req, 4096)
-        .then((text) => JSON.parse(text || "{}") as { name?: unknown })
-        .then((body) => answer(ctx.sharing.pairDirect(body.name)))
+        .then((text) => JSON.parse(text || "{}") as { name?: unknown; scope?: unknown })
+        .then((body) => {
+          const scoped = readScope(body.scope);
+          if (!scoped) throw new Error(`no such scope: ${String(body.scope)} — "status", or none`);
+          return answer(ctx.sharing.pairDirect(body.name, scoped.scope));
+        })
         .catch((err: unknown) => {
           res.writeHead(400, { "content-type": "application/json" });
           res.end(JSON.stringify({ ok: false, error: `bad request: ${errorMessage(err)}` }));

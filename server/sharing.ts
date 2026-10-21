@@ -32,7 +32,7 @@ import type * as http from "node:http";
 import * as https from "node:https";
 import * as os from "node:os";
 import type { WebSocketServer } from "ws";
-import type { SharedDevice, SharingInfo } from "../shared/protocol.js";
+import type { DeviceScope, SharedDevice, SharingInfo } from "../shared/protocol.js";
 import { writeJsonAtomic, writeTextAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import { macsMatch, makeWords, nonce, pairMac, wordsKey } from "./invite.js";
@@ -74,6 +74,8 @@ interface StoredDevice {
   lastSeen?: number;
   /** sha256 of its key, hex: the key itself is only ever on the device. */
   keyHash: string;
+  /** What its key may reach, when that is less than everything. */
+  scope?: DeviceScope;
 }
 
 interface Stored {
@@ -106,6 +108,18 @@ interface OpenInvite {
 export interface Seat {
   deviceId: string;
   name: string;
+  scope?: DeviceScope;
+}
+
+/** What a key scoped to the status may reach — nothing else, the socket
+ *  included (docs/mobile-app.md). */
+const STATUS_PATHS = new Set(["/status", "/status/live"]);
+
+/** A scope as a request names it: none, or one ruri knows — or undefined
+ *  for one it doesn't, which is refused rather than taken as everything. */
+export function readScope(raw: unknown): { scope?: DeviceScope } | undefined {
+  if (raw === undefined || raw === null || raw === "") return {};
+  return raw === "status" ? { scope: "status" } : undefined;
 }
 
 /** What sharing needs of the rest of the server. */
@@ -238,6 +252,7 @@ export class Sharing {
       devices: this.stored.devices.map((d): SharedDevice => ({
         id: d.id,
         name: d.name,
+        ...(d.scope ? { scope: d.scope } : {}),
         pairedAt: d.pairedAt,
         ...(d.lastSeen ? { lastSeen: d.lastSeen } : {}),
         online: (this.windows.get(d.id) ?? 0) > 0,
@@ -274,11 +289,12 @@ export class Sharing {
   /**
    * A key for a device, with no invite: for the device's own shell, signed
    * in here over SSH and asking on this computer's local port with its
-   * token (desktop/sshSetup.ts). Sharing on first, if it was off.
+   * token (desktop/sshSetup.ts) — or a phone's key, scoped to the status,
+   * made here for it. Sharing on first, if it was off.
    */
-  async pairDirect(name: unknown): Promise<Pairing> {
+  async pairDirect(name: unknown, scope?: DeviceScope): Promise<Pairing> {
     await this.ensureOpen();
-    return this.admit(name);
+    return this.admit(name, scope);
   }
 
   /** Unpair a device: its key stops working, its windows close. */
@@ -315,13 +331,18 @@ export class Sharing {
       const stored = Buffer.from(d.keyHash, "hex");
       return stored.length === hash.length && timingSafeEqual(stored, hash);
     });
-    return device ? { deviceId: device.id, name: device.name } : undefined;
+    return device
+      ? { deviceId: device.id, name: device.name, ...(device.scope ? { scope: device.scope } : {}) }
+      : undefined;
   }
 
-  /** What a socket upgrade at this door is refused with — 0 lets it in. */
+  /** What a socket upgrade at this door is refused with — 0 lets it in.
+   *  The socket is the whole app: a key scoped to less never opens it. */
   refusal(origin: string | undefined, req: http.IncomingMessage): number {
     if (origin !== undefined && origin !== `https://${req.headers.host ?? ""}`) return 403;
-    return this.deviceFor(req) ? 0 : 401;
+    const seat = this.deviceFor(req);
+    if (!seat) return 401;
+    return seat.scope ? 403 : 0;
   }
 
   /** Shut the door, for the server's own close. */
@@ -349,13 +370,14 @@ export class Sharing {
 
   /** A new device, its key made and handed back with everything it needs
    *  to find and trust this computer. */
-  private admit(rawName: unknown): Pairing {
+  private admit(rawName: unknown, scope?: DeviceScope): Pairing {
     const key = randomBytes(32).toString("base64url");
     const device: StoredDevice = {
       id: randomBytes(6).toString("hex"),
       name: cleanName(rawName),
       pairedAt: Date.now(),
       keyHash: hashKey(key),
+      ...(scope ? { scope } : {}),
     };
     this.stored.devices.push(device);
     this.save();
@@ -518,6 +540,11 @@ export class Sharing {
     if (!seat) {
       res.writeHead(401, { "content-type": "text/plain; charset=utf-8" });
       res.end(`This device is not paired with ${computerName()}.`);
+      return;
+    }
+    if (seat.scope && !STATUS_PATHS.has(pathname)) {
+      res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+      res.end(`This device's key reads ${computerName()}'s status only (/status, /status/live).`);
       return;
     }
     // the page came with its key in the URL: everything it loads by

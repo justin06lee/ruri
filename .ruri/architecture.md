@@ -20,7 +20,7 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 9. **Terminals, agents and integrations** — Composer terminals, background scripts, crew agents, music and harness integrations. (`server/, server/handlers/, scripts/ · 19 files`) → `.ruri/layers/terminals-agents-integrations.md`
 10. **Server runtime and transport** — Node HTTP+WebSocket server, routing, auth, uploads, secrets, gauges and shared stores. (`server/, scripts/, scripts/lib/ +2 · 8 files`) → `.ruri/layers/server-runtime-transport.md`
 11. **Agent harnesses** — yagami AgentSession to installed claude/Codex/OpenCode/Gemini/ACP CLIs, models, small-model layer (`server/, scripts/ · 14 files`) → `.ruri/layers/harnesses.md`
-12. **Bridge** — Hidden Chromium over CDP plus native apps over Accessibility, previews above composer (`server/, desktop/ · 12 files`) → `.ruri/layers/bridge.md`
+12. **Bridge** — Hidden Chromium over CDP plus native apps over Accessibility, previews above composer (`server/, desktop/ · 13 files`) → `.ruri/layers/bridge.md`
 
 ## How it flows
 
@@ -41,7 +41,7 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 - web/src/components/Hooks.tsx — hooks settings: global and per-project on/off, command, webhook, token, deliveries
 - web/src/lib/ — markdown, markers, models, transcript, effects, peek band helpers
 - shared/ — single wire contract: protocol.ts, client schema, question input
-- desktop/ — Electron shell: main, permissions, hidden bridge windows, native apps (linuxApps.ts on Linux)
+- desktop/ — Electron shell: main, permissions, hidden bridge windows, native apps (linuxApps.ts on Linux), headless.ts frameless windows when no screen
 - scripts/ — per-capability smoke/dev scripts run via bun run *-test
 - docs/ — features, permissions, long-form capability docs
 - assets/ — ruri.svg, dragon art

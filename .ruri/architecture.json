@@ -315,7 +315,8 @@
         "desktop/desktopEntries.test.ts",
         "desktop/main.ts",
         "desktop/remote.ts",
-        "desktop/sshSetup.ts"
+        "desktop/sshSetup.ts",
+        "desktop/headless.ts"
       ]
     }
   ],
@@ -368,7 +369,7 @@
     "web/src/components/Hooks.tsx — hooks settings: global and per-project on/off, command, webhook, token, deliveries",
     "web/src/lib/ — markdown, markers, models, transcript, effects, peek band helpers",
     "shared/ — single wire contract: protocol.ts, client schema, question input",
-    "desktop/ — Electron shell: main, permissions, hidden bridge windows, native apps (linuxApps.ts on Linux)",
+    "desktop/ — Electron shell: main, permissions, hidden bridge windows, native apps (linuxApps.ts on Linux), headless.ts frameless windows when no screen",
     "scripts/ — per-capability smoke/dev scripts run via bun run *-test",
     "docs/ — features, permissions, long-form capability docs",
     "assets/ — ruri.svg, dragon art",
@@ -2034,7 +2035,7 @@
       ]
     },
     "bridge": {
-      "summary": "This layer lets an agent session see and drive what it built in a hidden window: web pages via the DevTools protocol (CDP) and native apps via CDP (Electron) or the Accessibility tree. It is built as a shared CDP driver in server/cdp.ts plus a tool definition in server/bridge.ts, with Electron-only hands in desktop/bridge.ts, desktop/apps.ts, and desktop/capture.ts. The key idea: the model never touches the user's screen — it gets scaled previews beside the composer while the real window stays hidden and auto-closes after the turn.",
+      "summary": "This layer lets an agent session see and drive what it built in a hidden window: web pages via the DevTools protocol (CDP) and native apps via CDP (Electron) or the Accessibility tree. It is built as a shared CDP driver in server/cdp.ts plus a tool definition in server/bridge.ts, with Electron-only hands in desktop/bridge.ts, desktop/apps.ts, and desktop/capture.ts. The key idea: the model never touches the user's screen. It gets scaled previews beside the composer while the real window stays hidden and auto-closes after the turn.",
       "map": [
         {
           "name": "Hidden web page driving (web_open, click, type, screenshot)",
@@ -2070,6 +2071,15 @@
           "files": [
             "server/bridgeState.ts",
             "desktop/bridge.ts"
+          ]
+        },
+        {
+          "name": "Headless (no screen) window mode on Linux",
+          "files": [
+            "desktop/headless.ts",
+            "desktop/bridge.ts",
+            "desktop/capture.ts",
+            "desktop/main.ts"
           ]
         },
         {
@@ -2124,6 +2134,7 @@
         "desktop/apps.ts — background app launch (Electron over CDP, others over Accessibility) and native capture",
         "server/bridgeState.ts — per-channel takeover state and grace-period auto-close after turns",
         "desktop/capture.ts — hidden-window selector screenshot sweep for the component library",
+        "desktop/headless.ts — no-screen mode for hidden windows, so Linux drops window frames without a display",
         "desktop/linuxApps.ts — Linux native side: launch without focus (_TIME0 startup id), xdotool windows, X11 captures, AT-SPI over D-Bus from an embedded Python prelude",
         "desktop/desktopEntries.ts — .desktop entry parsing, Exec field codes, app lookup by id/name/command (pure, tested)"
       ],
@@ -2133,7 +2144,9 @@
         "Return scaled previews to the model, not full captures.",
         "Hidden windows/apps auto-close a few seconds after the turn ends unless the user took them over; never leave renderers running.",
         "In capture sweeps, follow links only — never click unknown buttons.",
-        "Never pin a blank/collapsed screenshot to a component entry."
+        "Never pin a blank/collapsed screenshot to a component entry.",
+        "With no screen, every BrowserWindow must be frameless: a framed window on Linux calls into GTK, which isn't loaded headless, and Electron segfaults at window creation.",
+        "Any new BrowserWindow in this layer must go through the no-screen check, or it will crash the headless Linux build."
       ],
       "edges": [
         "Desktop shell — owns the visible window, permissions/TCC, and hidden bridge windows that desktop/bridge.ts drives",

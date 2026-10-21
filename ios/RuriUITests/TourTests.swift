@@ -19,7 +19,7 @@ final class TourTests: XCTestCase {
         }
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.staticTexts["Choose Pair a Phone."].waitForExistence(timeout: 10), "the pairing screen")
+        XCTAssertTrue(app.staticTexts["Choose Pair a phone."].waitForExistence(timeout: 10), "the pairing screen")
         pause(2.5)
 
         // the Camera app would hand the link over just so

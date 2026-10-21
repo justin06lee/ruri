@@ -24,7 +24,7 @@ struct PairView: View {
             Spacer()
             VStack(alignment: .leading, spacing: 14) {
                 Step(number: 1, text: "On your Mac, open ruri's Settings, then Devices.")
-                Step(number: 2, text: "Choose Pair a Phone.")
+                Step(number: 2, text: "Choose Pair a phone.")
                 Step(number: 3, text: "Scan the code with this iPhone's camera.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)

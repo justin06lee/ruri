@@ -38,7 +38,7 @@ struct PairingLink: Equatable, Sendable {
             case .notRuri: "That isn't a ruri pairing code."
             case .newer: "That code is from a newer ruri. Update this app, then scan it again."
             case .incomplete: "That pairing code is incomplete. Make a new one on your Mac."
-            case .expired(let name): "That code has run out. Make a new one on \(name) (Settings, Devices, Pair a Phone)."
+            case .expired(let name): "That code has run out. Make a new one on \(name) (Settings, Devices, Pair a phone)."
             }
         }
     }

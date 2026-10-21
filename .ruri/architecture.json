@@ -129,7 +129,12 @@
         "scripts/run-tests.ts",
         "vite.config.ts",
         "scripts/session-settings.ts",
-        "scripts/sharing.ts"
+        "scripts/sharing.ts",
+        "Makefile",
+        "package.json",
+        "scripts/build-main.ts",
+        "scripts/make-icon.sh",
+        "build/"
       ]
     },
     {
@@ -1055,6 +1060,15 @@
             "web/src/store.ts",
             "web/src/styles.css"
           ]
+        },
+        {
+          "name": "Packaging and release artifacts",
+          "files": [
+            "Makefile",
+            "package.json",
+            "scripts/build-main.ts",
+            "build/"
+          ]
         }
       ],
       "flows": [
@@ -1085,6 +1099,16 @@
             "fixture drives web/src/store.ts with canned events and statuses",
             "eyeball or screenshot with no server and no tokens"
           ]
+        },
+        {
+          "name": "Release artifacts",
+          "steps": [
+            "make build in a clean worktree of the tag (signs as ruri dev)",
+            "bunx electron-builder --mac dir --x64 and --linux dir --x64 --arm64 (cross-builds fine: no native modules ship)",
+            "ditto -c -k --norsrc --noextattr --noacl --keepParent per .app, tar.gz of each linux-*-unpacked plus build/icon.svg",
+            "checksums.txt",
+            "gh release create --draft"
+          ]
         }
       ],
       "files": [
@@ -1110,7 +1134,9 @@
         "A pref set this session wins over an arriving server snapshot — do not let hydrate overwrite touched keys.",
         "Surfaces differ by shade, never by line or shadow: keep --edge invisible and use --rim for genuine frames.",
         "Tuner page and tuner-save endpoint are dev-only and must never enter the app bundle or production build.",
-        "Fixture mode is screenshots and timing only — it never talks to a server or spends tokens."
+        "Fixture mode is screenshots and timing only — it never talks to a server or spends tokens.",
+        "Zip a .app with ditto -c -k --norsrc --noextattr --noacl --keepParent: plain ditto -c -k stores com.apple.provenance as ._ entries, and Finder's Archive Utility unpacks those as real ._ files inside Electron Framework.framework, breaking the signature (unsealed contents in an embedded framework).",
+        "Never launch a second ruri build (a release copy, a test bundle) with only RURI_USER_DATA set: it claims port 7776 and SIGTERMs the running ruri's server (server/port.ts reclaim). Set RURI_PORT, RURI_CONFIG_DIR and RURI_USER_DATA, and open -n."
       ],
       "edges": [
         "Protocol — store.ts types every client/server message from shared/protocol.ts",

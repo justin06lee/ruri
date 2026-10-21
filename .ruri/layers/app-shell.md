@@ -1,6 +1,6 @@
 # ruri — App shell, state and tooling
 
-One layer of ruri's stack, owning `web/src/, web/index.html, eslint.config.js, scripts/run-tests.ts, vite.config.ts, scripts/session-settings.ts, scripts/sharing.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
+One layer of ruri's stack, owning `web/src/, web/index.html, eslint.config.js, scripts/run-tests.ts, vite.config.ts, scripts/session-settings.ts, scripts/sharing.ts, Makefile, package.json, scripts/build-main.ts, scripts/make-icon.sh, build/`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer app-shell` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer app-shell add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
 This layer is the web app shell: entry HTML, React root, global zustand store with socket wiring, local-first prefs, and global manga-theme styles. It freezes a window nobody can see (minimised, hidden, another Space, or fully covered, not merely unfocused): inbound updates are held with only the latest kept and applied in one redraw on wake, while agents and terminals keep running. It also carries the Linux shell adaptations: Permissions settings renders a no-grants message instead of macOS calls and shortcuts use Ctrl on Linux. Newcomers must grasp that store.ts is the single state/socket hub all feature layers read, that held.ts owns the asleep hold-and-catch-up, and that styles.css plus the beat/awake/spin clocks define how anything may look or move.
@@ -23,12 +23,14 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - **Sidebar project rows and session navigation:** web/src/components/Sidebar.tsx, web/src/components/ChatPane.tsx, web/src/store.ts
 - **Home board and queue:** web/src/components/HomeBoard.tsx, web/src/components/Queue.tsx, web/src/styles.css
 - **Project hooks state and styling:** web/src/store.ts, web/src/styles.css
+- **Packaging and release artifacts:** Makefile, package.json, scripts/build-main.ts, build/
 
 ## How it works
 
 - **App boot to live state:** web/index.html loads web/src/main.tsx → main.tsx paints cached pref theme then mounts web/src/App.tsx → App.tsx connects web/src/store.ts socket once → store hydrates prefs via web/src/prefs.ts and prewarms transcripts → clocks in web/src/lib/beat.ts and web/src/lib/spin.ts start only while awake per web/src/lib/awake.ts
 - **Asleep freeze to wake catch-up:** window sleeps and store sets live false → web/src/lib/held.ts holds inbound updates keeping only the latest of each kind → server holds chat streams at the marked position → on wake held updates apply in a single redraw → server sends each open chat exactly what it missed
 - **Fixture screenshot pass:** open ?fixture to run web/src/fixture.ts installFixture → fixture drives web/src/store.ts with canned events and statuses → eyeball or screenshot with no server and no tokens
+- **Release artifacts:** make build in a clean worktree of the tag (signs as ruri dev) → bunx electron-builder --mac dir --x64 and --linux dir --x64 --arm64 (cross-builds fine: no native modules ship) → ditto -c -k --norsrc --noextattr --noacl --keepParent per .app, tar.gz of each linux-*-unpacked plus build/icon.svg → checksums.txt → gh release create --draft
 
 ## Key files
 
@@ -56,6 +58,8 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - Surfaces differ by shade, never by line or shadow: keep --edge invisible and use --rim for genuine frames.
 - Tuner page and tuner-save endpoint are dev-only and must never enter the app bundle or production build.
 - Fixture mode is screenshots and timing only — it never talks to a server or spends tokens.
+- Zip a .app with ditto -c -k --norsrc --noextattr --noacl --keepParent: plain ditto -c -k stores com.apple.provenance as ._ entries, and Finder's Archive Utility unpacks those as real ._ files inside Electron Framework.framework, breaking the signature (unsealed contents in an embedded framework).
+- Never launch a second ruri build (a release copy, a test bundle) with only RURI_USER_DATA set: it claims port 7776 and SIGTERMs the running ruri's server (server/port.ts reclaim). Set RURI_PORT, RURI_CONFIG_DIR and RURI_USER_DATA, and open -n.
 
 ## What it talks to
 

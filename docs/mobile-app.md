@@ -1,5 +1,7 @@
 # ruri on the iPhone: plan
 
+Built in [ios/](../ios/README.md): native SwiftUI, QR pairing, Tailscale away from home, read-only v1. The decisions below were made that way.
+
 The goal: Justin opens his phone and sees what is running on his Mac without asking anyone. He sees which projects are at work, idle, blocked or waiting on him, what each one is doing right now, and what each one last finished. Convenience comes first. The bigger ruri overhaul comes later.
 
 Each choice marked **Decision (Justin)** is his to make. The recommendation follows it.

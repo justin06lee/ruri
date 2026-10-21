@@ -58,6 +58,7 @@ On a Linux that restricts unprivileged user namespaces (Ubuntu 24.04 and later),
 - **Questions never go to a hole** — every harness's question and form elicitation shares one card.
 - **A manga look** on warm paper, three themes on a clock, the dragon gauges for context and account limits, the peek band in the title bar (a mountain path by day on light, under the stars on dark and at sunset on ember — or any pictures and GIFs you give it, each with its own hover and themes), the marks of whoever made the chat's model doodled over every empty chat (Anthropic × Claude, OpenAI × ChatGPT, Google × Gemini and the rest), and a music player in the sidebar.
 - **Settings → Permissions** shows every macOS grant as macOS actually holds it.
+- **ruri on your iPhone** — a quiet, read-only view of the Mac: what needs you, then every project with a status dot and what it is doing now, its lead and teammates a tap away, live while the app is open. Paired by a QR code from Settings → Devices, its key reads the status and nothing else; away from home, over Tailscale ([ios/README.md](ios/README.md)).
 - **Shortcuts by platform** — ⌘ on a Mac is Ctrl on Linux (Ctrl+K for the switcher, Ctrl+Enter to cut in); the terminals' tabs are Ctrl+Shift+T and Alt+1–9 there, as in GNOME Terminal.
 
 The long form, one bullet per capability: [docs/features.md](docs/features.md).
@@ -85,6 +86,7 @@ All state lives under `~/.config/ruri` (`RURI_CONFIG_DIR` moves it); on Linux Ch
 - [docs/testing.md](docs/testing.md) — every script, and which spend tokens
 - [docs/permissions.md](docs/permissions.md) — the macOS grants and the signing identity, and what Linux asks for instead
 - [docs/harness-integration.md](docs/harness-integration.md) — non-Claude harnesses through yagami
+- [ios/README.md](ios/README.md) — the iPhone app: run it in the simulator, pair it, put it on your phone with a free Apple ID
 - [docs/roadmap.md](docs/roadmap.md) — not yet
 - [CHANGELOG.md](CHANGELOG.md), [CONTRIBUTING.md](CONTRIBUTING.md)
 

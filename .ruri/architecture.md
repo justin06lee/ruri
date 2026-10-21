@@ -45,6 +45,7 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 - scripts/ — per-capability smoke/dev scripts run via bun run *-test
 - docs/ — features, permissions, long-form capability docs
 - assets/ — ruri.svg, dragon art
+- Makefile, build/ — packaging: signed macOS build, release artifacts, icons
 - ~/.config/ruri/hooks.json — hook settings (mode 0600), kept out of synced prefs
 
 ## How to run it

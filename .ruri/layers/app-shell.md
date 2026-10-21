@@ -60,6 +60,7 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - Fixture mode is screenshots and timing only — it never talks to a server or spends tokens.
 - Zip a .app with ditto -c -k --norsrc --noextattr --noacl --keepParent: plain ditto -c -k stores com.apple.provenance as ._ entries, and Finder's Archive Utility unpacks those as real ._ files inside Electron Framework.framework, breaking the signature (unsealed contents in an embedded framework).
 - Never launch a second ruri build (a release copy, a test bundle) with only RURI_USER_DATA set: it claims port 7776 and SIGTERMs the running ruri's server (server/port.ts reclaim). Set RURI_PORT, RURI_CONFIG_DIR and RURI_USER_DATA, and open -n.
+- electronLanguages keeps both en (macOS en.lproj) and en-US (Linux locales/en-US.pak): with en alone the Linux build ships an empty locales/. Smoke-test Linux tarballs with ruri-release-cache/v0.77.0/linux-smoke.sh, which must see ruri stay up, not just answer once.
 
 ## What it talks to
 

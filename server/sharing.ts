@@ -647,6 +647,12 @@ export class Sharing {
       res.end(`This device's key reads ${computerName()}'s status only (/status, /status/live).`);
       return;
     }
+    // a phone has no window: watching the live status is it being here,
+    // and a look at the status is it having been
+    if (seat.scope && pathname === "/status/live") {
+      this.arrived(seat.deviceId);
+      res.on("close", () => this.left(seat.deviceId));
+    } else if (seat.scope) this.glimpsed(seat.deviceId);
     // the page came with its key in the URL: everything it loads by
     // itself after that carries it as a cookie
     if (from === "query" && req.method === "GET") {
@@ -766,6 +772,12 @@ export class Sharing {
   }
 
   /* ── what is kept ─────────────────────────────────────────────────── */
+
+  /** A device seen in passing: kept at most once a minute. */
+  private glimpsed(deviceId: string): void {
+    const device = this.stored.devices.find((d) => d.id === deviceId);
+    if (device && Date.now() - (device.lastSeen ?? 0) >= 60_000) this.seen(deviceId);
+  }
 
   private seen(deviceId: string): void {
     const device = this.stored.devices.find((d) => d.id === deviceId);

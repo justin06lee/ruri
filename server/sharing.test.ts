@@ -162,6 +162,36 @@ describe("a key scoped to the status", () => {
     expect(sharing.refusal(undefined, showing(phone.key))).toBe(403);
   });
 
+  test("is online while it watches the live status, and seen when it looks", async () => {
+    const online = () => sharing.info().devices.find((d) => d.id === phone.deviceId)?.online;
+    const lastSeen = () => sharing.info().devices.find((d) => d.id === phone.deviceId)?.lastSeen;
+    // looked at once already, by the tests before: kept, at most once a minute
+    await ask("/status", phone.key);
+    expect(lastSeen()).toBeGreaterThan(Date.now() - 60_000);
+    const watching = new Promise<() => void>((resolve, reject) => {
+      const req = https.request(
+        {
+          host: "127.0.0.1",
+          port: phone.port,
+          path: "/status/live",
+          rejectUnauthorized: false,
+          agent: false,
+          headers: { "x-ruri-token": phone.key },
+        },
+        (res) => res.once("data", () => resolve(() => req.destroy())),
+      );
+      req.on("error", () => {});
+      req.on("close", () => {});
+      req.end();
+      setTimeout(() => reject(new Error("no frame")), 3000);
+    });
+    const stop = await watching;
+    expect(online()).toBe(true);
+    stop();
+    for (let i = 0; i < 50 && online(); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(online()).toBe(false);
+  });
+
   test("is told apart in Settings → Devices, and kept as a hash with its scope", () => {
     const devices = sharing.info().devices;
     expect(devices.find((d) => d.id === phone.deviceId)?.scope).toBe("status");

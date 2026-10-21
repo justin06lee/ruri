@@ -4,7 +4,8 @@
  * ~/.config/ruri), three temp projects with small teams, sharing on, and a
  * phone's pairing link — then, on cue, real turns (haiku) so the phone has
  * something to watch: one project at work, one asking a question, one
- * waiting on a card, one at rest.
+ * waiting on a card, one at rest. The tour (ios/RuriUITests) touches the
+ * cue itself once paired, given TEST_RUNNER_RURI_DEMO_CUE=<dir>/go.
  *
  *   bun ios/demo/scratch-server.ts          (from the repo root)
  *
@@ -13,6 +14,7 @@
  * start the turns; touch <dir>/link-again for a fresh link. Ctrl-C stops
  * the server and removes every temp folder.
  */
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -53,6 +55,10 @@ const lighthouse = project("lighthouse", [
 const atlas = project("atlas", [{ slug: "maps", name: "Maps", what: "The maps and their legends", file: "MAPS.md" }]);
 const garden = project("garden", [{ slug: "beds", name: "Beds", what: "What is planted in each bed", file: "BEDS.md" }]);
 
+if (serverPids().length) {
+  console.error(`port ${PORT} is taken — set RURI_PORT`);
+  process.exit(1);
+}
 const server = bootServer({
   port: PORT,
   configDir,
@@ -60,7 +66,18 @@ const server = bootServer({
   env: { RURI_NO_MEMORY: "1", RURI_MIDNA: "", RURI_IDLE_MS: "8000" },
 });
 
+/** The server itself: bootServer's child is bunx, which a signal to it
+ *  never gets past — so whatever listens on our port, ours alone. */
+function serverPids(): string[] {
+  try {
+    return execFileSync("lsof", ["-ti", `tcp:${PORT}`, "-sTCP:LISTEN"], { encoding: "utf8" }).split(/\s+/).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 function cleanup(code: number): never {
+  for (const pid of serverPids()) process.kill(Number(pid), "SIGINT");
   server.kill("SIGINT");
   fs.rmSync(dir, { recursive: true, force: true });
   process.exit(code);
@@ -130,10 +147,10 @@ for (const [root, slug] of [
   [atlas, "maps"],
 ] as const) {
   const chat = member(root, slug);
-  if (chat) {
-    send({ type: "set_model", projectId: chat.id, model: MODEL });
-    send({ type: "set_permission_mode", projectId: chat.id, mode: "bypassPermissions" });
-  }
+  if (!chat) continue;
+  send({ type: "set_model", projectId: chat.id, model: MODEL });
+  // atlas's maps keeps asking first: its write waits on a card
+  if (slug !== "maps") send({ type: "set_permission_mode", projectId: chat.id, mode: "bypassPermissions" });
 }
 
 /* ── last words for everyone, so no row is blank ───────────────────── */
@@ -186,7 +203,7 @@ await talk(leadOf(orchard).id, {
   do: "send",
   to: "harvest",
   message:
-    "A new job: run exactly this with your Bash tool, and nothing else: for i in $(seq 1 30); do sleep 1; done — then reply with just: Weighed the last crates, 52 pounds in all.",
+    "A new job: run exactly this with your Bash tool, and nothing else: for i in $(seq 1 50); do sleep 1; done — then reply with just: Weighed the last crates, 52 pounds in all.",
   reply: "none",
 });
 await settle(4_000);
@@ -196,10 +213,13 @@ say(
   "Ask me, in one short question, whether the lamp should switch to the red lens tonight, and end your turn on that question. Do nothing else.",
 );
 await settle(6_000);
-// atlas: a card waits on you
-say(
-  leadOf(atlas).id,
-  "Use your Write tool to create the file LEGEND.md containing the line 'North is up.' Do it yourself, now, without delegating, and then reply done.",
-);
+// atlas: its maps teammate's write waits on a card
+await talk(leadOf(atlas).id, {
+  do: "send",
+  to: "maps",
+  message:
+    "A new job: use your Write tool to create MAPS-LEGEND.md containing the line 'North is up.' — then reply with just: Legend written.",
+  reply: "none",
+});
 console.log("turns started — Ctrl-C to stop");
 await new Promise(() => {});

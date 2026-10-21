@@ -22,6 +22,8 @@ make build      # only the app
 
 `SIM="iPhone 17 Pro" make` picks another simulator. The simulator has no camera. To pair it, run `xcrun simctl openurl booted "<the ruri://pair link>"`.
 
+**Against a real ruri, never yours.** `bun ios/demo/scratch-server.ts` (from the repo root) starts a scratch ruri on a temp config. It sets up four temp projects with small teams, turns sharing on and prints a pairing link. Touch the `go` file it names to start real turns (haiku): one project at work, one asking a question, one waiting on a card. `make demo` does all of that and runs the UI test that tours the app (`RuriUITests/TourTests`), recording the simulator to `build/tour.mp4`. The UI test skips itself without a pairing link, so `make test` stays offline.
+
 ## Install it on your iPhone (free Apple ID, 7 days)
 
 1. Open `ios/Ruri.xcodeproj` in Xcode 26.

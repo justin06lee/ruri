@@ -20,6 +20,7 @@ struct HomeView: View {
                                 NavigationLink(value: need.project) {
                                     NeedRow(need: need)
                                 }
+                                .accessibilityIdentifier("need.\(need.project)")
                             }
                         }
                     }
@@ -28,6 +29,7 @@ struct HomeView: View {
                             NavigationLink(value: project.name) {
                                 ProjectRow(project: project)
                             }
+                            .accessibilityIdentifier("project.\(project.name)")
                         }
                     }
                 }

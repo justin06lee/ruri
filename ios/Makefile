@@ -1,5 +1,6 @@
-# The iPhone app. `make` builds it and runs it on a simulator; installing it
-# on a phone is Xcode's (README.md says how).
+# The iPhone app. `make` builds it and runs it on a simulator; `make demo`
+# records the tour against a scratch ruri (demo/record.sh); installing it on
+# a phone is Xcode's (README.md says how).
 
 SIM ?= iPhone 17
 BUNDLE_ID := com.justin06lee.ruri.phone
@@ -14,7 +15,7 @@ export DEVELOPER_DIR
 
 XCODEBUILD := xcodebuild -project Ruri.xcodeproj -scheme Ruri -derivedDataPath $(DERIVED) -quiet
 
-.PHONY: all build install test boot
+.PHONY: all build install test demo boot
 
 all: install
 	xcrun simctl launch "$(SIM)" $(BUNDLE_ID)
@@ -27,6 +28,9 @@ install: build boot
 
 test: boot
 	$(XCODEBUILD) -destination 'platform=iOS Simulator,name=$(SIM)' test
+
+demo:
+	SIM="$(SIM)" demo/record.sh
 
 boot:
 	@xcrun simctl bootstatus "$(SIM)" -b >/dev/null

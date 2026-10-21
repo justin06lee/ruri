@@ -27,6 +27,7 @@ struct ProjectView: View {
                         Section("Team") {
                             ForEach(project.team, id: \.name) { chat in
                                 ChatRow(chat: chat)
+                                    .accessibilityIdentifier("chat.\(chat.name)")
                             }
                         }
                     }

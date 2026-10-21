@@ -39,6 +39,17 @@
                ReferencedContainer = "container:Ruri.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "5E7A00000000000000000024"
+               BuildableName = "RuriUITests.xctest"
+               BlueprintName = "RuriUITests"
+               ReferencedContainer = "container:Ruri.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

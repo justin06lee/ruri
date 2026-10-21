@@ -123,11 +123,18 @@ final class RuriModel {
                 return
             } catch {
                 if Task.isCancelled { return }
+                let wasLive = link == .live
                 lost(error)
                 // a Mac that no longer knows this phone won't on the next try
                 if link == .unpaired {
                     liveTask = nil
                     return
+                }
+                // a line that was live goes straight back once before the
+                // Mac is called unreachable: most drops are only the line
+                if wasLive {
+                    link = .connecting
+                    continue
                 }
             }
             try? await Task.sleep(for: wait)

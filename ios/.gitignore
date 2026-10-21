@@ -1,0 +1,4 @@
+# what xcodebuild and Xcode write
+build/
+xcuserdata/
+*.xcuserstate

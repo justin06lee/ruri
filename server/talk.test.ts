@@ -26,6 +26,7 @@ import { promptHandlers } from "./handlers/prompts.js";
 import { SendQueues } from "./queue.js";
 import { TeamGovernor } from "./team.js";
 import {
+  asksTheLead,
   defaultPolicy,
   letterPrompt,
   resumePrompt,
@@ -931,3 +932,34 @@ describe("letters in flight outlive a relaunch", () => {
     });
   });
 });
+
+describe("a teammate's report to its lead", () => {
+  test("a finished one waits for the lead's next prompt; a question or a blocker wakes it", async () => {
+    const { ctx, arrive, answer } = world();
+    await sendLetter(ctx, "api-lead", { to: "Docs", message: "update the docs" });
+    arrive("c");
+    answer("c", "Done: the docs say v2 now. Nothing pushed.");
+    expect(ctx.queues.entries.get("api-lead")).toBeUndefined();
+    expect(ctx.talk.held.get("api-lead")?.map((one) => one.text)).toEqual(["Done: the docs say v2 now. Nothing pushed."]);
+    // its letter stays in the book until it goes in with that prompt
+    const letter = ctx.talk.held.get("api-lead")![0]!.from.letter;
+    expect(ctx.talk.pending.has(letter)).toBe(true);
+
+    await sendLetter(ctx, "api-lead", { to: "Docs", message: "and the readme" });
+    arrive("c");
+    answer("c", "The readme names two install paths. Should I keep both?");
+    expect(ctx.queues.entries.get("api-lead")?.map((entry) => entry.text)).toEqual([
+      "The readme names two install paths. Should I keep both?",
+    ]);
+  });
+
+  test("what counts as needing the lead", () => {
+    expect(asksTheLead("Done. Tests pass.")).toBe(false);
+    expect(asksTheLead("Done, see /status?ids=1 for ids.")).toBe(false);
+    expect(asksTheLead("Which of the two do you want?")).toBe(true);
+    expect(asksTheLead("BLOCKED: the license isn't accepted.")).toBe(true);
+    expect(asksTheLead("Built it, but the deploy is blocked on a token.")).toBe(true);
+    expect(asksTheLead("It needs your decision on the bundle id.")).toBe(true);
+  });
+});
+

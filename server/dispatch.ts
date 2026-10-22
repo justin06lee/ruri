@@ -112,6 +112,13 @@ export function dispatch(
     ...(from ? { from } : {}),
     ts: Date.now(),
   };
+  // a lead's teammates' finished reports, held for its next prompt rather
+  // than each waking it (TalkBook.held): into the transcript just ahead of
+  // this prompt, and read first, as the messages they are
+  const held = ctx.talk.takeHeld(channelId);
+  for (const one of held)
+    recordEvent(ctx, channelId, { kind: "user", id: randomUUID(), text: one.text, from: one.from, ts: Date.now() });
+  const reports = held.map((one) => `${wrapped(ctx, channelId, one.from, one.text)}\n\n`).join("");
   recordEvent(ctx, channelId, userEvent);
   checkpoint(ctx, channelId, userEvent.id);
   const said = afterStop(
@@ -120,11 +127,12 @@ export function dispatch(
     from ? wrapped(ctx, channelId, from, processed.text) : processed.text,
   );
   ctx.archive.noteSent(channelId, harness, userEvent.id);
-  ctx.manager.send(project, brief + said + named, processed.images, undefined, true, userEvent.id);
+  ctx.manager.send(project, brief + reports + said + named, processed.images, undefined, true, userEvent.id);
   // a message the other chat has now started on — or an answer now in the
   // sender's hands, which is that letter done with. Only once it has gone:
   // one that fails to go goes back in line, and stays in the book
   if (from) ctx.talk.arrived(from);
+  for (const one of held) ctx.talk.arrived(one.from);
   return userEvent.id;
 }
 

@@ -399,6 +399,20 @@ const REMEMBERED = 200;
  * run only, for the talk page), the messages in flight (kept on disk, so a
  * relaunch loses none), and the cards up asking the user.
  */
+/**
+ * Whether a teammate's report needs its lead now: it ends on a question, or
+ * says it is blocked or waiting on a decision. Anything else is a finished
+ * report, which can wait for the lead's next prompt (TalkBook.held).
+ */
+export function asksTheLead(text: string): boolean {
+  const said = text.trim();
+  if (/^(?:question|blocked|blocker|decision needed)\b/i.test(said)) return true;
+  if (/\?(?:\s|$)/.test(said.slice(-300))) return true;
+  return /\b(?:blocked|blocker|can(?:no|')t (?:go on|proceed|continue)|needs? (?:your|a|the (?:lead|user)'?s?) (?:decision|call|answer|go-ahead|yes)|waiting on (?:you|your|the user|a decision))\b/i.test(
+    said,
+  );
+}
+
 export class TalkBook {
   private stored: TalkPolicy | null = null;
   /** For reading old rules that named chats: the project each is in. */
@@ -414,6 +428,29 @@ export class TalkBook {
    *  the middle of the job, and the prompt of that turn: its end does not
    *  answer them — the turn carrying them on does (carryLetter). */
   readonly carried = new Map<string, string>();
+  /** Teammates' finished reports to a lead, held for its next prompt rather
+   *  than each waking it (docs/token-efficiency.md, Q6): chat → what came
+   *  back, in order. In memory only — their letters stay in the book until
+   *  they go in (arrived), so a relaunch sends them back again. */
+  readonly held = new Map<string, { text: string; from: LetterFrom }[]>();
+
+  hold(chat: string, text: string, from: LetterFrom): void {
+    this.held.set(chat, [...(this.held.get(chat) ?? []), { text, from }]);
+  }
+
+  /** What is held for a chat, taken out to go in with its prompt. */
+  takeHeld(chat: string): { text: string; from: LetterFrom }[] {
+    const held = this.held.get(chat) ?? [];
+    this.held.delete(chat);
+    return held;
+  }
+
+  /** A held answer a wait collected instead. */
+  unhold(chat: string, letter: string): void {
+    const rest = (this.held.get(chat) ?? []).filter((one) => one.from.letter !== letter);
+    if (rest.length > 0) this.held.set(chat, rest);
+    else this.held.delete(chat);
+  }
   /** Who stopped a chat's turn, when it was not the user — for the sender
    *  of a message that turn was answering. */
   readonly stoppedBy = new Map<string, string>();

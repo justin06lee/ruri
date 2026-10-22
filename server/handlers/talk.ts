@@ -40,6 +40,7 @@ import { channelProject, running } from "../channel.js";
 import type { ServerContext } from "../context.js";
 import { cutInWith, dispatch } from "../dispatch.js";
 import {
+  asksTheLead,
   clipAnswer,
   httpWaitMs,
   MAX_DEPTH,
@@ -850,6 +851,7 @@ function collect(ctx: ServerContext, pending: Pending): TalkResult {
     }
     ctx.queues.broadcastQueue(pending.from);
   }
+  ctx.talk.unhold(pending.from, pending.id);
   ctx.talk.forget(pending.id, HANDED);
   const said = handed(ctx, pending, pending.ending!);
   answerOnward(ctx, pending, { taken: said });
@@ -937,10 +939,8 @@ function sendBack(ctx: ServerContext, pending: Pending): void {
     return;
   }
   const found = ctx.store.findSession(pending.to);
-  // a sender still in the turn waiting on this — between two of its
-  // slices, about to ask again — is not stopped for it (interruptible): it
-  // waits in the line, where that next ask collects it
-  deliver(ctx, pending.from, ending.outcome === "answered" ? clipAnswer(ending.text) : ending.text, {
+  const text = ending.outcome === "answered" ? clipAnswer(ending.text) : ending.text;
+  const from: LetterFrom = {
     agent: pending.to,
     project: found?.project.name ?? "a closed project",
     title: found?.session.title ?? "",
@@ -951,7 +951,24 @@ function sendBack(ctx: ServerContext, pending: Pending): void {
     // the message the sender sent this one for: the turn this answer
     // starts may be the one that answers it
     ...(pending.for ? { owes: pending.for } : {}),
-  });
+  };
+  // a teammate's finished report to its lead waits for the lead's next
+  // prompt instead of waking it: only a question or a blocker, a failure,
+  // or an answer the lead owes someone else starts a turn of its own
+  if (
+    ending.outcome === "answered" &&
+    !pending.for &&
+    headOf(ctx, pending.from)?.head === "lead" &&
+    isMemberChat(ctx, pending.to) &&
+    !asksTheLead(ending.text)
+  ) {
+    ctx.talk.hold(pending.from, text, from);
+    return;
+  }
+  // a sender still in the turn waiting on this — between two of its
+  // slices, about to ask again — is not stopped for it (interruptible): it
+  // waits in the line, where that next ask collects it
+  deliver(ctx, pending.from, text, from);
 }
 
 /** What a chat said after a prompt: its last word, or — `all` — every

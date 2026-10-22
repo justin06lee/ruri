@@ -26,6 +26,7 @@ function chatAt(
     prefs?: Record<string, string>;
     agents?: number;
     events?: TranscriptEvent[];
+    member?: boolean;
   } = {},
 ): ServerContext {
   const session = { id: "c1", model: "m" };
@@ -35,6 +36,7 @@ function chatAt(
     store: {
       findSession: (id: string) => (id === "c1" ? { project, session } : undefined),
       defaultModel: () => "m",
+      isMember: (id: string) => id === "c1" && options.member === true,
     },
     prefs: { all: () => options.prefs ?? {} },
     turns: { contexts: new Map([["c1", { tokens, window }]]) },
@@ -76,6 +78,16 @@ describe("where an agent compacts itself", () => {
     expect(selfCompactAt(chatAt(0, { prefs: { "ruri-self-compact-at": "300k" } }), "c1")).toBe(250_000);
     // and only a project's chats have one
     expect(selfCompactAt(chatAt(0), "nobody")).toBeUndefined();
+  });
+
+  test("a teammate at 150k: its whole history is re-read on every call, so a short one is what keeps it cheap", () => {
+    delete process.env["RURI_SELF_COMPACT_AT"];
+    expect(selfCompactAt(chatAt(0, { member: true }), "c1")).toBe(150_000);
+    // the user's word still wins
+    expect(selfCompactAt(chatAt(0, { member: true, prefs: { "ruri-self-compact-at": "300k" } }), "c1")).toBe(300_000);
+    expect(selfCompactAt(chatAt(0, { member: true, prefs: { "ruri-self-compact-at": "off" } }), "c1")).toBeUndefined();
+    // a lead keeps half its window
+    expect(selfCompactAt(chatAt(0), "c1")).toBe(500_000);
   });
 });
 

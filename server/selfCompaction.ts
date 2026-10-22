@@ -45,6 +45,11 @@ export const CONTEXT_TOOLS = ["mcp__ruri__context", "mcp__ruri__compact"];
 
 /** Where an agent compacts itself unless told otherwise: half its window. */
 export const SELF_COMPACT_SHARE = 0.5;
+/** Where a teammate compacts itself when nothing says otherwise. Every
+ *  model call re-reads the whole history, so a teammate's history is most
+ *  of what it costs: at half a 1M window they averaged 223k a call
+ *  (docs/token-efficiency.md, Q2). */
+export const MEMBER_COMPACT_AT = 150_000;
 
 /** How far the context climbs mid-turn before the model hears it again —
  *  a share of the window — and, past its compaction point, how far
@@ -95,7 +100,8 @@ export function parseCompactAt(raw: string | undefined): { share?: number; token
 }
 
 /** Where a chat compacts itself, in tokens — RURI_SELF_COMPACT_AT, then the
- *  "ruri-self-compact-at" preference, then half the window. Undefined when
+ *  "ruri-self-compact-at" preference, then MEMBER_COMPACT_AT for a
+ *  teammate and half the window for anyone else. Undefined when
  *  it is off ("off" in either), or for a chat that is not a project's. */
 export function selfCompactAt(ctx: ServerContext, channelId: string): number | undefined {
   if (channelId === HOME_ID || !channelProject(ctx, channelId)) return undefined;
@@ -103,7 +109,9 @@ export function selfCompactAt(ctx: ServerContext, channelId: string): number | u
   const pref = ctx.prefs.all()["ruri-self-compact-at"];
   const said = env?.trim() ? env : pref;
   if (said?.trim().toLowerCase() === "off") return undefined;
-  const at = parseCompactAt(said) ?? { share: SELF_COMPACT_SHARE };
+  const at =
+    parseCompactAt(said) ??
+    (ctx.store.isMember(channelId) ? { tokens: MEMBER_COMPACT_AT } : { share: SELF_COMPACT_SHARE });
   const window = contextWindow(ctx, channelId);
   return Math.min(window, at.tokens ?? Math.round(window * (at.share ?? SELF_COMPACT_SHARE)));
 }

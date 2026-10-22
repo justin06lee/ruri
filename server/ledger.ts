@@ -32,7 +32,7 @@ function add(a: Totals, b: Partial<Totals>): Totals {
 }
 
 /** Local calendar day, the way a person would draw the line. */
-function dayOf(ts: number): string {
+export function dayOf(ts: number): string {
   const d = new Date(ts);
   const two = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
@@ -48,6 +48,9 @@ export class LedgerStore {
    *  folder is by then (a test that set its own and put it back). */
   private readonly file = ledgerFile();
   private timer: NodeJS.Timeout | null = null;
+  /** What this process recorded itself, by project and day: right from
+   *  the start, so a rebuild of the dollars before it leaves these be. */
+  private readonly fresh = new Map<string, Map<string, Totals>>();
 
   constructor() {
     try {
@@ -82,12 +85,64 @@ export class LedgerStore {
     }, WRITE_DELAY_MS);
   }
 
+  /** Nothing recorded yet, ever: a new install, or a test's own folder. */
+  get empty(): boolean {
+    return this.days.size === 0;
+  }
+
   /** A turn finished on one of this project's sessions. */
   record(projectId: string, spent: Partial<Totals>, ts = Date.now()): void {
     const days = this.days.get(projectId) ?? new Map<string, Totals>();
     const day = dayOf(ts);
     days.set(day, add(days.get(day) ?? ZERO, { ...spent, turns: spent.turns ?? 1 }));
     this.days.set(projectId, days);
+    const fresh = this.fresh.get(projectId) ?? new Map<string, Totals>();
+    fresh.set(day, add(fresh.get(day) ?? ZERO, { ...spent, turns: spent.turns ?? 1 }));
+    this.fresh.set(projectId, fresh);
+    this.save();
+  }
+
+  /**
+   * Puts right the dollars recorded before this process started, when every
+   * turn's cost was the CLI's running total (turnCost.ts). Each day takes
+   * what its transcripts say it cost (`rebuilt`, from ledgerRebuild.ts),
+   * plus what this process recorded itself. A day whose transcripts are
+   * gone is estimated from its tokens, at what a token cost the project on
+   * the days that still have them (or across all projects when it has none).
+   */
+  rebuildCosts(rebuilt: Map<string, Map<string, number>>): void {
+    const freshOf = (projectId: string, day: string) => this.fresh.get(projectId)?.get(day) ?? ZERO;
+    const rates = new Map<string, number>();
+    let allCost = 0;
+    let allTokens = 0;
+    for (const [projectId, days] of this.days) {
+      let cost = 0;
+      let tokens = 0;
+      for (const [day, totals] of days) {
+        const known = rebuilt.get(projectId)?.get(day);
+        if (known === undefined) continue;
+        cost += known;
+        tokens += totals.tokens - freshOf(projectId, day).tokens;
+      }
+      if (tokens > 0) rates.set(projectId, cost / tokens);
+      allCost += cost;
+      allTokens += tokens;
+    }
+    const overall = allTokens > 0 ? allCost / allTokens : undefined;
+    for (const [projectId, costs] of rebuilt) {
+      const days = this.days.get(projectId) ?? new Map<string, Totals>();
+      for (const day of costs.keys()) if (!days.has(day)) days.set(day, ZERO);
+      this.days.set(projectId, days);
+    }
+    for (const [projectId, days] of this.days) {
+      const rate = rates.get(projectId) ?? overall;
+      for (const [day, totals] of days) {
+        const fresh = freshOf(projectId, day);
+        const before = rebuilt.get(projectId)?.get(day) ?? (rate === undefined ? undefined : (totals.tokens - fresh.tokens) * rate);
+        if (before === undefined) continue;
+        days.set(day, { ...totals, costUsd: before + fresh.costUsd });
+      }
+    }
     this.save();
   }
 

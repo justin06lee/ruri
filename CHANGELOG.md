@@ -4,6 +4,8 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- fix(ledger): each turn's cost is its own, not its CLI's running total. A chat's Claude CLI stays up across turns, and the `total_cost_usd` on its result line is the whole process's so far; ruri recorded that as the turn's cost and the ledger added it up, so every earlier turn was counted again on each new one (a week that cost about $3.3k read as $33k). A turn now costs what that total stepped by, the first after a launch priced from its own tokens (`server/turnCost.ts`). The ledger's past days are rebuilt once from the CLI's transcripts a minute after the first launch with this (`server/ledgerRebuild.ts`); a day whose transcripts are gone is estimated from its tokens.
+
 ## v0.77.1 — 2026-10-21
 
 - fix(linux): ruri starts and stays up on a Linux computer with no screen (over SSH, or a service started at boot). It died a second after its server came up: a framed window's title bar on Linux comes from the GTK theme, GTK is never loaded without a screen, and Electron asks it for the frame anyway (SIGSEGV, a call to address 0). Every window ruri makes — its own, the bridge's, the library's screenshot window — is frameless when there is no screen (`desktop/headless.ts`), where a title bar has nothing to show. With a screen, nothing changes.

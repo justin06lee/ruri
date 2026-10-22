@@ -32,6 +32,7 @@ import {
   type SessionStartHookSpecificOutput,
 } from "@anthropic-ai/claude-agent-sdk";
 import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
+import { CostMeter, type CallUsage } from "./turnCost.js";
 import { IMAGE_EXTS } from "./mime.js";
 import { readCodexCounts } from "./usage.js";
 import { blockedBy, limitResetsAt, NETWORK } from "./blocked.js";
@@ -1044,7 +1045,7 @@ class ProjectSession implements ChannelSession {
   private early: { event: ResultEvent; timer: NodeJS.Timeout } | undefined;
   /** What a folded turn spent, carried into the result of the one it was
    *  folded into — so the ledger still counts it. */
-  private carry: { tokens: number; cacheRead: number; models: string[] } | undefined;
+  private carry: { tokens: number; cacheRead: number; models: string[]; costUsd: number } | undefined;
   /** A turn is under way — from the prompt going in (or the CLI starting
    *  one itself) to the result that ends it. The status says "permission"
    *  while a card waits, in a turn or out of one (a background agent can
@@ -1059,6 +1060,8 @@ class ProjectSession implements ChannelSession {
   /** Each model's running token total as of the last result — the CLI
    *  reports totals, and a turn's models are the ones whose total moved. */
   private readonly modelTotals = new Map<string, number>();
+  /** Each turn's dollars, stepped from the CLI's running total (turnCost.ts). */
+  private readonly costMeter = new CostMeter();
   /** The vault's substitution, when there is a vault (see secrets.ts). */
   private readonly secretFill: SessionExtras["fillSecrets"];
   /** The file checkpoint a changing tool waits for (SessionExtras.beforeTools). */
@@ -1846,8 +1849,8 @@ class ProjectSession implements ChannelSession {
         // the prompt's own, after one the CLI ran first: that one's end is
         // folded into this one's, rather than signing the prompt done
         clearTimeout(this.early.timer);
-        const { tokens = 0, cacheRead = 0, models = [] } = this.early.event;
-        this.carry = { tokens, cacheRead, models };
+        const { tokens = 0, cacheRead = 0, models = [], costUsd = 0 } = this.early.event;
+        this.carry = { tokens, cacheRead, models, costUsd };
         this.early = undefined;
       }
       // a command the CLI runs itself is taken up here, with no echo
@@ -2026,6 +2029,8 @@ class ProjectSession implements ChannelSession {
       const spent = msg.usage as Partial<Usage> | undefined;
       const tokens = usageTokens(spent) ?? 0;
       const cacheRead = spent?.cache_read_input_tokens ?? 0;
+      // the CLI's total_cost_usd is its whole process's so far, not this turn's
+      const costUsd = this.costMeter.turn(msg.total_cost_usd, spent as CallUsage | undefined, this.mainModel);
       // which models answered this turn: the CLI's per-model usage is a
       // running total for the whole session, so a model counts only when
       // its total moved since the last result
@@ -2075,7 +2080,7 @@ class ProjectSession implements ChannelSession {
           kind: "result",
           id: randomUUID(),
           ok: ok || stopped,
-          costUsd: msg.total_cost_usd,
+          ...(costUsd !== undefined ? { costUsd } : {}),
           durationMs: msg.duration_ms,
           ...(tokens > 0 ? { tokens } : {}),
           ...(cacheRead > 0 ? { cacheRead } : {}),
@@ -2110,10 +2115,12 @@ class ProjectSession implements ChannelSession {
       const tokens = (event.tokens ?? 0) + this.carry.tokens;
       const cacheRead = (event.cacheRead ?? 0) + this.carry.cacheRead;
       const models = [...new Set([...this.carry.models, ...(event.models ?? [])])];
+      const costUsd = (event.costUsd ?? 0) + this.carry.costUsd;
       event = {
         ...event,
         ...(tokens > 0 ? { tokens } : {}),
         ...(cacheRead > 0 ? { cacheRead } : {}),
+        ...(costUsd > 0 ? { costUsd } : {}),
         ...(models.length > 0 ? { models } : {}),
       };
       this.carry = undefined;

@@ -39,6 +39,7 @@ import { pushTalk, restoreTalk } from "./handlers/talk.js";
 import { HomeLog } from "./homelog.js";
 import { IdeaStore } from "./ideas.js";
 import { LedgerStore } from "./ledger.js";
+import { rebuildLedgerOnce } from "./ledgerRebuild.js";
 import { warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
 import { Models } from "./models.js";
@@ -100,6 +101,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // what every project has spent, by the day — the one count that survives
   // rewinds, compactions and Home's nightly amnesia
   const ledger = new LedgerStore();
+  // its dollars before turnCost.ts were each CLI's running total: put
+  // right once, from the transcripts (server/ledgerRebuild.ts)
+  rebuildLedgerOnce(ledger);
   // the two per-PROJECT boards (everything else here is per session)
   const ideas = new IdeaStore();
   const components = new ComponentStore();

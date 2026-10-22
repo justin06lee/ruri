@@ -1,6 +1,6 @@
 # Token efficiency: what ruri spends, and how to spend less
 
-Written 2026-10-22 for Justin, by ruri's lead. Report only: nothing here is built yet. Goal: keep weekly Claude usage under a hard 80%.
+Written 2026-10-22 for Justin, by ruri's lead. Q1 (the cost ledger) is built; nothing else here is yet. Goal: keep weekly Claude usage under a hard 80%.
 
 ## The headline
 

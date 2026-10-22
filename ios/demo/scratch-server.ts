@@ -203,14 +203,14 @@ await talk(leadOf(orchard).id, {
   do: "send",
   to: "harvest",
   message:
-    "A new job: run exactly this with your Bash tool, and nothing else: for i in $(seq 1 50); do sleep 1; done — then reply with just: Weighed the last crates, 52 pounds in all.",
+    "Weigh the last crates and report the total. (To weigh them, run exactly this with your Bash tool and nothing else: for i in $(seq 1 50); do sleep 1; done — then reply with just: Weighed the last crates, 52 pounds in all.)",
   reply: "none",
 });
 await settle(4_000);
 // lighthouse: its lead ends its turn on a question — it needs you
 say(
   leadOf(lighthouse).id,
-  "Ask me, in one short question, whether the lamp should switch to the red lens tonight, and end your turn on that question. Do nothing else.",
+  "Ask Justin whether the lamp should switch to the red lens tonight: one short question, ending your turn on it. Do nothing else.",
 );
 await settle(6_000);
 // atlas: its maps teammate's write waits on a card
@@ -218,7 +218,7 @@ await talk(leadOf(atlas).id, {
   do: "send",
   to: "maps",
   message:
-    "A new job: use your Write tool to create MAPS-LEGEND.md containing the line 'North is up.' — then reply with just: Legend written.",
+    "Write the map legend: use your Write tool to create MAPS-LEGEND.md containing the line 'North is up.' — then reply with just: Legend written.",
   reply: "none",
 });
 console.log("turns started — Ctrl-C to stop");

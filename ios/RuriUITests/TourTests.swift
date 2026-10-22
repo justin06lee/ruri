@@ -21,6 +21,7 @@ final class TourTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["Choose Pair a phone."].waitForExistence(timeout: 10), "the pairing screen")
         pause(2.5)
+        shoot("1 pairing")
 
         // the Camera app would hand the link over just so
         app.open(link)
@@ -36,35 +37,62 @@ final class TourTests: XCTestCase {
         let lighthouse = app.buttons["need.lighthouse"]
         XCTAssertTrue(lighthouse.waitForExistence(timeout: 60), "the question shows under Needs you")
         pause(5)
+        shoot("2 home")
 
-        lighthouse.tap()
+        tap(lighthouse)
         XCTAssertTrue(app.staticTexts["Lead"].waitForExistence(timeout: 5))
         pause(4)
+        shoot("3 a question")
         back(app)
 
         let orchard = app.buttons["project.orchard"]
         XCTAssertTrue(orchard.waitForExistence(timeout: 5))
-        orchard.tap()
+        tap(orchard)
         let harvest = app.descendants(matching: .any)["chat.Harvest"]
         XCTAssertTrue(harvest.waitForExistence(timeout: 5), "orchard's team")
         pause(2)
-        harvest.tap()
+        tap(harvest)
         pause(4)
+        shoot("4 a team")
         back(app)
 
         app.collectionViews.firstMatch.swipeDown(velocity: .slow)
         pause(4)
+        shoot("5 home again")
 
-        app.buttons["Your Mac"].tap()
+        tap(app.buttons["Your Mac"])
         pause(3.5)
-        app.buttons["Done"].tap()
+        shoot("6 the Mac")
+        tap(app.buttons["Done"])
         pause(3)
+    }
+
+    /// A row redrawn by every live frame can be mid-change when the tap
+    /// comes: tap where it is once it settles, or where it was.
+    @MainActor
+    private func tap(_ element: XCUIElement) {
+        let settled = NSPredicate(format: "hittable == true")
+        let wait = expectation(for: settled, evaluatedWith: element)
+        if XCTWaiter.wait(for: [wait], timeout: 4) == .completed {
+            element.tap()
+        } else {
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+    }
+
+    /// A picture of the screen, kept with the test's results.
+    @MainActor
+    private func shoot(_ name: String) {
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
     }
 
     @MainActor
     private func back(_ app: XCUIApplication) {
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        pause(1.5)
+        tap(app.navigationBars.buttons.element(boundBy: 0))
+        pause(2)
     }
 
     private func pause(_ seconds: TimeInterval) {

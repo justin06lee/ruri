@@ -36,14 +36,36 @@ xcrun simctl bootstatus "$SIM" -b >/dev/null
 xcrun simctl uninstall "$SIM" com.justin06lee.ruri.phone 2>/dev/null || true
 xcrun simctl ui "$SIM" appearance light
 
+# the simulator's recorder can't write to every volume: /tmp first
+TAKE=/tmp/ruri-tour-$$.mp4
 echo "recording $OUT…"
-xcrun simctl io "$SIM" recordVideo --codec h264 --force "$OUT" &
+xcrun simctl io "$SIM" recordVideo --codec h264 --force "$TAKE" &
 REC=$!
 sleep 2
+set +e
 TEST_RUNNER_RURI_PAIR_LINK="$LINK" TEST_RUNNER_RURI_DEMO_CUE="$CUE" \
   xcodebuild -project Ruri.xcodeproj -scheme Ruri -derivedDataPath "$DERIVED" -quiet \
   -destination "platform=iOS Simulator,name=$SIM" -only-testing:RuriUITests/TourTests test-without-building
+STATUS=$?
 sleep 1
 stop
 REC=""
-echo "wrote $OUT"
+mv "$TAKE" "$OUT"
+# the tour's screenshots, out of its result bundle
+SHOTS="$(dirname "$OUT")/shots"
+rm -rf "$SHOTS" && mkdir -p "$SHOTS"
+RESULT=$(ls -td "$DERIVED"/Logs/Test/*.xcresult | head -1)
+xcrun xcresulttool export attachments --path "$RESULT" --output-path "$SHOTS" >/dev/null
+python3 -I - "$SHOTS" <<'PY'
+import json, os, sys
+shots = sys.argv[1]
+for test in json.load(open(os.path.join(shots, "manifest.json"))):
+    for a in test["attachments"]:
+        name = a.get("suggestedHumanReadableName", "").split("_0_")[0]
+        if name:
+            os.rename(os.path.join(shots, a["exportedFileName"]), os.path.join(shots, name + ".png"))
+os.remove(os.path.join(shots, "manifest.json"))
+PY
+xcrun simctl shutdown "$SIM" || true
+echo "wrote $OUT and $SHOTS"
+exit $STATUS

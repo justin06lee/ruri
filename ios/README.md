@@ -22,7 +22,7 @@ make build      # only the app
 
 `SIM="iPhone 17 Pro" make` picks another simulator. The simulator has no camera. To pair it, run `xcrun simctl openurl booted "<the ruri://pair link>"`.
 
-**Against a real ruri, never yours.** `bun ios/demo/scratch-server.ts` (from the repo root) starts a scratch ruri on a temp config. It sets up four temp projects with small teams, turns sharing on and prints a pairing link. Touch the `go` file it names to start real turns (haiku): one project at work, one asking a question, one waiting on a card. `make demo` does all of that and runs the UI test that tours the app (`RuriUITests/TourTests`), recording the simulator to `build/tour.mp4`. The UI test skips itself without a pairing link, so `make test` stays offline.
+**Against a real ruri, never yours.** `bun ios/demo/scratch-server.ts` (from the repo root) starts a scratch ruri on a temp config. It sets up four temp projects with small teams, turns sharing on and prints a pairing link. Touch the `go` file it names to start real turns (haiku): one project at work, one asking a question, one waiting on a card. `make demo` does all of that and runs the UI test that tours the app (`RuriUITests/TourTests`), recording the simulator to `build/tour.mp4` (the raw take, about two minutes) and saving the tour's screenshots in `build/shots/`. The UI test skips itself without a pairing link, so `make test` stays offline.
 
 ## Install it on your iPhone (free Apple ID, 7 days)
 
@@ -32,6 +32,7 @@ make build      # only the app
 4. Connect the iPhone by cable, unlock it, and tap **Trust**. Turn on Developer Mode in the iPhone's Settings → Privacy & Security → Developer Mode. The option appears once Xcode has seen the phone. The iPhone restarts; confirm Developer Mode after it does.
 5. Choose the iPhone as the run destination at the top of the window, then press **⌘R**.
 6. The first launch is refused as an "Untrusted Developer". On the iPhone, go to Settings → General → VPN & Device Management, choose your Apple ID, and tap **Trust**. Then open ruri.
+7. Pair it from the Mac as above. When ruri asks to find devices on your local network, tap **Allow**: that is how it reaches the Mac at home. (If you tapped Don't Allow, turn it on in the iPhone's Settings → Privacy & Security → Local Network.)
 
 A free team's signature lasts 7 days. After that the app won't open until you press ⌘R in Xcode again. The pairing and everything else stay. A free team allows 3 such apps per device. With the paid Developer account the signature lasts a year, and the app can go through TestFlight.
 

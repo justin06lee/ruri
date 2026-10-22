@@ -8,6 +8,21 @@ Written 2026-10-22 for Justin, by ruri's lead. Q1 (the cost ledger) is built; no
 2. **Measured from the transcripts instead, the teammates are the cost, not the Leads.** Teammates are 80% of spend, Leads 9%, Liaisons 0.3%.
 3. **What makes a teammate expensive is the size of its context, not what it writes.** Teammates average 223k tokens of context on every model call, and a turn makes about 15 calls. 93% of all tokens are cache reads of that history.
 
+## Re-based (after midna's correction, 15:00)
+
+midna re-counted today from ruri's event logs, summing each session's increments, and got about $221. The transcripts give more: **$535 for ruri's chats on Oct 22 through 15:01**. By project: cobalt $187, mira $140, ambrosia $138 (the "Files app" teammate alone was $103), ucscmsa.com $34, neeko $15, toji $9, ruri $7, midna $4. The event logs undercount for two reasons: they keep only each chat's recent events, and the first result of every process has no increment to take. The conclusion is the same either way: **the Leads are not the cost.** Ranked, the drivers are:
+
+1. **Long worker sessions:** about 223k of history is re-read on every model call (about 15 calls a turn), and re-cached after every idle hour. This is about half of worker spend. Fixes: Q2, S1.
+2. **Fan-out and agent wakes:** 68% of worker turns are started by another agent, at $0.74 median and $1.71 mean each, mostly to re-read history. Cobalt woke 7 teammates at once for small sequential items. Fixes: Q3, Q6, S3.
+3. **Polling:**
+   - midna's own about 168 wakeups a day (about $79/day by midna's count; not on this Mac's transcripts, and midna is fixing it);
+   - Leads woken for every "later" report, each a re-cache after idle.
+
+   Fix: event-driven wakeups only (Q6), and nothing on a timer.
+4. **Opus at high effort everywhere:** 99% of worker spend is Opus, and ruri runs at `xhigh`. Fixes: Q5, S2.
+
+ruri's own figures: every cost the app shows (the Statistics page, the project rows, the home board's "done · $", the hooks' `costUsd`) comes from each turn's result or from the ledger, both of which Q1 fixed at the source (adb8780). Nothing else in ruri adds the running totals up. Result lines already in old transcripts keep the running-total figure they were recorded with.
+
 ## What it costs (measured)
 
 Source: every Claude Code transcript on this Mac (`~/.claude/projects/**.jsonl`), Oct 15–22. Each model call is counted once, priced at list price (Opus 5.5: $4 in, $20 out, $0.20 cache read; cache writes 1.25× for 5 minutes and 2× for 1 hour; Sonnet 5.5 $2/$10/$0.20; Haiku 5.5 $0.10/$0.50), and matched to ruri's chats through `~/.config/ruri/sessions/*.json`. Scripts: `/tmp/tokaudit/`. Not counted: usage on tenet, on claude.ai and in Codex. Those draw on the same weekly % (Justin's login is on tenet too), so the % climbs faster than this Mac's numbers show.

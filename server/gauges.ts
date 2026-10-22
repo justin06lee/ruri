@@ -12,6 +12,10 @@ import { fetchAllUsageLimits, loadCachedLimits, saveCachedLimits } from "./usage
 const USAGE_RETRY_MIN_MS = 5_000;
 const USAGE_RETRY_MAX_MS = 120_000;
 
+/** How long a harness's last good reading stands in for a read that
+ *  missed it. */
+const KEEP_READING_MS = 6 * 60 * 60 * 1000;
+
 export class UsageGauges {
   /** The last run's reading opens the gauges on numbers instead of dashes;
    *  the first fetch of this run replaces it moments later. */
@@ -41,9 +45,18 @@ export class UsageGauges {
         return;
       }
       this.retryIn = USAGE_RETRY_MIN_MS;
-      this.limits = limits;
-      saveCachedLimits(limits);
-      this.broadcast({ type: "usage", limits });
+      // a harness this read missed — its endpoint left alone after a 429,
+      // or just not answering — keeps its last good reading, while that is
+      // fresh enough to show; it used to vanish with every read that
+      // reached only the others
+      const kept = Object.fromEntries(
+        Object.entries(this.limits).filter(
+          ([id, reading]) => !(id in limits) && reading.at !== undefined && Date.now() - reading.at < KEEP_READING_MS,
+        ),
+      );
+      this.limits = { ...kept, ...limits };
+      saveCachedLimits(this.limits);
+      this.broadcast({ type: "usage", limits: this.limits });
     });
   };
 

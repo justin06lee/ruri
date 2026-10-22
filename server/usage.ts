@@ -55,10 +55,30 @@ function epoch(iso: string | null | undefined): number | undefined {
   return Number.isNaN(ms) ? undefined : ms;
 }
 
-/** Fetch the account's limit windows; null when unavailable. */
+/** The usage endpoint answers 429 to a client that asks too often — and a
+ *  read that comes back empty used to be retried within seconds, which
+ *  kept it answering 429 for hours: the gauges went blank, and the usage
+ *  guard had no number. After a 429 it is left alone this long at least
+ *  (longer when it says so), and never asked more often than CLAUDE_EVERY_MS. */
+export const CLAUDE_BACKOFF_MS = 5 * 60_000;
+export const CLAUDE_EVERY_MS = 60_000;
+let claudeQuietUntil = 0;
+let claudeAskedAt = 0;
+
+/** Forget the back-off (tests). */
+export function resetUsageBackoff(): void {
+  claudeQuietUntil = 0;
+  claudeAskedAt = 0;
+}
+
+/** Fetch the account's limit windows; null when unavailable — or not
+ *  asked for now, while the endpoint wants to be left alone. */
 async function fetchUsageLimits(): Promise<UsageLimits | null> {
+  const now = Date.now();
+  if (now < claudeQuietUntil || now - claudeAskedAt < CLAUDE_EVERY_MS) return null;
   const token = await accessToken();
   if (!token) return null;
+  claudeAskedAt = now;
   try {
     const res = await fetch("https://api.anthropic.com/api/oauth/usage", {
       headers: {
@@ -67,6 +87,11 @@ async function fetchUsageLimits(): Promise<UsageLimits | null> {
       },
       signal: AbortSignal.timeout(10_000),
     });
+    if (res.status === 429) {
+      const after = Number(res.headers.get("retry-after"));
+      claudeQuietUntil = Date.now() + Math.max(CLAUDE_BACKOFF_MS, Number.isFinite(after) ? after * 1000 : 0);
+      return null;
+    }
     if (!res.ok) return null;
     const data = (await res.json()) as {
       five_hour?: { utilization?: number | null; resets_at?: string | null } | null;

@@ -93,7 +93,7 @@ export function refusal(tool: string, role: Head | "member"): string | undefined
     return `Refused: no question card reaches the user from ${whose} chat, and every try is refused the same way. If the user typed the prompt you are on, ask them in plain words and end your turn: they answer with their next prompt. ${job}`;
   }
   if (tool === "Task" || tool === "Agent") {
-    return `Refused: the ${role} doesn't start subagents, and every try is refused the same way. ${HAND_OVER} Parallel parts go to several teammates at once, one message each; a teammate may split its own job with subagents. Don't do the job yourself instead, through the shell or any other tool.`;
+    return `Refused: the ${role} doesn't start subagents, and every try is refused the same way. ${HAND_OVER} Big, truly independent parts may go to two teammates at once, one message each; a run of small items goes to one; a teammate may split its own job with subagents. Don't do the job yourself instead, through the shell or any other tool.`;
   }
   return `Refused: the ${role} doesn't change files, and every try is refused the same way. ${HAND_OVER} Don't make the change yourself another way, the shell included.`;
 }
@@ -247,7 +247,7 @@ export function headWatch(head: Head): (turn: number | undefined, calls: ToolCal
         why ??= `you have looked into the project ${looks} times this turn and handed nothing on`;
     }
     return why
-      ? `<ruri:team>You are doing the job yourself: ${why}. The ${head} delegates, so stop here. ${HAND_OVER} Parallel parts go to several teammates at once.</ruri:team>`
+      ? `<ruri:team>You are doing the job yourself: ${why}. The ${head} delegates, so stop here. ${HAND_OVER} A run of small items goes to one teammate as one job.</ruri:team>`
       : undefined;
   };
 }
@@ -323,12 +323,12 @@ export function leadBriefing(
         ]
       : []),
     "- Read only what you need to choose whom: the catch-up, `ruri architecture`, `ruri layer <handle>`, and the roster. Never open the project's files or run its code to answer something yourself — not even a one-line read: that is a teammate's job. You can't change files or start subagents here.",
-    "- If a tool is refused, never do the job yourself another way — not through the shell, not piece by piece: hand it to a teammate. Parallel parts go to several teammates at once.",
+    "- If a tool is refused, never do the job yourself another way — not through the shell, not piece by piece: hand it to a teammate.",
     `- Hand a job over with ${call("message_agent", '"send"')} (to: the teammate's handle, its name, or its layer's handle) — it comes back "later", always, for you: the call returns at once and the answer comes to this chat as a message when the job is done. Then end your turn${
       liaison ? "" : " with a line to the user on who has it"
     }. Write the job so it reads cold: what is wanted and why, anything said that matters, and what to report back.`,
     `- No teammate for that layer yet: ${call("add_teammate", '"add"')} with layer "<handle>" — it takes its name and duty from the layer — and the job as its message, in the same call. A project with no stack: give it a name and a duty for a part of the project, never a single task.`,
-    "- A job across layers goes to the teammate of its main layer, which messages the others itself. Separate jobs go out together, each to its own teammate: every teammate may work at once.",
+    "- Every teammate you wake re-reads its whole history before it does anything, so each wake costs. A run of small or one-after-another items goes to one teammate as one job, never one item each to several. Split work only into big, truly independent parts, and keep at most two teammates at work at once. A job across layers goes to the teammate of its main layer, which asks the others only for what it can't do itself.",
     liaison
       ? "- Answer the agent that asked: when the answers you are waiting on have landed here, your last words in the turn the last one starts go back to it — so end that turn with what it needs. Until then, end each turn short; it keeps waiting. Only a question about the team or the stack itself, which the roster or the sheets answer, is yours to answer at once; anything in the project's files or code goes to a teammate."
       : "- When an answer lands, relay what the user needs in your own words: what was done, what was found, what is left. If it falls short, hand it back saying what to change.",

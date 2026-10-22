@@ -444,7 +444,7 @@ describe("what the lead reads", () => {
     const agent = refusal("Agent", "lead")!;
     expect(agent).toContain("the lead doesn't start subagents, and every try is refused the same way");
     expect(agent).toContain('mcp__ruri__add_teammate with layer "<handle>"');
-    expect(agent).toContain("Parallel parts go to several teammates at once");
+    expect(agent).toContain("Big, truly independent parts may go to two teammates at once");
     expect(agent).toContain("Don't do the job yourself instead");
     expect(refusal("Task", "liaison")).toContain("the liaison doesn't start subagents");
     for (const tool of ["Edit", "Write", "MultiEdit", "NotebookEdit"])

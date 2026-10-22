@@ -128,3 +128,43 @@ Expected result with Q1–Q6 plus S1–S3: roughly **55–70% less** for the sam
 - **The weekly % is not linear in API dollars**, because plan limits weight usage their own way. The shares and ratios above hold; exact $→% doesn't.
 - **"Outside ruri's chats" (11%) isn't broken down further.**
 - **Haiku 5.5's cache-read price** is assumed at 10% of its input price.
+
+## The new design (approved by Justin, 2026-10-22 15:06)
+
+One Lead per project on a short context. The Lead never keeps a team in conversation: it writes each task to the project's task list and hands it to a **worker**, a fresh session that does that one task and exits. Workers run on Sonnet by default and Opus only for hard work, with at most two at once per project. A usage guard watches the week's % across everything.
+
+```
+  Justin / midna
+        │ prompt
+        ▼
+  ┌──────────────────┐   1. writes the task     ┌───────────────────────────┐
+  │ Lead (Opus)      │ ───────────────────────▶ │ Task list (one per        │
+  │ short context:   │                          │ project): id · worker ·   │
+  │ compacts at 100k │ ◀── 4. reads results ─── │ model · status · result · │
+  └────────┬─────────┘     at its next prompt   │ cost                      │
+           │ 2. starts                          └─────────────▲─────────────┘
+           ▼                                                  │ 3. writes its
+  ┌──────────────────┐  fresh session, brief =  ┌─────────────┴─────────────┐   report and
+  │ Charter          │  charter + layer sheet   │ Worker: Sonnet, or Opus   │   exits
+  │ (name, duty,     │  + catch-up + the task   │ for hard work; at most 2  │
+  │ layers): what    │ ───────────────────────▶ │ per project; medium effort│
+  │ teammates were   │                          └───────────────────────────┘
+  └──────────────────┘
+  Usage guard (weekly %): 60% → models step down · 70% → low-ranked projects pause · 80% → everything stops
+```
+
+**What changes:**
+- **Teammates become charters.** Each teammate's name, duty and layers stay as a charter: a reference the Lead hands to a worker. A charter keeps no conversation. Every task starts a fresh session whose brief is the charter, its layer sheets, the project's catch-up and the task. A worker's follow-up questions within its task stay in that task's session. When it reports, its process closes and the next task starts fresh. What workers learn goes where it always should have: the sheets, notes and recall.
+- **Models:**
+  - Workers run on Sonnet 5.5 at `medium` effort.
+  - A Lead marks a task as hard to give it Opus.
+  - Leads keep Opus and compact at 100k.
+  - At most 2 workers run at once per project; the rest wait in line.
+- **The task list replaces chat relays.** A task is written when the Lead hands it on, marked working when its worker starts, and marked done, blocked or failed, with the worker's report and its cost, when the worker finishes. A finished report doesn't wake the Lead (Q6); a question or a blocker does. The Lead, midna, the app's team page and later the phone all read the same list.
+- **The usage guard** reads the plan's weekly % (`usage.json`):
+  - **60%:** workers drop to Sonnet with no Opus tasks, and Leads drop to Sonnet.
+  - **70%:** projects ranked low (unstarred, or below the line in the rank list) pause. Their running turns finish; new agent work waits; the row says "paused: budget".
+  - **80%:** all agent work stops. Only prompts Justin types himself still go, with a one-tap override that is logged.
+  - **Lifting:** each step lifts by itself when the % falls (the weekly reset). Each project's row shows its spend today and this week.
+
+**Migration:** project by project, mira first. A project switches to workers only while its chats are idle, and every teammate's job in flight finishes the old way. Nothing restarts mid-turn, so mira's Oct 28 work is never interrupted. Its teammates' duties are kept as its charters.

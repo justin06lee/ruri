@@ -7,6 +7,7 @@ import type {
   TeamLetter,
   TeamLiaison,
   TeamMember,
+  TeamTask,
 } from "../../../shared/protocol";
 import { useNow } from "../lib/beat";
 import { roughName } from "../lib/models";
@@ -310,6 +311,30 @@ function OutsideChats({ project }: { project: Project }) {
   );
 }
 
+/** A worker project's task list: every job its lead handed on, open first. */
+function TaskList({ tasks, now }: { tasks: TeamTask[]; now: number }) {
+  return (
+    <div className="team-tasks">
+      <span className="team-letters-label">tasks</span>
+      {tasks.length === 0 ? (
+        <div className="team-task-none">none yet — each job the lead hands on is one</div>
+      ) : (
+        tasks.map((task) => (
+          <div key={task.id} className={`team-task ${task.status}`} title={task.report ?? task.title}>
+            <span className="team-task-id">{task.id}</span>
+            <span className="team-task-title">{task.title}</span>
+            <span className="team-task-meta">
+              {task.workerName || "a worker"} · {task.status}
+              {task.hard ? " · hard" : ""} · {task.model}
+              {task.costUsd ? ` · $${task.costUsd.toFixed(2)}` : ""} · {ago(task.ended ?? task.created, now)}
+            </span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 export function TeamPage({ project, onClose }: { project: Project; onClose(): void }) {
   const team = useRuri((s) => s.team[project.id]);
   const now = useNow(30_000);
@@ -336,6 +361,11 @@ export function TeamPage({ project, onClose }: { project: Project; onClose(): vo
         </div>
         {budget && (
           <div className="team-budget">
+            {team?.workerCap !== undefined ? (
+              <span>
+                runs on workers: a fresh session for each job, at most <b>{team.workerCap}</b> at once here
+              </span>
+            ) : null}
             <span>
               {budget.atWork === 0 ? "no" : budget.atWork} teammate{budget.atWork === 1 ? "" : "s"} at work
               across ruri
@@ -360,6 +390,7 @@ export function TeamPage({ project, onClose }: { project: Project; onClose(): vo
         {members.map((member) => (
           <MemberCard key={member.id} member={member} now={now} />
         ))}
+        {team?.tasks && <TaskList tasks={team.tasks} now={now} />}
         {team !== undefined && members.length === 0 && (
           <div className="board-empty">
             You talk to the lead; the lead hands every job to its team — chats of their own, each looking

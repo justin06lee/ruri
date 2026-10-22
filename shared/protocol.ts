@@ -1050,6 +1050,22 @@ export interface Resources {
 
 /** A project's spending, from the ledger (see server/ledger.ts): all of
  *  it, today's, and the last seven days'. Keyed by PROJECT id. */
+/** A task on a project's list, as the team page shows it. */
+export interface TeamTask {
+  id: number;
+  title: string;
+  worker: string;
+  workerName: string;
+  status: "queued" | "working" | "blocked" | "done" | "failed";
+  model: string;
+  hard?: boolean;
+  costUsd?: number;
+  created: number;
+  ended?: number;
+  /** The start of its report. */
+  report?: string;
+}
+
 /**
  * The usage guard as the windows show it: the plan's weekly %, the step it
  * has reached (0 below the first; 1 models step down, 2 low-ranked projects
@@ -2323,6 +2339,10 @@ export type ServerMessage =
       liaison?: TeamLiaison;
       freeLayers: Array<{ slug: string; name: string }>;
       budget: TeamBudget;
+      /** A project run on workers: its newest tasks, open ones first, and
+       *  how many of its workers may work at once. */
+      tasks?: TeamTask[];
+      workerCap?: number;
     }
   | { type: "plugins_found"; harness: IntegrationHarness; query: string; plugins: PluginRow[]; total: number }
   /** How a change to the integrations went, in words. */

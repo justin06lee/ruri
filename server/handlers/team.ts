@@ -19,6 +19,7 @@ import {
   type TeamLetter,
   type TeamLiaison,
   type TeamMember,
+  type TeamTask,
 } from "../../shared/protocol.js";
 import { channelProject, running } from "../channel.js";
 import type { ServerContext } from "../context.js";
@@ -26,7 +27,8 @@ import { compactChannel, drainQueue, stopTurn } from "../dispatch.js";
 import type { QueueEntry } from "../queue.js";
 import { projectWatch } from "../projectWatch.js";
 import { parkedFor } from "../usageGuard.js";
-import { chartersFile, tasksText, workerCap, workerGone, workerMode } from "../workers.js";
+import { isOpen } from "../tasks.js";
+import { chartersFile, tasksOf, tasksText, workerCap, workerGone, workerMode } from "../workers.js";
 import type { AddArgs, Head, TeamHost } from "../team.js";
 import { closeMember } from "./projects.js";
 import { cutOff, doing, modelFor, sendLetter, talkTurnCut, type WaitOptions } from "./talk.js";
@@ -714,7 +716,29 @@ function teamMessage(ctx: ServerContext, project: Project): ServerMessage {
     ...(liaison ? { liaison } : {}),
     freeLayers: unheldLayers(ctx, project).map((layer) => ({ slug: layer.slug!, name: layer.name })),
     budget: teamBudget(ctx),
+    ...(workerMode(project) ? { tasks: teamTasks(ctx, project), workerCap: workerCap(ctx) } : {}),
   };
+}
+
+/** A worker project's newest tasks for the team page: the open ones, then
+ *  the closed, newest first. */
+function teamTasks(ctx: ServerContext, project: Project): TeamTask[] {
+  const all = tasksOf(ctx).list(project.id);
+  const open = all.filter(isOpen).reverse();
+  const closed = all.filter((task) => !isOpen(task)).slice(-12).reverse();
+  return [...open, ...closed].map((task) => ({
+    id: task.id,
+    title: task.title,
+    worker: task.worker,
+    workerName: task.workerName,
+    status: task.status,
+    model: task.model,
+    ...(task.hard ? { hard: true } : {}),
+    ...(task.costUsd ? { costUsd: task.costUsd } : {}),
+    created: task.created,
+    ...(task.ended ? { ended: task.ended } : {}),
+    ...(task.report ? { report: clip(task.report, 240) } : {}),
+  }));
 }
 
 /** A project's team to every window, a moment after it changes. */

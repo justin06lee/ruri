@@ -4,6 +4,12 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- feat(cost): spend less on every chat (docs/token-efficiency.md, Q2–Q6).
+  - Teammates compact themselves at 150k, not half their window: their whole history is re-read on every model call (`server/selfCompaction.ts`).
+  - A lead hands a run of small items to one teammate, never one item each to several, and keeps at most two at work at once (`server/team.ts`).
+  - A test, build or lint run's long output reaches the model as its failures, its last 60 lines, and where the full log is, with the exit status kept (`server/trimOutput.ts`).
+  - Teammates think at `medium` effort, never above their project's; the `ruri-member-effort` preference says otherwise.
+  - A teammate's finished report waits for its lead's next prompt instead of waking it; a question, a blocker or a failure still wakes it (`TalkBook.held`).
 - fix(ledger): each turn's cost is its own, not its CLI's running total. A chat's Claude CLI stays up across turns, and the `total_cost_usd` on its result line is the whole process's so far; ruri recorded that as the turn's cost and the ledger added it up, so every earlier turn was counted again on each new one (a week that cost about $3.3k read as $33k). A turn now costs what that total stepped by, the first after a launch priced from its own tokens (`server/turnCost.ts`). The ledger's past days are rebuilt once from the CLI's transcripts a minute after the first launch with this (`server/ledgerRebuild.ts`); a day whose transcripts are gone is estimated from its tokens.
 
 ## v0.77.1 — 2026-10-21

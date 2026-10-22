@@ -29,6 +29,7 @@ import {
   headWatch,
   leadBriefing,
   memberBriefing,
+  memberEffort,
   refusal,
   refusedFor,
   shellWorks,
@@ -1130,5 +1131,17 @@ describe("a teammate compacting itself in the middle of a job", () => {
     expect(answered).toContain("The composer is rebuilt.");
     // a turn that owes no one carries nothing
     expect(carryLetter(ctx, "memory")).toBeUndefined();
+  });
+});
+
+describe("a teammate's effort", () => {
+  test("medium for routine work, never above its project's, and the preference can say otherwise", () => {
+    expect(memberEffort("xhigh", undefined)).toBe("medium");
+    expect(memberEffort(undefined, undefined)).toBe("medium");
+    expect(memberEffort("low", undefined)).toBe("low");
+    expect(memberEffort("xhigh", "high")).toBe("high");
+    expect(memberEffort("medium", "max")).toBe("medium");
+    expect(memberEffort("xhigh", "same")).toBe("xhigh");
+    expect(memberEffort("high", "nonsense")).toBe("medium");
   });
 });

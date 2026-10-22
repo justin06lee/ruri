@@ -39,7 +39,7 @@
  */
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type { TeamAction } from "../shared/protocol.js";
+import { DEFAULT_EFFORT, EFFORT_LEVELS, type TeamAction } from "../shared/protocol.js";
 
 /** The leads' tools, auto-allowed: they act on the project's own team. */
 export const TEAM_TOOLS = [
@@ -289,6 +289,24 @@ export class TeamGovernor {
 /** Which of a project's two leads a chat is: the user's, or the one other
  *  projects' agents reach. */
 export type Head = "lead" | "liaison";
+
+/** A teammate's reasoning effort when nothing says otherwise: most of its
+ *  jobs are routine, and thinking is billed as output. */
+export const MEMBER_EFFORT = "medium";
+
+/**
+ * The effort a teammate runs at: the "ruri-member-effort" preference when it
+ * names a level ("same" follows the project), else MEMBER_EFFORT — never
+ * above the project's own. (docs/token-efficiency.md, Q5)
+ */
+export function memberEffort(projectEffort: string | undefined, pref: string | undefined): string {
+  const own = projectEffort || DEFAULT_EFFORT;
+  const said = pref?.trim().toLowerCase();
+  if (said === "same") return own;
+  const wanted = (EFFORT_LEVELS as readonly string[]).includes(said ?? "") ? said! : MEMBER_EFFORT;
+  const rank = (level: string) => (EFFORT_LEVELS as readonly string[]).indexOf(level);
+  return rank(own) >= 0 && rank(own) < rank(wanted) ? own : wanted;
+}
 
 /**
  * What a lead — or the liaison — is told about its team and its job. The

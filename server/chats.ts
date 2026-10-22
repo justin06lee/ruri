@@ -35,12 +35,14 @@ import {
   headWatch,
   leadBriefing,
   memberBriefing,
+  memberEffort,
   refusal,
   refusedFor,
   TEAM_TOOLS,
   teamTools,
   type Head,
 } from "./team.js";
+import type { AgentOptions } from "@justin06lee/yagami";
 import { contextWindow, pushContexts, pushWork } from "./turns.js";
 
 /**
@@ -322,6 +324,10 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           ...(head ? TEAM_TOOLS : []),
         ],
         options: {
+          // a teammate's routine work thinks less than its lead (team.ts)
+          ...(owner && role === "member"
+            ? { effort: memberEffort(project.effort, ctx.prefs.all()["ruri-member-effort"]) as AgentOptions["effort"] }
+            : {}),
           // the vault rides into the harness process here, and only here —
           // beside the `ruri` command and where it posts
           env: { ...ctx.secrets.env(), ...cliEnv(libraryEndpoint(ctx, project.id)) },

@@ -28,7 +28,7 @@ TCC_SERVICES := Accessibility ScreenCapture AppleEvents SystemPolicyAllFiles \
 # ruri was never running.
 RUNNING = ps -Ao pid=,comm= | awk '$$2 ~ /\/MacOS\/$(APP)$$/ {print $$1}'
 
-.PHONY: all build install update launch stop icon identity reset-permissions sweep-superseded tidy
+.PHONY: all build install update launch stop icon identity reset-permissions sweep-superseded tidy tenet
 
 all: build reset-permissions install tidy launch
 
@@ -161,7 +161,7 @@ RUNNING = for p in $$(pgrep -x $(APP) 2>/dev/null); do \
   tr '\0' ' ' < /proc/$$p/cmdline 2>/dev/null | grep -q -- '--type=' || echo $$p; \
 done
 
-.PHONY: all build install update launch stop sandbox apparmor-profile desktop-entry linux-deps sweep-superseded tidy
+.PHONY: all build install update launch stop sandbox apparmor-profile desktop-entry linux-deps sweep-superseded tidy tenet
 
 all: build install tidy launch
 
@@ -256,6 +256,14 @@ sweep-superseded:
 	done
 
 endif
+
+# A heavy step on tenet instead of this machine: this checkout as it stands
+# (its commit and changes to tracked files) is sent there over ssh, never to
+# GitHub, and RUN runs in a worktree of its own branch (scripts/tenet.sh).
+#   make tenet RUN="bun test"
+RUN ?= bun run typecheck
+tenet:
+	@sh scripts/tenet.sh $(RUN)
 
 # What earlier runs and older versions left behind and nothing reads any
 # more: the test scripts' scratch directories (an hour old or more, so a

@@ -285,6 +285,8 @@ describe("what rides in ahead of a prompt", () => {
       store: {
         ...ctx.store,
         defaultModel: () => "m",
+        // a lead, not a teammate: half its window
+        isMember: () => false,
       },
     } as unknown as ServerContext;
     expect(catchUp(measured, CHAT, "hello").brief).toBe(

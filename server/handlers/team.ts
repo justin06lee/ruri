@@ -25,6 +25,8 @@ import type { ServerContext } from "../context.js";
 import { compactChannel, drainQueue, stopTurn } from "../dispatch.js";
 import type { QueueEntry } from "../queue.js";
 import { projectWatch } from "../projectWatch.js";
+import { parkedFor } from "../usageGuard.js";
+import { chartersFile, tasksText, workerCap, workerGone, workerMode } from "../workers.js";
 import type { AddArgs, Head, TeamHost } from "../team.js";
 import { closeMember } from "./projects.js";
 import { cutOff, doing, modelFor, sendLetter, talkTurnCut, type WaitOptions } from "./talk.js";
@@ -88,6 +90,11 @@ export function atWork(ctx: ServerContext, except?: string): number {
   return everyMember(ctx).filter((member) => member.id !== except && workingNow(ctx, member.id)).length;
 }
 
+/** How many of one project's members are at work, leaving one out. */
+export function atWorkIn(ctx: ServerContext, project: Project, except?: string): number {
+  return membersOf(project).filter((member) => member.id !== except && workingNow(ctx, member.id)).length;
+}
+
 /** Members at work, and the cap when the user has set one. */
 export function teamBudget(ctx: ServerContext, except?: string): TeamBudget {
   const cap = ctx.governor.cap;
@@ -98,11 +105,23 @@ export function teamBudget(ctx: ServerContext, except?: string): TeamBudget {
   };
 }
 
-/** Whether a member may start work now: always, unless RURI_TEAM_MAX is
- *  set and that many are at work. */
+/** Whether a member may start work now: unless RURI_TEAM_MAX is set and
+ *  that many are at work across ruri — or it is a worker, and as many of
+ *  its project's workers are at work as workerCap() allows. */
 export function hasSlot(ctx: ServerContext, chat: string): boolean {
   const cap = ctx.governor.cap;
-  return cap === undefined || atWork(ctx, chat) < cap;
+  if (cap !== undefined && atWork(ctx, chat) >= cap) return false;
+  const project = ctx.store.findSession(chat)?.project;
+  return !project || !workerMode(project) || atWorkIn(ctx, project, chat) < workerCap(ctx);
+}
+
+/** Why a member has no slot, in a sender's words. */
+export function slotWords(ctx: ServerContext, chat: string): string {
+  const cap = ctx.governor.cap;
+  if (cap !== undefined && atWork(ctx, chat) >= cap)
+    return `as many teammates are at work across ruri as RURI_TEAM_MAX allows (${cap})`;
+  const most = workerCap(ctx);
+  return `${most} of this project's workers are at work, the most at once`;
 }
 
 /** A member is about to start a turn: it holds a slot from now. */
@@ -143,7 +162,8 @@ export function releaseWaiting(ctx: ServerContext): void {
       ctx.governor.unwait(chat);
       continue;
     }
-    if (!hasSlot(ctx, chat)) break;
+    // a worker's project may be full while another project has room
+    if (!hasSlot(ctx, chat)) continue;
     ctx.governor.unwait(chat);
     // nobody stands at a member's line to send a held one on by hand
     ctx.queues.releaseQueue(chat);
@@ -334,7 +354,11 @@ export function rosterText(ctx: ServerContext, headId: string): string {
       `No teammates in ${project.name} yet. Add one with add_teammate the first time a job comes up — for its layer, or a part of the project — and give it the job in the same call.`,
     );
   } else {
-    lines.push(`The team in ${project.name} — handle · name · state:`);
+    lines.push(
+      workerMode(project)
+        ? `The charters in ${project.name} — a job handed to one runs as a fresh worker on it — handle · name · state:`
+        : `The team in ${project.name} — handle · name · state:`,
+    );
     for (const member of members) {
       const usage = member.context
         ? ` · context ${Math.round((member.context.tokens / Math.max(1, member.context.window)) * 100)}% of ${Math.round(member.context.window / 1000)}k`
@@ -360,6 +384,15 @@ export function rosterText(ctx: ServerContext, headId: string): string {
   const free = freeLayers(ctx, project);
   if (free) lines.push("", free);
   lines.push("", ...otherHead(ctx, project, head.head));
+  if (workerMode(project)) {
+    const most = workerCap(ctx);
+    lines.push(
+      "",
+      `At most ${most} workers work at once in ${project.name}: ${atWorkIn(ctx, project)} at work now. The task list: tasks. The charters as they stood at the switch: ${chartersFile(project.id)}.`,
+    );
+    const parked = project.sessions.reduce((sum, session) => sum + parkedFor(ctx, session.id), 0);
+    if (parked) lines.push(`${parked} message${parked === 1 ? " waits" : "s wait"} on the usage guard.`);
+  }
   const cap = ctx.governor.cap;
   if (cap !== undefined) {
     const waiting = ctx.governor.waiting.length;
@@ -548,6 +581,7 @@ export function actOn(ctx: ServerContext, chat: string, action: TeamAction, by: 
     : undefined;
   if (fresh) ctx.store.copySessionSettings(chat, fresh.id);
   const moved = fresh ? moveLetters(ctx, chat, fresh.id) : 0;
+  workerGone(ctx, chat, `${name} was ${refresh ? "refreshed" : "retired"} by ${who} before it finished.`);
   closeMember(ctx, chat);
   if (fresh && moved) wakeLine(ctx, fresh.id);
   releaseWaiting(ctx);
@@ -580,6 +614,10 @@ function layerFor(ctx: ServerContext, project: Project, asked: string): StackLay
 export function teamHost(ctx: ServerContext): TeamHost {
   return {
     roster: (headId) => rosterText(ctx, headId),
+    tasks: (headId, id) => {
+      const head = headOf(ctx, headId);
+      return head ? tasksText(ctx, head.project.id, id) : "Only a project's lead, or its liaison, reads its task list.";
+    },
     add: async (headId, args: AddArgs, wait) => {
       const head = headOf(ctx, headId);
       if (!head) return "Only a project's lead, or its liaison, adds to its team.";

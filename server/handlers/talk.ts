@@ -55,6 +55,16 @@ import {
   type TalkHost,
 } from "../talk.js";
 import { expandPath } from "../projects.js";
+import {
+  guardHolds,
+  guardLog,
+  park,
+  unpark,
+  weeklyPercent,
+  type GuardHooks,
+  type Parked,
+} from "../usageGuard.js";
+import { handOff, heldReport, taskSettled, tasksOf } from "../workers.js";
 import type { QueueEntry } from "../queue.js";
 import { createManagerHost } from "./projects.js";
 import {
@@ -64,6 +74,7 @@ import {
   noteStarting,
   pushTeamOf,
   releaseWaiting,
+  slotWords,
   unattended,
   waitForSlot,
 } from "./team.js";
@@ -364,7 +375,14 @@ function deliver(
   text: string,
   from: LetterFrom,
   delivery: TalkDelivery = "interrupt",
-): "queued" | "working" | "cut in" | "waiting" {
+): "queued" | "working" | "cut in" | "waiting" | "paused" {
+  // past the usage guard's steps, another agent's message into a paused
+  // project waits for the guard to let go (server/usageGuard.ts)
+  if (guardHolds(ctx, chat)) {
+    park(ctx, { chat, text, from, delivery });
+    pushTeamOf(ctx, chat);
+    return "paused";
+  }
   // nobody stands at a member's or the liaison's line to send a held one
   // on by hand, so a hold left by a stop lets go here
   if (unattended(ctx, chat) && !running(ctx, chat)) ctx.queues.releaseQueue(chat);
@@ -492,6 +510,8 @@ export async function sendLetter(
     /** The user has already let this one go — on ask_project's card, with
      *  the folder it opened for it. */
     approved?: boolean;
+    /** A job for a worker hard enough for the hard model (Opus). */
+    hard?: boolean;
   },
   opts: WaitOptions = {},
 ): Promise<TalkResult> {
@@ -588,6 +608,9 @@ export async function sendLetter(
     waiters: new Set(),
   };
   book.keep(pending);
+  // a job for a worker is a task on its project's list, or a follow-up
+  // joining the one it has open (server/workers.ts)
+  const task = handOff(ctx, pending, args.hard === true);
   const delivery = args.delivery ?? "interrupt";
   const busyWith = running(ctx, target) ? uninterruptible(ctx, target) : undefined;
   const where = deliver(ctx, target, text, letterFrom(pending), delivery);
@@ -596,13 +619,19 @@ export async function sendLetter(
   pushTeamOf(ctx, channelId);
   // a cut-in waits at the head of the line for the turn it stopped to end:
   // queued, for the moment it takes, and working from when it goes
-  book.note({ ...base, to: target, status: where === "cut in" || where === "waiting" ? "queued" : where });
+  book.note({
+    ...base,
+    to: target,
+    status: where === "cut in" || where === "waiting" || where === "paused" ? "queued" : where,
+  });
   const queued =
     where === "cut in"
       ? ", which has stopped what it was doing to read it"
-      : where === "waiting"
-        ? `, which is waiting for a free slot: as many teammates are at work as RURI_TEAM_MAX allows, and it starts the moment one finishes`
-        : where !== "queued"
+      : where === "paused"
+        ? `, where it waits: ${guardHolds(ctx, target) ?? "the usage guard holds it"}. It goes in by itself when the guard lets go`
+        : where === "waiting"
+          ? `, which is waiting for a free slot: ${slotWords(ctx, target)}, and it starts the moment one finishes`
+          : where !== "queued"
           ? ""
           : delivery === "queue"
             ? ", queued behind what it is doing, as you asked"
@@ -614,9 +643,12 @@ export async function sendLetter(
       text: `Sent to ${toName}${queued}. You asked for no answer: it has been told nobody is waiting on it, and nothing will come back.`,
       letter: id,
     };
+  const listed = task
+    ? ` It is task ${task.id} on the task list${task.letters.length > 1 ? " (a follow-up)" : `, on ${task.model}`}.`
+    : "";
   if (reply === "later" && head)
     return {
-      text: `Sent to ${toName}${queued}. Its answer comes to this chat as a message when the job is done${
+      text: `Sent to ${toName}${queued}.${listed} Its answer comes to this chat as a message when the job is done${
         args.reply === "wait" ? ' (a lead\'s hand-offs always come back "later", so it stays free)' : ""
       } — hand out the rest of the work, then end your turn.`,
       letter: id,
@@ -863,6 +895,9 @@ function collect(ctx: ServerContext, pending: Pending): TalkResult {
  *  as a message (sendBack) — unless the sender asked for nothing back. */
 function settle(ctx: ServerContext, pending: Pending, outcome: Ending["outcome"], text: string): void {
   const book = ctx.talk;
+  // a worker's task ends with its letter: done, blocked or failed, with the
+  // report on the list (server/workers.ts)
+  taskSettled(ctx, pending, outcome, text, asksTheLead);
   book.mark(pending.id, outcome, outcome === "answered" ? undefined : text);
   const ending: Ending = { outcome, text };
   if (pending.waiters.size > 0) {
@@ -962,7 +997,8 @@ function sendBack(ctx: ServerContext, pending: Pending): void {
     isMemberChat(ctx, pending.to) &&
     !asksTheLead(ending.text)
   ) {
-    ctx.talk.hold(pending.from, text, from);
+    const task = tasksOf(ctx).byLetter(pending.id, ctx.store.findSession(pending.to)?.project.id)?.task;
+    ctx.talk.hold(pending.from, task ? heldReport(task, ending.text) : text, from);
     return;
   }
   // a sender still in the turn waiting on this — between two of its
@@ -1113,6 +1149,8 @@ export function talkTurnCut(ctx: ServerContext, chat: string, why: string): void
 export function talkChatsClosed(ctx: ServerContext, chats: string[]): void {
   const book = ctx.talk;
   const closing = new Set(chats);
+  // nothing waits on the guard for a chat that is going
+  unpark(ctx, closing);
   for (const pending of [...book.pending.values()]) {
     if (!closing.has(pending.from)) continue;
     for (const waiter of [...pending.waiters]) waiter({ text: "This chat was closed.", answered: false });
@@ -1185,6 +1223,28 @@ export function restoreTalk(ctx: ServerContext): void {
 export function httpWaitFor(ctx: ServerContext, channelId: string): number {
   const model = channelProject(ctx, channelId)?.model || ctx.store.defaultModel();
   return httpWaitMs(ctx.models.registry.parse(model).providerId);
+}
+
+/** A message the usage guard held back goes in now, as it would have
+ *  (server/usageGuard.ts) — unless its letter has ended meanwhile. */
+export function redeliver(ctx: ServerContext, parked: Parked): void {
+  const letter = ctx.talk.pending.get(parked.from.letter);
+  if (!letter || !ctx.store.findSession(parked.chat)) return;
+  if (!parked.from.answer && letter.ending) return;
+  deliver(ctx, parked.chat, parked.text, parked.from, parked.delivery);
+}
+
+/** What the usage guard does as the week moves: held messages go in again,
+ *  and each step it takes is written down (server/usageGuard.ts). */
+export function guardHooks(ctx: ServerContext): GuardHooks {
+  return {
+    deliver: (parked) => redeliver(ctx, parked),
+    moved: (from, to) => {
+      const weekly = weeklyPercent(ctx);
+      guardLog(`step ${from} → ${to} at ${weekly ?? "?"}% of the week`);
+      pushTalk(ctx);
+    },
+  };
 }
 
 /** The tools' way into all of this. */

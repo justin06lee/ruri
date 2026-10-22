@@ -28,6 +28,7 @@ import { claudeSessionGone, claudeSessionHas } from "./recent.js";
 import { contextLine } from "./selfCompaction.js";
 import type { LostPrompt } from "./sessions.js";
 import { restoreContext } from "./turns.js";
+import { takeFreshBrief } from "./workers.js";
 
 /**
  * What the app adds to a compaction brief that the transcript alone can't
@@ -301,7 +302,10 @@ export function catchUp(
   if (!had?.session) {
     // a fresh session holds none of the sheets the last one read
     forgetReads(channelId);
-    const brief = waiting ? rebriefed(ctx, channelId, waiting, current) : wholeBrief(ctx, channelId, current);
+    // a worker starting a task fresh is told of the task, not its past
+    const task = takeFreshBrief(ctx, channelId);
+    const brief =
+      task ?? (waiting ? rebriefed(ctx, channelId, waiting, current) : wholeBrief(ctx, channelId, current));
     // it reads the memory as it stands now: what changes from here on
     // reaches it as updates
     const seq = memorySeq(ctx, channelId);

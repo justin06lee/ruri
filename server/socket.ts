@@ -18,6 +18,7 @@ import { errorMessage, warn } from "./log.js";
 import { HOME_ID } from "./manager.js";
 import type { Seat } from "./sharing.js";
 import { contextWindow } from "./turns.js";
+import { guardState } from "./usageGuard.js";
 
 /** Who a socket server lets in, and whose window each one is. */
 export interface SocketDoor {
@@ -134,6 +135,7 @@ export function createSocketServer(
       ),
       turns: ctx.turns.snapshot(),
       stats: ctx.ledger.all([...boardIds, HOME_ID]),
+      guard: guardState(ctx),
       catchups: Object.fromEntries(
         boardIds.map((id) => [id, ctx.briefs.get(id).built ? { built: ctx.briefs.get(id).built } : {}]),
       ),

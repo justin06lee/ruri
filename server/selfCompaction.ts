@@ -39,6 +39,7 @@ import type { QueueEntry } from "./queue.js";
 import { owedLetter } from "./handlers/talk.js";
 import { seatName } from "./talk.js";
 import { contextWindow } from "./turns.js";
+import { headsWorkers } from "./workers.js";
 
 /** The tool names, auto-allowed: they act on the chat's own session. */
 export const CONTEXT_TOOLS = ["mcp__ruri__context", "mcp__ruri__compact"];
@@ -50,6 +51,11 @@ export const SELF_COMPACT_SHARE = 0.5;
  *  of what it costs: at half a 1M window they averaged 223k a call
  *  (docs/token-efficiency.md, Q2). */
 export const MEMBER_COMPACT_AT = 150_000;
+
+/** Where a lead — or the liaison — of a project run on workers compacts
+ *  itself: it relays and hands on, and every relay re-reads its history,
+ *  so its context is kept short (docs/token-efficiency.md, the new design). */
+export const LEAD_COMPACT_AT = 100_000;
 
 /** How far the context climbs mid-turn before the model hears it again —
  *  a share of the window — and, past its compaction point, how far
@@ -111,7 +117,11 @@ export function selfCompactAt(ctx: ServerContext, channelId: string): number | u
   if (said?.trim().toLowerCase() === "off") return undefined;
   const at =
     parseCompactAt(said) ??
-    (ctx.store.isMember(channelId) ? { tokens: MEMBER_COMPACT_AT } : { share: SELF_COMPACT_SHARE });
+    (ctx.store.isMember(channelId)
+      ? { tokens: MEMBER_COMPACT_AT }
+      : headsWorkers(ctx, channelId)
+        ? { tokens: LEAD_COMPACT_AT }
+        : { share: SELF_COMPACT_SHARE });
   const window = contextWindow(ctx, channelId);
   return Math.min(window, at.tokens ?? Math.round(window * (at.share ?? SELF_COMPACT_SHARE)));
 }

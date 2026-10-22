@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { originAllowed, presentedToken, tokenMatches } from "./auth.js";
 import { bridgeDir, runBridge } from "./bridge.js";
 import { ownerProject } from "./channel.js";
+import { tasksText } from "./workers.js";
 import type { ServerContext } from "./context.js";
 import { libraryHost } from "./handlers/components.js";
 import { askProject, httpWaitFor, listSeats, sendLetter, waitAnswer } from "./handlers/talk.js";
@@ -164,6 +165,8 @@ async function serveTalkCall(
     layer?: unknown;
     action?: unknown;
     note?: unknown;
+    id?: unknown;
+    hard?: unknown;
     file?: unknown;
   };
   try {
@@ -194,6 +197,11 @@ async function serveTalkCall(
     Array.isArray(value) ? value.filter((x): x is string => typeof x === "string") : undefined;
   if (body?.do === "team") {
     reply(200, { ok: true, text: team.roster(id) });
+    return;
+  }
+  if (body?.do === "tasks") {
+    const task = typeof body.id === "number" ? body.id : Number(body.id);
+    reply(200, { ok: true, text: team.tasks(id, Number.isFinite(task) && body.id !== undefined ? task : undefined) });
     return;
   }
   if (body?.do === "update" && str(body.who)) {
@@ -294,7 +302,7 @@ async function serveTalkCall(
     ...(await sendLetter(
       ctx,
       id,
-      { to: body.to, message: body.message, ...(mode ? { reply: mode } : {}), delivery },
+      { to: body.to, message: body.message, ...(mode ? { reply: mode } : {}), delivery, ...(body.hard === true ? { hard: true } : {}) },
       waiting,
     )),
   });
@@ -332,6 +340,18 @@ async function serveLibraryCall(
     return;
   }
   const argv = form.getAll("a");
+  // the project's task list (server/workers.ts), for any of its chats
+  if (argv[0]?.toLowerCase() === "tasks") {
+    const project = ownerProject(ctx, id);
+    const task = argv[1] !== undefined ? Number(argv[1]) : undefined;
+    reply(
+      project ? 200 : 400,
+      project
+        ? tasksText(ctx, project.id, task !== undefined && Number.isFinite(task) ? task : undefined)
+        : "ruri: this chat belongs to no project, so it has no task list",
+    );
+    return;
+  }
   // the memory's commands first (server/memoryCli.ts); the rest are the
   // library's, and help is both
   const memory = await runMemoryCommand(ctx, id, argv).catch((err: unknown) => {

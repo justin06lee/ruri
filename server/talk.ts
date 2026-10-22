@@ -642,7 +642,7 @@ export interface TalkHost {
    *  it was holding lets go, and the answer goes to the chat instead. */
   send(
     channelId: string,
-    args: { to: string; message: string; reply?: TalkReply; delivery?: TalkDelivery },
+    args: { to: string; message: string; reply?: TalkReply; delivery?: TalkDelivery; hard?: boolean },
     signal?: AbortSignal,
   ): Promise<string>;
   /** Hand a job or a question to another project's lead. */
@@ -675,6 +675,9 @@ const REPLY_DOC =
 const HEAD_REPLY_DOC =
   'What you get back. You are a lead: what you hand on comes back "later" — the call returns at once, you end your turn and stay free, and the answer arrives in this chat as a message of its own when the job is done. "none": the other agent just does the work, and nothing comes back.';
 
+const HARD_DOC =
+  "For a job handed to a worker: true when it needs Opus — a design call, a hard bug, a review that needs judgment. Otherwise it runs on Sonnet. Ignored past the usage guard's first step, and for a project still on persistent teammates.";
+
 /** The talk tools, for the `ruri` MCP server a Claude chat gets. `head`:
  *  the chat is a lead or a liaison, which hands jobs on, and hears back
  *  "later" unless it says otherwise. */
@@ -700,6 +703,7 @@ export function talkTools(host: TalkHost, channelId: string, head = false) {
           ? z.enum(["later", "none"]).optional().describe(HEAD_REPLY_DOC)
           : z.enum(["wait", "later", "none"]).optional().describe(REPLY_DOC),
         delivery: z.enum(["interrupt", "queue"]).optional().describe(DELIVERY_DOC),
+        ...(head ? { hard: z.boolean().optional().describe(HARD_DOC) } : {}),
       },
       async (args, extra) => ({
         content: [
@@ -712,6 +716,7 @@ export function talkTools(host: TalkHost, channelId: string, head = false) {
                 message: args.message,
                 ...(args.reply ? { reply: args.reply } : {}),
                 ...(args.delivery ? { delivery: args.delivery } : {}),
+                ...("hard" in args && args.hard === true ? { hard: true } : {}),
               },
               signalOf(extra),
             ),

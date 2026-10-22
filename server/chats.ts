@@ -17,7 +17,7 @@ import { afterCompactBrief, noteSelfCompaction, recoverLostStart } from "./hando
 import { ensureLibrarySkill, libraryEndpoint } from "./handlers/components.js";
 import { cliEnv, skillDir } from "./library.js";
 import { HOME_ID, managerExtras } from "./manager.js";
-import { carryLetter, talkHost, talkTurnEnded } from "./handlers/talk.js";
+import { carryLetter, guardHooks, talkHost, talkTurnEnded } from "./handlers/talk.js";
 import { teamHost, teamStatus } from "./handlers/team.js";
 import { ParagraphGate } from "./paragraphs.js";
 import { projectWatch } from "./projectWatch.js";
@@ -44,6 +44,8 @@ import {
 } from "./team.js";
 import type { AgentOptions } from "@justin06lee/yagami";
 import { contextWindow, pushContexts, pushWork } from "./turns.js";
+import { guardTick } from "./usageGuard.js";
+import { taskTurnEnded, workerMode } from "./workers.js";
 
 /**
  * A chat's extras, with the chat's own id in the harness's environment.
@@ -107,6 +109,10 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             });
             ctx.clients.broadcast({ type: "stats", projectId: spender, stats: ctx.ledger.stats(spender) });
           }
+          // a worker's task carries what its turns cost (server/workers.ts)
+          taskTurnEnded(ctx, projectId, event.costUsd);
+          // and the usage guard takes another look at the week
+          guardTick(ctx, guardHooks(ctx));
           if (event.blocked && !event.ok) {
             // the connection or the account let the turn down, and every
             // prompt behind it would meet the same, one after another: the
@@ -267,12 +273,13 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       const team = !owner
         ? ""
         : head
-          ? leadBriefing(owner.name, claude ? "tool" : "http", talkEndpoint, head)
+          ? leadBriefing(owner.name, claude ? "tool" : "http", talkEndpoint, head, workerMode(owner))
           : memberBriefing({
               project: owner.name,
               name: seat?.title ?? "",
               duty: seat?.duty ?? "general work in this project",
               ...(seat?.layers ? { layers: seat.layers } : {}),
+              ...(workerMode(owner) ? { workers: true } : {}),
             });
       if (owner) ensureLibrarySkill(ctx, owner.id);
       const bridge = !ctx.options.bridge

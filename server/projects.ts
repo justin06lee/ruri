@@ -330,6 +330,8 @@ export class ProjectStore {
       path: resolved,
       ...(folder?.trim() ? { folder: folder.trim() } : {}),
       sessions: [{ id: randomUUID(), title: LEAD_TITLE, lead: true }],
+      // a new project's teammates are workers from the start
+      workers: true,
     };
     this.projects.push(project);
     this.save();
@@ -499,6 +501,16 @@ export class ProjectStore {
       if (value === undefined || value === "") delete record[key];
       else record[key] = value;
     }
+    this.save();
+  }
+
+  /** A worker starting a task runs on the task's model: its own setting,
+   *  and nothing else's — not the project's default, as a pick in the
+   *  composer would be (setSessionSettings). */
+  setWorkerModel(sessionId: string, model: string): void {
+    const session = this.findSession(sessionId)?.session;
+    if (!session || session.model === model) return;
+    session.model = model;
     this.save();
   }
 

@@ -24,6 +24,7 @@ import { SendQueues } from "./queue.js";
 import { afterStop } from "./dispatch.js";
 import { promptHandlers } from "./handlers/prompts.js";
 import { stoppedLine, TalkBook } from "./talk.js";
+import { tasksOf } from "./workers.js";
 import {
   HEAD_REFUSED,
   headWatch,
@@ -190,12 +191,13 @@ describe("every project a team", () => {
 
 /* ── a team at work, against a server made of just what it touches ── */
 
-function world(opts: { cap?: number } = {}) {
+function world(opts: { cap?: number; workers?: boolean } = {}) {
   const projects: Project[] = [
     {
       id: "p",
       name: "ruri",
       path: "/tmp/ruri",
+      ...(opts.workers ? { workers: true } : {}),
       sessions: [
         { id: "lead", title: "Lead", lead: true },
         { id: "ui", title: "UI", duty: "the web UI", layers: ["conversation"] },
@@ -274,6 +276,10 @@ function world(opts: { cap?: number } = {}) {
         for (const project of projects) project.sessions = project.sessions.filter((s) => s.id !== id);
       },
       copySessionSettings: noop,
+      setWorkerModel: (id: string, model: string) => {
+        const session = real(id);
+        if (session) session.model = model;
+      },
     },
     talk: new TalkBook(),
     permissions: new Map<string, PermissionRequest>(),
@@ -292,6 +298,10 @@ function world(opts: { cap?: number } = {}) {
       append: (id: string, event: TranscriptEvent) => (events[id] = [...(events[id] ?? []), event]),
       turnIds: () => [],
       remove: noop,
+      clearLastSessionId: noop,
+      setContextTokens: noop,
+      contextWindowOf: () => undefined,
+      contextTokens: () => undefined,
     },
     turns: { work: new Map(), progress: new Map(), contexts: new Map(), sent: new Map() },
     briefs: {
@@ -302,7 +312,7 @@ function world(opts: { cap?: number } = {}) {
         ],
       }),
     },
-    models: { allModels: () => [{ value: "haiku", displayName: "Haiku 4.5" }] },
+    models: { allModels: () => [{ value: "haiku", displayName: "Haiku 4.5" }], windows: new Map() },
     retries: { has: () => false, cancelRetry: noop },
     checkpoints: { forgetChannel: async () => {} },
     crew: { remove: () => [] },
@@ -382,6 +392,62 @@ describe("members at work, and a cap only when the user sets one", () => {
     expect(ctx.queues.entries.get("memory")).toHaveLength(1);
     expect(atWork(ctx)).toBe(2);
     expect(hasSlot(ctx, "ui")).toBe(false);
+  });
+});
+
+describe("a project run on workers", () => {
+  test("two of its workers at once: a third job waits in line, a task on the list, and goes when one finishes", async () => {
+    const { ctx, set, disposed, arrive, speak, end } = world({ workers: true });
+    set["ui"] = "working";
+    set["linux"] = "working";
+    expect(hasSlot(ctx, "memory")).toBe(false);
+    // another project's members are not counted against this one's
+    expect(hasSlot(ctx, "copy")).toBe(true);
+    const sent = await sendLetter(ctx, "lead", { to: "Memory", message: "Compact faster\nat 100k", hard: true });
+    expect(sent.text).toContain("waiting for a free slot: 2 of this project's workers are at work, the most at once");
+    expect(sent.text).toContain("It is task 1 on the task list, on opus.");
+    expect(ctx.governor.waiting).toEqual(["memory"]);
+    const [task] = tasksOf(ctx).list("p");
+    expect(task).toMatchObject({ id: 1, title: "Compact faster", worker: "memory", status: "queued", hard: true });
+    expect(rosterText(ctx, "lead")).toContain("At most 2 workers work at once in ruri: 2 at work now.");
+    set["ui"] = "idle";
+    releaseWaiting(ctx);
+    expect(ctx.governor.waiting).toEqual([]);
+    // the line's next goes out a microtask later (drainQueue)
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // it starts fresh, on the task's model
+    expect(disposed).toContain("memory");
+    expect(task!.status).toBe("working");
+    expect(ctx.store.findSession("memory")?.session.model).toBe("opus");
+    // the prompt lands (this server of parts can't run the harness, so
+    // dispatch puts it back in line after starting the task, and it is
+    // taken from there as dispatch would have)
+    if (ctx.queues.pending("memory") > 0) arrive("memory");
+    // its report ends the task, and waits for the lead's next prompt, short
+    speak("memory", "Done: compaction now runs at 100k.");
+    end("memory");
+    expect(task!.status).toBe("done");
+    expect(task!.report).toBe("Done: compaction now runs at 100k.");
+    const held = ctx.talk.takeHeld("lead");
+    expect(held.map((one) => one.text)).toEqual([
+      "Task 1 (Compact faster) is done. Its report:\n\nDone: compaction now runs at 100k.",
+    ]);
+  });
+
+  test("its lead reads the list with tasks; the words say workers", () => {
+    const { ctx } = world({ workers: true });
+    expect(teamHost(ctx).tasks("lead")).toMatch(/^ruri's task/);
+    expect(teamHost(ctx).tasks("ui")).toBe("Only a project's lead, or its liaison, reads its task list.");
+    expect(rosterText(ctx, "lead")).toContain("The charters in ruri — a job handed to one runs as a fresh worker on it");
+    const lead = leadBriefing("ruri", "tool", "", "lead", true);
+    expect(lead).toContain("A job you hand to one starts a worker: a fresh session");
+    expect(lead).toContain("add hard: true to mcp__ruri__message_agent for a job that needs Opus");
+    expect(lead).toContain("mcp__ruri__tasks is the project's task list");
+    expect(leadBriefing("ruri", "http", "http://x", "lead", true)).toContain('{"do": "tasks"}');
+    expect(leadBriefing("ruri", "tool", "", "lead", true)).toBe(lead);
+    const member = memberBriefing({ project: "ruri", name: "UI", duty: "the web UI", workers: true });
+    expect(member).toContain('You are a worker on ruri, on the charter "UI"');
+    expect(member).toContain("each starts a fresh session");
   });
 });
 

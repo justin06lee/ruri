@@ -35,7 +35,7 @@ import { createComponentHost, settleLibraries } from "./handlers/components.js";
 import { createCrewManager } from "./handlers/crew.js";
 import { createManagerHost } from "./handlers/projects.js";
 import { announceRoles } from "./handlers/settings.js";
-import { pushTalk, restoreTalk } from "./handlers/talk.js";
+import { guardHooks, pushTalk, restoreTalk } from "./handlers/talk.js";
 import { HomeLog } from "./homelog.js";
 import { IdeaStore } from "./ideas.js";
 import { LedgerStore } from "./ledger.js";
@@ -68,6 +68,8 @@ import { TrackerStore } from "./tracker.js";
 import { pushContexts, Turns } from "./turns.js";
 import { HarnessUpdater } from "./updater.js";
 import { sweepUploads } from "./uploads.js";
+import { startGuard, stopGuard } from "./usageGuard.js";
+import { startMigration, stopMigration } from "./workers.js";
 
 export type { RuriServer, StartServerOptions } from "./context.js";
 
@@ -228,6 +230,10 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     ctx.usage.pushUsage(true);
     pushContexts(ctx);
   }, 5 * 60_000);
+  // the usage guard on the week, and the projects still to switch to
+  // workers, one at a time and only between jobs (docs/token-efficiency.md)
+  startGuard(ctx, guardHooks(ctx));
+  startMigration(ctx);
   // The uploads nothing mentions any more go, once things have settled
   // after launch and then twice a day (server/uploads.ts). Neither timer
   // holds the process open.
@@ -392,6 +398,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             clearInterval(sweepTimer);
             clearTimeout(firstSweep);
             ctx.usage.stop();
+            stopGuard(ctx);
+            stopMigration(ctx);
             ctx.updater.stop();
             ctx.terminals.closeAll();
             void options.bridge?.closeAll();

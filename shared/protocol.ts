@@ -118,6 +118,10 @@ export interface Project {
    *  projects board, but still open — its team and transcripts intact —
    *  and one click (or the Home agent) brings it back. */
   hidden?: boolean;
+  /** Its teammates are charters run as workers: each job a fresh session
+   *  and a task on the project's list (server/workers.ts). Set when the
+   *  project switches; false only when switched back by hand. */
+  workers?: boolean;
   /** Its lead first, then the members of its team. */
   sessions: SessionInfo[];
 }
@@ -1046,6 +1050,25 @@ export interface Resources {
 
 /** A project's spending, from the ledger (see server/ledger.ts): all of
  *  it, today's, and the last seven days'. Keyed by PROJECT id. */
+/**
+ * The usage guard as the windows show it: the plan's weekly %, the step it
+ * has reached (0 below the first; 1 models step down, 2 low-ranked projects
+ * pause, 3 every project's agents wait), and the projects paused now.
+ */
+export interface UsageGuard {
+  level: 0 | 1 | 2 | 3;
+  /** The three steps, as percentages. */
+  steps: number[];
+  /** The fresh reading it went by; absent when there is none. */
+  weekly?: number;
+  /** Turned off by the user ("ruri-usage-guard": "off"). */
+  off?: boolean;
+  /** Projects whose agents wait, by id. */
+  paused: string[];
+  /** Agents' messages waiting on it. */
+  waiting: number;
+}
+
 export interface ProjectStats {
   total: Totals;
   today: Totals;
@@ -2180,6 +2203,9 @@ export type ServerMessage =
       turns: Record<string, TurnProgress>;
       /** What each project has spent, keyed by PROJECT id (Home under its own). */
       stats: Record<string, ProjectStats>;
+      /** The usage guard: how far up its steps the week is, and which
+       *  projects' agents wait (server/usageGuard.ts). */
+      guard?: UsageGuard;
       /** When each project's catch-up brief was last built from the repo. */
       catchups: Record<string, { built?: number }>;
       /** Whether the host can show a native folder-picker dialog. */
@@ -2333,6 +2359,7 @@ export type ServerMessage =
   | { type: "compose"; projectId: string; text: string; attachments?: Attachment[] }
   /** Fresh limit windows per provider id (the usage gauges). */
   | { type: "usage"; limits: Record<string, UsageLimits> }
+  | { type: "guard"; guard: UsageGuard }
   /** A channel's context occupancy changed (after an API call). */
   | { type: "context"; projectId: string; context: ContextUsage }
   /** The running turn got further along — or, with null, ended. Sent on a

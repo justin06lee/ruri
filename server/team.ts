@@ -48,6 +48,7 @@ export const TEAM_TOOLS = [
   "mcp__ruri__update_teammate",
   "mcp__ruri__manage_teammate",
   "mcp__ruri__retire_teammate",
+  "mcp__ruri__tasks",
 ];
 
 /**
@@ -319,7 +320,10 @@ export function leadBriefing(
   via: "tool" | "http",
   endpoint = "",
   head: Head = "lead",
+  /** The project runs on workers (server/workers.ts). */
+  workers = false,
 ): string {
+  if (workers) return workerLeadBriefing(project, via, endpoint, head);
   const call = (tool: string, body: string) => (via === "tool" ? `mcp__ruri__${tool}` : `{"do": ${body}}`);
   const liaison = head === "liaison";
   return [
@@ -373,6 +377,61 @@ export function leadBriefing(
   ].join("\n");
 }
 
+/**
+ * leadBriefing for a project run on workers: the team is charters, each job
+ * a fresh worker on one and a task on the list, and a finished report
+ * waits for the next prompt. The same words every time, like the other.
+ */
+function workerLeadBriefing(project: string, via: "tool" | "http", endpoint: string, head: Head): string {
+  const call = (tool: string, body: string) => (via === "tool" ? `mcp__ruri__${tool}` : `{"do": ${body}}`);
+  const liaison = head === "liaison";
+  const hard = via === "tool" ? "hard: true" : '"hard": true';
+  return [
+    "<ruri:team>",
+    liaison
+      ? `You are the liaison of ${project}: the lead that agents from other projects reach. They write to you, as messages, with jobs and questions for this project. The user talks to the project's lead, another chat, and only now and then opens this one: a <ruri:message> is another agent, a prompt opening with ↩, ↪ or ↻ is ruri, and anything else is the user, here — you answer them in this chat, and what they ask for is delegated like any other job. You don't do the work yourself: you hand each job to a worker, follow it up, and answer whoever asked.`
+      : `You are the lead of ${project}: the one agent the user talks to. You don't do the work yourself: you hand each job to a worker, follow it up, and relay the answer. Every job goes to a worker — features, fixes, investigation, reviews, even reading code to answer a question — so you stay free for the user, and your own context stays short.`,
+    `The team: charters, one per layer of the project's stack (the layers in this prompt; \`ruri architecture\`) — each a name, a duty and layers, and no conversation. A job you hand to one starts a worker: a fresh session briefed with that charter, its layers' sheets, the project's catch-up and your message, and nothing of earlier jobs. It does that one job, reports, and is gone; a follow-up you send while its job is open — an answer to its question — goes on in the same session. Workers run on Sonnet; add ${hard} to ${call("message_agent", '"send"')} for a job that needs Opus — a design call, a hard bug, a review that needs judgment. At most two of the project's workers work at once; the rest wait in line.${
+      liaison ? " The charters are the lead's too: you share them." : ""
+    }`,
+    ...(via === "http"
+      ? [
+          `You run the team over the same endpoint you message agents on (${endpoint}), with these extra calls:`,
+          '  {"do": "team"} — the charters',
+          '  {"do": "tasks"} — the task list; {"do": "tasks", "id": <n>} for one in full',
+          '  {"do": "add", "layer": "<handle>", "message": "<the job>"} — a charter for a layer, with its first job (or "name" and "duty" instead of "layer")',
+          '  {"do": "update", "who": "<handle or name>", "name": "...", "duty": "...", "layers": [...]}',
+          '  {"do": "manage", "who": "<handle or name>", "action": "stop" | "restart"}',
+          '  {"do": "retire", "who": "<handle or name>"}',
+        ]
+      : []),
+    "- Read only what you need to choose whom: the catch-up, `ruri architecture`, `ruri layer <handle>`, the charters and the task list. Never open the project's files or run its code to answer something yourself — not even a one-line read: that is a worker's job. You can't change files or start subagents here.",
+    "- If a tool is refused, never do the job yourself another way — not through the shell, not piece by piece: hand it to a worker.",
+    `- Hand a job over with ${call("message_agent", '"send"')} (to: the charter's handle, its name, or its layer's handle). It is a task on the project's list from that moment, and the call returns at once: ${
+      liaison
+        ? "the answer comes to this chat as a message when the job is done."
+        : "a question or a BLOCKED: from the worker comes to this chat at once; a finished report waits and comes in with your next prompt, cut short, so no turn is spent on each — the whole of it is on the list."
+    } Then end your turn${liaison ? "" : " with a line to the user on who has it"}.`,
+    "- The worker starts cold, so the message is the whole job: what is wanted and why, where to look, anything said that matters, what to report back. A run of small or one-after-another items is one job for one worker, never one item each to several; split work only into big, truly independent parts. A job across layers goes to the charter of its main layer.",
+    `- ${call("tasks", '"tasks"')} is the project's task list: every job, its worker, model, status, cost and report. Read it rather than asking a worker what it did.`,
+    `- No charter for that layer yet: ${call("add_teammate", '"add"')} with layer "<handle>" — it takes its name and duty from the layer — and the job as its message, in the same call.`,
+    liaison
+      ? "- Answer the agent that asked: when the answers you are waiting on have landed here, your last words in the turn the last one starts go back to it — so end that turn with what it needs. Until then, end each turn short; it keeps waiting. Only a question about the team or the stack itself, which the charters or the sheets answer, is yours to answer at once; anything in the project's files or code goes to a worker."
+      : "- When an answer lands, relay what the user needs in your own words: what was done, what was found, what is left. If it falls short, hand it back saying what to change.",
+    liaison
+      ? "- When an outside job needs a decision, don't guess and don't wait on the user, who may never look here: answer the asking agent with the question — it has a user to ask. Don't hand outside jobs to the lead: it is the user's."
+      : "- Workers can't reach the user: you are their voice. When one needs a decision, ask the user, and hand the answer back to the same worker.",
+    `- ${call("team", '"team"')} shows each charter: its state (asleep, working, waiting for a slot), duty and layers, and what it last said. ${call(
+      "manage_teammate",
+      '"manage"',
+    )}: "stop" ends the job's turn it is on; "restart" closes a stuck process. ${call("update_teammate", '"update"')} widens or narrows a duty; ${call("retire_teammate", '"retire"')} removes a charter for good.`,
+    liaison
+      ? "- Workers can message each other, and can ask you about a job you handed them."
+      : "- Workers can message each other, and can ask you. Agents from other projects never reach you: they write to this project's liaison, a second lead out of the user's sight that hands their jobs to the same workers.",
+    "</ruri:team>",
+  ].join("\n");
+}
+
 /** What a member is told about where it stands. Its name and duty change
  *  rarely; when they do, its next session reads the new ones. */
 export function memberBriefing(input: {
@@ -380,7 +439,23 @@ export function memberBriefing(input: {
   name: string;
   duty: string;
   layers?: string[];
+  /** It is a worker: each job a fresh session (server/workers.ts). */
+  workers?: boolean;
 }): string {
+  if (input.workers)
+    return [
+      "<ruri:team>",
+      `You are a worker on ${input.project}, on the charter "${input.name || "general work"}". Your duty: ${input.duty}.${
+        input.layers?.length
+          ? ` Your layers: ${input.layers.join(", ")} — read their sheets (\`ruri layer <handle>\`) before you work there, and keep them true.`
+          : ""
+      }`,
+      "Each job comes to you as a message — from the project's lead, from its liaison, or from another worker — and each starts a fresh session: this one is for the job in front of you. Do it, then end your turn with a short report — what you did, what you found, anything left open: that report is your answer, the only part of your turn the sender reads, and it goes on the project's task list. If you're stuck, say so in your report — a report that ends on a question, or begins with BLOCKED:, reaches whoever asked at once, and their answer comes back into this session.",
+      "What you learn that the next worker will need goes where it lasts: the layer's sheet (`ruri layer`), a note (`ruri note`), not your report alone. `ruri recall <words>` finds what earlier sessions said; `ruri tasks` lists what earlier tasks reported.",
+      "The user can also open this chat and talk to you directly. A <ruri:message> is another agent, and a prompt opening with ↩, ↪ or ↻ is ruri; anything else is the user, here: answer them in this chat, normally. You have no question cards: in a turn the user started, ask what you need to know in plain words and end your turn.",
+      "Other charters own other parts of the project, one layer each: when a job reaches into another's layer, do what your job needs there yourself if it is small, or say in your report what the other layer needs — message another worker only for something you can't do or find yourself, as each message starts one. Stay in your part unless you're handed more.",
+      "</ruri:team>",
+    ].join("\n");
   return [
     "<ruri:team>",
     `You are ${input.name ? `"${input.name}"` : "a member"} on ${input.project}'s team. Your duty: ${input.duty}.${
@@ -420,6 +495,8 @@ export interface AddArgs {
 export interface TeamHost {
   /** The roster, in words. */
   roster(headId: string): string;
+  /** The project's task list, in words — or one task in full. */
+  tasks(headId: string, id?: number): string;
   add(
     headId: string,
     args: AddArgs,
@@ -452,6 +529,12 @@ export function teamTools(host: TeamHost, headId: string) {
       "Your team: each teammate's handle, name, duty and layers, its state right now (asleep — no process, costs nothing; working; waiting on an answer; waiting on the user), how full its context is, when it last worked and the start of what it last said — the stack's layers that have no teammate yet — and what the project's other lead (the lead, or the liaison other projects' agents reach) has going.",
       {},
       async () => text(host.roster(headId)),
+    ),
+    tool(
+      "tasks",
+      "The project's task list: every job handed to a worker — its number, title, worker, status (queued, working, blocked, done, failed), model and cost — the open ones, then the newest closed with the start of each report. With an id, that task in full, its whole report.",
+      { id: z.number().int().optional().describe("A task's number, for that task in full") },
+      async (args) => text(host.tasks(headId, args.id)),
     ),
     tool(
       "add_teammate",

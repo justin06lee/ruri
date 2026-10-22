@@ -33,6 +33,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
 import { CostMeter, type CallUsage } from "./turnCost.js";
+import { trimCommand } from "./trimOutput.js";
 import { IMAGE_EXTS } from "./mime.js";
 import { readCodexCounts } from "./usage.js";
 import { blockedBy, limitResetsAt, NETWORK } from "./blocked.js";
@@ -1168,7 +1169,9 @@ class ProjectSession implements ChannelSession {
             // before the tree it would change has been written down.
             { matcher: "Bash|Write|Edit|MultiEdit|NotebookEdit", hooks: [this.awaitCheckpoint] },
             // The vault's last moment: the model wrote {{handle}}, the tool
-            // is about to run, and this is where the two are reconciled.
+            // is about to run, and this is where the two are reconciled. A
+            // test or build run's output is cut down here too (trimOutput.ts):
+            // one hook, so the two never answer with different inputs.
             {
               matcher: "Bash|BashOutput|Write|Edit|MultiEdit|NotebookEdit",
               hooks: [this.fillVaultHandles],
@@ -1445,14 +1448,18 @@ class ProjectSession implements ChannelSession {
   private fillVaultHandles = async (
     input: HookInput,
   ): Promise<{ continue: true; hookSpecificOutput?: PreToolUseHookSpecificOutput }> => {
-    if (input.hook_event_name !== "PreToolUse" || !this.secretFill) return { continue: true };
-    const filled = this.secretFill(input.tool_input as Record<string, unknown>);
-    if (!filled) return { continue: true };
+    if (input.hook_event_name !== "PreToolUse") return { continue: true };
+    const toolInput = input.tool_input as Record<string, unknown>;
+    // a command holding the vault's values is never written out to a file
+    const filled = this.secretFill?.(toolInput);
+    const trimmed = !filled && input.tool_name === "Bash" ? trimCommand(toolInput) : undefined;
+    const updatedInput = filled ?? (trimmed ? { ...toolInput, command: trimmed } : undefined);
+    if (!updatedInput) return { continue: true };
     return {
       continue: true,
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        updatedInput: filled,
+        updatedInput,
       } as PreToolUseHookSpecificOutput,
     };
   };

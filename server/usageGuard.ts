@@ -198,6 +198,8 @@ export interface GuardHooks {
   deliver(parked: Parked): void;
   /** The level moved: from, to. */
   moved?(from: GuardLevel, to: GuardLevel): void;
+  /** Each look at the week: a chance to see to what the team owes. */
+  sweep?(): void;
 }
 
 /**
@@ -208,6 +210,7 @@ export interface GuardHooks {
  */
 export function guardTick(ctx: ServerContext, hooks: GuardHooks): boolean {
   const memory = memoryOf(ctx);
+  hooks.sweep?.();
   const level = guardLevel(ctx);
   const was = memory.level;
   memory.level = level;

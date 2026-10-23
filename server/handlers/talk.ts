@@ -613,7 +613,19 @@ export async function sendLetter(
   const task = handOff(ctx, pending, args.hard === true);
   const delivery = args.delivery ?? "interrupt";
   const busyWith = running(ctx, target) ? uninterruptible(ctx, target) : undefined;
-  const where = deliver(ctx, target, text, letterFrom(pending), delivery);
+  let where: ReturnType<typeof deliver>;
+  try {
+    where = deliver(ctx, target, text, letterFrom(pending), delivery);
+  } catch (error) {
+    // a job that could not even start is a failure told now, not a task
+    // left open on the list for a worker that never began
+    const why = error instanceof Error ? error.message : String(error);
+    const sorry = `The job did not start: ${why}.`;
+    taskSettled(ctx, pending, "failed", sorry, asksTheLead);
+    book.forget(pending.id, sorry);
+    pushTeamOf(ctx, channelId);
+    return { text: `Not sent to ${toName}. ${sorry}`, letter: id, answered: true };
+  }
   // the team page shows the liaison's letters, both ways
   pushTeamOf(ctx, target);
   pushTeamOf(ctx, channelId);
@@ -987,9 +999,10 @@ function sendBack(ctx: ServerContext, pending: Pending): void {
     // starts may be the one that answers it
     ...(pending.for ? { owes: pending.for } : {}),
   };
-  // a teammate's finished report to its lead waits for the lead's next
-  // prompt instead of waking it: only a question or a blocker, a failure,
-  // or an answer the lead owes someone else starts a turn of its own
+  // a teammate's finished report to its lead waits behind the lead's turn
+  // and its other hand-offs instead of waking it each time: a question or a
+  // blocker, a failure, or an answer the lead owes someone else starts a
+  // turn of its own, and so does the last report still due
   if (
     ending.outcome === "answered" &&
     !pending.for &&
@@ -999,12 +1012,91 @@ function sendBack(ctx: ServerContext, pending: Pending): void {
   ) {
     const task = tasksOf(ctx).byLetter(pending.id, ctx.store.findSession(pending.to)?.project.id)?.task;
     ctx.talk.hold(pending.from, task ? heldReport(task, ending.text) : text, from);
+    // held only while more is due for the lead — its turn running, other
+    // hand-offs still out: the last one in wakes it for all of them
+    releaseHeld(ctx, pending.from);
     return;
   }
   // a sender still in the turn waiting on this — between two of its
   // slices, about to ask again — is not stopped for it (interruptible): it
   // waits in the line, where that next ask collects it
   deliver(ctx, pending.from, text, from);
+}
+
+/**
+ * A lead's held reports (TalkBook.held) go in now, as one prompt, when
+ * nothing more is due for it: its turn is over and none of its hand-offs
+ * to the team is still out. Otherwise they wait — for the turn's end
+ * (talkTurnEnded) or the report that is still to come. Without this a
+ * report that came back to an idle lead sat in memory for good.
+ */
+export function releaseHeld(ctx: ServerContext, lead: string): void {
+  const held = ctx.talk.held.get(lead);
+  if (!held?.length) return;
+  if (running(ctx, lead)) return;
+  for (const p of ctx.talk.pending.values())
+    if (p.from === lead && !p.ending && p.reply !== "none" && isMemberChat(ctx, p.to)) return;
+  const last = held[held.length - 1]!;
+  ctx.talk.unhold(lead, last.from.letter);
+  // the rest ride in with it (dispatch takes what is held)
+  deliver(ctx, lead, last.text, last.from, "queue");
+}
+
+/** How long a worker may sit with a job and do nothing before it is failed. */
+export const STUCK_MS = 3 * 60_000;
+const idleSince = new Map<string, number>();
+
+/**
+ * A look at what the team owes, from the guard's clock: held reports whose
+ * lead is free go in, and a task whose worker has no turn running, no place
+ * in a line for a slot, no answer it waits on and no retry coming — for
+ * longer than STUCK_MS — is failed, and its asker told, as a failure is:
+ * in a prompt of its own. A worker that never started, or stopped without
+ * a word, is an error the lead hears, not a silence.
+ */
+export function sweepTalk(ctx: ServerContext, now = Date.now()): void {
+  for (const lead of [...ctx.talk.held.keys()]) {
+    try {
+      releaseHeld(ctx, lead);
+    } catch (error) {
+      guardLog(`held reports for ${lead} not released: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+  const open = new Set<string>();
+  for (const p of [...ctx.talk.pending.values()]) {
+    if (p.ending) continue;
+    const found = ctx.store.findSession(p.to);
+    const hit = tasksOf(ctx).byLetter(p.id, found?.project.id);
+    if (!hit || (hit.task.status !== "queued" && hit.task.status !== "working")) continue;
+    if (hit.task.letters.at(-1) !== p.id) continue;
+    const w = p.to;
+    const starting = ctx.governor.starting.get(w);
+    const alive =
+      running(ctx, w) ||
+      ctx.governor.waiting.includes(w) ||
+      (starting !== undefined && now - starting < 60_000) ||
+      guardHolds(ctx, w) !== undefined ||
+      ctx.retries.has(w) ||
+      ctx.talk.outstanding(p.id) ||
+      ctx.talk.awaiting(w);
+    open.add(p.id);
+    if (alive) {
+      idleSince.delete(p.id);
+      continue;
+    }
+    const since = idleSince.get(p.id) ?? now;
+    idleSince.set(p.id, since);
+    if (now - since < STUCK_MS) continue;
+    idleSince.delete(p.id);
+    guardLog(`task ${hit.task.id} (${hit.task.workerName}) did not run: failed after ${Math.round((now - since) / 60_000)} min`);
+    settle(
+      ctx,
+      p,
+      "failed",
+      `Task ${hit.task.id} (${hit.task.workerName}) did not run: the worker has had the job for ${Math.round((now - since) / 60_000)} minutes with no turn running and none waiting, and it never answered. Hand the job on again, or do the next step yourself.`,
+    );
+  }
+  for (const id of [...idleSince.keys()]) if (!open.has(id)) idleSince.delete(id);
 }
 
 /** What a chat said after a prompt: its last word, or — `all` — every
@@ -1036,6 +1128,9 @@ export function talkTurnEnded(
   const book = ctx.talk;
   const stopper = book.stoppedBy.get(channelId);
   book.stoppedBy.delete(channelId);
+  // a lead's held reports go in once its turn is over (the status may not
+  // have moved to idle yet, so a moment on)
+  if (book.held.has(channelId)) setTimeout(() => releaseHeld(ctx, channelId), 1500).unref?.();
   if (book.pending.size === 0 && book.asks.size === 0) return;
   const events = ctx.archive.events(channelId);
   const prompt = events.findLast((e) => e.kind === "user");
@@ -1239,6 +1334,7 @@ export function redeliver(ctx: ServerContext, parked: Parked): void {
 export function guardHooks(ctx: ServerContext): GuardHooks {
   return {
     deliver: (parked) => redeliver(ctx, parked),
+    sweep: () => sweepTalk(ctx),
     moved: (from, to) => {
       const weekly = weeklyPercent(ctx);
       guardLog(`step ${from} → ${to} at ${weekly ?? "?"}% of the week`);

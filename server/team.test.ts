@@ -13,7 +13,10 @@ import type { ServerContext } from "./context.js";
 import {
   carryLetter,
   listSeats,
+  releaseHeld,
   sendLetter,
+  STUCK_MS,
+  sweepTalk,
   talkDropped,
   talkTurnEnded,
   waitAnswer,
@@ -423,7 +426,8 @@ describe("a project run on workers", () => {
     // dispatch puts it back in line after starting the task, and it is
     // taken from there as dispatch would have)
     if (ctx.queues.pending("memory") > 0) arrive("memory");
-    // its report ends the task, and waits for the lead's next prompt, short
+    // its report ends the task, and waits while the lead is in its turn, short
+    set["lead"] = "working";
     speak("memory", "Done: compaction now runs at 100k.");
     end("memory");
     expect(task!.status).toBe("done");
@@ -432,6 +436,83 @@ describe("a project run on workers", () => {
     expect(held.map((one) => one.text)).toEqual([
       "Task 1 (Compact faster) is done. Its report:\n\nDone: compaction now runs at 100k.",
     ]);
+  });
+
+  /** The lead has something of the user's in line, so a message to it queues
+   *  there (this world cannot run a prompt for real). */
+  const userWaiting = (ctx: ServerContext) =>
+    ctx.queues.entries.set("lead", [{ id: "user-1", text: "and also...", uploads: [], silent: false }]);
+
+  test("a finished report waits only while more is due for the lead; the last one wakes it, and a lead's turn ending lets them go", async () => {
+    const { ctx, set, arrive, speak, end } = world({ workers: true });
+    set["ui"] = "working";
+    set["linux"] = "working";
+    userWaiting(ctx);
+    await sendLetter(ctx, "lead", { to: "UI", message: "first job" });
+    await sendLetter(ctx, "lead", { to: "Linux port", message: "second job" });
+    arrive("ui");
+    arrive("linux");
+    set["ui"] = "idle";
+    set["linux"] = "idle";
+    // the first report: the second job is still out, so it is held
+    speak("ui", "Done: first.");
+    end("ui");
+    expect(ctx.talk.held.get("lead")).toHaveLength(1);
+    // the second is the last due: both go in, together
+    speak("linux", "Done: second.");
+    end("linux");
+    // the last goes in as the prompt; the first rides in ahead of it when
+    // dispatch sends it (takeHeld)
+    expect(ctx.talk.held.get("lead")?.map((one) => one.text)).toHaveLength(1);
+    expect(ctx.queues.entries.get("lead")).toHaveLength(2);
+    ctx.talk.takeHeld("lead");
+    ctx.queues.entries.delete("lead");
+    userWaiting(ctx);
+    // and a report that comes while the lead is mid-turn waits for the turn's end
+    set["memory"] = "working";
+    await sendLetter(ctx, "lead", { to: "Memory", message: "third job" });
+    arrive("memory");
+    set["memory"] = "idle";
+    set["lead"] = "working";
+    speak("memory", "Done: third.");
+    end("memory");
+    expect(ctx.talk.held.get("lead")).toHaveLength(1);
+    set["lead"] = "idle";
+    releaseHeld(ctx, "lead");
+    expect(ctx.talk.held.has("lead")).toBe(false);
+  });
+
+  test("a worker that never ran is failed after a while and its lead told, not left waiting", async () => {
+    const { ctx, set } = world({ workers: true });
+    set["ui"] = "working";
+    userWaiting(ctx);
+    const sent = await sendLetter(ctx, "lead", { to: "UI", message: "a job nobody starts" });
+    const [task] = tasksOf(ctx).list("p");
+    expect(task!.status).toMatch(/queued|working/);
+    const now = Date.now();
+    sweepTalk(ctx, now);
+    expect(task!.status).toMatch(/queued|working/);
+    // working: a turn running is not stuck
+    sweepTalk(ctx, now + STUCK_MS * 2);
+    expect(task!.status).toMatch(/queued|working/);
+    set["ui"] = "idle";
+    sweepTalk(ctx, now + STUCK_MS * 2 + 1000);
+    expect(task!.status).toMatch(/queued|working/);
+    sweepTalk(ctx, now + STUCK_MS * 3 + 5000);
+    expect(task!.status).toBe("failed");
+    expect(task!.report).toContain("did not run");
+    expect(ctx.talk.pending.get(sent.letter!)?.ending?.outcome).toBe("failed");
+    expect(ctx.queues.entries.get("lead")?.at(-1)?.text).toContain("did not run");
+  });
+
+  test("a job that cannot even start fails the task at once and tells the lead's call", async () => {
+    // (this world cannot dispatch: the first prompt of an idle worker throws)
+    const { ctx } = world({ workers: true });
+    const sent = await sendLetter(ctx, "lead", { to: "UI", message: "a job that cannot start" });
+    expect(sent.text).toContain("The job did not start");
+    const [task] = tasksOf(ctx).list("p");
+    expect(task!.status).toBe("failed");
+    expect(ctx.talk.pending.has(sent.letter!)).toBe(false);
   });
 
   test("its lead reads the list with tasks; the words say workers", () => {

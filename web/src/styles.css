@@ -9763,6 +9763,29 @@ button.stop:hover {
   cursor: copy;
 }
 
+/* a phone's pairing code: the QR, white with its own quiet border, and what
+   it is beside it */
+.devices-phone {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.devices-qr {
+  flex: none;
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  image-rendering: pixelated;
+}
+
+.devices-phone-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
 .devices-word-n {
   display: inline-block;
   width: 1.4em;

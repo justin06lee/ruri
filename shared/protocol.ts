@@ -1508,10 +1508,17 @@ export interface TccRow {
 }
 
 /** A device let in to use this computer (server/sharing.ts). */
+/** What a paired device's key may reach: "status" is GET /status and
+ *  /status/live alone — a phone's — and no scope at all is everything a
+ *  window can. */
+export type DeviceScope = "status";
+
 export interface SharedDevice {
   id: string;
   /** What the device calls itself (its hostname), as it paired. */
   name: string;
+  /** Only with a key that reaches less than everything. */
+  scope?: DeviceScope;
   pairedAt: number;
   /** When it last connected or left (epoch ms). */
   lastSeen?: number;
@@ -1663,6 +1670,78 @@ export interface ProjectEventPayload {
   costUsd: number;
   /** When it happened, ISO 8601. */
   at: string;
+}
+
+/* ── status, for the phone (server/status.ts) ───────────────────────── */
+
+/** How a project, or one of its chats, stands, as the phone shows it:
+ *  at work, at rest, stopped on an error nothing will try again, or
+ *  waiting on the user — a card up, or a question its last turn ended on. */
+export type StatusState = "working" | "idle" | "blocked" | "needs-you";
+
+/** One of a project's chats, as the phone shows it. */
+export interface StatusChat {
+  name: string;
+  role: "lead" | "teammate" | "liaison";
+  /** A teammate's duty, when it has one. */
+  duty?: string;
+  state: StatusState;
+  /** At work: what its turn is on — the prompt, or the message it answers. */
+  doing?: string;
+  /** What it waits on the user for, else its last reply — trimmed. */
+  lastWords: string;
+  /** When its last turn ended, ISO 8601. */
+  lastActive?: string;
+  /** Only with ?ids=1. */
+  id?: string;
+}
+
+/** Something waiting on the user. */
+export interface StatusNeed {
+  project: string;
+  /** The chat waiting: "Lead", a teammate's name. */
+  who: string;
+  reason: "question" | "card" | "error";
+  text: string;
+  /** Since when, ISO 8601. */
+  since: string;
+  /** Only with ?ids=1. */
+  projectId?: string;
+  chatId?: string;
+}
+
+/** A project, as the phone shows it. */
+export interface StatusProject {
+  name: string;
+  state: StatusState;
+  /** One line: what needs the user, what stopped, who is at work on what,
+   *  or — at rest — the lead's last words. */
+  doingNow: string;
+  /** Working: when the stretch at work began; needs-you: since when it
+   *  waits; otherwise when it was last active. ISO 8601. */
+  since?: string;
+  lead?: StatusChat;
+  /** Its teammates, and its liaison once it has one. */
+  team: StatusChat[];
+  /** Only with ?ids=1. */
+  id?: string;
+}
+
+/**
+ * What GET /status answers, and each frame of GET /status/live: every
+ * open project's state and what needs the user — no transcripts, costs,
+ * tokens or ids (those last only with ?ids=1).
+ */
+export interface StatusReport {
+  /** This computer's name. */
+  computer: string;
+  /** When it was read, ISO 8601. */
+  at: string;
+  /** Oldest first. */
+  needsYou: StatusNeed[];
+  /** Those needing the user first, then stopped, then at work, then at
+   *  rest; each lot by when it was last active. */
+  projects: StatusProject[];
 }
 
 /** Where a project's events go: a command run with the event on its stdin,
@@ -2167,6 +2246,9 @@ export type ClientMessage =
   | { type: "sharing_set"; on: boolean }
   /** An invite for one more device — sharing is turned on if it was off. */
   | { type: "sharing_invite" }
+  /** A QR code that pairs one phone, read-only — sharing is turned on if
+   *  it was off. */
+  | { type: "sharing_phone" }
   /** Unpair a device: its key stops working and its windows are closed. */
   | { type: "sharing_forget"; deviceId: string }
   /** The talk page opened: send who may message whom, and what has been
@@ -2274,6 +2356,10 @@ export type ServerMessage =
   /** The invite a window asked for: six words that pair one device, once,
    *  until `expires` (server/invite.ts). */
   | { type: "sharing_invite"; words: string[]; expires: number }
+  /** The phone code a window asked for: its ruri:// link and that link as
+   *  a QR code (an SVG), good for one phone, once, until `expires`
+   *  (server/sharing.ts phoneCode). */
+  | { type: "sharing_phone"; link: string; qr: string; expires: number }
   /** Where a store_picture is served from now — null if it could not be kept. */
   | { type: "picture_stored"; id: string; url: string | null }
   /** The grants, and the privacy database's rows behind them. */

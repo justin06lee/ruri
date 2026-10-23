@@ -1,6 +1,6 @@
 /**
- * Sharing, asked for from a window: turn it on or off, make an invite,
- * unpair a device (server/sharing.ts). A window on another device may
+ * Sharing, asked for from a window: turn it on or off, make an invite or
+ * a phone's QR code, unpair a device (server/sharing.ts). A window on another device may
  * invite and unpair — that is how a computer nobody sits at is looked
  * after — but not turn sharing off, which would shut the door it is
  * standing in.
@@ -30,6 +30,12 @@ export const sharingHandlers = {
     ctx.sharing.invite().then(
       ({ words, expires }) => reply(ws, { type: "sharing_invite", words, expires }),
       (err: unknown) => reply(ws, { type: "error", message: `No invite: ${errorMessage(err)}` }),
+    );
+  },
+  sharing_phone: (ctx, ws) => {
+    ctx.sharing.phoneCode().then(
+      ({ link, qr, expires }) => reply(ws, { type: "sharing_phone", link, qr, expires }),
+      (err: unknown) => reply(ws, { type: "error", message: `No phone code: ${errorMessage(err)}` }),
     );
   },
   sharing_forget: (ctx, _ws, msg) => {

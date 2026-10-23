@@ -4,6 +4,7 @@
  * statuses — so the whole UI can be eyeballed and screenshotted without a
  * live server or a single token.
  */
+import { renderSVG } from "uqr";
 import { agentLogKey, composeInto, useRuri } from "./store";
 
 const now = Date.now();
@@ -58,7 +59,21 @@ export function installFixture(): void {
           lastSeen: Date.now() - 2 * 3_600_000,
           online: false,
         },
+        {
+          id: "c3",
+          name: "Justin's iPhone",
+          scope: "status",
+          pairedAt: Date.now() - 26 * 3_600_000,
+          lastSeen: Date.now() - 40 * 60_000,
+          online: false,
+        },
       ],
+    },
+    // a phone pairing code on hand, as the server draws it (a made-up ticket)
+    phonePairing: {
+      link: "ruri://pair?name=tenet&port=7775&ticket=fixture",
+      qr: renderSVG("ruri://pair?name=tenet&port=7775&ticket=fixture", { ecc: "M", border: 2 }),
+      expires: Date.now() + 14 * 60_000,
     },
     remoteDevice: null,
     grants: {

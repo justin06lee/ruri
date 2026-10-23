@@ -49,6 +49,11 @@ final class TourTests: XCTestCase {
         XCTAssertTrue(orchard.waitForExistence(timeout: 5))
         tap(orchard)
         let harvest = app.descendants(matching: .any)["chat.Harvest"]
+        if !harvest.waitForExistence(timeout: 5) {
+            // a tap on a spinning row can land as a long press: dismiss, once more
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
+            tap(orchard)
+        }
         XCTAssertTrue(harvest.waitForExistence(timeout: 5), "orchard's team")
         pause(2)
         tap(harvest)
@@ -105,8 +110,14 @@ final class TourTests: XCTestCase {
 
     @MainActor
     private func back(_ app: XCUIApplication) {
-        tap(app.navigationBars.buttons.element(boundBy: 0))
-        pause(2)
+        // only ever the back button itself: on the home screen the first
+        // button of the bar is the Mac's sheet
+        for _ in 0..<3 {
+            let back = app.buttons["BackButton"]
+            guard back.waitForExistence(timeout: 2) else { break }
+            tap(back)
+            pause(2)
+        }
     }
 
     private func pause(_ seconds: TimeInterval) {

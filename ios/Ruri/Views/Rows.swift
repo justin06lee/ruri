@@ -61,10 +61,10 @@ struct ProjectRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .center) {
+                    if project.state == .working { WorkingSpinner() }
                     Text(project.name)
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
-                    if project.state == .working { WorkingSpinner() }
                     Spacer(minLength: 8)
                     if let since = project.since {
                         Text(Ago.short(since))
@@ -110,10 +110,10 @@ struct ChatRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .center) {
+                    if chat.state == .working { WorkingSpinner() }
                     Text(chat.name)
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
-                    if chat.state == .working { WorkingSpinner() }
                     Spacer(minLength: 8)
                     if chat.state != .working, let active = chat.lastActive {
                         Text(Ago.short(active))

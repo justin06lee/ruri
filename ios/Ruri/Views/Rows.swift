@@ -44,8 +44,7 @@ struct NeedRow: View {
                         .monospacedDigit()
                 }
                 .lineLimit(1)
-                Text(need.text)
-                    .font(.subheadline)
+                MarkdownText(source: need.text)
             }
         }
         .padding(.vertical, 2)
@@ -136,10 +135,8 @@ struct ChatRow: View {
                         .lineLimit(full ? nil : 1)
                 }
                 if !words.isEmpty {
-                    Text(words)
-                        .font(.subheadline)
+                    MarkdownText(source: words, whole: full, lineLimit: 2)
                         .foregroundStyle(chat.state == .working || whole ? .primary : .secondary)
-                        .lineLimit(full ? nil : 2)
                         .padding(.top, duty == nil ? 0 : 2)
                 }
             }

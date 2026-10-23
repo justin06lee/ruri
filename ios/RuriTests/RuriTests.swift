@@ -160,3 +160,58 @@ struct StatusTests {
         #expect(Ago.span(now.addingTimeInterval(-600), now: now) == "10 minutes")
     }
 }
+
+struct MarkdownTests {
+    @Test func splitsBlocks() {
+        let blocks = MarkdownParser.parse("""
+        ## Plan
+        Do **this** first,
+        then that.
+
+        - one
+          - nested
+        2. two
+
+        ```sh
+        make test
+          indented
+        ```
+        > quoted
+        ---
+        """)
+        #expect(blocks == [
+            .heading(level: 2, text: "Plan"),
+            .paragraph("Do **this** first,\nthen that."),
+            .item(depth: 0, number: nil, text: "one"),
+            .item(depth: 1, number: nil, text: "nested"),
+            .item(depth: 0, number: 2, text: "two"),
+            .code(language: "sh", text: "make test\n  indented"),
+            .quote("quoted"),
+            .rule,
+        ])
+    }
+
+    @Test func keepsWhatIsNotMarkdown() {
+        #expect(MarkdownParser.parse("#nospace is a tag\n3.14 is pi\n-5 degrees") ==
+            [.paragraph("#nospace is a tag\n3.14 is pi\n-5 degrees")])
+        #expect(MarkdownParser.parse("   \n") == [])
+    }
+
+    @Test func aFenceLeftOpenTakesTheRest() {
+        #expect(MarkdownParser.parse("```\nlet x = 1\nlet y = 2") == [.code(language: nil, text: "let x = 1\nlet y = 2")])
+    }
+
+    @Test func readsInlineStylesAndLinks() {
+        let text = MarkdownBlock.attributed("**bold** and `code` and [ruri](https://ruri.codes)")
+        #expect(String(text.characters) == "bold and code and ruri")
+        let runs = Array(text.runs)
+        #expect(runs.first?.inlinePresentationIntent == .stronglyEmphasized)
+        #expect(runs.contains { $0.link == URL(string: "https://ruri.codes") })
+        #expect(runs.contains { $0.inlinePresentationIntent == .code })
+    }
+
+    @Test func flattensForACollapsedView() {
+        let flat = MarkdownBlock.item(depth: 0, number: 3, text: "third").flattened
+        #expect(String(flat.characters) == "3. third")
+    }
+}

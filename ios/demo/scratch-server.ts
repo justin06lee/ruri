@@ -210,7 +210,23 @@ await settle(4_000);
 // lighthouse: its lead ends its turn on a question — it needs you
 say(
   leadOf(lighthouse).id,
-  "Ask Justin whether the lamp should switch to the red lens tonight: one short question, ending your turn on it. Do nothing else.",
+  [
+    "Do nothing else: end your turn with exactly this message, character for character, markdown included:",
+    "",
+    "**Red lens tonight?** Fog is thick past the *north point* ([log](https://ruri.codes)).",
+    "",
+    "- Red carries farther in fog",
+    "- Swapping takes `10 min`",
+    "",
+    "1. Dim the lamp",
+    "2. Fit the lens",
+    "",
+    "```sh",
+    "lamp swap --lens red --brightness 80 --reason fog-bank-past-north-point",
+    "```",
+    "",
+    "Should I go ahead?",
+  ].join("\n"),
 );
 await settle(6_000);
 // atlas: its maps teammate's write waits on a card

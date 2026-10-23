@@ -38,7 +38,7 @@ xcrun simctl ui "$SIM" appearance light
 
 # the simulator's recorder can't write to every volume: /tmp first
 TAKE=/tmp/ruri-tour-$$.mp4
-echo "recording $OUT…"
+echo "recording ${OUT}…"
 xcrun simctl io "$SIM" recordVideo --codec h264 --force "$TAKE" &
 REC=$!
 sleep 2

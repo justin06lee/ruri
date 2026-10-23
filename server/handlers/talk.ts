@@ -37,6 +37,7 @@ import {
   type TranscriptEvent,
 } from "../../shared/protocol.js";
 import { channelProject, running } from "../channel.js";
+import { sessionsMode } from "../sessionsMode.js";
 import type { ServerContext } from "../context.js";
 import { cutInWith, dispatch } from "../dispatch.js";
 import {
@@ -1055,6 +1056,8 @@ const idleSince = new Map<string, number>();
  * a word, is an error the lead hears, not a silence.
  */
 export function sweepTalk(ctx: ServerContext, now = Date.now()): void {
+  // Sessions mode holds no reports and runs no tasks
+  if (sessionsMode(ctx)) return;
   for (const lead of [...ctx.talk.held.keys()]) {
     try {
       releaseHeld(ctx, lead);

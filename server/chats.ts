@@ -45,6 +45,7 @@ import {
 import type { AgentOptions } from "@justin06lee/yagami";
 import { contextWindow, pushContexts, pushWork } from "./turns.js";
 import { guardTick } from "./usageGuard.js";
+import { sessionsMode } from "./sessionsMode.js";
 import { taskTurnEnded, workerMode } from "./workers.js";
 
 /**
@@ -261,7 +262,9 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       // the project's lead runs its team, and so does its liaison — the lead
       // other projects' agents reach; every other chat is on it
       const seat = owner?.sessions.find((session) => session.id === project.id);
-      const head: Head | undefined = !owner
+      // (Sessions mode has no team: every chat is an ordinary full session)
+      const plain = sessionsMode(ctx);
+      const head: Head | undefined = !owner || plain
         ? undefined
         : seat?.liaison
           ? "liaison"
@@ -270,7 +273,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             : undefined;
       const role = head ?? "member";
       const talkEndpoint = `http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`;
-      const team = !owner
+      const team = !owner || plain
         ? ""
         : head
           ? leadBriefing(owner.name, claude ? "tool" : "http", talkEndpoint, head, workerMode(owner))
@@ -298,7 +301,11 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         bridge,
         // the other agents open in ruri: tools, or the same over HTTP —
         // told how long one call waits on this harness
-        talk: claude ? talkToolBriefing(!!head) : talkHttpBriefing(talkEndpoint, httpWaitMs(harness), !!head),
+        talk: plain
+          ? ""
+          : claude
+            ? talkToolBriefing(!!head)
+            : talkHttpBriefing(talkEndpoint, httpWaitMs(harness), !!head),
         team,
         // how full its context is, and compacting itself: the same words
         // in every session, the figures riding in with each prompt
@@ -315,7 +322,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         // of their own — refused with whom to hand the job instead — and a
         // member and the liaison ask no questions on cards; then a word
         // mid-turn when a lead's shell starts doing the job for it
-        ...(owner
+        ...(owner && !plain
           ? { refuse: { tools: refusedFor(role), reason: (tool: string) => refusal(tool, role) } }
           : {}),
         ...(head ? { afterTools: leadOnTools(ctx, project.id, head) } : {}),
@@ -326,13 +333,13 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         autoAllow: [
           ...COMPONENT_TOOLS,
           ...BRIDGE_TOOLS,
-          ...TALK_TOOLS,
+          ...(plain ? [] : TALK_TOOLS),
           ...(owner ? CONTEXT_TOOLS : []),
           ...(head ? TEAM_TOOLS : []),
         ],
         options: {
           // a teammate's routine work thinks less than its lead (team.ts)
-          ...(owner && role === "member"
+          ...(owner && !plain && role === "member"
             ? { effort: memberEffort(project.effort, ctx.prefs.all()["ruri-member-effort"]) as AgentOptions["effort"] }
             : {}),
           // the vault rides into the harness process here, and only here —
@@ -340,7 +347,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           env: { ...ctx.secrets.env(), ...cliEnv(libraryEndpoint(ctx, project.id)) },
           mcpServers: {
             ruri: componentTools(ctx.componentHost, project.id, [
-              ...talkTools(talkHost(ctx), project.id, !!head),
+              ...(plain ? [] : talkTools(talkHost(ctx), project.id, !!head)),
               ...(owner ? contextTools(ctx, project.id) : []),
               ...(head ? teamTools(teamHost(ctx), project.id) : []),
             ]),

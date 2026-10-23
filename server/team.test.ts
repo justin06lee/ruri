@@ -241,6 +241,7 @@ function world(opts: { cap?: number; workers?: boolean } = {}) {
   let made = 0;
   const noop = () => {};
   const ctx = {
+    prefs: { all: () => ({ "ruri-sessions-mode": "team" }) },
     store: {
       list: () => projects,
       get: (id: string) => projects.find((p) => p.id === id),

@@ -71,7 +71,14 @@ export interface SessionInfo {
   model?: string;
   permissionMode?: PermissionMode;
   effort?: string;
+  /** Put away by the user in Sessions mode: out of the project's list
+   *  (kept under "archived"), its transcript untouched. */
+  archived?: boolean;
 }
+
+/** The pref that switches a project between a list of chats ("sessions",
+ *  the default) and a lead with a team ("team"). */
+export const SESSIONS_MODE_PREF = "ruri-sessions-mode";
 
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 
@@ -2160,6 +2167,11 @@ export type ClientMessage =
   /** Call a project what you like in the sidebar. The folder on disk is
    *  untouched; this is the name ruri shows and the Home agent answers to. */
   | { type: "rename_project"; projectId: string; name: string }
+  /** Sessions mode: start a chat in a project, give a chat a name, or put
+   *  one away (or bring it back) — `archived` false brings it back. */
+  | { type: "new_session"; projectId: string }
+  | { type: "rename_session"; sessionId: string; title: string }
+  | { type: "archive_session"; sessionId: string; archived: boolean }
   | { type: "set_workspace"; path: string }
   | { type: "set_music_dir"; path: string }
   /** Cycle a model's star: none → starred → small-tasks → default → none. */
@@ -2457,6 +2469,9 @@ export type ServerMessage =
   /** A chat's history: every event before its newest compaction mark —
    *  asked for when one of its exchanges is opened in full. */
   | { type: "history"; projectId: string; events: TranscriptEvent[] }
+  /** A session you asked for exists (new_session) — go there. Sent to the
+   *  asker alone. */
+  | { type: "open_session"; projectId: string }
   /** What a project has on disk from outside ruri (see recent_list). */
   | { type: "recent"; projectId: string; items: RecentSession[] }
   /** A finished tracker review's generated prompt, for the composer. */

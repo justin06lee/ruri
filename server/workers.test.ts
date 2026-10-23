@@ -117,7 +117,7 @@ function world(opts: { workers?: boolean; prefs?: Record<string, string>; weekly
     governor: { waiting: [] as string[] },
     retries: { has: () => false },
     talk: { pending, handleOf: (id: string) => id.slice(0, 8) },
-    prefs: { all: () => opts.prefs ?? {} },
+    prefs: { all: () => ({ "ruri-sessions-mode": "team", ...opts.prefs }) },
     usage: { limits: opts.weekly === undefined ? {} : { claude: { weekly: opts.weekly, at: Date.now() } } },
   } as unknown as ServerContext;
   let n = 0;

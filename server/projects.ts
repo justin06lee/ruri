@@ -429,6 +429,32 @@ export class ProjectStore {
     return session;
   }
 
+  /** Sessions mode: a plain chat, added after the project's others. */
+  newSession(projectId: string): SessionInfo | undefined {
+    const project = this.projects.find((p) => p.id === projectId);
+    if (!project) return undefined;
+    const session: SessionInfo = { id: randomUUID() };
+    project.sessions.push(session);
+    this.save();
+    return session;
+  }
+
+  /** Sessions mode: a chat's name, or put away / brought back. */
+  setSessionTitle(sessionId: string, title: string): void {
+    const found = this.findSession(sessionId);
+    if (!found) return;
+    found.session.title = title;
+    this.save();
+  }
+
+  setSessionArchived(sessionId: string, archived: boolean): void {
+    const found = this.findSession(sessionId);
+    if (!found) return;
+    if (archived) found.session.archived = true;
+    else delete found.session.archived;
+    this.save();
+  }
+
   /** A member's name, duty or layers changed. "" layers clears them. */
   setMember(sessionId: string, patch: { name?: string; duty?: string; layers?: string[] }): void {
     const found = this.findSession(sessionId);

@@ -24,6 +24,7 @@ import { smallModelEnabled, splitPrompt } from "./smallmodel.js";
 import { answerPrompt, letterPrompt, seatName, stoppedLine } from "./talk.js";
 import { contextWindow, resetContext } from "./turns.js";
 import { modelPayload, processAttachments, storeAttachments } from "./uploads.js";
+import { sessionsMode } from "./sessionsMode.js";
 import { beginTask } from "./workers.js";
 
 /**
@@ -65,7 +66,7 @@ export function dispatch(
   }
   // a worker's letter that starts a task starts it in a fresh session, on
   // the task's model — before anything below reads the chat
-  beginTask(ctx, channelId, from);
+  if (!sessionsMode(ctx)) beginTask(ctx, channelId, from);
   const project = channelProject(ctx, channelId);
   if (!project) throw new Error("unknown session");
   // a prompt that names something in the component index takes that

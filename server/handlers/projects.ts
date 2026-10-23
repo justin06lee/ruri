@@ -246,6 +246,24 @@ export const projectHandlers = {
   remove_project: (ctx, _ws, msg) => {
     closeProjectById(ctx, msg.projectId);
   },
+  new_session: (ctx, ws, msg) => {
+    const made = ctx.store.newSession(msg.projectId);
+    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+    if (made && ws.readyState === WebSocket.OPEN)
+      ws.send(JSON.stringify({ type: "open_session", projectId: made.id } satisfies ServerMessage));
+  },
+  rename_session: (ctx, _ws, msg) => {
+    const title = msg.title.trim();
+    if (title && ctx.store.findSession(msg.sessionId)) {
+      ctx.store.setSessionTitle(msg.sessionId, title);
+      ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+    }
+  },
+  archive_session: (ctx, _ws, msg) => {
+    if (!ctx.store.findSession(msg.sessionId)) return;
+    ctx.store.setSessionArchived(msg.sessionId, msg.archived);
+    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+  },
   toggle_star: (ctx, _ws, msg) => {
     const project = ctx.store.get(msg.projectId);
     if (project) {

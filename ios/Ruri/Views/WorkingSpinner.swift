@@ -6,6 +6,8 @@ struct WorkingSpinner: View {
     var body: some View {
         ProgressView()
             .controlSize(.small)
+            .scaleEffect(0.8)
+            .frame(width: 16, height: 16)
             .accessibilityLabel("Working")
     }
 }

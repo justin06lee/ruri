@@ -157,7 +157,7 @@ for (const [root, slug] of [
 
 const say = (id: string, text: string) => send({ type: "send", projectId: id, text });
 const words: Array<[string | undefined, string]> = [
-  [leadOf(orchard).id, "Reply with exactly this and nothing else: The orchard's trees are all accounted for."],
+  [leadOf(orchard).id, "Reply with exactly this and nothing else: **Handoff:** the orchard's trees are all accounted for."],
   [leadOf(lighthouse).id, "Reply with exactly this and nothing else: The lamp was lit at dusk."],
   [leadOf(atlas).id, "Reply with exactly this and nothing else: The maps are filed."],
   [leadOf(garden).id, "Reply with exactly this and nothing else: Tomatoes went in bed three today."],

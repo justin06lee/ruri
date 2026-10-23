@@ -60,12 +60,12 @@ struct ProjectRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline) {
+                HStack(alignment: .center) {
                     Text(project.name)
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
-                    Spacer(minLength: 8)
                     if project.state == .working { WorkingSpinner() }
+                    Spacer(minLength: 8)
                     if let since = project.since {
                         Text(Ago.short(since))
                             .font(.footnote)
@@ -73,10 +73,11 @@ struct ProjectRow: View {
                             .monospacedDigit()
                     }
                 }
-                Text(project.doingNow.isEmpty ? project.state.label : project.doingNow)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                MarkdownText(
+                    source: project.doingNow.isEmpty ? project.state.label : project.doingNow,
+                    whole: false, lineLimit: 2
+                )
+                .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)
@@ -108,20 +109,18 @@ struct ChatRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline) {
+                HStack(alignment: .center) {
                     Text(chat.name)
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
+                    if chat.state == .working { WorkingSpinner() }
                     Spacer(minLength: 8)
-                    Group {
-                        if chat.state == .working {
-                            WorkingSpinner()
-                        } else if let active = chat.lastActive {
-                            Text(Ago.short(active)).monospacedDigit()
-                        }
+                    if chat.state != .working, let active = chat.lastActive {
+                        Text(Ago.short(active))
+                            .monospacedDigit()
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
                 }
                 if let duty {
                     Text(duty)

@@ -1,6 +1,6 @@
 # ruri for iPhone
 
-A quiet, read-only view of what ruri is running on your Mac. It shows what needs you first, then every project with a status dot (green working, grey idle, red stopped, orange needs you) and a line saying what it is doing now. Tap a project to see its lead's latest words and its teammates. Pull to refresh. While the app is open, the picture updates live. It never shows IDs, logs, tokens or costs. Replying from the phone comes in v1.1.
+A quiet, read-only view of what ruri is running on your Mac. It shows what needs you first, then every project with its name and a line saying what it is doing now; what is at work shows the system's small spinner, and while your Mac can't be reached the last picture is grayed out. Tap a project to see its lead's latest words and its teammates. Pull to refresh. While the app is open, the picture updates live. It never shows IDs, logs, tokens or costs. Replying from the phone comes in v1.1.
 
 SwiftUI, iOS 17 or later, and no dependencies. The plan behind it is [docs/mobile-app.md](../docs/mobile-app.md).
 

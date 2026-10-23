@@ -61,10 +61,24 @@ final class TourTests: XCTestCase {
         shoot("5 home again")
 
         tap(app.buttons["Your Mac"])
+        // a tap while a row spins can miss: once more
+        if !app.buttons["Done"].waitForExistence(timeout: 4) { tap(app.buttons["Your Mac"]) }
         pause(3.5)
         shoot("6 the Mac")
         tap(app.buttons["Done"])
         pause(3)
+
+        // the Mac goes away: the last picture stays, grayed out
+        if let cue = env["RURI_DEMO_CUE"] {
+            FileManager.default.createFile(
+                atPath: (cue as NSString).deletingLastPathComponent + "/down", contents: Data())
+            XCTAssertTrue(
+                app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Not reachable'")).firstMatch
+                    .waitForExistence(timeout: 90),
+                "the line is down, and the screen says so")
+            pause(2)
+            shoot("7 offline")
+        }
     }
 
     /// A row redrawn by every live frame can be mid-change when the tap

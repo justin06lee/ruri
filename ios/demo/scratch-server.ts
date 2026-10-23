@@ -238,4 +238,7 @@ await talk(leadOf(atlas).id, {
   reply: "none",
 });
 console.log("turns started — Ctrl-C to stop");
-await new Promise(() => {});
+// on cue: the Mac goes away (the tour's picture of the phone without it)
+await until("the cue to go away", () => cue("down"), 24 * 3_600_000);
+console.log("down");
+cleanup(0);

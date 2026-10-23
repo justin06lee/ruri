@@ -32,6 +32,7 @@ struct ProjectView: View {
                         }
                     }
                 }
+                .grayedWhenOffline(model.link)
                 .navigationTitle(project.name)
                 .projectSubtitle(project)
             } else {

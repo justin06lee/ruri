@@ -52,22 +52,20 @@ struct NeedRow: View {
     }
 }
 
-/// A project on the home screen: its dot, its name, and one line of what
+/// A project on the home screen: its name, a spinner at work, and one line of what
 /// it is doing now.
 struct ProjectRow: View {
     var project: StatusProject
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            StatusDot(state: project.state)
-                .onFirstLine()
-                .frame(width: 18)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(project.name)
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
                     Spacer(minLength: 8)
+                    if project.state == .working { WorkingSpinner() }
                     if let since = project.since {
                         Text(Ago.short(since))
                             .font(.footnote)
@@ -86,7 +84,7 @@ struct ProjectRow: View {
     }
 }
 
-/// One of a project's chats: its dot, name and duty, and what it is on or
+/// One of a project's chats: its name and duty, and what it is on or
 /// last said — a line or two, the whole of it on a tap.
 struct ChatRow: View {
     var chat: StatusChat
@@ -109,9 +107,6 @@ struct ChatRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            StatusDot(state: chat.state)
-                .onFirstLine()
-                .frame(width: 18)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(chat.name)
@@ -120,7 +115,7 @@ struct ChatRow: View {
                     Spacer(minLength: 8)
                     Group {
                         if chat.state == .working {
-                            Text("Working")
+                            WorkingSpinner()
                         } else if let active = chat.lastActive {
                             Text(Ago.short(active)).monospacedDigit()
                         }

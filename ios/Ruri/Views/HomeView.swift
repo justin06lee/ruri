@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Home: what needs you, then every project — a dot and what it is doing
+/// Home: what needs you, then every project — its name and what it is doing
 /// now. The title is the Mac's name; while the line is down it says so,
 /// and how old the picture is.
 struct HomeView: View {
@@ -34,6 +34,7 @@ struct HomeView: View {
                     }
                 }
             }
+            .grayedWhenOffline(model.link)
             .overlay {
                 if let report = model.report, report.projects.isEmpty {
                     ContentUnavailableView(

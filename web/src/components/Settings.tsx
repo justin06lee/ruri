@@ -15,6 +15,7 @@ import { ModelIcon } from "./Marks";
 import { Integrations } from "./Integrations";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
+import { setSessionsMode, useSessionsMode } from "../lib/sessionsMode";
 import { markFor } from "../lib/marks";
 import { roughName } from "../lib/models";
 import {
@@ -560,6 +561,7 @@ function ScheduleClock({
  * list of settings has always wanted.
  */
 export function Settings({ onClose }: { onClose(): void }) {
+  const sessionsMode = useSessionsMode();
   const workspaceDir = useRuri((s) => s.workspaceDir);
   const musicDir = useRuri((s) => s.musicDir);
   const canPickFolder = useRuri((s) => s.canPickFolder);
@@ -623,6 +625,32 @@ export function Settings({ onClose }: { onClose(): void }) {
             of rows it covers, then air. The two that are more than a row —
             the vault and the catalog — take the whole width under their
             heading instead of being squeezed into the value column. */}
+          <section className="settings-group">
+            <h2 className="settings-group-name">General</h2>
+
+            <div className="settings-row">
+              <span className="settings-label">Projects run as</span>
+              <div className="settings-value">
+                <div className="seg">
+                  {([true, false] as const).map((on) => (
+                    <button
+                      key={String(on)}
+                      className={`seg-option ${sessionsMode === on ? "active" : ""}`}
+                      title={
+                        on
+                          ? "Each project is a list of ordinary chats; a chat runs only when you message it"
+                          : "Each project is its lead with a team behind it"
+                      }
+                      onClick={() => setSessionsMode(on)}
+                    >
+                      {on ? "Sessions" : "Team"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section className="settings-group">
             <h2 className="settings-group-name">Appearance</h2>
 

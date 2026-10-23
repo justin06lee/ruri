@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HOME_ID, leadOf } from "../../../shared/protocol";
-import { prefetchTranscript, useRuri } from "../store";
+import { HOME_ID } from "../../../shared/protocol";
+import { entryOf, prefetchTranscript, useRuri } from "../store";
 import { score } from "../lib/fuzzy";
 import { commandKey } from "../lib/keys";
 
@@ -77,11 +77,11 @@ export function Switcher() {
         kind: "project",
         name: project.name,
         where: shortPath(project.path),
-        ...(leadOf(project) ? { chat: leadOf(project)!.id } : {}),
-        // a project is its lead: the one chat it has for the user
+        ...(entryOf(project) ? { chat: entryOf(project)! } : {}),
+        // a project opens its lead (Team) or the chat used last (Sessions)
         go: () => {
-          const lead = leadOf(project);
-          if (lead) setActive(lead.id);
+          const entry = entryOf(project);
+          if (entry) setActive(entry);
         },
       });
     }

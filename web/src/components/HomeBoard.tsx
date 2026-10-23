@@ -17,7 +17,7 @@ import {
   type SessionInfo,
   type TranscriptEvent,
 } from "../../../shared/protocol";
-import { useRuri, watchBoard } from "../store";
+import { entryOf, useRuri, watchBoard } from "../store";
 import { Capped } from "./Capped";
 import { money } from "./figures";
 import { StatisticsPage } from "./Statistics";
@@ -181,14 +181,16 @@ const WORD: Record<Status, string> = {
  */
 function ProjectCard({ project, status, fresh }: { project: Project; status: Status; fresh: boolean }) {
   const setActive = useRuri((s) => s.setActive);
-  const lead = leadOf(project)?.id;
+  // its lead (Team) or the chat used last (Sessions)
+  const lead = entryOf(project);
+  const entry = lead;
   return (
     <div className={`pcard st-${status} ${fresh ? "fresh" : ""}`}>
       <div
         className="pcard-head"
-        role={lead ? "button" : undefined}
-        onClick={() => lead && setActive(lead)}
-        title={lead ? `Open ${project.name}` : undefined}
+        role={entry ? "button" : undefined}
+        onClick={() => entry && setActive(entry)}
+        title={entry ? `Open ${project.name}` : undefined}
       >
         <span className={`dot ${status}`} aria-hidden />
         <span className="pcard-name">{project.name}</span>

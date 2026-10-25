@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- refactor(ui): buttons are Apple blue. Push buttons are tinted (blue words on a wash of the blue, `--tint`), borderless ones are blue words, icon buttons and the composer's glyphs are blue with a wash on hover, and a toggled toolbar button sits on a stronger wash instead of a solid fill.
 - refactor(ui): every loader is the macOS activity indicator: twelve spokes fading behind the darkest, ticking a spoke at a time on ruri's own clock, in place of the turning circles (the working line, busy sidebar rows, the Agents page and running agent cards).
 - feat(ui): the drawing pad is back, laid out like Markup: a toolbar with close and the name on the left, the tools and the stroke widths as segmented controls and colour wells in Apple's system colours in the middle, undo, clear, open a picture and a blue Attach on the right, over a white sheet on grey. The text box shows its font and size pickers at once (no Font… step), and the viewer's Draw on it button is back.
 - remove(ui): the usage gauges around the composer (context, 5h, weekly and the model's weekly bar). The composer is one centred 760px column; the windows are still on Statistics (`UsageGauges.tsx` is gone).

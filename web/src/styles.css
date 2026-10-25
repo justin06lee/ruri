@@ -57,6 +57,9 @@
   --accent-ink: #ffffff;
   --badge: #ff3b30;
   --fill: color-mix(in srgb, var(--ink) 8%, transparent);
+  /* a tinted button's fill: the accent, washed out (iOS's tinted style) */
+  --tint: color-mix(in srgb, var(--accent) 12%, transparent);
+  --tint-strong: color-mix(in srgb, var(--accent) 20%, transparent);
   --focus-ring: 0 0 0 3.5px color-mix(in srgb, var(--accent) 45%, transparent);
   --control-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 0.5px 1.5px rgba(0, 0, 0, 0.1);
   --menu-bg: rgba(250, 250, 250, 0.82);
@@ -241,13 +244,21 @@ button:hover {
   background: var(--paper-dim);
 }
 
-/* a push button: a plain one, or one in a dialog's or a setting's row,
-   stands on a hairline ring and the faintest shadow, as on a Mac */
+/* a push button — a plain one, or one in a dialog's or a setting's row —
+   is Apple's tinted button: blue words on a wash of the blue */
 button:not([class]),
 button.secondary,
 .confirm-actions button:not(.primary),
 .settings-row button:not(.primary, .ghost, .seg-option) {
-  box-shadow: var(--control-shadow);
+  color: var(--accent);
+  background: var(--tint);
+}
+
+button:not([class]):hover:not(:disabled),
+button.secondary:hover:not(:disabled),
+.confirm-actions button:not(.primary):hover:not(:disabled),
+.settings-row button:not(.primary, .ghost, .seg-option):hover:not(:disabled) {
+  background: var(--tint-strong);
 }
 
 button:focus-visible {
@@ -290,16 +301,17 @@ button.primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 88%, #000);
 }
 
+/* a borderless button: just the blue words, washed on hover */
 button.ghost {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
-  color: var(--ink-faint);
+  color: var(--accent);
 }
 
 button.ghost:hover {
-  color: var(--ink);
-  background: var(--paper-dim);
+  color: var(--accent);
+  background: var(--tint);
   border-color: transparent;
 }
 
@@ -433,18 +445,18 @@ textarea::placeholder {
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--ink-faint);
+  color: var(--accent);
   border-radius: var(--radius-s);
 }
 
 .icon-button svg {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 
 .icon-button:hover {
-  color: var(--ink);
-  background: var(--paper);
+  color: var(--accent);
+  background: var(--tint);
 }
 
 .conn {
@@ -2053,9 +2065,8 @@ textarea::placeholder {
 }
 
 /* and hangs it off its own corner, 6px clear of the button — further than
-   the 2px between them, so without this the ideas button's count sits on
-   the tracker's icon and reads as the tracker's. The room is taken by the
-   button carrying one, so the rest stay tight against each other. */
+   the 2px between them, so without this a count reads as the next
+   button's. The room is taken by the button carrying one. */
 .header-controls .icon-button.badged {
   margin-right: 6px;
 }
@@ -3039,8 +3050,8 @@ textarea::placeholder {
 }
 
 .header-controls .icon-button.active {
-  color: var(--accent-ink);
-  background: var(--accent);
+  color: var(--accent);
+  background: var(--tint-strong);
 }
 
 /* rapid fire: no pane of its own — the ordinary chat, handed one session at
@@ -6564,12 +6575,12 @@ textarea::placeholder {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--ink-faint);
+  color: var(--accent);
 }
 
 .composer-actions button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ink) 7%, transparent);
-  color: var(--ink);
+  background: var(--tint);
+  color: var(--accent);
 }
 
 .composer-actions button:active {

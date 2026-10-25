@@ -52,8 +52,18 @@
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
   --sidebar-w: 264px;
   --radius-s: 6px;
-  --radius-m: 9px;
-  --radius-l: 13px;
+  --radius-m: 10px;
+  --radius-l: 14px;
+  /* Apple's system accent and the materials menus and sheets are made of */
+  --accent: #007aff;
+  --accent-ink: #ffffff;
+  --focus-ring: 0 0 0 3.5px color-mix(in srgb, var(--accent) 45%, transparent);
+  --control-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 0.5px 1.5px rgba(0, 0, 0, 0.1);
+  --menu-bg: rgba(250, 250, 250, 0.82);
+  --menu-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 10px 32px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.06);
+  --sheet-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 24px 64px rgba(0, 0, 0, 0.2);
+  --veil: rgba(0, 0, 0, 0.18);
+  --material: saturate(180%) blur(30px);
   /* the small sizes: labels, metadata, the fine print under things */
   --fs-xs: 10.5px;
   --fs-sm: 11.5px;
@@ -98,6 +108,12 @@
   --diff-add-ink: #4ade80;
   --diff-del-bg: rgba(248, 113, 113, 0.11);
   --diff-del-ink: #f87171;
+  --accent: #0a84ff;
+  --control-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
+  --menu-bg: rgba(38, 38, 41, 0.8);
+  --menu-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 12px 36px rgba(0, 0, 0, 0.5);
+  --sheet-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 24px 64px rgba(0, 0, 0, 0.6);
+  --veil: rgba(0, 0, 0, 0.42);
   color-scheme: dark;
 }
 
@@ -123,6 +139,13 @@
   --diff-add-ink: #d2bf68;
   --diff-del-bg: rgba(230, 100, 60, 0.13);
   --diff-del-ink: #e8845c;
+  --accent: #ff9f0a;
+  --accent-ink: #1a1208;
+  --control-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
+  --menu-bg: rgba(44, 35, 28, 0.82);
+  --menu-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 12px 36px rgba(0, 0, 0, 0.5);
+  --sheet-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 24px 64px rgba(0, 0, 0, 0.6);
+  --veil: rgba(0, 0, 0, 0.42);
   color-scheme: dark;
 }
 
@@ -207,10 +230,10 @@ button {
   font-weight: 500;
   color: var(--ink);
   background: var(--raised);
-  border: 1.5px solid var(--edge);
+  border: none;
   border-radius: var(--radius-s);
   padding: 4px 14px;
-  cursor: pointer;
+  cursor: default;
   transition:
     background 100ms ease-out,
     color 100ms ease-out,
@@ -219,6 +242,20 @@ button {
 
 button:hover {
   background: var(--paper-dim);
+}
+
+/* a push button: a plain one, or one in a dialog's or a setting's row,
+   stands on a hairline ring and the faintest shadow, as on a Mac */
+button:not([class]),
+button.secondary,
+.confirm-actions button:not(.primary),
+.settings-row button:not(.primary, .ghost, .seg-option) {
+  box-shadow: var(--control-shadow);
+}
+
+button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* Pressed, a button shrinks towards its centre. It used to slide down and
@@ -245,19 +282,21 @@ button:disabled {
 }
 
 button.primary {
-  background: var(--ink);
+  background: var(--accent);
   border-color: var(--edge);
-  color: var(--paper);
-  font-weight: 600;
+  color: var(--accent-ink);
+  font-weight: 500;
+  box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.18);
 }
 
 button.primary:hover:not(:disabled) {
-  background: var(--ink-soft);
+  background: color-mix(in srgb, var(--accent) 88%, #000);
 }
 
 button.ghost {
   background: transparent;
   border-color: transparent;
+  box-shadow: none;
   color: var(--ink-faint);
 }
 
@@ -272,18 +311,46 @@ textarea,
 select {
   font: inherit;
   color: var(--ink);
-  background: var(--paper-bright);
-  border: 1.5px solid var(--line-soft);
+  background: var(--raised);
+  border: none;
   border-radius: var(--radius-s);
+  box-shadow: var(--control-shadow);
   padding: 6px 10px;
   outline: none;
-  transition: border-color 100ms ease-out;
+  transition: box-shadow 120ms ease-out;
 }
 
 input:focus,
 textarea:focus,
 select:focus {
-  border-color: var(--ink);
+  box-shadow: var(--control-shadow), var(--focus-ring);
+}
+
+/* Fields drawn bare inside a box of their own keep no ring. */
+.composer-box textarea,
+.composer-box textarea:focus,
+.idea-compose textarea,
+.idea-compose textarea:focus,
+.lib-search input,
+.lib-search input:focus,
+.agent-brief textarea,
+.agent-brief textarea:focus,
+.agent-reply-box textarea,
+.agent-reply-box textarea:focus,
+.switcher-input,
+.switcher-input:focus,
+input[type="range"],
+input[type="range"]:focus {
+  box-shadow: none;
+}
+
+input[type="checkbox"],
+input[type="radio"],
+input[type="checkbox"]:focus,
+input[type="radio"]:focus {
+  box-shadow: none;
+  padding: 0;
+  accent-color: var(--accent);
 }
 
 input::placeholder,
@@ -334,7 +401,7 @@ textarea::placeholder {
   display: flex;
   flex-direction: column;
   background: var(--paper-dim);
-  border-right: 1.5px solid var(--edge);
+  border-right: 0.5px solid var(--line-soft);
 }
 
 .sidebar-header {
@@ -521,7 +588,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-top: 1.5px solid var(--hairline);
+  border-top: 0.5px solid var(--line-soft);
 }
 
 .account-avatar {
@@ -664,7 +731,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   height: 8px;
   min-width: 8px;
   border-radius: 50%;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   background: transparent;
   transition:
     background 200ms ease-out,
@@ -708,9 +775,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   flex-shrink: 0;
   font-family: var(--mono);
   font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 600;
   padding: 1px 4px;
   border: 1px solid var(--line-soft);
   border-radius: 3px;
@@ -1038,7 +1103,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .player {
   position: relative; /* anchors the floating notes */
-  border-top: 1.5px solid var(--hairline);
+  border-top: 0.5px solid var(--line-soft);
 }
 
 /* ── while music plays: a live mini waveform + drifting notes ────── */
@@ -1202,8 +1267,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .player-track.current {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
@@ -1231,8 +1296,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .player-controls .icon-button.active {
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 .player-volume {
@@ -1389,12 +1454,10 @@ input[type="range"]::-webkit-slider-thumb {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 3px;
-  border: 1.5px solid var(--hairline);
-  border-radius: 999px;
-  background-color: var(--paper);
-  background-image: var(--tone);
-  background-size: 6px 6px;
+  padding: 2px;
+  border: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
 }
 
 /* The inked pill that says which page is up: one piece under both words,
@@ -1403,12 +1466,13 @@ input[type="range"]::-webkit-slider-thumb {
    later), so it is simply there when Home opens. */
 .home-tab-glide {
   position: absolute;
-  top: 3px;
-  bottom: 3px;
+  top: 2px;
+  bottom: 2px;
   left: 0;
   width: 0;
-  border-radius: 999px;
-  background: var(--ink);
+  border-radius: 6px;
+  background: var(--raised);
+  box-shadow: var(--control-shadow);
   pointer-events: none;
 }
 
@@ -1423,12 +1487,12 @@ input[type="range"]::-webkit-slider-thumb {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 4px 13px;
+  padding: 3px 16px;
   border: none;
-  border-radius: 999px;
+  border-radius: 6px;
   background: transparent;
-  font-size: var(--fs-md);
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1.4;
   color: var(--ink-faint);
   transition:
@@ -1446,7 +1510,7 @@ input[type="range"]::-webkit-slider-thumb {
 .home-tab.on,
 .home-tab.on:hover {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1529,7 +1593,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: baseline;
   gap: 7px;
   font-size: 28px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
@@ -1537,7 +1601,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .projects-count-n small {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0;
 }
 
@@ -1551,7 +1615,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .projects-live .st-permission {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .projects-live .st-idle {
@@ -1563,7 +1627,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 7px;
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .stat-tile {
@@ -1571,9 +1635,9 @@ input[type="range"]::-webkit-slider-thumb {
   flex-direction: column;
   gap: 3px;
   padding: 12px 16px 11px;
-  border: 2px solid var(--rim);
-  border-radius: var(--radius-m);
-  background: var(--paper);
+  border: none;
+  border-radius: 12px;
+  background: var(--paper-dim);
   font-variant-numeric: tabular-nums;
   min-width: 0;
 }
@@ -1583,14 +1647,12 @@ input[type="range"]::-webkit-slider-thumb {
 .stats-group {
   font-family: var(--mono);
   font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--ink-faint);
 }
 
 .stat-cost {
   font-size: 23px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1.1;
 }
 
@@ -1605,7 +1667,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .stat-sub b {
   color: var(--ink-soft);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* the cards come in two runs — the ones doing something, then the rest —
@@ -1620,7 +1682,7 @@ input[type="range"]::-webkit-slider-thumb {
 .projects-group::after {
   content: "";
   flex: 1;
-  border-top: 1.5px solid var(--hairline);
+  border-top: 0.5px solid var(--line-soft);
   opacity: 0.35;
 }
 
@@ -1645,7 +1707,7 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   flex-direction: column;
   background: var(--paper);
-  border: 2px solid var(--rim);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-m);
   overflow: hidden;
   min-width: 0;
@@ -1657,7 +1719,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 9px;
   padding: 9px 13px;
-  border-bottom: 1.5px solid var(--hairline);
+  border-bottom: 0.5px solid var(--line-soft);
   cursor: pointer;
   user-select: none;
 }
@@ -1673,7 +1735,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .pcard-name {
-  font-weight: 800;
+  font-weight: 600;
   font-size: 14px;
   min-width: 0;
   overflow: hidden;
@@ -1685,8 +1747,6 @@ input[type="range"]::-webkit-slider-thumb {
   margin-left: auto;
   font-family: var(--mono);
   font-size: 10px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   line-height: 1.4;
   padding: 2px 8px;
   border-radius: 999px;
@@ -1705,7 +1765,7 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink);
   background: var(--paper);
   border-color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .pcard.st-error .pcard-status {
@@ -1718,7 +1778,7 @@ input[type="range"]::-webkit-slider-thumb {
 .pcard.fresh.st-idle .pcard-status {
   color: var(--ink);
   border-color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* room for a session's three lines even when it has said nothing yet, so
@@ -2036,12 +2096,33 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .settings-group-name {
-  margin: 0 0 2px 2px;
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--ink-faint);
+  margin: 0 0 6px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+/* System Settings' grouped list: a group's rows share one rounded tray,
+   told apart by a hairline between them */
+.settings-group > .settings-row {
+  background: var(--paper-dim);
+  padding: 7px 14px;
+}
+
+.settings-group > .settings-row:first-of-type {
+  border-radius: var(--radius-m) var(--radius-m) 0 0;
+}
+
+.settings-group > .settings-row:last-of-type {
+  border-radius: 0 0 var(--radius-m) var(--radius-m);
+}
+
+.settings-group > .settings-row:only-of-type {
+  border-radius: var(--radius-m);
+}
+
+.settings-group > .settings-row + .settings-row {
+  box-shadow: inset 0 0.5px 0 var(--hairline);
 }
 
 /* one hairline between rows of a group, and none at its edges */
@@ -2248,7 +2329,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: baseline;
   gap: 1px;
   padding: 2px 6px;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-s);
   font-family: var(--mono);
   font-size: 12px;
@@ -2445,7 +2526,7 @@ input[type="range"]::-webkit-slider-thumb {
 .model-role-tag {
   flex-shrink: 0;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.02em;
   padding: 1px 6px 2px;
   border-radius: 3px;
@@ -2501,28 +2582,40 @@ input[type="range"]::-webkit-slider-thumb {
 
 .seg {
   display: flex;
-  gap: 4px;
-  background: var(--paper-dim);
-  border-radius: var(--radius-s);
-  padding: 3px;
+  gap: 2px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  border-radius: 8px;
+  padding: 2px;
 }
 
+/* a Mac segmented control: the picked one is a raised white key */
 .seg-option {
   border: none;
   background: transparent;
-  padding: 3px 14px;
-  font-size: var(--fs-md);
-  color: var(--ink-soft);
-}
-
-.seg-option:hover {
-  background: var(--paper);
+  border-radius: 6px;
+  padding: 2px 14px;
+  font-size: 12px;
   color: var(--ink);
 }
 
-.seg-option.active {
-  background: var(--ink);
-  color: var(--paper);
+.seg-option:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.seg-option.active,
+.seg-option.active:hover {
+  background: var(--raised);
+  box-shadow: var(--control-shadow);
+  color: var(--ink);
+}
+
+/* in the dark themes a raised surface is barely off the track, so the
+   picked key is lifted a shade further, as macOS draws it */
+[data-theme="dark"] .seg-option.active,
+[data-theme="ember"] .seg-option.active,
+[data-theme="dark"] .home-tab-glide,
+[data-theme="ember"] .home-tab-glide {
+  background: color-mix(in srgb, var(--ink) 18%, var(--paper-dim));
 }
 
 /* ── Settings → Peek band (BandEditor.tsx) ─────────────────────────── */
@@ -2640,7 +2733,7 @@ input[type="range"]::-webkit-slider-thumb {
   width: 44px;
   height: 36px;
   padding: 3px;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-s);
   background: var(--paper-dim);
   overflow: hidden;
@@ -2767,7 +2860,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 16px;
   padding: 10px 20px;
-  border-bottom: 1.5px solid var(--hairline);
+  border-bottom: 0.5px solid var(--line-soft);
   background: var(--paper);
 }
 
@@ -2777,8 +2870,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .chat-title {
-  font-weight: 700;
-  font-size: 14.5px;
+  font-weight: 600;
+  font-size: 13px;
 }
 
 /* a teammate's or the liaison's chat: the way back to the lead, whose
@@ -2892,9 +2985,12 @@ input[type="range"]::-webkit-slider-thumb {
   top: calc(100% + 6px);
   right: 0;
   min-width: max(100%, 172px);
-  background: var(--raised);
-  border: 1.5px solid var(--edge);
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: var(--material);
+  backdrop-filter: var(--material);
+  border: none;
   border-radius: var(--radius-m);
+  box-shadow: var(--menu-shadow);
   padding: 5px;
   z-index: var(--z-popover);
   animation: rise 120ms ease-out;
@@ -2910,29 +3006,29 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 10px;
-  font-size: var(--fs-md);
+  padding: 4px 10px;
+  font-size: 13px;
   text-align: left;
   background: transparent;
   border: none;
-  border-radius: var(--radius-s);
-  color: var(--ink-soft);
+  box-shadow: none;
+  border-radius: 5px;
+  color: var(--ink);
   white-space: nowrap;
 }
 
 .dropdown-item:hover {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--accent);
+  color: var(--accent-ink);
   transform: none;
 }
 
 .dropdown-item.selected {
-  font-weight: 700;
   color: var(--ink);
 }
 
 .dropdown-item.selected:hover {
-  color: var(--paper);
+  color: var(--accent-ink);
 }
 
 .dropdown-check {
@@ -2949,7 +3045,7 @@ input[type="range"]::-webkit-slider-thumb {
 .error-bar {
   padding: 8px 20px;
   background-image: var(--stripes);
-  border-bottom: 1.5px solid var(--edge);
+  border-bottom: 0.5px solid var(--line-soft);
   color: var(--ink);
   font-weight: 500;
   font-size: 13px;
@@ -3020,13 +3116,10 @@ input[type="range"]::-webkit-slider-thumb {
   position: relative;
   align-self: flex-end;
   max-width: 76%;
-  background-color: var(--raised);
-  background-image: var(--tone);
-  background-size: 5px 5px;
-  border: 1.5px solid var(--edge);
-  border-radius: var(--radius-l);
-  border-bottom-right-radius: 3px;
-  padding: 9px 14px;
+  background: var(--paper-deep);
+  border: none;
+  border-radius: 18px;
+  padding: 8px 14px;
 }
 
 /* edit-and-rewind: the pencil surfacing on a prompt's left shoulder */
@@ -3066,14 +3159,17 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--paper) 55%, transparent);
+  background: var(--veil);
 }
 
 .confirm-card {
   width: min(440px, calc(100% - 48px));
-  background: var(--paper-bright);
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: var(--material);
+  backdrop-filter: var(--material);
   border-radius: var(--radius-l);
-  padding: 16px 18px 14px;
+  box-shadow: var(--sheet-shadow);
+  padding: 18px 20px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -3081,8 +3177,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .confirm-title {
-  font-weight: 700;
-  font-size: 15px;
+  font-weight: 600;
+  font-size: 13px;
 }
 
 /* which prompt this is about, in its own words — the card trims it, because
@@ -3135,8 +3231,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .msg.command-chip:hover {
-  background: var(--ink);
-  color: var(--paper);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
   opacity: 0.82;
   text-decoration: line-through;
 }
@@ -3316,7 +3412,7 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 11px;
   line-height: 1.6;
   color: var(--ink-soft);
-  border-style: dashed;
+  border-style: solid;
   padding: 10px 12px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -3351,7 +3447,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .carry-on-head b {
   color: var(--ink-soft);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* folded to four of the note's lines (the reply's 1.6 line height), plus
@@ -3585,9 +3681,7 @@ input[type="range"]::-webkit-slider-thumb {
   flex: 1;
   font-family: var(--mono);
   font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--ink-faint);
 }
 
@@ -3601,16 +3695,14 @@ input[type="range"]::-webkit-slider-thumb {
   background: transparent;
   font-family: var(--mono);
   font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--ink);
   animation: rise 160ms ease-out;
 }
 
 .queued-undo:hover {
-  background: var(--ink);
-  color: var(--paper);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
   transform: none;
 }
 
@@ -3708,7 +3800,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .tool-name {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .tool-summary {
@@ -3868,8 +3960,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .header-controls .icon-button.active {
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 /* rapid fire: no pane of its own — the ordinary chat, handed one session at
@@ -3945,7 +4037,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .rapid-intro-name {
   font-size: 54px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.05;
   max-width: 82%;
@@ -3997,7 +4089,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 8px;
   padding: 4px 6px 4px 14px;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: 99px;
   background: var(--paper);
 }
@@ -4009,7 +4101,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .rapid-lead {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink);
 }
 
@@ -4048,7 +4140,7 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 999px;
   background: transparent;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.5;
   color: var(--ink-faint);
   transition:
@@ -4063,8 +4155,8 @@ input[type="range"]::-webkit-slider-thumb {
 
 .rapid-scope button.on,
 .rapid-scope button.on:hover {
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 .rapid-scope button:active {
@@ -4114,7 +4206,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--ink);
   color: var(--paper);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.02em;
 }
 
@@ -4189,7 +4281,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .idea-compose.drag-over {
   border-color: var(--ink);
-  border-style: dashed;
+  border-style: solid;
 }
 
 .idea-compose textarea {
@@ -4406,7 +4498,7 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 10px;
   margin-top: 12px;
   padding: 0 12px;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-m);
   background: var(--paper-bright);
   color: var(--ink-faint);
@@ -4454,7 +4546,7 @@ input[type="range"]::-webkit-slider-thumb {
   font-family: var(--mono);
   font-size: 10px;
   padding: 2px 6px;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: 5px;
   color: var(--ink-faint);
   line-height: 1;
@@ -4478,7 +4570,7 @@ input[type="range"]::-webkit-slider-thumb {
   font-weight: 500;
   color: var(--ink-soft);
   background: transparent;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: 99px;
 }
 
@@ -4488,8 +4580,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .lib-chip.on {
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--accent-ink);
+  background: var(--accent);
   border-color: var(--ink);
 }
 
@@ -4550,7 +4642,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .lib-empty-title {
-  font-weight: 700;
+  font-weight: 600;
   font-size: 15px;
   color: var(--ink);
 }
@@ -4569,7 +4661,7 @@ input[type="range"]::-webkit-slider-thumb {
   left: 30px;
   width: 60px;
   height: 46px;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-s);
   background-color: var(--paper);
   background-image: var(--tone);
@@ -4606,7 +4698,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: stretch;
   gap: 3px;
   padding: 8px 8px 10px;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-m);
   background: var(--paper);
   text-align: left;
@@ -4640,7 +4732,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* a picture is being dragged over it */
 .lib-tile.drop {
   border-color: var(--ink);
-  border-style: dashed;
+  border-style: solid;
 }
 
 /* The whole picture, on the dotted ground: a full-window shot and a thin
@@ -4684,7 +4776,7 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: var(--fs-xs);
   color: var(--ink-soft);
   background: var(--paper-bright);
-  border: 1px dashed var(--line-soft);
+  border: 1px solid var(--hairline);
   border-radius: 99px;
 }
 
@@ -4707,7 +4799,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .lib-tile-glyph {
   font-size: 28px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.1;
   color: var(--ink-soft);
 }
@@ -4742,7 +4834,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 6px;
   padding: 0 2px;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 13.5px;
   line-height: 1.3;
 }
@@ -4835,7 +4927,7 @@ input[type="range"]::-webkit-slider-thumb {
   flex: 1;
   min-width: 0;
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 2px 8px;
   border-color: transparent;
   background: transparent;
@@ -4887,7 +4979,7 @@ input[type="range"]::-webkit-slider-thumb {
   flex-shrink: 0;
   padding: 2px 10px;
   font-size: var(--fs-sm);
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
 }
 
 /* a question about it the user is the one to answer: is this its name,
@@ -4960,13 +5052,13 @@ input[type="range"]::-webkit-slider-thumb {
   flex-shrink: 0;
   padding: 2px 10px;
   font-size: var(--fs-sm);
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   background: var(--paper);
 }
 
 .lib-copy.copied {
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--accent-ink);
+  background: var(--accent);
 }
 
 .lib-detail-body {
@@ -4989,7 +5081,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .lib-preview-main {
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-m);
   background-color: var(--paper-dim);
   background-image: var(--tone);
@@ -5063,7 +5155,7 @@ input[type="range"]::-webkit-slider-thumb {
   position: relative;
   width: 76px;
   height: 52px;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-s);
   background-color: var(--paper-dim);
   background-image: var(--tone);
@@ -5081,12 +5173,12 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .lib-thumb.gone {
-  border-style: dashed;
+  border-style: solid;
   cursor: default;
 }
 
 .lib-thumb.add {
-  border-style: dashed;
+  border-style: solid;
   background-image: none;
 }
 
@@ -5231,12 +5323,12 @@ input[type="range"]::-webkit-slider-thumb {
 
 .lib-section-title {
   margin-top: 6px;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 14px;
 }
 
 .lib-codebox {
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-m);
   overflow: hidden;
   background: var(--paper-bright);
@@ -5247,7 +5339,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 2px;
   padding: 6px 8px 0;
-  border-bottom: 1.5px solid var(--hairline);
+  border-bottom: 0.5px solid var(--line-soft);
   overflow-x: auto;
   background: var(--paper);
 }
@@ -5275,7 +5367,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .lib-tab.on {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
   border-bottom-color: var(--ink);
 }
 
@@ -5431,7 +5523,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .arch-title {
   font-size: 26px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
@@ -5459,7 +5551,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .arch-section-title {
   flex: 1;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 14px;
 }
 
@@ -5555,7 +5647,7 @@ input[type="range"]::-webkit-slider-thumb {
   margin-top: -1.5px;
   padding: 14px 18px 12px;
   border: 1.5px solid var(--line);
-  border-top-style: dashed;
+  border-top-style: solid;
   border-radius: 0 0 var(--radius-s) var(--radius-s);
   background: var(--paper);
   animation: rise 160ms ease-out;
@@ -5570,7 +5662,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .arch-layer-part-title {
   margin-bottom: 6px;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 12px;
 }
 
@@ -5598,7 +5690,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* what sessions learned in a layer: the kind set small, ahead of the line */
 .arch-notes .arch-note-kind {
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink-faint);
 }
 
@@ -5618,7 +5710,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .arch-layer-name {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .arch-layer-what {
@@ -5947,7 +6039,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .skill-group-head {
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink-faint);
   padding: 0 2px 6px;
 }
@@ -5976,7 +6068,7 @@ input[type="range"]::-webkit-slider-thumb {
   height: 18px;
   margin-top: 2px;
   padding: 0;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: 999px;
   background: var(--paper-dim);
   cursor: pointer;
@@ -6055,13 +6147,13 @@ input[type="range"]::-webkit-slider-thumb {
   justify-content: space-between;
   gap: 10px;
   padding: 10px 12px 10px 16px;
-  border-bottom: 1.5px solid var(--hairline);
+  border-bottom: 0.5px solid var(--line-soft);
   background-image: var(--tone);
   background-size: 6px 6px;
 }
 
 .skill-sheet-name {
-  font-weight: 700;
+  font-weight: 600;
   font-size: 14px;
 }
 
@@ -6079,7 +6171,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .skill-name {
-  font-weight: 700;
+  font-weight: 600;
   font-size: 13px;
 }
 
@@ -6265,9 +6357,7 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 6px;
   font-family: var(--mono);
   font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--ink);
 }
 
@@ -6316,10 +6406,10 @@ input[type="range"]::-webkit-slider-thumb {
 
 .permission-card {
   align-self: stretch;
-  border: 2px solid var(--edge);
-  border-radius: var(--radius-m);
+  border: none;
+  border-radius: 12px;
   padding: 14px 16px;
-  background: var(--raised);
+  background: var(--paper-dim);
   animation: rise 180ms ease-out;
 }
 
@@ -6337,7 +6427,7 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 6px;
   font-family: var(--mono);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--paper);
   background: var(--ink);
   border-radius: var(--radius-s);
@@ -6437,7 +6527,7 @@ input[type="range"]::-webkit-slider-thumb {
 .agent-type {
   flex: none;
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .agent-desc {
@@ -6477,7 +6567,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .agent-status.failed {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* indented under the name, so the three lines read as one thing */
@@ -6795,7 +6885,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* the head names the file; the counts sit to its right */
 .diff-file {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6828,7 +6918,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .diff-hunk + .diff-hunk {
-  border-top: 1px dashed var(--line-soft);
+  border-top: 1px solid var(--hairline);
 }
 
 .diff-line {
@@ -7007,10 +7097,10 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  border: 2px solid var(--edge);
-  border-radius: var(--radius-m);
+  border: none;
+  border-radius: 12px;
   padding: 15px 16px 14px;
-  background: var(--raised);
+  background: var(--paper-dim);
   animation: rise 180ms ease-out;
 }
 
@@ -7075,7 +7165,7 @@ input[type="range"]::-webkit-slider-thumb {
 .ask-chip {
   font-family: var(--mono);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--paper);
   background: var(--ink);
@@ -7138,7 +7228,7 @@ input[type="range"]::-webkit-slider-thumb {
   text-align: left;
   font-weight: 400;
   padding: 9px 11px;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-s);
   background: var(--paper-dim);
 }
@@ -7233,7 +7323,7 @@ input[type="range"]::-webkit-slider-thumb {
   line-height: 1.55;
   color: var(--ink-soft);
   background: var(--paper-dim);
-  border: 1px dashed var(--line-soft);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-s);
   padding: 10px 12px;
   max-height: 240px;
@@ -7287,7 +7377,7 @@ input[type="range"]::-webkit-slider-thumb {
   height: 8px;
   padding: 0;
   border-radius: 50%;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   background: var(--paper-dim);
 }
 
@@ -7326,7 +7416,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--ink);
   color: var(--paper);
   font-size: 9.5px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 15px;
   text-align: center;
 }
@@ -7359,19 +7449,19 @@ input[type="range"]::-webkit-slider-thumb {
   flex-direction: column;
 }
 
+/* a board page's head is a plain title row, as a Mac window's large
+   title is: no card around it */
 .board-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
-  padding: 10px 14px;
-  border: 1.5px solid var(--hairline);
-  border-radius: var(--radius-s);
-  background-image: var(--tone);
-  background-size: 6px 6px;
+  padding: 4px 2px;
 }
 
 .board-title {
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .board-sub {
@@ -7564,11 +7654,11 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 3px 8px;
   font-family: var(--mono);
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
   color: var(--ink-soft);
   background: var(--paper-dim);
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-bottom: none;
   border-radius: 7px 7px 0 0;
 }
@@ -7676,7 +7766,7 @@ input[type="range"]::-webkit-slider-thumb {
 .att-ext {
   font-family: var(--mono);
   font-size: 8.5px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.04em;
 }
 
@@ -7690,7 +7780,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--ink);
   color: var(--paper);
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 14px;
   text-align: center;
   padding: 0 3px;
@@ -7717,7 +7807,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .composer-box.drag-over {
   border-color: var(--ink);
-  border-style: dashed;
+  border-style: solid;
 }
 
 /* ── the sketch pad ───────────────────────────────────────────────── */
@@ -7735,7 +7825,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 4px;
   padding: 8px 14px;
-  border-bottom: 1.5px solid var(--hairline);
+  border-bottom: 0.5px solid var(--line-soft);
   background: var(--paper);
   flex-shrink: 0;
 }
@@ -7746,8 +7836,8 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .sketch-tools .icon-button.active {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .sketch-tools .icon-button svg {
@@ -7766,7 +7856,7 @@ input[type="range"]::-webkit-slider-thumb {
   width: 18px;
   height: 18px;
   padding: 0;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: 50%;
 }
 
@@ -7909,14 +7999,14 @@ input[type="range"]::-webkit-slider-thumb {
 .sketch-font {
   padding: 3px 10px;
   font-size: 13px;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   background: var(--paper-bright);
 }
 
 .sketch-font.active {
   border-color: var(--ink);
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .sketch-text-actions {
@@ -8058,7 +8148,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .region-box.draft {
-  border-style: dashed;
+  border-style: solid;
 }
 
 /* Inside the box's corner, not straddling it: a region drawn against the top
@@ -8073,7 +8163,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: var(--ink);
   color: var(--paper);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: 600;
   line-height: 18px;
   text-align: center;
 }
@@ -8268,19 +8358,21 @@ input[type="range"]::-webkit-slider-thumb {
   position: absolute;
   left: 0;
   right: 0;
-  /* clear of the box, not resting on it: the menu's own hard shadow falls
-     3px down, and landing that on the composer's border read as one
-     stuck-together thing rather than a list standing over a box */
+  /* clear of the box, not resting on it, so the menu reads as a list
+     standing over the box rather than stuck to it */
   bottom: calc(100% + 14px);
   z-index: var(--z-command);
   max-height: 264px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding: 4px;
-  background: var(--paper-bright);
-  border: 1.5px solid var(--edge);
+  padding: 5px;
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: var(--material);
+  backdrop-filter: var(--material);
+  border: none;
   border-radius: var(--radius-m);
+  box-shadow: var(--menu-shadow);
   animation: rise 120ms ease-out;
 }
 
@@ -8289,18 +8381,22 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: baseline;
   gap: 9px;
   width: 100%;
-  padding: 6px 9px;
+  padding: 5px 10px;
   border: none;
-  border-radius: var(--radius-s);
+  border-radius: 5px;
   background: none;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   color: var(--ink-soft);
 }
 
 .command-row.active {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.command-row.active .command-name {
+  color: var(--accent-ink);
 }
 
 .command-name {
@@ -8334,8 +8430,6 @@ input[type="range"]::-webkit-slider-thumb {
   margin-left: auto;
   font-family: var(--mono);
   font-size: 9.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--ink-faint);
   white-space: nowrap;
 }
@@ -8374,8 +8468,8 @@ input[type="range"]::-webkit-slider-thumb {
 .marker-chip.still,
 .marker-chip.still:hover {
   cursor: default;
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 /* hovered, the chip turns inside out: paper with an ink rim, the same
@@ -8665,8 +8759,8 @@ button.stop:hover {
 }
 
 .shell-toggle.active {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .composer-hint {
@@ -8715,12 +8809,12 @@ button.stop:hover {
 .md h4 {
   margin: 1.1em 0 0.45em;
   line-height: 1.3;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .md h1 {
   font-size: 1.3em;
-  border-bottom: 1.5px solid var(--hairline);
+  border-bottom: 0.5px solid var(--line-soft);
   padding-bottom: 0.2em;
 }
 
@@ -8758,8 +8852,8 @@ button.stop:hover {
 }
 
 .md a:hover {
-  background: var(--ink);
-  color: var(--paper);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
   text-decoration: none;
 }
 
@@ -8771,7 +8865,7 @@ button.stop:hover {
 
 .md hr {
   border: none;
-  border-top: 1.5px solid var(--hairline);
+  border-top: 0.5px solid var(--line-soft);
   margin: 1.2em 0;
 }
 
@@ -8792,7 +8886,7 @@ button.stop:hover {
 .md th {
   background-image: var(--tone);
   background-size: 5px 5px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .md code {
@@ -8821,14 +8915,14 @@ button.stop:hover {
   background-color: var(--paper-dim);
   background-image: var(--tone);
   background-size: 5px 5px;
-  border-bottom: 1.5px solid var(--hairline);
+  border-bottom: 0.5px solid var(--line-soft);
 }
 
 .md .code-lang {
   margin-right: auto;
   font-family: var(--mono);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: 600;
   text-transform: lowercase;
   letter-spacing: 0.05em;
   color: var(--ink-soft);
@@ -8857,14 +8951,14 @@ button.stop:hover {
 }
 
 .md .code-copy:hover {
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
   border-color: var(--edge);
 }
 
 .md .code-copy.copied {
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--accent-ink);
+  background: var(--accent);
   border-color: var(--edge);
 }
 
@@ -8908,7 +9002,7 @@ button.stop:hover {
 .hljs-name,
 .hljs-meta {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .hljs-string,
@@ -8961,7 +9055,7 @@ button.stop:hover {
 }
 
 .hljs-strong {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* ── selection flags ──────────────────────────────────────────────── */
@@ -9069,7 +9163,7 @@ button.stop:hover {
   min-width: 0;
   max-width: min(440px, 100%);
   padding: 6px;
-  border: 1.5px solid var(--line-soft);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-m);
   background: var(--paper);
 }
@@ -9106,9 +9200,7 @@ button.stop:hover {
 
 .bridge-blank {
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--ink-faint);
 }
 
@@ -9132,7 +9224,7 @@ button.stop:hover {
   max-width: 100%;
   overflow: hidden;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -9164,8 +9256,8 @@ button.stop:hover {
 
 .bridge-toggle:hover,
 .bridge-toggle.on {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .bridge-toggle.on:hover {
@@ -9347,8 +9439,8 @@ button.stop:hover {
 }
 
 .dropdown-sub.open .dropdown-item.sub-row:hover {
-  background: var(--ink);
-  color: var(--paper);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
 }
 
 .sub-label {
@@ -9372,9 +9464,12 @@ button.stop:hover {
   left: calc(100% + 6px);
   top: -5px;
   min-width: 150px;
-  background: var(--raised);
-  border: 1.5px solid var(--edge);
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: var(--material);
+  backdrop-filter: var(--material);
+  border: none;
   border-radius: var(--radius-m);
+  box-shadow: var(--menu-shadow);
   padding: 5px;
   z-index: var(--z-flyout);
   animation: rise 120ms ease-out;
@@ -9396,7 +9491,7 @@ button.stop:hover {
   justify-content: center;
   align-items: flex-start;
   padding-top: 16vh;
-  background: color-mix(in srgb, var(--paper) 55%, transparent);
+  background: transparent;
   -webkit-app-region: no-drag;
 }
 
@@ -9405,9 +9500,12 @@ button.stop:hover {
   max-height: 60vh;
   display: flex;
   flex-direction: column;
-  background: var(--paper-bright);
-  border: 1.5px solid var(--rim);
-  border-radius: var(--radius-l);
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: var(--material);
+  backdrop-filter: var(--material);
+  border: none;
+  border-radius: 16px;
+  box-shadow: var(--sheet-shadow);
   animation: rise 120ms ease-out;
   overflow: hidden;
 }
@@ -9417,7 +9515,7 @@ button.stop:hover {
   align-items: center;
   gap: 12px;
   padding: 14px 16px 12px;
-  border-bottom: 1.5px solid var(--edge);
+  border-bottom: 0.5px solid var(--line-soft);
 }
 
 .switcher-glass {
@@ -9506,8 +9604,8 @@ button.stop:hover {
 }
 
 .switcher-row.picked {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .switcher-name {
@@ -9534,8 +9632,6 @@ button.stop:hover {
   margin-left: auto;
   font-family: var(--mono);
   font-size: 9.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--ink-faint);
   white-space: nowrap;
 }
@@ -9555,7 +9651,7 @@ button.stop:hover {
   display: flex;
   gap: 16px;
   padding: 8px 14px;
-  border-top: 1.5px solid var(--edge);
+  border-top: 0.5px solid var(--line-soft);
   font-size: 11px;
   color: var(--ink-faint);
   background: var(--paper);
@@ -9602,7 +9698,7 @@ button.stop:hover {
   align-items: center;
   gap: 12px;
   padding: 7px 0;
-  border-top: 1px dashed var(--line-soft, var(--edge));
+  border-top: 1px solid var(--hairline);
 }
 
 .grant-status {
@@ -9610,9 +9706,7 @@ button.stop:hover {
   width: 84px;
   font-family: var(--mono);
   font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 600;
   text-align: center;
   padding: 3px 0;
   border: 1.5px solid var(--edge);
@@ -9627,7 +9721,7 @@ button.stop:hover {
 }
 
 .grant-status.denied {
-  border-style: dashed;
+  border-style: solid;
   color: var(--ink);
 }
 
@@ -9663,14 +9757,14 @@ button.stop:hover {
 }
 
 .harness-status.current {
-  background: var(--ink);
+  background: var(--accent);
   border-color: var(--ink);
-  color: var(--paper);
+  color: var(--accent-ink);
 }
 
 .harness-status.behind,
 .harness-status.updating {
-  border-style: dashed;
+  border-style: solid;
   color: var(--ink);
 }
 
@@ -9742,7 +9836,7 @@ button.stop:hover {
   font-family: var(--mono);
   font-size: var(--fs-sm);
   padding: 5px 8px;
-  border: 1px dashed var(--edge);
+  border: 1px solid var(--hairline);
   border-radius: 6px;
   color: var(--ink);
   overflow: hidden;
@@ -9761,7 +9855,7 @@ button.stop:hover {
   margin: 0;
   padding: 10px 14px;
   list-style: none;
-  border: 1px dashed var(--edge);
+  border: 1px solid var(--hairline);
   border-radius: 8px;
   font-family: var(--mono);
   font-size: 15px;
@@ -9803,7 +9897,7 @@ button.stop:hover {
 
 /* one computer, and its setup when open beneath it */
 .devices-peer + .devices-peer .grant-row {
-  border-top-style: dashed;
+  border-top-style: solid;
 }
 
 .devices-setup {
@@ -9812,7 +9906,7 @@ button.stop:hover {
   gap: 6px;
   margin: 0 0 10px 96px;
   padding: 10px 12px;
-  border-left: 1.5px solid var(--hairline);
+  border-left: 0.5px solid var(--line-soft);
 }
 
 .devices-setup .vault-form input,
@@ -9867,7 +9961,7 @@ button.stop:hover {
 
 .devices-this {
   margin-top: 10px;
-  border-top: 1.5px solid var(--hairline);
+  border-top: 0.5px solid var(--line-soft);
   padding-top: 14px;
 }
 
@@ -9929,9 +10023,7 @@ button.stop:hover {
   margin: 14px 0 2px;
   font-family: var(--mono);
   font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 600;
   color: var(--ink-faint);
 }
 
@@ -9940,7 +10032,7 @@ button.stop:hover {
   align-items: center;
   gap: 12px;
   padding: 7px 0;
-  border-top: 1px dashed var(--line-soft, var(--edge));
+  border-top: 1px solid var(--hairline);
 }
 
 .int-tag {
@@ -9948,9 +10040,7 @@ button.stop:hover {
   width: 52px;
   font-family: var(--mono);
   font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 600;
   text-align: center;
   padding: 3px 0;
   border: 1.5px solid var(--edge);
@@ -10165,7 +10255,7 @@ button.stop:hover {
   gap: 10px;
   min-width: 0;
   padding: 6px 0;
-  border-top: 1px dashed var(--line-soft, var(--edge));
+  border-top: 1px solid var(--hairline);
   font-size: var(--fs-sm);
 }
 
@@ -10180,7 +10270,7 @@ button.stop:hover {
 .hooks-state.failed,
 .hooks-state.retrying {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .hooks-what {
@@ -10265,7 +10355,7 @@ button.stop:hover {
 
 .grants-rows td {
   padding: 3px 6px 3px 0;
-  border-top: 1px dashed var(--line-soft, var(--edge));
+  border-top: 1px solid var(--hairline);
   white-space: nowrap;
 }
 
@@ -10277,7 +10367,7 @@ button.stop:hover {
 
 .grants-rows tr.refused .grants-verdict {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* ── hidden projects ──────────────────────────────────────────────── */
@@ -10296,9 +10386,7 @@ button.stop:hover {
   background: transparent;
   color: var(--ink-faint);
   font-size: var(--fs-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  font-weight: 600;
   text-align: left;
 }
 
@@ -10386,7 +10474,7 @@ button.stop:hover {
 .stats-group::after {
   content: "";
   flex: 1;
-  border-top: 1.5px solid var(--hairline);
+  border-top: 0.5px solid var(--line-soft);
   opacity: 0.35;
 }
 
@@ -10401,7 +10489,7 @@ button.stop:hover {
 /* the tables: a name that carries its own bar, then figures in columns
    that line up down the page (tabular numerals, fixed columns) */
 .stats-table {
-  border: 2px solid var(--rim);
+  border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-m);
   background: var(--paper);
   overflow: hidden;
@@ -10429,14 +10517,12 @@ button.stop:hover {
 
 .stats-row + .stats-row,
 .stats-head + .capped {
-  border-top: 1.5px solid var(--hairline);
+  border-top: 0.5px solid var(--line-soft);
 }
 
 .stats-head {
   font-family: var(--mono);
   font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--ink-faint);
   padding-top: 8px;
   padding-bottom: 7px;
@@ -10444,7 +10530,7 @@ button.stop:hover {
 
 .stats-row b {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .stats-name {
@@ -10530,7 +10616,7 @@ button.stop:hover {
   margin-left: auto;
   font-family: var(--mono);
   font-size: 10.5px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -10589,7 +10675,7 @@ button.stop:hover {
 /* every project's rule heads the list; each project's own hangs under it */
 .talk-who.kind-everyone {
   margin-bottom: 4px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .talk-who:hover {
@@ -10638,7 +10724,7 @@ button.stop:hover {
 }
 
 .talk-rule-who {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink);
 }
 
@@ -10676,8 +10762,6 @@ button.stop:hover {
   margin: 22px 2px 8px;
   font-family: var(--mono);
   font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--ink-faint);
 }
 
@@ -10688,7 +10772,7 @@ button.stop:hover {
 
 .talk-letter {
   padding: 8px 2px;
-  border-top: 1px dashed var(--line-soft, var(--edge));
+  border-top: 1px solid var(--hairline);
 }
 
 .talk-letter-head {
@@ -10726,7 +10810,7 @@ button.stop:hover {
 .talk-letter.st-queued .talk-status,
 .talk-letter.st-working .talk-status {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .talk-letter-text {
@@ -10748,7 +10832,7 @@ button.stop:hover {
 /* a prompt another agent sent: still a prompt, on the prompt's side, but
    drawn in a dashed line and saying whose it is */
 .msg.user.letter {
-  border-style: dashed;
+  border-style: solid;
 }
 
 .letter-from {
@@ -10760,7 +10844,7 @@ button.stop:hover {
 
 .letter-from b {
   color: var(--ink-soft);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .message-card-reply {
@@ -10829,7 +10913,7 @@ button.team-member-name {
   background: none;
   color: var(--ink);
   font: inherit;
-  font-weight: 700;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -10896,7 +10980,7 @@ button.team-member-name:hover {
 
 .team-layer {
   padding: 0 5px;
-  border: 1px dashed var(--line-soft);
+  border: 1px solid var(--hairline);
   border-radius: 3px;
   font-family: var(--mono);
   font-size: 10px;
@@ -10933,7 +11017,7 @@ button.team-member-name:hover {
 }
 
 .team-liaison {
-  border-style: dashed;
+  border-style: solid;
 }
 
 .team-liaison-doing {
@@ -10976,7 +11060,7 @@ button.team-member-name:hover {
   gap: 8px;
   min-width: 0;
   padding: 3px 0;
-  border-top: 1px dashed var(--line-faint, rgba(127, 127, 127, 0.25));
+  border-top: 1px solid var(--hairline);
 }
 
 .team-task-id {
@@ -11142,7 +11226,7 @@ button.team-member-name:hover {
 }
 
 .btw-title {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink);
 }
 

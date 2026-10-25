@@ -351,9 +351,7 @@ function ChatView({
    * tracker items, but it does not yank you onto the tracker page to look
    * at them — the toggle's badge is the whole notification.
    */
-  const [page, setPage] = useState<
-    "chat" | "components" | "skills" | "team"
-  >("chat");
+  const [page, setPage] = useState<"chat" | "components" | "skills" | "team">("chat");
   // One chat (the default) has no team behind the project chat, so no
   // Team page
   const oneChat = useSessionsMode();
@@ -399,7 +397,6 @@ function ChatView({
     (background?: SketchBackground) => setSketch(background ? { background } : {}),
     [],
   );
-
 
   /**
    * How much of the transcript is on screen. A long session is hundreds of
@@ -918,8 +915,12 @@ function ChatView({
       return (
         <main className={pane("chat home-hero")}>
           {lastError && (
-            <div className="error-bar" onClick={dismissError}>
-              {lastError} <span className="dismiss">dismiss</span>
+            <div className="error-bar" role="status">
+              <Icon d="M12 3l10 18H2L12 3zM12 9v5M12 17h.01" />
+              <span>{lastError}</span>
+              <button className="icon-button" aria-label="Dismiss error" onClick={dismissError}>
+                <Icon d="M6 6l12 12M18 6L6 18" />
+              </button>
             </div>
           )}
           {/* a project chat's header — the agents, skills and boards — is
@@ -947,8 +948,12 @@ function ChatView({
         {header}
 
         {lastError && (
-          <div className="error-bar" onClick={dismissError}>
-            {lastError} <span className="dismiss">dismiss</span>
+          <div className="error-bar" role="status">
+            <Icon d="M12 3l10 18H2L12 3zM12 9v5M12 17h.01" />
+            <span>{lastError}</span>
+            <button className="icon-button" aria-label="Dismiss error" onClick={dismissError}>
+              <Icon d="M6 6l12 12M18 6L6 18" />
+            </button>
           </div>
         )}
 
@@ -1117,12 +1122,15 @@ function ChatView({
           <div className="confirm-overlay" onClick={() => setRewindTarget(null)}>
             <div
               className="confirm-card"
+              role="alertdialog"
+              aria-modal="true"
+              aria-label="Rewind to this prompt"
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
                 if (e.key === "Escape") setRewindTarget(null);
               }}
             >
-              <div className="confirm-title">Rewind to this prompt</div>
+              <div className="confirm-title">Rewind to this prompt?</div>
               <div className="confirm-quote">
                 {rewindTarget.text.length > 240
                   ? `${rewindTarget.text.slice(0, 240).trimEnd()}…`
@@ -1141,7 +1149,7 @@ function ChatView({
                   Cancel
                 </button>
                 <button
-                  className="primary"
+                  className="primary destructive"
                   autoFocus
                   onClick={() => {
                     send({ type: "rewind", projectId: activeId, eventId: rewindTarget.id });

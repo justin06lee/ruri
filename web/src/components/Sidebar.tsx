@@ -363,6 +363,7 @@ function ProjectRow({ project }: { project: Project }) {
                 ? "Its lead and its team go with it, the working ones stopped; files are untouched."
                 : "Its lead and its team go with it; files are untouched.",
               ok: "Remove",
+              destructive: true,
             }).then((yes) => {
               if (yes) send({ type: "remove_project", projectId: project.id });
             });
@@ -442,9 +443,7 @@ export const Sidebar = memo(function Sidebar() {
             Tell Home what to work on.
           </div>
         )}
-        {ordered.length > 0 && (
-          <div className="group-label">Projects</div>
-        )}
+        {ordered.length > 0 && <div className="group-label">Projects</div>}
         {ordered.map((p) => (
           <ProjectRow key={p.id} project={p} />
         ))}

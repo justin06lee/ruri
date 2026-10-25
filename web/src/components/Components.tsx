@@ -11,7 +11,12 @@ import {
   type RefObject,
 } from "react";
 import { searchComponents, searchTerms, wordMatches } from "../../../shared/librarySearch";
-import { componentStale, type Attachment, type ComponentFile, type NamedComponent } from "../../../shared/protocol";
+import {
+  componentStale,
+  type Attachment,
+  type ComponentFile,
+  type NamedComponent,
+} from "../../../shared/protocol";
 import { Viewer } from "./Attachments";
 import { useConfirm } from "./Confirm";
 import { fileToBase64 } from "../lib/files";
@@ -185,7 +190,8 @@ const FILTERS: Array<{ id: Filter; label: string; title: string }> = [
   {
     id: "lost",
     label: "Files gone",
-    title: "Its files are in neither the project nor any of its worktrees — say where they went, or take it out",
+    title:
+      "Its files are in neither the project nor any of its worktrees — say where they went, or take it out",
   },
 ];
 
@@ -310,7 +316,15 @@ function useFlash(): [boolean, () => void] {
 }
 
 /** A button that copies `text`, and says so. */
-function CopyButton({ text, label = "Copy", title }: { text: string | undefined; label?: string; title: string }) {
+function CopyButton({
+  text,
+  label = "Copy",
+  title,
+}: {
+  text: string | undefined;
+  label?: string;
+  title: string;
+}) {
   const [copied, flash] = useFlash();
   return (
     <button
@@ -446,7 +460,10 @@ function Tile({
           <span className="lib-tile-blank">
             <span className="lib-tile-glyph">{(item.slug[0] ?? "?").toUpperCase()}</span>
             {srcs.length > 0 ? (
-              <span className="lib-tile-why" title="Its picture's file is gone — Update everything retakes it">
+              <span
+                className="lib-tile-why"
+                title="Its picture's file is gone — Update everything retakes it"
+              >
                 picture missing
               </span>
             ) : (
@@ -456,7 +473,10 @@ function Tile({
           </span>
         ) : null}
         {lost > 0 && (
-          <span className="lib-badge left" title={`Not in the project or any of its worktrees: ${item.missing!.join(", ")}`}>
+          <span
+            className="lib-badge left"
+            title={`Not in the project or any of its worktrees: ${item.missing!.join(", ")}`}
+          >
             {lost === item.files.length ? "files gone" : `${lost} file${lost === 1 ? "" : "s"} gone`}
           </span>
         )}
@@ -565,7 +585,11 @@ function CodeView({ file }: { file: ComponentFile }) {
           {numbers}
         </pre>
         <pre className="lib-code-text">
-          <code className="hljs" {...(name ? { "data-hl": name } : {})} dangerouslySetInnerHTML={{ __html: html }} />
+          <code
+            className="hljs"
+            {...(name ? { "data-hl": name } : {})}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
         </pre>
       </div>
     </div>
@@ -601,7 +625,9 @@ function CodeTabs({ projectId, item }: { projectId: string; item: NamedComponent
   }, [projectId, item.id, key]);
   if (!files) return <CodeLoading />;
   if (files.length === 0) {
-    return <div className="lib-code-missing boxed">No files on this one yet — list them under “its files”.</div>;
+    return (
+      <div className="lib-code-missing boxed">No files on this one yet — list them under “its files”.</div>
+    );
   }
   const open = files[Math.min(tab, files.length - 1)]!;
   const from = open.from ?? 1;
@@ -766,7 +792,14 @@ function ShotThumb({
         title={src === null ? "Forget this missing picture" : "Remove this picture"}
         onClick={() => onRemove(src === null)}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          aria-hidden
+        >
           <path d="M6 6l12 12M18 6L6 18" />
         </svg>
       </button>
@@ -803,7 +836,8 @@ function Detail({
     if (item.star) send({ type: "component_seen", projectId, componentId: item.id });
   }, [projectId, item.id, item.star]);
 
-  const patch = (extra: Patch) => send({ type: "component_update", projectId, componentId: item.id, ...extra });
+  const patch = (extra: Patch) =>
+    send({ type: "component_update", projectId, componentId: item.id, ...extra });
   const install = `ruri add ${item.slug}`;
   // the one picked, by id — a new picture arriving at the front of the
   // list must not swap what is on screen — else the newest still there
@@ -839,6 +873,7 @@ function Detail({
         title: "Remove this picture?",
         body: "It comes out of the library for good — nothing brings it back.",
         ok: "Remove",
+        destructive: true,
       }))
     ) {
       return;
@@ -909,8 +944,8 @@ function Detail({
           <span>
             {item.found ? (
               <>
-                <b>The repo sweep's guess.</b> Is “{item.name}” what you call it? Its note and files are a guess
-                too.
+                <b>The repo sweep's guess.</b> Is “{item.name}” what you call it? Its note and files are a
+                guess too.
               </>
             ) : (
               <>
@@ -934,8 +969,8 @@ function Detail({
               :
             </b>{" "}
             <span className="mono">{item.missing.join(", ")}</span> — in neither the project nor any of its
-            worktrees. Say where {item.missing.length === 1 ? "it is" : "they are"} now under “its files”, or take
-            it out of the library.
+            worktrees. Say where {item.missing.length === 1 ? "it is" : "they are"} now under “its files”, or
+            take it out of the library.
           </span>
         </div>
       ) : null}
@@ -943,7 +978,10 @@ function Detail({
       <div className="lib-install">
         <code>{install}</code>
         {dir && (
-          <span className="lib-install-dir" title="Where `ruri add` copies it — set at the foot of the library">
+          <span
+            className="lib-install-dir"
+            title="Where `ruri add` copies it — set at the foot of the library"
+          >
             into {dir}/
           </span>
         )}
@@ -992,7 +1030,8 @@ function Detail({
                   </p>
                 ) : (
                   <p>
-                    No picture yet. Drop or paste one here — or press <b>Update everything</b> to have it taken.
+                    No picture yet. Drop or paste one here — or press <b>Update everything</b> to have it
+                    taken.
                   </p>
                 )}
               </div>
@@ -1000,7 +1039,12 @@ function Detail({
           </div>
           {viewing && shot && (
             <Viewer
-              target={{ kind: "image", src: srcOf(shot), label: `${item.name} — ${shot.name}`, name: shot.name }}
+              target={{
+                kind: "image",
+                src: srcOf(shot),
+                label: `${item.name} — ${shot.name}`,
+                name: shot.name,
+              }}
               onClose={() => setViewing(false)}
             />
           )}
@@ -1009,7 +1053,8 @@ function Detail({
               <span>
                 Its code has changed since {behind.picture ? "this picture" : "its note was written"}
                 {item.changedAt ? ` (${new Date(item.changedAt).toLocaleDateString()})` : ""} —{" "}
-                <b>Update everything</b> {behind.picture ? "retakes it" : "rereads it"}, or say it still holds.
+                <b>Update everything</b> {behind.picture ? "retakes it" : "rereads it"}, or say it still
+                holds.
               </span>
               <button
                 type="button"
@@ -1261,9 +1306,15 @@ function Library({ projectId }: { projectId: string }) {
   const marks = useMemo(() => marksOf(view.query), [view.query]);
   // what the search finds, best first — the same search as `ruri search`
   // (shared/librarySearch.ts) — and the chips count within it
-  const hits = useMemo(() => (searching ? searchComponents(items, view.query) : items), [items, view.query, searching]);
+  const hits = useMemo(
+    () => (searching ? searchComponents(items, view.query) : items),
+    [items, view.query, searching],
+  );
   const counts = useMemo(() => {
-    const out = { all: 0, new: 0, unsure: 0, unpictured: 0, outdated: 0, lost: 0 } satisfies Record<Filter, number>;
+    const out = { all: 0, new: 0, unsure: 0, unpictured: 0, outdated: 0, lost: 0 } satisfies Record<
+      Filter,
+      number
+    >;
     for (const item of hits) for (const f of FILTERS) if (inFilter(item, f.id, gone)) out[f.id] += 1;
     return out;
   }, [hits, gone]);
@@ -1402,12 +1453,12 @@ function Library({ projectId }: { projectId: string }) {
                 <div className="lib-empty-card">
                   <div className="lib-empty-title">No components yet</div>
                   <p>
-                    Pieces arrive as sessions build this project's interface — each comes up in the chat under a
-                    name you can change, and agents look here before building anything new.
+                    Pieces arrive as sessions build this project's interface — each comes up in the chat under
+                    a name you can change, and agents look here before building anything new.
                   </p>
                   <p>
-                    For what was built before that, <b>Update everything</b> reads the repo, names each piece of
-                    interface it finds and takes its picture.
+                    For what was built before that, <b>Update everything</b> reads the repo, names each piece
+                    of interface it finds and takes its picture.
                   </p>
                   {sweepButton}
                 </div>
@@ -1451,21 +1502,26 @@ function Library({ projectId }: { projectId: string }) {
                   </label>
 
                   <div className="lib-filters">
-                    {FILTERS.filter((f) => f.id === "all" || counts[f.id] > 0 || view.filter === f.id).map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        className={`lib-chip${view.filter === f.id ? " on" : ""}`}
-                        title={f.title}
-                        aria-pressed={view.filter === f.id}
-                        onClick={() => change({ filter: view.filter === f.id ? "all" : f.id })}
-                      >
-                        {f.label}
-                        <span className="lib-chip-count">{counts[f.id]}</span>
-                      </button>
-                    ))}
+                    {FILTERS.filter((f) => f.id === "all" || counts[f.id] > 0 || view.filter === f.id).map(
+                      (f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          className={`lib-chip${view.filter === f.id ? " on" : ""}`}
+                          title={f.title}
+                          aria-pressed={view.filter === f.id}
+                          onClick={() => change({ filter: view.filter === f.id ? "all" : f.id })}
+                        >
+                          {f.label}
+                          <span className="lib-chip-count">{counts[f.id]}</span>
+                        </button>
+                      ),
+                    )}
                     <span className="lib-filters-gap" />
-                    <div className="seg lib-sort" title={searching ? "A search is shown best match first" : undefined}>
+                    <div
+                      className="seg lib-sort"
+                      title={searching ? "A search is shown best match first" : undefined}
+                    >
                       {(
                         [
                           ["recent", "Recent"],
@@ -1489,7 +1545,8 @@ function Library({ projectId }: { projectId: string }) {
                     <div className="lib-none">
                       {searching ? (
                         <>
-                          Nothing {view.filter === "all" ? "" : `under “${filterLabel}” `}matches “{view.query}”.
+                          Nothing {view.filter === "all" ? "" : `under “${filterLabel}” `}matches “
+                          {view.query}”.
                           <button type="button" className="ghost" onClick={() => change({ query: "" })}>
                             Clear the search
                           </button>
@@ -1520,8 +1577,8 @@ function Library({ projectId }: { projectId: string }) {
                   <div className="board-foot lib-foot">
                     Agents copy one into place with <code>ruri add &lt;handle&gt;</code>, into{" "}
                     <InstallDir projectId={projectId} />. The library is also written to{" "}
-                    <code>.ruri/components.md</code> and to a skill for Claude, and handed to the model whenever a
-                    prompt names one.
+                    <code>.ruri/components.md</code> and to a skill for Claude, and handed to the model
+                    whenever a prompt names one.
                   </div>
                 </>
               )}

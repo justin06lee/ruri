@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Icon } from "./chat/Icon";
 
 /**
  * A question with two answers, in the app's own card instead of the
@@ -13,6 +14,8 @@ export interface ConfirmOptions {
   quote?: string;
   body?: ReactNode;
   ok?: string;
+  /** Destructive actions use the system red button. */
+  destructive?: boolean;
   /** The cancel button's label; null for a notice with no cancel at all. */
   cancel?: string | null;
 }
@@ -58,6 +61,7 @@ export function useConfirm(): { confirm: (opts: ConfirmOptions) => Promise<boole
 
 function ConfirmCard({ opts, onAnswer }: { opts: ConfirmOptions; onAnswer: (yes: boolean) => void }) {
   const notice = opts.cancel === null;
+  const titleId = useId();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -78,8 +82,28 @@ function ConfirmCard({ opts, onAnswer }: { opts: ConfirmOptions; onAnswer: (yes:
       onDoubleClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div className="confirm-card" onClick={(e) => e.stopPropagation()}>
-        <div className="confirm-title">{opts.title}</div>
+      <div
+        className="confirm-card"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button className="icon-button confirm-close" aria-label="Close" onClick={() => onAnswer(notice)}>
+          <Icon d="M6 6l12 12M18 6L6 18" />
+        </button>
+        <div className="confirm-symbol" aria-hidden>
+          <Icon
+            d={
+              opts.destructive
+                ? "M12 3l10 18H2L12 3zM12 9v5M12 17h.01"
+                : "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 10v6M12 7h.01"
+            }
+          />
+        </div>
+        <div className="confirm-title" id={titleId}>
+          {opts.title}
+        </div>
         {opts.quote && <div className="confirm-quote">{opts.quote}</div>}
         {opts.body && <div className="confirm-body">{opts.body}</div>}
         <div className="confirm-actions">
@@ -88,7 +112,11 @@ function ConfirmCard({ opts, onAnswer }: { opts: ConfirmOptions; onAnswer: (yes:
               {opts.cancel ?? "Cancel"}
             </button>
           )}
-          <button className="primary" autoFocus onClick={() => onAnswer(true)}>
+          <button
+            className={`primary${opts.destructive ? " destructive" : ""}`}
+            autoFocus
+            onClick={() => onAnswer(true)}
+          >
             {opts.ok ?? "OK"}
           </button>
         </div>

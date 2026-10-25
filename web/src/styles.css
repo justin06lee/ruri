@@ -577,11 +577,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .fx-host.hot.fx-wiggle .fx-art {
-  animation: fx-wiggle var(--speed) ease-in-out infinite;
+  animation: fx-wiggle 200ms ease-out 1;
 }
 
 .fx-host.hot.fx-bounce .fx-art {
-  animation: fx-bounce var(--speed) ease-in-out infinite;
+  animation: fx-bounce 200ms ease-out 1;
 }
 
 @keyframes fx-wiggle {
@@ -1803,7 +1803,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .bandedit-panel .settings-row + .settings-row {
-  border-top: 1px solid var(--line-faint);
+  border-top: none;
 }
 
 .bandedit-range {
@@ -2419,6 +2419,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border-bottom: none;
   background: var(--toolbar-bg);
   backdrop-filter: var(--material);
+  position: relative;
+  z-index: var(--z-command);
 }
 
 .chat-id {
@@ -2622,13 +2624,18 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .error-bar {
-  padding: 8px 20px;
+  padding: 8px 12px;
   background: var(--paper-dim);
-  border-bottom: 0.5px solid var(--line-soft);
+  border-bottom: none;
   color: var(--ink);
-  font-weight: 500;
+  font-weight: 400;
   font-size: 13px;
-  cursor: pointer;
+  cursor: default;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 16px;
+  border-radius: var(--radius-m);
 }
 
 .error-bar .dismiss {
@@ -2748,18 +2755,22 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   background: var(--menu-bg);
   -webkit-backdrop-filter: var(--material);
   backdrop-filter: var(--material);
-  border-radius: var(--radius-l);
+  border-radius: var(--radius-xl);
   box-shadow: var(--sheet-shadow);
-  padding: 18px 20px 16px;
+  padding: 32px 24px 24px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
   animation: rise var(--move);
+  position: relative;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
 }
 
 .confirm-title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 15px;
+  text-align: center;
 }
 
 /* which prompt this is about, in its own words — the card trims it, because
@@ -2769,23 +2780,25 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   line-height: 1.5;
   color: var(--ink-soft);
   background: var(--paper-dim);
-  border-left: 3px solid var(--line-soft);
-  border-radius: 0 var(--radius-s) var(--radius-s) 0;
-  padding: 6px 10px;
+  border-left: none;
+  border-radius: var(--radius-s);
+  padding: 12px;
   overflow-wrap: break-word;
+  text-align: left;
 }
 
 .confirm-body {
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.5;
   color: var(--ink-soft);
+  text-align: center;
 }
 
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 2px;
+  margin-top: 8px;
 }
 
 .msg.assistant {
@@ -3355,6 +3368,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   cursor: pointer;
   border-style: dotted;
   transition: border-color var(--lighten);
+  border: 0;
 }
 
 .exchange-half.folds[data-half="prompt"] .msg.user:hover {
@@ -3501,11 +3515,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 /* The card enters after the name has gone, so it takes its time; it leaves
    on an ease-in, which reads as being pulled away rather than blinking. */
 .chat.rapid-page {
-  animation: rapid-in 300ms cubic-bezier(0.16, 0.84, 0.36, 1);
+  animation: none;
 }
 
 .chat.rapid-page.rapid-leaving {
-  animation: rapid-out 260ms cubic-bezier(0.5, 0, 0.75, 0) forwards;
+  animation: none;
   pointer-events: none;
 }
 
@@ -3550,13 +3564,13 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .rapid-intro-name {
-  font-size: 54px;
+  font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.05;
   max-width: 82%;
   /* INTRO_MS in RapidFire.tsx: the card comes down when this ends */
-  animation: rapid-name 700ms ease-out forwards;
+  animation: none;
 }
 
 /* The line's controls ride above the composer, on the composer's own width
@@ -3601,9 +3615,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: center;
   gap: 8px;
   padding: 4px 6px 4px 14px;
-  border: 0.5px solid var(--line-soft);
+  border: none;
   border-radius: 999px;
-  background: var(--paper);
+  background: var(--menu-bg);
+  backdrop-filter: var(--material);
+  box-shadow: var(--menu-shadow);
 }
 
 .rapid-count {
@@ -3685,9 +3701,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .rapid-waiting-title {
-  font-size: 34px;
-  font-weight: 750;
-  letter-spacing: 0.01em;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .rapid-waiting-note {
@@ -4013,6 +4029,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-tile.drop {
   border-color: var(--ink);
   border-style: solid;
+  border: 0;
 }
 
 /* The whole picture, on the dotted ground: a full-window shot and a thin
@@ -4064,6 +4081,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   left: 6px;
   border-style: solid;
   color: var(--ink);
+  border: 0;
 }
 
 .lib-tile-blank {
@@ -4956,9 +4974,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   background: var(--paper);
-  border: 1px solid var(--edge);
-  border-radius: var(--radius-m);
+  border: none;
+  border-radius: var(--radius-l);
   overflow: hidden;
+  box-shadow: var(--sheet-shadow);
 }
 
 .skill-sheet-head {
@@ -4966,8 +4985,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 12px 10px 16px;
-  border-bottom: 0.5px solid var(--line-soft);
+  padding: 16px 20px;
+  border-bottom: none;
+  background: var(--toolbar-bg);
 }
 
 .skill-sheet-name {
@@ -4977,7 +4997,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .skill-sheet-body {
   overflow-y: auto;
-  padding: 16px 20px 22px;
+  padding: 24px;
   font-size: 13.5px;
   line-height: 1.7;
 }
@@ -5030,7 +5050,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .vault-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  padding: 12px;
+  border-top: none;
+  background: var(--group-bg);
+  border-radius: var(--radius-m);
 }
 
 .vault-handle {
@@ -6326,12 +6350,13 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .sketch-tools {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   height: 44px;
-  padding: 0 12px;
+  padding: 8px 16px;
   flex-shrink: 0;
-  background: var(--paper);
-  border-bottom: 0.5px solid var(--hairline);
+  background: var(--toolbar-bg);
+  border-bottom: none;
+  min-height: 52px;
 }
 
 .sketch-name {
@@ -6357,8 +6382,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   color: var(--ink-soft);
 }
@@ -6383,7 +6408,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .sketch-swatches {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 /* colour wells: a disc with a hairline, and a ring in the accent round the
@@ -6398,10 +6423,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .sketch-swatch.active {
-  box-shadow:
-    inset 0 0 0 0.5px color-mix(in srgb, var(--ink) 25%, transparent),
-    0 0 0 2px var(--paper),
-    0 0 0 4px var(--accent);
+  box-shadow: 0 0 0 1px var(--paper), 0 0 0 2px var(--accent);
 }
 
 .sketch-open {
@@ -6426,6 +6448,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   justify-content: center;
   padding: 24px;
   overflow: hidden;
+  background: var(--paper-dim);
 }
 
 /* the sheet: drawn shapes keep their own colours, the page around it grey */
@@ -6473,7 +6496,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   width: min(520px, 92vw);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .sketch-text-box {
@@ -6516,7 +6539,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .viewer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--veil);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6530,17 +6553,18 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   background: var(--raised);
-  border: 1px solid var(--edge);
-  border-radius: var(--radius-m);
-  padding: 12px 14px 14px;
+  border: none;
+  border-radius: var(--radius-l);
+  padding: 16px;
   overflow: hidden;
+  box-shadow: var(--sheet-shadow);
 }
 
 .viewer-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .viewer-label {
@@ -6621,8 +6645,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    like it ran off past the frame. Same two lines, same order, drawn within. */
 .region-box {
   position: absolute;
-  border: 2px solid var(--ink);
-  box-shadow: inset 0 0 0 2px #fff;
+  border: 1px solid var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.85);
   border-radius: 2px;
   pointer-events: none;
 }
@@ -7561,7 +7585,7 @@ button.stop:hover {
   top: -15px;
   width: 15px;
   height: 15px;
-  background: var(--ink);
+  background: var(--accent);
   border: 1px solid var(--paper);
   cursor: grab;
   pointer-events: auto;
@@ -7586,7 +7610,7 @@ button.stop:hover {
 }
 
 .sel-knob:hover {
-  transform: scale(1.12);
+  transform: none;
 }
 
 /* ── the bridge strip ─────────────────────────────────────────────
@@ -7626,16 +7650,18 @@ button.stop:hover {
   pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   /* 440 when there is room for it, and never wider than the strip — the
      right edge is pinned to the composer's, so every pixel over the room
      it has is a pixel hanging off the left, over the sidebar */
   min-width: 0;
   max-width: min(440px, 100%);
-  padding: 6px;
-  border: 0.5px solid var(--line-soft);
+  padding: 8px;
+  border: none;
   border-radius: var(--radius-m);
-  background: var(--paper);
+  background: var(--menu-bg);
+  backdrop-filter: var(--material);
+  box-shadow: var(--menu-shadow);
 }
 
 /* the picture: a window's worth, cropped from the top, on screentone
@@ -7649,7 +7675,7 @@ button.stop:hover {
   height: 60px;
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--line-soft);
+  border: none;
   border-radius: var(--radius-s);
   background: var(--paper-dim);
   background-size: 6px 6px;
@@ -7984,8 +8010,8 @@ button.stop:hover {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px 12px;
-  border-bottom: 0.5px solid var(--line-soft);
+  padding: 16px;
+  border-bottom: none;
 }
 
 .switcher-glass {
@@ -8052,21 +8078,23 @@ button.stop:hover {
 .switcher-list {
   flex: 1;
   overflow-y: auto;
-  padding: 6px;
+  padding: 8px;
 }
 
 .switcher-row {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 8px 12px;
   border: none;
   border-radius: var(--radius-s);
   background: none;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   color: var(--ink);
+  min-height: 36px;
+  transition: none;
 }
 
 .switcher-row:hover {
@@ -8079,8 +8107,8 @@ button.stop:hover {
 }
 
 .switcher-name {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -8120,11 +8148,11 @@ button.stop:hover {
 .switcher-foot {
   display: flex;
   gap: 16px;
-  padding: 8px 14px;
-  border-top: 0.5px solid var(--line-soft);
+  padding: 12px 16px;
+  border-top: none;
   font-size: 11px;
   color: var(--ink-faint);
-  background: var(--paper);
+  background: transparent;
 }
 
 .switcher-foot span {
@@ -8146,7 +8174,7 @@ button.stop:hover {
 }
 
 .grants-note {
-  margin: 0 0 10px;
+  margin: 0 0 16px;
 }
 
 .grants-note code {
@@ -8167,18 +8195,20 @@ button.stop:hover {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 7px 0;
-  border-top: 1px solid var(--hairline);
+  padding: 12px;
+  border-top: none;
+  background: var(--group-bg);
+  border-radius: var(--radius-m);
 }
 
 .grant-status {
   flex-shrink: 0;
-  width: 84px;
-  font-size: 9.5px;
+  width: 88px;
+  font-size: 11px;
   font-weight: 600;
   text-align: center;
-  padding: 3px 0;
-  border: 1px solid var(--edge);
+  padding: 4px 0;
+  border: none;
   border-radius: 999px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -8186,14 +8216,15 @@ button.stop:hover {
 
 .grant-status.granted {
   /* a good state reads green, the system's own tint of it */
-  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  background: var(--fill);
   border-color: transparent;
-  color: var(--ok);
+  color: var(--ink-soft);
 }
 
 .grant-status.denied {
   border-style: solid;
   color: var(--ink);
+  border: 0;
 }
 
 .grant-body {
@@ -8210,9 +8241,9 @@ button.stop:hover {
 }
 
 .grant-why {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ink-faint);
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .grant-ask {
@@ -8228,15 +8259,16 @@ button.stop:hover {
 }
 
 .harness-status.current {
-  background: var(--accent);
-  border-color: var(--ink);
-  color: var(--accent-ink);
+  background: var(--fill);
+  border-color: transparent;
+  color: var(--ink-soft);
 }
 
 .harness-status.behind,
 .harness-status.updating {
   border-style: solid;
   color: var(--ink);
+  border: 0;
 }
 
 .harness-version {
@@ -8258,7 +8290,7 @@ button.stop:hover {
 }
 
 .harness-auto input {
-  accent-color: var(--ink);
+  accent-color: var(--accent);
   margin: 0;
 }
 
@@ -8322,17 +8354,18 @@ button.stop:hover {
   flex: 1;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px 14px;
+  gap: 8px 16px;
   margin: 0;
-  padding: 10px 14px;
+  padding: 16px;
   list-style: none;
-  border: 1px solid var(--hairline);
+  border: none;
   border-radius: var(--radius-m);
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 15px;
   font-weight: 600;
   color: var(--ink);
   cursor: copy;
+  background: var(--group-bg);
 }
 
 /* a phone's pairing code: the QR, white with its own quiet border, and what
@@ -8341,12 +8374,13 @@ button.stop:hover {
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-wrap: wrap;
 }
 
 .devices-qr {
   flex: none;
-  width: 200px;
-  height: 200px;
+  width: 160px;
+  height: 160px;
   border-radius: var(--radius-m);
   image-rendering: pixelated;
 }
@@ -8369,15 +8403,18 @@ button.stop:hover {
 /* one computer, and its setup when open beneath it */
 .devices-peer + .devices-peer .grant-row {
   border-top-style: solid;
+  border-top: 0;
 }
 
 .devices-setup {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 0 0 10px 96px;
-  padding: 10px 12px;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 16px;
   border-left: 0.5px solid var(--line-soft);
+  background: var(--group-bg);
+  border-radius: var(--radius-m);
 }
 
 .devices-setup .vault-form input,
@@ -8492,8 +8529,8 @@ button.stop:hover {
 }
 
 .int-head {
-  margin: 14px 0 2px;
-  font-size: 9.5px;
+  margin: 24px 0 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -8503,8 +8540,10 @@ button.stop:hover {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 7px 0;
-  border-top: 1px solid var(--hairline);
+  padding: 12px;
+  border-top: none;
+  background: var(--group-bg);
+  border-radius: var(--radius-m);
 }
 
 .int-tag {
@@ -9097,6 +9136,7 @@ button.stop:hover {
    drawn in a dashed line and saying whose it is */
 .msg.user.letter {
   border-style: solid;
+  border: 0;
 }
 
 .letter-from {
@@ -9286,6 +9326,7 @@ button.team-member-name:hover {
 
 .team-liaison {
   border-style: solid;
+  border: 0;
 }
 
 .team-liaison-doing {
@@ -9618,3 +9659,35 @@ button.destructive:hover:not(:disabled) {
 
 .lib-tile.fresh { border-color: transparent; }
 .lib-tile.drop { background: var(--tint); box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* A material toolbar creates a stacking context; its menus must clear the content. */
+.confirm-close { position: absolute; right: 12px; top: 12px; }
+.confirm-symbol { display: flex; justify-content: center; margin: 4px 0; color: var(--ink-soft); }
+.confirm-symbol .icon { width: 40px; height: 40px; stroke-width: 1.5;   stroke-width: 1.75;
+}
+button.primary.destructive { background: var(--destructive); color: #fff; }
+button.primary.destructive:hover:not(:disabled) { background: color-mix(in srgb, var(--destructive) 88%, #000); }
+.error-bar > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.error-bar > .icon { flex: none; color: var(--ink-soft); }
+.home-hero .error-bar { top: 60px; left: 16px; right: 16px; }
+
+.settings-group > :is(.devices, .integrations, .grants, .settings-models) { gap: 8px; }
+.devices > .settings-row { background: var(--group-bg); padding: 12px 16px; border-radius: var(--radius-m); margin-bottom: 8px; }
+.grant-row + .grant-row, .vault-row + .vault-row, .int-row + .int-row { margin-top: 4px; }
+.grants-head, .int-for { flex-wrap: wrap; align-items: center; }
+.devices-code-row, .vault-form { flex-wrap: wrap; }
+.settings-row .settings-note { flex-basis: 100%; }
+.settings-row .settings-value > .skill-switch { flex: 0 0 32px; }
+.hook-delivery, .hook-event { border: none; border-radius: var(--radius-s); }
+@media (max-width: 900px) {
+  .grant-row { flex-wrap: wrap; }
+  .grant-body { min-width: 140px; }
+  .sketch-tools { flex-wrap: wrap; }
+  .sketch-middle { order: 2; flex: 1 0 100%; justify-content: center; }
+}
+
+.team-member-details { margin-left: auto; font-size: 12px; color: var(--ink-soft); }
+.team-member-details summary { cursor: default; }
+.team-member-details .team-member-meta { padding-top: 8px; }
+.team-member-actions { justify-content: flex-end; }
+.settings-help + .grants-head { margin-top: 16px; }

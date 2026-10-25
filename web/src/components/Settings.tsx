@@ -179,8 +179,7 @@ function ModelCatalog() {
               >
                 {m.displayName}
               </span>
-              {small &&
-                tag("small", "small tasks", "Runs small background tasks such as notes and titles")}
+              {small && tag("small", "small tasks", "Runs small background tasks such as notes and titles")}
               {isDefault && tag("default", "default", "What new chats and projects start on")}
               {keeper &&
                 tag(
@@ -195,9 +194,11 @@ function ModelCatalog() {
       </Capped>
       <details className="settings-help">
         <summary>About model roles</summary>
-        <p>Star a model to include it in the composer. Drag a role label to another model to change the
-        default for new conversations, the model for small tasks, or the model that maintains project memory.
-        Existing conversations keep their current model.</p>
+        <p>
+          Star a model to include it in the composer. Drag a role label to another model to change the default
+          for new conversations, the model for small tasks, or the model that maintains project memory.
+          Existing conversations keep their current model.
+        </p>
       </details>
     </div>
   );
@@ -556,7 +557,11 @@ function ScheduleClock({
  * list of settings has always wanted.
  */
 const SETTINGS_SECTIONS = [
-  { id: "general", name: "General", icon: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1 1-3z" },
+  {
+    id: "general",
+    name: "General",
+    icon: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1 1-3z",
+  },
   { id: "appearance", name: "Appearance", icon: "M12 3a9 9 0 1 0 0 18V3zM12 3a9 9 0 0 1 0 18" },
   { id: "peek-band", name: "Peek band", icon: "M3 5h18v14H3zM3 16l5-5 4 4 3-3 6 6M16 8h.01" },
   { id: "greeting", name: "Greeting", icon: "M21 11a8 8 0 0 1-8 8H7l-4 3V11a9 9 0 0 1 18 0zM8 10h8M8 14h5" },
@@ -565,8 +570,16 @@ const SETTINGS_SECTIONS = [
   { id: "vault", name: "Passwords", icon: "M14 8a5 5 0 1 0 0 .1M14 8h8M18 8v4M21 8v3" },
   { id: "models", name: "Models", icon: "M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6" },
   { id: "harnesses", name: "Harnesses", icon: "M4 5h16v14H4zM7 9l3 3-3 3M13 15h4" },
-  { id: "integrations", name: "Integrations", icon: "M8 3v5M16 3v5M5 8h14v4a7 7 0 0 1-7 7v3M12 19a7 7 0 0 1-7-7" },
-  { id: "permissions", name: "Privacy & Security", icon: "M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3zM9 12l2 2 4-4" },
+  {
+    id: "integrations",
+    name: "Integrations",
+    icon: "M8 3v5M16 3v5M5 8h14v4a7 7 0 0 1-7 7v3M12 19a7 7 0 0 1-7-7",
+  },
+  {
+    id: "permissions",
+    name: "Privacy & Security",
+    icon: "M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3zM9 12l2 2 4-4",
+  },
 ] as const;
 
 export function Settings({ onClose }: { onClose(): void }) {
@@ -613,9 +626,7 @@ export function Settings({ onClose }: { onClose(): void }) {
     <main className="chat settings-page">
       <header className="chat-header settings-toolbar">
         <span className="chat-title">Settings</span>
-        <span className="settings-location">
-          {remoteDevice !== null && computer ? `on ${computer}` : ""}
-        </span>
+        <span className="settings-location">{remoteDevice !== null && computer ? `on ${computer}` : ""}</span>
         <button className="icon-button" onClick={onClose} aria-label="Close Settings" title="Close Settings">
           <Icon d="M6 6l12 12M18 6L6 18" />
         </button>
@@ -635,169 +646,165 @@ export function Settings({ onClose }: { onClose(): void }) {
           ))}
         </nav>
         <div className="settings-scroll">
-        <div className="board-inner settings-inner">
-          {/* Grouped, the way a settings page is: a heading, then the handful
+          <div className="board-inner settings-inner">
+            {/* Grouped, the way a settings page is: a heading, then the handful
             of rows it covers, then air. The two that are more than a row —
             the vault and the catalog — take the whole width under their
             heading instead of being squeezed into the value column. */}
-          <section className="settings-group" hidden={section !== "general"}>
-            <h2 className="settings-group-name">General</h2>
+            <section className="settings-group" hidden={section !== "general"}>
+              <h2 className="settings-group-name">General</h2>
 
-            <div className="settings-row">
-              <span className="settings-label">Projects run as</span>
-              <div className="settings-value">
-                <div className="seg">
-                  {([true, false] as const).map((on) => (
-                    <button
-                      key={String(on)}
-                      className={`seg-option ${sessionsMode === on ? "active" : ""}`}
-                      title={
-                        on
-                          ? "Each project is one chat that does its own work; nothing spawns unless you ask"
-                          : "Each project is its lead with a team behind it, handing jobs to teammates"
-                      }
-                      onClick={() => setSessionsMode(on)}
-                    >
-                      {on ? "One chat" : "Team"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="settings-group" hidden={section !== "appearance"}>
-            <h2 className="settings-group-name">Appearance</h2>
-
-            <div className="settings-row">
-              <span className="settings-label">Theme</span>
-              <div className="settings-value">
-                <div className="seg">
-                  {THEMES.map((option) => (
-                    <button
-                      key={option}
-                      className={`seg-option ${theme === option ? "active" : ""}`}
-                      title={
-                        option === "ember"
-                          ? "Warm brown-black surfaces for late sessions"
-                          : undefined
-                      }
-                      onClick={() => pickTheme(option)}
-                    >
-                      {option[0]!.toUpperCase() + option.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className={`settings-row ${schedule.on ? "tall" : ""}`}>
-              <span className="settings-label">By the clock</span>
-              <div className="settings-value schedule">
-                <button
-                  className={`skill-switch ${schedule.on ? "on" : ""}`}
-                  role="switch"
-                  aria-checked={schedule.on}
-                  aria-label="Change appearance on a schedule"
-                  title="Turn the theme over at set times — picking one by hand turns this off"
-                  onClick={() => keepSchedule({ ...schedule, on: !schedule.on })}
-                >
-                  <span className="skill-knob" />
-                </button>
-                {schedule.on && (
-                  <div className="schedule-face">
-                    <ScheduleClock schedule={schedule} onChange={keepSchedule} />
-                    <div className="schedule-times">
-                      {THEMES.map((option) => (
-                        <div className="schedule-slot" key={option}>
-                          <span className={`schedule-swatch ${option}`} aria-hidden />
-                          <span className="schedule-name">{option}</span>
-                          <span className="schedule-from">from</span>
-                          <TimeField
-                            minutes={schedule[option]}
-                            onChange={(next) => keepSchedule({ ...schedule, [option]: next })}
-                          />
-                        </div>
-                      ))}
-                      <p className="schedule-hint">
-                        One turn is one day. Drag a mark round the dial, or nudge a time here.
-                      </p>
-                    </div>
+              <div className="settings-row">
+                <span className="settings-label">Projects run as</span>
+                <div className="settings-value">
+                  <div className="seg">
+                    {([true, false] as const).map((on) => (
+                      <button
+                        key={String(on)}
+                        className={`seg-option ${sessionsMode === on ? "active" : ""}`}
+                        title={
+                          on
+                            ? "Each project is one chat that does its own work; nothing spawns unless you ask"
+                            : "Each project is its lead with a team behind it, handing jobs to teammates"
+                        }
+                        onClick={() => setSessionsMode(on)}
+                      >
+                        {on ? "One chat" : "Team"}
+                      </button>
+                    ))}
                   </div>
-                )}
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
 
-          <section className="settings-group" hidden={section !== "peek-band"}>
-            <h2 className="settings-group-name">Peek band</h2>
-            <BandEditor />
-          </section>
+            <section className="settings-group" hidden={section !== "appearance"}>
+              <h2 className="settings-group-name">Appearance</h2>
 
-          <section className="settings-group" hidden={section !== "greeting"}>
-            <h2 className="settings-group-name">Greeting</h2>
-            <GreetingEditor />
-          </section>
-
-          <section className="settings-group" hidden={section !== "folders"}>
-            <h2 className="settings-group-name">Folders</h2>
-
-            <div className="settings-row">
-              <span className="settings-label">Workspace</span>
-              <div className="settings-value">
-                {/* LRM anchors keep the leading slash in place inside the rtl-ellipsis trick */}
-                <span className="settings-path" title={workspaceDir}>
-                  {workspaceDir ? `‎${workspaceDir}‎` : "—"}
-                </span>
-                <button
-                  className="ghost"
-                  disabled={!canPickFolder}
-                  title={
-                    canPickFolder
-                      ? "Pick the folder your projects live in"
-                      : remoteDevice !== null
-                        ? `Change it on ${computer ?? "that computer"} itself`
-                        : "Available in the desktop app"
-                  }
-                  onClick={() => send({ type: "pick_folder", target: "workspace" })}
-                >
-                  Change
-                </button>
+              <div className="settings-row">
+                <span className="settings-label">Theme</span>
+                <div className="settings-value">
+                  <div className="seg">
+                    {THEMES.map((option) => (
+                      <button
+                        key={option}
+                        className={`seg-option ${theme === option ? "active" : ""}`}
+                        title={option === "ember" ? "Warm brown-black surfaces for late sessions" : undefined}
+                        onClick={() => pickTheme(option)}
+                      >
+                        {option[0]!.toUpperCase() + option.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
-          </section>
 
-          <section className="settings-group" hidden={section !== "devices"}>
-            <h2 className="settings-group-name">Devices</h2>
-            <Devices />
-          </section>
+              <div className={`settings-row ${schedule.on ? "tall" : ""}`}>
+                <span className="settings-label">By the clock</span>
+                <div className="settings-value schedule">
+                  <button
+                    className={`skill-switch ${schedule.on ? "on" : ""}`}
+                    role="switch"
+                    aria-checked={schedule.on}
+                    aria-label="Change appearance on a schedule"
+                    title="Turn the theme over at set times — picking one by hand turns this off"
+                    onClick={() => keepSchedule({ ...schedule, on: !schedule.on })}
+                  >
+                    <span className="skill-knob" />
+                  </button>
+                  {schedule.on && (
+                    <div className="schedule-face">
+                      <ScheduleClock schedule={schedule} onChange={keepSchedule} />
+                      <div className="schedule-times">
+                        {THEMES.map((option) => (
+                          <div className="schedule-slot" key={option}>
+                            <span className={`schedule-swatch ${option}`} aria-hidden />
+                            <span className="schedule-name">{option}</span>
+                            <span className="schedule-from">from</span>
+                            <TimeField
+                              minutes={schedule[option]}
+                              onChange={(next) => keepSchedule({ ...schedule, [option]: next })}
+                            />
+                          </div>
+                        ))}
+                        <p className="schedule-hint">
+                          One turn is one day. Drag a mark round the dial, or nudge a time here.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
 
-          <section className="settings-group" hidden={section !== "vault"}>
-            <h2 className="settings-group-name">Passwords</h2>
-            <Vault />
-          </section>
+            <section className="settings-group" hidden={section !== "peek-band"}>
+              <h2 className="settings-group-name">Peek band</h2>
+              <BandEditor />
+            </section>
 
-          <section className="settings-group" hidden={section !== "models"}>
-            <h2 className="settings-group-name">Models</h2>
-            <ModelCatalog />
-          </section>
+            <section className="settings-group" hidden={section !== "greeting"}>
+              <h2 className="settings-group-name">Greeting</h2>
+              <GreetingEditor />
+            </section>
 
-          <section className="settings-group" hidden={section !== "harnesses"}>
-            <h2 className="settings-group-name">Harnesses</h2>
-            <Harnesses />
-          </section>
+            <section className="settings-group" hidden={section !== "folders"}>
+              <h2 className="settings-group-name">Folders</h2>
 
-          <section className="settings-group" hidden={section !== "integrations"}>
-            <h2 className="settings-group-name">Integrations</h2>
-            <Integrations />
-          </section>
+              <div className="settings-row">
+                <span className="settings-label">Workspace</span>
+                <div className="settings-value">
+                  {/* LRM anchors keep the leading slash in place inside the rtl-ellipsis trick */}
+                  <span className="settings-path" title={workspaceDir}>
+                    {workspaceDir ? `‎${workspaceDir}‎` : "—"}
+                  </span>
+                  <button
+                    className="ghost"
+                    disabled={!canPickFolder}
+                    title={
+                      canPickFolder
+                        ? "Pick the folder your projects live in"
+                        : remoteDevice !== null
+                          ? `Change it on ${computer ?? "that computer"} itself`
+                          : "Available in the desktop app"
+                    }
+                    onClick={() => send({ type: "pick_folder", target: "workspace" })}
+                  >
+                    Change
+                  </button>
+                </div>
+              </div>
+            </section>
 
-          <section className="settings-group" hidden={section !== "permissions"}>
-            <h2 className="settings-group-name">Privacy & Security</h2>
-            <Grants />
-          </section>
+            <section className="settings-group" hidden={section !== "devices"}>
+              <h2 className="settings-group-name">Devices</h2>
+              <Devices />
+            </section>
+
+            <section className="settings-group" hidden={section !== "vault"}>
+              <h2 className="settings-group-name">Passwords</h2>
+              <Vault />
+            </section>
+
+            <section className="settings-group" hidden={section !== "models"}>
+              <h2 className="settings-group-name">Models</h2>
+              <ModelCatalog />
+            </section>
+
+            <section className="settings-group" hidden={section !== "harnesses"}>
+              <h2 className="settings-group-name">Harnesses</h2>
+              <Harnesses />
+            </section>
+
+            <section className="settings-group" hidden={section !== "integrations"}>
+              <h2 className="settings-group-name">Integrations</h2>
+              <Integrations />
+            </section>
+
+            <section className="settings-group" hidden={section !== "permissions"}>
+              <h2 className="settings-group-name">Privacy & Security</h2>
+              <Grants />
+            </section>
+          </div>
         </div>
-      </div>
       </div>
     </main>
   );
@@ -851,9 +858,7 @@ function Harnesses() {
   return (
     <div className="grants harnesses">
       <p className="settings-note grants-note">
-        The CLIs every chat runs on. ruri looks on the hour and brings each one up to date the way it was
-        installed — its own updater, bun, npm or brew — never while a chat on it is mid-turn; a chat that was
-        warm on the old one picks up the new one with its next prompt.
+        Keep your coding tools up to date. Automatic updates install when their conversations are idle.
       </p>
       <div className="grants-head">
         <button className="ghost" disabled={looking} onClick={() => send({ type: "check_harnesses" })}>
@@ -971,11 +976,16 @@ function Grants() {
   return (
     <div className="grants">
       <p className="settings-note grants-note">
-        macOS ties every grant to the app's signature, and a rebuilt ruri is a new app to it: a switch that
-        reads "on" in System Settings may be for a ruri that no longer exists. This is what macOS actually
-        holds. <code>make update</code> resets them all and the next launch asks again; ask by hand here to
-        tell a broken feature from a lapsed grant.
+        Allow ruri to control apps and access files on this Mac. Manage access in System Settings.
       </p>
+      <details className="settings-help">
+        <summary>About these permissions</summary>
+        <p>
+          macOS associates access with the app's signature. After a rebuild, a permission can need approval
+          again even if its switch is still on in System Settings. Use Ask to request access again, or Re-read
+          to check the current status.
+        </p>
+      </details>
       <div className="grants-head">
         <button className="ghost" disabled={asking !== null} onClick={() => ask()}>
           {asking === "all" ? "asking…" : "Ask for everything"}

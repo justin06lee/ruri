@@ -58,7 +58,10 @@ export function Devices() {
         <span className="settings-label">Share</span>
         <div className="settings-value">
           <button
-            className={`seg-option toggle ${on ? "active" : ""}`}
+            className={`skill-switch ${on ? "on" : ""}`}
+            role="switch"
+            aria-checked={on}
+            aria-label="Share this computer"
             disabled={on && remoteDevice !== null}
             title={
               on && remoteDevice !== null
@@ -69,7 +72,7 @@ export function Devices() {
             }
             onClick={() => send({ type: "sharing_set", on: !on })}
           >
-            {on ? "On" : "Off"}
+            <span className="skill-knob" />
           </button>
           <span className="settings-note">
             {on

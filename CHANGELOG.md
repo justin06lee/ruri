@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- No more heavy rims: every 1.5px border and 2px outline is a 1px hairline, the focus ring is softer (3px at 30% blue), and a file dragged over the input box draws a hairline of blue and a faint wash instead of a thick ink edge.
 - The Agents button wears a clean two-figure glyph (SF Symbols' person.2) instead of the little robot, and every line icon is drawn at one weight, 1.75.
 - The drawing pad draws smoother: every pointer sample is used (coalesced events), the pen eases out a hand's tremble and lays its stroke as curves through the samples instead of straight joins, and finishes where you let go. The eraser is a real eraser now, in its icon and in use: drag it across strokes and whatever it touches goes (the ink itself, not the box around it), one undo per drag, with a ring for a pointer. Tool glyphs are drawn a hair lighter.
 - The model, effort and permission pickers under the input box are capsules, washed grey on hover and a shade deeper while open.

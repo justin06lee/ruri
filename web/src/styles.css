@@ -68,7 +68,7 @@
   /* a tinted button's fill: the accent, washed out (iOS's tinted style) */
   --tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --tint-strong: color-mix(in srgb, var(--accent) 20%, transparent);
-  --focus-ring: 0 0 0 3.5px color-mix(in srgb, var(--accent) 45%, transparent);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
   --control-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 0.5px 1.5px rgba(0, 0, 0, 0.1);
   --menu-bg: rgba(250, 250, 250, 0.82);
   --menu-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 10px 32px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.06);
@@ -854,7 +854,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   margin: -1px 0;
   padding: 0 2px;
   border: none;
-  border-bottom: 1.5px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
   border-radius: 0;
   background: transparent;
   color: var(--ink);
@@ -1230,7 +1230,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   justify-content: center;
   gap: 5px;
   padding: 14px 18px;
-  border: 1.5px solid var(--hairline);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-m);
 }
 
@@ -1393,7 +1393,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   line-height: 1.4;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1.5px solid transparent;
+  border: 1px solid transparent;
   color: var(--ink-faint);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -1641,7 +1641,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .bandedit-band .band-pic.picked {
-  outline: 2px solid var(--accent);
+  outline: 1px solid var(--accent);
   outline-offset: 0.5px;
 }
 
@@ -1968,7 +1968,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   width: 11px;
   height: 11px;
   border-radius: 999px;
-  border: 1.5px solid;
+  border: 1px solid;
   flex-shrink: 0;
 }
 
@@ -2132,7 +2132,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .model-search:focus {
-  box-shadow: 0 0 0 1.5px var(--ink) inset;
+  box-shadow: 0 0 0 1px var(--ink) inset;
 }
 
 /* No inner scroller. The catalog is as long as it is and the page scrolls —
@@ -2219,7 +2219,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   letter-spacing: 0.02em;
   padding: 1px 6px 2px;
   border-radius: var(--radius-xs);
-  border: 1.5px solid var(--ink);
+  border: 1px solid var(--ink);
   background: var(--fill);
   color: var(--ink);
   cursor: grab;
@@ -2248,8 +2248,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .model-row.drop {
-  outline: 2px solid var(--accent);
-  outline-offset: -1.5px;
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
   background: var(--paper-dim);
 }
 
@@ -2745,7 +2745,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   max-width: 76%;
   background: var(--fill);
   color: var(--ink);
-  border: 1.5px solid var(--ink);
+  border: 1px solid var(--ink);
   border-radius: 999px;
   padding: 4px 15px;
   font-family: var(--mono);
@@ -3014,7 +3014,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .exchange-half.folds[data-half="prompt"] .carry-on-note {
-  border: 1.5px dotted var(--rim);
+  border: 1px dotted var(--rim);
   transition: border-color var(--lighten);
 }
 
@@ -3036,7 +3036,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   white-space: nowrap;
   text-overflow: ellipsis;
   background: var(--paper-dim);
-  border: 1.5px dotted var(--rim);
+  border: 1px dotted var(--rim);
   border-radius: var(--radius-s);
   transition:
     color var(--lighten),
@@ -3319,7 +3319,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   font-weight: 400;
   color: var(--ink-faint);
   background: var(--paper);
-  border: 1.5px dotted var(--rim);
+  border: 1px dotted var(--rim);
   border-radius: 999px;
   transition:
     color var(--lighten),
@@ -3579,7 +3579,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: center;
   gap: 1px;
   padding: 2px;
-  border: 1.5px solid var(--hairline);
+  border: 1px solid var(--hairline);
   border-radius: 999px;
   background-color: var(--paper);
 }
@@ -3873,7 +3873,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   gap: 8px;
   margin-top: 14px;
   padding: 34px 28px 30px;
-  border: 1.5px dashed var(--line-soft);
+  border: 1px dashed var(--line-soft);
   border-radius: var(--radius-m);
   text-align: center;
   color: var(--ink-soft);
@@ -4204,7 +4204,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: center;
   gap: 12px;
   padding: 8px 8px 8px 14px;
-  border: 1.5px dashed var(--line-soft);
+  border: 1px dashed var(--line-soft);
   border-radius: var(--radius-s);
   font-size: var(--fs-md);
   line-height: 1.5;
@@ -4234,7 +4234,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: center;
   gap: 10px;
   padding: 8px 8px 8px 14px;
-  border: 1.5px solid var(--hairline);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-s);
 }
 
@@ -4685,7 +4685,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .lib-code-missing.boxed {
-  border: 1.5px dashed var(--line-soft);
+  border: 1px dashed var(--line-soft);
   border-radius: var(--radius-m);
 }
 
@@ -4890,7 +4890,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   background: var(--paper);
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   border-radius: var(--radius-m);
   overflow: hidden;
 }
@@ -5064,7 +5064,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   padding: 5px 14px;
   border-radius: 999px;
   background: var(--raised);
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   color: var(--ink);
   animation: rise var(--move);
   z-index: var(--z-pill);
@@ -5373,7 +5373,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .agent-reply-box {
   display: flex;
   background: var(--paper-bright);
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   border-radius: var(--radius-l);
 }
 
@@ -5528,7 +5528,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: grid;
   place-items: center;
   padding: 0;
-  border: 1.5px solid;
+  border: 1px solid;
   border-radius: var(--radius-s);
   cursor: pointer;
 }
@@ -5928,7 +5928,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   width: 15px;
   height: 15px;
   margin-top: 1px;
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   color: var(--paper);
 }
 
@@ -5958,7 +5958,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   line-height: 1.5;
   color: var(--ink);
   background: var(--paper-bright);
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   border-radius: var(--radius-s);
   padding: 8px 11px;
   resize: vertical;
@@ -6140,7 +6140,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   width: 64px;
   height: 64px;
   border-radius: var(--radius-s);
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   background: var(--paper-dim);
   overflow: hidden;
   cursor: zoom-in;
@@ -6228,9 +6228,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   transform: none;
 }
 
+/* a file held over the box: a hairline of blue and the faintest wash,
+   as a Mac field takes a drop — never a heavy rim */
 .composer-box.drag-over {
-  border-color: var(--ink);
-  border-style: solid;
+  box-shadow: var(--field-shadow), 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 4%, var(--raised));
 }
 
 /* ── the sketch pad ───────────────────────────────────────────────── */
@@ -6452,7 +6454,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   background: var(--raised);
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   border-radius: var(--radius-m);
   padding: 12px 14px 14px;
   overflow: hidden;
@@ -7192,7 +7194,7 @@ button.stop:hover {
   height: auto;
   cursor: zoom-in; /* opens the viewer, like a Read's thumbnail */
   margin: 0.4em 0 0.7em;
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   border-radius: var(--radius-m);
   background: var(--paper-bright);
 }
@@ -7301,7 +7303,7 @@ button.stop:hover {
 
 .md .codeblock {
   margin: 0 0 0.8em;
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   border-radius: var(--radius-s);
   background: var(--paper-bright);
   overflow: hidden;
@@ -7492,7 +7494,7 @@ button.stop:hover {
   width: 15px;
   height: 15px;
   background: var(--ink);
-  border: 1.5px solid var(--paper);
+  border: 1px solid var(--paper);
   cursor: grab;
   pointer-events: auto;
   touch-action: none;
@@ -7644,7 +7646,7 @@ button.stop:hover {
 .bridge-toggle {
   flex: none;
   padding: 4px 10px;
-  border: 1.5px solid var(--ink);
+  border: 1px solid var(--ink);
   border-radius: 999px;
   background: var(--paper);
   color: var(--ink);
@@ -7973,7 +7975,7 @@ button.stop:hover {
   font-family: var(--mono);
   font-size: 10px;
   padding: 2px 5px;
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   border-radius: var(--radius-xs);
   color: var(--ink-faint);
   line-height: 1;
@@ -8108,7 +8110,7 @@ button.stop:hover {
   font-weight: 600;
   text-align: center;
   padding: 3px 0;
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   border-radius: 999px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -8410,7 +8412,7 @@ button.stop:hover {
   font: inherit;
   font-size: var(--fs-md);
   padding: 4px 8px;
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   border-radius: var(--radius-s);
   background: var(--paper);
   color: var(--ink);
@@ -8444,7 +8446,7 @@ button.stop:hover {
   font-weight: 600;
   text-align: center;
   padding: 3px 0;
-  border: 1.5px solid var(--edge);
+  border: 1px solid var(--edge);
   border-radius: 999px;
   color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
@@ -8518,7 +8520,7 @@ button.stop:hover {
   gap: 8px;
   margin-top: 8px;
   padding: 12px;
-  border: 1.5px dashed var(--edge);
+  border: 1px dashed var(--edge);
   border-radius: var(--radius-s);
 }
 
@@ -8857,7 +8859,7 @@ button.stop:hover {
   flex-direction: column;
   gap: 3px;
   padding: 12px 16px 11px;
-  border: 1.5px solid var(--hairline);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-m);
   font-variant-numeric: tabular-nums;
   min-width: 0;
@@ -8885,7 +8887,7 @@ button.stop:hover {
 
 .stats-empty {
   padding: 14px 16px;
-  border: 1.5px dashed var(--hairline);
+  border: 1px dashed var(--hairline);
   border-radius: var(--radius-m);
   font-size: var(--fs-sm);
   color: var(--ink-faint);

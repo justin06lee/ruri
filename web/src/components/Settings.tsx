@@ -638,12 +638,12 @@ export function Settings({ onClose }: { onClose(): void }) {
                       className={`seg-option ${sessionsMode === on ? "active" : ""}`}
                       title={
                         on
-                          ? "Each project is a list of ordinary chats; a chat runs only when you message it"
-                          : "Each project is its lead with a team behind it"
+                          ? "Each project is one chat that does its own work; nothing spawns unless you ask"
+                          : "Each project is its lead with a team behind it, handing jobs to teammates"
                       }
                       onClick={() => setSessionsMode(on)}
                     >
-                      {on ? "Sessions" : "Team"}
+                      {on ? "One chat" : "Team"}
                     </button>
                   ))}
                 </div>

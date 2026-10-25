@@ -22,6 +22,7 @@ import {
   type ComposerAttachment,
   type Region,
 } from "./Attachments";
+import { btwQuestion, openBtw } from "./BtwPanel";
 import { CommandMenu, commandPrefix } from "./CommandMenu";
 import { DragonGauges } from "./Dragon";
 import { MarkerMirror } from "./Markers";
@@ -476,6 +477,15 @@ export function Composer({
     const trimmed = releaseMarkers(text).trim();
     if (!trimmed && atts.length === 0) return;
     const files = atts;
+    // "/btw <question>" goes to the project's side panel (BtwPanel), not
+    // into this chat: asked there, the chat's turn and context are left be
+    const aside = !editing && channelId !== HOME_ID ? btwQuestion(trimmed) : null;
+    if (aside !== null) {
+      openBtw(project.id, aside);
+      clearComposerDraft(channelId);
+      setText("");
+      return;
+    }
     if (editing) {
       // the rewrite goes back in line where the prompt was
       const uploads = await encodeUploads(files);

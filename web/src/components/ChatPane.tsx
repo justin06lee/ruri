@@ -10,6 +10,8 @@ import {
 import { beat } from "../lib/beat";
 import { spinStar } from "../lib/spin";
 import { StreamingMarkdown } from "../markdown";
+import { BtwPanel, closeBtw, openBtw, useBtwOpen } from "./BtwPanel";
+import { useSessionsMode } from "../lib/sessionsMode";
 import { getPref, setPref } from "../prefs";
 import {
   closeAgent,
@@ -303,6 +305,10 @@ function ChatView({
   const [page, setPage] = useState<
     "chat" | "tracker" | "ideas" | "components" | "architecture" | "skills" | "talk" | "team"
   >("chat");
+  // One chat (the default) has no team behind the project chat, so no
+  // Team page; /btw's side panel is open on this project or not
+  const oneChat = useSessionsMode();
+  const btwOpen = useBtwOpen(boardId ?? "");
   // messages between this chat's agent and others still on their way
   const talking = useRuri(
     (s) =>
@@ -744,19 +750,34 @@ function ChatView({
         </div>
       )}
       <div className="header-controls">
-        <button
-          className={`icon-button ${page === "team" ? "active" : ""} ${teamWorking > 0 ? "badged" : ""}`}
-          title={
-            teamWorking > 0
-              ? `Team — ${teamWorking} at work behind the lead`
-              : "Team — who works behind the lead, and the liaison other projects reach"
-          }
-          onClick={() => setPage(page === "team" ? "chat" : "team")}
-        >
-          {/* one figure ahead, two behind it: the lead and its team */}
-          <Icon d="M12 4.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM7.5 19v-1.5a4.5 4.5 0 0 1 9 0V19M5 8.5a2 2 0 1 1 0 4M19 8.5a2 2 0 1 0 0 4M2.5 18v-1a3 3 0 0 1 3-3M21.5 18v-1a3 3 0 0 0-3-3" />
-          {teamWorking > 0 && <span className="tracker-badge">{teamWorking}</span>}
-        </button>
+        {boardId && (
+          <button
+            className={`icon-button btw-button ${btwOpen ? "active" : ""}`}
+            title={
+              btwOpen
+                ? "Close btw (Esc)"
+                : "btw — a quick question on the side; the chat carries on (or send /btw <question>)"
+            }
+            onClick={() => (btwOpen ? closeBtw() : openBtw(boardId))}
+          >
+            btw
+          </button>
+        )}
+        {!oneChat && (
+          <button
+            className={`icon-button ${page === "team" ? "active" : ""} ${teamWorking > 0 ? "badged" : ""}`}
+            title={
+              teamWorking > 0
+                ? `Team — ${teamWorking} at work behind the lead`
+                : "Team — who works behind the lead, and the liaison other projects reach"
+            }
+            onClick={() => setPage(page === "team" ? "chat" : "team")}
+          >
+            {/* one figure ahead, two behind it: the lead and its team */}
+            <Icon d="M12 4.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM7.5 19v-1.5a4.5 4.5 0 0 1 9 0V19M5 8.5a2 2 0 1 1 0 4M19 8.5a2 2 0 1 0 0 4M2.5 18v-1a3 3 0 0 1 3-3M21.5 18v-1a3 3 0 0 0-3-3" />
+            {teamWorking > 0 && <span className="tracker-badge">{teamWorking}</span>}
+          </button>
+        )}
         <button
           className={`icon-button ${agentsOpen ? "active" : ""} ${agentsWorking > 0 ? "badged" : ""}`}
           title={
@@ -928,6 +949,7 @@ function ChatView({
               />
             </div>
           </div>
+          {!isHome && project && <BtwPanel project={project} />}
         </main>
       );
     }
@@ -1154,6 +1176,7 @@ function ChatView({
             {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
           />
         </div>
+        {!isHome && project && <BtwPanel project={project} />}
       </main>
     );
   })();

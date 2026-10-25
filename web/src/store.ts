@@ -75,7 +75,6 @@ import {
 import { overlay, reuse } from "./lib/transcript";
 import { pictureStored } from "./pictures";
 import { hydratePrefs } from "./prefs";
-import { inSessionsMode } from "./lib/sessionsMode";
 import { isAwake, subscribeAwake } from "./lib/awake";
 import { Held } from "./lib/held";
 import { fileToBase64 } from "./lib/files";
@@ -697,7 +696,6 @@ export const useRuri = create<RuriState>((set) => ({
   setActive: (asked) =>
     set((s) => {
       const id = asked;
-      if (id && id !== HOME_ID) rememberSession(id);
       // Home is ephemeral: crossing its boundary (either direction) asks the
       // server to wipe it — ignored server-side while a turn is running.
       if ((s.activeId === HOME_ID) !== (id === HOME_ID)) send({ type: "reset_home" });
@@ -1121,65 +1119,6 @@ function onProject(projects: Project[], projectId: string, change: (project: Pro
 function sessionIn(projects: Project[], sessionId: string): SessionInfo | undefined {
   for (const p of projects) for (const x of p.sessions) if (x.id === sessionId) return x;
   return undefined;
-}
-
-export function renameSession(sessionId: string, title: string): void {
-  changeProjects(
-    { type: "rename_session", sessionId, title },
-    (projects) => onSession(projects, sessionId, (x) => ({ ...x, title })),
-    (projects) => sessionIn(projects, sessionId)?.title === title,
-  );
-}
-
-export function archiveSession(sessionId: string, archived: boolean): void {
-  changeProjects(
-    { type: "archive_session", sessionId, archived },
-    (projects) =>
-      onSession(projects, sessionId, (x) => {
-        const { archived: _was, ...rest } = x;
-        return archived ? { ...rest, archived: true } : rest;
-      }),
-    (projects) => !!sessionIn(projects, sessionId)?.archived === archived,
-  );
-}
-
-/** Sessions mode: start a chat in a project; the server says which to open. */
-export function newSession(projectId: string): void {
-  send({ type: "new_session", projectId });
-}
-
-const LAST_KEY = "ruri-last-session";
-
-function lastSessions(): Record<string, string> {
-  try {
-    return JSON.parse(localStorage.getItem(LAST_KEY) ?? "{}") as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-
-/** The chat opening a project opens: in Sessions mode the one used last
- *  here (when it is still there and not archived), else the project's
- *  lead — the only chat Team mode shows. */
-export function entryOf(project: Project): string | undefined {
-  if (inSessionsMode()) {
-    const last = lastSessions()[project.id];
-    const found = project.sessions.find((x) => x.id === last && !x.archived);
-    if (found) return found.id;
-    const first = project.sessions.find((x) => !x.archived);
-    if (first) return first.id;
-  }
-  return leadOf(project)?.id;
-}
-
-function rememberSession(sessionId: string): void {
-  const project = useRuri.getState().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-  if (!project) return;
-  try {
-    localStorage.setItem(LAST_KEY, JSON.stringify({ ...lastSessions(), [project.id]: sessionId }));
-  } catch {
-    // private mode — the lead it is, then
-  }
 }
 
 export function renameProject(projectId: string, name: string): void {
@@ -1959,10 +1898,6 @@ function apply(msg: ServerMessage): void {
           history: Object.fromEntries(Object.entries(s.history).filter(([id]) => id !== msg.projectId)),
         };
       });
-      break;
-    }
-    case "open_session": {
-      useRuri.getState().setActive(msg.projectId);
       break;
     }
     case "recent": {

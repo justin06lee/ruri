@@ -1,23 +1,11 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { HOME_ID, leadOf, type Project, type SessionInfo } from "../../../shared/protocol";
+import { HOME_ID, leadOf, type Project } from "../../../shared/protocol";
 import { useConfirm } from "./Confirm";
 import { PeekBand } from "./PeekBand";
 import { Player } from "./Player";
 import { getPref, setPref } from "../prefs";
 import { STAR_PATH } from "../icons";
-import {
-  archiveSession,
-  entryOf,
-  isBusy,
-  newSession,
-  prefetchTranscript,
-  renameProject,
-  renameSession,
-  send,
-  toggleProject,
-  useRuri,
-} from "../store";
-import { useSessionsMode } from "../lib/sessionsMode";
+import { isBusy, prefetchTranscript, renameProject, send, toggleProject, useRuri } from "../store";
 import { DragonHead } from "./Thinking";
 
 function HomeRow() {
@@ -57,9 +45,8 @@ function HomeRow() {
  * and is free most of the time, so what a row's dragon and its count say
  * is the team's work, never the lead's own.
  */
-function teamAtWork(s: Parameters<typeof isBusy>[0], project: Project, sessions = false): number {
-  // Sessions mode has no team behind a lead: every chat counts
-  const leadId = sessions ? undefined : leadOf(project)?.id;
+function teamAtWork(s: Parameters<typeof isBusy>[0], project: Project): number {
+  const leadId = leadOf(project)?.id;
   return project.sessions.reduce((n, x) => (x.id !== leadId && isBusy(s, x.id) ? n + 1 : n), 0);
 }
 
@@ -259,20 +246,17 @@ function GuardNote() {
 }
 
 function ProjectRow({ project }: { project: Project }) {
-  const sessions = useSessionsMode();
-  // Team mode shows the lead; Sessions mode the chat used last
-  const leadId = sessions ? entryOf(project) : leadOf(project)?.id;
+  const lead = leadOf(project);
+  const leadId = lead?.id;
   // lit while any of its chats is open: the lead, or a teammate or the
   // liaison opened from the team page
   const active = useRuri((s) => project.sessions.some((x) => x.id === s.activeId));
-  const unread = useRuri((s) =>
-    sessions ? project.sessions.some((x) => s.unread[x.id]) : leadId ? (s.unread[leadId] ?? false) : false,
-  );
+  const unread = useRuri((s) => (leadId ? (s.unread[leadId] ?? false) : false));
   const setActive = useRuri((s) => s.setActive);
   // how many teammates are at work — one number, so the row repaints when
   // it changes rather than on every status in the app; any at all puts
   // the head where the X goes
-  const atWork = useRuri((s) => teamAtWork(s, project, sessions));
+  const atWork = useRuri((s) => teamAtWork(s, project));
   const busy = atWork > 0;
   // what removing it would stop: the lead's own turn counts here
   const anyBusy = useRuri((s) => project.sessions.some((x) => isBusy(s, x.id)));
@@ -292,7 +276,6 @@ function ProjectRow({ project }: { project: Project }) {
     if (leadId) setActive(leadId);
   };
   return (
-    <>
     <div
       className={`project-row team-row ${active ? "active" : ""} ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${busy ? "busy" : ""}`}
       title={renaming ? undefined : `${project.path} — double-click to rename`}
@@ -351,7 +334,7 @@ function ProjectRow({ project }: { project: Project }) {
       {busy && (
         <span
           className="row-count team-count"
-          title={`${atWork} ${sessions ? "chat" : "teammate"}${atWork === 1 ? "" : "s"} at work`}
+          title={`${atWork} ${atWork === 1 ? "teammate" : "teammates"} at work`}
         >
           {atWork}
         </span>
@@ -432,80 +415,6 @@ function ProjectRow({ project }: { project: Project }) {
           }}
         >
           <RemoveIcon busy={busy} />
-        </button>
-      </span>
-    </div>
-    {sessions && active && <SessionList project={project} />}
-    </>
-  );
-}
-
-/** Sessions mode: a project's chats under its row, each an ordinary chat
- *  you can open, rename (double-click) and put away; archived ones fold. */
-function SessionList({ project }: { project: Project }) {
-  const [showArchived, setShowArchived] = useState(false);
-  const live = project.sessions.filter((x) => !x.archived);
-  const away = project.sessions.filter((x) => x.archived);
-  return (
-    <div className="session-list">
-      {live.map((x) => (
-        <SessionRow key={x.id} session={x} />
-      ))}
-      <div className="project-row session-row new-session" onClick={() => newSession(project.id)}>
-        <span className="project-name">+ New chat</span>
-      </div>
-      {away.length > 0 && (
-        <div className="project-row session-row archived-fold" onClick={() => setShowArchived(!showArchived)}>
-          <span className="project-name">{showArchived ? "▾" : "▸"} archived ({away.length})</span>
-        </div>
-      )}
-      {showArchived && away.map((x) => <SessionRow key={x.id} session={x} />)}
-    </div>
-  );
-}
-
-function SessionRow({ session }: { session: SessionInfo }) {
-  const activeId = useRuri((s) => s.activeId);
-  const unread = useRuri((s) => s.unread[session.id] ?? false);
-  const busy = useRuri((s) => isBusy(s, session.id));
-  const setActive = useRuri((s) => s.setActive);
-  const [renaming, setRenaming] = useState(false);
-  const label = session.title ?? "New chat";
-  return (
-    <div
-      className={`project-row session-row ${activeId === session.id ? "active" : ""} ${busy ? "busy" : ""} ${session.archived ? "is-hidden" : ""}`}
-      title={renaming ? undefined : `${label} — double-click to rename`}
-      onClick={() => setActive(session.id)}
-      onPointerDown={() => prefetchTranscript(session.id)}
-      onDoubleClick={(e) => {
-        e.preventDefault();
-        setRenaming(true);
-      }}
-    >
-      {renaming ? (
-        <NameEditor
-          value={session.title ?? ""}
-          className="project-name"
-          onDone={(title) => {
-            setRenaming(false);
-            if (title) renameSession(session.id, title);
-          }}
-        />
-      ) : (
-        <span className="project-name">{label}</span>
-      )}
-      {unread && <span className="unread-pip" title="Turn finished" />}
-      {busy && <span className="row-count team-count" title="Working">…</span>}
-      <span className="row-actions">
-        <button
-          className="hide"
-          title={session.archived ? "Bring back" : "Archive (keeps the transcript)"}
-          onClick={(e) => {
-            e.stopPropagation();
-            archiveSession(session.id, !session.archived);
-          }}
-        >
-          {session.archived ? "↺" : "▤"}
         </button>
       </span>
     </div>

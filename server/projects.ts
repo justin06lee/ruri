@@ -387,7 +387,9 @@ export class ProjectStore {
    *  its liaison. */
   isMember(sessionId: string): boolean {
     const found = this.findSession(sessionId);
-    return !!found && leadOf(found.project)?.id !== sessionId && !found.session.liaison;
+    return (
+      !!found && leadOf(found.project)?.id !== sessionId && !found.session.liaison && !found.session.side
+    );
   }
 
   /** Whether a chat is its project's liaison. */
@@ -437,6 +439,19 @@ export class ProjectStore {
     project.sessions.push(session);
     this.save();
     return session;
+  }
+
+  /** A project's /btw side chat: the one it has, or a new one, on
+   *  `model` (a cheaper one than the project chat's, when there is). */
+  sideChat(projectId: string, model?: string): SessionInfo | undefined {
+    const project = this.projects.find((p) => p.id === projectId);
+    if (!project) return undefined;
+    const had = project.sessions.find((session) => session.side);
+    if (had) return had;
+    const made: SessionInfo = { id: randomUUID(), title: "btw", side: true, ...(model ? { model } : {}) };
+    project.sessions.push(made);
+    this.save();
+    return made;
   }
 
   /** Sessions mode: a chat's name, or put away / brought back. */

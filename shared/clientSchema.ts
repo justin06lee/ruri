@@ -331,6 +331,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("new_session"), ...projectId }),
   z.object({ type: z.literal("rename_session"), sessionId: id, title: label }),
   z.object({ type: z.literal("archive_session"), sessionId: id, archived: z.boolean() }),
+  z.object({ type: z.literal("side_chat"), projectId: id }),
   z.object({ type: z.literal("set_workspace"), path: filePath }),
   z.object({ type: z.literal("set_music_dir"), path: filePath }),
   z.object({ type: z.literal("toggle_model_star"), model: label }),

@@ -407,29 +407,21 @@ textarea::placeholder {
   flex-shrink: 0;
 }
 
-/* the account bar: local user + settings, pinned to the bottom */
+/* the sidebar's foot: who is signed in here, and Settings — no rule over
+   it, the way a Mac source list simply ends */
 
 .account-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-top: 0.5px solid var(--line-soft);
-}
-
-.account-avatar {
-  width: 17px;
-  height: 17px;
-  flex-shrink: 0;
-  color: var(--ink-soft);
+  padding: 8px 10px 10px 18px;
 }
 
 .account-name {
   flex: 1;
   min-width: 0;
-  font-size: var(--fs-md);
-  font-weight: 600;
-  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1318,19 +1310,6 @@ textarea::placeholder {
   overflow: hidden;
 }
 
-@keyframes mark-wiggle {
-  0%,
-  100% {
-    transform: rotate(var(--tilt, -3deg));
-  }
-  30% {
-    transform: rotate(calc(var(--tilt, -3deg) - 6deg));
-  }
-  65% {
-    transform: rotate(calc(var(--tilt, -3deg) + 5deg));
-  }
-}
-
 /* The textbox sits as far under the title as the title sits under the
    marks: about 46px of paper each way, measured on the ink — the marks'
    lowest line to the title's lowercase, and the title's baseline to the
@@ -2020,7 +1999,8 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 10px 20px;
+  min-height: 48px;
+  padding: 6px 14px 6px 20px;
   border-bottom: 0.5px solid var(--line-soft);
   background: var(--paper);
 }
@@ -2092,6 +2072,28 @@ textarea::placeholder {
    button carrying one, so the rest stay tight against each other. */
 .header-controls .icon-button.badged {
   margin-right: 6px;
+}
+
+/* the toolbar's "…": Skills and Components, with a dot for new components */
+.page-menu {
+  position: relative;
+}
+
+.page-menu-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.page-menu-count {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
 }
 
 /* ── dropdown (custom select) ─────────────────────────────────────── */
@@ -4439,23 +4441,6 @@ textarea::placeholder {
 .comp-star.still svg {
   width: 13px;
   height: 13px;
-}
-
-/* The same star on the header's Components button, so a turn that named
-   something says so without the page being open. */
-.comp-toggle {
-  position: relative;
-}
-
-.comp-star.header {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-}
-
-.comp-star.header svg {
-  width: 10px;
-  height: 10px;
 }
 
 /* The sweep's own button — an ordinary button, deliberately. It sits on the
@@ -8408,6 +8393,11 @@ button.stop:hover {
 
 .hidden-fold.open svg {
   transform: rotate(90deg);
+}
+
+.hidden-fold .hidden-count {
+  margin-left: auto;
+  font-weight: 400;
 }
 
 .hidden-fold:hover {

@@ -8,7 +8,6 @@ import {
   type TranscriptEvent,
 } from "../../../shared/protocol";
 import { beat } from "../lib/beat";
-import { spinStar } from "../lib/spin";
 import { StreamingMarkdown } from "../markdown";
 import { BtwPanel, closeBtw, openBtw, useBtwOpen } from "./BtwPanel";
 import { useSessionsMode } from "../lib/sessionsMode";
@@ -70,6 +69,68 @@ const EARLIER_STEP = 40;
 
 /** Rapid fire's card fades in as it takes over and out as it hands on —
  *  the pane is the same one either way, so the classes ride on it. */
+/** The toolbar's "…": the project's quieter pages, out of the bar until
+ *  wanted. A dot on it says a turn named a new component. */
+function PageMenu({
+  fresh,
+  onSkills,
+  onComponents,
+}: {
+  fresh: number;
+  onSkills(): void;
+  onComponents(): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  const pick = (fn: () => void) => () => {
+    setOpen(false);
+    fn();
+  };
+  return (
+    <div className="page-menu" ref={ref}>
+      <button
+        className={`icon-button ${open ? "active" : ""}`}
+        title="More"
+        aria-haspopup="menu"
+        onClick={() => setOpen(!open)}
+      >
+        <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+          <circle cx="5" cy="12" r="1.8" />
+          <circle cx="12" cy="12" r="1.8" />
+          <circle cx="19" cy="12" r="1.8" />
+        </svg>
+        {fresh > 0 && <span className="page-menu-dot" aria-label="new components" />}
+      </button>
+      {open && (
+        <div className="dropdown-menu more-menu" role="menu">
+          <button className="dropdown-item" role="menuitem" onClick={pick(onSkills)}>
+            Skills
+          </button>
+          <button className="dropdown-item" role="menuitem" onClick={pick(onComponents)}>
+            Components
+            {fresh > 0 && <span className="page-menu-count">{fresh} new</span>}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function paneClass(base: string, rapid: RapidFire | undefined): string {
   return rapid?.on ? `${base} rapid-page${rapid.leaving ? " rapid-leaving" : ""}` : base;
 }
@@ -700,9 +761,30 @@ function ChatView({
 
   // Home keeps no header bar — the transcript starts at the top; the
   // tracker page still auto-opens there and closes from its own X.
+  const pageName = agentsOpen
+    ? "Agents"
+    : page === "skills"
+      ? "Skills"
+      : page === "components"
+        ? "Components"
+        : page === "team"
+          ? "Team"
+          : null;
   const header = !isHome && (
     <header className="chat-header">
-      {isLead ? (
+      {isLead && pageName ? (
+        <div className="chat-id seat">
+          <button
+            className="ghost chat-back"
+            title="Back to the chat"
+            onClick={() => (agentsOpen ? closeAgent() : setPage("chat"))}
+          >
+            <Icon d="M15 18l-6-6 6-6" />
+            {project.name}
+          </button>
+          <div className="chat-title">{pageName}</div>
+        </div>
+      ) : isLead ? (
         <div className="chat-id">
           <div className="chat-title">{project.name}</div>
         </div>
@@ -773,29 +855,17 @@ function ChatView({
           <Icon d={TOOL_ICONS["agent"]!} />
           {agentsWorking > 0 && <span className="tracker-badge">{agentsWorking}</span>}
         </button>
-        <button
-          className={`icon-button ${page === "skills" ? "active" : ""}`}
-          title="Skills — what this project and this machine load before working"
-          onClick={() => setPage(page === "skills" ? "chat" : "skills")}
-        >
-          {/* a puzzle piece: what a skill is — a part that fits onto the
-              model, installed and taken out as one piece */}
-          <Icon d="M4 7.5A1.5 1.5 0 0 1 5.5 6H9a2.2 2.2 0 1 1 4 0h3.5A1.5 1.5 0 0 1 18 7.5V11a2.2 2.2 0 1 1 0 4v3.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5z" />
-        </button>
-        <button
-          className={`icon-button comp-toggle ${page === "components" ? "active" : ""}`}
-          title="Components — this project's component library"
-          onClick={() => setPage(page === "components" ? "chat" : "components")}
-        >
-          <Icon d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" />
-          {freshComponents > 0 && (
-            <span className="comp-star just header" aria-label="new components" ref={spinStar}>
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                <path d="M12 2.5l2.7 6.1 6.6.7-4.9 4.5 1.4 6.5L12 17l-5.8 3.3 1.4-6.5L2.7 9.3l6.6-.7z" />
-              </svg>
-            </span>
-          )}
-        </button>
+        <PageMenu
+          fresh={freshComponents}
+          onSkills={() => {
+            if (agentsOpen) closeAgent();
+            setPage("skills");
+          }}
+          onComponents={() => {
+            if (agentsOpen) closeAgent();
+            setPage("components");
+          }}
+        />
       </div>
     </header>
   );

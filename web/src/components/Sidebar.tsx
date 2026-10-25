@@ -463,29 +463,16 @@ export const Sidebar = memo(function Sidebar() {
               >
                 <path d="M9 6l6 6-6 6" />
               </svg>
-              {showHidden ? "hide" : "show"} {hidden.length} hidden
+              Hidden
+              <span className="hidden-count">{hidden.length}</span>
             </button>
             {showHidden && hidden.map((p) => <ProjectRow key={p.id} project={p} />)}
           </>
         )}
       </div>
 
-      {/* the account bar — a stub for real accounts later; for now it names
-          the local user and houses the settings gear */}
+      {/* the foot: who is signed in here, and Settings */}
       <div className="account-bar">
-        <svg
-          className="account-avatar"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <circle cx="12" cy="8" r="4" />
-          <path d="M4 21c1.5-4 4.4-6 8-6s6.5 2 8 6" />
-        </svg>
         <span className="account-name" title={onto ? `Chats run on ${onto} — Settings, Devices` : undefined}>
           {user || "account"}
           {onto && <span className="account-where"> on {onto}</span>}

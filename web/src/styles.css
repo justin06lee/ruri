@@ -49,13 +49,21 @@
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
   --sidebar-w: 264px;
+  /* one scale of corners: tags, controls, cards, sheets, the big fields */
+  /* one feel for motion: feedback (hover, press, colour) is quick, a
+     thing moving or appearing takes a beat longer; both ease out */
+  --quick: 140ms ease-out;
+  --move: 200ms ease-out;
+  --radius-xs: 4px;
   --radius-s: 6px;
   --radius-m: 10px;
   --radius-l: 14px;
+  --radius-xl: 20px;
   /* Apple's system accent and the materials menus and sheets are made of */
   --accent: #007aff;
   --accent-ink: #ffffff;
   --badge: #ff3b30;
+  --ok: #28a745;
   --fill: color-mix(in srgb, var(--ink) 8%, transparent);
   /* a tinted button's fill: the accent, washed out (iOS's tinted style) */
   --tint: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -73,7 +81,7 @@
   --fs-md: 12.5px;
   /* How a thing that opens on a click comes up to ink under the pointer:
      a fade the eye can follow, never a snap to the lit colour. */
-  --lighten: 240ms ease;
+  --lighten: var(--move);
   /* Stacking, lowest to highest — nothing sets a z-index outside this. */
   --z-raised: 1; /* a control lifted over its siblings (a turn's fold) */
   --z-pill: 2; /* the jump pill over the transcript */
@@ -111,6 +119,7 @@
   --diff-del-ink: #f87171;
   --accent: #0a84ff;
   --badge: #ff453a;
+  --ok: #30d158;
   --control-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
   --menu-bg: rgba(38, 38, 41, 0.8);
   --menu-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 12px 36px rgba(0, 0, 0, 0.5);
@@ -235,9 +244,9 @@ button {
   padding: 4px 14px;
   cursor: default;
   transition:
-    background 100ms ease-out,
-    color 100ms ease-out,
-    transform 100ms ease-out;
+    background var(--quick),
+    color var(--quick),
+    transform var(--quick);
 }
 
 button:hover {
@@ -326,7 +335,7 @@ select {
   box-shadow: var(--control-shadow);
   padding: 6px 10px;
   outline: none;
-  transition: box-shadow 120ms ease-out;
+  transition: box-shadow var(--quick);
 }
 
 input:focus,
@@ -463,7 +472,7 @@ textarea::placeholder {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  transition: background 200ms ease-out;
+  transition: background var(--move);
 }
 
 .conn.off {
@@ -519,7 +528,7 @@ textarea::placeholder {
   padding: 3px 8px;
   margin-bottom: 1px;
   border: none;
-  border-radius: 7px;
+  border-radius: var(--radius-s);
   background: transparent;
   cursor: default;
   user-select: none;
@@ -527,9 +536,9 @@ textarea::placeholder {
   letter-spacing: -0.005em;
   color: var(--ink);
   transition:
-    background 100ms ease-out,
-    color 100ms ease-out,
-    border-color 100ms ease-out;
+    background var(--quick),
+    color var(--quick),
+    border-color var(--quick);
 }
 
 .project-row:hover {
@@ -561,8 +570,8 @@ textarea::placeholder {
   border: 0.5px solid var(--line-soft);
   background: transparent;
   transition:
-    background 200ms ease-out,
-    border-color 200ms ease-out;
+    background var(--move),
+    border-color var(--move);
 }
 
 .dot.working {
@@ -604,7 +613,7 @@ textarea::placeholder {
   font-weight: 600;
   padding: 1px 4px;
   border: 1px solid var(--line-soft);
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -848,7 +857,7 @@ textarea::placeholder {
   width: min(760px, 94%);
   padding-bottom: 6vh;
   user-select: none;
-  animation: rise 240ms ease-out;
+  animation: rise var(--move);
 }
 
 /* ── home: the tab strip ──────────────────────────────────────────── */
@@ -867,7 +876,7 @@ textarea::placeholder {
   align-items: center;
   justify-content: center;
   height: 46px;
-  animation: rise 200ms ease-out;
+  animation: rise var(--move);
 }
 
 .home-tabs-space {
@@ -926,7 +935,7 @@ textarea::placeholder {
   gap: 2px;
   padding: 2px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   background: color-mix(in srgb, var(--ink) 7%, transparent);
 }
 
@@ -940,7 +949,7 @@ textarea::placeholder {
   bottom: 2px;
   left: 0;
   width: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-s);
   background: var(--raised);
   box-shadow: var(--control-shadow);
   pointer-events: none;
@@ -959,15 +968,15 @@ textarea::placeholder {
   gap: 7px;
   padding: 3px 16px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-s);
   background: transparent;
   font-size: 12px;
   font-weight: 500;
   line-height: 1.4;
   color: var(--ink-faint);
   transition:
-    background 120ms ease-out,
-    color 120ms ease-out;
+    background var(--quick),
+    color var(--quick);
 }
 
 /* the word that is off stays as it is under the pointer: the pill is what
@@ -1104,7 +1113,7 @@ textarea::placeholder {
   gap: 3px;
   padding: 12px 16px 11px;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   background: var(--paper-dim);
   font-variant-numeric: tabular-nums;
   min-width: 0;
@@ -1179,7 +1188,7 @@ textarea::placeholder {
   border-radius: var(--radius-m);
   overflow: hidden;
   min-width: 0;
-  animation: rise 200ms ease-out;
+  animation: rise var(--move);
 }
 
 .pcard-head {
@@ -1222,9 +1231,9 @@ textarea::placeholder {
 }
 
 .pcard.st-working .pcard-status {
-  color: var(--paper);
-  background: var(--ink);
-  border-color: var(--ink);
+  color: var(--accent);
+  background: var(--tint);
+  border-color: transparent;
 }
 
 .pcard.st-permission .pcard-status {
@@ -1363,7 +1372,7 @@ textarea::placeholder {
    hitting it — the model catalog alone is taller than a short window. */
 .settings-page {
   position: relative; /* the drag strip is placed against this */
-  animation: rise 160ms ease-out;
+  animation: rise var(--move);
 }
 
 /* two classes on purpose: .board-inner's padding shorthand comes later in
@@ -1602,7 +1611,7 @@ textarea::placeholder {
 .schedule-swatch {
   width: 11px;
   height: 11px;
-  border-radius: 99px;
+  border-radius: 999px;
   border: 1.5px solid;
   flex-shrink: 0;
 }
@@ -1665,7 +1674,7 @@ textarea::placeholder {
   min-width: 16px;
   padding: 0 2px;
   text-align: center;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   cursor: ns-resize;
   user-select: none;
 }
@@ -1676,8 +1685,7 @@ textarea::placeholder {
 
 .time-seg:focus-visible {
   outline: none;
-  background: var(--ink);
-  color: var(--paper);
+  box-shadow: var(--focus-ring);
 }
 
 .time-colon {
@@ -1755,7 +1763,7 @@ textarea::placeholder {
   width: 100%;
   padding: 7px 11px;
   border: none;
-  border-radius: 9px;
+  border-radius: var(--radius-m);
   background: var(--paper-dim);
   color: var(--ink);
   font: inherit;
@@ -1784,7 +1792,7 @@ textarea::placeholder {
   align-items: center;
   gap: 8px;
   padding: 4px 2px;
-  border-radius: 7px;
+  border-radius: var(--radius-s);
 }
 
 .model-row:hover {
@@ -1854,7 +1862,7 @@ textarea::placeholder {
   font-weight: 600;
   letter-spacing: 0.02em;
   padding: 1px 6px 2px;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   border: 1.5px solid var(--ink);
   background: var(--fill);
   color: var(--ink);
@@ -1884,7 +1892,7 @@ textarea::placeholder {
 }
 
 .model-row.drop {
-  outline: 1.5px dashed var(--ink);
+  outline: 2px solid var(--accent);
   outline-offset: -1.5px;
   background: var(--paper-dim);
 }
@@ -1909,7 +1917,7 @@ textarea::placeholder {
   display: flex;
   gap: 2px;
   background: color-mix(in srgb, var(--ink) 7%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   padding: 2px;
 }
 
@@ -1917,7 +1925,7 @@ textarea::placeholder {
 .seg-option {
   border: none;
   background: transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-s);
   padding: 2px 14px;
   font-size: 12px;
   color: var(--ink);
@@ -2133,7 +2141,7 @@ textarea::placeholder {
   width: 11px;
   height: 11px;
   flex-shrink: 0;
-  transition: transform 150ms ease-out;
+  transition: transform var(--quick);
 }
 
 .dropdown-trigger.open .dropdown-chevron {
@@ -2153,7 +2161,7 @@ textarea::placeholder {
   box-shadow: var(--menu-shadow);
   padding: 5px;
   z-index: var(--z-popover);
-  animation: rise 120ms ease-out;
+  animation: rise var(--move);
 }
 
 .dropdown-menu.up {
@@ -2172,7 +2180,7 @@ textarea::placeholder {
   background: transparent;
   border: none;
   box-shadow: none;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   color: var(--ink);
   white-space: nowrap;
 }
@@ -2265,7 +2273,7 @@ textarea::placeholder {
 }
 
 .msg {
-  animation: rise 180ms ease-out;
+  animation: rise var(--move);
   overflow-wrap: break-word;
   min-width: 0;
 }
@@ -2278,7 +2286,7 @@ textarea::placeholder {
   max-width: 76%;
   background: var(--paper-deep);
   border: none;
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 8px 14px;
 }
 
@@ -2292,7 +2300,7 @@ textarea::placeholder {
   height: 24px;
   color: var(--ink-faint);
   opacity: 0;
-  transition: opacity 140ms ease;
+  transition: opacity var(--quick);
 }
 
 .rewind-pencil svg {
@@ -2333,7 +2341,7 @@ textarea::placeholder {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  animation: rise 140ms ease-out;
+  animation: rise var(--move);
 }
 
 .confirm-title {
@@ -2382,7 +2390,7 @@ textarea::placeholder {
   background: var(--fill);
   color: var(--ink);
   border: 1.5px solid var(--ink);
-  border-radius: 99px;
+  border-radius: 999px;
   padding: 4px 15px;
   font-family: var(--mono);
   font-size: var(--fs-md);
@@ -2432,7 +2440,7 @@ textarea::placeholder {
   height: 22px;
   color: var(--ink-faint);
   opacity: 0;
-  transition: opacity 140ms ease;
+  transition: opacity var(--quick);
   z-index: var(--z-raised);
 }
 
@@ -2721,7 +2729,7 @@ textarea::placeholder {
   flex-wrap: wrap;
   font-size: 12px;
   color: var(--ink-soft);
-  animation: rise 180ms ease-out;
+  animation: rise var(--move);
   /* its clock ticks once a second: the repaint stays inside this line */
   contain: layout paint;
 }
@@ -2752,9 +2760,9 @@ textarea::placeholder {
   min-width: 40%;
   background: transparent;
   border: 1px solid var(--line-soft);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 7px 14px 9px;
-  animation: rise 180ms ease-out;
+  animation: rise var(--move);
   transition: border-color var(--lighten);
 }
 
@@ -2787,7 +2795,7 @@ textarea::placeholder {
   font-size: 9.5px;
   font-weight: 600;
   color: var(--ink);
-  animation: rise 160ms ease-out;
+  animation: rise var(--move);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2801,7 +2809,7 @@ textarea::placeholder {
   display: flex;
   gap: 2px;
   opacity: 0;
-  transition: opacity 160ms ease;
+  transition: opacity var(--quick);
 }
 
 .queued-card:hover .queued-actions,
@@ -2834,7 +2842,7 @@ textarea::placeholder {
   padding: 0 4px;
   font-size: var(--fs-sm);
   color: var(--ink-soft);
-  animation: rise 180ms ease-out;
+  animation: rise var(--move);
 }
 
 .queue-standby span {
@@ -2879,7 +2887,7 @@ textarea::placeholder {
   font-family: var(--mono);
   font-size: 12px;
   color: var(--ink-soft);
-  animation: rise 180ms ease-out;
+  animation: rise var(--move);
 }
 
 .tool-chip .icon {
@@ -2960,14 +2968,14 @@ textarea::placeholder {
   transition:
     color var(--lighten),
     border-color var(--lighten),
-    transform 100ms ease-out;
+    transform var(--quick);
 }
 
 .exchange-half .half-fold:hover,
 .exchange-half .half-fold:focus-visible {
   color: var(--ink);
-  border-color: var(--ink);
-  background: var(--paper);
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .exchange-half .half-fold .icon {
@@ -3017,8 +3025,8 @@ textarea::placeholder {
 }
 
 .msg.note:focus-visible {
-  outline: 1.5px dashed var(--ink-faint);
-  outline-offset: 3px;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* opens both halves at once — in the result lines' voice, like the
@@ -3147,7 +3155,7 @@ textarea::placeholder {
   /* right edge on the textbox's right edge, measured in RapidFire.tsx */
   padding: 0 var(--rapid-inset, 24px) 8px 24px;
   pointer-events: auto;
-  animation: rise 200ms ease-out;
+  animation: rise var(--move);
 }
 
 .hero-composer .rapid-bar {
@@ -3178,7 +3186,7 @@ textarea::placeholder {
   gap: 8px;
   padding: 4px 6px 4px 14px;
   border: 0.5px solid var(--line-soft);
-  border-radius: 99px;
+  border-radius: 999px;
   background: var(--paper);
 }
 
@@ -3230,8 +3238,8 @@ textarea::placeholder {
   line-height: 1.5;
   color: var(--ink-faint);
   transition:
-    background 120ms ease-out,
-    color 120ms ease-out;
+    background var(--quick),
+    color var(--quick);
 }
 
 .rapid-scope button:hover {
@@ -3389,7 +3397,7 @@ textarea::placeholder {
   border-radius: var(--radius-m);
   background: var(--paper-bright);
   color: var(--ink-faint);
-  transition: border-color 100ms ease-out;
+  transition: border-color var(--quick);
 }
 
 .lib-search:focus-within {
@@ -3434,7 +3442,7 @@ textarea::placeholder {
   font-size: 10px;
   padding: 2px 6px;
   border: 0.5px solid var(--line-soft);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   color: var(--ink-faint);
   line-height: 1;
 }
@@ -3458,7 +3466,7 @@ textarea::placeholder {
   color: var(--ink-soft);
   background: transparent;
   border: 0.5px solid var(--line-soft);
-  border-radius: 99px;
+  border-radius: 999px;
 }
 
 .lib-chip:hover {
@@ -3558,7 +3566,7 @@ textarea::placeholder {
   font-weight: 400;
   content-visibility: auto;
   contain-intrinsic-size: auto 300px;
-  transition: border-color 120ms ease-out;
+  transition: border-color var(--quick);
 }
 
 .lib-tile:hover,
@@ -3568,8 +3576,8 @@ textarea::placeholder {
 }
 
 .lib-tile:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .lib-tile:active {
@@ -3608,7 +3616,7 @@ textarea::placeholder {
   max-height: 100%;
   object-fit: contain;
   display: block;
-  animation: lib-in 180ms ease-out;
+  animation: lib-in var(--move);
 }
 
 @keyframes lib-in {
@@ -3628,7 +3636,7 @@ textarea::placeholder {
   color: var(--ink-soft);
   background: var(--paper-bright);
   border: 1px solid var(--hairline);
-  border-radius: 99px;
+  border-radius: 999px;
 }
 
 .lib-badge.left {
@@ -3662,7 +3670,7 @@ textarea::placeholder {
 
 .lib-tile-hint {
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--quick);
 }
 
 .lib-tile:hover .lib-tile-hint {
@@ -3752,7 +3760,7 @@ textarea::placeholder {
   flex-direction: column;
   gap: 14px;
   padding-top: 4px;
-  animation: rise 160ms ease-out;
+  animation: rise var(--move);
 }
 
 .lib-detail-top {
@@ -4329,7 +4337,7 @@ textarea::placeholder {
    within a frame, and a page you read shouldn't flicker for it */
 .lib-skel {
   display: block;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   background: var(--paper-dim);
 }
 
@@ -4444,7 +4452,7 @@ textarea::placeholder {
   gap: 10px;
   padding: 8px;
   border-radius: var(--radius-s);
-  transition: opacity 160ms ease;
+  transition: opacity var(--quick);
 }
 
 .skill-row:hover {
@@ -4466,7 +4474,7 @@ textarea::placeholder {
   border-radius: 999px;
   background: color-mix(in srgb, var(--ink) 16%, transparent);
   cursor: pointer;
-  transition: background-color 180ms ease;
+  transition: background-color var(--move);
 }
 
 .skill-switch.on {
@@ -4517,7 +4525,7 @@ textarea::placeholder {
   align-items: center;
   justify-content: center;
   padding: 5vh 24px;
-  animation: rise 120ms ease-out;
+  animation: rise var(--move);
 }
 
 .skill-sheet {
@@ -4698,11 +4706,11 @@ textarea::placeholder {
   gap: 6px;
   font-size: 12px;
   padding: 5px 14px;
-  border-radius: 99px;
+  border-radius: 999px;
   background: var(--raised);
   border: 1.5px solid var(--edge);
   color: var(--ink);
-  animation: rise 160ms ease-out;
+  animation: rise var(--move);
   z-index: var(--z-pill);
 }
 
@@ -4727,7 +4735,7 @@ textarea::placeholder {
   background: var(--paper-dim);
   border-left: 2px solid var(--edge);
   border-radius: 0 var(--radius-s) var(--radius-s) 0;
-  animation: rise 160ms ease-out;
+  animation: rise var(--move);
 }
 
 .plan-event.removed {
@@ -4792,10 +4800,10 @@ textarea::placeholder {
 .permission-card {
   align-self: stretch;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   padding: 14px 16px;
   background: var(--paper-dim);
-  animation: rise 180ms ease-out;
+  animation: rise var(--move);
 }
 
 .permission-head {
@@ -4885,8 +4893,8 @@ textarea::placeholder {
   font: inherit;
   text-align: left;
   cursor: pointer;
-  animation: rise 180ms ease-out;
-  transition: border-color 120ms ease;
+  animation: rise var(--move);
+  transition: border-color var(--quick);
 }
 
 .agent-card:hover {
@@ -5054,7 +5062,7 @@ textarea::placeholder {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  animation: rise 160ms ease-out;
+  animation: rise var(--move);
 }
 
 .agent-view-top,
@@ -5183,7 +5191,7 @@ textarea::placeholder {
   background: var(--paper-dim);
   line-height: 0;
   cursor: zoom-in;
-  animation: rise 180ms ease-out;
+  animation: rise var(--move);
 }
 
 .tool-image:hover {
@@ -5206,7 +5214,7 @@ textarea::placeholder {
   max-height: 140px;
   width: auto;
   height: auto;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   /* screenshots are usually pale — a ground keeps a white png from vanishing
      into the page in light mode and glaring in dark */
   background: var(--paper-bright);
@@ -5225,7 +5233,7 @@ textarea::placeholder {
   border-radius: var(--radius-s);
   background: var(--paper-dim);
   overflow: hidden;
-  animation: rise 180ms ease-out;
+  animation: rise var(--move);
 }
 
 .diff-head {
@@ -5254,7 +5262,7 @@ textarea::placeholder {
 .diff-chevron {
   width: 11px;
   height: 11px;
-  transition: transform 120ms ease-out;
+  transition: transform var(--quick);
 }
 
 .diff-chevron.open {
@@ -5386,10 +5394,10 @@ textarea::placeholder {
   flex-direction: column;
   gap: 16px;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-m);
   padding: 15px 16px 14px;
   background: var(--paper-dim);
-  animation: rise 180ms ease-out;
+  animation: rise var(--move);
 }
 
 .ask-title {
@@ -5569,7 +5577,7 @@ textarea::placeholder {
 }
 
 .ask-mark.multi {
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .ask-mark.single {
@@ -5694,7 +5702,7 @@ textarea::placeholder {
   min-width: 15px;
   height: 15px;
   padding: 0 4px;
-  border-radius: 99px;
+  border-radius: 999px;
   background: var(--badge);
   color: #fff;
   font-size: 9.5px;
@@ -5716,7 +5724,7 @@ textarea::placeholder {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  animation: rise 160ms ease-out;
+  animation: rise var(--move);
 }
 
 .board-inner {
@@ -5835,7 +5843,7 @@ textarea::placeholder {
   left: 2px;
   min-width: 14px;
   height: 14px;
-  border-radius: 99px;
+  border-radius: 999px;
   background: var(--fill);
   color: var(--ink);
   font-size: 9px;
@@ -5853,7 +5861,7 @@ textarea::placeholder {
   height: 16px;
   padding: 2px;
   border: none;
-  border-radius: 99px;
+  border-radius: 999px;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
   line-height: 0;
@@ -5934,7 +5942,7 @@ textarea::placeholder {
 .sketch-width span {
   display: block;
   width: 14px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: currentColor;
 }
 
@@ -6075,7 +6083,7 @@ textarea::placeholder {
   align-items: center;
   justify-content: center;
   z-index: var(--z-overlay);
-  animation: rise 120ms ease-out;
+  animation: rise var(--move);
 }
 
 .viewer-card {
@@ -6193,7 +6201,7 @@ textarea::placeholder {
   left: -1px;
   width: 18px;
   height: 18px;
-  border-radius: 99px;
+  border-radius: 999px;
   background: var(--fill);
   color: var(--ink);
   font-size: var(--fs-xs);
@@ -6276,10 +6284,10 @@ textarea::placeholder {
   max-width: 680px;
   background: var(--raised);
   border: none;
-  border-radius: 22px;
+  border-radius: var(--radius-xl);
   padding: 12px 10px 10px 18px;
   box-shadow: var(--field-shadow);
-  transition: box-shadow 160ms ease-out;
+  transition: box-shadow var(--quick);
 }
 
 /* Apple's fields: no outline, lifted off white by a shadow alone in light;
@@ -6401,7 +6409,7 @@ textarea::placeholder {
   border: none;
   border-radius: var(--radius-m);
   box-shadow: var(--menu-shadow);
-  animation: rise 120ms ease-out;
+  animation: rise var(--move);
 }
 
 .command-row {
@@ -6411,7 +6419,7 @@ textarea::placeholder {
   width: 100%;
   padding: 5px 10px;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   background: none;
   text-align: left;
   cursor: default;
@@ -6476,11 +6484,11 @@ textarea::placeholder {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 13%, var(--raised));
   box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 13%, var(--raised));
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   transition:
-    background-color 100ms ease-out,
-    box-shadow 100ms ease-out,
-    opacity 100ms ease-out;
+    background-color var(--quick),
+    box-shadow var(--quick),
+    opacity var(--quick);
 }
 
 /* the brackets are the chip's padding: there, but not seen */
@@ -6720,7 +6728,7 @@ button.stop:hover {
 .term-tab-close {
   margin-right: 3px;
   opacity: 0;
-  transition: opacity 100ms ease-out;
+  transition: opacity var(--quick);
 }
 
 .term-tab.on .term-tab-close,
@@ -6918,7 +6926,7 @@ button.stop:hover {
   font-size: 0.86em;
   background: var(--paper-dim);
   border: 1px solid var(--line-soft);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   padding: 1px 5px;
 }
 
@@ -6958,7 +6966,7 @@ button.stop:hover {
   width: 24px;
   height: 24px;
   padding: 0;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   background: var(--paper);
   border: 1px solid var(--line-soft);
   color: var(--ink-soft);
@@ -7165,7 +7173,7 @@ button.stop:hover {
   justify-content: safe flex-end;
   padding: 0 var(--bridge-inset, 0px) 0 0;
   pointer-events: none;
-  animation: rise 200ms ease-out;
+  animation: rise var(--move);
   /* the plate sizes itself against the room this leaves, not the window */
   container-type: inline-size;
 }
@@ -7268,7 +7276,7 @@ button.stop:hover {
   flex: none;
   padding: 4px 10px;
   border: 1.5px solid var(--ink);
-  border-radius: 99px;
+  border-radius: 999px;
   background: var(--paper);
   color: var(--ink);
   font-size: 12px;
@@ -7495,7 +7503,7 @@ button.stop:hover {
   box-shadow: var(--menu-shadow);
   padding: 5px;
   z-index: var(--z-flyout);
-  animation: rise 120ms ease-out;
+  animation: rise var(--move);
 }
 
 .dropdown-flyout.left {
@@ -7527,9 +7535,9 @@ button.stop:hover {
   -webkit-backdrop-filter: var(--material);
   backdrop-filter: var(--material);
   border: none;
-  border-radius: 16px;
+  border-radius: var(--radius-l);
   box-shadow: var(--sheet-shadow);
-  animation: rise 120ms ease-out;
+  animation: rise var(--move);
   overflow: hidden;
 }
 
@@ -7597,7 +7605,7 @@ button.stop:hover {
   font-size: 10px;
   padding: 2px 5px;
   border: 1.5px solid var(--edge);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   color: var(--ink-faint);
   line-height: 1;
 }
@@ -7707,7 +7715,7 @@ button.stop:hover {
   font-size: var(--fs-xs);
   padding: 1px 4px;
   border: 1px solid var(--edge);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .grants-head {
@@ -7738,9 +7746,10 @@ button.stop:hover {
 }
 
 .grant-status.granted {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--paper);
+  /* a good state reads green, the system's own tint of it */
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  border-color: transparent;
+  color: var(--ok);
 }
 
 .grant-status.denied {
@@ -7860,7 +7869,7 @@ button.stop:hover {
   font-size: var(--fs-sm);
   padding: 5px 8px;
   border: 1px solid var(--hairline);
-  border-radius: 6px;
+  border-radius: var(--radius-s);
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7879,7 +7888,7 @@ button.stop:hover {
   padding: 10px 14px;
   list-style: none;
   border: 1px solid var(--hairline);
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   font-family: var(--mono);
   font-size: 15px;
   font-weight: 600;
@@ -7899,7 +7908,7 @@ button.stop:hover {
   flex: none;
   width: 200px;
   height: 200px;
-  border-radius: 8px;
+  border-radius: var(--radius-m);
   image-rendering: pixelated;
 }
 
@@ -7993,9 +8002,10 @@ button.stop:hover {
 }
 
 .device-status.online {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--paper);
+  /* a good state reads green, the system's own tint of it */
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  border-color: transparent;
+  color: var(--ok);
 }
 
 /* the account bar's "on tenet": whose computer the chats run on */
@@ -8417,7 +8427,7 @@ button.stop:hover {
   width: 9px;
   height: 9px;
   flex-shrink: 0;
-  transition: transform 120ms ease-out;
+  transition: transform var(--quick);
 }
 
 .hidden-fold.open svg {
@@ -8692,7 +8702,7 @@ button.stop:hover {
   background: var(--paper);
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-s);
-  animation: rise 160ms ease-out;
+  animation: rise var(--move);
 }
 
 .team-member.state-working,
@@ -8745,7 +8755,7 @@ button.team-member-name:hover {
   flex-shrink: 0;
   padding: 0 6px;
   border: 1px solid var(--line-soft);
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   font-size: 10px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -8789,7 +8799,7 @@ button.team-member-name:hover {
 .team-layer {
   padding: 0 5px;
   border: 1px solid var(--hairline);
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   font-size: 10px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -8979,7 +8989,7 @@ button.team-member-name:hover {
 .team-outside-toggle .icon {
   width: 11px;
   height: 11px;
-  transition: transform 120ms ease-out;
+  transition: transform var(--quick);
 }
 
 .team-outside-toggle.open .icon {

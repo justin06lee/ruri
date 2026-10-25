@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- refactor(ui): one scale for every corner, one feel for every motion, one focus ring. Corners come from five steps (`--radius-xs` 4 · s 6 · m 10 · l 14 · xl 20, and pills at 999px) instead of a dozen loose pixel values; hover and press feedback is `--quick` (140ms) and anything moving or appearing is `--move` (200ms), both easing out; every focused thing wears the blue focus ring (no more dashed or ink outlines); good states (granted, online) are system green (`--ok`) and a working project card's status is a blue wash instead of an ink block.
 - refactor(ui): the attachment tags look like Mail's address tokens: blue words on a pale blue pill that deepens a shade on hover, instead of an ink-rimmed chip that turned inside out. The pill is opaque over the box's white so the prompt's own words under it never bleed through; the thumbnail a hovered tag points at gets the blue focus ring.
 - refactor(ui): buttons are Apple blue. Push buttons are tinted (blue words on a wash of the blue, `--tint`), borderless ones are blue words, icon buttons and the composer's glyphs are blue with a wash on hover, and a toggled toolbar button sits on a stronger wash instead of a solid fill.
 - refactor(ui): every loader is the macOS activity indicator: twelve spokes fading behind the darkest, ticking a spoke at a time on ruri's own clock, in place of the turning circles (the working line, busy sidebar rows, the Agents page and running agent cards).

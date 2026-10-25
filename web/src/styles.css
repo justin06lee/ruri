@@ -6671,10 +6671,28 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .composer-controls {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   /* never squeezed: a bar this cannot fit in folds instead (Composer's
      `compact`), and the fold is measured off this width */
   flex-shrink: 0;
+}
+
+/* the pickers under the prompt are capsules, as the pop-up buttons in
+   Messages' and Safari's bars are: a grey wash on hover, a shade more
+   while the menu is open */
+.composer-controls .dropdown-trigger {
+  height: 26px;
+  padding: 0 10px 0 11px;
+  border-radius: 999px;
+}
+
+.composer-controls .dropdown-trigger:hover,
+.composer-controls .dropdown-trigger.open {
+  background: var(--fill);
+}
+
+.composer-controls .dropdown-trigger.open {
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
 }
 
 /* The box is as tall as its words, up to the cap, and the browser sizes it

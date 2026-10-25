@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- The model, effort and permission pickers under the input box are capsules, washed grey on hover and a shade deeper while open.
 - Less blue: toolbar and composer icons are grey again and go ink on a grey wash when hovered; a working project's status pill is a grey wash too. Blue is kept for buttons, links, selection, a toggle that's on, and send.
 - Ember's accent is Apple blue now, like light and dark: buttons, selection and focus look the same in every theme.
 - remove(btw): the btw button, its side panel and `/btw <question>`, with the server's side chat behind them (`side_chat`, its read-only brief and refused tools). A btw chat made before stays on file, out of every list.

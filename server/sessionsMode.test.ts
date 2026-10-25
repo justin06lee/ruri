@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { isMember, leadOf, SESSIONS_MODE_PREF, type Project } from "../shared/protocol.js";
-import { ProjectStore } from "./projects.js";
 import { projectChatBriefing, sessionsMode } from "./sessionsMode.js";
 import { sweepTalk } from "./handlers/talk.js";
 

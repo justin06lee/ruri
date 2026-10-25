@@ -1,7 +1,7 @@
-/* ── ruri — manga theme: warm paper, black ink, screentone shading ──
-   Paper is deliberately warm (low blue channel) so the panel reads like
-   an e-ink page rather than a backlit screen. Everything is grayscale;
-   state is carried by shape and pattern, not hue.
+/* ── ruri — three quiet themes: light, dark, ember ──
+   Light is white with an off-white sidebar, dark is near-black, ember is a
+   warm dark with almost no blue in it. Everything is neutral grey; state
+   is carried by shade and shape, not hue.
 
    Nothing is drawn around and nothing stands off the page: no panel here
    is ruled off with a line, and no shadow is cast to the lower right. One
@@ -19,35 +19,35 @@
    dark has to look like dark while you are reading it in light. Each
    theme's block takes its own from here. */
 :root {
-  --theme-light-paper: #f6f1e6;
-  --theme-light-ink: #191510;
-  --theme-dark-paper: #101010;
-  --theme-dark-ink: #ececec;
-  --theme-ember-paper: #140b05;
-  --theme-ember-ink: #f0bd82;
+  --theme-light-paper: #ffffff;
+  --theme-light-ink: #0a0a0b;
+  --theme-dark-paper: #09090a;
+  --theme-dark-ink: #ededee;
+  --theme-ember-paper: #0f0b08;
+  --theme-ember-ink: #f1e4d2;
   --paper: var(--theme-light-paper);
-  --paper-dim: #efe9da;
-  --paper-deep: #e7e0cf;
-  --paper-bright: #fdfaf3;
+  --paper-dim: #f6f6f7;
+  --paper-deep: #e9e9eb;
+  --paper-bright: #f8f8f9;
   --ink: var(--theme-light-ink);
-  --ink-soft: #464035;
-  --ink-faint: #8b8271;
+  --ink-soft: #3f3f46;
+  --ink-faint: #85858e;
   --edge: transparent;
-  --rim: color-mix(in srgb, var(--ink) 22%, var(--paper));
-  --hairline: rgba(25, 21, 16, 0.1);
-  --raised: #fffdf7;
-  --line: #191510;
-  --line-soft: rgba(25, 21, 16, 0.18);
-  --line-faint: rgba(25, 21, 16, 0.09);
-  --tone: radial-gradient(circle, rgba(25, 21, 16, 0.16) 1px, transparent 1.4px);
-  --stripes: repeating-linear-gradient(45deg, transparent 0 5px, rgba(25, 21, 16, 0.1) 5px 10px);
-  /* Monochrome everywhere else, but a diff without add/remove color is a
-     puzzle — these tints are the quietest that still separate at a glance
-     on cream and on near-black. */
-  --diff-add-bg: rgba(74, 124, 89, 0.14);
-  --diff-add-ink: #3f6b4b;
-  --diff-del-bg: rgba(168, 71, 60, 0.12);
-  --diff-del-ink: #8f3f34;
+  --rim: color-mix(in srgb, var(--ink) 12%, var(--paper));
+  --hairline: rgba(10, 10, 11, 0.07);
+  --raised: #ffffff;
+  --line: #0a0a0b;
+  --line-soft: rgba(10, 10, 11, 0.12);
+  --line-faint: rgba(10, 10, 11, 0.06);
+  /* once a manga dot screen; now a flat tint, tiled or not */
+  --tone: linear-gradient(rgba(10, 10, 11, 0.035), rgba(10, 10, 11, 0.035));
+  --stripes: repeating-linear-gradient(45deg, transparent 0 6px, rgba(10, 10, 11, 0.05) 6px 12px);
+  /* Neutral everywhere else, but a diff without add/remove color is a
+     puzzle — these are the quietest tints that still separate at a glance. */
+  --diff-add-bg: rgba(22, 163, 74, 0.09);
+  --diff-add-ink: #15803d;
+  --diff-del-bg: rgba(220, 38, 38, 0.08);
+  --diff-del-ink: #b91c1c;
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
   --sidebar-w: 264px;
   --radius-s: 6px;
@@ -76,52 +76,52 @@
   color-scheme: light;
 }
 
-/* dark mode: the same manga page at night — ink and paper swap roles,
-   every component flips automatically through the tokens */
+/* dark: near-black, surfaces a step lighter each — every component
+   flips through the tokens */
 :root[data-theme="dark"] {
   --paper: var(--theme-dark-paper);
-  --paper-dim: #181818;
-  --paper-deep: #262626;
-  --paper-bright: #1c1c1c;
+  --paper-dim: #121214;
+  --paper-deep: #232326;
+  --paper-bright: #17171a;
   --ink: var(--theme-dark-ink);
-  --ink-soft: #b4b4b4;
-  --ink-faint: #707070;
-  --hairline: rgba(236, 236, 236, 0.08);
-  --raised: #1e1e1e;
-  --line: #ececec;
-  --line-soft: rgba(236, 236, 236, 0.13);
-  --line-faint: rgba(236, 236, 236, 0.07);
-  --tone: radial-gradient(circle, rgba(236, 236, 236, 0.1) 1px, transparent 1.4px);
-  --stripes: repeating-linear-gradient(45deg, transparent 0 5px, rgba(236, 236, 236, 0.08) 5px 10px);
-  --diff-add-bg: rgba(110, 180, 130, 0.15);
-  --diff-add-ink: #83c795;
-  --diff-del-bg: rgba(220, 110, 95, 0.14);
-  --diff-del-ink: #e08a7c;
+  --ink-soft: #a6a6ae;
+  --ink-faint: #6c6c75;
+  --hairline: rgba(237, 237, 238, 0.07);
+  --raised: #1b1b1e;
+  --line: #ededee;
+  --line-soft: rgba(237, 237, 238, 0.11);
+  --line-faint: rgba(237, 237, 238, 0.055);
+  --tone: linear-gradient(rgba(237, 237, 238, 0.035), rgba(237, 237, 238, 0.035));
+  --stripes: repeating-linear-gradient(45deg, transparent 0 6px, rgba(237, 237, 238, 0.045) 6px 12px);
+  --diff-add-bg: rgba(34, 197, 94, 0.11);
+  --diff-add-ink: #4ade80;
+  --diff-del-bg: rgba(248, 113, 113, 0.11);
+  --diff-del-ink: #f87171;
   color-scheme: dark;
 }
 
-/* ember: the same page by firelight, for the hours when a screen full of
-   blue is the thing keeping you up. Every color here is red through amber —
-   no blue channel to speak of — so it reads warm rather than merely dark. */
+/* ember: a warm dark for late hours, when a screen full of blue is the
+   thing keeping you up — brown-black surfaces and parchment ink, little
+   blue in any of it, so it reads warm rather than merely dark. */
 :root[data-theme="ember"] {
   --paper: var(--theme-ember-paper);
-  --paper-dim: #1b0f07;
-  --paper-deep: #2a180b;
-  --paper-bright: #21130a;
+  --paper-dim: #17120e;
+  --paper-deep: #2a221b;
+  --paper-bright: #1c1612;
   --ink: var(--theme-ember-ink);
-  --ink-soft: #c39257;
-  --ink-faint: #8a6338;
-  --hairline: rgba(240, 189, 130, 0.09);
-  --raised: #221308;
-  --line: #f0bd82;
-  --line-soft: rgba(240, 189, 130, 0.14);
-  --line-faint: rgba(240, 189, 130, 0.07);
-  --tone: radial-gradient(circle, rgba(240, 189, 130, 0.11) 1px, transparent 1.4px);
-  --stripes: repeating-linear-gradient(45deg, transparent 0 5px, rgba(240, 189, 130, 0.08) 5px 10px);
-  --diff-add-bg: rgba(200, 160, 60, 0.15);
-  --diff-add-ink: #d8ac52;
-  --diff-del-bg: rgba(190, 80, 45, 0.16);
-  --diff-del-ink: #d4704a;
+  --ink-soft: #b9a68f;
+  --ink-faint: #7f6f5d;
+  --hairline: rgba(241, 228, 210, 0.07);
+  --raised: #211a15;
+  --line: #f1e4d2;
+  --line-soft: rgba(241, 228, 210, 0.11);
+  --line-faint: rgba(241, 228, 210, 0.055);
+  --tone: linear-gradient(rgba(241, 228, 210, 0.035), rgba(241, 228, 210, 0.035));
+  --stripes: repeating-linear-gradient(45deg, transparent 0 6px, rgba(241, 228, 210, 0.045) 6px 12px);
+  --diff-add-bg: rgba(190, 170, 60, 0.12);
+  --diff-add-ink: #d2bf68;
+  --diff-del-bg: rgba(230, 100, 60, 0.13);
+  --diff-del-ink: #e8845c;
   color-scheme: dark;
 }
 
@@ -421,10 +421,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   --fx-tone: invert(1);
 }
 
-/* inverted like dark, then pulled toward the fire so the line art sits on
-   the same warm paper as everything else */
+/* inverted like dark, then warmed a little so the line art sits on the
+   same brown-black as everything else */
 [data-theme="ember"] .band-pic.invert {
-  --fx-tone: invert(1) sepia(0.5) saturate(1.5) hue-rotate(332deg);
+  --fx-tone: invert(0.94) sepia(0.3);
 }
 
 /* ── the hovers (lib/effects.ts) ──────────────────────────────────────
@@ -625,11 +625,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 7px 10px;
-  margin-bottom: 7px;
+  padding: 6px 10px;
+  margin-bottom: 2px;
   border: 1.5px solid transparent;
   border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--paper) 42%, var(--paper-dim));
+  background: transparent;
   cursor: pointer;
   user-select: none;
   color: var(--ink-soft);
@@ -640,15 +640,15 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .project-row:hover {
-  background: var(--paper);
+  background: color-mix(in srgb, var(--ink) 4%, var(--paper-dim));
   color: var(--ink);
 }
 
 .project-row.active {
-  background: var(--paper);
-  border-color: var(--edge);
+  background: color-mix(in srgb, var(--ink) 8%, var(--paper-dim));
+  border-color: transparent;
   color: var(--ink);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .project-name {

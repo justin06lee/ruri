@@ -623,7 +623,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--accent);
+  color: var(--ink-soft);
   border-radius: var(--radius-s);
 }
 
@@ -633,8 +633,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .icon-button:hover {
-  color: var(--accent);
-  background: var(--tint);
+  color: var(--ink);
+  background: var(--fill);
 }
 
 .conn {
@@ -1400,8 +1400,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .pcard.st-working .pcard-status {
-  color: var(--accent);
-  background: var(--tint);
+  color: var(--ink);
+  background: var(--fill);
   border-color: transparent;
 }
 
@@ -6938,12 +6938,12 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--accent);
+  color: var(--ink-soft);
 }
 
 .composer-actions button:hover:not(:disabled) {
-  background: var(--tint);
-  color: var(--accent);
+  background: var(--fill);
+  color: var(--ink);
 }
 
 .composer-actions button:active {
@@ -7149,8 +7149,8 @@ button.stop:hover {
 }
 
 .shell-toggle.active {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--tint-strong);
+  color: var(--accent);
 }
 
 /* ── markdown ─────────────────────────────────────────────────────── */

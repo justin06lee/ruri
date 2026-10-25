@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- Less blue: toolbar and composer icons are grey again and go ink on a grey wash when hovered; a working project's status pill is a grey wash too. Blue is kept for buttons, links, selection, a toggle that's on, and send.
 - Ember's accent is Apple blue now, like light and dark: buttons, selection and focus look the same in every theme.
 - remove(btw): the btw button, its side panel and `/btw <question>`, with the server's side chat behind them (`side_chat`, its read-only brief and refused tools). A btw chat made before stays on file, out of every list.
 - remove: prompt splitting. The scissors button, its More-menu item and the hint line under the input box are gone, and so is everything behind them: the `send_split` message, the queue's `split` flag, `dispatchSplit` and the small model's `splitPrompt`. A prompt goes out as written, one turn.

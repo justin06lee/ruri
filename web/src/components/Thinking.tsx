@@ -1,5 +1,5 @@
 /**
- * The working indicator: a small macOS-style spinner, drawn in CSS
+ * The working indicator: the macOS activity indicator (twelve spokes), drawn in CSS
  * (.spinner) so it follows the theme ink, stepped by lib/beat.ts.
  *
  * Beside it, the working line — what a running turn has done so far. A

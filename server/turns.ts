@@ -8,6 +8,7 @@ import { channelProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import type { ParagraphGate } from "./paragraphs.js";
 import { projectWatch } from "./projectWatch.js";
+import { clearResume, markResume } from "./resume.js";
 
 /** Last broadcast per channel, so a stream of deltas is one message a
  *  second rather than one a token. */
@@ -59,11 +60,13 @@ export class Turns {
     if (this.progress.has(channelId)) return;
     const now = Date.now();
     this.progress.set(channelId, { startedAt: now, tokens: 0, at: now });
+    markResume(channelId);
     this.pushTurn(channelId, true);
   };
 
   endTurn = (channelId: string): void => {
     if (!this.progress.delete(channelId)) return;
+    clearResume(channelId);
     this.pushTurn(channelId);
   };
 
@@ -88,7 +91,7 @@ export class Turns {
 
   forgetChannel(channelId: string): void {
     this.contexts.delete(channelId);
-    this.progress.delete(channelId);
+    if (this.progress.delete(channelId)) clearResume(channelId);
     this.sent.delete(channelId);
   }
 }

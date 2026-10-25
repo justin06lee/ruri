@@ -36,6 +36,7 @@ import { createCrewManager } from "./handlers/crew.js";
 import { createManagerHost } from "./handlers/projects.js";
 import { announceRoles } from "./handlers/settings.js";
 import { pushTalk, restoreTalk, sweepTalk } from "./handlers/talk.js";
+import { freezeResume, resumeTurns } from "./resume.js";
 import { HomeLog } from "./homelog.js";
 import { IdeaStore } from "./ideas.js";
 import { LedgerStore } from "./ledger.js";
@@ -383,6 +384,16 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       } catch (err) {
         warn("talk", err, "restoring the letters in flight");
       }
+      // the chats that were at work when ruri last closed or crashed carry
+      // on, a moment after launch so their harnesses are ready for them
+      const resumeTimer = setTimeout(() => {
+        try {
+          resumeTurns(ctx);
+        } catch (err) {
+          warn("resume", err, "carrying on the turns in flight");
+        }
+      }, 3000);
+      resumeTimer.unref?.();
       resolve({
         port,
         ...(fallback ? { portFallback: fallback } : {}),
@@ -395,6 +406,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         },
         close: () =>
           new Promise<void>((done) => {
+            freezeResume();
             clearInterval(usageTimer);
             clearInterval(sweepTimer);
             clearTimeout(firstSweep);

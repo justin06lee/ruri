@@ -59,7 +59,6 @@ import {
   type TurnNote,
   type TurnProgress,
   type TeamTask,
-  type UsageGuard,
   type UsageLimits,
 } from "../../shared/protocol";
 import type { ComposerAttachment } from "./components/Attachments";
@@ -442,8 +441,6 @@ interface RuriState {
   turns: Record<string, TurnProgress>;
   /** What each project has spent, keyed by PROJECT id (Home under "home"). */
   stats: Record<string, ProjectStats>;
-  /** The usage guard: the week's %, its step, the projects paused. */
-  guard: UsageGuard | undefined;
   /** Sessions on disk from outside ruri, per PROJECT id, once asked for. */
   recent: Record<string, RecentSession[]>;
   /** Each project's shape: being rebuilt from the repo, when the repo was
@@ -655,7 +652,6 @@ export const useRuri = create<RuriState>((set) => ({
   stopping: {},
   turns: {},
   stats: {},
-  guard: undefined,
   recent: {},
   catchups: {},
   recalls: {},
@@ -1769,7 +1765,6 @@ function apply(msg: ServerMessage): void {
         contexts: msg.contexts,
         turns: msg.turns,
         stats: msg.stats,
-        guard: msg.guard,
         catchups: Object.fromEntries(
           Object.entries(msg.catchups).map(([id, c]) => [
             id,
@@ -1965,10 +1960,6 @@ function apply(msg: ServerMessage): void {
     }
     case "usage": {
       setState({ usage: msg.limits });
-      break;
-    }
-    case "guard": {
-      setState({ guard: msg.guard });
       break;
     }
     case "context": {

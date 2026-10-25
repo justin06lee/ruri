@@ -17,7 +17,7 @@ import { afterCompactBrief, noteSelfCompaction, recoverLostStart } from "./hando
 import { ensureLibrarySkill, libraryEndpoint } from "./handlers/components.js";
 import { cliEnv, skillDir } from "./library.js";
 import { HOME_ID, managerExtras } from "./manager.js";
-import { carryLetter, guardHooks, talkHost, talkTurnEnded } from "./handlers/talk.js";
+import { carryLetter, sweepTalk, talkHost, talkTurnEnded } from "./handlers/talk.js";
 import { teamHost, teamStatus } from "./handlers/team.js";
 import { ParagraphGate } from "./paragraphs.js";
 import { projectWatch } from "./projectWatch.js";
@@ -44,7 +44,6 @@ import {
 } from "./team.js";
 import type { AgentOptions } from "@justin06lee/yagami";
 import { contextWindow, pushContexts, pushWork } from "./turns.js";
-import { guardTick } from "./usageGuard.js";
 import {
   PLAIN_TALK_TOOLS,
   projectChatBriefing,
@@ -119,8 +118,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           }
           // a worker's task carries what its turns cost (server/workers.ts)
           taskTurnEnded(ctx, projectId, event.costUsd);
-          // and the usage guard takes another look at the week
-          guardTick(ctx, guardHooks(ctx));
+          // and a look at what the team owes
+          sweepTalk(ctx);
           if (event.blocked && !event.ok) {
             // the connection or the account let the turn down, and every
             // prompt behind it would meet the same, one after another: the

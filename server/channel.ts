@@ -4,7 +4,6 @@
  */
 import type { ServerContext } from "./context.js";
 import { HOME_ID, homeProject } from "./manager.js";
-import { guardedModel } from "./usageGuard.js";
 
 /**
  * A channel as a Project: the owning project with the channel's own id —
@@ -17,8 +16,7 @@ export function channelProject(ctx: ServerContext, channelId: string) {
   const found = ctx.store.findSession(channelId);
   if (!found) return undefined;
   const { session, project } = found;
-  // past the usage guard's first step, Opus and Fable step down
-  const model = guardedModel(ctx, session.model || project.model);
+  const model = session.model || project.model;
   return {
     ...project,
     id: channelId,

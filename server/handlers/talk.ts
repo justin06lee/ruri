@@ -55,16 +55,8 @@ import {
   type ProjectAsk,
   type TalkHost,
 } from "../talk.js";
+import { warn } from "../log.js";
 import { expandPath } from "../projects.js";
-import {
-  guardHolds,
-  guardLog,
-  park,
-  unpark,
-  weeklyPercent,
-  type GuardHooks,
-  type Parked,
-} from "../usageGuard.js";
 import { handOff, heldReport, taskSettled, tasksOf } from "../workers.js";
 import type { QueueEntry } from "../queue.js";
 import { createManagerHost } from "./projects.js";
@@ -376,14 +368,7 @@ function deliver(
   text: string,
   from: LetterFrom,
   delivery: TalkDelivery = "interrupt",
-): "queued" | "working" | "cut in" | "waiting" | "paused" {
-  // past the usage guard's steps, another agent's message into a paused
-  // project waits for the guard to let go (server/usageGuard.ts)
-  if (guardHolds(ctx, chat)) {
-    park(ctx, { chat, text, from, delivery });
-    pushTeamOf(ctx, chat);
-    return "paused";
-  }
+): "queued" | "working" | "cut in" | "waiting" {
   // nobody stands at a member's or the liaison's line to send a held one
   // on by hand, so a hold left by a stop lets go here
   if (unattended(ctx, chat) && !running(ctx, chat)) ctx.queues.releaseQueue(chat);
@@ -635,16 +620,14 @@ export async function sendLetter(
   book.note({
     ...base,
     to: target,
-    status: where === "cut in" || where === "waiting" || where === "paused" ? "queued" : where,
+    status: where === "cut in" || where === "waiting" ? "queued" : where,
   });
   const queued =
     where === "cut in"
       ? ", which has stopped what it was doing to read it"
-      : where === "paused"
-        ? `, where it waits: ${guardHolds(ctx, target) ?? "the usage guard holds it"}. It goes in by itself when the guard lets go`
-        : where === "waiting"
-          ? `, which is waiting for a free slot: ${slotWords(ctx, target)}, and it starts the moment one finishes`
-          : where !== "queued"
+      : where === "waiting"
+        ? `, which is waiting for a free slot: ${slotWords(ctx, target)}, and it starts the moment one finishes`
+        : where !== "queued"
           ? ""
           : delivery === "queue"
             ? ", queued behind what it is doing, as you asked"
@@ -1048,7 +1031,7 @@ export const STUCK_MS = 3 * 60_000;
 const idleSince = new Map<string, number>();
 
 /**
- * A look at what the team owes, from the guard's clock: held reports whose
+ * A look at what the team owes, held reports whose
  * lead is free go in, and a task whose worker has no turn running, no place
  * in a line for a slot, no answer it waits on and no retry coming — for
  * longer than STUCK_MS — is failed, and its asker told, as a failure is:
@@ -1062,7 +1045,7 @@ export function sweepTalk(ctx: ServerContext, now = Date.now()): void {
     try {
       releaseHeld(ctx, lead);
     } catch (error) {
-      guardLog(`held reports for ${lead} not released: ${error instanceof Error ? error.message : error}`);
+      warn("talk", error, `held reports for ${lead} not released`);
     }
   }
   const open = new Set<string>();
@@ -1078,7 +1061,6 @@ export function sweepTalk(ctx: ServerContext, now = Date.now()): void {
       running(ctx, w) ||
       ctx.governor.waiting.includes(w) ||
       (starting !== undefined && now - starting < 60_000) ||
-      guardHolds(ctx, w) !== undefined ||
       ctx.retries.has(w) ||
       ctx.talk.outstanding(p.id) ||
       ctx.talk.awaiting(w);
@@ -1091,7 +1073,7 @@ export function sweepTalk(ctx: ServerContext, now = Date.now()): void {
     idleSince.set(p.id, since);
     if (now - since < STUCK_MS) continue;
     idleSince.delete(p.id);
-    guardLog(`task ${hit.task.id} (${hit.task.workerName}) did not run: failed after ${Math.round((now - since) / 60_000)} min`);
+    warn("talk", `task ${hit.task.id} (${hit.task.workerName}) did not run: failed after ${Math.round((now - since) / 60_000)} min`);
     settle(
       ctx,
       p,
@@ -1247,8 +1229,6 @@ export function talkTurnCut(ctx: ServerContext, chat: string, why: string): void
 export function talkChatsClosed(ctx: ServerContext, chats: string[]): void {
   const book = ctx.talk;
   const closing = new Set(chats);
-  // nothing waits on the guard for a chat that is going
-  unpark(ctx, closing);
   for (const pending of [...book.pending.values()]) {
     if (!closing.has(pending.from)) continue;
     for (const waiter of [...pending.waiters]) waiter({ text: "This chat was closed.", answered: false });
@@ -1321,29 +1301,6 @@ export function restoreTalk(ctx: ServerContext): void {
 export function httpWaitFor(ctx: ServerContext, channelId: string): number {
   const model = channelProject(ctx, channelId)?.model || ctx.store.defaultModel();
   return httpWaitMs(ctx.models.registry.parse(model).providerId);
-}
-
-/** A message the usage guard held back goes in now, as it would have
- *  (server/usageGuard.ts) — unless its letter has ended meanwhile. */
-export function redeliver(ctx: ServerContext, parked: Parked): void {
-  const letter = ctx.talk.pending.get(parked.from.letter);
-  if (!letter || !ctx.store.findSession(parked.chat)) return;
-  if (!parked.from.answer && letter.ending) return;
-  deliver(ctx, parked.chat, parked.text, parked.from, parked.delivery);
-}
-
-/** What the usage guard does as the week moves: held messages go in again,
- *  and each step it takes is written down (server/usageGuard.ts). */
-export function guardHooks(ctx: ServerContext): GuardHooks {
-  return {
-    deliver: (parked) => redeliver(ctx, parked),
-    sweep: () => sweepTalk(ctx),
-    moved: (from, to) => {
-      const weekly = weeklyPercent(ctx);
-      guardLog(`step ${from} → ${to} at ${weekly ?? "?"}% of the week`);
-      pushTalk(ctx);
-    },
-  };
 }
 
 /** The tools' way into all of this. */

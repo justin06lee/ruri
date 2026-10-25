@@ -8,7 +8,6 @@ import { warn } from "./log.js";
 import { isOpen, oneLine, TaskStore, type Task } from "./tasks.js";
 import type { Pending } from "./talk.js";
 import { resetContext } from "./turns.js";
-import { guardLevel, STEP_DOWN_MODEL } from "./usageGuard.js";
 
 /**
  * Worker mode (docs/token-efficiency.md, "The new design"): a project
@@ -35,7 +34,7 @@ export const WORKER_MAX = 2;
 
 /** A job's model, unless the preferences say otherwise: Sonnet for most,
  *  Opus for one the asker marked hard. */
-export const WORKER_MODEL = STEP_DOWN_MODEL;
+export const WORKER_MODEL = "sonnet";
 export const HARD_MODEL = "opus";
 
 interface Workers {
@@ -88,10 +87,10 @@ export function workerCap(ctx: ServerContext): number {
 }
 
 /** The model a job runs on: the worker model, or — marked hard, and the
- *  usage guard not past its first step — the hard one. */
+ *  hard — the hard one. */
 export function modelForTask(ctx: ServerContext, hard: boolean): string {
   const plain = prefs(ctx)["ruri-worker-model"]?.trim() || WORKER_MODEL;
-  if (!hard || guardLevel(ctx) >= 1) return plain;
+  if (!hard) return plain;
   return prefs(ctx)["ruri-hard-model"]?.trim() || HARD_MODEL;
 }
 

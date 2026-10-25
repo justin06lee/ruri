@@ -171,10 +171,9 @@ describe("a job for a worker is a task", () => {
     expect(handOff(ctx, letter("lead", "web", "Fix the chart"))?.id).toBe(2);
   });
 
-  test("marked hard it runs on Opus — unless the usage guard is past its first step", () => {
+  test("marked hard it runs on Opus", () => {
     expect(modelForTask(world().ctx, true)).toBe("opus");
     expect(modelForTask(world().ctx, false)).toBe("sonnet");
-    expect(modelForTask(world({ weekly: 61 }).ctx, true)).toBe("sonnet");
     expect(modelForTask(world({ prefs: { "ruri-hard-model": "fable", "ruri-worker-model": "haiku" } }).ctx, true)).toBe(
       "fable",
     );

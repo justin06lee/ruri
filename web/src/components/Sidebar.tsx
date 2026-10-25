@@ -220,31 +220,6 @@ const HOVER_MS = 90;
  * as a chat's row always had — and how many, beside it. The lead's own
  * turn lights neither: it delegates, and its work is the team's.
  */
-/** Dollars at a glance: cents under one, a decimal under ten, whole above. */
-function money(usd: number): string {
-  return usd < 1 ? `$${usd.toFixed(2)}` : usd < 10 ? `$${usd.toFixed(1)}` : `$${Math.round(usd)}`;
-}
-
-/** The usage guard's step, beside the Projects label, once it has taken one. */
-function GuardNote() {
-  const guard = useRuri((s) => s.guard);
-  if (!guard || guard.level === 0 || guard.weekly === undefined) return null;
-  const [one, two, three] = guard.steps;
-  const words =
-    guard.level >= 3 ? "agents paused" : guard.level === 2 ? "unstarred paused" : "Opus → Sonnet";
-  const why =
-    guard.level >= 3
-      ? `Past ${three}%: every project's agents wait — their messages go in when the week's usage falls. What you type still goes.`
-      : guard.level === 2
-        ? `Past ${two}%: unstarred projects' agents wait, and every chat runs on Sonnet. What you type still goes.`
-        : `Past ${one}%: chats on Opus or Fable run on Sonnet, and no task gets Opus.`;
-  return (
-    <span className={`guard-note level-${guard.level}`} title={`The usage guard: the week's Claude usage is at ${guard.weekly}%. ${why}`}>
-      week {Math.round(guard.weekly)}% · {words}
-    </span>
-  );
-}
-
 function ProjectRow({ project }: { project: Project }) {
   const lead = leadOf(project);
   const leadId = lead?.id;
@@ -260,10 +235,6 @@ function ProjectRow({ project }: { project: Project }) {
   const busy = atWork > 0;
   // what removing it would stop: the lead's own turn counts here
   const anyBusy = useRuri((s) => project.sessions.some((x) => isBusy(s, x.id)));
-  // what it has spent, and whether the usage guard holds its agents
-  const spent = useRuri((s) => s.stats[project.id]);
-  const paused = useRuri((s) => s.guard?.paused.includes(project.id) ?? false);
-  const today = spent?.today.costUsd ?? 0;
   const [renaming, setRenaming] = useState(false);
   const { confirm: ask, card } = useConfirm();
   const hover = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -315,22 +286,6 @@ function ProjectRow({ project }: { project: Project }) {
         <span className="project-name">{project.name}</span>
       )}
       {unread && <span className="unread-pip" title="Turn finished" />}
-      {paused && (
-        <span
-          className="row-paused"
-          title="Paused by the usage guard: its agents' messages wait until the week's usage falls. What you type still goes."
-        >
-          paused
-        </span>
-      )}
-      {today >= 0.01 && (
-        <span
-          className="row-spend"
-          title={`Spent today ${money(today)} · this week ${money(spent?.week.costUsd ?? 0)}, at API prices`}
-        >
-          {money(today)}
-        </span>
-      )}
       {busy && (
         <span
           className="row-count team-count"
@@ -489,10 +444,7 @@ export const Sidebar = memo(function Sidebar() {
           </div>
         )}
         {ordered.length > 0 && (
-          <div className="group-label">
-            Projects
-            <GuardNote />
-          </div>
+          <div className="group-label">Projects</div>
         )}
         {ordered.map((p) => (
           <ProjectRow key={p.id} project={p} />

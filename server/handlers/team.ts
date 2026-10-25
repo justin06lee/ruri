@@ -26,7 +26,6 @@ import type { ServerContext } from "../context.js";
 import { compactChannel, drainQueue, stopTurn } from "../dispatch.js";
 import type { QueueEntry } from "../queue.js";
 import { projectWatch } from "../projectWatch.js";
-import { parkedFor } from "../usageGuard.js";
 import { isOpen } from "../tasks.js";
 import { chartersFile, tasksOf, tasksText, workerCap, workerGone, workerMode } from "../workers.js";
 import type { AddArgs, Head, TeamHost } from "../team.js";
@@ -392,8 +391,6 @@ export function rosterText(ctx: ServerContext, headId: string): string {
       "",
       `At most ${most} workers work at once in ${project.name}: ${atWorkIn(ctx, project)} at work now. The task list: tasks. The charters as they stood at the switch: ${chartersFile(project.id)}.`,
     );
-    const parked = project.sessions.reduce((sum, session) => sum + parkedFor(ctx, session.id), 0);
-    if (parked) lines.push(`${parked} message${parked === 1 ? " waits" : "s wait"} on the usage guard.`);
   }
   const cap = ctx.governor.cap;
   if (cap !== undefined) {

@@ -10519,40 +10519,6 @@ button.stop:hover {
   margin-left: 7px;
 }
 
-/* what a project spent today, and the usage guard's hold on it: with the
-   unread pip and the count, the cluster the name's flex pushes right */
-.row-spend {
-  flex-shrink: 0;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--ink-faint);
-  font-variant-numeric: tabular-nums;
-}
-
-.row-paused {
-  flex-shrink: 0;
-  padding: 0 4px;
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  font-size: 9.5px;
-  letter-spacing: 0.02em;
-  color: var(--ink-faint);
-}
-
-.group-label .guard-note {
-  margin-left: 8px;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--ink-faint);
-}
-
-.group-label .guard-note.level-2,
-.group-label .guard-note.level-3 {
-  color: var(--ink);
-}
-
 .row-count {
   margin-left: auto;
   font-family: var(--mono);

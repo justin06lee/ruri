@@ -676,7 +676,7 @@ const HEAD_REPLY_DOC =
   'What you get back. You are a lead: what you hand on comes back "later" — the call returns at once, you end your turn and stay free, and the answer arrives in this chat as a message of its own when the job is done. "none": the other agent just does the work, and nothing comes back.';
 
 const HARD_DOC =
-  "For a job handed to a worker: true when it needs Opus — a design call, a hard bug, a review that needs judgment. Otherwise it runs on Sonnet. Ignored past the usage guard's first step, and for a project still on persistent teammates.";
+  "For a job handed to a worker: true when it needs Opus — a design call, a hard bug, a review that needs judgment. Otherwise it runs on Sonnet. Ignored for a project still on persistent teammates.";
 
 /** The talk tools, for the `ruri` MCP server a Claude chat gets. `head`:
  *  the chat is a lead or a liaison, which hands jobs on, and hears back

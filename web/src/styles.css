@@ -40,8 +40,6 @@
   --line-soft: rgba(10, 10, 11, 0.12);
   --line-faint: rgba(10, 10, 11, 0.06);
   /* once a manga dot screen; now a flat tint, tiled or not */
-  --tone: linear-gradient(rgba(10, 10, 11, 0.035), rgba(10, 10, 11, 0.035));
-  --stripes: repeating-linear-gradient(45deg, transparent 0 6px, rgba(10, 10, 11, 0.05) 6px 12px);
   /* Neutral everywhere else, but a diff without add/remove color is a
      puzzle — these are the quietest tints that still separate at a glance. */
   --diff-add-bg: rgba(22, 163, 74, 0.09);
@@ -57,6 +55,8 @@
   /* Apple's system accent and the materials menus and sheets are made of */
   --accent: #007aff;
   --accent-ink: #ffffff;
+  --badge: #ff3b30;
+  --fill: color-mix(in srgb, var(--ink) 8%, transparent);
   --focus-ring: 0 0 0 3.5px color-mix(in srgb, var(--accent) 45%, transparent);
   --control-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 0.5px 1.5px rgba(0, 0, 0, 0.1);
   --menu-bg: rgba(250, 250, 250, 0.82);
@@ -102,13 +102,12 @@
   --line: #ededee;
   --line-soft: rgba(237, 237, 238, 0.11);
   --line-faint: rgba(237, 237, 238, 0.055);
-  --tone: linear-gradient(rgba(237, 237, 238, 0.035), rgba(237, 237, 238, 0.035));
-  --stripes: repeating-linear-gradient(45deg, transparent 0 6px, rgba(237, 237, 238, 0.045) 6px 12px);
   --diff-add-bg: rgba(34, 197, 94, 0.11);
   --diff-add-ink: #4ade80;
   --diff-del-bg: rgba(248, 113, 113, 0.11);
   --diff-del-ink: #f87171;
   --accent: #0a84ff;
+  --badge: #ff453a;
   --control-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
   --menu-bg: rgba(38, 38, 41, 0.8);
   --menu-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 12px 36px rgba(0, 0, 0, 0.5);
@@ -133,8 +132,6 @@
   --line: #f1e4d2;
   --line-soft: rgba(241, 228, 210, 0.11);
   --line-faint: rgba(241, 228, 210, 0.055);
-  --tone: linear-gradient(rgba(241, 228, 210, 0.035), rgba(241, 228, 210, 0.035));
-  --stripes: repeating-linear-gradient(45deg, transparent 0 6px, rgba(241, 228, 210, 0.045) 6px 12px);
   --diff-add-bg: rgba(190, 170, 60, 0.12);
   --diff-add-ink: #d2bf68;
   --diff-del-bg: rgba(230, 100, 60, 0.13);
@@ -591,13 +588,13 @@ textarea::placeholder {
 
 .recent-tag {
   flex-shrink: 0;
-  font-family: var(--mono);
   font-size: 9px;
   font-weight: 600;
   padding: 1px 4px;
   border: 1px solid var(--line-soft);
   border-radius: 3px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .unread-pip {
@@ -605,7 +602,7 @@ textarea::placeholder {
   height: 6px;
   min-width: 6px;
   border-radius: 1px;
-  background: var(--ink);
+  background: var(--badge);
   transform: rotate(45deg);
 }
 
@@ -778,25 +775,14 @@ textarea::placeholder {
   border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--ink) 15%, transparent);
   border-top-color: var(--ink-soft);
-  animation: spinner 0.9s linear infinite;
+  transform: rotate(calc(var(--spin, 0) * 12deg));
+  will-change: transform;
 }
 
 .project-row .spinner {
   width: 11px;
   height: 11px;
   border-width: 1.5px;
-}
-
-@keyframes spinner {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation-duration: 3s;
-  }
 }
 
 /* ── home hero ────────────────────────────────────────────────────── */
@@ -980,7 +966,6 @@ textarea::placeholder {
 }
 
 .home-tab-count {
-  font-family: var(--mono);
   font-size: 10px;
   font-weight: 600;
   line-height: 1.3;
@@ -988,6 +973,7 @@ textarea::placeholder {
   border-radius: 999px;
   border: 1px solid currentColor;
   opacity: 0.75;
+  font-variant-numeric: tabular-nums;
 }
 
 /* `.working` is also the transcript's progress line, which pins itself to
@@ -1039,8 +1025,6 @@ textarea::placeholder {
   padding: 14px 18px;
   border: 1.5px solid var(--hairline);
   border-radius: var(--radius-m);
-  background-image: var(--tone);
-  background-size: 6px 6px;
 }
 
 .projects-count-n {
@@ -1100,9 +1084,9 @@ textarea::placeholder {
 .stat-label,
 .projects-group,
 .stats-group {
-  font-family: var(--mono);
   font-size: 10px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-cost {
@@ -1181,8 +1165,6 @@ textarea::placeholder {
 
 .pcard.st-working .pcard-head,
 .pcard.st-permission .pcard-head {
-  background-image: var(--tone);
-  background-size: 6px 6px;
 }
 
 .pcard-head:hover {
@@ -1200,7 +1182,6 @@ textarea::placeholder {
 
 .pcard-status {
   margin-left: auto;
-  font-family: var(--mono);
   font-size: 10px;
   line-height: 1.4;
   padding: 2px 8px;
@@ -1208,6 +1189,7 @@ textarea::placeholder {
   border: 1.5px solid transparent;
   color: var(--ink-faint);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .pcard.st-working .pcard-status {
@@ -1545,10 +1527,10 @@ textarea::placeholder {
 
 .dial-hour {
   fill: var(--ink-soft);
-  font-family: var(--mono);
   font-size: 9.5px;
   font-weight: 600;
   text-anchor: middle;
+  font-variant-numeric: tabular-nums;
 }
 
 /* where the day actually is, so the schedule can be read against now */
@@ -1658,9 +1640,9 @@ textarea::placeholder {
   padding: 2px 6px;
   border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-s);
-  font-family: var(--mono);
   font-size: 12px;
   background: var(--paper-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 .time-seg {
@@ -1858,8 +1840,8 @@ textarea::placeholder {
   padding: 1px 6px 2px;
   border-radius: 3px;
   border: 1.5px solid var(--ink);
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--fill);
+  color: var(--ink);
   cursor: grab;
   user-select: none;
   -webkit-user-drag: element;
@@ -2207,7 +2189,7 @@ textarea::placeholder {
 
 .error-bar {
   padding: 8px 20px;
-  background-image: var(--stripes);
+  background: var(--paper-dim);
   border-bottom: 0.5px solid var(--line-soft);
   color: var(--ink);
   font-weight: 500;
@@ -2273,7 +2255,7 @@ textarea::placeholder {
   min-width: 0;
 }
 
-/* user bubble: speech bubble with screentone shading */
+/* user bubble */
 
 .msg.user {
   position: relative;
@@ -2382,8 +2364,8 @@ textarea::placeholder {
   align-self: flex-end;
   width: auto;
   max-width: 76%;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--fill);
+  color: var(--ink);
   border: 1.5px solid var(--ink);
   border-radius: 99px;
   padding: 4px 15px;
@@ -2542,10 +2524,10 @@ textarea::placeholder {
   flex-shrink: 0;
   min-width: 16px;
   padding-top: 1px;
-  font-family: var(--mono);
   font-size: 10px;
   text-align: right;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .compaction-pair {
@@ -2745,24 +2727,24 @@ textarea::placeholder {
   color: var(--ink);
 }
 
-/* queued prompts: user-bubble look, ringed in quiet dots — waiting for their
-   turn. Under the pointer the dots come up to ink, gradually, not at once. */
+/* queued prompts: a user bubble not yet sent — outlined, not filled, as
+   Messages shows one still waiting to go */
 
 .queued-card {
   position: relative; /* the carrying below moves it by transform */
   align-self: flex-end;
-  width: 76%;
-  background: var(--raised);
-  border: 1.5px dotted var(--rim);
-  border-radius: var(--radius-l);
-  border-bottom-right-radius: 3px;
-  padding: 7px 12px 9px;
+  max-width: 76%;
+  min-width: 40%;
+  background: transparent;
+  border: 1px solid var(--line-soft);
+  border-radius: 18px;
+  padding: 7px 14px 9px;
   animation: rise 180ms ease-out;
   transition: border-color var(--lighten);
 }
 
 .queued-card:hover {
-  border-color: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 30%, transparent);
 }
 
 .queued-head {
@@ -2773,10 +2755,10 @@ textarea::placeholder {
 
 .queued-label {
   flex: 1;
-  font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /* a fold made a moment ago can be taken apart again: a small word in ink
@@ -2787,11 +2769,11 @@ textarea::placeholder {
   border: 1px solid var(--ink-faint);
   border-radius: 999px;
   background: transparent;
-  font-family: var(--mono);
   font-size: 9.5px;
   font-weight: 600;
   color: var(--ink);
   animation: rise 160ms ease-out;
+  font-variant-numeric: tabular-nums;
 }
 
 .queued-undo:hover {
@@ -2825,7 +2807,6 @@ textarea::placeholder {
 /* the queue after a stop: it is not waiting on an answer any more, it is
    waiting on you, so it stands in solid ink rather than a dotted hold */
 .queued-card.standby {
-  border-style: solid;
   border-color: var(--ink-faint);
 }
 
@@ -3224,8 +3205,6 @@ textarea::placeholder {
   border: 1.5px solid var(--hairline);
   border-radius: 999px;
   background-color: var(--paper);
-  background-image: var(--tone);
-  background-size: 6px 6px;
 }
 
 .rapid-scope button {
@@ -3297,8 +3276,8 @@ textarea::placeholder {
 .ask-badge {
   padding: 2px 8px;
   border-radius: 999px;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--badge);
+  color: #fff;
   font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -3481,9 +3460,9 @@ textarea::placeholder {
 }
 
 .lib-chip-count {
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   opacity: 0.7;
+  font-variant-numeric: tabular-nums;
 }
 
 .lib-filters-gap {
@@ -3540,40 +3519,6 @@ textarea::placeholder {
   font-weight: 600;
   font-size: 15px;
   color: var(--ink);
-}
-
-/* three blank cards, fanned */
-.lib-empty-art {
-  position: relative;
-  width: 120px;
-  height: 64px;
-  margin-bottom: 8px;
-}
-
-.lib-empty-art span {
-  position: absolute;
-  top: 6px;
-  left: 30px;
-  width: 60px;
-  height: 46px;
-  border: 0.5px solid var(--line-soft);
-  border-radius: var(--radius-s);
-  background-color: var(--paper);
-  background-image: var(--tone);
-  background-size: 6px 6px;
-}
-
-.lib-empty-art span:nth-child(1) {
-  transform: translateX(-26px) rotate(-9deg);
-}
-
-.lib-empty-art span:nth-child(3) {
-  transform: translateX(26px) rotate(9deg);
-}
-
-.lib-empty-art span:nth-child(2) {
-  z-index: 1;
-  border-color: var(--ink-soft);
 }
 
 .lib-grid {
@@ -3642,8 +3587,6 @@ textarea::placeholder {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-s);
   background-color: var(--paper-dim);
-  background-image: var(--tone);
-  background-size: 6px 6px;
   overflow: hidden;
 }
 
@@ -3905,7 +3848,7 @@ textarea::placeholder {
 }
 
 .lib-ask.lost {
-  background-image: var(--stripes);
+  opacity: 0.6;
 }
 
 /* the command an agent installs it with */
@@ -3916,8 +3859,6 @@ textarea::placeholder {
   padding: 8px 8px 8px 14px;
   border: 1.5px solid var(--hairline);
   border-radius: var(--radius-s);
-  background-image: var(--tone);
-  background-size: 6px 6px;
 }
 
 .lib-install code {
@@ -3979,8 +3920,6 @@ textarea::placeholder {
   border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-m);
   background-color: var(--paper-dim);
-  background-image: var(--tone);
-  background-size: 6px 6px;
   overflow: hidden;
   min-height: 180px;
   display: flex;
@@ -4053,8 +3992,6 @@ textarea::placeholder {
   border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-s);
   background-color: var(--paper-dim);
-  background-image: var(--tone);
-  background-size: 6px 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4246,9 +4183,9 @@ textarea::placeholder {
   border-bottom: 2px solid transparent;
   border-radius: var(--radius-s) var(--radius-s) 0 0;
   background: transparent;
-  font-family: var(--mono);
   font-size: var(--fs-sm);
   color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
 }
 
 .lib-tab:hover {
@@ -4471,10 +4408,10 @@ textarea::placeholder {
   padding: 6px 10px;
   border-radius: var(--radius-s);
   background: var(--paper-dim);
-  font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-faint);
   white-space: pre-wrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .skill-group {
@@ -4508,39 +4445,35 @@ textarea::placeholder {
 /* the one thing neither Claude Code nor bmo has a word for */
 .skill-switch {
   flex-shrink: 0;
-  width: 30px;
-  height: 18px;
-  margin-top: 2px;
+  width: 32px;
+  height: 19px;
+  margin-top: 1px;
   padding: 0;
-  border: 0.5px solid var(--line-soft);
+  border: none;
   border-radius: 999px;
-  background: var(--paper-dim);
+  background: color-mix(in srgb, var(--ink) 16%, transparent);
   cursor: pointer;
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease;
+  transition: background-color 180ms ease;
 }
 
 .skill-switch.on {
-  background: var(--ink);
-  border-color: var(--ink);
+  background: var(--accent);
 }
 
+/* the Mac switch's knob: white, lifted, in either state */
 .skill-knob {
   display: block;
-  width: 10px;
-  height: 10px;
+  width: 15px;
+  height: 15px;
   margin-left: 2px;
   border-radius: 50%;
-  background: var(--ink);
-  transition:
-    transform 160ms cubic-bezier(0.3, 0.9, 0.3, 1),
-    background-color 160ms ease;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 180ms cubic-bezier(0.3, 0.9, 0.3, 1);
 }
 
 .skill-switch.on .skill-knob {
-  background: var(--paper);
-  transform: translateX(12px);
+  transform: translateX(13px);
 }
 
 /* the row's text is the way in: click it and the skill's own words open */
@@ -4592,8 +4525,6 @@ textarea::placeholder {
   gap: 10px;
   padding: 10px 12px 10px 16px;
   border-bottom: 0.5px solid var(--line-soft);
-  background-image: var(--tone);
-  background-size: 6px 6px;
 }
 
 .skill-sheet-name {
@@ -4620,9 +4551,9 @@ textarea::placeholder {
 }
 
 .skill-source {
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .skill-desc {
@@ -4728,8 +4659,7 @@ textarea::placeholder {
 }
 
 .result-line.err .result-rule {
-  background-image: var(--stripes);
-  height: 5px;
+  background: var(--line);
 }
 
 .info-line {
@@ -4790,19 +4720,19 @@ textarea::placeholder {
 }
 
 .plan-event.removed {
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .plan-event-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 
 .plan-event-head .icon {
@@ -4842,8 +4772,8 @@ textarea::placeholder {
 }
 
 .plan-event-mark {
-  font-family: var(--mono);
   text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── permissions: a bordered manga panel that demands attention ───── */
@@ -4869,13 +4799,13 @@ textarea::placeholder {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-family: var(--mono);
   font-size: 12px;
   font-weight: 600;
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--ink);
+  background: var(--fill);
   border-radius: var(--radius-s);
   padding: 3px 9px;
+  font-variant-numeric: tabular-nums;
 }
 
 .permission-badge .icon {
@@ -5035,9 +4965,9 @@ textarea::placeholder {
 }
 
 .agent-card-meta {
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── the agents page ──────────────────────────────────────────────────
@@ -5057,9 +4987,9 @@ textarea::placeholder {
 
 .agents-group {
   margin: 16px 2px 8px;
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .agents-asks {
@@ -5471,7 +5401,6 @@ textarea::placeholder {
 }
 
 .usage-value {
-  font-family: var(--mono);
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
@@ -5607,14 +5536,14 @@ textarea::placeholder {
 }
 
 .ask-chip {
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--ink);
+  background: var(--fill);
   border-radius: var(--radius-s);
   padding: 2px 7px;
+  font-variant-numeric: tabular-nums;
 }
 
 .ask-prompt {
@@ -5733,7 +5662,7 @@ textarea::placeholder {
 }
 
 .ask-mark.on {
-  background: var(--ink);
+  background: var(--accent);
   border-color: var(--ink);
 }
 
@@ -5801,12 +5730,12 @@ textarea::placeholder {
 }
 
 .ask-count {
-  font-family: var(--mono);
   font-size: 11px;
   font-weight: 500;
   color: var(--ink-faint);
   min-width: 34px;
   text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .ask-dots {
@@ -5840,7 +5769,7 @@ textarea::placeholder {
 
 .ask-dot.at {
   border-color: var(--ink);
-  background: var(--ink);
+  background: var(--accent);
 }
 
 .tracker-badge {
@@ -5851,8 +5780,8 @@ textarea::placeholder {
   height: 15px;
   padding: 0 4px;
   border-radius: 99px;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--badge);
+  color: #fff;
   font-size: 9.5px;
   font-weight: 600;
   line-height: 15px;
@@ -5952,12 +5881,12 @@ textarea::placeholder {
   left: 0;
   bottom: 0;
   right: 0;
-  font-family: var(--mono);
   font-size: 8.5px;
   line-height: 1.6;
   text-align: center;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
+  font-variant-numeric: tabular-nums;
 }
 
 /* non-media attachment tile: doc glyph + extension badge */
@@ -5979,10 +5908,10 @@ textarea::placeholder {
 }
 
 .att-ext {
-  font-family: var(--mono);
   font-size: 8.5px;
   font-weight: 600;
   letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
 .att-regions {
@@ -5992,8 +5921,8 @@ textarea::placeholder {
   min-width: 14px;
   height: 14px;
   border-radius: 99px;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--fill);
+  color: var(--ink);
   font-size: 9px;
   font-weight: 600;
   line-height: 14px;
@@ -6154,8 +6083,8 @@ textarea::placeholder {
   width: 18px;
   height: 18px;
   border-radius: 99px;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--fill);
+  color: var(--ink);
   font-size: var(--fs-xs);
   font-weight: 600;
   line-height: 18px;
@@ -6185,9 +6114,9 @@ textarea::placeholder {
    there, not here */
 .region-marker {
   flex: 1;
-  font-family: var(--mono);
   font-size: var(--fs-sm);
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── composer ─────────────────────────────────────────────────────── */
@@ -6422,10 +6351,10 @@ textarea::placeholder {
 
 .command-kind {
   margin-left: auto;
-  font-family: var(--mono);
   font-size: 9.5px;
   color: var(--ink-faint);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .command-row.active .command-kind {
@@ -6435,8 +6364,8 @@ textarea::placeholder {
 .marker-chip {
   pointer-events: auto;
   cursor: grab;
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--ink);
+  background: var(--fill);
   /* the pill's edge is drawn outside the box — padding would widen it */
   box-shadow: 0 0 0 1.5px var(--ink);
   border-radius: 5px;
@@ -6521,7 +6450,7 @@ textarea::placeholder {
   top: -0.15em;
   height: 1.35em;
   width: 2px;
-  background: var(--ink);
+  background: var(--accent);
   border-radius: 1px;
 }
 
@@ -6560,13 +6489,12 @@ textarea::placeholder {
 
 /* the send button: a filled circle, faded back while there is nothing to send */
 button.send {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 button.send:hover:not(:disabled) {
-  background: var(--ink-soft);
-  color: var(--paper);
+  filter: brightness(1.08);
 }
 
 button.send:disabled {
@@ -6746,10 +6674,10 @@ button.stop:hover {
 
 /* which shell you're looking at, where the model pickers sit in prompt mode */
 .shell-where {
-  font-family: var(--mono);
   font-size: var(--fs-sm);
   color: var(--ink-faint);
   padding-left: 2px;
+  font-variant-numeric: tabular-nums;
 }
 
 .shell-toggle.active {
@@ -6878,7 +6806,6 @@ button.stop:hover {
 }
 
 .md th {
-  background-image: var(--tone);
   background-size: 5px 5px;
   font-weight: 600;
 }
@@ -6907,7 +6834,6 @@ button.stop:hover {
   gap: 10px;
   padding: 3px 8px;
   background-color: var(--paper-dim);
-  background-image: var(--tone);
   background-size: 5px 5px;
   border-bottom: 0.5px solid var(--line-soft);
 }
@@ -7076,7 +7002,7 @@ button.stop:hover {
   bottom: 0;
   left: -1px;
   width: 2px;
-  background: var(--ink);
+  background: var(--accent);
   border-radius: 1px;
 }
 
@@ -7175,7 +7101,7 @@ button.stop:hover {
   overflow: hidden;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-s);
-  background: var(--paper-dim) var(--tone);
+  background: var(--paper-dim);
   background-size: 6px 6px;
   cursor: zoom-in;
 }
@@ -7301,7 +7227,7 @@ button.stop:hover {
   right: 8px;
   height: 2px;
   border-radius: 1px;
-  background: var(--ink);
+  background: var(--accent);
 }
 
 .queued-card.drop-before::before {
@@ -7624,10 +7550,10 @@ button.stop:hover {
 
 .switcher-kind {
   margin-left: auto;
-  font-family: var(--mono);
   font-size: 9.5px;
   color: var(--ink-faint);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .switcher-row.picked .switcher-kind {
@@ -7698,7 +7624,6 @@ button.stop:hover {
 .grant-status {
   flex-shrink: 0;
   width: 84px;
-  font-family: var(--mono);
   font-size: 9.5px;
   font-weight: 600;
   text-align: center;
@@ -7706,6 +7631,7 @@ button.stop:hover {
   border: 1.5px solid var(--edge);
   border-radius: 999px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .grant-status.granted {
@@ -7914,7 +7840,7 @@ button.stop:hover {
 
 .devices-at {
   color: var(--ink-faint);
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .devices-setup select {
@@ -7926,10 +7852,10 @@ button.stop:hover {
 .devices-steps {
   margin: 2px 0;
   padding-left: 18px;
-  font-family: var(--mono);
   font-size: var(--fs-sm);
   color: var(--ink-soft);
   line-height: 1.7;
+  font-variant-numeric: tabular-nums;
 }
 
 .devices-steps li.now {
@@ -8015,10 +7941,10 @@ button.stop:hover {
 
 .int-head {
   margin: 14px 0 2px;
-  font-family: var(--mono);
   font-size: 9.5px;
   font-weight: 600;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .int-row {
@@ -8032,7 +7958,6 @@ button.stop:hover {
 .int-tag {
   flex-shrink: 0;
   width: 52px;
-  font-family: var(--mono);
   font-size: 9.5px;
   font-weight: 600;
   text-align: center;
@@ -8040,12 +7965,13 @@ button.stop:hover {
   border: 1.5px solid var(--edge);
   border-radius: 999px;
   color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
 }
 
 .int-tag.claude {
-  background: var(--ink);
+  background: var(--fill);
   border-color: var(--ink);
-  color: var(--paper);
+  color: var(--ink);
 }
 
 .int-body {
@@ -8069,12 +7995,12 @@ button.stop:hover {
 
 .int-target,
 .int-given {
-  font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .int-desc {
@@ -8149,15 +8075,15 @@ button.stop:hover {
 .hooks-label {
   flex-shrink: 0;
   width: 92px;
-  font-family: var(--mono);
   font-size: 10.5px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .hooks-hint {
-  font-family: var(--mono);
   font-size: 10.5px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .hooks-field .hooks-label .hooks-hint {
@@ -8256,9 +8182,9 @@ button.stop:hover {
 .hooks-state {
   flex-shrink: 0;
   width: 64px;
-  font-family: var(--mono);
   font-size: 10.5px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .hooks-state.failed,
@@ -8278,9 +8204,9 @@ button.stop:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .hooks-result {
@@ -8290,16 +8216,16 @@ button.stop:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
 }
 
 .hooks-when {
   flex-shrink: 0;
-  font-family: var(--mono);
   font-size: 10.5px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .int-given-box {
@@ -8343,8 +8269,8 @@ button.stop:hover {
 .grants-rows table {
   width: 100%;
   border-collapse: collapse;
-  font-family: var(--mono);
   font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .grants-rows td {
@@ -8451,8 +8377,6 @@ button.stop:hover {
   padding: 12px 16px 11px;
   border: 1.5px solid var(--hairline);
   border-radius: var(--radius-m);
-  background-image: var(--tone);
-  background-size: 6px 6px;
   font-variant-numeric: tabular-nums;
   min-width: 0;
 }
@@ -8520,11 +8444,11 @@ button.stop:hover {
 }
 
 .stats-head {
-  font-family: var(--mono);
   font-size: 10px;
   color: var(--ink-faint);
   padding-top: 8px;
   padding-bottom: 7px;
+  font-variant-numeric: tabular-nums;
 }
 
 .stats-row b {
@@ -8596,7 +8520,6 @@ button.stop:hover {
 
 .row-count {
   margin-left: auto;
-  font-family: var(--mono);
   font-size: 10.5px;
   font-weight: 600;
   color: var(--ink-faint);
@@ -8620,9 +8543,9 @@ button.stop:hover {
 
 .letter-from {
   margin-bottom: 4px;
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .letter-from b {
@@ -8648,9 +8571,9 @@ button.stop:hover {
   flex-wrap: wrap;
   gap: 4px 16px;
   margin: 10px 2px 4px;
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .team-budget b {
@@ -8710,9 +8633,9 @@ button.team-member-name:hover {
 
 .team-here {
   flex-shrink: 0;
-  font-family: var(--mono);
   font-size: 10px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .team-state {
@@ -8720,16 +8643,16 @@ button.team-member-name:hover {
   padding: 0 6px;
   border: 1px solid var(--line-soft);
   border-radius: 3px;
-  font-family: var(--mono);
   font-size: 10px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .team-state.working,
 .team-state.permission {
   border-color: var(--ink);
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--fill);
+  color: var(--ink);
 }
 
 .team-state.waiting,
@@ -8743,7 +8666,6 @@ button.team-member-name:hover {
   gap: 10px;
   margin-left: auto;
   flex-shrink: 0;
-  font-family: var(--mono);
   font-size: 10.5px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -8765,9 +8687,9 @@ button.team-member-name:hover {
   padding: 0 5px;
   border: 1px solid var(--hairline);
   border-radius: 3px;
-  font-family: var(--mono);
   font-size: 10px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .team-member-words {
@@ -8789,9 +8711,9 @@ button.team-member-name:hover {
 
 .team-member-model {
   margin-right: auto;
-  font-family: var(--mono);
   font-size: 10px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .team-member-actions button {
@@ -8804,20 +8726,20 @@ button.team-member-name:hover {
 }
 
 .team-liaison-doing {
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   line-height: 1.5;
   color: var(--ink-soft);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .team-liaison-none {
   margin: 10px 2px 0;
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .team-letters {
@@ -8849,9 +8771,9 @@ button.team-member-name:hover {
 .team-task-id {
   flex-shrink: 0;
   width: 26px;
-  font-family: var(--mono);
   color: var(--ink-faint);
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .team-task-title {
@@ -8864,9 +8786,9 @@ button.team-member-name:hover {
 
 .team-task-meta {
   flex-shrink: 0;
-  font-family: var(--mono);
   font-size: 10.5px;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .team-task.working .team-task-meta,
@@ -8886,10 +8808,10 @@ button.team-member-name:hover {
 .team-letters-label {
   flex-shrink: 0;
   width: 68px;
-  font-family: var(--mono);
   font-size: 10.5px;
   line-height: 1.9;
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .team-letters-list {
@@ -8914,8 +8836,8 @@ button.team-member-name:hover {
 
 .team-letter-when {
   flex-shrink: 0;
-  font-family: var(--mono);
   font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .team-letter-text {
@@ -8930,9 +8852,9 @@ button.team-member-name:hover {
   align-items: baseline;
   gap: 4px;
   margin: 14px 2px 0;
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .team-free > span:first-child {
@@ -8968,9 +8890,9 @@ button.team-member-name:hover {
 /* a teammate's card in the lead's chat: the card, under whose it is */
 .team-ask-from {
   margin: 0 2px 4px;
-  font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /* /btw: quick questions on the side (BtwPanel). A sheet down the right of

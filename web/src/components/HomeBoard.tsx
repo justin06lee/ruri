@@ -283,7 +283,7 @@ function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) => void 
           title="The Home agent — ask it to open and close projects"
           onClick={() => onTab("chat")}
         >
-          chat
+          Chat
           {(homeStatus === "working" || homeStatus === "permission") && (
             <span
               className={`dot ${homeStatus}`}
@@ -299,7 +299,7 @@ function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) => void 
           title="What all of this has cost — and what the agents are costing this machine right now"
           onClick={() => onTab("stats")}
         >
-          statistics
+          Statistics
         </button>
       </div>
     </div>

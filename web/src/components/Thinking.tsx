@@ -1,6 +1,6 @@
 /**
  * The working indicator: a small macOS-style spinner, drawn in CSS
- * (.spinner) so it follows the theme ink.
+ * (.spinner) so it follows the theme ink, stepped by lib/beat.ts.
  *
  * Beside it, the working line — what a running turn has done so far. A
  * turn is otherwise a closed box between the prompt and the result, which
@@ -10,69 +10,19 @@
  * connection.
  */
 import type { TurnProgress } from "../../../shared/protocol";
-import { useNow } from "../lib/beat";
+import { beat, useNow } from "../lib/beat";
 
+/** Turned by the ring's clock (lib/beat.ts), not a CSS animation. */
 export function Spinner() {
-  return <span className="spinner" aria-hidden />;
+  return <span className="spinner" ref={beat("spin")} aria-hidden />;
 }
 
 /* ── the working line ────────────────────────────────────────────── */
 
-/**
- * What Ruri is doing, allegedly. The word means nothing — it is there so a
- * line that is otherwise three numbers has a subject, and so a long wait
- * visibly keeps moving. Sleepy, dragon-ish, a bit put-upon: the voice the
- * Home agent already uses.
- */
-const WORDS = [
-  "Undulating",
-  "Pondering",
-  "Ruminating",
-  "Noodling",
-  "Mulling",
-  "Percolating",
-  "Simmering",
-  "Brooding",
-  "Puzzling",
-  "Untangling",
-  "Rummaging",
-  "Burrowing",
-  "Circling",
-  "Squinting",
-  "Whittling",
-  "Tinkering",
-  "Wrangling",
-  "Hatching",
-  "Scheming",
-  "Sifting",
-  "Prowling",
-  "Lumbering",
-  "Slouching",
-  "Stretching",
-  "Grumbling",
-  "Trundling",
-  "Skulking",
-  "Meandering",
-  "Dawdling",
-  "Smouldering",
-  "Roosting",
-  "Preening",
-  "Hoarding",
-  "Kindling",
-  "Drowsing",
-];
-/** How long each word stays before the next one. */
-const WORD_MS = 5_000;
 /** Nothing back for this long is worth saying out loud — under it, a gap
  *  is just a tool running, and a warning every time one did would teach
  *  the user to ignore the line. */
 const QUIET_MS = 90_000;
-
-function words(startedAt: number, now: number): string {
-  // seeded off the start so two turns running side by side don't chant
-  const offset = Math.floor(startedAt / WORD_MS);
-  return WORDS[(offset + Math.floor((now - startedAt) / WORD_MS)) % WORDS.length]!;
-}
 
 /** 42s, 3m 08s, 1h 14m — as long as it has been, in as few characters. */
 function elapsed(ms: number): string {
@@ -99,17 +49,16 @@ export function WorkingLine({ turn, effort }: { turn: TurnProgress; effort: stri
   const quiet = now - turn.at;
   return (
     <div className="working-line">
-      <span className="working-word">{words(turn.startedAt, now)}…</span>
+      <span className="working-word">Working…</span>
       <span className="working-stats">
-        ({elapsed(now - turn.startedAt)}
-        {turn.tokens > 0 && ` · ↓ ${tokens(turn.tokens)} tokens`}
+        {elapsed(now - turn.startedAt)}
+        {turn.tokens > 0 && ` · ${tokens(turn.tokens)} tokens`}
         {` · ${effort} effort`}
         {quiet > QUIET_MS && (
           // the one part of this line worth reading twice: everything else
           // says "still going", this says "and nothing has come back since"
           <span className="working-quiet"> · quiet for {elapsed(quiet)}</span>
         )}
-        )
       </span>
     </div>
   );

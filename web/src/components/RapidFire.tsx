@@ -276,7 +276,7 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2"
+            strokeWidth="1.75"
             strokeLinecap="round"
             aria-hidden
           >

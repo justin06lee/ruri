@@ -73,7 +73,7 @@ function Row({ skill, projectId }: { skill: SkillInfo; projectId?: string }) {
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
-          strokeWidth="2"
+          strokeWidth="1.75"
           strokeLinecap="round"
           aria-hidden
         >
@@ -114,7 +114,7 @@ function SkillReader() {
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="1.75"
               strokeLinecap="round"
               aria-hidden
             >

@@ -50,16 +50,15 @@ export function WorkingLine({ turn, effort }: { turn: TurnProgress; effort: stri
   return (
     <div className="working-line">
       <span className="working-word">Working…</span>
-      <span className="working-stats">
-        {elapsed(now - turn.startedAt)}
-        {turn.tokens > 0 && ` · ${tokens(turn.tokens)} tokens`}
-        {` · ${effort} effort`}
-        {quiet > QUIET_MS && (
-          // the one part of this line worth reading twice: everything else
-          // says "still going", this says "and nothing has come back since"
-          <span className="working-quiet"> · quiet for {elapsed(quiet)}</span>
-        )}
-      </span>
+      <span className="working-stats">{elapsed(now - turn.startedAt)}</span>
+      <details className="working-details">
+        <summary>Details</summary>
+        <span className="working-stats">
+          {turn.tokens > 0 && `${tokens(turn.tokens)} tokens · `}
+          {effort} effort
+        </span>
+      </details>
+      {quiet > QUIET_MS && <span className="working-quiet">No update for {elapsed(quiet)}</span>}
     </div>
   );
 }

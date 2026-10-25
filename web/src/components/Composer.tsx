@@ -54,13 +54,7 @@ const BAR_GAP = 14;
  * them all: the shell and the sketch pad. Send stays out, and
  * so does stop — those are the ones a hand reaches for.
  */
-function MoreActions({
-  onShell,
-  onSketch,
-}: {
-  onShell(): void;
-  onSketch?: () => void;
-}) {
+function MoreActions({ onShell, onSketch }: { onShell(): void; onSketch?: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -185,6 +179,7 @@ export function Composer({
    *  viewer lands there, since the textarea lost focus to the overlay. */
   const caretRef = useRef(0);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   /** The slash word the caret sits in, which is what opens the command
    *  menu — null when it is nowhere near one, or when Escape put it away
    *  until the word changes. */
@@ -711,14 +706,51 @@ export function Composer({
             {shell ? (
               <span className="shell-where">{project.name} · shell</span>
             ) : (
-              <SessionControls project={project} channelId={channelId} compact={compact} />
+              <details
+                className="composer-details"
+                onKeyDown={(e) => {
+                  if (e.key !== "Escape" || e.defaultPrevented) return;
+                  e.currentTarget.open = false;
+                  e.currentTarget.querySelector("summary")?.focus();
+                  e.stopPropagation();
+                }}
+              >
+                <summary className="composer-details-trigger" title="Model, reasoning and permissions">
+                  <Icon d="M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6" />
+                  Details
+                </summary>
+                <div className="composer-details-popover">
+                  <span className="composer-details-title">Conversation settings</span>
+                  <SessionControls project={project} channelId={channelId} compact={compact} />
+                </div>
+              </details>
             )}
             <div className="composer-actions">
+              {!shell && (
+                <>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    multiple
+                    hidden
+                    aria-label="Choose attachments"
+                    onChange={(e) => {
+                      if (e.target.files) addFiles(e.target.files, caretRef.current);
+                      e.target.value = "";
+                    }}
+                  />
+                  <button
+                    className="attach-button"
+                    title="Attach files"
+                    aria-label="Attach files"
+                    onClick={() => fileRef.current?.click()}
+                  >
+                    <Icon d="M8 12l6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9M6 14l8-8" />
+                  </button>
+                </>
+              )}
               {compact && !shell && (
-                <MoreActions
-                  onShell={toggleShell}
-                  onSketch={onSketch ? () => onSketch() : undefined}
-                />
+                <MoreActions onShell={toggleShell} onSketch={onSketch ? () => onSketch() : undefined} />
               )}
               {(!compact || shell) && (
                 <button

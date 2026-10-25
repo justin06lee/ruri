@@ -814,9 +814,8 @@ textarea::placeholder {
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* as wide as a conversation's composer row, so the gauges stand either
-     side of the box here too; the marks and the title center in it */
-  width: min(1000px, 94%);
+  /* as wide as a conversation's composer row */
+  width: min(760px, 94%);
   padding-bottom: 6vh;
   user-select: none;
   animation: rise 240ms ease-out;
@@ -1296,11 +1295,9 @@ textarea::placeholder {
    marks: about 46px of paper each way, measured on the ink — the marks'
    lowest line to the title's lowercase, and the title's baseline to the
    box. The two margins here are that second 46 less what the line box
-   leaves under its baseline. Kept off the gauges: they stand
-   beside the box and rise past its top, so a long title wraps within the
-   box's width. */
+   leaves under its baseline. */
 .hero-title {
-  max-width: min(680px, calc(100% - 302px));
+  max-width: 100%;
   font-size: 34px;
   font-weight: 750;
   letter-spacing: 0.01em;
@@ -1316,17 +1313,6 @@ textarea::placeholder {
 
 .hero-composer .composer {
   padding: 0;
-}
-
-/* The gauges stand taller than the textbox, and in the composer's row the
-   tallest thing sets the row's height — so here, with the title above, the
-   box was pushed a gauge's top further down than the marks are from the
-   title. Zero height: the row is the box's height, and the gauges still
-   stand on its baseline, rising past its top into the space beside the
-   title. */
-.hero-composer .usage-gauges {
-  height: 0;
-  align-self: flex-end;
 }
 
 .home-icon {
@@ -3140,9 +3126,7 @@ textarea::placeholder {
 }
 
 /* Placed off the textbox's own measured height, exactly like the
-   jump-to-latest pill: the gauges flanking the composer stand taller than
-   it does, so anything laid out in flow above the composer ends up level
-   with their tops rather than with the thing you type in. */
+   jump-to-latest pill. */
 .rapid-bar.floating {
   position: absolute;
   left: 0;
@@ -4669,9 +4653,7 @@ textarea::placeholder {
   font-style: italic;
 }
 
-/* Hugs the textbox, not the whole dock — the gauges flanking it stand
-   taller than the box, and the pill has no business floating up by their
-   tops. Centered by margins, not translateX: the rise keyframes animate
+/* Hugs the textbox, not the whole dock. Centered by margins, not translateX: the rise keyframes animate
    transform, which would replace a translateX(-50%) base and slide the pill
    in from the right when the animation ended. */
 .jump-latest {
@@ -5370,96 +5352,6 @@ textarea::placeholder {
   border-top: 1px solid var(--line-faint);
 }
 
-/* ── the usage gauges ─────────────────────────────────────────────── */
-
-/* Four quiet readouts flanking the composer: a number, a thin bar under it
-   that fills left to right, and the window's name hung below. The bar is
-   ink on a faint ink track, so it follows every theme for free; only a
-   window nearly spent (90%+) takes the diff's red. */
-
-.usage-gauges {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  flex-shrink: 0;
-  /* the composer keeps the keyboard; a gauge is a readout, not a control */
-  user-select: none;
-}
-
-/* a fixed column width keeps both pairs the same size whatever their labels
-   say, so the composer between them stays optically centered */
-.usage-gauge {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-  width: 58px;
-  /* sits level with the middle of a one-line box, not on its bottom edge */
-  margin-bottom: 14px;
-  cursor: default;
-}
-
-.usage-value {
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-
-.usage-bar {
-  height: 3px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--ink) 10%, transparent);
-  overflow: hidden;
-}
-
-.usage-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: var(--ink-soft);
-  transition: width 320ms ease-out;
-}
-
-.usage-bar.hot .usage-fill {
-  background: var(--diff-del-ink);
-}
-
-/* out of the column's flow and hung below it, so the names line up across
-   all four gauges whatever is above them */
-.usage-name {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  margin-top: 5px;
-  font-size: 11px;
-  line-height: 1.3;
-  color: var(--ink-faint);
-  white-space: nowrap;
-}
-
-/* the countdown to that window's rollover, a step quieter than the name it
-   hangs under — a second thing to read, not a second label */
-.usage-reset {
-  display: block;
-  font-size: 10px;
-  line-height: 1.25;
-  opacity: 0.75;
-}
-
-/* a narrow window gets narrower gauges rather than none; the app's own
-   minimum width (880) leaves the box a good 400px between them */
-@media (max-width: 1100px) {
-  .usage-gauges {
-    gap: 8px;
-  }
-
-  .usage-gauge {
-    width: 46px;
-  }
-}
-
 /* ── the question card (AskUserQuestion) ──────────────────────────── */
 
 /* Not a permission card: the model is asking, so this reads as a form the
@@ -6122,7 +6014,7 @@ textarea::placeholder {
 /* ── composer ─────────────────────────────────────────────────────── */
 
 /* The composer hovers over the tail of the conversation on nothing at all —
-   no band, no fill, no seam. Only the box, the gauges, and the viewer take
+   no band, no fill, no seam. Only the box and the viewer take
    the mouse; everything else lets clicks, selection, and the wheel fall
    through to the transcript underneath. */
 .composer-dock {
@@ -6135,26 +6027,20 @@ textarea::placeholder {
 }
 
 .composer-dock .composer-box,
-.composer-dock .usage-gauges,
 .composer-dock .viewer-overlay {
   pointer-events: auto;
 }
 
-/* the bottom padding clears the gauges' hanging labels, which are out of
-   flow: the name lands on the hint's band and the reset countdown sits under
-   it, so the band has to be a line taller than the hint alone needs */
 .composer {
-  padding: 8px 24px 22px;
+  padding: 8px 24px 16px;
 }
 
-/* the composer and its four gauges on one line, the box centered between
-   them — the pairs are equal-width so the box stays optically centered */
+/* one column as wide as a comfortable line of reading, like Messages' field */
 .composer-row {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  gap: 14px;
-  max-width: 1000px;
+  max-width: 760px;
   margin: 0 auto;
 }
 
@@ -6686,9 +6572,8 @@ button.stop:hover {
 }
 
 .composer-hint {
-  /* the box's own span: the gauges stand either side of it, with their
-     readings under them, and the hint has no business under those */
-  max-width: min(800px, calc(100% - 320px));
+  /* the box's own span */
+  max-width: 760px;
   margin: 7px auto 0;
   text-align: center;
   font-size: 11px;

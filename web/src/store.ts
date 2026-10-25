@@ -424,7 +424,7 @@ interface RuriState {
    *  connection, a usage limit): nothing goes out until the next prompt
    *  pulls it along, or it is sent on by hand. */
   queueHeld: Record<string, QueueHold | undefined>;
-  /** Limit windows per provider id (percent used) for the usage gauges. */
+  /** Limit windows per provider id (percent used), for Statistics. */
   usage: Record<string, UsageLimits>;
   /** Context-window occupancy per channel. */
   contexts: Record<string, ContextUsage>;

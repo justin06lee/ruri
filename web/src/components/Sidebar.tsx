@@ -4,6 +4,7 @@ import { useConfirm } from "./Confirm";
 import { getPref, setPref } from "../prefs";
 import { STAR_PATH } from "../icons";
 import { isBusy, prefetchTranscript, renameProject, send, toggleProject, useRuri } from "../store";
+import { PeekBand } from "./PeekBand";
 import { Spinner } from "./Thinking";
 
 function HomeRow() {
@@ -425,8 +426,10 @@ export const Sidebar = memo(function Sidebar() {
 
   return (
     <aside className="sidebar">
-      {/* the title bar: room for the traffic lights, and a drag region */}
-      <div className="sidebar-header" />
+      <div className="sidebar-header">
+        {/* the pictures across the top, as Settings has them (band.ts) */}
+        <PeekBand />
+      </div>
 
       <div className="project-list">
         <HomeRow />

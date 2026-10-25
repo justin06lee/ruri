@@ -7,6 +7,7 @@ import type {
   PermissionState,
 } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
+import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
 import { Devices } from "./Devices";
 import { GreetingEditor } from "./GreetingEditor";
@@ -704,6 +705,11 @@ export function Settings({ onClose }: { onClose(): void }) {
                 )}
               </div>
             </div>
+          </section>
+
+          <section className="settings-group">
+            <h2 className="settings-group-name">Peek band</h2>
+            <BandEditor />
           </section>
 
           <section className="settings-group">

@@ -76,6 +76,7 @@ import { hydratePrefs } from "./prefs";
 import { isAwake, subscribeAwake } from "./lib/awake";
 import { Held } from "./lib/held";
 import { fileToBase64 } from "./lib/files";
+import { pictureStored } from "./pictures";
 
 export interface Draft {
   messageId: string;
@@ -1798,6 +1799,10 @@ function apply(msg: ServerMessage): void {
       const panel = useRuri.getState().agentPanel;
       const showing = panel?.keys.at(-1);
       if (panel && showing) requestAgentLog(panel.projectId, showing);
+      break;
+    }
+    case "picture_stored": {
+      pictureStored(msg.id, msg.url);
       break;
     }
     case "agent_log": {

@@ -38,7 +38,6 @@ import {
   type Marker,
 } from "../lib/markers";
 import { SessionControls } from "./SessionControls";
-import type { SketchBackground } from "./Sketch";
 import { Icon } from "./chat/Icon";
 import { NO_QUEUED } from "./chat/empty";
 import { MAC, MOD } from "../lib/keys";
@@ -53,16 +52,14 @@ const BAR_GAP = 14;
 
 /**
  * The composer's lesser buttons behind one, for a box too narrow to show
- * them all: the shell, the sketch pad, the scissors. Send stays out, and
+ * them all: the shell and the scissors. Send stays out, and
  * so does stop — those are the ones a hand reaches for.
  */
 function MoreActions({
   onShell,
-  onSketch,
   onSplit,
 }: {
   onShell(): void;
-  onSketch?: () => void;
   /** Absent while there is nothing to split. */
   onSplit?: () => void;
 }) {
@@ -102,12 +99,6 @@ function MoreActions({
             <Icon d="M4 17l6-6-6-6M12 19h8" />
             Shell
           </button>
-          {onSketch && (
-            <button className="dropdown-item" role="menuitem" onClick={pick(onSketch)}>
-              <Icon d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-              Draw
-            </button>
-          )}
           <button className="dropdown-item" role="menuitem" disabled={!onSplit} onClick={pick(onSplit)}>
             <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
             Split and send
@@ -165,7 +156,6 @@ export function Composer({
   project,
   busy,
   onSent,
-  onSketch,
 }: {
   /** The session (or Home) this composer sends to. */
   channelId: string;
@@ -173,8 +163,6 @@ export function Composer({
   busy: boolean;
   /** Fires right after a prompt goes out (rapid fire advances on it). */
   onSent?: () => void;
-  /** Open the sketch pad — blank, or on one of the attached pictures. */
-  onSketch?: (background?: SketchBackground) => void;
 }) {
   const projectId = channelId;
   const saved = composerDrafts.get(channelId);
@@ -737,7 +725,6 @@ export function Composer({
               {compact && !shell && (
                 <MoreActions
                   onShell={toggleShell}
-                  onSketch={onSketch ? () => onSketch() : undefined}
                   onSplit={text.trim() ? () => void submit("send_split") : undefined}
                 />
               )}
@@ -748,15 +735,6 @@ export function Composer({
                   onClick={toggleShell}
                 >
                   <Icon d={shell ? "M4 6h16M4 12h10M4 18h16" : "M4 17l6-6-6-6M12 19h8"} />
-                </button>
-              )}
-              {!compact && !shell && onSketch && (
-                <button
-                  className="sketch-toggle"
-                  title="Draw — a sketch to show the model, or open a picture to draw on"
-                  onClick={() => onSketch()}
-                >
-                  <Icon d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                 </button>
               )}
               {busy && !shell && (
@@ -829,14 +807,6 @@ export function Composer({
           onClose={() => setViewing(null)}
           onRegions={setRegions}
           onRegionAdd={addRegion}
-          {...(onSketch && viewingAtt.kind === "image"
-            ? {
-                onDraw: () => {
-                  setViewing(null);
-                  onSketch({ id: viewingAtt.id, url: viewingAtt.objectUrl, name: viewingAtt.name });
-                },
-              }
-            : {})}
         />
       )}
     </div>

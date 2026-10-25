@@ -26,24 +26,19 @@ import { AgentsPage } from "./AgentsPage";
 import { BridgeStrip } from "./Bridge";
 import { Icon, TOOL_ICONS } from "./chat/Icon";
 import { NO_EARLIER, NO_EVENTS, NO_QUEUED, NO_SUMMARIES } from "./chat/empty";
-import { Architecture } from "./Architecture";
 import { Components } from "./Components";
 import { Composer } from "./Composer";
 import { EmptyTop } from "./EmptyTop";
 import { CompactionMark, EventView } from "./EventView";
 import { Exchange, groupTurns, NO_EXCERPTS, turnExcerpts, type Half } from "./Exchange";
 import { HomeDeck, type HomeTab } from "./HomeBoard";
-import { Ideas } from "./Ideas";
 import { AskCard } from "./PermissionBanner";
 import { QueuedList, QueueStandby } from "./Queue";
 import { RapidBar, type RapidFire } from "./RapidFire";
 import { SelectionFlags } from "./Selection";
-import { Sketch, type SketchBackground } from "./Sketch";
 import { Skills } from "./Skills";
-import { TalkPage } from "./TalkPage";
 import { TeamPage } from "./TeamPage";
 import { Thinking, WorkingLine } from "./Thinking";
-import { Tracker } from "./Tracker";
 
 /** Turns rendered before the first paint — more than fills a screen; the
  *  rest arrive behind it. */
@@ -202,7 +197,6 @@ function ChatView({
     stopping,
     unsent,
     crewAgents,
-    trackerItems,
     earlier,
     history,
   } = useRuri(
@@ -217,7 +211,6 @@ function ChatView({
       stopping: s.stopping[activeId] === true,
       unsent: Object.values(s.unsent).filter((id) => id === activeId).length,
       crewAgents: s.crew[activeId],
-      trackerItems: s.tracker[activeId],
       // What a compaction left behind it: the live transcript opens on
       // the newest mark, and the exchanges before it come with it as an
       // outline (`earlier`) — shown above the mark, each folded to its
@@ -287,10 +280,9 @@ function ChatView({
   // error #185). Components named since the user last looked wear a star,
   // which is how you find out a turn named something without being taken
   // anywhere: the cards themselves are one click away.
-  const { agentsOpen, ideaCount, freshComponents } = useRuri(
+  const { agentsOpen, freshComponents } = useRuri(
     useShallow((s) => ({
       agentsOpen: s.agentPanel !== null && s.agentPanel.projectId === activeId,
-      ideaCount: boardId ? (s.ideas[boardId] ?? []).filter((i) => !i.done).length : 0,
       freshComponents: boardId ? (s.components[boardId] ?? []).filter((i) => i.star).length : 0,
     })),
   );
@@ -303,21 +295,12 @@ function ChatView({
    * at them — the toggle's badge is the whole notification.
    */
   const [page, setPage] = useState<
-    "chat" | "tracker" | "ideas" | "components" | "architecture" | "skills" | "talk" | "team"
+    "chat" | "components" | "skills" | "team"
   >("chat");
   // One chat (the default) has no team behind the project chat, so no
   // Team page; /btw's side panel is open on this project or not
   const oneChat = useSessionsMode();
   const btwOpen = useBtwOpen(boardId ?? "");
-  // messages between this chat's agent and others still on their way
-  const talking = useRuri(
-    (s) =>
-      s.talk?.letters.filter(
-        (l) =>
-          (l.from === activeId || l.to === activeId) &&
-          (l.status === "asking" || l.status === "queued" || l.status === "working"),
-      ).length ?? 0,
-  );
   /**
    * Home is two pages under one strip — the agent's chat and the
    * statistics — and the strip remembers which one you were on across
@@ -335,7 +318,6 @@ function ChatView({
   // Home's pages slide past each other under one strip (HomeDeck); the
   // chat's side leaves the strip's height free at its top
   const homeDeck = isHome && !rapid?.on;
-  const openCount = (trackerItems ?? []).filter((i) => i.status === "open").length;
 
   // another of the project's pages takes the agents page's place, as it
   // would the chat's
@@ -354,13 +336,6 @@ function ChatView({
   );
   const [rewindTarget, setRewindTarget] = useState<{ id: string; text: string } | null>(null);
 
-  // The sketch pad takes the pane, like a page — blank, or on a picture
-  // from the composer's strip. Leaving the channel leaves the pad.
-  const [sketch, setSketch] = useState<{ background?: SketchBackground } | null>(null);
-  const openSketch = useCallback(
-    (background?: SketchBackground) => setSketch(background ? { background } : {}),
-    [],
-  );
 
   /**
    * How much of the transcript is on screen. A long session is hundreds of
@@ -799,19 +774,6 @@ function ChatView({
           {agentsWorking > 0 && <span className="tracker-badge">{agentsWorking}</span>}
         </button>
         <button
-          className={`icon-button ${page === "talk" ? "active" : ""} ${talking > 0 ? "badged" : ""}`}
-          title={
-            talking > 0
-              ? `Talk — ${talking} ${talking === 1 ? "message" : "messages"} between this chat and other agents on the way; and which projects your agents may reach`
-              : "Talk — which projects your agents may reach, and what they have said lately"
-          }
-          onClick={() => setPage(page === "talk" ? "chat" : "talk")}
-        >
-          {/* two speech bubbles: one agent, and another answering */}
-          <Icon d="M3 5.5A1.5 1.5 0 0 1 4.5 4h9A1.5 1.5 0 0 1 15 5.5v5a1.5 1.5 0 0 1-1.5 1.5H8l-3 2.5V12h-.5A1.5 1.5 0 0 1 3 10.5zM17.5 8h2A1.5 1.5 0 0 1 21 9.5v5a1.5 1.5 0 0 1-1.5 1.5H19v2.5L16 16h-4.5a1.5 1.5 0 0 1-1.5-1.5V14" />
-          {talking > 0 && <span className="tracker-badge">{talking}</span>}
-        </button>
-        <button
           className={`icon-button ${page === "skills" ? "active" : ""}`}
           title="Skills — what this project and this machine load before working"
           onClick={() => setPage(page === "skills" ? "chat" : "skills")}
@@ -819,14 +781,6 @@ function ChatView({
           {/* a puzzle piece: what a skill is — a part that fits onto the
               model, installed and taken out as one piece */}
           <Icon d="M4 7.5A1.5 1.5 0 0 1 5.5 6H9a2.2 2.2 0 1 1 4 0h3.5A1.5 1.5 0 0 1 18 7.5V11a2.2 2.2 0 1 1 0 4v3.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5z" />
-        </button>
-        <button
-          className={`icon-button ${page === "architecture" ? "active" : ""}`}
-          title="Architecture — what this project is, the stack, how it fits together, and where things are"
-          onClick={() => setPage(page === "architecture" ? "chat" : "architecture")}
-        >
-          {/* three layers stacked: the stack, and the page that draws it */}
-          <Icon d="M12 3l9 4.5-9 4.5-9-4.5zM3 12l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5" />
         </button>
         <button
           className={`icon-button comp-toggle ${page === "components" ? "active" : ""}`}
@@ -842,53 +796,12 @@ function ChatView({
             </span>
           )}
         </button>
-        <button
-          className={`icon-button ${page === "ideas" ? "active" : ""} ${ideaCount > 0 ? "badged" : ""}`}
-          title="Ideas — the board of things you want out of this project"
-          onClick={() => setPage(page === "ideas" ? "chat" : "ideas")}
-        >
-          <Icon d="M9 18h6M10 21h4M12 3a6 6 0 0 1 4 10.5c-.6.6-1 1.4-1 2.2v.3H9v-.3c0-.8-.4-1.6-1-2.2A6 6 0 0 1 12 3z" />
-          {ideaCount > 0 && <span className="tracker-badge">{ideaCount}</span>}
-        </button>
-        <button
-          className={`icon-button tracker-toggle ${page === "tracker" ? "active" : ""} ${openCount > 0 ? "badged" : ""}`}
-          title={page === "tracker" ? "Back to the chat" : "Feature tracker — things to test by hand"}
-          onClick={() => setPage(page === "tracker" ? "chat" : "tracker")}
-        >
-          <Icon d="M9 11l3 3 8-8M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" />
-          {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
-        </button>
       </div>
     </header>
   );
 
-  // Home's tab strip steps aside while a pad is open (styles.css)
-  const sketching = sketch !== null;
-  useEffect(() => {
-    if (!sketching) return;
-    document.documentElement.toggleAttribute("data-sketching", true);
-    return () => {
-      document.documentElement.toggleAttribute("data-sketching", false);
-    };
-  }, [sketching]);
-
   // What the chat shows — on Home, the chat's side of the deck.
   const view = (() => {
-    // The pad, wherever it was opened from — over a fresh session as much
-    // as over a conversation.
-    if (sketch) {
-      return (
-        <main className={pane("chat")}>
-          {header}
-          <Sketch
-            channelId={activeId}
-            {...(sketch.background ? { background: sketch.background } : {})}
-            onClose={() => setSketch(null)}
-          />
-        </main>
-      );
-    }
-
     // The agents page takes the whole pane, the way the project's other pages do.
     if (agentsOpen) {
       return (
@@ -907,12 +820,8 @@ function ChatView({
       return (
         <main className={pane("chat")}>
           {header}
-          {page === "tracker" && <Tracker projectId={activeId} onClose={() => setPage("chat")} />}
-          {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
           {page === "components" && boardId && <Components projectId={boardId} />}
-          {page === "architecture" && boardId && <Architecture projectId={boardId} />}
           {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
-          {page === "talk" && <TalkPage channelId={activeId} />}
           {page === "team" && <TeamPage project={project} onClose={() => setPage("chat")} />}
         </main>
       );
@@ -944,7 +853,6 @@ function ChatView({
                 channelId={activeId}
                 project={project}
                 busy={busy}
-                onSketch={openSketch}
                 {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
               />
             </div>
@@ -1172,7 +1080,6 @@ function ChatView({
             channelId={activeId}
             project={project}
             busy={busy}
-            onSketch={openSketch}
             {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
           />
         </div>

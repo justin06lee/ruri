@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- The drawing pad draws smoother: every pointer sample is used (coalesced events), the pen eases out a hand's tremble and lays its stroke as curves through the samples instead of straight joins, and finishes where you let go. The eraser is a real eraser now, in its icon and in use: drag it across strokes and whatever it touches goes (the ink itself, not the box around it), one undo per drag, with a ring for a pointer. Tool glyphs are drawn a hair lighter.
 - The model, effort and permission pickers under the input box are capsules, washed grey on hover and a shade deeper while open.
 - Less blue: toolbar and composer icons are grey again and go ink on a grey wash when hovered; a working project's status pill is a grey wash too. Blue is kept for buttons, links, selection, a toggle that's on, and send.
 - Ember's accent is Apple blue now, like light and dark: buttons, selection and focus look the same in every theme.

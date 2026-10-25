@@ -526,6 +526,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .fx-host.hot.fx-grow .fx-art {
   transform: scale(calc(1 + var(--amt) / 100));
+}
+
 .fx-host.hot.fx-pop .fx-art {
   transform: translateY(calc(var(--amt) * -1px)) scale(1.12);
 }

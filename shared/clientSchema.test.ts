@@ -175,7 +175,6 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   new_session: { type: "new_session", projectId: "p" },
   rename_session: { type: "rename_session", sessionId: "s", title: "Frontend UI" },
   archive_session: { type: "archive_session", sessionId: "s", archived: true },
-  side_chat: { type: "side_chat", projectId: "p" },
   set_workspace: { type: "set_workspace", path: "/Users/me/work" },
   set_music_dir: { type: "set_music_dir", path: "/Users/me/Music" },
   toggle_model_star: { type: "toggle_model_star", model: "haiku" },

@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- remove(btw): the btw button, its side panel and `/btw <question>`, with the server's side chat behind them (`side_chat`, its read-only brief and refused tools). A btw chat made before stays on file, out of every list.
 - remove: prompt splitting. The scissors button, its More-menu item and the hint line under the input box are gone, and so is everything behind them: the `send_split` message, the queue's `split` flag, `dispatchSplit` and the small model's `splitPrompt`. A prompt goes out as written, one turn.
 - feat(ui): the peek band is back across the sidebar's top, with Settings → Peek band; its editor picks and focuses in blue, and the screentone under it stays gone
 - refactor(ui): one scale for every corner, one feel for every motion, one focus ring. Corners come from five steps (`--radius-xs` 4 · s 6 · m 10 · l 14 · xl 20, and pills at 999px) instead of a dozen loose pixel values; hover and press feedback is `--quick` (140ms) and anything moving or appearing is `--move` (200ms), both easing out; every focused thing wears the blue focus ring (no more dashed or ink outlines); good states (granted, online) are system green (`--ok`) and a working project card's status is a blue wash instead of an ink block.

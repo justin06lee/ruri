@@ -9,7 +9,6 @@ import {
 } from "../../../shared/protocol";
 import { beat } from "../lib/beat";
 import { StreamingMarkdown } from "../markdown";
-import { BtwPanel, closeBtw, openBtw, useBtwOpen } from "./BtwPanel";
 import { useSessionsMode } from "../lib/sessionsMode";
 import { getPref, setPref } from "../prefs";
 import {
@@ -356,9 +355,8 @@ function ChatView({
     "chat" | "components" | "skills" | "team"
   >("chat");
   // One chat (the default) has no team behind the project chat, so no
-  // Team page; /btw's side panel is open on this project or not
+  // Team page
   const oneChat = useSessionsMode();
-  const btwOpen = useBtwOpen(boardId ?? "");
   /**
    * Home is two pages under one strip — the agent's chat and the
    * statistics — and the strip remembers which one you were on across
@@ -812,19 +810,6 @@ function ChatView({
         </div>
       )}
       <div className="header-controls">
-        {boardId && (
-          <button
-            className={`icon-button btw-button ${btwOpen ? "active" : ""}`}
-            title={
-              btwOpen
-                ? "Close btw (Esc)"
-                : "btw — a quick question on the side; the chat carries on (or send /btw <question>)"
-            }
-            onClick={() => (btwOpen ? closeBtw() : openBtw(boardId))}
-          >
-            btw
-          </button>
-        )}
         {!oneChat && (
           <button
             className={`icon-button ${page === "team" ? "active" : ""} ${teamWorking > 0 ? "badged" : ""}`}
@@ -953,7 +938,6 @@ function ChatView({
               />
             </div>
           </div>
-          {!isHome && project && <BtwPanel project={project} />}
         </main>
       );
     }
@@ -1180,7 +1164,6 @@ function ChatView({
             {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
           />
         </div>
-        {!isHome && project && <BtwPanel project={project} />}
       </main>
     );
   })();

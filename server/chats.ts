@@ -48,9 +48,6 @@ import {
   PLAIN_TALK_TOOLS,
   projectChatBriefing,
   sessionsMode,
-  SIDE_REFUSED,
-  sideChatBriefing,
-  sideRefusal,
 } from "./sessionsMode.js";
 import { taskTurnEnded, workerMode } from "./workers.js";
 
@@ -268,10 +265,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       // the project's lead runs its team, and so does its liaison — the lead
       // other projects' agents reach; every other chat is on it
       const seat = owner?.sessions.find((session) => session.id === project.id);
-      // (Sessions mode has no team: every chat is an ordinary full session,
-      // and the /btw side chat is never on one)
-      const side = seat?.side === true;
-      const plain = sessionsMode(ctx) || side;
+      // (Sessions mode has no team: every chat is an ordinary full session)
+      const plain = sessionsMode(ctx);
       const head: Head | undefined =
         !owner || plain
           ? undefined
@@ -284,13 +279,11 @@ export function createChatManager(ctx: ServerContext): SessionManager {
       const talkEndpoint = `http://127.0.0.1:${ctx.listeningPort}/talk/${project.id}`;
       const team = !owner
         ? ""
-        : side
-          ? sideChatBriefing(owner.name)
-          : plain
-            ? leadOf(owner)?.id === project.id && claude
-              ? projectChatBriefing(owner.name)
-              : ""
-            : head
+        : plain
+          ? leadOf(owner)?.id === project.id && claude
+            ? projectChatBriefing(owner.name)
+            : ""
+          : head
               ? leadBriefing(owner.name, claude ? "tool" : "http", talkEndpoint, head, workerMode(owner))
               : memberBriefing({
                   project: owner.name,
@@ -339,11 +332,9 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         // of their own — refused with whom to hand the job instead — and a
         // member and the liaison ask no questions on cards; then a word
         // mid-turn when a lead's shell starts doing the job for it
-        ...(side
-          ? { refuse: { tools: SIDE_REFUSED, reason: sideRefusal } }
-          : owner && !plain
-            ? { refuse: { tools: refusedFor(role), reason: (tool: string) => refusal(tool, role) } }
-            : {}),
+        ...(owner && !plain
+          ? { refuse: { tools: refusedFor(role), reason: (tool: string) => refusal(tool, role) } }
+          : {}),
         ...(head ? { afterTools: leadOnTools(ctx, project.id, head) } : {}),
         fillSecrets: (input) =>
           ctx.secrets.wanted(JSON.stringify(input)) ? ctx.secrets.fillInput(input) : undefined,
@@ -352,7 +343,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         autoAllow: [
           ...COMPONENT_TOOLS,
           ...BRIDGE_TOOLS,
-          ...(side ? [] : plain ? PLAIN_TALK_TOOLS : TALK_TOOLS),
+          ...(plain ? PLAIN_TALK_TOOLS : TALK_TOOLS),
           ...(owner ? CONTEXT_TOOLS : []),
           ...(head ? TEAM_TOOLS : []),
         ],
@@ -371,13 +362,11 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           env: { ...ctx.secrets.env(), ...cliEnv(libraryEndpoint(ctx, project.id)) },
           mcpServers: {
             ruri: componentTools(ctx.componentHost, project.id, [
-              ...(side
-                ? []
-                : plain
-                  ? talkTools(talkHost(ctx), project.id).filter((t) =>
-                      PLAIN_TALK_TOOLS.includes(`mcp__ruri__${t.name}`),
-                    )
-                  : talkTools(talkHost(ctx), project.id, !!head)),
+              ...(plain
+                ? talkTools(talkHost(ctx), project.id).filter((t) =>
+                    PLAIN_TALK_TOOLS.includes(`mcp__ruri__${t.name}`),
+                  )
+                : talkTools(talkHost(ctx), project.id, !!head)),
               ...(owner ? contextTools(ctx, project.id) : []),
               ...(head ? teamTools(teamHost(ctx), project.id) : []),
             ]),

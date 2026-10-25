@@ -71,9 +71,8 @@ export interface SessionInfo {
   model?: string;
   permissionMode?: PermissionMode;
   effort?: string;
-  /** The project's /btw side chat: quick questions on the side, in a
-   *  chat of their own beside the project chat — never its lead, never a
-   *  member, never in the sidebar. */
+  /** A /btw side chat from before that was taken out: kept on file but
+   *  out of every list — never the lead, never a member. */
   side?: boolean;
   /** Put away by the user in Sessions mode: out of the project's list
    *  (kept under "archived"), its transcript untouched. */
@@ -153,11 +152,6 @@ export function isMember(project: Pick<Project, "sessions">, sessionId: string):
     leadOf(project)?.id !== sessionId &&
     project.sessions.some((session) => session.id === sessionId && !session.liaison && !session.side)
   );
-}
-
-/** A project's /btw side chat, once it has one. */
-export function sideOf(project: Pick<Project, "sessions">): SessionInfo | undefined {
-  return project.sessions.find((session) => session.side);
 }
 
 /** A project's liaison, once an outside agent has written to it. */
@@ -2152,9 +2146,6 @@ export type ClientMessage =
   | { type: "new_session"; projectId: string }
   | { type: "rename_session"; sessionId: string; title: string }
   | { type: "archive_session"; sessionId: string; archived: boolean }
-  /** The project's /btw side chat: made the first time it is asked for,
-   *  then it is in the project's sessions (`side`). */
-  | { type: "side_chat"; projectId: string }
   | { type: "set_workspace"; path: string }
   | { type: "set_music_dir"; path: string }
   /** Cycle a model's star: none → starred → small-tasks → default → none. */

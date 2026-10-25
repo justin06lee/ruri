@@ -1,6 +1,6 @@
 /**
  * A prompt's way out: written into the transcript, checkpointed, titled,
- * split or queued as it asks, and handed to the chat's session — plus
+ * queued as it asks, and handed to the chat's session — plus
  * what a finished turn sets off next (the queue moving, a dropped turn
  * tried again) and ruri's own /compact.
  */
@@ -20,7 +20,6 @@ import { HOME_ID } from "./manager.js";
 import { backfillNotes } from "./notes.js";
 import type { QueueEntry } from "./queue.js";
 import { RETRY_NUDGE, RETRY_WAITS_MS } from "./retry.js";
-import { smallModelEnabled, splitPrompt } from "./smallmodel.js";
 import { answerPrompt, letterPrompt, seatName, stoppedLine } from "./talk.js";
 import { contextWindow, resetContext } from "./turns.js";
 import { modelPayload, processAttachments, storeAttachments } from "./uploads.js";
@@ -81,7 +80,7 @@ export function dispatch(
   // a brief — which this prompt then carries
   checkResumable(ctx, channelId);
   if (silent) {
-    // a split sub-prompt: files are already stored, no new user event
+    // a prompt riding under one already shown: files are already stored, no new user event
     const visible = ctx.archive.events(channelId).findLast((event) => event.kind === "user")?.id;
     const { brief, harness } = catchUp(ctx, channelId, text, visible);
     if (visible) ctx.archive.noteSent(channelId, harness, visible);
@@ -207,67 +206,6 @@ export function holdsEvent(ctx: ServerContext, channelId: string, eventId: strin
   return false;
 }
 
-/**
- * The scissors send: one visible prompt, split by the small model into
- * its separate requests and fed to the harness one turn at a time.
- */
-export function dispatchSplit(
-  ctx: ServerContext,
-  channelId: string,
-  text: string,
-  uploads: AttachmentUpload[],
-  /** Ahead of a queue standing by since a stop — see `send`. */
-  ahead = false,
-  /** The id the user event should go by (see dispatch). */
-  eventId?: string,
-): string {
-  // The user sees exactly one thing: their prompt, sent now. The
-  // split and the turn-by-turn feed happen entirely out of sight.
-  const attachments = storeAttachments(uploads);
-  const userEvent: TranscriptEvent = {
-    kind: "user",
-    id: userEventId(ctx, channelId, eventId),
-    text: text,
-    ...(attachments.length ? { attachments } : {}),
-    ts: Date.now(),
-  };
-  recordEvent(ctx, channelId, userEvent);
-  checkpoint(ctx, channelId, userEvent.id);
-  // the split is thinking before the harness is; the clock starts with
-  // the prompt, not with whichever sub-prompt reaches a session first
-  ctx.turns.startTurn(channelId);
-  ctx.clients.broadcast({ type: "status", projectId: channelId, status: "working" });
-  const epoch = ctx.queues.epochs.get(channelId) ?? 0;
-  void (smallModelEnabled() ? splitPrompt(text).catch(() => [text]) : Promise.resolve([text])).then(
-    (prompts) => {
-      if ((ctx.queues.epochs.get(channelId) ?? 0) !== epoch) return; // stopped meanwhile
-      // route each attachment to the sub-prompt carrying its marker
-      const parts = prompts.map((text) => ({ text, uploads: [] as AttachmentUpload[] }));
-      for (const upload of uploads) {
-        const marker = `[${upload.kind} #${upload.n}]`;
-        const target = parts.find((p) => p.text.includes(marker)) ?? parts[0]!;
-        target.uploads.push(upload);
-      }
-      const entries: QueueEntry[] = parts.map((part) => ({
-        id: randomUUID(),
-        text: part.text,
-        uploads: part.uploads,
-        silent: true,
-      }));
-      const idle = ahead ? !running(ctx, channelId) : !busy(ctx, channelId);
-      const first = idle ? entries.shift() : undefined;
-      if (entries.length > 0) {
-        const queue = ctx.queues.entries.get(channelId) ?? [];
-        if (ahead) queue.unshift(...entries);
-        else queue.push(...entries);
-        ctx.queues.entries.set(channelId, queue);
-      }
-      if (first) dispatch(ctx, channelId, first.text, first.uploads, true);
-    },
-  );
-  return userEvent.id;
-}
-
 /** Send the next queued prompt, once the channel settles. Answers whether
  *  one went out — a caller deciding what a finished turn means next needs
  *  to know, and the send itself is a microtask away. */
@@ -293,8 +231,7 @@ export function drainQueue(ctx: ServerContext, channelId: string): boolean {
     try {
       // the user event takes the entry's id: the card the window showed in
       // the queue becomes the bubble in the transcript, in place
-      if (next.split) dispatchSplit(ctx, channelId, next.text, next.uploads, false, next.id);
-      else dispatch(ctx, channelId, next.text, next.uploads, next.silent, next.from, next.id);
+      dispatch(ctx, channelId, next.text, next.uploads, next.silent, next.from, next.id);
     } catch (err) {
       // the send failed (the channel vanished, the harness would not
       // start): the prompt goes back to the head of the line rather than
@@ -392,7 +329,6 @@ export function promptEntries(
   channelId: string,
   text: string,
   uploads: AttachmentUpload[],
-  split: boolean,
   /** The window's id for the prompt: the entry carrying its words goes by
    *  it (each command gets one of its own). */
   clientId?: string,
@@ -410,7 +346,6 @@ export function promptEntries(
       text: commands.length === 0 ? text : rest,
       uploads,
       silent: false,
-      ...(split ? { split: true } : {}),
       ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
     });
   }
@@ -428,7 +363,6 @@ export function queueWithCommands(
   channelId: string,
   text: string,
   uploads: AttachmentUpload[],
-  split: boolean,
   /** This prompt goes ahead of what is already queued — a queue that has
    *  been standing by since a stop waited for this one, not the reverse. */
   ahead = false,
@@ -438,7 +372,7 @@ export function queueWithCommands(
   const { commands } = splitCommands(text, knownCommands(ownerProject(ctx, channelId)?.path));
   if (commands.length === 0) return false;
   const wasBusy = ahead ? running(ctx, channelId) : busy(ctx, channelId);
-  const { entries } = promptEntries(ctx, channelId, text, uploads, split, clientId);
+  const { entries } = promptEntries(ctx, channelId, text, uploads, clientId);
   const queue = ctx.queues.entries.get(channelId) ?? [];
   if (ahead) queue.unshift(...entries);
   else queue.push(...entries);
@@ -475,11 +409,10 @@ export function holdForTheWorld(
  * prompt, or from its own card).
  */
 export function stopTurn(ctx: ServerContext, channelId: string): void {
-  ctx.queues.epochs.set(channelId, (ctx.queues.epochs.get(channelId) ?? 0) + 1);
   ctx.retries.cancelRetry(channelId);
   ctx.queues.holdQueue(channelId);
   ctx.manager.interrupt(channelId);
-  // settle the optimistic "working" a pending split may have shown
+  // settle the "working" the stopped turn showed
   ctx.clients.broadcast({
     type: "status",
     projectId: channelId,
@@ -502,12 +435,11 @@ export function cutIn(
   channelId: string,
   text: string,
   uploads: AttachmentUpload[],
-  split: boolean,
   /** The window's id for the prompt (see promptEntries). */
   clientId?: string,
 ): boolean {
   if (!running(ctx, channelId)) return false;
-  cutInWith(ctx, channelId, promptEntries(ctx, channelId, text, uploads, split, clientId).entries);
+  cutInWith(ctx, channelId, promptEntries(ctx, channelId, text, uploads, clientId).entries);
   return true;
 }
 

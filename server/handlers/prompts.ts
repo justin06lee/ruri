@@ -1,5 +1,5 @@
 /**
- * The composer's messages: a prompt sent (whole or split), the queue
+ * The composer's messages: a prompt sent, the queue
  * behind a running turn rearranged, a turn stopped, a draft kept, and the
  * cards a turn raises answered. The prompt path itself is
  * server/dispatch.ts.
@@ -18,7 +18,6 @@ import type { ClientConn, ServerContext } from "../context.js";
 import {
   cutIn,
   dispatch,
-  dispatchSplit,
   drainQueue,
   holdsEvent,
   promptEntries,
@@ -125,7 +124,6 @@ function nextAfterJob(
   channelId: string,
   text: string,
   uploads: AttachmentUpload[],
-  split: boolean,
   clientId: string | undefined,
 ): boolean {
   const sender = onAJob(ctx, channelId);
@@ -134,7 +132,7 @@ function nextAfterJob(
   // where a cut-in would go: behind the sub-prompts riding with the turn
   // and what cut in already, ahead of the rest and of the way back to work
   const front = queue.findIndex((entry) => !entry.silent && (!entry.cut || entry.resume === true));
-  const { entries } = promptEntries(ctx, channelId, text, uploads, split, clientId);
+  const { entries } = promptEntries(ctx, channelId, text, uploads, clientId);
   queue.splice(front === -1 ? queue.length : front, 0, ...entries);
   ctx.queues.entries.set(channelId, queue);
   ctx.queues.broadcastQueue(channelId);
@@ -161,14 +159,14 @@ const send: Handler<"send"> = (ctx, ws, msg) => {
     ctx.retries.cancelRetry(channelId);
     // sent to cut in: the running turn stops and this goes in its place —
     // or, when that turn is another agent's job, straight after it
-    if (msg.now && nextAfterJob(ctx, channelId, msg.text, uploads, false, clientId)) return;
-    if (msg.now && cutIn(ctx, channelId, msg.text, uploads, false, clientId)) return;
+    if (msg.now && nextAfterJob(ctx, channelId, msg.text, uploads, clientId)) return;
+    if (msg.now && cutIn(ctx, channelId, msg.text, uploads, clientId)) return;
     // A queue that has been standing by since a stopped turn: this
     // prompt is the reason it stopped — a clarification, a correction —
     // so it goes out now, ahead of the queue, and the queue falls in
     // behind it and moves again the moment this turn is done.
     const ahead = ctx.queues.releaseQueue(channelId) && !running(ctx, channelId);
-    if (queueWithCommands(ctx, channelId, msg.text, uploads, false, ahead, clientId)) return;
+    if (queueWithCommands(ctx, channelId, msg.text, uploads, ahead, clientId)) return;
     if (!ahead && busy(ctx, channelId)) {
       // hold it app-side — nothing reaches the harness until the
       // running turn (and everything queued before it) finishes
@@ -190,21 +188,6 @@ const send: Handler<"send"> = (ctx, ws, msg) => {
 
 export const promptHandlers = {
   send,
-  send_split: (ctx, ws, msg) => {
-    if (msg.text.trim().length === 0) return;
-    const channelId = msg.projectId;
-    const uploads = msg.attachments ?? [];
-    const clientId = msg.clientId;
-    taking(ctx, ws, channelId, clientId, () => {
-      ctx.retries.cancelRetry(channelId);
-      if (!channelProject(ctx, channelId)) throw new Error("unknown session");
-      if (msg.now && nextAfterJob(ctx, channelId, msg.text, uploads, true, clientId)) return;
-      if (msg.now && cutIn(ctx, channelId, msg.text, uploads, true, clientId)) return;
-      const ahead = ctx.queues.releaseQueue(channelId) && !running(ctx, channelId);
-      if (queueWithCommands(ctx, channelId, msg.text, uploads, true, ahead, clientId)) return;
-      dispatchSplit(ctx, channelId, msg.text, uploads, ahead, clientId);
-    });
-  },
   ping: (_ctx, ws) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "pong" } satisfies ServerMessage));
   },
@@ -309,7 +292,6 @@ export const promptHandlers = {
         text: rest,
         uploads,
         silent: false,
-        ...(msg.split ? { split: true } : {}),
         ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
         // rewritten by the user, still the other agent's message
         ...(entry.from ? { from: entry.from } : {}),

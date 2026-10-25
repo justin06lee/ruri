@@ -1,8 +1,8 @@
 /**
  * The app-side prompt queue: everything waiting for the running turn to
  * finish. Visible entries are user prompts sent while busy (shown and
- * editable in the UI); silent entries are split sub-prompts riding under
- * the original prompt the user already sees.
+ * editable in the UI); silent entries ride under a prompt the user
+ * already sees.
  */
 import type {
   Attachment,
@@ -21,9 +21,6 @@ export interface QueueEntry {
   silent: boolean;
   /** Stored attachment meta, for displaying visible entries. */
   attachments?: Attachment[];
-  /** A scissors send waiting its turn: split when it reaches the front,
-   *  not before, so the commands queued ahead of it have already run. */
-  split?: boolean;
   /** Being rewritten in the composer. It keeps its place in the queue's
    *  list (at the end, so the UI shows it under the ones still in line)
    *  but nothing sends it until the rewrite comes back. */
@@ -62,8 +59,6 @@ export class SendQueues {
    * queue is sent on by hand.
    */
   readonly held = new Map<string, QueueHold>();
-  // Bumped on interrupt so an in-flight split resolution knows to stand down.
-  readonly epochs = new Map<string, number>();
   /** Channels whose running turn a prompt has stopped to cut in: the held
    *  queue goes — that prompt at its head — the moment the turn is over. */
   readonly cutIn = new Set<string>();
@@ -91,8 +86,8 @@ export class SendQueues {
    * A prompt that left the line for a rewrite steps back in — as `entries`
    * (the rewrite may have brought commands of its own, which go ahead of it)
    * — behind whichever prompts that were ahead of it are still waiting, and
-   * at the front when none are. The front is behind a split's silent
-   * remainder, which is the running answer's own and not a place in line.
+   * at the front when none are. The front is behind the silent
+   * entries, which is the running answer's own and not a place in line.
    */
   placeBack(channelId: string, entry: QueueEntry, entries: QueueEntry[]): void {
     const queue = (this.entries.get(channelId) ?? []).filter((e) => e !== entry);
@@ -125,7 +120,7 @@ export class SendQueues {
   /** Everything queued stops where it is. Nothing is thrown away. */
   holdQueue(channelId: string, hold: QueueHold = { by: "stop" }): void {
     const queue = this.entries.get(channelId) ?? [];
-    // A split's silent sub-prompts are the stopped answer's own remainder,
+    // Silent entries are the stopped answer's own remainder,
     // not prompts the user is waiting on — stopping means stopping them.
     // A turn the connection or the limit cut short is no change of mind:
     // the rest of that prompt is still wanted, and waits in the open with
@@ -170,13 +165,11 @@ export class SendQueues {
   forgetChannel(channelId: string): void {
     this.entries.delete(channelId);
     this.held.delete(channelId);
-    this.epochs.delete(channelId);
     this.cutIn.delete(channelId);
   }
 }
 
-/** The queue with its visible entries in a new order. The silent ones (a
- *  split's remainder) keep their slots: they are the running answer's,
+/** The queue with its visible entries in a new order. The silent ones keep their slots: they are the running answer's,
  *  not places in line. */
 export function reslot(queue: QueueEntry[], visible: QueueEntry[]): QueueEntry[] {
   let i = 0;
@@ -223,7 +216,6 @@ export function mergeEntries(first: QueueEntry, second: QueueEntry): QueueEntry 
     uploads: [...first.uploads, ...uploads],
     silent: false,
     ...(attachments.length ? { attachments } : {}),
-    ...(first.split || second.split ? { split: true } : {}),
   };
 }
 

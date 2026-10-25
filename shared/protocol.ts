@@ -1854,14 +1854,6 @@ export type ClientMessage =
       now?: true;
       clientId?: string;
     }
-  | {
-      type: "send_split";
-      projectId: string;
-      text: string;
-      attachments?: AttachmentUpload[];
-      now?: true;
-      clientId?: string;
-    }
   /** Is the server still there? Answered with `pong` — how a window onto
    *  another computer finds out its socket died without saying so (a laptop
    *  waking up on a different network), rather than typing into it. */
@@ -1886,15 +1878,13 @@ export type ClientMessage =
   | { type: "queue_edit"; projectId: string; itemId: string }
   /** The rewrite is done: this is the prompt now, back in line where it
    *  was — after whichever prompts that were ahead of it are still waiting,
-   *  at the front otherwise — and sent at once if nothing is running.
-   *  `split` sends it the scissors way when its turn comes. */
+   *  at the front otherwise — and sent at once if nothing is running. */
   | {
       type: "queue_update";
       projectId: string;
       itemId: string;
       text: string;
       attachments?: AttachmentUpload[];
-      split?: boolean;
     }
   /** Never mind the rewrite: the prompt steps back in line as it was. */
   | { type: "queue_edit_cancel"; projectId: string; itemId: string }

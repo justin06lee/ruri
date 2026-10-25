@@ -290,8 +290,8 @@ async function ask(request: MessagesRequest, maxTokens: number): Promise<string>
  * they come in bursts — a prompt's note and its tracker split together,
  * a reply's note as ten agents finish at once.
  *
- * Two lanes. "now" is what a person is waiting on — a chat's title, a
- * prompt the scissors are cutting — and goes first. Everything else (the
+ * Two lanes. "now" is what a person is waiting on — a chat's title —
+ * and goes first. Everything else (the
  * notes, the tracker, the sheets and the memory) is "background": it
  * takes one of the slots at most, so a backlog of it never holds up a
  * title, and never has two CLIs running for work nobody is waiting on.
@@ -1070,34 +1070,6 @@ export async function extractTrackerItems(userText: string, existing: string[]):
   } catch (err) {
     warn("smallmodel", err, "extractTrackerItems");
     return [];
-  }
-}
-
-const SPLIT_SYSTEM = `You split one user message into its separate, independent requests.
-Rules:
-- Preserve the user's wording as faithfully as possible; trim only connective tissue ("also", "and then").
-- NEVER invent, infer, or add anything the user did not say. No guessed intentions, no new content.
-- Keep any [image #N] / [video #N] markers inside the request they belong with.
-- Keep fragments that only make sense together in one request.
-- If the message is really one request, return it alone.
-Output STRICT JSON: {"prompts": ["...", "..."]} in the original order.`;
-
-/** Split a long multi-request prompt into separate prompts (verbatim-ish). */
-export async function splitPrompt(text: string): Promise<string[]> {
-  const raw = await complete(SPLIT_SYSTEM, text.slice(0, 24000), 8000, "now");
-  try {
-    const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "")) as {
-      prompts?: unknown;
-    };
-    if (!Array.isArray(parsed.prompts)) return [text];
-    const prompts = parsed.prompts
-      .filter((item): item is string => typeof item === "string")
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-    return prompts.length > 0 ? prompts : [text];
-  } catch (err) {
-    warn("smallmodel", err, "splitPrompt");
-    return [text];
   }
 }
 

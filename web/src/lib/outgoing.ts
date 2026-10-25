@@ -25,7 +25,7 @@ import type {
   TranscriptEvent,
 } from "../../../shared/protocol";
 
-export type PromptMessage = Extract<ClientMessage, { type: "send" | "send_split" }> & { clientId: string };
+export type PromptMessage = Extract<ClientMessage, { type: "send" }> & { clientId: string };
 
 /** Where a prompt shows until the server says where it went. */
 export type Shown = "event" | "queued" | "none";

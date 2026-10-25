@@ -274,6 +274,7 @@ button {
   cursor: default;
   transition: background-color var(--quick), color var(--quick), box-shadow var(--quick);
   min-height: var(--control-h);
+  line-height: 16px;
 }
 
 button:hover {
@@ -1233,15 +1234,15 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    is as tall as its cards. Wider than the others — it is a grid, and a
    card wants room for a line of a tool call. */
 .board-inner.projects-inner {
-  max-width: 1160px;
-  padding: 6px 28px 56px;
+  max-width: 1040px;
+  padding: 24px 32px 48px;
 }
 
 /* the head: how many, and what state they are in. The three spans of
    spend used to sit beside it as tiles; they are on the statistics page
    now, and the count has the row to itself. */
 .projects-head {
-  display: grid;
+  display: block;
   grid-template-columns: minmax(190px, 320px);
   gap: 14px;
 }
@@ -1250,17 +1251,17 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 5px;
-  padding: 14px 18px;
-  border: 1px solid var(--hairline);
+  gap: 12px;
+  padding: 0;
+  border: none;
   border-radius: var(--radius-m);
 }
 
 .projects-count-n {
   display: flex;
   align-items: baseline;
-  gap: 7px;
-  font-size: 28px;
+  gap: 8px;
+  font-size: 22px;
   font-weight: 600;
   line-height: 1;
   letter-spacing: -0.01em;
@@ -1268,7 +1269,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .projects-count-n small {
-  font-size: 13px;
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: 0;
 }
@@ -1277,8 +1278,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   gap: 12px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--ink-soft);
+  flex-wrap: wrap;
 }
 
 .projects-live .st-permission {
@@ -1301,8 +1303,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .stat-tile {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 12px 16px 11px;
+  gap: 8px;
+  padding: 16px;
   border: none;
   border-radius: var(--radius-m);
   background: var(--paper-dim);
@@ -1313,9 +1315,13 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .stat-label,
 .projects-group,
 .stats-group {
-  font-size: 10px;
-  color: var(--ink-faint);
+  font-size: 12px;
+  color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
+  margin: 32px 0 12px;
+  gap: 8px;
+  font-weight: 600;
+  text-transform: capitalize;
 }
 
 .stat-cost {
@@ -1343,8 +1349,12 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .projects-group {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 24px 0 12px;
+  gap: 8px;
+  margin: 24px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-transform: capitalize;
 }
 
 .projects-group::after {
@@ -1352,6 +1362,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   flex: 1;
   border-top: 0.5px solid var(--line-soft);
   opacity: 0.35;
+  display: none;
 }
 
 .projects-empty {
@@ -1359,9 +1370,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .projects-grid {
-  display: grid;
+  display: flex;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
+  gap: 4px;
+  flex-direction: column;
 }
 
 .projects-head + .projects-grid {
@@ -1372,24 +1384,27 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    the figures along the bottom. Live or idle, it sits flat on the page —
    its heading says which, and what moves on it is what draws the eye. */
 .pcard {
-  display: flex;
+  display: grid;
   flex-direction: column;
-  background: var(--paper);
-  border: 0.5px solid var(--line-soft);
+  background: transparent;
+  border: none;
   border-radius: var(--radius-m);
   overflow: hidden;
   min-width: 0;
   animation: none;
+  grid-template-columns: minmax(160px, 1fr) minmax(0, 2fr);
 }
 
 .pcard-head {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 13px;
-  border-bottom: 0.5px solid var(--line-soft);
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: none;
   cursor: pointer;
   user-select: none;
+  align-content: start;
+  flex-wrap: wrap;
 }
 
 .pcard.st-working .pcard-head,
@@ -1402,49 +1417,55 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .pcard-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
 }
 
 .pcard-status {
-  margin-left: auto;
-  font-size: 10px;
+  margin-left: 24px;
+  font-size: 11px;
   line-height: 1.4;
-  padding: 2px 8px;
+  padding: 0;
   border-radius: 999px;
-  border: 1px solid transparent;
+  border: none;
   color: var(--ink-faint);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  flex-basis: 100%;
 }
 
 .pcard.st-working .pcard-status {
-  color: var(--ink);
-  background: var(--fill);
+  color: var(--ink-soft);
+  background: transparent;
   border-color: transparent;
+  font-weight: 400;
 }
 
 .pcard.st-permission .pcard-status {
-  color: var(--ink);
-  background: var(--paper);
-  border-color: var(--ink);
-  font-weight: 600;
+  color: var(--ink-soft);
+  background: transparent;
+  border-color: transparent;
+  font-weight: 400;
 }
 
 .pcard.st-error .pcard-status {
-  color: var(--ink);
-  border-color: var(--ink-soft);
+  color: var(--ink-soft);
+  border-color: transparent;
+  background: transparent;
+  font-weight: 400;
 }
 
 /* a turn finished on this card that nobody has opened: the sidebar's
    diamond after the name, and an idle card says "finished" in ink */
 .pcard.fresh.st-idle .pcard-status {
-  color: var(--ink);
-  border-color: var(--ink);
-  font-weight: 600;
+  color: var(--ink-soft);
+  border-color: transparent;
+  font-weight: 400;
+  background: transparent;
 }
 
 /* room for a session's three lines even when it has said nothing yet, so
@@ -1452,10 +1473,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .pcard-body {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 7px 6px;
+  gap: 4px;
+  padding: 8px 16px;
   flex: 1;
-  min-height: 74px;
+  min-height: 0;
 }
 
 /* a session's lines: the same target whether the card has one or three */
@@ -1463,20 +1484,20 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 2px;
+  gap: 4px;
   width: 100%;
-  padding: 5px 8px;
+  padding: 4px 0;
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
   text-align: left;
   font-weight: 400;
   color: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 
 .board-session:hover {
-  background: var(--paper-dim);
+  background: transparent;
 }
 
 .board-session:active {
@@ -1495,8 +1516,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .board-line.tool {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--sans);
+  font-size: 12px;
 }
 
 .board-line.you {
@@ -1528,17 +1549,17 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    leaves under its baseline. */
 .hero-title {
   max-width: 100%;
-  font-size: 34px;
-  font-weight: 750;
-  letter-spacing: 0.01em;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   text-align: center;
   overflow-wrap: anywhere;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .hero-composer {
   width: 100%;
-  margin-top: 18px;
+  margin-top: 16px;
 }
 
 .hero-composer .composer {
@@ -1596,7 +1617,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    page scrolls up to it and stops, instead of sliding under a strip that
    would swallow the click and drag the window. */
 .page-drag {
-  height: 46px;
+  height: var(--toolbar-h);
   flex-shrink: 0;
 }
 
@@ -3764,6 +3785,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 /* A gallery wants more room than the other project pages' column. */
 .board-inner.lib-inner {
   max-width: 1120px;
+  padding: 24px 32px 48px;
 }
 
 .mono {
@@ -3785,18 +3807,19 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-search {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 12px;
+  gap: 8px;
+  margin-top: 0;
   padding: 0 12px;
-  border: 0.5px solid var(--line-soft);
+  border: none;
   border-radius: var(--radius-m);
-  background: var(--paper-bright);
+  background: var(--paper-dim);
   color: var(--ink-faint);
   transition: border-color var(--quick);
 }
 
 .lib-search:focus-within {
-  border-color: var(--ink);
+  border-color: transparent;
+  box-shadow: var(--focus-ring);
 }
 
 .lib-search > svg {
@@ -3808,10 +3831,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-search input {
   flex: 1;
   min-width: 0;
-  padding: 10px 0;
+  padding: 8px 0;
   border: none;
   background: transparent;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .lib-search-clear {
@@ -3847,20 +3870,20 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  padding-top: 10px;
+  gap: 8px;
+  padding-top: 16px;
 }
 
 .lib-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  font-size: var(--fs-md);
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--ink-soft);
-  background: transparent;
-  border: 0.5px solid var(--line-soft);
+  background: var(--paper-dim);
+  border: none;
   border-radius: 999px;
 }
 
@@ -3910,14 +3933,14 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  margin-top: 14px;
-  padding: 34px 28px 30px;
-  border: 1px dashed var(--line-soft);
+  margin-top: 16px;
+  padding: 48px 24px;
+  border: none;
   border-radius: var(--radius-m);
   text-align: center;
   color: var(--ink-soft);
   font-size: var(--fs-md);
-  line-height: 1.65;
+  line-height: 1.5;
 }
 
 .lib-empty-card p {
@@ -3933,8 +3956,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .lib-empty-title {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 20px;
   color: var(--ink);
+  letter-spacing: -0.02em;
 }
 
 .lib-grid {
@@ -3952,22 +3976,22 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 3px;
-  padding: 8px 8px 10px;
-  border: 0.5px solid var(--line-soft);
+  gap: 4px;
+  padding: 8px;
+  border: none;
   border-radius: var(--radius-m);
   background: var(--paper);
   text-align: left;
   font-weight: 400;
   content-visibility: auto;
   contain-intrinsic-size: auto 300px;
-  transition: border-color var(--quick);
+  transition: none;
 }
 
 .lib-tile:hover,
 .lib-tile:focus-visible {
-  background: var(--paper);
-  border-color: var(--ink);
+  background: var(--paper-dim);
+  border-color: transparent;
 }
 
 .lib-tile:focus-visible {
@@ -3976,7 +4000,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .lib-tile:active {
-  transform: scale(0.985);
+  transform: none;
 }
 
 /* A card with a star on it is a card you haven't read yet — the border says
@@ -3999,9 +4023,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: center;
   justify-content: center;
   aspect-ratio: 16 / 10;
-  margin-bottom: 6px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-s);
+  margin-bottom: 8px;
+  border: none;
+  border-radius: var(--radius-m);
   background-color: var(--paper-dim);
   overflow: hidden;
 }
@@ -4011,7 +4035,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   max-height: 100%;
   object-fit: contain;
   display: block;
-  animation: lib-in var(--move);
+  animation: none;
 }
 
 @keyframes lib-in {
@@ -4026,12 +4050,13 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   position: absolute;
   right: 6px;
   bottom: 6px;
-  padding: 1px 7px;
+  padding: 4px 8px;
   font-size: var(--fs-xs);
   color: var(--ink-soft);
-  background: var(--paper-bright);
-  border: 1px solid var(--hairline);
+  background: var(--menu-bg);
+  border: none;
   border-radius: 999px;
+  backdrop-filter: var(--material);
 }
 
 .lib-badge.left {
@@ -4180,7 +4205,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-detail-name {
   flex: 1;
   min-width: 0;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
   padding: 2px 8px;
   border-color: transparent;
@@ -4330,6 +4355,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  border: none;
 }
 
 .lib-preview-main {
@@ -4576,7 +4602,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .lib-codebox {
-  border: 0.5px solid var(--line-soft);
+  border: none;
   border-radius: var(--radius-m);
   overflow: hidden;
   background: var(--paper-bright);
@@ -4596,7 +4622,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   flex-shrink: 0;
   padding: 5px 10px 6px;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: none;
   border-radius: var(--radius-s) var(--radius-s) 0 0;
   background: transparent;
   font-size: var(--fs-sm);
@@ -4638,10 +4664,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-code-path {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px 0 14px;
-  font-family: var(--mono);
-  font-size: var(--fs-xs);
+  gap: 8px;
+  padding: 8px 12px 0;
+  font-family: var(--sans);
+  font-size: 11px;
   color: var(--ink-faint);
 }
 
@@ -4763,8 +4789,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .comp-star {
   flex-shrink: 0;
   display: inline-flex;
-  color: var(--ink);
-  will-change: transform;
+  color: var(--accent);
+  will-change: auto;
 }
 
 .comp-star svg {
@@ -4784,9 +4810,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    the card itself, not another thing in the layout. */
 .comp-star.still {
   position: absolute;
-  top: -8px;
-  left: -8px;
-  padding: 2px;
+  top: 8px;
+  left: 8px;
+  padding: 4px;
   border-radius: 50%;
   background: var(--paper);
 }
@@ -4812,11 +4838,12 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .skill-install input {
   flex: 1;
+  min-width: 0;
 }
 
 .skill-note {
@@ -4835,17 +4862,17 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .skill-group-head {
-  font-size: var(--fs-sm);
+  font-size: 12px;
   font-weight: 600;
   color: var(--ink-faint);
-  padding: 0 2px 6px;
+  padding: 0 0 8px;
 }
 
 .skill-row {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 8px;
+  gap: 12px;
+  padding: 12px;
   border-radius: var(--radius-s);
   transition: opacity var(--quick);
 }
@@ -4905,7 +4932,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .skill-body:hover .skill-name {
-  text-decoration: underline;
+  text-decoration: none;
   text-underline-offset: 3px;
 }
 
@@ -5390,19 +5417,21 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    log scrolling between them. */
 
 .agents-page .board-head {
-  margin-bottom: 14px;
+  margin-bottom: 0;
 }
 
 .agents-page .agent-card {
   width: 100%;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .agents-group {
-  margin: 16px 2px 8px;
-  font-size: var(--fs-xs);
+  margin: 24px 0 12px;
+  font-size: 12px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-transform: capitalize;
 }
 
 .agents-asks {
@@ -5416,15 +5445,15 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .agent-brief,
 .agent-reply-box {
   display: flex;
-  background: var(--paper-bright);
-  border: 1px solid var(--edge);
-  border-radius: var(--radius-l);
+  background: var(--paper-dim);
+  border: none;
+  border-radius: var(--radius-m);
 }
 
 .agent-brief {
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 12px 10px 16px;
+  gap: 12px;
+  padding: 16px;
 }
 
 .agent-brief textarea,
@@ -5449,7 +5478,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .agent-brief-hint {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ink-faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6125,7 +6154,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  animation: rise var(--move);
+  animation: none;
 }
 
 .board-inner {
@@ -6135,7 +6164,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   max-width: 800px;
   margin: 0 auto;
   /* the last card is not the last pixel — the page scrolls past it */
-  padding: 18px 24px 40px;
+  padding: 24px 32px 48px;
   display: flex;
   flex-direction: column;
 }
@@ -6144,15 +6173,16 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    title is: no card around it */
 .board-head {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 4px 2px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 24px;
+  flex-wrap: wrap;
 }
 
 .board-title {
   font-size: 20px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 
 .board-sub {
@@ -6162,10 +6192,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .board-empty {
-  color: var(--ink-faint);
+  color: var(--ink-soft);
   font-size: var(--fs-md);
-  line-height: 1.7;
-  padding: 8px 2px;
+  line-height: 1.5;
+  padding: 32px 16px;
+  text-align: center;
 }
 
 /* ── attachments ──────────────────────────────────────────────────── */
@@ -8873,15 +8904,15 @@ button.stop:hover {
    column, and a line of figures that runs the width of a monitor is a
    line nobody's eye can follow back. */
 .board-inner.stats-inner {
-  max-width: 900px;
-  padding: 6px 28px 56px;
+  max-width: 1040px;
+  padding: 24px 32px 48px;
 }
 
 .stats-tiles,
 .meters-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 
 /* the table of agents comes straight after, so it keeps the tiles' own gap */
@@ -8894,12 +8925,13 @@ button.stop:hover {
 .meter-tile {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 12px 16px 11px;
-  border: 1px solid var(--hairline);
+  gap: 8px;
+  padding: 16px;
+  border: none;
   border-radius: var(--radius-m);
   font-variant-numeric: tabular-nums;
   min-width: 0;
+  background: var(--paper-dim);
 }
 
 .meter-tile .stat-cost {
@@ -8920,20 +8952,23 @@ button.stop:hover {
   flex: 1;
   border-top: 0.5px solid var(--line-soft);
   opacity: 0.35;
+  display: none;
 }
 
 .stats-empty {
-  padding: 14px 16px;
-  border: 1px dashed var(--hairline);
+  padding: 24px;
+  border: none;
   border-radius: var(--radius-m);
   font-size: var(--fs-sm);
   color: var(--ink-faint);
+  background: var(--paper-dim);
+  text-align: center;
 }
 
 /* the tables: a name that carries its own bar, then figures in columns
    that line up down the page (tabular numerals, fixed columns) */
 .stats-table {
-  border: 0.5px solid var(--line-soft);
+  border: none;
   border-radius: var(--radius-m);
   background: var(--paper);
   overflow: hidden;
@@ -8943,11 +8978,12 @@ button.stop:hover {
   display: grid;
   grid-template-columns: minmax(0, 2.4fr) repeat(5, minmax(0, 1fr));
   align-items: center;
-  gap: 10px;
-  padding: 9px 16px;
-  font-size: var(--fs-sm);
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--ink-soft);
+  min-height: 36px;
 }
 
 .agents-table .stats-row,
@@ -8961,15 +8997,16 @@ button.stop:hover {
 
 .stats-row + .stats-row,
 .stats-head + .capped {
-  border-top: 0.5px solid var(--line-soft);
+  border-top: none;
 }
 
 .stats-head {
-  font-size: 10px;
-  color: var(--ink-faint);
+  font-size: 11px;
+  color: var(--ink-soft);
   padding-top: 8px;
-  padding-bottom: 7px;
+  padding-bottom: 8px;
   font-variant-numeric: tabular-nums;
+  background: var(--paper-dim);
 }
 
 .stats-row b {
@@ -9104,13 +9141,13 @@ button.stop:hover {
 .team-member {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 10px;
-  padding: 10px 12px;
-  background: var(--paper);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-s);
-  animation: rise var(--move);
+  gap: 8px;
+  margin-top: 12px;
+  padding: 16px;
+  background: var(--paper-dim);
+  border: none;
+  border-radius: var(--radius-m);
+  animation: none;
 }
 
 .team-member.state-working,
@@ -9121,8 +9158,9 @@ button.stop:hover {
 .team-member-head {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 .team-member {
@@ -9161,12 +9199,13 @@ button.team-member-name:hover {
 
 .team-state {
   flex-shrink: 0;
-  padding: 0 6px;
-  border: 1px solid var(--line-soft);
+  padding: 2px 8px;
+  border: none;
   border-radius: var(--radius-xs);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
+  background: var(--fill);
 }
 
 .team-state.working,
@@ -9184,12 +9223,13 @@ button.team-member-name:hover {
 
 .team-member-meta {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   margin-left: auto;
-  flex-shrink: 0;
-  font-size: 10.5px;
+  flex-shrink: 1;
+  font-size: 11px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
+  flex-wrap: wrap;
 }
 
 .team-member-duty {
@@ -9205,12 +9245,13 @@ button.team-member-name:hover {
 }
 
 .team-layer {
-  padding: 0 5px;
-  border: 1px solid var(--hairline);
+  padding: 2px 8px;
+  border: none;
   border-radius: var(--radius-xs);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
+  background: var(--fill);
 }
 
 .team-member-words {
@@ -9226,8 +9267,9 @@ button.team-member-name:hover {
 .team-member-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   margin-top: 2px;
+  flex-wrap: wrap;
 }
 
 .team-member-model {
@@ -9285,8 +9327,8 @@ button.team-member-name:hover {
   align-items: baseline;
   gap: 8px;
   min-width: 0;
-  padding: 3px 0;
-  border-top: 1px solid var(--hairline);
+  padding: 8px;
+  border-top: none;
 }
 
 .team-task-id {
@@ -9555,3 +9597,24 @@ button.destructive:hover:not(:disabled) {
 .result-details { font-size: 12px; color: var(--ink-soft); }
 .result-details[open] { display: flex; align-items: center; gap: 8px; }
 .result-meta { font-variant-numeric: tabular-nums; }
+
+/* Finder-like lists separate rows by tone; there is no box per item. */
+.projects-grid .pcard:nth-child(odd),
+.stats-table > .capped > .stats-row:nth-child(even),
+.stats-table > .stats-row:not(.stats-head):nth-child(even),
+.team-task:nth-child(even) { background: var(--paper-dim); }
+.pcard:hover { background: var(--fill); }
+.skill-row:nth-child(even) { background: var(--paper-dim); }
+.skill-row.off { opacity: 0.65; }
+@media (max-width: 900px) {
+  .pcard { grid-template-columns: minmax(120px, 1fr) minmax(0, 1.5fr); }
+  .board-inner, .board-inner.lib-inner, .board-inner.projects-inner, .board-inner.stats-inner { padding: 20px 24px 40px; }
+}
+@media (max-width: 600px) {
+  .pcard { display: flex; }
+  .pcard-head { padding-bottom: 4px; }
+  .pcard-body { padding-top: 0; }
+}
+
+.lib-tile.fresh { border-color: transparent; }
+.lib-tile.drop { background: var(--tint); box-shadow: inset 0 0 0 1px var(--accent); }

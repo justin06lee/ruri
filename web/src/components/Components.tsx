@@ -17,7 +17,6 @@ import { useConfirm } from "./Confirm";
 import { fileToBase64 } from "../lib/files";
 import { highlightFor } from "../lib/highlighter";
 import { useNoteStale } from "../lib/runNote";
-import { spinStar } from "../lib/spin";
 import { probe, useGone, useThumb } from "../lib/thumbs";
 import { HTTP_BASE, send, useRuri } from "../store";
 
@@ -231,16 +230,13 @@ const views = new Map<string, View>();
 const FRESH: View = { query: "", filter: "all", sort: "recent", scroll: 0 };
 
 /**
- * The star a new component wears. It turns, because a page of identical
- * cards is exactly the place a still mark goes unnoticed — and it turns
- * slowly, because this is a page you read. The turning is lib/spin.ts: ten
- * steps a second off one shared clock, not an endless CSS animation.
+ * A still accent mark for a component nobody has looked at yet.
+ * Reading and changing selection never starts decorative motion.
  */
 function Star({ where }: { where: "just" | "still" }) {
   return (
     <span
       className={`comp-star ${where}`}
-      ref={spinStar}
       title={where === "just" ? "Named just now" : "New since you last looked"}
       aria-label="new"
     >

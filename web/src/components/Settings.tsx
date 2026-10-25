@@ -660,7 +660,7 @@ export function Settings({ onClose }: { onClose(): void }) {
                       className={`seg-option ${theme === option ? "active" : ""}`}
                       title={
                         option === "ember"
-                          ? "Warm through and through — no blue light, for late sessions"
+                          ? "Warm brown-black surfaces for late sessions"
                           : undefined
                       }
                       onClick={() => pickTheme(option)}

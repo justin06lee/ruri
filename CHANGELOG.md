@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- Ember's accent is Apple blue now, like light and dark: buttons, selection and focus look the same in every theme.
 - remove(btw): the btw button, its side panel and `/btw <question>`, with the server's side chat behind them (`side_chat`, its read-only brief and refused tools). A btw chat made before stays on file, out of every list.
 - remove: prompt splitting. The scissors button, its More-menu item and the hint line under the input box are gone, and so is everything behind them: the `send_split` message, the queue's `split` flag, `dispatchSplit` and the small model's `splitPrompt`. A prompt goes out as written, one turn.
 - feat(ui): the peek band is back across the sidebar's top, with Settings → Peek band; its editor picks and focuses in blue, and the screentone under it stays gone

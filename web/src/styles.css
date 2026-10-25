@@ -129,8 +129,9 @@
 }
 
 /* ember: a warm dark for late hours, when a screen full of blue is the
-   thing keeping you up — brown-black surfaces and parchment ink, little
-   blue in any of it, so it reads warm rather than merely dark. */
+   thing keeping you up — brown-black surfaces and parchment ink, so it
+   reads warm rather than merely dark. The accent stays Apple blue, as in
+   every theme: buttons and selection look the same everywhere. */
 :root[data-theme="ember"] {
   --paper: var(--theme-ember-paper);
   --paper-dim: #17120e;
@@ -148,8 +149,9 @@
   --diff-add-ink: #d2bf68;
   --diff-del-bg: rgba(230, 100, 60, 0.13);
   --diff-del-ink: #e8845c;
-  --accent: #ff9f0a;
-  --accent-ink: #1a1208;
+  --accent: #0a84ff;
+  --badge: #ff453a;
+  --ok: #30d158;
   --control-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
   --menu-bg: rgba(44, 35, 28, 0.82);
   --menu-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 12px 36px rgba(0, 0, 0, 0.5);

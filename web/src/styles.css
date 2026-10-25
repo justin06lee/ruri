@@ -6466,13 +6466,16 @@ textarea::placeholder {
   color: var(--paper-dim);
 }
 
+/* Apple's token look (Mail's address chips): blue words on a pale blue
+   pill. Opaque, mixed over the box's own white, so the textarea's ink copy
+   of the marker under it can't bleed through the blue. The pill's edge is
+   drawn outside the box with a shadow — padding would widen it */
 .marker-chip {
   pointer-events: auto;
   cursor: grab;
-  color: var(--ink);
-  background: var(--fill);
-  /* the pill's edge is drawn outside the box — padding would widen it */
-  box-shadow: 0 0 0 1.5px var(--ink);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--raised));
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 13%, var(--raised));
   border-radius: 5px;
   transition:
     background-color 100ms ease-out,
@@ -6489,6 +6492,8 @@ textarea::placeholder {
    nothing to drag here, and a click opens what it stands for */
 .marker-chip.sent {
   cursor: pointer;
+  background: var(--tint);
+  box-shadow: 0 0 0 1.5px var(--tint);
 }
 
 /* a still one, in the queue: a label for the attachment on the card under
@@ -6496,24 +6501,20 @@ textarea::placeholder {
 .marker-chip.still,
 .marker-chip.still:hover {
   cursor: default;
-  color: var(--ink);
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
-/* hovered, the chip turns inside out: paper with an ink rim, the same
-   inversion every other pressed thing in the app does */
+/* hovered, the pill deepens a shade, as a token does under the pointer */
 .marker-chip:hover {
-  background: var(--paper-bright);
-  color: var(--ink);
-  box-shadow: 0 0 0 1.5px var(--ink);
+  background: color-mix(in srgb, var(--accent) 22%, var(--raised));
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 22%, var(--raised));
 }
 
 /* lifted: an outline where it was, opaque so the words underneath (the
    textarea's own copy of the marker) stay out of sight */
 .marker-chip.lifted {
-  background: var(--paper);
+  background: var(--raised);
   color: var(--ink-faint);
-  box-shadow: 0 0 0 1.5px var(--ink-faint);
+  box-shadow: 0 0 0 1px var(--ink-faint);
   cursor: grabbing;
 }
 
@@ -6534,13 +6535,11 @@ textarea::placeholder {
   text-decoration: line-through;
 }
 
-/* the thumbnail whose chip is under the pointer: inverted rim, so the two
-   read as one thing */
+/* the thumbnail whose chip is under the pointer: a blue focus ring, so
+   the two read as one thing */
 .att-thumb.hot {
-  border-color: var(--ink);
-  box-shadow:
-    0 0 0 2px var(--paper),
-    0 0 0 3.5px var(--ink);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
 }
 
 /* where the lifted chip would land — a hairline in the run of words */

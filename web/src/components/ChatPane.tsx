@@ -35,6 +35,7 @@ import { AskCard } from "./PermissionBanner";
 import { QueuedList, QueueStandby } from "./Queue";
 import { RapidBar, type RapidFire } from "./RapidFire";
 import { SelectionFlags } from "./Selection";
+import { Sketch, type SketchBackground } from "./Sketch";
 import { Skills } from "./Skills";
 import { TeamPage } from "./TeamPage";
 import { Spinner, WorkingLine } from "./Thinking";
@@ -392,6 +393,14 @@ function ChatView({
     useShallow((s) => ({ models: s.models, defaultModel: s.defaultModel })),
   );
   const [rewindTarget, setRewindTarget] = useState<{ id: string; text: string } | null>(null);
+
+  // The sketch pad takes the pane, like a page — blank, or on a picture
+  // from the composer's strip. Leaving the channel leaves the pad.
+  const [sketch, setSketch] = useState<{ background?: SketchBackground } | null>(null);
+  const openSketch = useCallback(
+    (background?: SketchBackground) => setSketch(background ? { background } : {}),
+    [],
+  );
 
 
   /**
@@ -866,8 +875,33 @@ function ChatView({
     </header>
   );
 
+  // Home's tab strip steps aside while a pad is open (styles.css)
+  const sketching = sketch !== null;
+  useEffect(() => {
+    if (!sketching) return;
+    document.documentElement.toggleAttribute("data-sketching", true);
+    return () => {
+      document.documentElement.toggleAttribute("data-sketching", false);
+    };
+  }, [sketching]);
+
   // What the chat shows — on Home, the chat's side of the deck.
   const view = (() => {
+    // The pad, wherever it was opened from — over a fresh session as much
+    // as over a conversation.
+    if (sketch) {
+      return (
+        <main className={pane("chat")}>
+          {header}
+          <Sketch
+            channelId={activeId}
+            {...(sketch.background ? { background: sketch.background } : {})}
+            onClose={() => setSketch(null)}
+          />
+        </main>
+      );
+    }
+
     // The agents page takes the whole pane, the way the project's other pages do.
     if (agentsOpen) {
       return (
@@ -914,6 +948,7 @@ function ChatView({
                 channelId={activeId}
                 project={project}
                 busy={busy}
+                onSketch={openSketch}
                 {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
               />
             </div>
@@ -1141,6 +1176,7 @@ function ChatView({
             channelId={activeId}
             project={project}
             busy={busy}
+            onSketch={openSketch}
             {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
           />
         </div>

@@ -5846,6 +5846,202 @@ textarea::placeholder {
   border-style: solid;
 }
 
+/* ── the sketch pad ───────────────────────────────────────────────── */
+
+/* Laid out like Markup in Preview: a toolbar of segmented controls over a
+   white sheet on the page's grey, the one blue button at the right. */
+.sketch-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-dim);
+}
+
+.sketch-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  background: var(--paper);
+  border-bottom: 0.5px solid var(--hairline);
+}
+
+.sketch-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sketch-middle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.sketch-seg .seg-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 22px;
+  padding: 0;
+  color: var(--ink-soft);
+}
+
+.sketch-seg .seg-option.active {
+  color: var(--accent);
+}
+
+.sketch-seg svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* a width is a short rule as thick as the stroke it draws */
+.sketch-width span {
+  display: block;
+  width: 14px;
+  border-radius: 4px;
+  background: currentColor;
+}
+
+.sketch-swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* colour wells: a disc with a hairline, and a ring in the accent round the
+   picked one, the way the colour row in Markup marks it */
+.sketch-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--ink) 25%, transparent);
+}
+
+.sketch-swatch.active {
+  box-shadow:
+    inset 0 0 0 0.5px color-mix(in srgb, var(--ink) 25%, transparent),
+    0 0 0 2px var(--paper),
+    0 0 0 4px var(--accent);
+}
+
+.sketch-open {
+  cursor: default;
+}
+
+.sketch-open input {
+  display: none;
+}
+
+.sketch-attach {
+  margin-left: 4px;
+  padding: 3px 14px;
+}
+
+.sketch-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+}
+
+/* the sheet: drawn shapes keep their own colours, the page around it grey */
+.sketch-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  background: var(--paper);
+  border-radius: var(--radius-m);
+  box-shadow: 0 0 0 0.5px var(--hairline), 0 4px 16px rgba(0, 0, 0, 0.08);
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.sketch-canvas.tool-text,
+.sketch-canvas.placing {
+  cursor: text;
+}
+
+.sketch-canvas.tool-erase {
+  cursor: pointer;
+}
+
+/* a HUD pill, the way macOS says what a click will do next */
+.sketch-placing {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--menu-bg);
+  backdrop-filter: var(--material);
+  box-shadow: var(--menu-shadow);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.sketch-text-card {
+  width: min(520px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sketch-text-box {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  border-radius: var(--radius-m);
+  line-height: 1.3;
+}
+
+.sketch-font-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Home's tab strip steps aside while a pad is open; marked on the root by
+   ChatPane rather than found with :has(.sketch-page), which restyled the
+   whole deck on every keystroke in Home's composer */
+[data-sketching] .home-deck .home-tabs {
+  display: none;
+}
+
+.viewer-draw {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  font-size: 12px;
+  margin-right: 6px;
+}
+
+.viewer-draw svg {
+  width: 13px;
+  height: 13px;
+}
+
 /* ── attachment viewer ────────────────────────────────────────────── */
 
 .viewer-overlay {

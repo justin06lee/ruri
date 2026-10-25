@@ -100,7 +100,7 @@ export function App() {
   const projectsOpen = useRuri((s) => s.projectsOpen);
 
   return (
-    <div className="app">
+    <div className={`app${settingsOpen ? " settings-open" : ""}`}>
       <Prewarm />
       <Sidebar />
       <Switcher />

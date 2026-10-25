@@ -9,6 +9,7 @@ import type {
 import { send, useRuri } from "../store";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
+import { Icon } from "./chat/Icon";
 import { Devices } from "./Devices";
 import { GreetingEditor } from "./GreetingEditor";
 import { Integrations } from "./Integrations";
@@ -179,7 +180,7 @@ function ModelCatalog() {
                 {m.displayName}
               </span>
               {small &&
-                tag("small", "small tasks", "Runs the small tasks: notes, titles, splitting, the tracker")}
+                tag("small", "small tasks", "Runs small background tasks such as notes and titles")}
               {isDefault && tag("default", "default", "What new chats and projects start on")}
               {keeper &&
                 tag(
@@ -192,15 +193,12 @@ function ModelCatalog() {
           );
         })}
       </Capped>
-      <div className="model-hint">
-        Starred models are what the composer's model picker offers. The star only favourites and unfavourites
-        — except on a model wearing a tag, which stays starred until the tag moves. The small-tasks model —
-        session titles, turn summaries, prompt splitting, the tracker, starting on GPT Luna — and the default
-        that new chats and projects start on, starting on Fable 5.1, move by dragging their tags onto another
-        model (nothing already open moves). The memory tag marks the model that writes and checks each
-        project's memory — what was decided, what failed, the traps — starting on Sonnet: a capable model,
-        since it decides what every later session is told.
-      </div>
+      <details className="settings-help">
+        <summary>About model roles</summary>
+        <p>Star a model to include it in the composer. Drag a role label to another model to change the
+        default for new conversations, the model for small tasks, or the model that maintains project memory.
+        Existing conversations keep their current model.</p>
+      </details>
     </div>
   );
 }
@@ -557,7 +555,22 @@ function ScheduleClock({
  * simply off screen. A page has the whole pane and scrolls, which is what a
  * list of settings has always wanted.
  */
+const SETTINGS_SECTIONS = [
+  { id: "general", name: "General", icon: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1 1-3z" },
+  { id: "appearance", name: "Appearance", icon: "M12 3a9 9 0 1 0 0 18V3zM12 3a9 9 0 0 1 0 18" },
+  { id: "peek-band", name: "Peek band", icon: "M3 5h18v14H3zM3 16l5-5 4 4 3-3 6 6M16 8h.01" },
+  { id: "greeting", name: "Greeting", icon: "M21 11a8 8 0 0 1-8 8H7l-4 3V11a9 9 0 0 1 18 0zM8 10h8M8 14h5" },
+  { id: "folders", name: "Folders", icon: "M3 5h6l2 2h10v12H3z" },
+  { id: "devices", name: "Devices", icon: "M3 4h15v11H3zM7 19h7M10 15v4M18 9h4v12h-6v-6" },
+  { id: "vault", name: "Passwords", icon: "M14 8a5 5 0 1 0 0 .1M14 8h8M18 8v4M21 8v3" },
+  { id: "models", name: "Models", icon: "M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6" },
+  { id: "harnesses", name: "Harnesses", icon: "M4 5h16v14H4zM7 9l3 3-3 3M13 15h4" },
+  { id: "integrations", name: "Integrations", icon: "M8 3v5M16 3v5M5 8h14v4a7 7 0 0 1-7 7v3M12 19a7 7 0 0 1-7-7" },
+  { id: "permissions", name: "Privacy & Security", icon: "M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3zM9 12l2 2 4-4" },
+] as const;
+
 export function Settings({ onClose }: { onClose(): void }) {
+  const [section, setSection] = useState<string>("general");
   const sessionsMode = useSessionsMode();
   const workspaceDir = useRuri((s) => s.workspaceDir);
   const canPickFolder = useRuri((s) => s.canPickFolder);
@@ -598,30 +611,36 @@ export function Settings({ onClose }: { onClose(): void }) {
 
   return (
     <main className="chat settings-page">
-      {/* every other page has a header bar to drag the window by; this one
-          has open air instead, so the air does the job — as a band of its
-          own above the scroller, not a sheet laid over it, so nothing ever
-          scrolls underneath it to be clicked at and dragged instead */}
-      <div className="page-drag" aria-hidden />
-      {/* the whole pane scrolls, edge to edge; the settings themselves stay
-          a centred column inside it */}
-      <div className="settings-scroll">
-        <div className="board-inner settings-inner">
-          <div className="board-head">
-            <span className="board-title">Settings</span>
-            <span className="board-sub">
-              {remoteDevice !== null && computer ? `on ${computer}` : "this machine"}
-            </span>
-            <button className="ghost" onClick={onClose}>
-              Done
+      <header className="chat-header settings-toolbar">
+        <span className="chat-title">Settings</span>
+        <span className="settings-location">
+          {remoteDevice !== null && computer ? `on ${computer}` : ""}
+        </span>
+        <button className="icon-button" onClick={onClose} aria-label="Close Settings" title="Close Settings">
+          <Icon d="M6 6l12 12M18 6L6 18" />
+        </button>
+      </header>
+      <div className="settings-layout">
+        <nav className="settings-navigation" aria-label="Settings categories">
+          {SETTINGS_SECTIONS.map((item) => (
+            <button
+              key={item.id}
+              className={`settings-category ${section === item.id ? "selected" : ""}`}
+              aria-current={section === item.id ? "page" : undefined}
+              onClick={() => setSection(item.id)}
+            >
+              <Icon d={item.icon} />
+              {item.name}
             </button>
-          </div>
-
+          ))}
+        </nav>
+        <div className="settings-scroll">
+        <div className="board-inner settings-inner">
           {/* Grouped, the way a settings page is: a heading, then the handful
             of rows it covers, then air. The two that are more than a row —
             the vault and the catalog — take the whole width under their
             heading instead of being squeezed into the value column. */}
-          <section className="settings-group">
+          <section className="settings-group" hidden={section !== "general"}>
             <h2 className="settings-group-name">General</h2>
 
             <div className="settings-row">
@@ -647,7 +666,7 @@ export function Settings({ onClose }: { onClose(): void }) {
             </div>
           </section>
 
-          <section className="settings-group">
+          <section className="settings-group" hidden={section !== "appearance"}>
             <h2 className="settings-group-name">Appearance</h2>
 
             <div className="settings-row">
@@ -676,11 +695,14 @@ export function Settings({ onClose }: { onClose(): void }) {
               <span className="settings-label">By the clock</span>
               <div className="settings-value schedule">
                 <button
-                  className={`seg-option toggle ${schedule.on ? "active" : ""}`}
+                  className={`skill-switch ${schedule.on ? "on" : ""}`}
+                  role="switch"
+                  aria-checked={schedule.on}
+                  aria-label="Change appearance on a schedule"
                   title="Turn the theme over at set times — picking one by hand turns this off"
                   onClick={() => keepSchedule({ ...schedule, on: !schedule.on })}
                 >
-                  {schedule.on ? "On" : "Off"}
+                  <span className="skill-knob" />
                 </button>
                 {schedule.on && (
                   <div className="schedule-face">
@@ -707,17 +729,17 @@ export function Settings({ onClose }: { onClose(): void }) {
             </div>
           </section>
 
-          <section className="settings-group">
+          <section className="settings-group" hidden={section !== "peek-band"}>
             <h2 className="settings-group-name">Peek band</h2>
             <BandEditor />
           </section>
 
-          <section className="settings-group">
+          <section className="settings-group" hidden={section !== "greeting"}>
             <h2 className="settings-group-name">Greeting</h2>
             <GreetingEditor />
           </section>
 
-          <section className="settings-group">
+          <section className="settings-group" hidden={section !== "folders"}>
             <h2 className="settings-group-name">Folders</h2>
 
             <div className="settings-row">
@@ -745,36 +767,37 @@ export function Settings({ onClose }: { onClose(): void }) {
             </div>
           </section>
 
-          <section className="settings-group">
+          <section className="settings-group" hidden={section !== "devices"}>
             <h2 className="settings-group-name">Devices</h2>
             <Devices />
           </section>
 
-          <section className="settings-group">
-            <h2 className="settings-group-name">Vault</h2>
+          <section className="settings-group" hidden={section !== "vault"}>
+            <h2 className="settings-group-name">Passwords</h2>
             <Vault />
           </section>
 
-          <section className="settings-group">
+          <section className="settings-group" hidden={section !== "models"}>
             <h2 className="settings-group-name">Models</h2>
             <ModelCatalog />
           </section>
 
-          <section className="settings-group">
+          <section className="settings-group" hidden={section !== "harnesses"}>
             <h2 className="settings-group-name">Harnesses</h2>
             <Harnesses />
           </section>
 
-          <section className="settings-group">
+          <section className="settings-group" hidden={section !== "integrations"}>
             <h2 className="settings-group-name">Integrations</h2>
             <Integrations />
           </section>
 
-          <section className="settings-group">
-            <h2 className="settings-group-name">Permissions</h2>
+          <section className="settings-group" hidden={section !== "permissions"}>
+            <h2 className="settings-group-name">Privacy & Security</h2>
             <Grants />
           </section>
         </div>
+      </div>
       </div>
     </main>
   );

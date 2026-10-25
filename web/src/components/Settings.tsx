@@ -7,16 +7,13 @@ import type {
   PermissionState,
 } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
-import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
 import { Devices } from "./Devices";
 import { GreetingEditor } from "./GreetingEditor";
-import { ModelIcon } from "./Marks";
 import { Integrations } from "./Integrations";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
 import { setSessionsMode, useSessionsMode } from "../lib/sessionsMode";
-import { markFor } from "../lib/marks";
 import { roughName } from "../lib/models";
 import {
   applyTheme,
@@ -174,7 +171,6 @@ function ModelCatalog() {
                   <path d={STAR_PATH} />
                 </svg>
               </button>
-              <ModelIcon pick={markFor(m.value, m)} />
               <span
                 className="model-name"
                 title={listed.has(m.value) ? m.value : `${m.value} — not in its harness's list right now`}
@@ -709,11 +705,6 @@ export function Settings({ onClose }: { onClose(): void }) {
                 )}
               </div>
             </div>
-          </section>
-
-          <section className="settings-group">
-            <h2 className="settings-group-name">Peek band</h2>
-            <BandEditor />
           </section>
 
           <section className="settings-group">

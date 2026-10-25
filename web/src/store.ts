@@ -72,7 +72,6 @@ import {
   type PromptMessage,
 } from "./lib/outgoing";
 import { overlay, reuse } from "./lib/transcript";
-import { pictureStored } from "./pictures";
 import { hydratePrefs } from "./prefs";
 import { isAwake, subscribeAwake } from "./lib/awake";
 import { Held } from "./lib/held";
@@ -2298,10 +2297,6 @@ function apply(msg: ServerMessage): void {
     }
     case "folder_picked": {
       if (msg.path) setState({ picked: { path: msg.path, target: msg.target ?? "workspace" } });
-      break;
-    }
-    case "picture_stored": {
-      pictureStored(msg.id, msg.url);
       break;
     }
     case "tracker": {

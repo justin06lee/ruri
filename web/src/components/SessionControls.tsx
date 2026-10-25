@@ -6,11 +6,9 @@ import {
   type PermissionMode,
   type Project,
 } from "../../../shared/protocol";
-import { markFor } from "../lib/marks";
 import { roughName } from "../lib/models";
 import { pickSetting, useRuri } from "../store";
 import { ComboDropdown, Dropdown } from "./Dropdown";
-import { ModelIcon } from "./Marks";
 
 const PERMISSION_MODES: Array<{ value: PermissionMode; label: string }> = [
   { value: "default", label: "Ask first" },
@@ -79,10 +77,9 @@ export function SessionControls({
   }, [selectedValue, pickedEffort, supportedEffort, fallbackEffort, effortOptions.length, channelId]);
   const modelOptions = models.map((m) => ({
     // the model's own name only — which harness serves it is the
-    // Settings catalog's business, not the picker's — and its maker's mark
+    // Settings catalog's business, not the picker's
     value: m.value,
     label: m.displayName,
-    icon: <ModelIcon pick={markFor(m.value, m)} />,
   }));
   const pickModel = (model: string) => pickSetting(channelId, "model", model);
   const effortValue = supportedEffort ? pickedEffort : (fallbackEffort ?? pickedEffort);

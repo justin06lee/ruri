@@ -1,12 +1,10 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { HOME_ID, leadOf, type Project } from "../../../shared/protocol";
 import { useConfirm } from "./Confirm";
-import { PeekBand } from "./PeekBand";
-import { Player } from "./Player";
 import { getPref, setPref } from "../prefs";
 import { STAR_PATH } from "../icons";
 import { isBusy, prefetchTranscript, renameProject, send, toggleProject, useRuri } from "../store";
-import { DragonHead } from "./Thinking";
+import { Spinner } from "./Thinking";
 
 function HomeRow() {
   const activeId = useRuri((s) => s.activeId);
@@ -95,8 +93,8 @@ function ProjectsRow() {
       <span className="project-name">Projects</span>
       {active > 0 && (
         <>
-          <span className="row-count-dragon" title="Something is working">
-            <DragonHead />
+          <span className="row-count-spinner" title="Something is working">
+            <Spinner />
           </span>
           <span className="row-count" title={`${active} ${active === 1 ? "project" : "projects"} at work`}>
             {active}
@@ -185,11 +183,11 @@ function NameEditor({
   );
 }
 
-/** The X — or, while the thing it removes is at work, a dragon's head in
- *  its place. The head still removes it, asked first like the X is. */
+/** The X — or, while the thing it removes is at work, a spinner in its
+ *  place. The spinner still removes it, asked first like the X is. */
 function RemoveIcon({ busy }: { busy: boolean }) {
   return busy ? (
-    <DragonHead />
+    <Spinner />
   ) : (
     <svg
       viewBox="0 0 24 24"
@@ -427,10 +425,8 @@ export const Sidebar = memo(function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        {/* the pictures across the top, as Settings has them (band.ts) */}
-        <PeekBand />
-      </div>
+      {/* the title bar: room for the traffic lights, and a drag region */}
+      <div className="sidebar-header" />
 
       <div className="project-list">
         <HomeRow />
@@ -473,8 +469,6 @@ export const Sidebar = memo(function Sidebar() {
           </>
         )}
       </div>
-
-      <Player />
 
       {/* the account bar — a stub for real accounts later; for now it names
           the local user and houses the settings gear */}

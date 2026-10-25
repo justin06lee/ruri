@@ -3,7 +3,7 @@
  * turns into build/icon.png and build/icon.icns.
  *
  * ruri's own mark, drawn with the pen the model makers' marks are drawn with
- * (components/Marks.tsx, lib/doodle.ts): three sideways diamonds, one sitting
+ * (lib/doodle.ts): three sideways diamonds, one sitting
  * in the notch between the other two, each outlined in the paper theme's ink
  * with its colour laid a hair off the line, the way a cheap print
  * misregisters, and every line shaken a little. The colours are ruri's own —

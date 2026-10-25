@@ -38,7 +38,7 @@ import { RapidBar, type RapidFire } from "./RapidFire";
 import { SelectionFlags } from "./Selection";
 import { Skills } from "./Skills";
 import { TeamPage } from "./TeamPage";
-import { Thinking, WorkingLine } from "./Thinking";
+import { Spinner, WorkingLine } from "./Thinking";
 
 /** Turns rendered before the first paint — more than fills a screen; the
  *  rest arrive behind it. */
@@ -841,12 +841,7 @@ function ChatView({
               there before its first prompt too; Home has none */}
           {header}
           <div className="hero">
-            <EmptyTop
-              home={isHome}
-              model={model}
-              {...(modelChoice ? { choice: modelChoice } : {})}
-              {...(isHome ? {} : { title: isLead ? project.name : seatName })}
-            />
+            <EmptyTop home={isHome} {...(isHome ? {} : { title: isLead ? project.name : seatName })} />
             <div className="hero-composer">
               {rapid?.on && <RapidBar rapid={rapid} />}
               <Composer
@@ -989,7 +984,7 @@ function ChatView({
               )}
               {status === "working" && (
                 <div className="working">
-                  {!draft && <Thinking />}
+                  {!draft && <Spinner />}
                   {stopping ? (
                     // the stop is heard; the harness is winding the turn down
                     <div className="working-line">

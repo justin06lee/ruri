@@ -78,7 +78,7 @@
   --z-strip: 4; /* strips over the dock: rapid fire's bar, the bridge */
   --z-carried: 5; /* a queued card being carried */
   --z-command: 6; /* the command menu over the composer */
-  --z-popover: 30; /* menus, selection flags, the peek skyline */
+  --z-popover: 30; /* menus, selection flags */
   --z-flyout: 31; /* a menu's second list over its first */
   --z-confirm: 40; /* a question over the pane */
   --z-rapid: 60; /* rapid fire's intro over the pane */
@@ -173,7 +173,7 @@ body {
   color: var(--paper);
 }
 
-/* Chrome art (the peek band, thumbnails) is not selectable or draggable —
+/* Chrome art (thumbnails) is not selectable or draggable —
    a drag-select across the page must never paint over the images. */
 img,
 video {
@@ -336,9 +336,7 @@ select:focus {
 .agent-reply-box textarea,
 .agent-reply-box textarea:focus,
 .switcher-input,
-.switcher-input:focus,
-input[type="range"],
-input[type="range"]:focus {
+.switcher-input:focus {
   box-shadow: none;
 }
 
@@ -402,184 +400,14 @@ textarea::placeholder {
   border-right: 0.5px solid var(--line-soft);
 }
 
+/* the title bar over the sidebar: room for the traffic lights, and the
+   window's drag region (.desktop, above) */
 .sidebar-header {
-  position: relative; /* the peek skyline fills this box */
-  /* fixed: nothing lives in flow here any more, and the peek layout was
-     hand-tuned against exactly this height */
   height: 46px;
   flex-shrink: 0;
-  /* the hairline, made opaque: the see-through one let the screentone's
-     dots through underneath it, and the rule read as dotted */
-  border-bottom: 1.5px solid color-mix(in srgb, var(--ink) 10%, var(--paper-dim));
-  background-image: var(--tone);
-  background-size: 6px 6px;
 }
 
-/* The peek band: the user's pictures resting low across the header,
-   clipped at its bottom edge — the mountain path's sky, one picture per
-   theme, until Settings says otherwise (web/src/band.ts). The traffic
-   lights and gear sit on top, and the band is the window's title bar.
-
-   A title bar's drag region swallows the mouse, so a picture in it never
-   sees the pointer. That was traded three times — 50a9e25 cut the heads
-   out with `no-drag` to lift them on hover (and lost the drag there),
-   64c89ae gave the drag back by polling the cursor, 361da12 dropped the
-   polling and the drag with it — until 9d37485 took hover away for good.
-   47c86e0 cut only the pictures with a hover out, and hover still did not
-   dependably reach them. Now the region is gone from the band whenever
-   ruri is the window in use (below): the pictures and the gaps between
-   them see the pointer like the rest of the page, and a press anywhere on
-   the band carries the window itself — the shell moves it with the cursor
-   while the button is down (PeekBand.tsx, desktop/main.ts windowDrag).
-   Behind another app the band is the title bar again, so the first press
-   drags the window natively as it comes forward. Nothing is polled. */
-.logo-peeks {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  z-index: var(--z-popover);
-}
-
-/* The picture's resting box: where it catches the pointer. It never moves
-   — the art inside it does — so a lift that carries the art out from
-   under the pointer does not end the hover and drop it straight back. */
-.band-pic {
-  position: absolute;
-}
-
-/* the window in use (awake.ts marks the one that isn't): the band is the
-   page's, and carries the window itself */
-html:not([data-unfocused]) .desktop .sidebar-header {
-  -webkit-app-region: no-drag;
-}
-
-.band-art {
-  transform-origin: 50% 100%;
-}
-
-.band-img {
-  display: block;
-  width: 100%;
-  height: auto;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-
-.band-img.flip {
-  transform: scaleX(-1);
-}
-
-/* a picture kept to some themes is not there on the others */
-[data-theme="light"] .band-pic.not-light,
-[data-theme="dark"] .band-pic.not-dark,
-[data-theme="ember"] .band-pic.not-ember {
-  display: none;
-}
-
-/* line art swaps ink and paper with the theme; a picture set not to keeps
-   its own colours */
-[data-theme="dark"] .band-pic.invert {
-  --fx-tone: invert(1);
-}
-
-/* inverted like dark, then warmed a little so the line art sits on the
-   same brown-black as everything else */
-[data-theme="ember"] .band-pic.invert {
-  --fx-tone: invert(0.94) sepia(0.3);
-}
-
-/* ── the hovers (lib/effects.ts) ──────────────────────────────────────
-   The peek band's: `.fx-host` is what catches
-   the pointer and stays put, `.fx-art` inside it is what moves. --amt is
-   the strength in the effect's own unit, --speed how long the move takes,
-   or one round of one that repeats. */
-.fx-art {
-  /* a tone set by the thing itself, then the hover's shine; each a no-op
-     until set */
-  filter: var(--fx-tone, brightness(1)) var(--fx-shine, brightness(1));
-  transition:
-    transform var(--speed, 180ms) cubic-bezier(0.3, 0.9, 0.3, 1),
-    opacity var(--speed, 180ms) ease,
-    filter var(--speed, 180ms) ease;
-}
-
-.fx-host.hot.fx-lift .fx-art {
-  transform: translateY(calc(var(--amt) * -1px));
-}
-
-.fx-host.hot.fx-sink .fx-art {
-  transform: translateY(calc(var(--amt) * 1px));
-}
-
-.fx-host.hot.fx-grow .fx-art {
-  transform: scale(calc(1 + var(--amt) / 100));
-}
-
-.fx-host.hot.fx-pop .fx-art {
-  transform: translateY(calc(var(--amt) * -1px)) scale(1.12);
-}
-
-.fx-host.hot.fx-tilt .fx-art,
-.fx-host.hot.fx-spin .fx-art {
-  transform: rotate(calc(var(--amt) * 1deg));
-}
-
-.fx-host.fx-spin .fx-art {
-  transform-origin: 50% 50%;
-}
-
-.fx-host.hot.fx-glow {
-  --fx-shine: drop-shadow(0 0 calc(var(--amt) * 1px) var(--ink));
-}
-
-.fx-host.hot.fx-fade .fx-art {
-  opacity: calc(1 - var(--amt) / 100);
-}
-
-.fx-host.hot.fx-wiggle .fx-art {
-  animation: fx-wiggle var(--speed) ease-in-out infinite;
-}
-
-.fx-host.hot.fx-bounce .fx-art {
-  animation: fx-bounce var(--speed) ease-in-out infinite;
-}
-
-@keyframes fx-wiggle {
-  0%,
-  100% {
-    transform: rotate(0deg);
-  }
-  25% {
-    transform: rotate(calc(var(--amt) * 1deg));
-  }
-  75% {
-    transform: rotate(calc(var(--amt) * -1deg));
-  }
-}
-
-@keyframes fx-bounce {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(calc(var(--amt) * -1px));
-  }
-}
-
-/* a repeat is motion someone asked not to have; the one-off moves still
-   happen, at once */
-@media (prefers-reduced-motion: reduce) {
-  .fx-art {
-    transition-duration: 0ms;
-  }
-  .fx-host.hot.fx-wiggle .fx-art,
-  .fx-host.hot.fx-bounce .fx-art {
-    animation: none;
-  }
-}
-
-/* the account bar: local user + settings, pinned under the music player */
+/* the account bar: local user + settings, pinned to the bottom */
 
 .account-bar {
   display: flex;
@@ -873,7 +701,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 /* ── a project's row: one row, its lead behind it ─────────────────────
    (Sidebar.tsx ProjectRow.) A folder mark, the name, a count of the
    teammates at work, and the star, hide and remove — the star kept while
-   it is on, the X while something works (the dragon stands there), the
+   it is on, the X while something works (a spinner stands there), the
    rest on hover. */
 .team-row-icon {
   width: 13px;
@@ -942,395 +770,41 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   opacity: 1;
 }
 
-/* ── the dragon in the X's place ──────────────────────────────────────
-   A chat at work (a turn, or agents and scripts it left running) keeps a
-   small head where its remove button goes, there without a hover; a
-   folded folder keeps one for the chats inside it. Still at rest — the
-   pointer coming onto the row makes it chomp twice, quickly: the shut
-   jaw and the open one swapped four times in a third of a second, once,
-   and then it is still again. */
-
+/* a chat at work keeps a spinner where its remove button goes, there
+   without a hover */
 .project-row .remove.busy {
   display: flex;
 }
 
-.row-dragon {
-  position: relative;
-  display: block;
-  width: 15px;
-  height: 15px;
-  color: var(--ink-soft);
-  /* its own sealed layer, as the doodle is: a step swaps which drawing is
-     opaque and tips the layer, and nothing around it is painted again */
-  contain: strict;
-  will-change: transform;
+/* ── the spinner: a chat or agent at work ─────────────────────────── */
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--ink) 15%, transparent);
+  border-top-color: var(--ink-soft);
+  animation: spinner 0.9s linear infinite;
 }
 
-.remove.busy:hover .row-dragon {
-  color: var(--ink);
+.project-row .spinner {
+  width: 11px;
+  height: 11px;
+  border-width: 1.5px;
 }
 
-/* over the rows' own rule for the X's svg size */
-.row-dragon .row-dragon-frame.row-dragon-frame {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-/* two steps on the doodle's clock (data-chomp, beat.ts): jaws open (f1),
-   then shut (f2) — and a shut jaw lands, a hair lower and tipped into the
-   bite, so each one has some weight to it. Two drawings, two poses, and
-   nothing in between: the window draws twice a second for it, not 120. */
-.row-dragon-frame.f2,
-.row-dragon[data-chomp="1"] .row-dragon-frame.f1 {
-  opacity: 0;
-}
-
-.row-dragon[data-chomp="1"] .row-dragon-frame.f2 {
-  opacity: 1;
-}
-
-.row-dragon[data-chomp="1"] {
-  transform: translateY(0.5px) rotate(-7deg);
-}
-
-/* The pointer on the row: open, shut, open, shut, open — two hard bites,
-   each one shaking the head — and the jaws held open until the pointer
-   goes, when the clock takes over again. The held pose is the animation's
-   own last frame, which outranks the clock's step for as long as it lasts. */
-.project-row:hover .row-dragon {
-  animation: bite-shake 550ms linear 1 forwards;
-}
-
-.project-row:hover .row-dragon-frame.f1 {
-  animation: chomp-open 550ms step-end 1 forwards;
-}
-
-.project-row:hover .row-dragon-frame.f2 {
-  animation: chomp-shut 550ms step-end 1 forwards;
-}
-
-@keyframes chomp-shut {
-  0% {
-    opacity: 0;
-  }
-  20% {
-    opacity: 1;
-  }
-  40% {
-    opacity: 0;
-  }
-  60% {
-    opacity: 1;
-  }
-  80%,
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes chomp-open {
-  0% {
-    opacity: 1;
-  }
-  20% {
-    opacity: 0;
-  }
-  40% {
-    opacity: 1;
-  }
-  60% {
-    opacity: 0;
-  }
-  80%,
-  100% {
-    opacity: 1;
-  }
-}
-
-/* each bite (20% and 60%) slams down and in, then rattles out before the
-   jaws open again; still while they are open */
-@keyframes bite-shake {
-  0%,
-  19.9% {
-    transform: none;
-  }
-  20% {
-    transform: translateY(1px) rotate(-13deg) scale(1.14);
-  }
-  26% {
-    transform: translate(-1px, 0) rotate(9deg) scale(1.08);
-  }
-  32% {
-    transform: translate(1px, 0) rotate(-6deg);
-  }
-  37% {
-    transform: translate(-0.5px, 0) rotate(3deg);
-  }
-  40%,
-  59.9% {
-    transform: none;
-  }
-  60% {
-    transform: translateY(1px) rotate(-13deg) scale(1.14);
-  }
-  66% {
-    transform: translate(1px, 0) rotate(9deg) scale(1.08);
-  }
-  72% {
-    transform: translate(-1px, 0) rotate(-6deg);
-  }
-  77% {
-    transform: translate(0.5px, 0) rotate(3deg);
-  }
-  80%,
-  100% {
-    transform: none;
+@keyframes spinner {
+  to {
+    transform: rotate(360deg);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .row-dragon,
-  .row-dragon-frame {
-    animation: none !important;
+  .spinner {
+    animation-duration: 3s;
   }
-}
-
-/* ── music player ─────────────────────────────────────────────────── */
-
-.player {
-  position: relative; /* anchors the floating notes */
-  border-top: 0.5px solid var(--line-soft);
-}
-
-/* ── while music plays: a live mini waveform + drifting notes ────── */
-
-.wave {
-  display: flex;
-  align-items: center;
-  gap: 1.5px;
-  width: 16px;
-  height: 13px;
-  flex-shrink: 0;
-  margin-right: 2px;
-}
-
-.wave span {
-  flex: 1;
-  height: 100%;
-  background: currentColor;
-  border-radius: 1px;
-  transform: scaleY(0.15);
-  transform-origin: center;
-}
-
-.note-float {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 80px;
-  height: 0;
-  pointer-events: none;
-}
-
-.note-float svg {
-  position: absolute;
-  bottom: 0;
-  width: 11px;
-  height: 11px;
-  color: var(--ink-soft);
-  opacity: 0;
-}
-
-/* the rise itself is Player.tsx's FloatingNotes: stepped, and only while
-   ruri is in front — never an endless animation */
-.note-float svg:nth-child(1) {
-  left: 16px;
-}
-
-.note-float svg:nth-child(2) {
-  left: 34px;
-  width: 9px;
-  height: 9px;
-}
-
-.note-float svg:nth-child(3) {
-  left: 52px;
-  width: 10px;
-  height: 10px;
-}
-
-.player-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 9px 14px;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  color: var(--ink-soft);
-  font-size: var(--fs-md);
-  font-weight: 600;
-}
-
-.player-toggle:hover {
-  background: var(--paper);
-  color: var(--ink);
-}
-
-.player-toggle svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.player-toggle-label {
-  flex: 1;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.player-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 4px 12px 12px;
-  animation: rise 160ms ease-out;
-}
-
-.player-panel .dropdown-trigger {
-  width: 100%;
-  max-width: none;
-  justify-content: space-between;
-  background: var(--paper);
-}
-
-.player-panel .dropdown-menu {
-  left: 0;
-  right: 0;
-  bottom: calc(100% + 6px);
-  top: auto;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.player-hint {
-  color: var(--ink-faint);
-  font-size: 12px;
-  line-height: 1.7;
-  padding: 4px 2px 6px;
-}
-
-.player-hint code {
-  font-family: var(--mono);
-  font-size: 11px;
-  background: var(--paper);
-  border: 1px solid var(--line-soft);
-  border-radius: 4px;
-  padding: 0 4px;
-}
-
-.player-tracks {
-  max-height: 148px;
-  overflow-y: auto;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-s);
-  background: var(--paper);
-  padding: 3px;
-}
-
-.player-track {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 4px 8px;
-  font-size: 12px;
-  color: var(--ink-soft);
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.player-track:hover {
-  background: var(--paper-dim);
-  color: var(--ink);
-  transform: none;
-}
-
-.player-track.current {
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-weight: 600;
-}
-
-.player-seek {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.player-time {
-  font-family: var(--mono);
-  font-size: var(--fs-xs);
-  color: var(--ink-faint);
-  min-width: 30px;
-}
-
-.player-time:last-child {
-  text-align: right;
-}
-
-.player-controls {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.player-controls .icon-button.active {
-  color: var(--accent-ink);
-  background: var(--accent);
-}
-
-.player-volume {
-  flex: 1;
-  min-width: 40px;
-  margin-left: 6px;
-}
-
-/* manga-styled range inputs (seek + volume) */
-
-input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 18px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  flex: 1;
-  cursor: pointer;
-}
-
-input[type="range"]::-webkit-slider-runnable-track {
-  height: 3px;
-  background: var(--line-soft);
-  border-radius: 2px;
-}
-
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 10px;
-  height: 10px;
-  margin-top: -3.5px;
-  background: var(--ink);
-  border-radius: 2px;
 }
 
 /* ── home hero ────────────────────────────────────────────────────── */
@@ -1393,7 +867,6 @@ input[type="range"]::-webkit-slider-thumb {
   height: 46px;
   flex-shrink: 0;
 }
-
 
 .home-hero .hero {
   margin: auto 0;
@@ -1845,104 +1318,6 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
 }
 
-/* ── the marks over an empty chat (components/Marks.tsx) ─────────────
-   The lab's mark × its product's, doodled: the lines are the theme's ink
-   (currentColor), the fills are the brands' own colours laid a hair off
-   them (.wash). Each mark sits at its own small tilt and gives a little
-   wiggle under the pointer. */
-.marks {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-height: 104px;
-  margin-bottom: 14px;
-  color: var(--ink);
-}
-
-.mark {
-  width: 98px;
-  height: 98px;
-  flex-shrink: 0;
-  overflow: visible;
-  transform: rotate(var(--tilt, 0deg));
-}
-
-.mark .ink {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 4.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.mark .wash {
-  transform: translate(2.6px, 2.3px);
-}
-
-/* a mark drawn as lines rather than shapes: the blossom */
-.mark .knot {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.mark-x {
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  margin: 0 2px;
-}
-
-.mark-x .ink {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-}
-
-/* a name lettered by hand, over a smudge of the brand's colour */
-.mark-letters {
-  max-width: 230px;
-  padding: 0 6px;
-  font-family: "Marker Felt", "Chalkboard SE", "Noteworthy", "Comic Sans MS", cursive;
-  font-size: 34px;
-  line-height: 1.05;
-  letter-spacing: 0.01em;
-  text-align: center;
-  text-shadow: 2.5px 2.5px 0 var(--wash);
-  transform: rotate(-3deg);
-  overflow-wrap: anywhere;
-}
-
-/* one mark, small, beside a model's name in a list (ModelIcon): drawn in
-   the text's own colour, so a highlighted row turns its lines with it */
-.model-icon {
-  display: inline-flex;
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-}
-
-.model-icon .mark {
-  width: 100%;
-  height: 100%;
-}
-
-.dropdown-trigger .model-icon {
-  width: 16px;
-  height: 16px;
-  margin-right: -2px;
-}
-
-.marks:hover .mark,
-.marks:hover .mark-letters {
-  animation: mark-wiggle 520ms ease-in-out;
-}
-
-.marks:hover .mark-x {
-  animation: mark-spin 520ms ease-in-out;
-}
-
 @keyframes mark-wiggle {
   0%,
   100% {
@@ -1953,23 +1328,6 @@ input[type="range"]::-webkit-slider-thumb {
   }
   65% {
     transform: rotate(calc(var(--tilt, -3deg) + 5deg));
-  }
-}
-
-@keyframes mark-spin {
-  50% {
-    transform: rotate(90deg) scale(1.15);
-  }
-  100% {
-    transform: rotate(180deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .marks:hover .mark,
-  .marks:hover .mark-letters,
-  .marks:hover .mark-x {
-    animation: none;
   }
 }
 
@@ -2606,193 +1964,6 @@ input[type="range"]::-webkit-slider-thumb {
 [data-theme="dark"] .home-tab-glide,
 [data-theme="ember"] .home-tab-glide {
   background: color-mix(in srgb, var(--ink) 18%, var(--paper-dim));
-}
-
-/* ── Settings → Peek band (BandEditor.tsx) ─────────────────────────── */
-
-.bandedit {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-top: 8px;
-}
-
-/* the band at twice its size, and room under it for what hangs below */
-.bandedit-stage {
-  position: relative;
-  flex-shrink: 0;
-  outline: none;
-  border-radius: var(--radius-s);
-  background: color-mix(in srgb, var(--paper-dim) 55%, var(--paper));
-  overflow: hidden;
-}
-
-.bandedit-stage:focus-visible {
-  box-shadow: 0 0 0 1.5px var(--ink-faint);
-}
-
-.bandedit-space {
-  position: absolute;
-  left: 0;
-  top: 0;
-  transform-origin: 0 0;
-}
-
-/* the whole of every picture, faint, where the band cuts it off */
-.bandedit-ghosts {
-  position: absolute;
-  inset: 0;
-  opacity: 0.2;
-  pointer-events: none;
-}
-
-/* the band itself, dressed as the sidebar's header is */
-.bandedit-band {
-  position: absolute;
-  left: 0;
-  top: 0;
-  overflow: hidden;
-  background-color: var(--paper-dim);
-  background-image: var(--tone);
-  background-size: 6px 6px;
-  /* opaque, as on the sidebar's (.sidebar-header) */
-  border-bottom: 1.5px solid color-mix(in srgb, var(--ink) 10%, var(--paper-dim));
-}
-
-.bandedit-band .band-pic {
-  cursor: grab;
-}
-
-.bandedit-stage.moving .band-pic {
-  cursor: grabbing;
-}
-
-.bandedit-band .band-pic.picked {
-  outline: 1px dashed var(--ink-soft);
-  outline-offset: 0.5px;
-}
-
-/* the window's three buttons, where macOS draws them over the band */
-.bandedit-lights {
-  position: absolute;
-  left: 12px;
-  top: 14px;
-  display: flex;
-  gap: 8px;
-  pointer-events: none;
-  opacity: 0.55;
-}
-
-.bandedit-lights i {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #ee6a5f;
-}
-
-.bandedit-lights i:nth-child(2) {
-  background: #f5bf4f;
-}
-
-.bandedit-lights i:nth-child(3) {
-  background: #62c554;
-}
-
-.bandedit-hint {
-  margin: 0;
-  max-width: 560px;
-}
-
-.bandedit-problem {
-  margin: 0;
-  color: var(--diff-del-ink);
-}
-
-/* the pictures in order, to pick from — one moved off the band too */
-.bandedit-strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.bandedit-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 36px;
-  padding: 3px;
-  border: 0.5px solid var(--line-soft);
-  border-radius: var(--radius-s);
-  background: var(--paper-dim);
-  overflow: hidden;
-}
-
-.bandedit-chip.active {
-  border-color: var(--ink);
-}
-
-.bandedit-chip.add {
-  font-size: 18px;
-  color: var(--ink-soft);
-}
-
-.bandedit-chip.still {
-  cursor: default;
-}
-
-/* a picture shrunk into a chip: whole, however it is shaped */
-.bandedit-thumb {
-  position: static;
-  display: flex;
-  width: 100%;
-  height: 100%;
-  align-items: center;
-  justify-content: center;
-}
-
-.bandedit-thumb .band-art {
-  display: flex;
-  max-width: 100%;
-  max-height: 100%;
-}
-
-.bandedit-thumb .band-img {
-  width: auto;
-  max-width: 100%;
-  max-height: 28px;
-  object-fit: contain;
-}
-
-.bandedit-count {
-  margin-left: 4px;
-  font-size: var(--fs-sm);
-  color: var(--ink-faint);
-}
-
-.bandedit-restore {
-  margin-left: auto;
-}
-
-.bandedit-panel {
-  display: flex;
-  flex-direction: column;
-}
-
-.bandedit-panel .settings-row + .settings-row {
-  border-top: 1px solid var(--line-faint);
-}
-
-.bandedit-range {
-  width: 220px;
-}
-
-.bandedit-readout {
-  min-width: 64px;
-  font-size: var(--fs-sm);
-  color: var(--ink-soft);
-  font-variant-numeric: tabular-nums;
 }
 
 .bandedit-num {
@@ -3526,11 +2697,7 @@ input[type="range"]::-webkit-slider-thumb {
   will-change: opacity;
 }
 
-/* thinking: the two-frame hand-drawn doodle, flipping poses every 0.5s —
-   mirrored, and wiggling between tilts in hard 0.5s steps, synced with the
-   pose swaps (1s pose cycle, 4s pseudo-random tilt cycle — both align) */
-
-/* the doodle and its line: what a running turn has done so far, so a long
+/* the spinner and its line: what a running turn has done so far, so a long
    one reads as work rather than as a hang */
 .working {
   display: flex;
@@ -3574,71 +2741,6 @@ input[type="range"]::-webkit-slider-thumb {
    of the line that is not just "still going" */
 .working-quiet {
   color: var(--ink);
-}
-
-.thinking {
-  position: relative;
-  width: 46px;
-  height: 46px;
-  margin: 6px 0;
-  color: var(--ink-soft);
-  transform: scaleX(-1) rotate(-5deg);
-  /* a sealed box on its own layer: a step turns the layer and swaps which
-     pose is opaque, and nothing outside these 46px — nor inside — is
-     painted again for it */
-  contain: strict;
-  will-change: transform;
-}
-
-/* eight half-second steps on the clock (data-doodle, beat.ts): a tilt each,
-   and every other one the second pose — the same hard swaps the doodle
-   always made, drawn twice a second instead of 120 times */
-.thinking[data-doodle="1"] {
-  transform: scaleX(-1) rotate(6deg);
-}
-
-.thinking[data-doodle="2"] {
-  transform: scaleX(-1) rotate(-7deg);
-}
-
-.thinking[data-doodle="3"] {
-  transform: scaleX(-1) rotate(4deg);
-}
-
-.thinking[data-doodle="4"] {
-  transform: scaleX(-1) rotate(-6deg);
-}
-
-.thinking[data-doodle="5"] {
-  transform: scaleX(-1) rotate(7deg);
-}
-
-.thinking[data-doodle="6"] {
-  transform: scaleX(-1) rotate(-4deg);
-}
-
-.thinking[data-doodle="7"] {
-  transform: scaleX(-1) rotate(5deg);
-}
-
-.thinking-frame {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  will-change: opacity;
-}
-
-.thinking-frame.f2 {
-  opacity: 0;
-}
-
-.thinking:is([data-doodle="1"], [data-doodle="3"], [data-doodle="5"], [data-doodle="7"]) .thinking-frame.f1 {
-  opacity: 0;
-}
-
-.thinking:is([data-doodle="1"], [data-doodle="3"], [data-doodle="5"], [data-doodle="7"]) .thinking-frame.f2 {
-  opacity: 1;
 }
 
 /* queued prompts: user-bubble look, ringed in quiet dots — waiting for their
@@ -9500,23 +8602,6 @@ button.stop:hover {
 .stats-row small {
   color: var(--ink-faint);
   font-weight: 500;
-}
-
-/* ── the sidebar's projects row ───────────────────────────────────── */
-
-/* the Projects row's dragon, standing just ahead of the count of projects
-   at work — and taking the count's push to the right edge. A hair higher
-   than centred: its jaw hangs low in the drawing, and beside the digits it
-   read as sitting under them. */
-.row-count-dragon {
-  margin-left: auto;
-  flex-shrink: 0;
-  position: relative;
-  top: -1.5px;
-}
-
-.row-count-dragon + .row-count {
-  margin-left: 7px;
 }
 
 .row-count {

@@ -672,7 +672,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .conn.off {
   background: transparent;
-  border: 2px solid var(--ink);
+  border: 1px solid var(--ink-soft);
 }
 
 /* ── what moves by itself, stepped by web/src/lib/beat.ts ────────────
@@ -702,7 +702,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .sidebar-empty {
   color: var(--ink-faint);
   text-align: center;
-  padding: 28px 14px;
+  padding: 28px 16px;
   line-height: 1.8;
 }
 
@@ -773,8 +773,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .dot.permission {
-  background: transparent;
-  border: 2.5px solid var(--ink);
+  background: var(--accent);
+  border: 0;
 }
 
 .dot.error {
@@ -787,22 +787,22 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 /* the chats from outside ruri, on the team page (TeamPage.tsx): each one
    found a quiet row, tagged by harness */
 .recent-note {
-  padding: 2px 10px 8px 30px;
+  padding: 2px 12px 8px 32px;
   font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
 
 .project-row.recent-item {
-  margin-left: 14px;
-  padding: 5px 9px;
-  margin-bottom: 5px;
+  margin-left: 16px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
   font-size: 12px;
-  gap: 7px;
+  gap: 8px;
 }
 
 .recent-tag {
   flex-shrink: 0;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   padding: 1px 4px;
   border: 1px solid var(--line-soft);
@@ -1083,10 +1083,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   margin: auto 0;
 }
 
-/* The deck: the two pages side by side on a track twice the pane's width,
-   the one showing in the window. Picking the other slides the track a
-   page along — the one you leave goes out one side as the other comes in —
-   and only the page you are on is mounted outside a slide. */
+/* The two pages share a track; changing the selected page is immediate. */
 .home-deck {
   flex: 1;
   min-width: 0;
@@ -1158,7 +1155,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   position: relative; /* over the pill */
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   padding: 4px 16px;
   border: none;
   border-radius: var(--radius-s);
@@ -1199,7 +1196,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   font-size: 10px;
   font-weight: 600;
   line-height: 1.3;
-  padding: 1px 6px;
+  padding: 1px 8px;
   border-radius: 999px;
   border: 1px solid currentColor;
   opacity: 0.75;
@@ -1244,7 +1241,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .projects-head {
   display: block;
   grid-template-columns: minmax(190px, 320px);
-  gap: 14px;
+  gap: 16px;
 }
 
 .projects-count {
@@ -1295,7 +1292,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .projects-live .st-finished {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   color: var(--ink);
   font-weight: 600;
 }
@@ -1332,7 +1329,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .stat-sub {
   display: flex;
-  gap: 9px;
+  gap: 8px;
   font-size: var(--fs-sm);
   color: var(--ink-faint);
   white-space: nowrap;
@@ -1635,7 +1632,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .bandedit {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   padding-top: 8px;
 }
 
@@ -1733,7 +1730,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .bandedit-chip {
@@ -1742,7 +1739,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   justify-content: center;
   width: 44px;
   height: 36px;
-  padding: 3px;
+  padding: 4px;
   border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-s);
   background: var(--paper-dim);
@@ -1888,7 +1885,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .schedule-face {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 24px;
   padding-top: 4px;
 }
 
@@ -1958,7 +1955,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .dial-hour {
   fill: var(--ink-soft);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 600;
   text-anchor: middle;
   font-variant-numeric: tabular-nums;
@@ -2010,7 +2007,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .schedule-times {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 /* the same pairing as the dial: the theme's paper, ringed in its own ink */
@@ -2068,7 +2065,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: inline-flex;
   align-items: baseline;
   gap: 1px;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-s);
   font-size: 12px;
@@ -2099,7 +2096,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .time-meridiem {
-  margin-left: 3px;
+  margin-left: 4px;
   color: var(--ink-soft);
   cursor: pointer;
 }
@@ -2163,13 +2160,13 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 6px;
+  gap: 12px;
+  padding-top: 8px;
 }
 
 .model-search {
   width: 100%;
-  padding: 7px 11px;
+  padding: 8px 12px;
   border: none;
   border-radius: var(--radius-m);
   background: var(--paper-dim);
@@ -2269,7 +2266,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  padding: 1px 6px 2px;
+  padding: 1px 8px 2px;
   border-radius: var(--radius-xs);
   border: 1px solid var(--ink);
   background: var(--fill);
@@ -2363,14 +2360,14 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .bandedit-num {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
 
 .bandedit-num input {
   width: 64px;
-  padding: 3px 6px;
+  padding: 4px 8px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2438,7 +2435,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .chat-id.seat {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 12px;
 }
 
 .chat-id.seat .chat-title {
@@ -2488,7 +2485,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    the 2px between them, so without this a count reads as the next
    button's. The room is taken by the button carrying one. */
 .header-controls .icon-button.badged {
-  margin-right: 6px;
+  margin-right: 8px;
 }
 
 /* the toolbar's "…": Skills and Components, with a dot for new components */
@@ -2819,7 +2816,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   color: var(--ink);
   border: 1px solid var(--ink);
   border-radius: 999px;
-  padding: 4px 15px;
+  padding: 4px 16px;
   font-family: var(--mono);
   font-size: var(--fs-md);
   font-weight: 600;
@@ -2893,7 +2890,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin: 10px 0;
+  margin: 12px 0;
 }
 
 .compaction-line {
@@ -2916,7 +2913,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .compaction-label {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   font-size: var(--fs-sm);
   font-weight: 400;
   color: var(--ink-faint);
@@ -2950,8 +2947,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .compaction-turn {
   display: flex;
-  gap: 10px;
-  padding: 9px 12px;
+  gap: 12px;
+  padding: 8px 12px;
 }
 
 .compaction-turn + .compaction-turn {
@@ -2985,7 +2982,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .compaction-pair {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -3010,7 +3007,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   line-height: 1.6;
   color: var(--ink-soft);
   border-style: solid;
-  padding: 10px 12px;
+  padding: 12px 12px;
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
@@ -3023,14 +3020,14 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-self: stretch;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .carry-on-head {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 4px;
   font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
@@ -3053,7 +3050,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   position: relative;
   max-height: calc(6.4em + 18px);
   overflow: hidden;
-  padding: 9px 14px;
+  padding: 8px 16px;
   font-size: var(--fs-md);
   color: var(--ink-soft);
   background: var(--paper-dim);
@@ -3103,7 +3100,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .carry-on-cut {
   overflow: hidden;
-  padding: 6px 14px;
+  padding: 8px 16px;
   font-size: var(--fs-md);
   color: var(--ink-soft);
   white-space: nowrap;
@@ -3139,7 +3136,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-self: flex-start;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   max-width: 100%;
 }
 
@@ -3154,7 +3151,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .working-line {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
   font-size: 12px;
   color: var(--ink-soft);
@@ -3216,12 +3213,12 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 /* a fold made a moment ago can be taken apart again: a small word in ink
    beside the label, there for as long as that is on offer */
 .queued-undo {
-  margin-right: 6px;
+  margin-right: 8px;
   padding: 1px 8px;
   border: 1px solid var(--ink-faint);
   border-radius: 999px;
   background: transparent;
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--ink);
   animation: rise var(--move);
@@ -3266,7 +3263,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-self: flex-end;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 76%;
   padding: 0 4px;
   font-size: var(--fs-sm);
@@ -3281,7 +3278,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .queue-standby button {
   flex-shrink: 0;
-  padding: 4px 10px;
+  padding: 4px 12px;
   font-size: var(--fs-sm);
 }
 
@@ -3387,8 +3384,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-self: flex-start;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 11px 3px 8px;
+  gap: 4px;
+  padding: 4px 12px 4px 8px;
   font-size: var(--fs-sm);
   font-weight: 400;
   color: var(--ink-faint);
@@ -3465,7 +3462,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-self: flex-start;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   padding: 0;
   font-size: var(--fs-sm);
   font-weight: 400;
@@ -3551,7 +3548,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    mode that takes the window away from you */
 .rapid-intro {
   position: absolute;
-  inset: 0 0 0 var(--sidebar-w);
+  inset: 68px 24px auto auto;
   z-index: var(--z-rapid);
   display: flex;
   flex-direction: column;
@@ -3560,7 +3557,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   gap: 8px;
   text-align: center;
   pointer-events: none;
-  background: var(--paper);
+  background: var(--menu-bg);
+  padding: 8px 16px;
+  backdrop-filter: var(--material);
+  box-shadow: var(--menu-shadow);
+  border-radius: var(--radius-m);
 }
 
 .rapid-intro-name {
@@ -3589,7 +3590,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .hero-composer .rapid-bar {
-  padding-bottom: 10px;
+  padding-bottom: 12px;
 }
 
 /* Placed off the textbox's own measured height, exactly like the
@@ -3614,7 +3615,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 6px 4px 14px;
+  padding: 4px 8px 4px 16px;
   border: none;
   border-radius: 999px;
   background: var(--menu-bg);
@@ -3636,9 +3637,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .rapid-skip {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
-  padding: 3px 12px;
+  padding: 4px 12px;
 }
 
 .rapid-skip svg {
@@ -3661,7 +3662,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .rapid-scope button {
-  padding: 1px 9px;
+  padding: 1px 8px;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -3694,7 +3695,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .chat.rapid-waiting {
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   padding-bottom: 6vh;
   text-align: center;
   user-select: none;
@@ -3714,7 +3715,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .rapid-waiting .rapid-bar {
   justify-content: center;
   width: auto;
-  margin-top: 22px;
+  margin-top: 24px;
   padding: 0;
 }
 
@@ -3723,7 +3724,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 /* Same card as the question, asked more quietly: one field, and the rest
    folded away until it's wanted. */
 .name-card {
-  gap: 10px;
+  gap: 12px;
 }
 
 .ask-badge {
@@ -3785,7 +3786,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .board-foot {
-  padding: 6px 2px 2px;
+  padding: 8px 2px 2px;
   font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
@@ -3854,7 +3855,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .lib-search-clear {
-  padding: 3px;
+  padding: 4px;
   border: none;
   background: none;
   color: var(--ink-faint);
@@ -3874,7 +3875,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-key {
   font-family: var(--mono);
   font-size: 10px;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border: 0.5px solid var(--line-soft);
   border-radius: var(--radius-xs);
   color: var(--ink-faint);
@@ -3926,7 +3927,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .lib-sort .seg-option {
   font-size: var(--fs-sm);
-  padding: 2px 10px;
+  padding: 2px 12px;
 }
 
 .lib-sort .seg-option:disabled {
@@ -3937,8 +3938,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 10px;
-  padding: 26px 2px 14px;
+  gap: 4px 12px;
+  padding: 28px 2px 16px;
   font-size: var(--fs-md);
   color: var(--ink-faint);
 }
@@ -3965,9 +3966,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .lib-empty-card .comp-sweep {
-  margin-top: 10px;
+  margin-top: 12px;
   font-size: var(--fs-md);
-  padding: 5px 16px;
+  padding: 4px 16px;
 }
 
 .lib-empty-title {
@@ -3981,7 +3982,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
   gap: 16px;
-  padding: 14px 0 18px;
+  padding: 16px 0 20px;
 }
 
 /* A card: the picture, then what it's called, a line of its note, and its
@@ -4089,7 +4090,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 4px;
   color: var(--ink-faint);
   font-size: var(--fs-xs);
 }
@@ -4129,10 +4130,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-tile-name {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 0 2px;
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.3;
 }
 
@@ -4186,7 +4187,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .lib-dir {
   width: 200px;
-  padding: 1px 7px;
+  padding: 1px 8px;
   font-size: var(--fs-sm);
   vertical-align: baseline;
 }
@@ -4196,9 +4197,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-detail {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   padding-top: 4px;
-  animation: rise var(--move);
+  animation: none;
 }
 
 .lib-detail-top {
@@ -4211,7 +4212,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 4px 10px 4px 4px;
+  padding: 4px 12px 4px 4px;
   flex-shrink: 0;
 }
 
@@ -4263,7 +4264,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-behind {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   font-size: var(--fs-sm);
   color: var(--ink-soft);
 }
@@ -4274,7 +4275,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .lib-behind button {
   flex-shrink: 0;
-  padding: 2px 10px;
+  padding: 2px 12px;
   font-size: var(--fs-sm);
   border: 0.5px solid var(--line-soft);
 }
@@ -4285,7 +4286,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 8px 8px 14px;
+  padding: 8px 8px 8px 16px;
   border: 1px dashed var(--line-soft);
   border-radius: var(--radius-s);
   font-size: var(--fs-md);
@@ -4314,8 +4315,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-install {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 8px 8px 14px;
+  gap: 12px;
+  padding: 8px 8px 8px 16px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-s);
 }
@@ -4345,7 +4346,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .lib-copy {
   flex-shrink: 0;
-  padding: 2px 10px;
+  padding: 2px 12px;
   font-size: var(--fs-sm);
   border: 0.5px solid var(--line-soft);
   background: var(--paper);
@@ -4359,7 +4360,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-detail-body {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-  gap: 18px;
+  gap: 20px;
   align-items: start;
 }
 
@@ -4527,7 +4528,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   max-height: 420px;
   field-sizing: content;
   resize: vertical;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.6;
 }
 
@@ -4546,7 +4547,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-field {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   font-size: var(--fs-sm);
   color: var(--ink-faint);
 }
@@ -4571,7 +4572,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .lib-field.wrap > span {
-  padding-top: 5px;
+  padding-top: 4px;
 }
 
 .lib-field textarea {
@@ -4603,7 +4604,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  padding-top: 6px;
+  padding-top: 8px;
   font-size: var(--fs-sm);
   color: var(--ink-soft);
 }
@@ -4614,7 +4615,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .lib-section-title {
-  margin-top: 6px;
+  margin-top: 8px;
   font-weight: 600;
   font-size: 14px;
 }
@@ -4630,7 +4631,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 6px 8px 0;
+  padding: 8px 8px 0;
   border-bottom: 0.5px solid var(--line-soft);
   overflow-x: auto;
   background: var(--paper);
@@ -4638,7 +4639,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .lib-tab {
   flex-shrink: 0;
-  padding: 5px 10px 6px;
+  padding: 4px 12px 8px;
   border: none;
   border-bottom: none;
   border-radius: var(--radius-s) var(--radius-s) 0 0;
@@ -4708,21 +4709,21 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-code {
   max-height: 560px;
   overflow: auto;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .lib-code-inner {
   position: relative;
   display: flex;
   min-width: max-content;
-  padding: 4px 0 10px;
+  padding: 4px 0 12px;
 }
 
 .lib-code-gutter,
 .lib-code-text {
   margin: 0;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: var(--lib-line);
 }
 
@@ -4730,7 +4731,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   position: sticky;
   left: 0;
   z-index: var(--z-raised);
-  padding: 0 12px 0 14px;
+  padding: 0 12px 0 16px;
   text-align: right;
   color: var(--ink-faint);
   background: var(--paper-bright);
@@ -4740,7 +4741,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 /* positioned, so it paints over the marked line's band rather than under */
 .lib-code-text {
   position: relative;
-  padding: 0 18px 0 6px;
+  padding: 0 20px 0 8px;
 }
 
 .lib-code-text code {
@@ -4783,14 +4784,14 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .lib-skel.tab {
   width: 96px;
   height: 14px;
-  margin: 4px 6px 8px;
+  margin: 4px 8px 8px;
 }
 
 .lib-code-skel {
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  padding: 16px 18px 22px 52px;
+  gap: 8px;
+  padding: 16px 20px 24px 52px;
 }
 
 .lib-skel.line {
@@ -4799,11 +4800,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 /* ── the new-component star ───────────────────────────────────────── */
 
-/* Turning, because a page of identical cards is exactly where a still mark
-   goes unnoticed — and slowly, because this is a page you read. The turning
-   is web/src/lib/spin.ts: ten steps a second off one shared clock, rather
-   than an endless animation that redraws the window at full frame rate.
-   Its own layer, so a step re-composites the star and nothing else. */
+/* New components wear a still accent mark. Reading never starts motion. */
 .comp-star {
   flex-shrink: 0;
   display: inline-flex;
@@ -4847,7 +4844,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   flex-shrink: 0;
   font-size: var(--fs-sm);
   font-weight: 600;
-  padding: 3px 11px;
+  padding: 4px 12px;
 }
 
 /* ── skills ───────────────────────────────────────────────────────── */
@@ -4866,7 +4863,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .skill-note {
   margin-top: 8px;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-radius: var(--radius-s);
   background: var(--paper-dim);
   font-size: 11px;
@@ -4915,6 +4912,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   background: color-mix(in srgb, var(--ink) 16%, transparent);
   cursor: pointer;
   transition: background-color var(--move);
+  min-height: 19px;
+  display: flex;
+  align-items: center;
+  line-height: 0;
 }
 
 .skill-switch.on {
@@ -4984,7 +4985,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   padding: 16px 20px;
   border-bottom: none;
   background: var(--toolbar-bg);
@@ -4998,7 +4999,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .skill-sheet-body {
   overflow-y: auto;
   padding: 24px;
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.7;
 }
 
@@ -5038,7 +5039,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-top: 6px;
+  padding-top: 8px;
 }
 
 .vault-rows {
@@ -5071,14 +5072,14 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .vault-form {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .vault-form input {
   flex: 1;
   min-width: 120px;
   font-size: var(--fs-md);
-  padding: 5px 8px;
+  padding: 4px 8px;
 }
 
 .vault-hint {
@@ -5106,7 +5107,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .result-text {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
 .result-text .icon {
@@ -5150,9 +5151,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   margin-inline: auto;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
-  padding: 5px 14px;
+  padding: 4px 16px;
   border-radius: 999px;
   background: var(--raised);
   border: 1px solid var(--edge);
@@ -5162,7 +5163,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .jump-latest:active {
-  transform: scale(0.97);
+  transform: none;
 }
 
 .jump-latest .icon {
@@ -5176,12 +5177,12 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-self: stretch;
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 12px 12px;
   color: var(--ink-soft);
   background: var(--paper-dim);
-  border-left: 2px solid var(--edge);
-  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  border-left: 0;
+  border-radius: var(--radius-m);
   animation: rise var(--move);
 }
 
@@ -5194,7 +5195,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .plan-event-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--ink);
@@ -5222,7 +5223,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .plan-event-entry {
   display: grid;
   grid-template-columns: 16px 1fr;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -5242,7 +5243,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── permissions: a bordered manga panel that demands attention ───── */
+/* ── permission requests ─────────────────────────────────────────── */
 
 .permission-card {
   align-self: stretch;
@@ -5265,13 +5266,13 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .permission-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
   font-weight: 600;
   color: var(--ink);
   background: var(--fill);
   border-radius: var(--radius-s);
-  padding: 3px 9px;
+  padding: 4px 8px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -5320,7 +5321,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: 8px;
   max-width: 100%;
 }
 
@@ -5387,7 +5388,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   font-size: var(--fs-xs);
   color: var(--ink-faint);
 }
@@ -5461,8 +5462,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .agents-asks {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 14px;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 /* the composer's box, for a brief and for a follow-up */
@@ -5496,7 +5497,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .agent-brief-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .agent-brief-hint {
@@ -5524,17 +5525,17 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   width: 100%;
   max-width: 800px;
   margin: 0 auto;
-  padding: 18px 24px 0;
+  padding: 20px 24px 0;
 }
 
 .agent-reply {
-  padding: 10px 24px 18px;
+  padding: 12px 24px 20px;
 }
 
 .agent-view-head {
   align-items: flex-start;
-  gap: 6px;
-  padding: 8px 8px 8px 6px;
+  gap: 8px;
+  padding: 8px 8px 8px 8px;
 }
 
 .agent-view-title {
@@ -5543,7 +5544,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding-top: 5px;
+  padding-top: 4px;
 }
 
 .agent-hand {
@@ -5562,7 +5563,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .agent-view-inner {
   max-width: 800px;
   margin: 0 auto;
-  padding: 18px 24px 24px;
+  padding: 20px 24px 24px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -5570,10 +5571,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 /* what it came back with, when it said more than its last message did */
 .agent-report {
-  padding: 8px 12px;
-  border-left: 2px solid var(--ink-faint);
+  padding: 12px 16px;
+  border-left: 0;
   background: var(--paper-dim);
-  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  border-radius: var(--radius-m);
 }
 
 .agent-report-label,
@@ -5589,7 +5590,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .permission-from {
-  margin: -2px 0 6px;
+  margin: -2px 0 8px;
 }
 
 .agent-live {
@@ -5638,7 +5639,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 /* bounded so a tall screenshot cannot push the conversation off screen —
    the viewer is one click away for the full size */
 .tool-image {
-  padding: 3px;
+  padding: 4px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-s);
   background: var(--paper-dim);
@@ -5692,9 +5693,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .diff-head {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   width: 100%;
-  padding: 5px 10px;
+  padding: 4px 12px;
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 600;
@@ -5816,7 +5817,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 /* where the file lives, along the bottom edge — the whole path, quiet
    enough to read past when the patch is what you came for */
 .diff-path {
-  padding: 4px 10px;
+  padding: 4px 12px;
   border-top: 1px solid var(--line-faint);
   font-family: var(--mono);
   font-size: var(--fs-xs);
@@ -5829,7 +5830,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .diff-more {
-  padding: 5px 10px;
+  padding: 4px 12px;
   font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--ink-faint);
@@ -5882,7 +5883,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .ask-question {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 8px;
   animation: none;
 }
 
@@ -5918,7 +5919,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   color: var(--ink);
   background: var(--fill);
   border-radius: var(--radius-s);
-  padding: 2px 7px;
+  padding: 2px 8px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -5941,11 +5942,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .ask-url {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   align-self: flex-start;
   font-family: var(--mono);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   color: var(--ink);
   text-decoration: none;
   border-bottom: 1px solid var(--edge);
@@ -6058,7 +6059,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   background: var(--paper-bright);
   border: 1px solid var(--edge);
   border-radius: var(--radius-s);
-  padding: 8px 11px;
+  padding: 8px 12px;
   resize: vertical;
   outline: none;
 }
@@ -6067,7 +6068,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    Dashed, like the raw compaction brief: quoted material, not chrome, and
    not another option row for the eye to try clicking. */
 .ask-preview {
-  margin: 2px 0 0 25px;
+  margin: 2px 0 0 24px;
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.55;
@@ -6075,7 +6076,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   background: var(--paper-dim);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-s);
-  padding: 10px 12px;
+  padding: 12px 12px;
   max-height: 240px;
   overflow: auto;
   white-space: pre;
@@ -6084,7 +6085,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .ask-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 /* one question at a time: the arrows walk the set, the count says where you
@@ -6118,7 +6119,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .ask-dots {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-right: auto;
 }
 
@@ -6159,7 +6160,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border-radius: 999px;
   background: var(--badge);
   color: #fff;
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 15px;
   text-align: center;
@@ -6239,8 +6240,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   position: relative;
   width: 64px;
   height: 64px;
-  border-radius: var(--radius-s);
-  border: 1px solid var(--edge);
+  border-radius: var(--radius-m);
+  border: none;
   background: var(--paper-dim);
   overflow: hidden;
   cursor: zoom-in;
@@ -6260,7 +6261,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   left: 0;
   bottom: 0;
   right: 0;
-  font-size: 8.5px;
+  font-size: 11px;
   line-height: 1.6;
   text-align: center;
   background: rgba(0, 0, 0, 0.55);
@@ -6287,7 +6288,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .att-ext {
-  font-size: 8.5px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
@@ -6302,25 +6303,26 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border-radius: 999px;
   background: var(--fill);
   color: var(--ink);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 14px;
   text-align: center;
-  padding: 0 3px;
+  padding: 0 4px;
 }
 
 .att-remove {
   position: absolute;
   top: 2px;
   right: 2px;
-  width: 16px;
-  height: 16px;
-  padding: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 4px;
   border: none;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
   line-height: 0;
+  min-height: 20px;
 }
 
 .att-remove:hover {
@@ -6351,7 +6353,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 44px;
+  height: auto;
   padding: 8px 16px;
   flex-shrink: 0;
   background: var(--toolbar-bg);
@@ -6436,7 +6438,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .sketch-attach {
   margin-left: 4px;
-  padding: 3px 14px;
+  padding: 4px 16px;
 }
 
 .sketch-stage {
@@ -6481,7 +6483,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 6px 14px;
+  padding: 8px 16px;
   border-radius: 999px;
   font-size: 12px;
   color: var(--ink);
@@ -6523,10 +6525,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .viewer-draw {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 12px;
+  gap: 8px;
+  padding: 4px 12px;
   font-size: 12px;
-  margin-right: 6px;
+  margin-right: 8px;
 }
 
 .viewer-draw svg {
@@ -6621,7 +6623,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   width: min(820px, 86vw);
   max-height: 62vh;
   overflow: auto;
-  padding: 12px 14px;
+  padding: 12px 16px;
   background: var(--paper-dim);
   font-family: var(--mono);
   font-size: var(--fs-sm);
@@ -6681,14 +6683,14 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   margin-top: 12px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
   overflow-y: auto;
 }
 
 .region-row {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
 }
 
 /* what the region is called in the prompt — the note itself is written
@@ -6869,7 +6871,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding: 5px;
+  padding: 4px;
   background: var(--menu-bg);
   -webkit-backdrop-filter: var(--material);
   backdrop-filter: var(--material);
@@ -6882,9 +6884,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .command-row {
   display: flex;
   align-items: baseline;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  padding: 5px 10px;
+  padding: 4px 12px;
   border: none;
   border-radius: var(--radius-xs);
   background: none;
@@ -6905,7 +6907,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .command-name {
   font-family: var(--mono);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
   color: var(--ink);
   white-space: nowrap;
 }
@@ -6931,7 +6933,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .command-kind {
   margin-left: auto;
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--ink-faint);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -7035,7 +7037,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .composer-actions {
   display: flex;
-  gap: 7px;
+  gap: 8px;
   margin-left: auto;
 }
 
@@ -7132,7 +7134,7 @@ button.stop:hover {
    width, just taller, so switching modes moves nothing else. */
 .terminal {
   height: 300px;
-  padding: 3px 2px 2px;
+  padding: 8px 4px 4px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -7142,9 +7144,9 @@ button.stop:hover {
 .term-tabs {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 0 2px 3px;
-  border-bottom: 1px solid var(--line-faint);
+  gap: 4px;
+  padding: 0 4px 8px;
+  border-bottom: none;
   flex-shrink: 0;
 }
 
@@ -7174,10 +7176,10 @@ button.stop:hover {
 }
 
 .term-tab-name {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--sans);
+  font-size: 12px;
   line-height: 1;
-  padding: 4px 5px 4px 7px !important;
+  padding: 4px 8px !important;
 }
 
 .term-tab-close,
@@ -7185,15 +7187,16 @@ button.stop:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 17px;
-  height: 17px;
+  width: 24px;
+  height: 24px;
   opacity: 0.55;
+  min-height: 24px;
 }
 
 /* the × belongs to the tab you're on or the one under the pointer — on all
    of them at once it reads as a row of closes rather than a row of shells */
 .term-tab-close {
-  margin-right: 3px;
+  margin-right: 4px;
   opacity: 0;
   transition: opacity var(--quick);
 }
@@ -7405,7 +7408,7 @@ button.stop:hover {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 12px;
   padding: 8px 12px;
   background-color: transparent;
   background-size: 5px 5px;
@@ -7466,7 +7469,7 @@ button.stop:hover {
 
 .md .codeblock pre {
   margin: 0;
-  padding: 11px 14px;
+  padding: 12px 16px;
   overflow-x: auto;
 }
 
@@ -7739,7 +7742,7 @@ button.stop:hover {
 /* take over / give back: one pill, inverted while you have the window */
 .bridge-toggle {
   flex: none;
-  padding: 4px 10px;
+  padding: 4px 12px;
   border: 1px solid var(--ink);
   border-radius: 999px;
   background: var(--paper);
@@ -7830,7 +7833,7 @@ button.stop:hover {
 .composer-editing {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 0 2px 2px;
   font-family: var(--mono);
   font-size: var(--fs-xs);
@@ -7881,7 +7884,7 @@ button.stop:hover {
 .composer-actions .more-menu button {
   width: 100%;
   height: auto;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-radius: var(--radius-s);
   justify-content: flex-start;
 }
@@ -7917,7 +7920,7 @@ button.stop:hover {
 
 .dropdown-rule {
   height: 1.5px;
-  margin: 5px 4px;
+  margin: 4px 4px;
   background: var(--edge);
 }
 
@@ -7926,7 +7929,7 @@ button.stop:hover {
 }
 
 .dropdown-item.sub-row {
-  gap: 10px;
+  gap: 12px;
 }
 
 .dropdown-sub.open .dropdown-item.sub-row {
@@ -7966,7 +7969,7 @@ button.stop:hover {
   border: none;
   border-radius: var(--radius-m);
   box-shadow: var(--menu-shadow);
-  padding: 5px;
+  padding: 4px;
   z-index: var(--z-flyout);
   animation: rise var(--move);
 }
@@ -8068,7 +8071,7 @@ button.stop:hover {
 .switcher-foot kbd {
   font-family: var(--mono);
   font-size: 10px;
-  padding: 2px 5px;
+  padding: 2px 4px;
   border: 1px solid var(--edge);
   border-radius: var(--radius-xs);
   color: var(--ink-faint);
@@ -8128,7 +8131,7 @@ button.stop:hover {
 
 .switcher-kind {
   margin-left: auto;
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--ink-faint);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -8139,7 +8142,7 @@ button.stop:hover {
 }
 
 .switcher-empty {
-  padding: 18px 12px;
+  padding: 20px 12px;
   text-align: center;
   font-size: 13px;
   color: var(--ink-faint);
@@ -8158,7 +8161,7 @@ button.stop:hover {
 .switcher-foot span {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 
 .switcher-foot-key {
@@ -8248,7 +8251,7 @@ button.stop:hover {
 
 .grant-ask {
   flex-shrink: 0;
-  padding: 3px 10px;
+  padding: 4px 12px;
   font-size: var(--fs-sm);
 }
 
@@ -8283,7 +8286,7 @@ button.stop:hover {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   font-size: var(--fs-sm);
   color: var(--ink-soft);
   cursor: pointer;
@@ -8338,7 +8341,7 @@ button.stop:hover {
   min-width: 0;
   font-family: var(--mono);
   font-size: var(--fs-sm);
-  padding: 5px 8px;
+  padding: 4px 8px;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-s);
   color: var(--ink);
@@ -8433,13 +8436,13 @@ button.stop:hover {
 
 .devices-setup select {
   font-size: var(--fs-md);
-  padding: 5px 8px;
+  padding: 4px 8px;
 }
 
 /* what the far side said it was on, the step under way pulsing */
 .devices-steps {
   margin: 2px 0;
-  padding-left: 18px;
+  padding-left: 20px;
   font-size: var(--fs-sm);
   color: var(--ink-soft);
   line-height: 1.7;
@@ -8456,7 +8459,7 @@ button.stop:hover {
 }
 
 .devices-error {
-  margin: 2px 0 6px;
+  margin: 2px 0 8px;
   font-size: 11px;
   line-height: 1.55;
   color: var(--ink);
@@ -8464,13 +8467,13 @@ button.stop:hover {
 }
 
 .devices-list {
-  margin: 4px 0 6px;
+  margin: 4px 0 8px;
 }
 
 .devices-this {
-  margin-top: 10px;
+  margin-top: 12px;
   border-top: 0.5px solid var(--line-soft);
-  padding-top: 14px;
+  padding-top: 16px;
 }
 
 .device-status {
@@ -8508,8 +8511,8 @@ button.stop:hover {
 .int-for {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
 .int-for select,
@@ -8549,10 +8552,10 @@ button.stop:hover {
 .int-tag {
   flex-shrink: 0;
   width: 52px;
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 600;
   text-align: center;
-  padding: 3px 0;
+  padding: 4px 0;
   border: 1px solid var(--edge);
   border-radius: 999px;
   color: var(--ink-soft);
@@ -8618,7 +8621,7 @@ button.stop:hover {
 
 .int-add {
   align-self: flex-start;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .int-form {
@@ -8652,27 +8655,27 @@ button.stop:hover {
 .hooks-form {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   margin: 8px 0 4px;
 }
 
 .hooks-field {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
 
 .hooks-label {
   flex-shrink: 0;
   width: 92px;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
 
 .hooks-hint {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -8684,7 +8687,7 @@ button.stop:hover {
 .hooks-field input {
   flex: 1;
   min-width: 0;
-  padding: 5px 8px;
+  padding: 4px 8px;
   font-family: var(--mono);
   font-size: 12px;
 }
@@ -8711,13 +8714,13 @@ button.stop:hover {
 .hooks-midna code,
 .hooks-what-it-gets code {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .hooks-global-here {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
   margin: 8px 0 2px;
 }
@@ -8730,11 +8733,11 @@ button.stop:hover {
 }
 
 .hooks-sub {
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .hooks-test {
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .hooks-what-it-gets {
@@ -8750,11 +8753,11 @@ button.stop:hover {
 }
 
 .hooks-what-it-gets p {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
 }
 
 .hooks-head {
-  margin: 14px 0 2px;
+  margin: 16px 0 2px;
   font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--ink-soft);
@@ -8763,9 +8766,9 @@ button.stop:hover {
 .hooks-row {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
-  padding: 6px 0;
+  padding: 8px 0;
   border-top: 1px solid var(--hairline);
   font-size: var(--fs-sm);
 }
@@ -8773,7 +8776,7 @@ button.stop:hover {
 .hooks-state {
   flex-shrink: 0;
   width: 64px;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -8814,7 +8817,7 @@ button.stop:hover {
 
 .hooks-when {
   flex-shrink: 0;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -8822,7 +8825,7 @@ button.stop:hover {
 .int-given-box {
   font-family: var(--mono);
   font-size: 12px;
-  padding: 6px 8px;
+  padding: 8px 8px;
   resize: vertical;
 }
 
@@ -8830,15 +8833,15 @@ button.stop:hover {
   flex: 1;
   min-width: 160px;
   font-size: var(--fs-md);
-  padding: 5px 8px;
+  padding: 4px 8px;
 }
 
 .int-market-add {
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .grants-rows {
-  margin-top: 10px;
+  margin-top: 12px;
   font-size: 11px;
   color: var(--ink-soft);
 }
@@ -8854,7 +8857,7 @@ button.stop:hover {
 .grants-scroll {
   max-height: 264px;
   overflow-y: auto;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .grants-rows table {
@@ -8865,7 +8868,7 @@ button.stop:hover {
 }
 
 .grants-rows td {
-  padding: 3px 6px 3px 0;
+  padding: 4px 8px 4px 0;
   border-top: 1px solid var(--hairline);
   white-space: nowrap;
 }
@@ -8888,10 +8891,10 @@ button.stop:hover {
 .hidden-fold {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   width: 100%;
   margin-top: auto;
-  padding: 14px 10px 4px 8px;
+  padding: 16px 12px 4px 8px;
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
@@ -8956,7 +8959,7 @@ button.stop:hover {
 
 /* the table of agents comes straight after, so it keeps the tiles' own gap */
 .meters-summary {
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 /* the machine's tiles sit a shade quieter than the money's: they are a
@@ -8982,8 +8985,8 @@ button.stop:hover {
 .stats-group {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 26px 0 12px;
+  gap: 12px;
+  margin: 28px 0 12px;
 }
 
 .stats-group::after {
@@ -9117,7 +9120,7 @@ button.stop:hover {
 
 .row-count {
   margin-left: auto;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -9168,7 +9171,7 @@ button.stop:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 16px;
-  margin: 10px 2px 4px;
+  margin: 12px 2px 4px;
   font-size: var(--fs-xs);
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -9340,7 +9343,7 @@ button.team-member-name:hover {
 }
 
 .team-liaison-none {
-  margin: 10px 2px 0;
+  margin: 12px 2px 0;
   font-size: var(--fs-xs);
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -9348,7 +9351,7 @@ button.team-member-name:hover {
 
 .team-letters {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
   font-size: var(--fs-sm);
   line-height: 1.5;
@@ -9359,7 +9362,7 @@ button.team-member-name:hover {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 14px 2px 4px;
+  margin: 16px 2px 4px;
   font-size: var(--fs-xs);
 }
 
@@ -9390,7 +9393,7 @@ button.team-member-name:hover {
 
 .team-task-meta {
   flex-shrink: 0;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -9412,7 +9415,7 @@ button.team-member-name:hover {
 .team-letters-label {
   flex-shrink: 0;
   width: 68px;
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.9;
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -9440,7 +9443,7 @@ button.team-member-name:hover {
 
 .team-letter-when {
   flex-shrink: 0;
-  font-size: 10.5px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -9455,25 +9458,25 @@ button.team-member-name:hover {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px;
-  margin: 14px 2px 0;
+  margin: 16px 2px 0;
   font-size: var(--fs-xs);
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
 
 .team-free > span:first-child {
-  margin-right: 6px;
+  margin-right: 8px;
 }
 
 .team-outside {
-  margin-top: 18px;
+  margin-top: 20px;
 }
 
 .team-outside-toggle {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 6px;
+  padding: 2px 8px;
   font-size: var(--fs-sm);
 }
 
@@ -9488,7 +9491,7 @@ button.team-member-name:hover {
 }
 
 .team-outside .recent-note {
-  padding-left: 22px;
+  padding-left: 24px;
 }
 
 /* a teammate's card in the lead's chat: the card, under whose it is */
@@ -9685,9 +9688,28 @@ button.primary.destructive:hover:not(:disabled) { background: color-mix(in srgb,
   .sketch-tools { flex-wrap: wrap; }
   .sketch-middle { order: 2; flex: 1 0 100%; justify-content: center; }
 }
-
 .team-member-details { margin-left: auto; font-size: 12px; color: var(--ink-soft); }
 .team-member-details summary { cursor: default; }
 .team-member-details .team-member-meta { padding-top: 8px; }
 .team-member-actions { justify-content: flex-end; }
 .settings-help + .grants-head { margin-top: 16px; }
+
+/* Changing selection is immediate. Motion is reserved for opening a surface. */
+.dropdown-item, .lib-chip, .seg-option, .project-row, .home-tab, .command-row { transition: none; }
+input[type="checkbox"], input[type="radio"] { min-height: 0; width: 14px; height: 14px; }
+input[type="range"] { padding: 0; box-shadow: none; background: transparent; accent-color: var(--accent); }
+input[type="range"]:focus-visible { box-shadow: var(--focus-ring); }
+button:focus-visible, summary:focus-visible, [role="button"]:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+button.primary { min-height: 28px; }
+.rapid-intro-name { line-height: 1.4; }
+/* A custom colour well and crop outline are the only literal colour controls. */
+@media (prefers-reduced-transparency: reduce) {
+  :root { --menu-bg: var(--raised); --toolbar-bg: var(--paper-dim); --material: none; }
+}
+
+/* Opening a conversation or selecting another item never replays entry motion. */
+.transcript :is(.msg, .diff, .plan-event, .tool-image, .agent-card, .working-line, .queued-card, .info-line, .compaction, .ask-card, .permission-card) { animation: none; }
+
+@media (max-width: 900px) {
+  .sketch-name { flex: 1; max-width: none; }
+}

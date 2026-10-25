@@ -7151,15 +7151,6 @@ button.stop:hover {
   color: var(--accent-ink);
 }
 
-.composer-hint {
-  /* the box's own span */
-  max-width: 760px;
-  margin: 7px auto 0;
-  text-align: center;
-  font-size: 11px;
-  color: var(--ink-faint);
-}
-
 /* ── markdown ─────────────────────────────────────────────────────── */
 
 .md > *:first-child {

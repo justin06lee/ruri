@@ -40,7 +40,7 @@ import { SessionControls } from "./SessionControls";
 import type { SketchBackground } from "./Sketch";
 import { Icon } from "./chat/Icon";
 import { NO_QUEUED } from "./chat/empty";
-import { MAC, MOD } from "../lib/keys";
+import { MOD } from "../lib/keys";
 
 /* The shell panel brings xterm with it — a quarter of the app's JavaScript,
    for a mode most sessions never turn on. It arrives when the `>_` button is
@@ -52,18 +52,15 @@ const BAR_GAP = 14;
 
 /**
  * The composer's lesser buttons behind one, for a box too narrow to show
- * them all: the shell, the sketch pad, the scissors. Send stays out, and
+ * them all: the shell and the sketch pad. Send stays out, and
  * so does stop — those are the ones a hand reaches for.
  */
 function MoreActions({
   onShell,
   onSketch,
-  onSplit,
 }: {
   onShell(): void;
   onSketch?: () => void;
-  /** Absent while there is nothing to split. */
-  onSplit?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -107,10 +104,6 @@ function MoreActions({
               Draw
             </button>
           )}
-          <button className="dropdown-item" role="menuitem" disabled={!onSplit} onClick={pick(onSplit)}>
-            <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
-            Split and send
-          </button>
         </div>
       )}
     </div>
@@ -472,7 +465,7 @@ export function Composer({
   // a prompt being rewritten goes back in line; only a new one cuts in
   const cutting = busy && !editing;
 
-  const submit = async (mode: "send" | "send_split" = "send", now = false) => {
+  const submit = async (now = false) => {
     const trimmed = releaseMarkers(text).trim();
     if (!trimmed && atts.length === 0) return;
     const files = atts;
@@ -494,7 +487,6 @@ export function Composer({
         itemId: editing.id,
         text: trimmed,
         ...(uploads.length ? { attachments: uploads } : {}),
-        ...(mode === "send_split" ? { split: true } : {}),
       });
       // nothing took it: the prompt stays here, files and all, to send again
       if (!sent) {
@@ -511,7 +503,7 @@ export function Composer({
       // bytes are even packed for the wire.
       sendPrompt(
         {
-          type: mode,
+          type: "send",
           projectId,
           text: trimmed,
           ...(now ? { now: true as const } : {}),
@@ -653,7 +645,7 @@ export function Composer({
                     // a turn is running: ⌘Enter cuts in at once; plain Enter
                     // queues on release, or cuts in if held long enough
                     if (e.metaKey || e.ctrlKey) {
-                      void submit("send", true);
+                      void submit(true);
                       return;
                     }
                     if (e.repeat || hold.current) return;
@@ -661,7 +653,7 @@ export function Composer({
                     held.timer = window.setTimeout(() => {
                       held.cut = true;
                       setHolding(false);
-                      void submit("send", true);
+                      void submit(true);
                     }, CUT_IN_HOLD_MS);
                     hold.current = held;
                     setHolding(true);
@@ -736,7 +728,6 @@ export function Composer({
                 <MoreActions
                   onShell={toggleShell}
                   onSketch={onSketch ? () => onSketch() : undefined}
-                  onSplit={text.trim() ? () => void submit("send_split") : undefined}
                 />
               )}
               {(!compact || shell) && (
@@ -769,16 +760,6 @@ export function Composer({
                   </svg>
                 </button>
               )}
-              {!compact && !shell && (
-                <button
-                  className="split-send"
-                  title="Split into separate prompts and send them one by one"
-                  onClick={() => void submit("send_split")}
-                  disabled={!text.trim()}
-                >
-                  <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
-                </button>
-              )}
               {!shell && (
                 <button
                   className={`send ${holding ? "holding" : ""}`}
@@ -787,7 +768,7 @@ export function Composer({
                       ? `Queue it behind the running turn (Enter) — ${MOD}click, ${MOD}Enter or hold Enter to stop the turn and send this instead`
                       : "Send (Enter)"
                   }
-                  onClick={(e) => void submit("send", cutting && (e.metaKey || e.ctrlKey))}
+                  onClick={(e) => void submit(cutting && (e.metaKey || e.ctrlKey))}
                   disabled={!text.trim() && atts.length === 0}
                 >
                   <Icon d="M12 19V5M5 12l7-7 7 7" />
@@ -801,17 +782,6 @@ export function Composer({
             </div>
           </div>
         </div>
-      </div>
-      <div className="composer-hint">
-        {shell
-          ? `Shells in this project — ${MAC ? "⌘T" : "Ctrl+Shift+T"} for another, ${MAC ? "⌘" : "Alt+"}1–9 to switch · they keep running while you're away`
-          : editing
-            ? "Enter puts the rewrite back in line · the prompts behind it go on without it meanwhile"
-            : cutting
-              ? `Enter queues it behind the running turn · hold Enter or ${MOD}Enter to stop the turn and send this instead`
-              : compact
-                ? "Enter to send · Shift+Enter for a new line · drop files to attach"
-                : "Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach · scissors to split a long prompt"}
       </div>
       {viewingAtt && (
         <Viewer

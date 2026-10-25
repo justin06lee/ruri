@@ -4,6 +4,9 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- Mac presentation throughout: blue source-list selection, unified material toolbars, category-based Settings with preserved edits, readable message bubbles, tonal project/statistics lists, quieter galleries and agent views, and shared alert, permission, viewer and drawing controls. Layout follows a four-point spacing rhythm; navigation and typing no longer replay entry animations.
+- The composer has an Attach files button and keeps model, effort and permission controls under Details. Working and completed-turn internals, and team model/context metadata, open on demand. Destructive actions use red; every theme keeps the system-blue accent.
+
 - No more heavy rims: every 1.5px border and 2px outline is a 1px hairline, the focus ring is softer (3px at 30% blue), and a file dragged over the input box draws a hairline of blue and a faint wash instead of a thick ink edge.
 - The Agents button wears a clean two-figure glyph (SF Symbols' person.2) instead of the little robot, and every line icon is drawn at one weight, 1.75.
 - The drawing pad draws smoother: every pointer sample is used (coalesced events), the pen eases out a hand's tremble and lays its stroke as curves through the samples instead of straight joins, and finishes where you let go. The eraser is a real eraser now, in its icon and in use: drag it across strokes and whatever it touches goes (the ink itself, not the box around it), one undo per drag, with a ring for a pointer. Tool glyphs are drawn a hair lighter.

@@ -62,14 +62,35 @@ export function useConfirm(): { confirm: (opts: ConfirmOptions) => Promise<boole
 function ConfirmCard({ opts, onAnswer }: { opts: ConfirmOptions; onAnswer: (yes: boolean) => void }) {
   const notice = opts.cancel === null;
   const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      onAnswer(notice);
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onAnswer(notice);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+      const first = buttons?.[0];
+      const last = buttons?.[buttons.length - 1];
+      if (!first || !last) return;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
+    const trigger = returnFocus.current;
     window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      if (trigger?.isConnected) trigger.focus();
+    };
   }, [notice, onAnswer]);
   // on the body, so a row's own click handlers never see the answer
   return createPortal(
@@ -84,6 +105,7 @@ function ConfirmCard({ opts, onAnswer }: { opts: ConfirmOptions; onAnswer: (yes:
     >
       <div
         className="confirm-card"
+        ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}

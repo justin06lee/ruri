@@ -24,7 +24,7 @@ import {
 } from "./Attachments";
 import { btwQuestion, openBtw } from "./BtwPanel";
 import { CommandMenu, commandPrefix } from "./CommandMenu";
-import { DragonGauges } from "./Dragon";
+import { UsageGauges } from "./UsageGauges";
 import { MarkerMirror } from "./Markers";
 import {
   backspaceHits,
@@ -566,7 +566,7 @@ export function Composer({
     <div className="composer">
       {card}
       <div className="composer-row">
-        <DragonGauges channelId={channelId} model={project.model} side="left" />
+        <UsageGauges channelId={channelId} model={project.model} side="left" />
         <div
           className={`composer-box ${dragOver ? "drag-over" : ""} ${compact ? "compact" : ""}`}
           onDragOver={(e) => {
@@ -803,7 +803,7 @@ export function Composer({
             </div>
           </div>
         </div>
-        <DragonGauges channelId={channelId} model={project.model} side="right" />
+        <UsageGauges channelId={channelId} model={project.model} side="right" />
       </div>
       <div className="composer-hint">
         {shell

@@ -190,7 +190,7 @@ export function installFixture(): void {
     starredModels: ["claude-fable-5[1m]", "codex:gpt-5.3-codex", "claude-sonnet-5"],
     smallModel: "claude-sonnet-5",
     memoryModel: "sonnet",
-    // enough for all four dragons: a context reading that would have read as
+    // enough for all four gauges: a context reading that would have read as
     // full against the wrong window, and windows that all roll over later
     contexts: {
       p1: { tokens: 393_315, window: 1_000_000 },
@@ -294,10 +294,10 @@ export function installFixture(): void {
       prj1: [
         {
           id: "c1",
-          name: "the dragon gauges",
+          name: "the usage gauges",
           slug: "dragon-gauges",
           aliases: ["the bars", "the gauges"],
-          files: ["web/src/components/Dragon.tsx"],
+          files: ["web/src/components/UsageGauges.tsx"],
           uses: ["web/src/styles.css:2864"],
           tags: ["gauge", "usage"],
           note: "Four of them flank the composer: context, 5h, weekly, per-model.",
@@ -500,8 +500,8 @@ export function installFixture(): void {
         toolName: "name_component",
         kind: "component",
         input: {
-          name: "the dragon gauges",
-          files: ["web/src/components/Dragon.tsx", "web/src/styles.css:2864"],
+          name: "the usage gauges",
+          files: ["web/src/components/UsageGauges.tsx", "web/src/styles.css:2864"],
           note: "Four bottom-up bars flanking the composer: context, 5h, weekly, per-model.",
         },
         ts: now - 3_000,

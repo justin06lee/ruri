@@ -26,7 +26,7 @@ export function BridgeStrip({ channelId, stacked }: { channelId: string; stacked
 
   /* Right edge on the textbox's right edge — the same measurement the
      rapid-fire plate makes, for the same reason: the textbox is centred
-     between the dragons, so its edge is wherever they leave it. */
+     between the gauges, so its edge is wherever they leave it. */
   useLayoutEffect(() => {
     const strip = stripRef.current;
     const pane = strip?.closest("main");

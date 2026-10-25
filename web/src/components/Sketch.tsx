@@ -122,7 +122,7 @@ const WIDTHS = [2, 4, 8];
 
 /** The faces text can be set in. The first is the app's own. */
 const FONTS: Array<{ id: string; label: string; family: string }> = [
-  { id: "grotesk", label: "Grotesk", family: '"Space Grotesk Variable", -apple-system, sans-serif' },
+  { id: "grotesk", label: "Sans", family: '-apple-system, system-ui, "Inter", sans-serif' },
   { id: "mono", label: "Mono", family: 'ui-monospace, "SF Mono", Menlo, monospace' },
   { id: "serif", label: "Serif", family: 'Georgia, "Times New Roman", serif' },
   { id: "hand", label: "Hand", family: '"Bradley Hand", "Comic Sans MS", "Segoe Print", cursive' },

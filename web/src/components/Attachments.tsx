@@ -169,7 +169,7 @@ export function cropRegion(objectUrl: string, region: Region): Promise<string> {
       ctx.strokeStyle = "rgba(17, 17, 17, 0.9)";
       ctx.stroke();
       ctx.fillStyle = "#111";
-      ctx.font = `700 ${Math.round(r * 1.1)}px "Space Grotesk", sans-serif`;
+      ctx.font = `700 ${Math.round(r * 1.1)}px -apple-system, system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(String(region.n), bx, by + Math.round(r * 0.06));

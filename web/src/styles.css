@@ -48,6 +48,7 @@
   --diff-add-ink: #15803d;
   --diff-del-bg: rgba(220, 38, 38, 0.08);
   --diff-del-ink: #b91c1c;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
   --sidebar-w: 264px;
   --radius-s: 6px;
@@ -139,12 +140,7 @@ body,
 body {
   background: var(--paper);
   color: var(--ink);
-  font:
-    14px/1.6 "Space Grotesk Variable",
-    -apple-system,
-    "SF Pro Text",
-    "Segoe UI",
-    sans-serif;
+  font: 14px/1.55 var(--sans);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
@@ -1302,7 +1298,7 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* as wide as a conversation's composer row, so the dragons stand either
+  /* as wide as a conversation's composer row, so the gauges stand either
      side of the box here too; the marks and the title center in it */
   width: min(1000px, 94%);
   padding-bottom: 6vh;
@@ -1930,7 +1926,7 @@ input[type="range"]::-webkit-slider-thumb {
    marks: about 46px of paper each way, measured on the ink — the marks'
    lowest line to the title's lowercase, and the title's baseline to the
    box. The two margins here are that second 46 less what the line box
-   leaves under its baseline. Kept off the dragons' heads: they stand
+   leaves under its baseline. Kept off the gauges: they stand
    beside the box and rise past its top, so a long title wraps within the
    box's width. */
 .hero-title {
@@ -1952,13 +1948,13 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 0;
 }
 
-/* The dragons stand taller than the textbox, and in the composer's row the
+/* The gauges stand taller than the textbox, and in the composer's row the
    tallest thing sets the row's height — so here, with the title above, the
-   box was pushed a dragon's head further down than the marks are from the
-   title. Zero height: the row is the box's height, and the dragons still
+   box was pushed a gauge's top further down than the marks are from the
+   title. Zero height: the row is the box's height, and the gauges still
    stand on its baseline, rising past its top into the space beside the
    title. */
-.hero-composer .dragons {
+.hero-composer .usage-gauges {
   height: 0;
   align-self: flex-end;
 }
@@ -3976,9 +3972,9 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* Placed off the textbox's own measured height, exactly like the
-   jump-to-latest pill: the dragons flanking the composer stand taller than
+   jump-to-latest pill: the gauges flanking the composer stand taller than
    it does, so anything laid out in flow above the composer ends up level
-   with their heads rather than with the thing you type in. */
+   with their tops rather than with the thing you type in. */
 .rapid-bar.floating {
   position: absolute;
   left: 0;
@@ -6206,9 +6202,9 @@ input[type="range"]::-webkit-slider-thumb {
   font-style: italic;
 }
 
-/* Hugs the textbox, not the whole dock — the dragons flanking it stand
+/* Hugs the textbox, not the whole dock — the gauges flanking it stand
    taller than the box, and the pill has no business floating up by their
-   heads. Centered by margins, not translateX: the rise keyframes animate
+   tops. Centered by margins, not translateX: the rise keyframes animate
    transform, which would replace a translateX(-50%) base and slide the pill
    in from the right when the animation ended. */
 .jump-latest {
@@ -6909,109 +6905,94 @@ input[type="range"]::-webkit-slider-thumb {
   border-top: 1px solid var(--line-faint);
 }
 
-/* ── the dragon gauges ────────────────────────────────────────────── */
+/* ── the usage gauges ─────────────────────────────────────────────── */
 
-/* Four dragons flanking the composer, each filling from his feet. The art
-   is three traced paths: the inked drawing above the waterline, and below
-   it the solid body with its own interior detail knocked back out — so the
-   outer contour stays the crisp edge of the fill rather than inverting into
-   the page, which is what made the filled half dissolve. Everything is
-   currentColor-adjacent theme vars, so dark mode is a white dragon filling
-   white for free. */
+/* Four quiet readouts flanking the composer: a number, a thin bar under it
+   that fills left to right, and the window's name hung below. The bar is
+   ink on a faint ink track, so it follows every theme for free; only a
+   window nearly spent (90%+) takes the diff's red. */
 
-.dragons {
+.usage-gauges {
   display: flex;
   align-items: flex-end;
-  gap: 13px;
+  gap: 12px;
   flex-shrink: 0;
-  /* the composer keeps the keyboard; a dragon is a readout, not a control */
+  /* the composer keeps the keyboard; a gauge is a readout, not a control */
   user-select: none;
 }
 
 /* a fixed column width keeps both pairs the same size whatever their labels
    say, so the composer between them stays optically centered */
-.dragon-gauge {
+.usage-gauge {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  width: 62px;
+  align-items: stretch;
+  gap: 6px;
+  width: 58px;
+  /* sits level with the middle of a one-line box, not on its bottom edge */
+  margin-bottom: 14px;
   cursor: default;
 }
 
-.dragon {
-  width: 56px;
-  height: 127px;
-  overflow: visible;
-}
-
-/* the waterline is the clip rect's own geometry — y and height are CSS
-   properties on an SVG rect, so moving it transitions like anything else */
-.dragon-clip {
-  transition:
-    y 320ms ease-out,
-    height 320ms ease-out;
-}
-
-/* the thinking indicator's softer ink, so the two drawings read as one hand */
-.dragon-body,
-.dragon-stroke {
-  fill: var(--ink-soft);
-}
-
-.dragon-detail {
-  fill: var(--paper);
-}
-
-.dragon-value {
+.usage-value {
   font-family: var(--mono);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
   color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 
-/* out of the column's flow and hung below it, so the names land on the same
-   band as the composer hint — 7px is that hint's own top margin */
-.dragon-name {
+.usage-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  overflow: hidden;
+}
+
+.usage-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ink-soft);
+  transition: width 320ms ease-out;
+}
+
+.usage-bar.hot .usage-fill {
+  background: var(--diff-del-ink);
+}
+
+/* out of the column's flow and hung below it, so the names line up across
+   all four gauges whatever is above them */
+.usage-name {
   position: absolute;
   top: 100%;
-  margin-top: 7px;
+  left: 0;
+  margin-top: 5px;
   font-size: 11px;
-  line-height: 1.4;
-  letter-spacing: 0.02em;
+  line-height: 1.3;
   color: var(--ink-faint);
   white-space: nowrap;
-  text-align: center;
 }
 
 /* the countdown to that window's rollover, a step quieter than the name it
    hangs under — a second thing to read, not a second label */
-.dragon-reset {
+.usage-reset {
   display: block;
-  font-size: 9.5px;
+  font-size: 10px;
   line-height: 1.25;
-  letter-spacing: 0;
-  opacity: 0.72;
+  opacity: 0.75;
 }
 
-/* The readings are always there — an empty chat still has limits to watch,
-   and a narrow window still wants its numbers — so a window short of room
-   gets smaller dragons rather than none. The app's own minimum width (880)
-   leaves the box a good 390px between them. */
+/* a narrow window gets narrower gauges rather than none; the app's own
+   minimum width (880) leaves the box a good 400px between them */
 @media (max-width: 1100px) {
-  .dragons {
-    gap: 6px;
+  .usage-gauges {
+    gap: 8px;
   }
 
-  .dragon-gauge {
+  .usage-gauge {
     width: 46px;
-  }
-
-  .dragon {
-    width: 40px;
-    height: 91px;
   }
 }
 
@@ -8127,7 +8108,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* ── composer ─────────────────────────────────────────────────────── */
 
 /* The composer hovers over the tail of the conversation on nothing at all —
-   no band, no fill, no seam. Only the box, the dragons, and the viewer take
+   no band, no fill, no seam. Only the box, the gauges, and the viewer take
    the mouse; everything else lets clicks, selection, and the wheel fall
    through to the transcript underneath. */
 .composer-dock {
@@ -8140,19 +8121,19 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .composer-dock .composer-box,
-.composer-dock .dragons,
+.composer-dock .usage-gauges,
 .composer-dock .viewer-overlay {
   pointer-events: auto;
 }
 
-/* the bottom padding clears the dragons' hanging labels, which are out of
+/* the bottom padding clears the gauges' hanging labels, which are out of
    flow: the name lands on the hint's band and the reset countdown sits under
    it, so the band has to be a line taller than the hint alone needs */
 .composer {
   padding: 8px 24px 22px;
 }
 
-/* the composer and its four dragons on one line, the box centered between
+/* the composer and its four gauges on one line, the box centered between
    them — the pairs are equal-width so the box stays optically centered */
 .composer-row {
   display: flex;
@@ -8663,7 +8644,7 @@ button.stop:hover {
 }
 
 .composer-hint {
-  /* the box's own span: the dragons stand either side of it, with their
+  /* the box's own span: the gauges stand either side of it, with their
      readings under them, and the hint has no business under those */
   max-width: min(800px, calc(100% - 320px));
   margin: 7px auto 0;

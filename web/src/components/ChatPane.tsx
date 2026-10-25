@@ -549,8 +549,8 @@ function ChatView({
   // the conversation runs behind it instead of stopping at a dead band. Two
   // measurements come off it: --composer-h, the whole dock (the tail's
   // padding and the fade), and --composer-box-h, the textbox alone (the jump
-  // pill). The dragons stand taller than the box, so the pill rides the box
-  // — it belongs a hair above what you type in, not above the dragons.
+  // pill). The gauges stand taller than the box, so the pill rides the box
+  // — it belongs a hair above what you type in, not above the gauges.
   const chatRef = useRef<HTMLElement>(null);
   const dockObserver = useRef<ResizeObserver | null>(null);
   const observeDock = useCallback(
@@ -586,7 +586,7 @@ function ChatView({
       });
       observer.observe(node);
       // the box grows on its own (a long prompt, an attachment strip) without
-      // the dock following, whenever the dragons are still the taller pair
+      // the dock following, whenever the gauges are still the taller pair
       if (box) observer.observe(box);
       dockObserver.current = observer;
       measure();

@@ -183,11 +183,11 @@ export function useRapidFire(): RapidFire {
  * The line's own controls. They belong to the composer, not to the header,
  * so they ride directly above the textbox — placed the same way the
  * jump-to-latest pill is, off the measured height of the box itself, because
- * the dragons beside it stand taller than it does and anything laid out in
+ * the gauges beside it stand taller than it does and anything laid out in
  * flow ends up level with their heads instead.
  *
- * `floating` is the docked composer; the hero's composer stands its dragons
- * out of flow (styles.css, .hero-composer .dragons), so it takes the bar in
+ * `floating` is the docked composer; the hero's composer stands its gauges
+ * out of flow (styles.css, .hero-composer .usage-gauges), so it takes the bar in
  * flow, straight above the box.
  */
 export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boolean }) {
@@ -195,10 +195,10 @@ export function RapidBar({ rapid, floating }: { rapid: RapidFire; floating?: boo
   const barRef = useRef<HTMLDivElement>(null);
 
   /* Line the plate's right edge up with the textbox below it. The textbox is
-     centred between the dragons rather than filling the pane, so its right
+     centred between the gauges rather than filling the pane, so its right
      edge is wherever those work out to — a fixed padding here lands next to
      it, never on it. Measured from the real thing, and kept in step: the
-     dragons change height, the box grows with a long prompt. Measured off
+     gauges change height, the box grows with a long prompt. Measured off
      the bar's own edge, not the pane's: in the hero the bar is only as wide
      as the hero, and an inset taken from the pane put the plate a margin's
      width short of the box. */

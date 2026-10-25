@@ -1,6 +1,6 @@
 /* ── ruri — three quiet themes: light, dark, ember ──
    Light is white with an off-white sidebar, dark is near-black, ember is a
-   warm dark with almost no blue in it. Everything is neutral grey; state
+   warm dark with system-blue controls. Everything else is neutral grey; state
    is carried by shade and shape, not hue.
 
    Nothing is drawn around and nothing stands off the page: no panel here
@@ -20,18 +20,18 @@
    theme's block takes its own from here. */
 :root {
   --theme-light-paper: #ffffff;
-  --theme-light-ink: #0a0a0b;
-  --theme-dark-paper: #09090a;
+  --theme-light-ink: #1d1d1f;
+  --theme-dark-paper: #1e1e1e;
   --theme-dark-ink: #ededee;
   --theme-ember-paper: #0f0b08;
   --theme-ember-ink: #f1e4d2;
   --paper: var(--theme-light-paper);
-  --paper-dim: #f6f6f7;
+  --paper-dim: #f5f5f5;
   --paper-deep: #e9e9eb;
-  --paper-bright: #f8f8f9;
+  --paper-bright: #fafafa;
   --ink: var(--theme-light-ink);
-  --ink-soft: #3f3f46;
-  --ink-faint: #85858e;
+  --ink-soft: #636366;
+  --ink-faint: #76767b;
   --edge: transparent;
   --rim: color-mix(in srgb, var(--ink) 12%, var(--paper));
   --hairline: rgba(10, 10, 11, 0.07);
@@ -46,29 +46,29 @@
   --diff-add-ink: #15803d;
   --diff-del-bg: rgba(220, 38, 38, 0.08);
   --diff-del-ink: #b91c1c;
-  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
-  --sidebar-w: 264px;
+  --sidebar-w: 240px;
   /* one scale of corners: tags, controls, cards, sheets, the big fields */
   /* one feel for motion: feedback (hover, press, colour) is quick, a
      thing moving or appearing takes a beat longer; both ease out */
-  --quick: 140ms ease-out;
-  --move: 200ms ease-out;
+  --quick: 160ms ease-out;
+  --move: 200ms cubic-bezier(0.2, 0.7, 0.3, 1);
   --radius-xs: 4px;
   --radius-s: 6px;
-  --radius-m: 10px;
-  --radius-l: 14px;
-  --radius-xl: 20px;
+  --radius-m: 8px;
+  --radius-l: 12px;
+  --radius-xl: 18px;
   /* Apple's system accent and the materials menus and sheets are made of */
   --accent: #007aff;
   --accent-ink: #ffffff;
-  --badge: #ff3b30;
+  --badge: var(--accent);
   --ok: #28a745;
   --fill: color-mix(in srgb, var(--ink) 8%, transparent);
   /* a tinted button's fill: the accent, washed out (iOS's tinted style) */
   --tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --tint-strong: color-mix(in srgb, var(--accent) 20%, transparent);
-  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+  --focus-ring: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
   --control-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 0.5px 1.5px rgba(0, 0, 0, 0.1);
   --menu-bg: rgba(250, 250, 250, 0.82);
   --menu-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 10px 32px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.06);
@@ -76,9 +76,9 @@
   --veil: rgba(0, 0, 0, 0.18);
   --material: saturate(180%) blur(30px);
   /* the small sizes: labels, metadata, the fine print under things */
-  --fs-xs: 10.5px;
-  --fs-sm: 11.5px;
-  --fs-md: 12.5px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
   /* How a thing that opens on a click comes up to ink under the pointer:
      a fade the eye can follow, never a snap to the lit colour. */
   --lighten: var(--move);
@@ -96,20 +96,33 @@
   --z-overlay: 70; /* the viewer, a skill: over the window */
   --z-veil: 80; /* the switcher, over all of it */
   color-scheme: light;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --control-h: 24px;
+  --toolbar-h: 52px;
+  --sidebar-bg: #f0f0f2;
+  --toolbar-bg: rgba(250, 250, 252, 0.88);
+  --group-bg: #ffffff;
+  --field-bg: #ffffff;
+  --destructive: #d70015;
 }
 
 /* dark: near-black, surfaces a step lighter each — every component
    flips through the tokens */
 :root[data-theme="dark"] {
   --paper: var(--theme-dark-paper);
-  --paper-dim: #121214;
-  --paper-deep: #232326;
-  --paper-bright: #17171a;
+  --paper-dim: #292929;
+  --paper-deep: #38383a;
+  --paper-bright: #252525;
   --ink: var(--theme-dark-ink);
-  --ink-soft: #a6a6ae;
-  --ink-faint: #6c6c75;
+  --ink-soft: #b0b0b5;
+  --ink-faint: #9b9ba0;
   --hairline: rgba(237, 237, 238, 0.07);
-  --raised: #1b1b1e;
+  --raised: #323232;
   --line: #ededee;
   --line-soft: rgba(237, 237, 238, 0.11);
   --line-faint: rgba(237, 237, 238, 0.055);
@@ -118,7 +131,7 @@
   --diff-del-bg: rgba(248, 113, 113, 0.11);
   --diff-del-ink: #f87171;
   --accent: #0a84ff;
-  --badge: #ff453a;
+  --badge: var(--accent);
   --ok: #30d158;
   --control-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
   --menu-bg: rgba(38, 38, 41, 0.8);
@@ -126,6 +139,11 @@
   --sheet-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 24px 64px rgba(0, 0, 0, 0.6);
   --veil: rgba(0, 0, 0, 0.42);
   color-scheme: dark;
+  --sidebar-bg: #28282a;
+  --toolbar-bg: rgba(38, 38, 40, 0.88);
+  --group-bg: #303032;
+  --field-bg: #373739;
+  --destructive: #ff6961;
 }
 
 /* ember: a warm dark for late hours, when a screen full of blue is the
@@ -150,7 +168,7 @@
   --diff-del-bg: rgba(230, 100, 60, 0.13);
   --diff-del-ink: #e8845c;
   --accent: #0a84ff;
-  --badge: #ff453a;
+  --badge: var(--accent);
   --ok: #30d158;
   --control-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
   --menu-bg: rgba(44, 35, 28, 0.82);
@@ -158,6 +176,11 @@
   --sheet-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 24px 64px rgba(0, 0, 0, 0.6);
   --veil: rgba(0, 0, 0, 0.42);
   color-scheme: dark;
+  --sidebar-bg: #211b17;
+  --toolbar-bg: rgba(33, 27, 23, 0.88);
+  --group-bg: #2b241e;
+  --field-bg: #332a23;
+  --destructive: #ff6961;
 }
 
 * {
@@ -174,14 +197,14 @@ body,
 body {
   background: var(--paper);
   color: var(--ink);
-  font: 14px/1.55 var(--sans);
+  font: 13px/1.5 var(--sans);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
 
 ::selection {
-  background: var(--ink);
-  color: var(--paper);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: inherit;
 }
 
 /* Chrome art (thumbnails) is not selectable or draggable —
@@ -195,13 +218,15 @@ video {
 /* hairline scrollbars — barely-there thumb, no track, no buttons */
 
 ::-webkit-scrollbar {
-  width: 3px;
-  height: 3px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--line-soft);
-  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -238,17 +263,15 @@ video {
 
 button {
   font: inherit;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--ink);
   background: var(--raised);
   border: none;
   border-radius: var(--radius-s);
-  padding: 4px 14px;
+  padding: 4px 12px;
   cursor: default;
-  transition:
-    background var(--quick),
-    color var(--quick),
-    transform var(--quick);
+  transition: background-color var(--quick), color var(--quick), box-shadow var(--quick);
+  min-height: var(--control-h);
 }
 
 button:hover {
@@ -277,12 +300,9 @@ button:focus-visible {
   box-shadow: var(--focus-ring);
 }
 
-/* Pressed, a button shrinks towards its centre. It used to slide down and
-   right instead, into the shadow it was standing on; with the shadow gone
-   there is nothing there to press it into, and a button that merely moves
-   reads as a button that was nudged. */
+/* Mac controls stay beneath the pointer; a press changes tone, never size. */
 button:active {
-  transform: scale(0.97);
+  transform: none;
 }
 
 /*
@@ -331,13 +351,15 @@ textarea,
 select {
   font: inherit;
   color: var(--ink);
-  background: var(--raised);
+  background: var(--field-bg);
   border: none;
   border-radius: var(--radius-s);
   box-shadow: var(--control-shadow);
-  padding: 6px 10px;
+  padding: 4px 8px;
   outline: none;
   transition: box-shadow var(--quick);
+  font-size: 13px;
+  min-height: var(--control-h);
 }
 
 input:focus,
@@ -375,8 +397,8 @@ textarea::placeholder {
 }
 
 .icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 
@@ -416,8 +438,8 @@ textarea::placeholder {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--paper-dim);
-  border-right: 0.5px solid var(--line-soft);
+  background: var(--sidebar-bg);
+  border-right: none;
 }
 
 /* the title bar over the sidebar: room for the traffic lights, and the
@@ -426,7 +448,7 @@ textarea::placeholder {
   position: relative; /* the peek skyline fills this box */
   /* fixed: nothing lives in flow here any more, and the peek layout was
      hand-tuned against exactly this height */
-  height: 46px;
+  height: var(--toolbar-h);
   flex-shrink: 0;
 }
 
@@ -601,14 +623,14 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px 10px 18px;
+  padding: 12px 16px;
 }
 
 .account-name {
   flex: 1;
   min-width: 0;
-  font-size: var(--fs-sm);
-  color: var(--ink-faint);
+  font-size: 12px;
+  color: var(--ink-soft);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -618,13 +640,14 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
   background: transparent;
   color: var(--ink-soft);
   border-radius: var(--radius-s);
+  min-height: 28px;
 }
 
 .icon-button svg {
@@ -670,7 +693,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: stretch;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 6px 10px 10px;
+  padding: 8px 12px 16px;
 }
 
 .sidebar-empty {
@@ -682,10 +705,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 /* a source list's section heading: small, semibold, secondary, as cased */
 .group-label {
-  padding: 14px 8px 4px;
+  padding: 20px 8px 8px;
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: normal;
   color: var(--ink-faint);
 }
 
@@ -693,9 +716,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 28px;
-  padding: 3px 8px;
-  margin-bottom: 1px;
+  min-height: 32px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
@@ -704,20 +727,18 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   font-size: 13px;
   letter-spacing: -0.005em;
   color: var(--ink);
-  transition:
-    background var(--quick),
-    color var(--quick),
-    border-color var(--quick);
+  transition: none;
 }
 
 .project-row:hover {
-  background: color-mix(in srgb, var(--ink) 4%, var(--paper-dim));
+  background: var(--fill);
 }
 
 /* the selection is a neutral fill and nothing else — no weight change, so
    the name never shifts as it is picked */
 .project-row.active {
-  background: color-mix(in srgb, var(--ink) 9%, var(--paper-dim));
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 .project-name {
@@ -1026,7 +1047,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   width: min(760px, 94%);
   padding-bottom: 6vh;
   user-select: none;
-  animation: rise var(--move);
+  animation: none;
 }
 
 /* ── home: the tab strip ──────────────────────────────────────────── */
@@ -1044,12 +1065,14 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 46px;
-  animation: rise var(--move);
+  height: var(--toolbar-h);
+  animation: none;
+  background: var(--toolbar-bg);
+  backdrop-filter: var(--material);
 }
 
 .home-tabs-space {
-  height: 46px;
+  height: var(--toolbar-h);
   flex-shrink: 0;
 }
 
@@ -1076,7 +1099,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   left: 0;
   display: flex;
   width: 200%;
-  transition: transform 380ms cubic-bezier(0.3, 0.8, 0.25, 1);
+  transition: none;
 }
 
 .home-track.on-stats {
@@ -1125,9 +1148,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .home-tab-glide.placed {
-  transition:
-    transform 380ms cubic-bezier(0.3, 0.8, 0.25, 1),
-    width 380ms cubic-bezier(0.3, 0.8, 0.25, 1);
+  transition: none;
 }
 
 .home-tab {
@@ -1135,17 +1156,16 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 3px 16px;
+  padding: 4px 16px;
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
   font-size: 12px;
   font-weight: 500;
   line-height: 1.4;
-  color: var(--ink-faint);
-  transition:
-    background var(--quick),
-    color var(--quick);
+  color: var(--ink-soft);
+  transition: none;
+  min-height: 24px;
 }
 
 /* the word that is off stays as it is under the pointer: the pill is what
@@ -1357,7 +1377,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border-radius: var(--radius-m);
   overflow: hidden;
   min-width: 0;
-  animation: rise var(--move);
+  animation: none;
 }
 
 .pcard-head {
@@ -2361,10 +2381,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   align-items: center;
   gap: 16px;
-  min-height: 48px;
-  padding: 6px 14px 6px 20px;
-  border-bottom: 0.5px solid var(--line-soft);
-  background: var(--paper);
+  min-height: var(--toolbar-h);
+  padding: 8px 20px;
+  border-bottom: none;
+  background: var(--toolbar-bg);
+  backdrop-filter: var(--material);
 }
 
 .chat-id {
@@ -2374,7 +2395,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .chat-title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* a teammate's or the liaison's chat: the way back to the lead, whose
@@ -2418,7 +2439,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .header-controls {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
 }
 
 /* every one of them anchors its own badge: a count on a button that is not
@@ -2466,10 +2487,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 .dropdown-trigger {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 10px;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  padding: 4px 8px;
   color: var(--ink-soft);
   background: transparent;
   border-color: transparent;
@@ -2497,11 +2518,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   width: 11px;
   height: 11px;
   flex-shrink: 0;
-  transition: transform var(--quick);
+  transition: none;
 }
 
 .dropdown-trigger.open .dropdown-chevron {
-  transform: rotate(180deg);
+  transform: none;
 }
 
 .dropdown-menu {
@@ -2515,7 +2536,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border: none;
   border-radius: var(--radius-m);
   box-shadow: var(--menu-shadow);
-  padding: 5px;
+  padding: 4px;
   z-index: var(--z-popover);
   animation: rise var(--move);
 }
@@ -2530,7 +2551,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 4px 10px;
+  padding: 4px 8px;
   font-size: 13px;
   text-align: left;
   background: transparent;
@@ -2539,6 +2560,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border-radius: var(--radius-xs);
   color: var(--ink);
   white-space: nowrap;
+  min-height: 24px;
 }
 
 .dropdown-item:hover {
@@ -2629,7 +2651,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .msg {
-  animation: rise var(--move);
+  animation: none;
   overflow-wrap: break-word;
   min-width: 0;
 }
@@ -5418,7 +5440,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  animation: rise var(--move);
+  animation: none;
 }
 
 .agent-view-top,
@@ -5786,11 +5808,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   display: flex;
   flex-direction: column;
   gap: 9px;
-  animation: ask-in-next 240ms cubic-bezier(0.32, 0.72, 0.2, 1);
+  animation: none;
 }
 
 .ask-question.back {
-  animation-name: ask-in-back;
+  animation-name: none;
 }
 
 @keyframes ask-in-next {
@@ -9377,4 +9399,23 @@ button.team-member-name:hover {
   font-size: var(--fs-xs);
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
+}
+
+/* Finder source-list selection: the row is one continuous target. */
+.project-row.active :is(.home-icon, .team-row-icon, .star, .hide, .remove, .row-count, .row-count-spinner) {
+  color: inherit;
+}
+.project-row.active .unread-pip {
+  background: currentColor;
+}
+button.destructive,
+button.ghost.destructive {
+  color: var(--destructive);
+}
+button.destructive:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+}
+/* Keep compact glyph controls compact, independent of the push-button size. */
+:is(.star, .hide, .remove, .code-copy, .model-star, .ask-dot, .sketch-swatch, .region-remove) {
+  min-height: 0;
 }

@@ -207,11 +207,7 @@ export function ChatPane({
   );
   useEffect(() => {
     if (!picked) return;
-    send(
-      picked.target === "music"
-        ? { type: "set_music_dir", path: picked.path }
-        : { type: "set_workspace", path: picked.path },
-    );
+    if (picked.target === "workspace") send({ type: "set_workspace", path: picked.path });
     clearPicked();
   }, [picked, clearPicked]);
 

@@ -549,7 +549,7 @@ function ScheduleClock({
 }
 
 /**
- * Settings: theme, workspace root, music folder, the vault, model catalog.
+ * Settings: theme, workspace root, the vault, model catalog.
  *
  * It is a page, not a dialog. It was a dialog, and it kept growing — a card
  * centred in the window has a ceiling, and past it the thing you came for is
@@ -559,7 +559,6 @@ function ScheduleClock({
 export function Settings({ onClose }: { onClose(): void }) {
   const sessionsMode = useSessionsMode();
   const workspaceDir = useRuri((s) => s.workspaceDir);
-  const musicDir = useRuri((s) => s.musicDir);
   const canPickFolder = useRuri((s) => s.canPickFolder);
   const remoteDevice = useRuri((s) => s.remoteDevice);
   const computer = useRuri((s) => s.sharing?.name);
@@ -733,27 +732,6 @@ export function Settings({ onClose }: { onClose(): void }) {
                         : "Available in the desktop app"
                   }
                   onClick={() => send({ type: "pick_folder", target: "workspace" })}
-                >
-                  Change
-                </button>
-              </div>
-            </div>
-
-            <div className="settings-row">
-              <span className="settings-label">Music</span>
-              <div className="settings-value">
-                <span className="settings-path" title={musicDir}>
-                  {musicDir ? `‎${musicDir}‎` : "—"}
-                </span>
-                <button
-                  className="ghost"
-                  disabled={!canPickFolder}
-                  title={
-                    canPickFolder
-                      ? "Pick the folder your music lives in (each subfolder is a playlist)"
-                      : "Available in the desktop app"
-                  }
-                  onClick={() => send({ type: "pick_folder", target: "music" })}
                 >
                   Change
                 </button>

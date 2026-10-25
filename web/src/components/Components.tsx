@@ -1404,11 +1404,6 @@ function Library({ projectId }: { projectId: string }) {
 
               {items.length === 0 ? (
                 <div className="lib-empty-card">
-                  <div className="lib-empty-art" aria-hidden>
-                    <span />
-                    <span />
-                    <span />
-                  </div>
                   <div className="lib-empty-title">No components yet</div>
                   <p>
                     Pieces arrive as sessions build this project's interface — each comes up in the chat under a

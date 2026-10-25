@@ -469,10 +469,6 @@ interface RuriState {
   draftBumps: Record<string, number>;
   /** The workspace root the Home agent manages. */
   workspaceDir: string;
-  /** Where the music player's playlists live. */
-  musicDir: string;
-  /** Bumped when the music dir changes, so the player rescans. */
-  musicEpoch: number;
   /** The Home agent's model/permission settings. */
   home: HomeSettings;
   /** Starred model ids — the composer picker shows only these. */
@@ -662,8 +658,6 @@ export const useRuri = create<RuriState>((set) => ({
   resources: undefined,
   draftBumps: {},
   workspaceDir: "",
-  musicDir: "",
-  musicEpoch: 0,
   home: {},
   starredModels: [],
   smallModel: "",
@@ -736,7 +730,7 @@ const WS_URL = import.meta.env.DEV
   ? `ws://${location.hostname}:${DEV_PORT}`
   : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
 
-/** Base for the server's HTTP endpoints (music etc.) — empty when same-origin. */
+/** Base for the server's HTTP endpoints (uploads etc.) — empty when same-origin. */
 export const HTTP_BASE = import.meta.env.DEV ? `http://${location.hostname}:${DEV_PORT}` : "";
 let ws: WebSocket | null = null;
 
@@ -1777,7 +1771,6 @@ function apply(msg: ServerMessage): void {
         remoteDevice: msg.remoteDevice ?? null,
         bridges: msg.bridges,
         workspaceDir: msg.workspaceDir,
-        musicDir: msg.musicDir,
         home: msg.home,
         starredModels: msg.starredModels,
         smallModel: msg.smallModel,
@@ -2062,10 +2055,6 @@ function apply(msg: ServerMessage): void {
     }
     case "workspace": {
       setState({ workspaceDir: msg.path });
-      break;
-    }
-    case "music_dir": {
-      setState((s) => ({ musicDir: msg.path, musicEpoch: s.musicEpoch + 1 }));
       break;
     }
     case "home_settings": {

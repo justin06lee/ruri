@@ -166,7 +166,6 @@ export function installFixture(): void {
     ],
     activeId: "home",
     workspaceDir: "/Users/you/Workspace",
-    musicDir: "/Users/you/Music/ruri",
     user: "you",
     statuses: { p1: "permission", p2: "working", p3: "idle" },
     // p2's turn, mid-stream, for the working line under its draft. The

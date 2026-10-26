@@ -58,6 +58,9 @@ export function sessionBriefing(input: {
   /** The project's stack, one line a layer, each pointing at its sheet
    *  (brief.ts stackBriefing) — empty for a project without layer sheets. */
   stack?: string;
+  /** The user's design taste, when they keep it in gusteau and have it on
+   *  (server/gusteau.ts) — empty otherwise. */
+  taste?: string;
 }): string {
   const blocks: string[] = [];
 
@@ -110,6 +113,8 @@ export function sessionBriefing(input: {
       "</ruri:library>",
     ].join("\n"),
   );
+
+  if (input.taste) blocks.push(input.taste);
 
   if (input.naming === "tool") {
     blocks.push(

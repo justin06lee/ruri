@@ -83,6 +83,10 @@ export interface SessionInfo {
  *  the default) and a lead with a team ("team"). */
 export const SESSIONS_MODE_PREF = "ruri-sessions-mode";
 
+/** The pref that has sessions hold UI work to the user's design taste
+ *  through gusteau ("on"); off when unset (server/gusteau.ts). */
+export const GUSTEAU_PREF = "ruri-gusteau";
+
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 
 /** What can be done to a member: its running turn stopped, its process

@@ -49,6 +49,7 @@ import {
   projectChatBriefing,
   sessionsMode,
 } from "./sessionsMode.js";
+import { tasteBriefing } from "./gusteau.js";
 import { taskTurnEnded, workerMode } from "./workers.js";
 
 /**
@@ -321,6 +322,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         // in every session, the figures riding in with each prompt
         context: owner ? contextBriefing(claude ? undefined : talkEndpoint) : "",
         stack: owner ? stackBriefing(ctx.briefs.get(owner.id)) : "",
+        taste: tasteBriefing(ctx),
       });
       return tagged(project.id, {
         transcript: () => ctx.archive.events(project.id),

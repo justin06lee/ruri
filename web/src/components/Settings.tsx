@@ -16,6 +16,7 @@ import { Integrations } from "./Integrations";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
 import { setSessionsMode, useSessionsMode } from "../lib/sessionsMode";
+import { setDesignTaste, useDesignTaste } from "../lib/designTaste";
 import { roughName } from "../lib/models";
 import {
   applyTheme,
@@ -585,6 +586,7 @@ const SETTINGS_SECTIONS = [
 export function Settings({ onClose }: { onClose(): void }) {
   const [section, setSection] = useState<string>("general");
   const sessionsMode = useSessionsMode();
+  const designTaste = useDesignTaste();
   const workspaceDir = useRuri((s) => s.workspaceDir);
   const canPickFolder = useRuri((s) => s.canPickFolder);
   const remoteDevice = useRuri((s) => s.remoteDevice);
@@ -673,6 +675,27 @@ export function Settings({ onClose }: { onClose(): void }) {
                       </button>
                     ))}
                   </div>
+                </div>
+              </div>
+
+              <div className="settings-row">
+                <span className="settings-label">Design taste</span>
+                <div className="settings-value">
+                  <div className="seg">
+                    {([false, true] as const).map((on) => (
+                      <button
+                        key={String(on)}
+                        className={`seg-option ${designTaste === on ? "active" : ""}`}
+                        onClick={() => setDesignTaste(on)}
+                      >
+                        {on ? "On" : "Off"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="settings-note">
+                    Agents read your taste from gusteau before interface work, check against it after, and
+                    remember what you approve or correct. Needs the gusteau command; applies to new chats.
+                  </p>
                 </div>
               </div>
             </section>

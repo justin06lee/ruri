@@ -144,8 +144,15 @@ function isExecutable(file: string): boolean {
  * none — what tests set, so they never reach the real one.
  */
 export function findMidna(): string | null {
-  const forced = process.env["RURI_MIDNA"];
-  if (forced !== undefined) return forced && isExecutable(forced) ? forced : null;
+  return findCommand("midna", "RURI_MIDNA");
+}
+
+/** Where a command is on this machine: `forced` names an environment
+ *  variable that overrides the look (a file to use, or "" for none), then
+ *  PATH and the usual install folders a GUI app's PATH misses. */
+export function findCommand(name: string, forced: string): string | null {
+  const given = process.env[forced];
+  if (given !== undefined) return given && isExecutable(given) ? given : null;
   const dirs = [
     ...(process.env["PATH"] ?? "").split(path.delimiter),
     path.join(os.homedir(), ".local", "bin"),
@@ -154,7 +161,7 @@ export function findMidna(): string | null {
   ];
   for (const dir of dirs) {
     if (!dir) continue;
-    const file = path.join(dir, "midna");
+    const file = path.join(dir, name);
     if (isExecutable(file)) return file;
   }
   return null;

@@ -2197,6 +2197,10 @@ export type ClientMessage =
   /** Send a `project.test` event: with `projectId`, to every hook that
    *  project's events go to, about it; without, to the global hooks. */
   | { type: "hooks_test"; projectId?: string }
+  /** Design taste (server/gusteau.ts): where gusteau is, answered as `taste`. */
+  | { type: "taste_get" }
+  /** Run `gusteau learn --from-project` in this project's folder. */
+  | { type: "taste_learn"; projectId: string }
   | { type: "mcp_add"; add: McpAdd; projectId?: string }
   | {
       type: "mcp_remove";
@@ -2400,6 +2404,9 @@ export type ServerMessage =
   /** The hooks and their latest deliveries, to every window when either
    *  changes — and `error` to the one whose change was refused. */
   | { type: "hooks"; hooks: HooksView; error?: string }
+  /** Where gusteau is on this machine (null: not installed), and what a
+   *  "Learn from project" the window asked for came back with. */
+  | { type: "taste"; found: string | null; learned?: { ok: boolean; output: string } }
   /** Who may message whom, and the latest messages between agents. */
   | { type: "talk"; policy: TalkPolicy; letters: TalkLetter[] }
   /** A project's team as it stands: its members, its liaison once an

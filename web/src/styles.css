@@ -65,6 +65,10 @@
   --badge: var(--accent);
   --ok: #28a745;
   --fill: color-mix(in srgb, var(--ink) 8%, transparent);
+  /* a picked row, menu item or category: a grey wash, never the blue */
+  --selection: color-mix(in srgb, var(--ink) 11%, transparent);
+  /* the user's own bubble: Messages' grey, not the blue */
+  --bubble: color-mix(in srgb, var(--ink) 8%, var(--raised));
   /* a tinted button's fill: the accent, washed out (iOS's tinted style) */
   --tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --tint-strong: color-mix(in srgb, var(--accent) 20%, transparent);
@@ -110,7 +114,7 @@
   --field-bg: #ffffff;
   --destructive: #d70015;
   --field-shadow: 0 0 0 0.5px var(--line-soft), 0 2px 8px rgba(0, 0, 0, 0.05);
-  --field-shadow-focus: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 2px 8px rgba(0, 0, 0, 0.05);
+  --field-shadow-focus: 0 0 0 0.5px color-mix(in srgb, var(--ink) 22%, transparent), 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 /* dark: near-black, surfaces a step lighter each — every component
@@ -282,20 +286,20 @@ button:hover {
 }
 
 /* a push button — a plain one, or one in a dialog's or a setting's row —
-   is Apple's tinted button: blue words on a wash of the blue */
+   is a grey capsule with the ink's words, never blue */
 button:not([class]),
 button.secondary,
 .confirm-actions button:not(.primary),
 .settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger) {
-  color: var(--accent);
-  background: var(--tint);
+  color: var(--ink);
+  background: var(--fill);
 }
 
 button:not([class]):hover:not(:disabled),
 button.secondary:hover:not(:disabled),
 .confirm-actions button:not(.primary):hover:not(:disabled),
 .settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger):hover:not(:disabled) {
-  background: var(--tint-strong);
+  background: var(--selection);
 }
 
 button:focus-visible {
@@ -335,17 +339,17 @@ button.primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 88%, #000);
 }
 
-/* a borderless button: just the blue words, washed on hover */
+/* a borderless button: just the words, washed grey on hover */
 button.ghost {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
-  color: var(--accent);
+  color: var(--ink);
 }
 
 button.ghost:hover {
-  color: var(--accent);
-  background: var(--tint);
+  color: var(--ink);
+  background: var(--fill);
   border-color: transparent;
 }
 
@@ -740,8 +744,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 /* the selection is a neutral fill and nothing else — no weight change, so
    the name never shifts as it is picked */
 .project-row.active {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--selection);
+  color: var(--ink);
 }
 
 .project-name {
@@ -2596,8 +2600,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .dropdown-item:hover {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--selection);
+  color: var(--ink);
   transform: none;
 }
 
@@ -2699,11 +2703,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   position: relative;
   align-self: flex-end;
   max-width: 80%;
-  background: var(--accent);
+  background: var(--bubble);
   border: none;
   border-radius: var(--radius-xl);
   padding: 8px 16px;
-  color: var(--accent-ink);
+  color: var(--ink);
   font-size: 15px;
 }
 
@@ -3485,8 +3489,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .header-controls .icon-button.active {
-  color: var(--accent);
-  background: var(--tint-strong);
+  color: var(--ink);
+  background: var(--selection);
 }
 
 /* rapid fire: no pane of its own — the ordinary chat, handed one session at
@@ -5995,7 +5999,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .ask-option.on {
   border-color: transparent;
-  background: var(--tint);
+  background: var(--selection);
 }
 
 .ask-body {
@@ -6330,11 +6334,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   transform: none;
 }
 
-/* a file held over the box: a hairline of blue and the faintest wash,
-   as a Mac field takes a drop — never a heavy rim */
+/* a file held over the box: the faintest grey wash, as a Mac field takes
+   a drop — no rim, no blue */
 .composer-box.drag-over {
-  box-shadow: var(--field-shadow), 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
-  background: color-mix(in srgb, var(--accent) 4%, var(--raised));
+  background: color-mix(in srgb, var(--ink) 4%, var(--raised));
 }
 
 /* ── the sketch pad ───────────────────────────────────────────────── */
@@ -6896,12 +6899,12 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .command-row.active {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--selection);
+  color: var(--ink);
 }
 
 .command-row.active .command-name {
-  color: var(--accent-ink);
+  color: var(--ink);
 }
 
 .command-name {
@@ -6913,7 +6916,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .command-row.active .command-name {
-  color: var(--paper);
+  color: var(--ink);
 }
 
 /* the line about what it does gives way first when the row is narrow */
@@ -6928,7 +6931,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .command-row.active .command-what {
-  color: var(--paper-dim);
+  color: var(--ink-soft);
 }
 
 .command-kind {
@@ -6940,7 +6943,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .command-row.active .command-kind {
-  color: var(--paper-dim);
+  color: var(--ink-soft);
 }
 
 /* Apple's token look (Mail's address chips): blue words on a pale blue
@@ -7068,10 +7071,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   height: 15px;
 }
 
-/* the send button: a filled circle, faded back while there is nothing to send */
+/* the send button: a filled circle in the ink, faded back while there is
+   nothing to send */
 button.send {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--ink);
+  color: var(--raised);
 }
 
 button.send:hover:not(:disabled) {
@@ -7263,8 +7267,8 @@ button.stop:hover {
 }
 
 .shell-toggle.active {
-  background: var(--tint-strong);
-  color: var(--accent);
+  background: var(--selection);
+  color: var(--ink);
 }
 
 /* ── markdown ─────────────────────────────────────────────────────── */
@@ -8105,8 +8109,8 @@ button.stop:hover {
 }
 
 .switcher-row.picked {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--selection);
+  color: var(--ink);
 }
 
 .switcher-name {
@@ -8126,7 +8130,7 @@ button.stop:hover {
 }
 
 .switcher-row.picked .switcher-where {
-  color: var(--paper-dim);
+  color: var(--ink-soft);
 }
 
 .switcher-kind {
@@ -8138,7 +8142,7 @@ button.stop:hover {
 }
 
 .switcher-row.picked .switcher-kind {
-  color: var(--paper-dim);
+  color: var(--ink-soft);
 }
 
 .switcher-empty {
@@ -9103,7 +9107,7 @@ button.stop:hover {
 }
 
 .agent-row.openable:hover {
-  background: var(--tint);
+  background: var(--fill);
 }
 
 .agent-pid,
@@ -9504,10 +9508,7 @@ button.team-member-name:hover {
 
 /* Finder source-list selection: the row is one continuous target. */
 .project-row.active :is(.home-icon, .team-row-icon, .star, .hide, .remove, .row-count, .row-count-spinner) {
-  color: inherit;
-}
-.project-row.active .unread-pip {
-  background: currentColor;
+  color: var(--ink-soft);
 }
 button.destructive,
 button.ghost.destructive {
@@ -9555,8 +9556,8 @@ button.destructive:hover:not(:disabled) {
 }
 .settings-category .icon { color: var(--ink-soft); }
 .settings-category.selected {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--selection);
+  color: var(--ink);
 }
 .settings-category.selected .icon { color: inherit; }
 .settings-group[hidden] { display: none; }
@@ -9565,7 +9566,7 @@ button.destructive:hover:not(:disabled) {
   font-size: 12px;
   color: var(--ink-soft);
 }
-.settings-help summary { cursor: default; color: var(--accent); }
+.settings-help summary { cursor: default; color: var(--ink-soft); }
 .settings-help p { margin: 8px 0; }
 .settings-group :is(.model-list, .grants, .vault-list, .integrations) {
   border-radius: var(--radius-m);
@@ -9627,7 +9628,7 @@ button.destructive:hover:not(:disabled) {
 .composer-actions input[hidden] { display: none; }
 .msg.user .md :is(a, code, .marker-chip.sent) { color: inherit; }
 .msg.user .md a { text-decoration: underline; }
-.msg.user .md :is(code, .marker-chip.sent) { background: rgba(255,255,255,0.18); box-shadow: none; }
+.msg.user .md :is(code, .marker-chip.sent) { background: var(--fill); box-shadow: none; }
 .msg.user .letter-from, .msg.user .letter-from b { color: inherit; opacity: 0.85; }
 .md tbody tr:nth-child(even) { background: var(--paper-dim); }
 .permission-actions .primary { order: 3; }
@@ -9636,7 +9637,7 @@ button.destructive:hover:not(:disabled) {
   cursor: default; list-style: none; color: var(--ink-soft);
 }
 .working-details summary::-webkit-details-marker, .result-details summary::-webkit-details-marker { display: none; }
-.working-details summary:hover, .result-details summary:hover { color: var(--accent); }
+.working-details summary:hover, .result-details summary:hover { color: var(--ink); }
 .working-details[open] .working-stats { margin-left: 8px; }
 .result-details { font-size: 12px; color: var(--ink-soft); }
 .result-details[open] { display: flex; align-items: center; gap: 8px; }

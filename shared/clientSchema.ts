@@ -344,6 +344,8 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     reset: z.boolean().optional(),
   }),
   z.object({ type: z.literal("hooks_test"), projectId: id.optional() }),
+  z.object({ type: z.literal("taste_get") }),
+  z.object({ type: z.literal("taste_learn"), projectId: id }),
   z.object({
     type: z.literal("mcp_add"),
     add: z.object({

@@ -6,6 +6,7 @@ import type {
   PermissionId,
   PermissionState,
 } from "../../../shared/protocol";
+import { HOME_ID } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
@@ -583,10 +584,64 @@ const SETTINGS_SECTIONS = [
   },
 ] as const;
 
+/** Settings → General → Design taste (server/gusteau.ts): the switch,
+ *  whether gusteau is on this machine, and "Learn from project" for the
+ *  project that's open. */
+function DesignTaste() {
+  const designTaste = useDesignTaste();
+  const taste = useRuri((s) => s.taste);
+  const connected = useRuri((s) => s.connected);
+  const activeId = useRuri((s) => s.activeId);
+  useEffect(() => {
+    if (connected) send({ type: "taste_get" });
+  }, [connected]);
+  // a learn answered comes back as `taste`, newer than the ask
+  const [sentAt, setSentAt] = useState(0);
+  const learning = sentAt > 0 && (taste?.at ?? 0) < sentAt;
+  const learned = sentAt > 0 && !learning ? taste?.learned : undefined;
+  const project = activeId && activeId !== HOME_ID ? activeId : null;
+  return (
+    <div className="settings-row">
+      <span className="settings-label">Design taste</span>
+      <div className="settings-value">
+        <div className="seg">
+          {([false, true] as const).map((on) => (
+            <button
+              key={String(on)}
+              className={`seg-option ${designTaste === on ? "active" : ""}`}
+              onClick={() => setDesignTaste(on)}
+            >
+              {on ? "On" : "Off"}
+            </button>
+          ))}
+        </div>
+        {designTaste && taste?.found && project && (
+          <button
+            className="ghost"
+            disabled={learning}
+            title="Learn the design choices recorded in this project's review notes and decisions"
+            onClick={() => {
+              setSentAt(Date.now());
+              send({ type: "taste_learn", projectId: project });
+            }}
+          >
+            {learning ? "Learning…" : "Learn from project"}
+          </button>
+        )}
+        <p className="settings-note">
+          Agents read your taste from gusteau before interface work, check against it after, and
+          remember what you approve or correct. Applies to new chats.{" "}
+          {taste === null ? "" : taste.found ? `Found at ${taste.found}.` : "gusteau isn't installed."}
+        </p>
+        {learned && <p className="settings-note">{learned.output}</p>}
+      </div>
+    </div>
+  );
+}
+
 export function Settings({ onClose }: { onClose(): void }) {
   const [section, setSection] = useState<string>("general");
   const sessionsMode = useSessionsMode();
-  const designTaste = useDesignTaste();
   const workspaceDir = useRuri((s) => s.workspaceDir);
   const canPickFolder = useRuri((s) => s.canPickFolder);
   const remoteDevice = useRuri((s) => s.remoteDevice);
@@ -678,26 +733,7 @@ export function Settings({ onClose }: { onClose(): void }) {
                 </div>
               </div>
 
-              <div className="settings-row">
-                <span className="settings-label">Design taste</span>
-                <div className="settings-value">
-                  <div className="seg">
-                    {([false, true] as const).map((on) => (
-                      <button
-                        key={String(on)}
-                        className={`seg-option ${designTaste === on ? "active" : ""}`}
-                        onClick={() => setDesignTaste(on)}
-                      >
-                        {on ? "On" : "Off"}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="settings-note">
-                    Agents read your taste from gusteau before interface work, check against it after, and
-                    remember what you approve or correct. Needs the gusteau command; applies to new chats.
-                  </p>
-                </div>
-              </div>
+              <DesignTaste />
             </section>
 
             <section className="settings-group" hidden={section !== "appearance"}>

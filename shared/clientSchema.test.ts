@@ -197,6 +197,8 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
     reset: false,
   },
   hooks_test: { type: "hooks_test", projectId: "p" },
+  taste_get: { type: "taste_get" },
+  taste_learn: { type: "taste_learn", projectId: "p" },
   mcp_add: {
     type: "mcp_add",
     add: {

@@ -511,6 +511,9 @@ interface RuriState {
    *  deliveries (Settings → Integrations, server/projectHooks.ts), with
    *  what the server refused of the last change this window made. */
   hooks: { view: HooksView; error?: string; at: number } | null;
+  /** Where gusteau is (null: not installed) and what the last "Learn from
+   *  project" came back with (Settings → Design taste, server/gusteau.ts). */
+  taste: { found: string | null; learned?: { ok: boolean; output: string }; at: number } | null;
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
   canPermissions: boolean;
@@ -673,6 +676,7 @@ export const useRuri = create<RuriState>((set) => ({
   pluginsFound: null,
   integrationNote: null,
   hooks: null,
+  taste: null,
   canPickFolder: false,
   canPermissions: false,
   platform: "",
@@ -2232,6 +2236,10 @@ function apply(msg: ServerMessage): void {
     }
     case "hooks": {
       setState({ hooks: { view: msg.hooks, ...(msg.error ? { error: msg.error } : {}), at: Date.now() } });
+      break;
+    }
+    case "taste": {
+      setState({ taste: { found: msg.found, ...(msg.learned ? { learned: msg.learned } : {}), at: Date.now() } });
       break;
     }
     case "integration_done": {

@@ -6721,21 +6721,123 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .composer-dock .composer-box,
+.composer-dock .dragons,
 .composer-dock .viewer-overlay {
   pointer-events: auto;
 }
 
 .composer {
-  padding: 12px 32px 24px;
+  /* the bottom clears the dragons' names, which hang below them out of flow */
+  padding: 12px 32px 32px;
 }
 
-/* one column as wide as a comfortable line of reading, like Messages' field */
+/* the field and its four dragons on one line, the field centred between
+   them — the pairs are equal-width so it stays optically centred */
 .composer-row {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  max-width: 760px;
+  gap: 16px;
+  max-width: 1040px;
   margin: 0 auto;
+}
+
+/* in the hero the title sits above, so the dragons take no height and rise
+   past the field's top beside the title instead of pushing it down */
+.hero-composer .dragons {
+  height: 0;
+  align-self: flex-end;
+}
+
+/* ── the dragon gauges ────────────────────────────────────────────── */
+
+/* Four dragons flanking the field, each filling from his feet. Three traced
+   paths: the inked drawing above the waterline, and below it the solid body
+   with its interior detail knocked back out. Theme inks, so dark mode is a
+   white dragon filling white. */
+.dragons {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-shrink: 0;
+  /* a readout, not a control */
+  user-select: none;
+}
+
+/* a fixed column width keeps both pairs the same size whatever they say */
+.dragon-gauge {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 62px;
+  cursor: default;
+}
+
+.dragon {
+  width: 56px;
+  height: 127px;
+  overflow: visible;
+}
+
+/* the waterline is the clip rect's own geometry, so moving it transitions */
+.dragon-clip {
+  transition:
+    y 240ms ease-out,
+    height 240ms ease-out;
+}
+
+.dragon-body,
+.dragon-stroke {
+  fill: var(--ink-soft);
+}
+
+.dragon-detail {
+  fill: var(--paper);
+}
+
+.dragon-value {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--ink);
+}
+
+/* hung below the column, out of flow */
+.dragon-name {
+  position: absolute;
+  top: 100%;
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  text-align: center;
+}
+
+.dragon-reset {
+  display: block;
+  font-size: 10px;
+  line-height: 1.25;
+  opacity: 0.72;
+}
+
+/* a narrow window gets smaller dragons rather than none */
+@media (max-width: 1100px) {
+  .dragons {
+    gap: 4px;
+  }
+
+  .dragon-gauge {
+    width: 46px;
+  }
+
+  .dragon {
+    width: 40px;
+    height: 91px;
+  }
 }
 
 .composer-box {

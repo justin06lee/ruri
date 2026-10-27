@@ -49,7 +49,7 @@ import {
   projectChatBriefing,
   sessionsMode,
 } from "./sessionsMode.js";
-import { tasteBriefing } from "./gusteau.js";
+import { afterTurnTaste, tasteBriefing } from "./gusteau.js";
 import { taskTurnEnded, workerMode } from "./workers.js";
 
 /**
@@ -151,6 +151,8 @@ export function createChatManager(ctx: ServerContext): SessionManager {
             // than a nudge is, and it has just gone out
             else ctx.retries.cancelRetry(projectId);
           }
+          // the design check, under the turn, when the user keeps their taste in gusteau
+          if (event.ok) afterTurnTaste(ctx, projectId);
           // a question it ended on for the user, read before the next prompt lands
           projectWatch(ctx).turnEnded(projectId, event);
           // a message from another agent that started this turn is answered

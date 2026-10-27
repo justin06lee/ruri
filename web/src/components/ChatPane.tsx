@@ -37,7 +37,7 @@ import { SelectionFlags } from "./Selection";
 import { Sketch, type SketchBackground } from "./Sketch";
 import { Skills } from "./Skills";
 import { TeamPage } from "./TeamPage";
-import { Spinner, WorkingLine } from "./Thinking";
+import { Thinking, WorkingLine } from "./Thinking";
 
 /** Turns rendered before the first paint — more than fills a screen; the
  *  rest arrive behind it. */
@@ -1074,7 +1074,7 @@ function ChatView({
               )}
               {status === "working" && (
                 <div className="working">
-                  {!draft && <Spinner />}
+                  {!draft && <Thinking />}
                   {stopping ? (
                     // the stop is heard; the harness is winding the turn down
                     <div className="working-line">

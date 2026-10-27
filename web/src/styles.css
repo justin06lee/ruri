@@ -65,6 +65,10 @@
   --badge: var(--accent);
   --ok: #28a745;
   --fill: color-mix(in srgb, var(--ink) 8%, transparent);
+  /* a picked row, menu item or category: a grey wash, never the blue */
+  --selection: color-mix(in srgb, var(--ink) 11%, transparent);
+  /* the user's own bubble: Messages' grey, not the blue */
+  --bubble: color-mix(in srgb, var(--ink) 8%, var(--raised));
   /* a tinted button's fill: the accent, washed out (iOS's tinted style) */
   --tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --tint-strong: color-mix(in srgb, var(--accent) 20%, transparent);
@@ -110,7 +114,7 @@
   --field-bg: #ffffff;
   --destructive: #d70015;
   --field-shadow: 0 0 0 0.5px var(--line-soft), 0 2px 8px rgba(0, 0, 0, 0.05);
-  --field-shadow-focus: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 2px 8px rgba(0, 0, 0, 0.05);
+  --field-shadow-focus: 0 0 0 0.5px color-mix(in srgb, var(--ink) 22%, transparent), 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 /* dark: near-black, surfaces a step lighter each — every component
@@ -282,20 +286,20 @@ button:hover {
 }
 
 /* a push button — a plain one, or one in a dialog's or a setting's row —
-   is Apple's tinted button: blue words on a wash of the blue */
+   is a grey capsule with the ink's words, never blue */
 button:not([class]),
 button.secondary,
 .confirm-actions button:not(.primary),
 .settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger) {
-  color: var(--accent);
-  background: var(--tint);
+  color: var(--ink);
+  background: var(--fill);
 }
 
 button:not([class]):hover:not(:disabled),
 button.secondary:hover:not(:disabled),
 .confirm-actions button:not(.primary):hover:not(:disabled),
 .settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger):hover:not(:disabled) {
-  background: var(--tint-strong);
+  background: var(--selection);
 }
 
 button:focus-visible {
@@ -335,17 +339,17 @@ button.primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 88%, #000);
 }
 
-/* a borderless button: just the blue words, washed on hover */
+/* a borderless button: just the words, washed grey on hover */
 button.ghost {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
-  color: var(--accent);
+  color: var(--ink);
 }
 
 button.ghost:hover {
-  color: var(--accent);
-  background: var(--tint);
+  color: var(--ink);
+  background: var(--fill);
   border-color: transparent;
 }
 
@@ -740,8 +744,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 /* the selection is a neutral fill and nothing else — no weight change, so
    the name never shifts as it is picked */
 .project-row.active {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--selection);
+  color: var(--ink);
 }
 
 .project-name {
@@ -973,10 +977,155 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   opacity: 1;
 }
 
-/* a chat at work keeps a spinner where its remove button goes, there
-   without a hover */
+/* ── the dragon in the X's place ──────────────────────────────────────
+   A chat at work keeps a small head where its remove button goes, there
+   without a hover. It chomps on the beat clock; the pointer coming onto
+   the row makes it bite twice, once, then hold. */
 .project-row .remove.busy {
   display: flex;
+}
+
+.row-dragon {
+  position: relative;
+  display: block;
+  width: 15px;
+  height: 15px;
+  color: var(--ink-soft);
+  /* its own sealed layer, as the doodle is: a step swaps which drawing is
+     opaque and tips the layer, and nothing around it is painted again */
+  contain: strict;
+  will-change: transform;
+}
+
+.remove.busy:hover .row-dragon {
+  color: var(--ink);
+}
+
+/* over the rows' own rule for the X's svg size */
+.row-dragon .row-dragon-frame.row-dragon-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* two steps on the doodle's clock (data-chomp, beat.ts): jaws open (f1),
+   then shut (f2) — and a shut jaw lands, a hair lower and tipped into the
+   bite, so each one has some weight to it. Two drawings, two poses, and
+   nothing in between: the window draws twice a second for it, not 120. */
+.row-dragon-frame.f2,
+.row-dragon[data-chomp="1"] .row-dragon-frame.f1 {
+  opacity: 0;
+}
+
+.row-dragon[data-chomp="1"] .row-dragon-frame.f2 {
+  opacity: 1;
+}
+
+.row-dragon[data-chomp="1"] {
+  transform: translateY(0.5px) rotate(-7deg);
+}
+
+/* The pointer on the row: open, shut, open, shut, open — two hard bites,
+   each one shaking the head — and the jaws held open until the pointer
+   goes, when the clock takes over again. The held pose is the animation's
+   own last frame, which outranks the clock's step for as long as it lasts. */
+.project-row:hover .row-dragon {
+  animation: bite-shake 550ms linear 1 forwards;
+}
+
+.project-row:hover .row-dragon-frame.f1 {
+  animation: chomp-open 550ms step-end 1 forwards;
+}
+
+.project-row:hover .row-dragon-frame.f2 {
+  animation: chomp-shut 550ms step-end 1 forwards;
+}
+
+@keyframes chomp-shut {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  80%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes chomp-open {
+  0% {
+    opacity: 1;
+  }
+  20% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 0;
+  }
+  80%,
+  100% {
+    opacity: 1;
+  }
+}
+
+/* each bite (20% and 60%) slams down and in, then rattles out before the
+   jaws open again; still while they are open */
+@keyframes bite-shake {
+  0%,
+  19.9% {
+    transform: none;
+  }
+  20% {
+    transform: translateY(1px) rotate(-13deg) scale(1.14);
+  }
+  26% {
+    transform: translate(-1px, 0) rotate(9deg) scale(1.08);
+  }
+  32% {
+    transform: translate(1px, 0) rotate(-6deg);
+  }
+  37% {
+    transform: translate(-0.5px, 0) rotate(3deg);
+  }
+  40%,
+  59.9% {
+    transform: none;
+  }
+  60% {
+    transform: translateY(1px) rotate(-13deg) scale(1.14);
+  }
+  66% {
+    transform: translate(1px, 0) rotate(9deg) scale(1.08);
+  }
+  72% {
+    transform: translate(-1px, 0) rotate(-6deg);
+  }
+  77% {
+    transform: translate(0.5px, 0) rotate(3deg);
+  }
+  80%,
+  100% {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-dragon,
+  .row-dragon-frame {
+    animation: none !important;
+  }
 }
 
 /* ── the spinner: a chat or agent at work ─────────────────────────── */
@@ -2596,8 +2745,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .dropdown-item:hover {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--selection);
+  color: var(--ink);
   transform: none;
 }
 
@@ -2699,11 +2848,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   position: relative;
   align-self: flex-end;
   max-width: 80%;
-  background: var(--accent);
+  background: var(--bubble);
   border: none;
   border-radius: var(--radius-xl);
   padding: 8px 16px;
-  color: var(--accent-ink);
+  color: var(--ink);
   font-size: 15px;
 }
 
@@ -3176,6 +3325,71 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   color: var(--ink);
 }
 
+.thinking {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  margin: 6px 0;
+  color: var(--ink-soft);
+  transform: scaleX(-1) rotate(-5deg);
+  /* a sealed box on its own layer: a step turns the layer and swaps which
+     pose is opaque, and nothing outside these 46px — nor inside — is
+     painted again for it */
+  contain: strict;
+  will-change: transform;
+}
+
+/* eight half-second steps on the clock (data-doodle, beat.ts): a tilt each,
+   and every other one the second pose — the same hard swaps the doodle
+   always made, drawn twice a second instead of 120 times */
+.thinking[data-doodle="1"] {
+  transform: scaleX(-1) rotate(6deg);
+}
+
+.thinking[data-doodle="2"] {
+  transform: scaleX(-1) rotate(-7deg);
+}
+
+.thinking[data-doodle="3"] {
+  transform: scaleX(-1) rotate(4deg);
+}
+
+.thinking[data-doodle="4"] {
+  transform: scaleX(-1) rotate(-6deg);
+}
+
+.thinking[data-doodle="5"] {
+  transform: scaleX(-1) rotate(7deg);
+}
+
+.thinking[data-doodle="6"] {
+  transform: scaleX(-1) rotate(-4deg);
+}
+
+.thinking[data-doodle="7"] {
+  transform: scaleX(-1) rotate(5deg);
+}
+
+.thinking-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  will-change: opacity;
+}
+
+.thinking-frame.f2 {
+  opacity: 0;
+}
+
+.thinking:is([data-doodle="1"], [data-doodle="3"], [data-doodle="5"], [data-doodle="7"]) .thinking-frame.f1 {
+  opacity: 0;
+}
+
+.thinking:is([data-doodle="1"], [data-doodle="3"], [data-doodle="5"], [data-doodle="7"]) .thinking-frame.f2 {
+  opacity: 1;
+}
+
 /* queued prompts: a user bubble not yet sent — outlined, not filled, as
    Messages shows one still waiting to go */
 
@@ -3485,8 +3699,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .header-controls .icon-button.active {
-  color: var(--accent);
-  background: var(--tint-strong);
+  color: var(--ink);
+  background: var(--selection);
 }
 
 /* rapid fire: no pane of its own — the ordinary chat, handed one session at
@@ -5995,7 +6209,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .ask-option.on {
   border-color: transparent;
-  background: var(--tint);
+  background: var(--selection);
 }
 
 .ask-body {
@@ -6330,11 +6544,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   transform: none;
 }
 
-/* a file held over the box: a hairline of blue and the faintest wash,
-   as a Mac field takes a drop — never a heavy rim */
+/* a file held over the box: the faintest grey wash, as a Mac field takes
+   a drop — no rim, no blue */
 .composer-box.drag-over {
-  box-shadow: var(--field-shadow), 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
-  background: color-mix(in srgb, var(--accent) 4%, var(--raised));
+  background: color-mix(in srgb, var(--ink) 4%, var(--raised));
 }
 
 /* ── the sketch pad ───────────────────────────────────────────────── */
@@ -6718,21 +6931,123 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .composer-dock .composer-box,
+.composer-dock .dragons,
 .composer-dock .viewer-overlay {
   pointer-events: auto;
 }
 
 .composer {
-  padding: 12px 32px 24px;
+  /* the bottom clears the dragons' names, which hang below them out of flow */
+  padding: 12px 32px 32px;
 }
 
-/* one column as wide as a comfortable line of reading, like Messages' field */
+/* the field and its four dragons on one line, the field centred between
+   them — the pairs are equal-width so it stays optically centred */
 .composer-row {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  max-width: 760px;
+  gap: 16px;
+  max-width: 1040px;
   margin: 0 auto;
+}
+
+/* in the hero the title sits above, so the dragons take no height and rise
+   past the field's top beside the title instead of pushing it down */
+.hero-composer .dragons {
+  height: 0;
+  align-self: flex-end;
+}
+
+/* ── the dragon gauges ────────────────────────────────────────────── */
+
+/* Four dragons flanking the field, each filling from his feet. Three traced
+   paths: the inked drawing above the waterline, and below it the solid body
+   with its interior detail knocked back out. Theme inks, so dark mode is a
+   white dragon filling white. */
+.dragons {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-shrink: 0;
+  /* a readout, not a control */
+  user-select: none;
+}
+
+/* a fixed column width keeps both pairs the same size whatever they say */
+.dragon-gauge {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 62px;
+  cursor: default;
+}
+
+.dragon {
+  width: 56px;
+  height: 127px;
+  overflow: visible;
+}
+
+/* the waterline is the clip rect's own geometry, so moving it transitions */
+.dragon-clip {
+  transition:
+    y 240ms ease-out,
+    height 240ms ease-out;
+}
+
+.dragon-body,
+.dragon-stroke {
+  fill: var(--ink-soft);
+}
+
+.dragon-detail {
+  fill: var(--paper);
+}
+
+.dragon-value {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--ink);
+}
+
+/* hung below the column, out of flow */
+.dragon-name {
+  position: absolute;
+  top: 100%;
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  text-align: center;
+}
+
+.dragon-reset {
+  display: block;
+  font-size: 10px;
+  line-height: 1.25;
+  opacity: 0.72;
+}
+
+/* a narrow window gets smaller dragons rather than none */
+@media (max-width: 1100px) {
+  .dragons {
+    gap: 4px;
+  }
+
+  .dragon-gauge {
+    width: 46px;
+  }
+
+  .dragon {
+    width: 40px;
+    height: 91px;
+  }
 }
 
 .composer-box {
@@ -6896,12 +7211,12 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .command-row.active {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--selection);
+  color: var(--ink);
 }
 
 .command-row.active .command-name {
-  color: var(--accent-ink);
+  color: var(--ink);
 }
 
 .command-name {
@@ -6913,7 +7228,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .command-row.active .command-name {
-  color: var(--paper);
+  color: var(--ink);
 }
 
 /* the line about what it does gives way first when the row is narrow */
@@ -6928,7 +7243,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .command-row.active .command-what {
-  color: var(--paper-dim);
+  color: var(--ink-soft);
 }
 
 .command-kind {
@@ -6940,7 +7255,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 }
 
 .command-row.active .command-kind {
-  color: var(--paper-dim);
+  color: var(--ink-soft);
 }
 
 /* Apple's token look (Mail's address chips): blue words on a pale blue
@@ -7068,10 +7383,11 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   height: 15px;
 }
 
-/* the send button: a filled circle, faded back while there is nothing to send */
+/* the send button: a filled circle in the ink, faded back while there is
+   nothing to send */
 button.send {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--ink);
+  color: var(--raised);
 }
 
 button.send:hover:not(:disabled) {
@@ -7263,8 +7579,8 @@ button.stop:hover {
 }
 
 .shell-toggle.active {
-  background: var(--tint-strong);
-  color: var(--accent);
+  background: var(--selection);
+  color: var(--ink);
 }
 
 /* ── markdown ─────────────────────────────────────────────────────── */
@@ -8105,8 +8421,8 @@ button.stop:hover {
 }
 
 .switcher-row.picked {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--selection);
+  color: var(--ink);
 }
 
 .switcher-name {
@@ -8126,7 +8442,7 @@ button.stop:hover {
 }
 
 .switcher-row.picked .switcher-where {
-  color: var(--paper-dim);
+  color: var(--ink-soft);
 }
 
 .switcher-kind {
@@ -8138,7 +8454,7 @@ button.stop:hover {
 }
 
 .switcher-row.picked .switcher-kind {
-  color: var(--paper-dim);
+  color: var(--ink-soft);
 }
 
 .switcher-empty {
@@ -9103,7 +9419,7 @@ button.stop:hover {
 }
 
 .agent-row.openable:hover {
-  background: var(--tint);
+  background: var(--fill);
 }
 
 .agent-pid,
@@ -9118,7 +9434,18 @@ button.stop:hover {
   font-weight: 500;
 }
 
-.row-count {
+/* the Projects row's dragon, standing just ahead of the count of projects
+   at work — and taking the count's push to the right edge. A hair higher
+   than centred: its jaw hangs low in the drawing, and beside the digits it
+   read as sitting under them. */
+.row-count-dragon {
+  margin-left: auto;
+  flex-shrink: 0;
+  position: relative;
+  top: -1.5px;
+}
+
+.row-count-dragon + .row-count {
   margin-left: auto;
   font-size: 11px;
   font-weight: 600;
@@ -9503,11 +9830,8 @@ button.team-member-name:hover {
 }
 
 /* Finder source-list selection: the row is one continuous target. */
-.project-row.active :is(.home-icon, .team-row-icon, .star, .hide, .remove, .row-count, .row-count-spinner) {
-  color: inherit;
-}
-.project-row.active .unread-pip {
-  background: currentColor;
+.project-row.active :is(.home-icon, .team-row-icon, .star, .hide, .remove, .row-count, .row-count-dragon) {
+  color: var(--ink-soft);
 }
 button.destructive,
 button.ghost.destructive {
@@ -9533,20 +9857,28 @@ button.destructive:hover:not(:disabled) {
   display: flex;
 }
 .settings-navigation {
-  width: 200px;
-  flex: 0 0 200px;
-  padding: 20px 12px;
+  width: 180px;
+  flex: 0 0 180px;
+  display: flex;
+  flex-direction: column;
   background: var(--sidebar-bg);
+}
+/* the categories scroll; the account bar stays at the foot, as in the
+   project source list */
+.settings-categories {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 8px;
   overflow-y: auto;
 }
 .settings-category {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
-  min-height: 36px;
-  padding: 8px;
-  margin-bottom: 4px;
+  min-height: 28px;
+  padding: 4px 8px;
+  margin-bottom: 2px;
   text-align: left;
   background: transparent;
   font-size: 13px;
@@ -9555,8 +9887,8 @@ button.destructive:hover:not(:disabled) {
 }
 .settings-category .icon { color: var(--ink-soft); }
 .settings-category.selected {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--selection);
+  color: var(--ink);
 }
 .settings-category.selected .icon { color: inherit; }
 .settings-group[hidden] { display: none; }
@@ -9565,7 +9897,7 @@ button.destructive:hover:not(:disabled) {
   font-size: 12px;
   color: var(--ink-soft);
 }
-.settings-help summary { cursor: default; color: var(--accent); }
+.settings-help summary { cursor: default; color: var(--ink-soft); }
 .settings-help p { margin: 8px 0; }
 .settings-group :is(.model-list, .grants, .vault-list, .integrations) {
   border-radius: var(--radius-m);
@@ -9586,17 +9918,15 @@ button.destructive:hover:not(:disabled) {
 }
 @media (max-width: 760px) {
   .settings-layout { flex-direction: column; }
-  .settings-navigation {
-    width: 100%; flex: none; display: flex;
-    padding: 8px; gap: 4px; overflow-x: auto;
-  }
+  .settings-navigation { width: 100%; flex: none; }
+  .settings-categories { display: flex; padding: 8px; gap: 4px; overflow-x: auto; }
+  .settings-navigation .account-bar { display: none; }
   .settings-category { width: auto; flex-shrink: 0; margin: 0; }
   .settings-category .icon { display: none; }
 }
 
 /* Settings uses the window's source-list column for its own categories. */
 .settings-open > .sidebar { display: none; }
-.settings-navigation { width: var(--sidebar-w); flex-basis: var(--sidebar-w); }
 .desktop .settings-toolbar { padding-left: 84px; -webkit-app-region: drag; }
 .desktop .settings-toolbar button { -webkit-app-region: no-drag; }
 .desktop.linux .settings-toolbar { padding-left: 20px; }
@@ -9605,29 +9935,10 @@ button.destructive:hover:not(:disabled) {
 .chat.settings-page { background: var(--paper-dim); }
 .settings-group > .settings-row + .settings-row { border-top: none; }
 
-/* Details owns the model controls; the main composer stays about the message. */
-.composer-details { position: relative; }
-.composer-details-trigger {
-  display: inline-flex; align-items: center; gap: 8px;
-  min-height: 28px; padding: 4px 8px; border-radius: var(--radius-s);
-  list-style: none; cursor: default; font-size: 12px; color: var(--ink-soft);
-}
-.composer-details-trigger::-webkit-details-marker { display: none; }
-.composer-details-trigger:hover, .composer-details[open] > summary { background: var(--fill); }
-.composer-details-trigger:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.composer-details-popover {
-  position: absolute; bottom: calc(100% + 16px); left: 0;
-  width: max-content; max-width: calc(100vw - 64px); padding: 16px;
-  border-radius: var(--radius-l); background: var(--menu-bg);
-  backdrop-filter: var(--material); box-shadow: var(--menu-shadow);
-  z-index: var(--z-popover); animation: rise var(--move);
-}
-.composer-details-title { display: block; margin-bottom: 12px; font-size: 13px; font-weight: 600; }
-.composer-details-popover .composer-controls { flex-wrap: wrap; gap: 8px; }
 .composer-actions input[hidden] { display: none; }
 .msg.user .md :is(a, code, .marker-chip.sent) { color: inherit; }
 .msg.user .md a { text-decoration: underline; }
-.msg.user .md :is(code, .marker-chip.sent) { background: rgba(255,255,255,0.18); box-shadow: none; }
+.msg.user .md :is(code, .marker-chip.sent) { background: var(--fill); box-shadow: none; }
 .msg.user .letter-from, .msg.user .letter-from b { color: inherit; opacity: 0.85; }
 .md tbody tr:nth-child(even) { background: var(--paper-dim); }
 .permission-actions .primary { order: 3; }
@@ -9636,7 +9947,7 @@ button.destructive:hover:not(:disabled) {
   cursor: default; list-style: none; color: var(--ink-soft);
 }
 .working-details summary::-webkit-details-marker, .result-details summary::-webkit-details-marker { display: none; }
-.working-details summary:hover, .result-details summary:hover { color: var(--accent); }
+.working-details summary:hover, .result-details summary:hover { color: var(--ink); }
 .working-details[open] .working-stats { margin-left: 8px; }
 .result-details { font-size: 12px; color: var(--ink-soft); }
 .result-details[open] { display: flex; align-items: center; gap: 8px; }

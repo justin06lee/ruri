@@ -1,6 +1,7 @@
 /**
  * One slow clock per pace for everything on screen that moves by itself —
- * the streaming cursor and an agent's turning ring.
+ * the thinking doodle, the sidebar's dragons, the streaming cursor, an
+ * agent's turning ring.
  *
  * None of these is a CSS animation: an infinite animation has Chromium
  * draw the window afresh at the display's rate for as long as it is on
@@ -24,7 +25,7 @@ export { isAwake, subscribeAwake };
 
 /** `data-turn` is taken — every exchange in a transcript carries its turn
  *  id under it — so the ring's kind is "spin". */
-export type Beat = "blink" | "spin";
+export type Beat = "blink" | "chomp" | "doodle" | "spin";
 
 /** How long each step of each kind lasts and how many steps it has — and,
  *  for a kind whose CSS works its pose out from the step rather than
@@ -32,6 +33,8 @@ export type Beat = "blink" | "spin";
 const KINDS: Record<Beat, { ms: number; steps: number; prop?: string }> = {
   // half a second on, half a second off
   blink: { ms: 500, steps: 2 },
+  doodle: { ms: 500, steps: 8 },
+  chomp: { ms: 500, steps: 2 },
   // twelve degrees a step at fifteen steps a second: a whole turn every two
   // seconds, as it always took, in thirty steps where it had eight
   spin: { ms: 67, steps: 30, prop: "--spin" },

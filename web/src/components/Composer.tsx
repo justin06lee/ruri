@@ -23,6 +23,7 @@ import {
   type Region,
 } from "./Attachments";
 import { CommandMenu, commandPrefix } from "./CommandMenu";
+import { DragonGauges } from "./Dragon";
 import { MarkerMirror } from "./Markers";
 import {
   backspaceHits,
@@ -542,6 +543,7 @@ export function Composer({
     <div className="composer">
       {card}
       <div className="composer-row">
+        <DragonGauges channelId={channelId} model={project.model} side="left" />
         <div
           className={`composer-box ${dragOver ? "drag-over" : ""} ${compact ? "compact" : ""}`}
           onDragOver={(e) => {
@@ -706,24 +708,7 @@ export function Composer({
             {shell ? (
               <span className="shell-where">{project.name} · shell</span>
             ) : (
-              <details
-                className="composer-details"
-                onKeyDown={(e) => {
-                  if (e.key !== "Escape" || e.defaultPrevented) return;
-                  e.currentTarget.open = false;
-                  e.currentTarget.querySelector("summary")?.focus();
-                  e.stopPropagation();
-                }}
-              >
-                <summary className="composer-details-trigger" title="Model, reasoning and permissions">
-                  <Icon d="M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6" />
-                  Details
-                </summary>
-                <div className="composer-details-popover">
-                  <span className="composer-details-title">Conversation settings</span>
-                  <SessionControls project={project} channelId={channelId} compact={compact} />
-                </div>
-              </details>
+              <SessionControls project={project} channelId={channelId} compact={compact} />
             )}
             <div className="composer-actions">
               {!shell && (
@@ -804,6 +789,7 @@ export function Composer({
             </div>
           </div>
         </div>
+        <DragonGauges channelId={channelId} model={project.model} side="right" />
       </div>
       {viewingAtt && (
         <Viewer

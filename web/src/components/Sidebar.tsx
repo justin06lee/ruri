@@ -5,7 +5,7 @@ import { getPref, setPref } from "../prefs";
 import { STAR_PATH } from "../icons";
 import { isBusy, prefetchTranscript, renameProject, send, toggleProject, useRuri } from "../store";
 import { PeekBand } from "./PeekBand";
-import { Spinner } from "./Thinking";
+import { DragonHead } from "./Thinking";
 
 function HomeRow() {
   const activeId = useRuri((s) => s.activeId);
@@ -94,8 +94,8 @@ function ProjectsRow() {
       <span className="project-name">Projects</span>
       {active > 0 && (
         <>
-          <span className="row-count-spinner" title="Something is working">
-            <Spinner />
+          <span className="row-count-dragon" title="Something is working">
+            <DragonHead />
           </span>
           <span className="row-count" title={`${active} ${active === 1 ? "project" : "projects"} at work`}>
             {active}
@@ -184,11 +184,11 @@ function NameEditor({
   );
 }
 
-/** The X — or, while the thing it removes is at work, a spinner in its
- *  place. The spinner still removes it, asked first like the X is. */
+/** The X — or, while the thing it removes is at work, a dragon's head in
+ *  its place. The head still removes it, asked first like the X is. */
 function RemoveIcon({ busy }: { busy: boolean }) {
   return busy ? (
-    <Spinner />
+    <DragonHead />
   ) : (
     <svg
       viewBox="0 0 24 24"
@@ -378,12 +378,46 @@ function ProjectRow({ project }: { project: Project }) {
 
 /** Memoised: it takes no props, and everything it needs it selects for
  *  itself — so a re-render of the app around it is never a reason to run. */
-export const Sidebar = memo(function Sidebar() {
-  const projects = useRuri((s) => s.projects);
+/** The foot of the source list: who is signed in here, and Settings. Settings
+ *  shows it too, at the foot of its own categories, so it never goes away. */
+export function AccountBar() {
   const connected = useRuri((s) => s.connected);
   const user = useRuri((s) => s.user);
   // a window onto another computer says which, beside whose account it is
   const onto = useRuri((s) => (s.remoteDevice !== null ? s.sharing?.name : undefined));
+  const settingsOpen = useRuri((s) => s.settingsOpen);
+  const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
+  return (
+    <div className="account-bar">
+      <span className="account-name" title={onto ? `Chats run on ${onto} — Settings, Devices` : undefined}>
+        {user || "account"}
+        {onto && <span className="account-where"> on {onto}</span>}
+      </span>
+      {!connected && <span className="conn off" title="Reconnecting…" />}
+      <button
+        className={`icon-button ${settingsOpen ? "active" : ""}`}
+        title="Settings"
+        onClick={() => setSettingsOpen(!settingsOpen)}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+export const Sidebar = memo(function Sidebar() {
+  const projects = useRuri((s) => s.projects);
   // The fold at the bottom: hidden projects stay out of sight until it is
   // opened, and whether it is open is remembered.
   const [showHidden, setShowHidden] = useState<boolean>(() => {
@@ -402,8 +436,6 @@ export const Sidebar = memo(function Sidebar() {
       // preference just won't persist
     }
   };
-  const settingsOpen = useRuri((s) => s.settingsOpen);
-  const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
 
   // A chat inside a hidden project being looked at — reached by the
   // switcher, or the Home agent — opens the fold, so the row that is
@@ -473,32 +505,7 @@ export const Sidebar = memo(function Sidebar() {
         )}
       </div>
 
-      {/* the foot: who is signed in here, and Settings */}
-      <div className="account-bar">
-        <span className="account-name" title={onto ? `Chats run on ${onto} — Settings, Devices` : undefined}>
-          {user || "account"}
-          {onto && <span className="account-where"> on {onto}</span>}
-        </span>
-        {!connected && <span className="conn off" title="Reconnecting…" />}
-        <button
-          className={`icon-button ${settingsOpen ? "active" : ""}`}
-          title="Settings"
-          onClick={() => setSettingsOpen(!settingsOpen)}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
-          </svg>
-        </button>
-      </div>
+      <AccountBar />
     </aside>
   );
 });

@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- Less blue: selected rows, your prompts, summaries, send and push buttons are grey or ink; blue stays on primary buttons, links, focus and switches. Model, effort and permission pickers sit in the composer bar again (no Details), Settings keeps your name and gear at the foot of a narrower category list, and the dragon gauges, thinking doodle and working dragons on sidebar rows are back.
 - Design taste (Settings → General, off by default): with gusteau installed, new chats read your taste with `gusteau brief` before interface work, run `gusteau check` after, and record what you approve or correct with `gusteau learn`. Settings says where gusteau was found and has "Learn from project"; a finished turn in a project with `.gusteau/` gets a quiet line under it with the design check's result.
 - Mac presentation throughout: blue source-list selection, unified material toolbars, category-based Settings with preserved edits, readable message bubbles, tonal project/statistics lists, quieter galleries and agent views, and shared alert, permission, viewer and drawing controls. Layout follows a four-point spacing rhythm; navigation and typing no longer replay entry animations.
 - The composer has an Attach files button and keeps model, effort and permission controls under Details. Working and completed-turn internals, and team model/context metadata, open on demand. Destructive actions use red; every theme keeps the system-blue accent.

@@ -5,7 +5,7 @@ import { getPref, setPref } from "../prefs";
 import { STAR_PATH } from "../icons";
 import { isBusy, prefetchTranscript, renameProject, send, toggleProject, useRuri } from "../store";
 import { PeekBand } from "./PeekBand";
-import { Spinner } from "./Thinking";
+import { DragonHead } from "./Thinking";
 
 function HomeRow() {
   const activeId = useRuri((s) => s.activeId);
@@ -94,8 +94,8 @@ function ProjectsRow() {
       <span className="project-name">Projects</span>
       {active > 0 && (
         <>
-          <span className="row-count-spinner" title="Something is working">
-            <Spinner />
+          <span className="row-count-dragon" title="Something is working">
+            <DragonHead />
           </span>
           <span className="row-count" title={`${active} ${active === 1 ? "project" : "projects"} at work`}>
             {active}
@@ -184,11 +184,11 @@ function NameEditor({
   );
 }
 
-/** The X — or, while the thing it removes is at work, a spinner in its
- *  place. The spinner still removes it, asked first like the X is. */
+/** The X — or, while the thing it removes is at work, a dragon's head in
+ *  its place. The head still removes it, asked first like the X is. */
 function RemoveIcon({ busy }: { busy: boolean }) {
   return busy ? (
-    <Spinner />
+    <DragonHead />
   ) : (
     <svg
       viewBox="0 0 24 24"

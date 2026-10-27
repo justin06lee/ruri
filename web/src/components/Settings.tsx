@@ -14,6 +14,7 @@ import { Icon } from "./chat/Icon";
 import { Devices } from "./Devices";
 import { GreetingEditor } from "./GreetingEditor";
 import { Integrations } from "./Integrations";
+import { AccountBar } from "./Sidebar";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
 import { setSessionsMode, useSessionsMode } from "../lib/sessionsMode";
@@ -690,6 +691,7 @@ export function Settings({ onClose }: { onClose(): void }) {
       </header>
       <div className="settings-layout">
         <nav className="settings-navigation" aria-label="Settings categories">
+          <div className="settings-categories">
           {SETTINGS_SECTIONS.map((item) => (
             <button
               key={item.id}
@@ -701,6 +703,8 @@ export function Settings({ onClose }: { onClose(): void }) {
               {item.name}
             </button>
           ))}
+          </div>
+          <AccountBar />
         </nav>
         <div className="settings-scroll">
           <div className="board-inner settings-inner">

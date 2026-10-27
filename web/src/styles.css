@@ -9534,20 +9534,28 @@ button.destructive:hover:not(:disabled) {
   display: flex;
 }
 .settings-navigation {
-  width: 200px;
-  flex: 0 0 200px;
-  padding: 20px 12px;
+  width: 180px;
+  flex: 0 0 180px;
+  display: flex;
+  flex-direction: column;
   background: var(--sidebar-bg);
+}
+/* the categories scroll; the account bar stays at the foot, as in the
+   project source list */
+.settings-categories {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 8px;
   overflow-y: auto;
 }
 .settings-category {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
-  min-height: 36px;
-  padding: 8px;
-  margin-bottom: 4px;
+  min-height: 28px;
+  padding: 4px 8px;
+  margin-bottom: 2px;
   text-align: left;
   background: transparent;
   font-size: 13px;
@@ -9587,17 +9595,15 @@ button.destructive:hover:not(:disabled) {
 }
 @media (max-width: 760px) {
   .settings-layout { flex-direction: column; }
-  .settings-navigation {
-    width: 100%; flex: none; display: flex;
-    padding: 8px; gap: 4px; overflow-x: auto;
-  }
+  .settings-navigation { width: 100%; flex: none; }
+  .settings-categories { display: flex; padding: 8px; gap: 4px; overflow-x: auto; }
+  .settings-navigation .account-bar { display: none; }
   .settings-category { width: auto; flex-shrink: 0; margin: 0; }
   .settings-category .icon { display: none; }
 }
 
 /* Settings uses the window's source-list column for its own categories. */
 .settings-open > .sidebar { display: none; }
-.settings-navigation { width: var(--sidebar-w); flex-basis: var(--sidebar-w); }
 .desktop .settings-toolbar { padding-left: 84px; -webkit-app-region: drag; }
 .desktop .settings-toolbar button { -webkit-app-region: no-drag; }
 .desktop.linux .settings-toolbar { padding-left: 20px; }
@@ -9606,25 +9612,6 @@ button.destructive:hover:not(:disabled) {
 .chat.settings-page { background: var(--paper-dim); }
 .settings-group > .settings-row + .settings-row { border-top: none; }
 
-/* Details owns the model controls; the main composer stays about the message. */
-.composer-details { position: relative; }
-.composer-details-trigger {
-  display: inline-flex; align-items: center; gap: 8px;
-  min-height: 28px; padding: 4px 8px; border-radius: var(--radius-s);
-  list-style: none; cursor: default; font-size: 12px; color: var(--ink-soft);
-}
-.composer-details-trigger::-webkit-details-marker { display: none; }
-.composer-details-trigger:hover, .composer-details[open] > summary { background: var(--fill); }
-.composer-details-trigger:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.composer-details-popover {
-  position: absolute; bottom: calc(100% + 16px); left: 0;
-  width: max-content; max-width: calc(100vw - 64px); padding: 16px;
-  border-radius: var(--radius-l); background: var(--menu-bg);
-  backdrop-filter: var(--material); box-shadow: var(--menu-shadow);
-  z-index: var(--z-popover); animation: rise var(--move);
-}
-.composer-details-title { display: block; margin-bottom: 12px; font-size: 13px; font-weight: 600; }
-.composer-details-popover .composer-controls { flex-wrap: wrap; gap: 8px; }
 .composer-actions input[hidden] { display: none; }
 .msg.user .md :is(a, code, .marker-chip.sent) { color: inherit; }
 .msg.user .md a { text-decoration: underline; }

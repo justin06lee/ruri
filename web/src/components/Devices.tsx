@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SharedDevice } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 import { useNow } from "../lib/beat";
+import { InfoTip } from "./InfoTip";
 import { ruriShell, type PairOutcome, type Peer, type ShellState } from "../lib/shell";
 
 /** "just now", "3m ago", "2h ago", "4d ago". */
@@ -55,7 +56,15 @@ export function Devices() {
   return (
     <div className="devices">
       <div className="settings-row">
-        <span className="settings-label">Share</span>
+        <span className="settings-label">
+          Share
+          <InfoTip>
+            {`Your paired devices run their chats on ${name}, using its processor and memory, over your network, Tailscale or makima.`}
+            {remoteDevice === null && !/Mac/.test(navigator.userAgent)
+              ? " Closing this window leaves ruri running for them."
+              : ""}
+          </InfoTip>
+        </span>
         <div className="settings-value">
           <button
             className={`skill-switch ${on ? "on" : ""}`}
@@ -74,14 +83,6 @@ export function Devices() {
           >
             <span className="skill-knob" />
           </button>
-          <span className="settings-note">
-            {on
-              ? `Your paired devices run their chats on ${name} — its processor, its memory.` +
-                (remoteDevice === null && !/Mac/.test(navigator.userAgent)
-                  ? " Closing this window leaves ruri running for them."
-                  : "")
-              : `Let your other devices run their chats on ${name}, over your network, Tailscale or makima.`}
-          </span>
         </div>
       </div>
 
@@ -103,7 +104,13 @@ export function Devices() {
       )}
 
       <div className="settings-row tall">
-        <span className="settings-label">Invite</span>
+        <span className="settings-label">
+          Invite
+          <InfoTip>
+            Six words, for a device that can't sign in to {name} over SSH. They pair one device, once. Making
+            one turns sharing on.
+          </InfoTip>
+        </span>
         <div className="settings-value devices-invite">
           {liveInvite ? (
             <>
@@ -121,8 +128,7 @@ export function Devices() {
                 </button>
               </div>
               <span className="settings-note">
-                On the other device: Settings, Devices — pick {name} and type these. They pair one device,
-                once, until {clock(liveInvite.expires)}.
+                Type these on the other device, in Settings → Devices. Until {clock(liveInvite.expires)}.
               </span>
             </>
           ) : (
@@ -137,16 +143,12 @@ export function Devices() {
               >
                 {asked ? "making…" : "Invite a device"}
               </button>
-              <span className="settings-note">
-                Six words, for a device that can't sign in to {name} over SSH.
-                {on ? "" : " Turns sharing on."}
-              </span>
             </div>
           )}
         </div>
       </div>
 
-      <PhonePairing name={name} on={on} now={now} />
+      <PhonePairing name={name} now={now} />
 
       {sharing.devices.length > 0 && (
         <div className="devices-list">
@@ -205,7 +207,7 @@ function DeviceRow({ device, here, now }: { device: SharedDevice; here: boolean;
  * (server/sharing.ts). The link itself is never shown, since the ticket is
  * in it, but it can be copied for the Simulator, which has no camera.
  */
-function PhonePairing({ name, on, now }: { name: string; on: boolean; now: number }) {
+function PhonePairing({ name, now }: { name: string; now: number }) {
   const pairing = useRuri((s) => s.phonePairing);
   const [askedAt, setAskedAt] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
@@ -230,7 +232,13 @@ function PhonePairing({ name, on, now }: { name: string; on: boolean; now: numbe
 
   return (
     <div className="settings-row tall">
-      <span className="settings-label">Phone</span>
+      <span className="settings-label">
+        Phone
+        <InfoTip>
+          A code for the ruri app on your iPhone. It works for one phone, for 15 minutes, and the phone reads{" "}
+          {name}'s status. Making one turns sharing on.
+        </InfoTip>
+      </span>
       <div className="settings-value devices-invite">
         {live ? (
           <div className="devices-phone">
@@ -242,10 +250,7 @@ function PhonePairing({ name, on, now }: { name: string; on: boolean; now: numbe
               height={200}
             />
             <div className="devices-phone-side">
-              <span className="settings-note">
-                Scan with the ruri app on your iPhone. Good for one phone, for 15 minutes; it reads {name}'s
-                status and nothing else.
-              </span>
+              <span className="settings-note">Scan it with the ruri app on your iPhone.</span>
               <span className="settings-note">
                 {Math.max(1, Math.ceil((live.expires - now) / 60_000))} min left · until {clock(live.expires)}
               </span>
@@ -270,10 +275,6 @@ function PhonePairing({ name, on, now }: { name: string; on: boolean; now: numbe
             >
               {asking ? "making…" : "Pair a phone"}
             </button>
-            <span className="settings-note">
-              A code for the ruri app on your iPhone, which reads status only.
-              {on ? "" : " Turns sharing on."}
-            </span>
           </div>
         )}
       </div>
@@ -328,7 +329,13 @@ function ThisDevice() {
   return (
     <>
       <div className="settings-row tall devices-this">
-        <span className="settings-label">This device</span>
+        <span className="settings-label">
+          This device
+          <InfoTip>
+            Run your chats on a stronger computer and keep only the window here: pick one under Computers.
+            Chats running on {computer} stop when you switch.
+          </InfoTip>
+        </span>
         <div className="settings-value devices-invite">
           {using ? (
             <div className="devices-code-row">
@@ -342,16 +349,16 @@ function ThisDevice() {
               </button>
             </div>
           ) : (
-            <span className="settings-note">
-              Run your chats on a stronger computer and keep only the window here — pick one below. Chats
-              running on {computer} stop when you switch.
-            </span>
+            <span className="settings-note">Chats run here</span>
           )}
         </div>
       </div>
 
       <div className="settings-row">
-        <span className="settings-label">Computers</span>
+        <span className="settings-label">
+          Computers
+          <InfoTip>Your other computers, found on makima, Tailscale and this network.</InfoTip>
+        </span>
         <div className="settings-value">
           <button className="ghost grant-ask" disabled={looking} onClick={look}>
             {looking ? "looking…" : "Look again"}
@@ -361,7 +368,7 @@ function ThisDevice() {
               ? "Looking on makima, Tailscale and this network…"
               : peers.length === 0
                 ? "None found on makima, Tailscale or this network. Add one by its address."
-                : "Your other computers, on makima, Tailscale and this network."}
+                : ""}
           </span>
         </div>
       </div>
@@ -508,9 +515,12 @@ function SetUp({ peer, user }: { peer: Peer; user: string }) {
   return (
     <div className="devices-setup">
       <p className="settings-note">
-        ruri signs in to {peer.name} over SSH, installs ruri there if it isn't (a few minutes: git, bun and
-        make needed there), starts it to keep running in the background, and pairs this device — nothing to
-        type but, if it asks, a password.
+        Signs in to {peer.name} over SSH, sets ruri up there and pairs this device.
+        <InfoTip>
+          ruri signs in to {peer.name} over SSH, installs ruri there if it isn't (a few minutes: git, bun and
+          make needed there), starts it to keep running in the background, and pairs this device. Nothing to type
+          but, if it asks, a password.
+        </InfoTip>
       </p>
       <div className="devices-code-row vault-form">
         <input

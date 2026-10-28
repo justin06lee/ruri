@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { InfoTip } from "./InfoTip";
 
 /**
  * The pieces a settings panel is made of, for the editors that are more
@@ -6,10 +7,13 @@ import { useState, type ReactNode } from "react";
  * number field that can be typed into.
  */
 
-export function Row({ label, children }: { label: string; children: ReactNode }) {
+export function Row({ label, info, children }: { label: string; info?: ReactNode; children: ReactNode }) {
   return (
     <div className="settings-row">
-      <span className="settings-label">{label}</span>
+      <span className="settings-label">
+        {label}
+        {info && <InfoTip>{info}</InfoTip>}
+      </span>
       <div className="settings-value">{children}</div>
     </div>
   );

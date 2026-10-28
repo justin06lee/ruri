@@ -290,7 +290,7 @@ button:hover {
 button:not([class]),
 button.secondary,
 .confirm-actions button:not(.primary),
-.settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger) {
+.settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger, .info-tip) {
   color: var(--ink);
   background: var(--fill);
 }
@@ -298,7 +298,7 @@ button.secondary,
 button:not([class]):hover:not(:disabled),
 button.secondary:hover:not(:disabled),
 .confirm-actions button:not(.primary):hover:not(:disabled),
-.settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger):hover:not(:disabled) {
+.settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger, .info-tip):hover:not(:disabled) {
   background: var(--selection);
 }
 
@@ -10343,4 +10343,49 @@ button.primary { min-height: 28px; }
 }
 .agent-brief-bar button.primary:disabled {
   opacity: 0.35;
+}
+
+/* ── the ⓘ beside a setting, and the little card it opens (InfoTip.tsx) ── */
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  margin-left: 6px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-faint);
+  vertical-align: -3px;
+  cursor: default;
+}
+.info-tip:hover,
+.info-tip.open {
+  color: var(--ink);
+  background: none;
+}
+.info-tip svg {
+  width: 15px;
+  height: 15px;
+}
+.info-tip-card {
+  position: fixed;
+  z-index: var(--z-popover);
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: var(--material);
+  backdrop-filter: var(--material);
+  box-shadow: var(--menu-shadow);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  animation: rise var(--move);
+}
+.settings-label .info-tip {
+  margin-left: 4px;
 }

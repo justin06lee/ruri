@@ -14,6 +14,7 @@ import { Icon } from "./chat/Icon";
 import { Devices } from "./Devices";
 import { GreetingEditor } from "./GreetingEditor";
 import { Integrations } from "./Integrations";
+import { InfoTip } from "./InfoTip";
 import { PeekBand } from "./PeekBand";
 import { AccountBar } from "./Sidebar";
 import { STAR_PATH } from "../icons";
@@ -196,14 +197,13 @@ function ModelCatalog() {
           );
         })}
       </Capped>
-      <details className="settings-help">
-        <summary>About model roles</summary>
-        <p>
-          Star a model to include it in the composer. Drag a role label to another model to change the default
-          for new conversations, the model for small tasks, or the model that maintains project memory.
-          Existing conversations keep their current model.
-        </p>
-      </details>
+      <p className="settings-note">
+        Starred models are the ones the composer offers.
+        <InfoTip>
+          Drag a role label to another model to change the default for new conversations, the model for small
+          tasks, or the model that keeps project memory. Existing conversations keep their model.
+        </InfoTip>
+      </p>
     </div>
   );
 }
@@ -601,7 +601,10 @@ function DesignTaste() {
   const project = activeId && activeId !== HOME_ID ? activeId : null;
   return (
     <div className="settings-row">
-      <span className="settings-label">Design taste</span>
+      <span className="settings-label">
+        Design taste
+        <InfoTip>Agents follow your gusteau taste on interface work.</InfoTip>
+      </span>
       <div className="settings-value">
         <div className="seg">
           {([false, true] as const).map((on) => (
@@ -628,10 +631,7 @@ function DesignTaste() {
           </button>
         )}
       </div>
-      <p className="settings-note">
-        Agents follow your gusteau taste on interface work.{" "}
-        {taste === null ? "" : taste.found ? `Found at ${taste.found}.` : "gusteau isn't installed."}
-      </p>
+      {taste && !taste.found && <p className="settings-note">gusteau isn't installed.</p>}
       {learned && <p className="settings-note">{learned.output}</p>}
     </div>
   );
@@ -1029,26 +1029,25 @@ function Grants() {
   if (platform === "linux")
     return (
       <p className="settings-note">
-        Linux keeps no per-app privacy grants: ruri and its sessions can reach whatever your account can, and
-        there is nothing here to ask for. The bridge reads native apps' controls over the desktop's
-        accessibility bus (AT-SPI) and photographs their windows off the X server — on a Wayland session it
-        can drive web pages and Electron apps, not native windows.
+        Linux has no per-app privacy grants: nothing to ask for here.
+        <InfoTip>
+          ruri and its sessions can reach whatever your account can. The bridge reads native apps' controls
+          over the desktop's accessibility bus (AT-SPI) and photographs their windows off the X server. On a
+          Wayland session it can drive web pages and Electron apps, not native windows.
+        </InfoTip>
       </p>
     );
   if (!can) return <p className="settings-note">Available in the desktop app.</p>;
   return (
     <div className="grants">
       <p className="settings-note grants-note">
-        Allow ruri to control apps and access files on this Mac. Manage access in System Settings.
+        What ruri may control and read on this Mac.
+        <InfoTip>
+          macOS ties access to the app's signature. After a rebuild a permission can need approving again even
+          if its switch is still on in System Settings: Ask requests it again. Manage access in System
+          Settings.
+        </InfoTip>
       </p>
-      <details className="settings-help">
-        <summary>About these permissions</summary>
-        <p>
-          macOS associates access with the app's signature. After a rebuild, a permission can need approval
-          again even if its switch is still on in System Settings. Use Ask to request access again, or Re-read
-          to check the current status.
-        </p>
-      </details>
       <div className="grants-head">
         <button className="ghost" disabled={asking !== null} onClick={() => ask()}>
           {asking === "all" ? "asking…" : "Ask for everything"}

@@ -16,6 +16,15 @@ Each choice marked **Decision (Justin)** is his to make. The recommendation foll
 - **v1.1:** push notifications for "needs you" and "team done". ProjectWatch already raises exactly these events for midna's hooks (`project.blocked`, `project.idle`). The Mac can send them to APNs itself with a .p8 key, and no relay is needed.
 - **Not in the app:** transcripts, logs, tool calls, IDs, tokens, cost, models, context gauges.
 
+## v2: the conversation, and prompting from the phone
+
+Justin asked for both (2026-10-27): each chat's whole conversation, live, and a composer that sends into it. Built in `server/phoneChat.ts`:
+
+- `GET /chat?id=<chat>`: the chat's last 150 things said: his prompts and the replies in full, each run of tool calls folded into one "N steps" line, and a note where a turn stopped. It also gives the chat's state (working, needs you, idle) and the prompts waiting in its queue. Chat ids come from `/status?ids=1`.
+- `GET /chat/live?id=<chat>`: the same over SSE. The first frame is whole; after that a frame carries only what is new or changed (`upsert`) and what is gone (`remove`), or the whole list again when the order changed. A reply being written comes as a `pending` item. Reconnecting sends the whole conversation again, so nothing missed is lost.
+- `POST /chat/send` with `{ id, text, clientId }`: sent the way the web composer sends (the `send` handler). It answers `event` (sent now), `queued` (behind the running turn) or `failed`. The same `clientId` sent twice is answered, not run twice, so the phone can retry after a dropped line.
+- **Scope.** A phone code now pairs with the key scope `phone`: the status and these three routes. A phone paired before keeps the scope `status`. Its key does not quietly gain sending, and `/chat*` refuses it with "pair it again".
+
 ## How it connects
 
 **What already exists.** Settings → Devices (`server/sharing.ts`) opens a second door, port 7775, on every network the Mac is on: LAN, tailnet or makima. The door is TLS with ruri's own certificate (`server/tlsCert.ts`), which a device pins by fingerprint. Every request through it must carry a per-device key. The Mac stores only a hash of each key, and each key can be revoked one at a time. A device gets its key by proving the six words of an invite, without the words ever crossing the wire (`server/invite.ts`). Requests that come in through the door are served by the same routes and socket as the local window (`server/routes.ts`, `server/socket.ts`). So a route added once is reachable from the phone with nothing more. (`server/hostLink.ts` is the server↔Electron-shell link and plays no part here.)

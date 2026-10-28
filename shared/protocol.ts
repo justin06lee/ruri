@@ -1504,9 +1504,10 @@ export interface TccRow {
 
 /** A device let in to use this computer (server/sharing.ts). */
 /** What a paired device's key may reach: "status" is GET /status and
- *  /status/live alone — a phone's — and no scope at all is everything a
- *  window can. */
-export type DeviceScope = "status";
+ *  /status/live alone — a phone paired before it could talk — "phone" is
+ *  that and the chats' conversations, live, and sending into them
+ *  (server/phoneChat.ts); no scope at all is everything a window can. */
+export type DeviceScope = "status" | "phone";
 
 export interface SharedDevice {
   id: string;
@@ -1720,6 +1721,54 @@ export interface StatusProject {
   team: StatusChat[];
   /** Only with ?ids=1. */
   id?: string;
+}
+
+/** One thing said in a chat, as the phone shows it (server/phoneChat.ts). */
+export interface PhoneChatItem {
+  id: string;
+  /** "steps" is a run of tool calls between two things said, folded into
+   *  one; "note" is ruri's own line — a turn stopped, or on an error. */
+  kind: "user" | "assistant" | "steps" | "note";
+  /** What was said; for steps, how many there were. */
+  text: string;
+  /** For steps: each one's one-line summary. */
+  steps?: string[];
+  /** A message another agent sent, not the user: its name. */
+  from?: string;
+  /** ISO 8601. */
+  at: string;
+  /** The reply still being written. */
+  pending?: true;
+}
+
+/** A prompt waiting in the chat's queue, by the id it was sent with. */
+export interface PhoneQueued {
+  id: string;
+  text: string;
+}
+
+/**
+ * GET /chat answers one; GET /chat/live sends one on connect and again
+ * whenever the chat changes. `items` is the chat's recent conversation,
+ * whole; a live frame after the first sends `items` again only when the
+ * order changed, and otherwise only what is new or changed (`upsert`, in
+ * order, after what the phone holds) and what is gone (`remove`).
+ */
+export interface PhoneChatFrame {
+  chat: string;
+  name: string;
+  project: string;
+  state: "working" | "needs-you" | "idle";
+  queue: PhoneQueued[];
+  items?: PhoneChatItem[];
+  upsert?: PhoneChatItem[];
+  remove?: string[];
+}
+
+/** What POST /chat/send answers: where the prompt went — "event" sent
+ *  now, "queued" behind the turn running, "failed" not taken. */
+export interface PhoneSent {
+  as: "event" | "queued" | "other" | "failed";
 }
 
 /**

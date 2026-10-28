@@ -26,7 +26,8 @@ export function findGusteau(): string | null {
 }
 
 export function tasteOn(ctx: { prefs: Pick<PrefStore, "all"> }): boolean {
-  return ctx.prefs.all()[GUSTEAU_PREF] === "on";
+  // on unless turned off: a fresh install follows the taste
+  return ctx.prefs.all()[GUSTEAU_PREF] !== "off";
 }
 
 /** What a session is told, or "" when the setting is off or gusteau isn't

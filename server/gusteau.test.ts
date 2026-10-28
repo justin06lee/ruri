@@ -25,9 +25,9 @@ afterAll(() => {
 });
 
 describe("design taste", () => {
-  test("is off unless the setting says on", () => {
+  test("is on unless the setting says off", () => {
     process.env["RURI_GUSTEAU"] = bin;
-    expect(tasteBriefing(withPref())).toBe("");
+    expect(tasteBriefing(withPref())).toContain("<ruri:taste>");
     expect(tasteBriefing(withPref("off"))).toBe("");
     expect(tasteBriefing(withPref("on"))).toContain("<ruri:taste>");
   });

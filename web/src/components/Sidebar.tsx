@@ -1,7 +1,10 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { HOME_ID, leadOf, type Project } from "../../../shared/protocol";
 import { useConfirm } from "./Confirm";
-import { getPref, setPref } from "../prefs";
+import { getPref, setPref, watchPref } from "../prefs";
+import { defaultProjectIcon, PROJECT_ICON_NAMES } from "../lib/marks";
+import { ProjectIcon } from "./Marks";
 import { STAR_PATH } from "../icons";
 import { isBusy, prefetchTranscript, renameProject, send, toggleProject, useRuri } from "../store";
 import { PeekBand } from "./PeekBand";
@@ -217,6 +220,61 @@ const HOVER_MS = 90;
  * says when any of its chats is at work, the lead's own turn included —
  * the dragon where the X goes — and how many teammates, beside it.
  */
+/** The grid of project drawings a row's right-click opens, at the pointer.
+ *  On the body, so the sidebar's scrolling can't clip it. */
+function IconPicker({
+  at,
+  current,
+  onPick,
+  onClose,
+}: {
+  at: { x: number; y: number };
+  current: string;
+  onPick: (name: string) => void;
+  onClose: () => void;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const away = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) onClose();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("keydown", key);
+    };
+  }, [onClose]);
+  const left = Math.min(at.x, window.innerWidth - 236);
+  const top = Math.min(at.y, window.innerHeight - 160);
+  return createPortal(
+    <div
+      ref={box}
+      className="icon-picker"
+      role="menu"
+      style={{ left, top }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {PROJECT_ICON_NAMES.map((name) => (
+        <button
+          key={name}
+          role="menuitemradio"
+          aria-checked={name === current}
+          className={name === current ? "on" : ""}
+          title={name}
+          onClick={() => onPick(name)}
+        >
+          <ProjectIcon name={name} />
+        </button>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
 function ProjectRow({ project }: { project: Project }) {
   const lead = leadOf(project);
   const leadId = lead?.id;
@@ -232,6 +290,11 @@ function ProjectRow({ project }: { project: Project }) {
   // that is all there is), puts the head where the X goes
   const anyBusy = useRuri((s) => project.sessions.some((x) => isBusy(s, x.id)));
   const [renaming, setRenaming] = useState(false);
+  // its drawing: the one the user picked, or one from its id
+  const iconKey = `ruri-project-icon:${project.id}`;
+  const [icon, setIcon] = useState(() => getPref(iconKey) ?? defaultProjectIcon(project.id));
+  useEffect(() => watchPref(iconKey, (v) => v && setIcon(v)), [iconKey]);
+  const [picking, setPicking] = useState<{ x: number; y: number } | null>(null);
   const { confirm: ask, card } = useConfirm();
   const hover = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(hover.current), []);
@@ -263,11 +326,27 @@ function ProjectRow({ project }: { project: Project }) {
         e.preventDefault();
         setRenaming(true);
       }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setPicking({ x: e.clientX, y: e.clientY });
+      }}
     >
-      {/* a monogram tile, the name's first letter: rows tell apart at a glance */}
+      {/* a small drawing: rows tell apart at a glance; right-click picks another */}
       <span className="team-row-icon" aria-hidden>
-        {Array.from(project.name.trim())[0]?.toUpperCase() ?? "·"}
+        <ProjectIcon name={icon} />
       </span>
+      {picking && (
+        <IconPicker
+          at={picking}
+          current={icon}
+          onPick={(name) => {
+            setIcon(name);
+            setPref(iconKey, name);
+            setPicking(null);
+          }}
+          onClose={() => setPicking(null)}
+        />
+      )}
       {renaming ? (
         <NameEditor value={project.name} className="project-name" onDone={rename} />
       ) : (

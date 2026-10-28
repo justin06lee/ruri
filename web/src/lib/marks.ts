@@ -166,3 +166,46 @@ export function markFor(model: string, choice?: Pick<ModelChoice, "provider" | "
     HARNESS_LABS[harness];
   return lab ? { lab, harness, name } : { harness, name };
 }
+
+/** The project drawings (components/Marks.tsx draws them), in the order the
+ *  row's picker shows them. */
+export const PROJECT_ICON_NAMES = [
+  "moon",
+  "star",
+  "leaf",
+  "mushroom",
+  "fish",
+  "cat",
+  "cloud",
+  "key",
+  "flame",
+  "mountain",
+  "cup",
+  "sun",
+  "house",
+  "pine",
+  "anchor",
+  "heart",
+  "flower",
+  "rocket",
+  "umbrella",
+  "bell",
+  "planet",
+  "ghost",
+  "snail",
+  "wave",
+  "plane",
+  "gem",
+  "cactus",
+  "bolt",
+] as const;
+
+export type ProjectIconName = (typeof PROJECT_ICON_NAMES)[number];
+
+/** The drawing a project gets until the user picks one: from its id, so a
+ *  rename keeps it. */
+export function defaultProjectIcon(id: string): ProjectIconName {
+  let h = 2166136261;
+  for (const ch of id) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return PROJECT_ICON_NAMES[(h >>> 0) % PROJECT_ICON_NAMES.length]!;
+}

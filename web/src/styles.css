@@ -9959,6 +9959,9 @@ button.primary.destructive:hover:not(:disabled) { background: color-mix(in srgb,
 .devices-code-row, .vault-form { flex-wrap: wrap; }
 .settings-row .settings-note { flex-basis: 100%; }
 .settings-row .settings-value > .skill-switch { flex: 0 0 32px; }
+/* in a value that stacks (the clock's), that basis would be its height —
+   a 32px circle; the switch keeps its own size there */
+.settings-row .settings-value.schedule > .skill-switch { flex: none; height: 19px; }
 .hook-delivery, .hook-event { border: none; border-radius: var(--radius-s); }
 @media (max-width: 900px) {
   .grant-row { flex-wrap: wrap; }

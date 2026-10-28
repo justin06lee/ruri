@@ -394,8 +394,9 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
           (or what its card asks) in about 600 characters; <code>costUsd</code> is what was spent since then.
         </p>
         <p>
-          One that fails is tried again after 5s, 30s, 2m and 10m — five tries in all — unless it can’t get
-          better: an HTTP 4xx other than 408 or 429, or a command that exits 126 or 127.
+          One that fails is tried again after 5s, 30s, 2m and 10m, then every 15m for up to six hours, even
+          across a relaunch — unless it can’t get better: an HTTP 4xx other than 408 or 429, or a command that
+          exits 126 or 127.
         </p>
       </details>
 

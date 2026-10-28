@@ -10229,3 +10229,66 @@ button.primary { min-height: 28px; }
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 24px);
   mask-image: linear-gradient(to bottom, transparent 0, #000 24px);
 }
+
+/* ── the conversation runs to the window's top edge ─────────────────
+   Over a conversation the top bar takes no room: it floats, and what
+   scrolls fades out across its height into the window's very top. Pages
+   that aren't a conversation keep their bar in the flow. */
+.chat:has(> .transcript-holder) > .chat-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+.chat:not(.home-stats) > .home-tabs-space {
+  height: 0;
+}
+.chat:has(> .transcript-holder) .transcript {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 calc(var(--toolbar-h) + 8px),
+    #000 calc(100% - var(--composer-h)),
+    transparent calc(100% - 18px)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 calc(var(--toolbar-h) + 8px),
+    #000 calc(100% - var(--composer-h)),
+    transparent calc(100% - 18px)
+  );
+}
+.chat:has(> .transcript-holder) .transcript-inner {
+  padding-top: calc(var(--toolbar-h) + 16px);
+}
+
+/* ── rounder sidebar rows ──────────────────────────────────────────── */
+.project-row {
+  border-radius: 10px;
+}
+
+/* ── the input box as glass ────────────────────────────────────────
+   Translucent over the page, blurred and a little saturated behind, a
+   bright hairline along the top and a faint rim, floating on a soft
+   shadow — Apple's Liquid Glass, without colour. */
+.composer-box {
+  background: color-mix(in srgb, var(--raised) 58%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  backdrop-filter: blur(28px) saturate(170%);
+  border-radius: 26px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #000 6%, transparent),
+    inset 0 0 0 0.5px color-mix(in srgb, var(--ink) 12%, transparent),
+    0 10px 36px rgba(0, 0, 0, 0.16),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.composer-box:focus-within {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 20%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #000 6%, transparent),
+    inset 0 0 0 0.5px color-mix(in srgb, var(--ink) 18%, transparent),
+    0 12px 40px rgba(0, 0, 0, 0.2),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+}

@@ -21,8 +21,9 @@
  * `from` marked `carried`), and the last words of the turn that finishes
  * the job are its answer (talkTurnEnded).
  *
- * ruri's own compaction at about four fifths of the window
- * (dispatch.ts autoCompactDue) stays the backstop for an agent that never
+ * ruri's own compaction at about four fifths of the window, or near its
+ * soft limit (434k) if that comes first (dispatch.ts autoCompactDue),
+ * stays the backstop for an agent that never
  * gets round to it. The system prompt's words about all this never change
  * (contextBriefing), so the cache holds; the figures ride per turn.
  */
@@ -33,7 +34,7 @@ import { z } from "zod";
 import { CARRY_ON, type LetterFrom, type TranscriptEvent } from "../shared/protocol.js";
 import { channelProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
-import { autoCompactShare, compactChannel } from "./dispatch.js";
+import { autoCompactPoint, compactChannel } from "./dispatch.js";
 import { HOME_ID } from "./manager.js";
 import type { QueueEntry } from "./queue.js";
 import { owedLetter } from "./handlers/talk.js";
@@ -124,7 +125,10 @@ export function selfCompactAt(ctx: ServerContext, channelId: string): number | u
         ? { tokens: LEAD_COMPACT_AT }
         : { share: SELF_COMPACT_SHARE });
   const window = contextWindow(ctx, channelId);
-  return Math.min(window, at.tokens ?? Math.round(window * (at.share ?? SELF_COMPACT_SHARE)));
+  // never past where ruri compacts it anyway (the soft limit, or its share
+  // of the window): the agent's own note gets there first
+  const backstop = backstopAt(ctx, channelId) ?? window;
+  return Math.min(window, backstop, at.tokens ?? Math.round(window * (at.share ?? SELF_COMPACT_SHARE)));
 }
 
 /** What room a fresh session gets at least, as a share of the point. */
@@ -147,9 +151,7 @@ function heldAt(ctx: ServerContext, channelId: string, tokens: number): number |
 
 /** Where ruri compacts the chat itself, whatever the agent does. */
 function backstopAt(ctx: ServerContext, channelId: string): number | undefined {
-  const project = channelProject(ctx, channelId);
-  if (!project || ctx.prefs.all()["ruri-auto-compact"] === "off") return undefined;
-  return Math.round(contextWindow(ctx, channelId) * autoCompactShare(ctx.manager.harnessFor(project)));
+  return autoCompactPoint(ctx, channelId)?.tokens;
 }
 
 const k = (n: number) =>

@@ -5,10 +5,12 @@ import {
   findMarkers,
   holdMarkers,
   holdMarkersAt,
+  markerSpan,
   markerText,
   moveMarker,
   releaseMarkers,
   removeMarker,
+  snapSelection,
   spaceMarkers,
   stripMarkers,
 } from "./markers";
@@ -67,45 +69,82 @@ describe("markerText and holding/releasing", () => {
 
   test("holdMarkersAt keeps the caret where it was relative to the text", () => {
     const text = "see[image #1]";
-    expect(holdMarkersAt(text, text.length)).toEqual({ text: `see ${img(1)}`, caret: text.length + 1 });
+    expect(holdMarkersAt(text, text.length)).toEqual({ text: `see ${img(1)} `, caret: text.length + 2 });
   });
 });
 
 describe("spaceMarkers", () => {
-  test("a word against a chip gets one space on that side", () => {
+  test("a tag has exactly one space either side", () => {
     expect(spaceMarkers(`see${img(1)}here`).text).toBe(`see ${img(1)} here`);
+    expect(spaceMarkers(`see    ${img(1)}     here`).text).toBe(`see ${img(1)} here`);
+    expect(spaceMarkers(`see ${img(1)}.`).text).toBe(`see ${img(1)} .`);
+    expect(spaceMarkers(`see ${img(1)}`).text).toBe(`see ${img(1)} `);
   });
 
-  test("closing punctuation may sit against a chip, an opening bracket before it", () => {
-    expect(spaceMarkers(`see ${img(1)}.`).text).toBe(`see ${img(1)}.`);
-    expect(spaceMarkers(`(${img(1)})`).text).toBe(`(${img(1)})`);
+  test("none before a tag at the start of a line", () => {
+    expect(spaceMarkers(`${img(1)} x`).text).toBe(`${img(1)} x`);
+    expect(spaceMarkers(`  ${img(1)} x`).text).toBe(`${img(1)} x`);
+    expect(spaceMarkers(`a\n ${img(1)} x`).text).toBe(`a\n${img(1)} x`);
   });
 
-  test("two chips are held three spaces apart", () => {
-    expect(spaceMarkers(`${img(1)}${img(2)}`).text).toBe(`${img(1)}   ${img(2)}`);
-    expect(spaceMarkers(`${img(1)} ${img(2)}`).text).toBe(`${img(1)}   ${img(2)}`);
+  test("two tags side by side keep a space each", () => {
+    expect(spaceMarkers(`${img(1)}${img(2)}`).text).toBe(`${img(1)}  ${img(2)} `);
+    expect(spaceMarkers(`${img(1)}      ${img(2)} `).text).toBe(`${img(1)}  ${img(2)} `);
   });
 
-  test("only ever adds: space already there is left alone", () => {
-    const text = `a    ${img(1)}     b`;
-    expect(spaceMarkers(text).text).toBe(text);
-    expect(spaceMarkers(`${img(1)}      ${img(2)}`).text).toBe(`${img(1)}      ${img(2)}`);
-  });
-
-  test("nothing is pushed into a command being written", () => {
+  test("nothing is pushed into a command being written; two commands are held apart", () => {
     expect(spaceMarkers("x/compact ").text).toBe("x/compact ");
+    expect(spaceMarkers("/a /b ").text).toBe("/a   /b ");
   });
 
-  test("a space put in ahead of the caret moves it; one behind it does not", () => {
-    const text = `ab${img(1)}cd`;
-    // caret at the end: both spaces are ahead of it
-    expect(spaceMarkers(text, text.length).caret).toBe(text.length + 2);
-    // caret just after "ab": the space before the chip goes in at the caret, not before it
-    expect(spaceMarkers(text, 2).caret).toBe(2);
+  test("a caret in a tag's spaces comes out on the outside", () => {
+    // a space typed after the tag's own: taken back out, caret after the one
+    const after = `see ${img(1)}  x`;
+    expect(spaceMarkers(after, after.indexOf("x"))).toEqual({
+      text: `see ${img(1)} x`,
+      caret: `see ${img(1)} `.length,
+    });
+    // a space typed before the tag's own: caret stays left of it
+    expect(spaceMarkers(`see  ${img(1)} x`, 4)).toEqual({ text: `see ${img(1)} x`, caret: 3 });
+    // a word typed against the tag: the space goes in behind the caret
+    const typed = `ab${img(1)}cd`;
+    expect(spaceMarkers(typed, 2).caret).toBe(2);
+    expect(spaceMarkers(typed, typed.length).caret).toBe(typed.length + 2);
   });
 
   test("text with no markers comes back as it was", () => {
     expect(spaceMarkers("plain", 3)).toEqual({ text: "plain", caret: 3 });
+  });
+});
+
+describe("the caret and a tag", () => {
+  const text = `see ${img(1)} here`;
+  const markers = findMarkers(text);
+  const span = markerSpan(text, markers[0]!);
+
+  test("a tag's span is the tag and its two spaces", () => {
+    expect(span).toEqual({ start: 3, end: 3 + img(1).length + 2 });
+  });
+
+  test("a click inside goes to the nearer edge; left of the left space when it's between space and tag", () => {
+    expect(snapSelection(text, markers, 4, 4, null)).toEqual({ start: 3, end: 3 });
+    expect(snapSelection(text, markers, span.end - 1, span.end - 1, null)).toEqual({ start: span.end, end: span.end });
+  });
+
+  test("a step in from either side goes straight through", () => {
+    expect(snapSelection(text, markers, 4, 4, 3)).toEqual({ start: span.end, end: span.end });
+    expect(snapSelection(text, markers, span.end - 1, span.end - 1, span.end)).toEqual({ start: 3, end: 3 });
+  });
+
+  test("outside a tag, nothing moves; a selection ending in one takes it whole", () => {
+    expect(snapSelection(text, markers, 3, 3, 2)).toBeNull();
+    expect(snapSelection(text, markers, span.end, span.end, null)).toBeNull();
+    expect(snapSelection(text, markers, 0, 6, null)).toEqual({ start: 0, end: span.end });
+  });
+
+  test("a backspace after the right space, or a delete before the left, takes the whole of it", () => {
+    expect(backspaceHits(text, markers[0]!, span.end)).toBe(true);
+    expect(backspaceHits(text, markers[0]!, span.start)).toBe(false);
   });
 });
 
@@ -123,18 +162,18 @@ describe("removing markers", () => {
   });
 
   test("stripMarkers drops the ones asked for and resettles the spacing", () => {
-    const text = `${img(1)}   ${img(2)}   ${img(3)} done`;
-    expect(stripMarkers(text, (m) => m.n === 2)).toBe(`${img(1)}   ${img(3)} done`);
+    const text = `${img(1)}  ${img(2)}  ${img(3)} done`;
+    expect(stripMarkers(text, (m) => m.n === 2)).toBe(`${img(1)}  ${img(3)} done`);
     expect(stripMarkers(text, () => true)).toBe("done");
   });
 
   test("a backspace inside or right after a chip hits it; a command's trailing space counts too", () => {
     const text = `a ${img(1)} b`;
     const [marker] = findMarkers(text);
-    expect(backspaceHits(text, marker!, marker!.start)).toBe(false);
-    expect(backspaceHits(text, marker!, marker!.start + 1)).toBe(true);
-    expect(backspaceHits(text, marker!, marker!.end)).toBe(true);
-    expect(backspaceHits(text, marker!, marker!.end + 1)).toBe(false);
+    expect(backspaceHits(text, marker!, marker!.start - 1)).toBe(false);
+    expect(backspaceHits(text, marker!, marker!.start)).toBe(true);
+    expect(backspaceHits(text, marker!, marker!.end + 1)).toBe(true);
+    expect(backspaceHits(text, marker!, marker!.end + 2)).toBe(false);
     const cmd = "/compact ";
     const [command] = findMarkers(cmd);
     expect(backspaceHits(cmd, command!, command!.end + 1)).toBe(true);
@@ -146,7 +185,7 @@ describe("moveMarker", () => {
     const text = `${img(1)} one two`;
     const [marker] = findMarkers(text);
     const moved = moveMarker(text, marker!, text.length);
-    expect(moved.text).toBe(`one two ${img(1)}`);
+    expect(moved.text).toBe(`one two ${img(1)} `);
     expect(moved.caret).toBe(moved.text.length);
   });
 
@@ -157,13 +196,13 @@ describe("moveMarker", () => {
     const start = text.indexOf("here");
     expect(moveMarker(text, marker!, start + 1).text).toBe(`${img(1)} here`);
     // between "her" and "e": nearer the end
-    expect(moveMarker(text, marker!, start + 3).text).toBe(`here ${img(1)}`);
+    expect(moveMarker(text, marker!, start + 3).text).toBe(`here ${img(1)} `);
   });
 
   test("dropped against another chip, the two are held apart", () => {
     const text = `${img(1)} word ${img(2)}`;
     const [first] = findMarkers(text);
-    expect(moveMarker(text, first!, text.length).text).toBe(`word ${img(2)}   ${img(1)}`);
+    expect(moveMarker(text, first!, text.length).text).toBe(`word ${img(2)}  ${img(1)} `);
   });
 
   test("dropped where it already was, nothing changes", () => {

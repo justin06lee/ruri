@@ -4,6 +4,8 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- The Mac app is signed with the Developer ID, with hardened runtime and a secure timestamp, then notarized and stapled on every `make build`. It opens on any Mac with no "Open Anyway". The first install of it asks for ruri's privacy grants once more, because the signer changed.
+- iPhone: tap a chat to read its whole conversation, live, with tool calls folded into steps, and send it a prompt from the field at the bottom. While a turn runs, the prompt waits in the queue and says so; a failed send offers Try Again. A raised hand marks a chat waiting on you. A phone paired before this reads the status only until it is paired again. `make testflight` in ios/ uploads a build for team 65UN46K6FA.
 - Project rows wear a small hand-drawn icon (moon, leaf, mushroom, rocket, cat… 28 of them) instead of a letter tile; each project gets one from its id, and right-clicking the row picks another.
 - Space Grotesk is back, dark mode is neutral black with no blue cast, project rows wear a monogram tile, and the dragon gauges sit higher so their subtext shows. Hand-drawn marks are back for model makers, and every permission mode and effort level has its own drawing. The loader is eight thin spokes, status dots are gone everywhere, long help text is cut to a line, the Projects page is a grid of small live views (Working, Recently done, Idle), a project page's toolbar is its name, and Settings is tidier.
 - A project's chat compacts itself at 434k instead of 100k.

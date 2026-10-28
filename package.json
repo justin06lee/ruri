@@ -154,7 +154,12 @@
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "ruri drives the apps you ask it to work in."
+      },
       "gatekeeperAssess": false,
       "notarize": false
     },

@@ -9,13 +9,20 @@ APP_DST := /Applications/$(APP).app
 APP_KEEP := /tmp/$(APP)-superseded
 BUNDLE_ID := com.justin06lee.ruri
 
-# The code-signing identity every build is signed with — a self-signed
-# certificate in the login keychain, made once by `make identity`. macOS
-# ties privacy grants to the signature, so a stable one keeps them across
-# rebuilds; an ad-hoc signature is new every build and voids them.
+# The code-signing identity every build is signed with. A Developer ID
+# from Apple when the keychain has one: the build is then notarized and
+# stapled too (scripts/notarize.sh; NOTARIZE=0 skips it), and opens on any
+# Mac with no "Open Anyway". Without one, a self-signed certificate in the
+# login keychain, made once by `make identity`. macOS ties privacy grants
+# to the signature, so a stable one keeps them across rebuilds; an ad-hoc
+# signature is new every build and voids them.
+DEVID := $(shell security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
+NOTARIZE ?= 1
 IDENTITY := ruri dev
 KEYCHAIN := $(HOME)/Library/Keychains/login.keychain-db
 HAVE_IDENTITY = security find-identity -v -p codesigning 2>/dev/null | grep -q '"$(IDENTITY)"'
+# The signer a bundle's signature names first ("" for ad-hoc or none).
+SIGNER = codesign -dvv $(1) 2>&1 | sed -n 's/^Authority=//p' | head -1
 
 # The privacy services ruri asks for (desktop/permissions.ts), by tccutil's
 # names — reset only on an ad-hoc build, and only these, never All.
@@ -32,12 +39,20 @@ RUNNING = ps -Ao pid=,comm= | awk '$$2 ~ /\/MacOS\/$(APP)$$/ {print $$1}'
 
 all: build reset-permissions install tidy launch
 
-# Signed with the identity when it exists, ad-hoc when it does not (the
+# Signed with the Developer ID and notarized when there is one. Otherwise
+# with the self-signed identity when it exists, ad-hoc when it does not (the
 # identity is made first; a refused keychain prompt falls back to ad-hoc
-# rather than stopping the build).
+# rather than stopping the build). A notarization that fails — offline, or
+# Apple says no — leaves a signed build that still runs here, and says so.
 build:
 	bun install
 	@test -d node_modules/electron/dist/Electron.app || (cd node_modules/electron && node install.js)
+ifneq ($(DEVID),)
+	@echo "signing as '$(DEVID)', hardened runtime"
+	CSC_NAME="$(subst Developer ID Application: ,,$(DEVID))" bun run build
+	@if [ "$(NOTARIZE)" = 0 ]; then echo "NOTARIZE=0 — signed, not notarized"; \
+	else sh scripts/notarize.sh $(APP_SRC) || echo "notarization failed — this build is signed but not notarized"; fi
+else
 	-@$(MAKE) --no-print-directory identity
 	@if $(HAVE_IDENTITY); then \
 	  echo "signing as '$(IDENTITY)'"; CSC_NAME="$(IDENTITY)" bun run build; \
@@ -45,6 +60,7 @@ build:
 	  echo "no '$(IDENTITY)' identity — ad-hoc signature (grants will not survive this build)"; \
 	  CSC_IDENTITY_AUTO_DISCOVERY=false bun run build; \
 	fi
+endif
 
 # A self-signed code-signing certificate named "$(IDENTITY)" in the login
 # keychain, made once and trusted for code signing by this user (no sudo,
@@ -101,18 +117,21 @@ sweep-superseded:
 	done
 
 # macOS ties every privacy grant (Accessibility, Screen Recording, the
-# folders and volumes) to the app's code signature. Signed with the stable
-# identity, a new build is the same app to macOS and its grants carry over,
-# so there is nothing to reset. Only an ad-hoc build — no identity, so a
-# new signature every time — has its stale rows dropped here: ruri's bundle
-# id only, and only the services ruri uses; the new build asks for each
-# again on its first launch (desktop/permissions.ts). System Settings is
-# quit first: it caches the table, and an open pane hides the reset.
+# folders and volumes) to the app's code signature. Signed by the same
+# identity as the ruri it replaces, a new build is the same app to macOS
+# and its grants carry over, so there is nothing to reset. A build whose
+# signer changed (the move from ruri dev to a Developer ID) or that has
+# none (ad-hoc, new every time) has its stale rows dropped here: ruri's
+# bundle id only, and only the services ruri uses; the new build asks for
+# each again on its first launch (desktop/permissions.ts). Run before
+# install, so the installed bundle is still the old one. System Settings
+# is quit first: it caches the table, and an open pane hides the reset.
 reset-permissions:
-	@if $(HAVE_IDENTITY); then echo "signed as '$(IDENTITY)' — macOS grants carry over, nothing to reset"; exit 0; fi; \
+	@new=$$($(call SIGNER,$(APP_SRC))); old=$$($(call SIGNER,$(APP_DST))); \
+	if [ -n "$$new" ] && [ "$$new" = "$$old" ]; then echo "signed as '$$new', as before — macOS grants carry over, nothing to reset"; exit 0; fi; \
 	osascript -e 'quit app "System Settings"' >/dev/null 2>&1; \
 	for s in $(TCC_SERVICES); do tccutil reset $$s $(BUNDLE_ID) >/dev/null 2>&1; done; \
-	echo "ad-hoc build: reset macOS grants for $(BUNDLE_ID) — the next launch asks again"
+	echo "signer changed ($${old:-none} → $${new:-ad-hoc}): reset macOS grants for $(BUNDLE_ID) — the next launch asks again"
 
 launch:
 	open $(APP_DST)

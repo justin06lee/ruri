@@ -10195,3 +10195,37 @@ button.primary { min-height: 28px; }
 }
 [data-theme="dark"] .seg-option.active,
 [data-theme="ember"] .seg-option.active { background: color-mix(in srgb, var(--ink) 24%, var(--paper-dim)); }
+
+/* ── the top bar: the page's own colour ──────────────────────────────
+   No band of its own, no material: the bar is the page, and what scrolls
+   fades out under it within its first 24px — the way the conversation
+   dissolves into the composer at the bottom. */
+.chat-header,
+.chat-header.settings-toolbar,
+.home-tabs {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+.transcript {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 24px,
+    #000 calc(100% - var(--composer-h)),
+    transparent calc(100% - 18px)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 24px,
+    #000 calc(100% - var(--composer-h)),
+    transparent calc(100% - 18px)
+  );
+}
+.settings-scroll,
+.home-stats .board-page {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 24px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 24px);
+}

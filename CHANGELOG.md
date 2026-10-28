@@ -4,6 +4,8 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- fix(hooks): a session that dies mid-turn (its CLI crashed, its stream broke) tells midna it is blocked on that error, not idle with its half-finished reply; and a chat stopped by the usage limit, or a lost connection, with prompts still queued no longer counts as at work for good — midna hears it is blocked, with when the limit resets.
+- fix(hooks): an event midna hasn't taken yet is kept on disk and tried again every 15 minutes for up to six hours after the first four tries, and a relaunch (make update) goes on with it — before, it was dropped after about 13 minutes, or at once when ruri restarted mid-retry. midna drops a repeat it already has.
 - feat(compaction): a soft limit — ruri compacts a chat at its turn's end once its context is within 5% of 434k (412k), whatever its window, so a 1M-window chat no longer runs to 800k with every call re-reading it all. Whichever comes first wins: the soft limit or the harness's share of the window (four fifths; Gemini's six tenths). It is ruri's usual compaction, not a model's summary: the transcript says the chat is near the soft limit and handing off, the zigzag mark folds the history, every prompt stays word for word and every exchange on file, and a prompt waiting in the queue goes on into the fresh session. An agent's own compaction point is held under it, so its handoff note gets there first. `RURI_COMPACT_SOFT_TOKENS` (or the `ruri-compact-soft-tokens` preference) sets it — `300000`, `300k`, `1M`, or `off`.
 - Turning By the clock on or off no longer moves its label and switch; the dial opens beneath them.
 - The peek band editor's menus open over everything instead of being cut off by their tray.

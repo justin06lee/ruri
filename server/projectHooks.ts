@@ -48,10 +48,16 @@ export const MIDNA_COMMAND = 'midna event --source ruri --title "$RURI_EVENT_TIT
  *  to answer. */
 const COMMAND_TIMEOUT_MS = 30_000;
 const WEBHOOK_TIMEOUT_MS = 15_000;
-/** The waits between tries: five tries in all, the last some thirteen
- *  minutes after the first. RURI_HOOK_RETRY_MS="200,400" shortens them for
- *  a test. */
+/** The waits between the first tries, then one every RETRY_TAIL_MS until
+ *  GIVE_UP_MS after the event: midna down for an update or a reboot still
+ *  hears it after, and midna drops a repeat it already has ("already
+ *  heard"). RURI_HOOK_RETRY_MS="200,400" sets every wait for a test, with
+ *  no tail. */
 const RETRY_DELAYS_MS = [5_000, 30_000, 120_000, 600_000];
+const RETRY_TAIL_MS = 15 * 60_000;
+const GIVE_UP_MS = 6 * 60 * 60_000;
+/** How soon after a launch a delivery the last run left unfinished goes. */
+const RESUME_MS = 5_000;
 /** Deliveries kept for the page. */
 const KEEP_DELIVERIES = 50;
 /** About this much of a chat's last reply goes in `lastSummary`. */
@@ -355,14 +361,28 @@ export function webhookBody(url: string, payload: ProjectEventPayload): string {
   });
 }
 
-function retryDelays(): number[] {
+/** How long to wait before the next try, after `attempts` of them, for a
+ *  delivery made at `since` — or undefined: given up. */
+function retryWait(attempts: number, since: number, now: number): number | undefined {
   const forced = process.env["RURI_HOOK_RETRY_MS"];
-  if (!forced) return RETRY_DELAYS_MS;
   const delays = forced
-    .split(",")
+    ?.split(",")
     .map((part) => Number(part.trim()))
     .filter((ms) => Number.isFinite(ms) && ms >= 0);
-  return delays.length ? delays : RETRY_DELAYS_MS;
+  if (delays?.length) return delays[attempts - 1];
+  const wait = RETRY_DELAYS_MS[attempts - 1] ?? RETRY_TAIL_MS;
+  return now + wait - since <= GIVE_UP_MS ? wait : undefined;
+}
+
+/** A delivery not yet through, as kept on disk so a relaunch goes on with
+ *  it: where it goes (a webhook's token with it — the file is 0600, as
+ *  hooks.json is), the event, and where a command runs. */
+interface Unsent {
+  target: HookTarget;
+  payload: ProjectEventPayload;
+  cwd: string;
+  /** When the delivery was made: it is given up GIVE_UP_MS after. */
+  since: number;
 }
 
 export const realIo: HookIo = {
@@ -427,12 +447,28 @@ export class HookCenter {
   private midna: { at: number; path: string | null } | undefined;
   private saveLog: { cancel(): void } | undefined;
   private closed = false;
+  /** The deliveries not through yet, by delivery id. */
+  private readonly unsent = new Map<string, Unsent>();
+  private readonly outbox: string;
 
   constructor(
     private readonly io: HookIo,
     private readonly changed: () => void,
-    private readonly files = { config: configPath("hooks.json"), log: configPath("hook-deliveries.json") },
+    private readonly files: { config: string; log: string; outbox?: string } = {
+      config: configPath("hooks.json"),
+      log: configPath("hook-deliveries.json"),
+    },
   ) {
+    this.outbox = files.outbox ?? path.join(path.dirname(files.log), "hook-outbox.json");
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.outbox, "utf8")) as Record<string, Unsent>;
+      for (const [id, unsent] of Object.entries(raw ?? {})) {
+        if (unsent?.target?.to && unsent.payload?.id && typeof unsent.since === "number")
+          this.unsent.set(id, unsent);
+      }
+    } catch (err) {
+      if (!isMissing(err)) warn("hooks", err, "load outbox");
+    }
     try {
       const raw = JSON.parse(fs.readFileSync(files.config, "utf8")) as StoredHooks;
       if (raw && typeof raw === "object") this.stored = raw;
@@ -442,18 +478,40 @@ export class HookCenter {
     try {
       const raw = JSON.parse(fs.readFileSync(files.log, "utf8")) as HookDelivery[];
       if (Array.isArray(raw)) {
-        // a delivery still going when ruri last closed went no further
-        this.deliveries = raw
-          .slice(0, KEEP_DELIVERIES)
-          .map((delivery) =>
-            delivery.state === "pending" || delivery.state === "retrying"
-              ? { ...delivery, state: "failed", result: "ruri closed before it went", nextAt: undefined }
-              : delivery,
+        // a delivery still going when ruri last closed goes on now, from
+        // the outbox — one with nothing there to send went no further
+        this.deliveries = raw.slice(0, KEEP_DELIVERIES).map((delivery) => {
+          if (delivery.state !== "pending" && delivery.state !== "retrying") return delivery;
+          const unsent = this.unsent.get(delivery.id);
+          if (!unsent || this.io.now() - unsent.since > GIVE_UP_MS) {
+            this.unsent.delete(delivery.id);
+            return { ...delivery, state: "failed", result: "ruri closed before it went", nextAt: undefined };
+          }
+          const resumed: HookDelivery = { ...delivery, state: "retrying", nextAt: this.io.now() + RESUME_MS };
+          this.waiting.set(
+            resumed.id,
+            this.io.later(
+              () =>
+                void this.attempt(
+                  resumed,
+                  unsent.target,
+                  JSON.stringify(unsent.payload),
+                  unsent.payload,
+                  unsent.cwd,
+                ),
+              RESUME_MS,
+            ),
           );
+          return resumed;
+        });
       }
     } catch (err) {
       if (!isMissing(err)) warn("hooks", err, "load deliveries");
     }
+    // what the outbox holds that no delivery is waiting on is done with
+    const waiting = new Set(this.waiting.keys());
+    for (const id of [...this.unsent.keys()]) if (!waiting.has(id)) this.unsent.delete(id);
+    this.writeOutbox();
   }
 
   /** midna, looked for at most once a minute. */
@@ -603,8 +661,12 @@ export class HookCenter {
       };
       made.push(delivery);
       this.deliveries.unshift(delivery);
+      this.unsent.set(delivery.id, { target, payload, cwd, since: this.io.now() });
     }
-    if (made.length) this.logChanged();
+    if (made.length) {
+      this.writeOutbox();
+      this.logChanged();
+    }
     made.forEach((delivery, i) => {
       const target = targets[i];
       if (target) void this.attempt(delivery, target, body, payload, cwd);
@@ -638,8 +700,7 @@ export class HookCenter {
     delivery.attempts += 1;
     delivery.result = attempt.result;
     delivery.doneAt = this.io.now();
-    const delays = retryDelays();
-    const wait = delays[delivery.attempts - 1];
+    const wait = retryWait(delivery.attempts, this.unsent.get(delivery.id)?.since ?? delivery.at, this.io.now());
     if (attempt.ok) {
       delivery.state = "ok";
       delete delivery.nextAt;
@@ -654,6 +715,7 @@ export class HookCenter {
       delivery.state = "failed";
       delete delivery.nextAt;
     }
+    if (delivery.state !== "retrying" && this.unsent.delete(delivery.id)) this.writeOutbox();
     if (!attempt.ok) {
       const next =
         delivery.state === "retrying" ? `; trying again in ${Math.round(wait! / 1000)}s` : "; giving up";
@@ -717,6 +779,15 @@ export class HookCenter {
       writeJsonAtomic(this.files.log, this.deliveries, 1);
     } catch (err) {
       warn("hooks", err, "save deliveries");
+    }
+  }
+
+  private writeOutbox(): void {
+    try {
+      if (this.unsent.size === 0) fs.rmSync(this.outbox, { force: true });
+      else writeJsonAtomic(this.outbox, Object.fromEntries(this.unsent), 0, 0o600);
+    } catch (err) {
+      warn("hooks", err, "save outbox");
     }
   }
 

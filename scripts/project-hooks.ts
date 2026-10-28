@@ -447,14 +447,21 @@ if (!process.env["HOOKS_DELIVERY_ONLY"]) {
   await until("the lead to start", () => busy(lead.id), 90_000);
   const notesMate = () =>
     ours()?.sessions.find((s) => s.id !== lead.id && !s.liaison && (s.layers?.includes("notes") ?? false));
-  await until("a teammate for the notes", () => Boolean(notesMate()), 300_000);
+  // in Team mode the lead hands it to the notes' teammate; in One chat
+  // mode (the default) the project's chat does it itself
+  await until(
+    "a teammate for the notes, or the chat's own answer",
+    () => Boolean(notesMate()) || (said(lead.id).includes(TREE) && teamQuiet()),
+    300_000,
+  );
   const mate = notesMate();
-  check("the lead hands the job to the notes layer's teammate", Boolean(mate), ours());
+  if (mate) check("the lead hands the job to the notes layer's teammate", true, ours());
+  else console.log("     (One chat mode: no teammate — the chat answers itself)");
   await until("the lead to relay the tree", () => said(lead.id).includes(TREE) && teamQuiet(), 480_000);
   const quietAt = Date.now();
   check("the answer lands, and the lead relays it", said(lead.id).includes(TREE), said(lead.id));
   check(
-    "no project.idle while the lead had handed off and the teammate worked",
+    "no project.idle before the team went quiet",
     idleBefore() === 0,
     ofKind(commandEvents(), "project.idle"),
   );
@@ -487,11 +494,12 @@ if (!process.env["HOOKS_DELIVERY_ONLY"]) {
     leadRow?.role === "lead" && leadRow.name === "Lead" && leadRow.lastSummary.toLowerCase().includes(TREE),
     idle?.chats,
   );
-  check(
-    "and the teammate that worked, with its",
-    mateRow?.role === "teammate" && mateRow.lastSummary.length > 0 && mateRow.name === mate?.title,
-    idle?.chats,
-  );
+  if (mate)
+    check(
+      "and the teammate that worked, with its",
+      mateRow?.role === "teammate" && mateRow.lastSummary.length > 0 && mateRow.name === mate.title,
+      idle?.chats,
+    );
   const spent = [lead.id, mate?.id ?? ""]
     .flatMap((id) => results(id))
     .reduce((sum, r) => sum + (r.kind === "result" ? (r.costUsd ?? 0) : 0), 0);

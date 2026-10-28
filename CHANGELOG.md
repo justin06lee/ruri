@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- The top bar is the page's own colour, with no band or material behind it; the conversation, Settings and Statistics fade out under it, the way the conversation fades into the input box at the bottom.
 - Project rows wear a small hand-drawn icon (moon, leaf, mushroom, rocket, cat… 28 of them) instead of a letter tile; each project gets one from its id, and right-clicking the row picks another.
 - Space Grotesk is back, dark mode is neutral black with no blue cast, project rows wear a monogram tile, and the dragon gauges sit higher so their subtext shows. Hand-drawn marks are back for model makers, and every permission mode and effort level has its own drawing. The loader is eight thin spokes, status dots are gone everywhere, long help text is cut to a line, the Projects page is a grid of small live views (Working, Recently done, Idle), a project page's toolbar is its name, and Settings is tidier.
 - A project's chat compacts itself at 434k instead of 100k.

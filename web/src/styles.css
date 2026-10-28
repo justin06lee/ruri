@@ -10389,3 +10389,22 @@ button.primary { min-height: 28px; }
 .settings-label .info-tip {
   margin-left: 4px;
 }
+
+/* Settings → Models: the provider's hand-drawn mark leads the row, the
+   star ends it; no provider name (the mark's title says it) */
+.model-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--ink);
+}
+.model-mark .model-icon {
+  width: 20px;
+  height: 20px;
+}
+.model-row {
+  padding: 4px 4px 4px 6px;
+}

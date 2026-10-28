@@ -15,6 +15,7 @@ import { Devices } from "./Devices";
 import { GreetingEditor } from "./GreetingEditor";
 import { Integrations } from "./Integrations";
 import { InfoTip } from "./InfoTip";
+import { ModelIcon } from "./Marks";
 import { PeekBand } from "./PeekBand";
 import { AccountBar } from "./Sidebar";
 import { STAR_PATH } from "../icons";
@@ -22,6 +23,7 @@ import { useNow } from "../lib/beat";
 import { setSessionsMode, useSessionsMode } from "../lib/sessionsMode";
 import { setDesignTaste, useDesignTaste } from "../lib/designTaste";
 import { roughName } from "../lib/models";
+import { markFor } from "../lib/marks";
 import {
   applyTheme,
   currentTheme,
@@ -155,6 +157,23 @@ function ModelCatalog() {
                 if (holder !== m.value) send({ type: "set_model_role", model: m.value, role });
               }}
             >
+              <span className="model-mark" title={m.providerLabel ?? "Claude Code"}>
+                <ModelIcon pick={markFor(m.value, m)} />
+              </span>
+              <span
+                className="model-name"
+                title={listed.has(m.value) ? m.value : `${m.value} — not in its harness's list right now`}
+              >
+                {m.displayName}
+              </span>
+              {small && tag("small", "small tasks", "Runs small background tasks such as notes and titles")}
+              {isDefault && tag("default", "default", "What new chats and projects start on")}
+              {keeper &&
+                tag(
+                  "memory",
+                  "memory",
+                  "Writes and checks each project's memory: folds finished turns in, and checks lines whose code moved",
+                )}
               <button
                 className={`model-star ${starred ? "on" : ""}`}
                 title={
@@ -178,21 +197,6 @@ function ModelCatalog() {
                   <path d={STAR_PATH} />
                 </svg>
               </button>
-              <span
-                className="model-name"
-                title={listed.has(m.value) ? m.value : `${m.value} — not in its harness's list right now`}
-              >
-                {m.displayName}
-              </span>
-              {small && tag("small", "small tasks", "Runs small background tasks such as notes and titles")}
-              {isDefault && tag("default", "default", "What new chats and projects start on")}
-              {keeper &&
-                tag(
-                  "memory",
-                  "memory",
-                  "Writes and checks each project's memory: folds finished turns in, and checks lines whose code moved",
-                )}
-              <span className="model-tag">{m.providerLabel ?? "Claude Code"}</span>
             </div>
           );
         })}

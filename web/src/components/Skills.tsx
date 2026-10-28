@@ -218,8 +218,7 @@ export function Skills({ projectId }: { projectId?: string }) {
           <div className="skill-group-head">Just this project</div>
           {local.length === 0 && (
             <div className="board-empty">
-              None yet. A skill installed here lives in the repo at <code>.claude/skills/</code> and travels
-              with it.
+              No skills yet.
             </div>
           )}
           <Capped max={8}>

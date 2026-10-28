@@ -251,10 +251,7 @@ const Agents = memo(function Agents() {
 
       {agents.length === 0 ? (
         <div className="stats-empty">
-          No chat has a harness running. A chat closes its process when you leave it, and the next prompt
-          picks the conversation back up where it was. Everything else ruri runs — the shells behind the
-          terminal tabs, the small model writing titles and notes, the probes that ask each harness what
-          models it has — is counted under ruri.
+          No chat is running.
         </div>
       ) : (
         <div className="stats-table agents-table">

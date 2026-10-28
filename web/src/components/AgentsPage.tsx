@@ -146,9 +146,7 @@ function AgentList({
         </AgentHost.Provider>
         {agents.length === 0 && (
           <div className="board-empty">
-            The agents the model starts show up here as it starts them, and so do the scripts it leaves
-            running in the background. Brief one of your own above and it goes off to work in {project.name}{" "}
-            by itself — you can watch it here, tell it more, or stop it.
+            No agents yet.
           </div>
         )}
       </div>

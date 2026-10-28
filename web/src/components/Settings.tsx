@@ -307,10 +307,7 @@ function Vault() {
       </div>
 
       <div className="vault-hint">
-        The model is told the names, never the values. It writes <code>{"{{name}}"}</code> into a command or a
-        file and ruri swaps the real value in after it has finished writing — or it uses{" "}
-        <code>$RURI_SECRET_NAME</code>, which is already set in its shell on every harness. Anything a value
-        leaks back into is redacted to its handle.
+        Agents see the names, never the values.
       </div>
     </div>
   );
@@ -920,9 +917,6 @@ function Harnesses() {
   const checked = harnesses.reduce((latest, h) => Math.max(latest, h.checkedAt ?? 0), 0);
   return (
     <div className="grants harnesses">
-      <p className="settings-note grants-note">
-        Keep your coding tools up to date. Automatic updates install when their conversations are idle.
-      </p>
       <div className="grants-head">
         <button className="ghost" disabled={looking} onClick={() => send({ type: "check_harnesses" })}>
           {looking ? "looking…" : "Check now"}

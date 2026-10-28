@@ -397,9 +397,7 @@ export function TeamPage({ project, onClose }: { project: Project; onClose(): vo
         {team?.tasks && <TaskList tasks={team.tasks} now={now} />}
         {team !== undefined && members.length === 0 && (
           <div className="board-empty">
-            You talk to the lead; the lead hands every job to its team — chats of their own, each looking
-            after a layer or a part of {project.name}, asleep between jobs. It makes them as the work calls
-            for them: just give it work.
+            No teammates yet.
           </div>
         )}
         {team !== undefined && team.freeLayers.length > 0 && (

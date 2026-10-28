@@ -1137,9 +1137,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 /* ── the spinner: a chat or agent at work ─────────────────────────── */
 
-/* Apple's activity indicator: twelve spokes fading behind the darkest,
-   snapped to a spoke's turn (30°) per step of the ring's clock (--spin,
-   beat.ts), so it ticks round like the system one instead of gliding */
+/* Apple's activity indicator: eight thin round-capped spokes standing off
+   the centre, fading behind the darkest, snapped a spoke's turn (45°) per
+   step of the ring's clock (--spin, beat.ts), so it ticks round like the
+   system one instead of gliding */
 .spinner,
 .agent-status.running::before {
   display: inline-block;
@@ -1147,24 +1148,17 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   height: 14px;
   flex-shrink: 0;
   color: var(--ink-soft);
-  background: conic-gradient(from -15deg,
-    color-mix(in srgb, currentColor 100%, transparent) 0deg 30deg,
-    color-mix(in srgb, currentColor 22%, transparent) 30deg 60deg,
-    color-mix(in srgb, currentColor 28%, transparent) 60deg 90deg,
-    color-mix(in srgb, currentColor 35%, transparent) 90deg 120deg,
-    color-mix(in srgb, currentColor 41%, transparent) 120deg 150deg,
-    color-mix(in srgb, currentColor 47%, transparent) 150deg 180deg,
-    color-mix(in srgb, currentColor 54%, transparent) 180deg 210deg,
-    color-mix(in srgb, currentColor 60%, transparent) 210deg 240deg,
-    color-mix(in srgb, currentColor 66%, transparent) 240deg 270deg,
-    color-mix(in srgb, currentColor 72%, transparent) 270deg 300deg,
-    color-mix(in srgb, currentColor 79%, transparent) 300deg 330deg,
-    color-mix(in srgb, currentColor 85%, transparent) 330deg 360deg);
-  mask:
-    radial-gradient(circle, transparent 36%, #000 37%),
-    repeating-conic-gradient(from -8deg, #000 0 16deg, transparent 16deg 30deg);
-  mask-composite: intersect;
-  transform: rotate(round(down, calc(var(--spin, 0) * 12deg), 30deg));
+  background: conic-gradient(from -22.5deg,
+    color-mix(in srgb, currentColor 100%, transparent) 0deg 45deg,
+    color-mix(in srgb, currentColor 25%, transparent) 45deg 90deg,
+    color-mix(in srgb, currentColor 34%, transparent) 90deg 135deg,
+    color-mix(in srgb, currentColor 43%, transparent) 135deg 180deg,
+    color-mix(in srgb, currentColor 52%, transparent) 180deg 225deg,
+    color-mix(in srgb, currentColor 64%, transparent) 225deg 270deg,
+    color-mix(in srgb, currentColor 76%, transparent) 270deg 315deg,
+    color-mix(in srgb, currentColor 88%, transparent) 315deg 360deg);
+  mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g stroke='black' stroke-width='1.9' stroke-linecap='round'><path d='M12 2.5v4.5' transform='rotate(0 12 12)'/><path d='M12 2.5v4.5' transform='rotate(45 12 12)'/><path d='M12 2.5v4.5' transform='rotate(90 12 12)'/><path d='M12 2.5v4.5' transform='rotate(135 12 12)'/><path d='M12 2.5v4.5' transform='rotate(180 12 12)'/><path d='M12 2.5v4.5' transform='rotate(225 12 12)'/><path d='M12 2.5v4.5' transform='rotate(270 12 12)'/><path d='M12 2.5v4.5' transform='rotate(315 12 12)'/></g></svg>") center / contain no-repeat;
+  transform: rotate(calc(var(--spin, 0) * 45deg));
   will-change: transform;
 }
 

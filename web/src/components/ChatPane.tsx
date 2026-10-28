@@ -773,16 +773,17 @@ function ChatView({
   const header = !isHome && (
     <header className="chat-header">
       {isLead && pageName ? (
-        <div className="chat-id seat">
+        // a page of the project's own: its title is the project's, and it
+        // goes back to the chat — no second heading naming the page
+        <div className="chat-id">
           <button
-            className="ghost chat-back"
-            title="Back to the chat"
+            type="button"
+            className="chat-title chat-title-link"
+            title={`Back to ${project.name}`}
             onClick={() => (agentsOpen ? closeAgent() : setPage("chat"))}
           >
-            <Icon d="M15 18l-6-6 6-6" />
             {project.name}
           </button>
-          <div className="chat-title">{pageName}</div>
         </div>
       ) : isLead ? (
         <div className="chat-id">

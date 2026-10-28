@@ -10111,3 +10111,16 @@ button.primary { min-height: 28px; }
 .projects-grid .board-line { font-family: var(--mono); font-size: 11px; line-height: 1.55; }
 .projects-group { margin: 28px 0 10px; font-size: 13px; color: var(--ink); text-transform: none; }
 .projects-head + .projects-group { margin-top: 20px; }
+
+/* a project page's title is the project's name, and a way back to its chat */
+.chat-title-link {
+  border: none;
+  background: none;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: var(--radius-s);
+  font-family: inherit;
+  color: var(--ink);
+  cursor: default;
+}
+.chat-title-link:hover { background: var(--fill); }

@@ -265,6 +265,8 @@ export function Composer({
     if (added.length === 0) return;
     setAtts((prev) => [...prev, ...added]);
     insertMarkers(added.map((a) => markerText(a.kind, a.n)).join(" "), at);
+    // the caret goes on past the tags and their space, not to the end
+    requestAnimationFrame(() => placeCaret(caretRef.current));
   };
 
   /** Drop marker text into the prompt at `at` (the end when unset), leaving

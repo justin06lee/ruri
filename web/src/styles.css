@@ -2495,8 +2495,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .greeting-edit textarea {
   width: 100%;
-  max-width: 420px;
-  resize: vertical;
+  resize: none;
+  min-height: 0;
+  padding: 6px 10px;
+  line-height: 20px;
 }
 
 /* ── chat ─────────────────────────────────────────────────────────── */
@@ -10453,7 +10455,6 @@ button.primary { min-height: 28px; }
   flex-direction: column;
   border-radius: var(--radius-m);
   background: var(--group-bg);
-  overflow: hidden;
 }
 .bandedit-group > .settings-row {
   min-height: 44px;
@@ -10487,4 +10488,19 @@ button.primary { min-height: 28px; }
     inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent),
     0 12px 40px rgba(0, 0, 0, 0.2),
     0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* By the clock: the label and the switch hold the same line on or off —
+   the row's first 28px — and the dial opens beneath them, never moving
+   them up to make room */
+.settings-row.schedule-row {
+  align-items: flex-start;
+}
+.schedule-row > .settings-label {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+.settings-row .settings-value.schedule > .skill-switch {
+  margin: 4.5px 0;
 }

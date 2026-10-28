@@ -870,7 +870,7 @@ export function Settings({ onClose }: { onClose(): void }) {
 
             <section className="settings-group" hidden={section !== "permissions"}>
               <h2 className="settings-group-name">Privacy & Security</h2>
-              <Grants />
+              <Grants shown={section === "permissions"} />
             </section>
           </div>
         </div>
@@ -1012,14 +1012,30 @@ const STATUS_WORD: Record<PermissionState["status"], string> = {
  * database's own rows for ruri and the CLIs its sessions run, since each of
  * those is a client of its own to macOS.
  */
-function Grants() {
+function Grants({ shown }: { shown: boolean }) {
   const can = useRuri((s) => s.canPermissions);
   const platform = useRuri((s) => s.platform);
   const grants = useRuri((s) => s.grants);
   const [asking, setAsking] = useState<PermissionId | "all" | null>(null);
+  // A switch is flipped in System Settings, not here, so what this shows
+  // goes stale the moment someone goes there. While the page is up it reads
+  // macOS again on the way back to the window and every few seconds — not
+  // while an ask is waiting on its dialog, which answers for itself.
   useEffect(() => {
-    if (can) send({ type: "permissions_check" });
-  }, [can]);
+    if (!can || !shown || asking) return;
+    const look = () => {
+      if (!document.hidden) send({ type: "permissions_check" });
+    };
+    look();
+    const every = window.setInterval(look, 4_000);
+    window.addEventListener("focus", look);
+    document.addEventListener("visibilitychange", look);
+    return () => {
+      window.clearInterval(every);
+      window.removeEventListener("focus", look);
+      document.removeEventListener("visibilitychange", look);
+    };
+  }, [can, shown, asking]);
   // fresh grants from macOS are the answer to whatever was being asked
   const [grantsSeen, setGrantsSeen] = useState(grants);
   if (grants !== grantsSeen) {

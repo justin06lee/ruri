@@ -626,13 +626,12 @@ function DesignTaste() {
             {learning ? "Learning…" : "Learn from project"}
           </button>
         )}
-        <p className="settings-note">
-          Agents read your taste from gusteau before interface work, check against it after, and
-          remember what you approve or correct. Applies to new chats.{" "}
-          {taste === null ? "" : taste.found ? `Found at ${taste.found}.` : "gusteau isn't installed."}
-        </p>
-        {learned && <p className="settings-note">{learned.output}</p>}
       </div>
+      <p className="settings-note">
+        Agents follow your gusteau taste on interface work.{" "}
+        {taste === null ? "" : taste.found ? `Found at ${taste.found}.` : "gusteau isn't installed."}
+      </p>
+      {learned && <p className="settings-note">{learned.output}</p>}
     </div>
   );
 }
@@ -679,15 +678,9 @@ export function Settings({ onClose }: { onClose(): void }) {
 
   return (
     <main className="chat settings-page">
-      <header className="chat-header settings-toolbar">
-        <span className="chat-title">Settings</span>
-        <span className="settings-location">{remoteDevice !== null && computer ? `on ${computer}` : ""}</span>
-        <button className="icon-button" onClick={onClose} aria-label="Close Settings" title="Close Settings">
-          <Icon d="M6 6l12 12M18 6L6 18" />
-        </button>
-      </header>
       <div className="settings-layout">
         <nav className="settings-navigation" aria-label="Settings categories">
+          <div className="settings-nav-head" />
           <div className="settings-categories">
           {SETTINGS_SECTIONS.map((item) => (
             <button
@@ -703,6 +696,14 @@ export function Settings({ onClose }: { onClose(): void }) {
           </div>
           <AccountBar />
         </nav>
+        <div className="settings-main">
+        <header className="chat-header settings-toolbar">
+          <span className="chat-title">{SETTINGS_SECTIONS.find((item) => item.id === section)?.name ?? "Settings"}</span>
+          <span className="settings-location">{remoteDevice !== null && computer ? `on ${computer}` : ""}</span>
+          <button className="icon-button" onClick={onClose} aria-label="Close Settings" title="Close Settings">
+            <Icon d="M6 6l12 12M18 6L6 18" />
+          </button>
+        </header>
         <div className="settings-scroll">
           <div className="board-inner settings-inner">
             {/* Grouped, the way a settings page is: a heading, then the handful
@@ -864,6 +865,7 @@ export function Settings({ onClose }: { onClose(): void }) {
               <Grants />
             </section>
           </div>
+        </div>
         </div>
       </div>
     </main>

@@ -22,7 +22,8 @@ import type { Theme } from "../theme";
 import { useConfirm } from "./Confirm";
 import { Dropdown } from "./Dropdown";
 import { BandPic } from "./PeekBand";
-import { NumField, Row } from "./SettingsRows";
+import { InfoTip } from "./InfoTip";
+import { NumField, Row, Switch } from "./SettingsRows";
 
 /**
  * Settings → Peek band: the pictures across the top of the sidebar, set up
@@ -363,9 +364,12 @@ export function BandEditor() {
         </div>
       </div>
       <p className="settings-note bandedit-hint">
-        Twice its real size. Drag a picture to place it, scroll over it to size it, arrow keys nudge the one
-        picked (hold Shift for ten). Drop pictures here to add them. The faint part under the line is what the
-        band cuts off.
+        Drag to place · scroll to size · drop pictures to add
+        <InfoTip>
+          The stage is the band at twice its size. Drag a picture to place it and scroll over it to size it; the
+          arrow keys nudge the one picked (hold Shift for ten). Drop pictures on it to add them. The faint part
+          under the line is what the band cuts off.
+        </InfoTip>
       </p>
 
       <div className="bandedit-strip">
@@ -391,202 +395,183 @@ export function BandEditor() {
           {adding > 0 ? "adding…" : `${pictures.length} of ${MAX_PICTURES}`}
         </span>
         <button className="ghost bandedit-restore" onClick={() => void restore()}>
-          Restore the default
+          Restore default
         </button>
       </div>
       {problem && <p className="settings-note bandedit-problem">{problem}</p>}
 
       {selected && spec ? (
         <div className="bandedit-panel">
-          <Row label="Picture">
+          <div className="bandedit-tools" role="toolbar" aria-label="The picked picture">
             <button className="ghost" onClick={() => openPicker("replace")}>
               Replace…
             </button>
-            <button
-              className="ghost"
-              onClick={() => reorder(selected.id, 1)}
-              title="Draw it over the one in front"
-            >
-              Forward
+            <button className="ghost" onClick={() => reorder(selected.id, 1)} title="Draw it over the one in front">
+              Bring forward
             </button>
-            <button
-              className="ghost"
-              onClick={() => reorder(selected.id, -1)}
-              title="Draw it under the one behind"
-            >
-              Back
+            <button className="ghost" onClick={() => reorder(selected.id, -1)} title="Draw it under the one behind">
+              Send back
             </button>
-            <button className="ghost" onClick={() => remove(selected.id)}>
+            <button className="ghost bandedit-remove" onClick={() => remove(selected.id)}>
               Remove
             </button>
-          </Row>
+          </div>
 
-          <Row label="On hover">
-            <Dropdown
-              value={selected.effect}
-              options={EFFECT_OPTIONS}
-              onSelect={(value) => {
-                const effect = value as HoverEffect;
-                update(selected.id, { effect, amount: EFFECTS[effect].amount, speed: EFFECTS[effect].speed });
-              }}
-            />
-            <button
-              className="ghost"
-              title="Give every picture in the band this hover"
-              onClick={() =>
-                setBand({
-                  pictures: getBand().pictures.map((p) => ({
-                    ...p,
-                    effect: selected.effect,
-                    amount: selected.amount,
-                    speed: selected.speed,
-                  })),
-                })
-              }
-            >
-              Use on every picture
-            </button>
-          </Row>
+          <h3 className="bandedit-group-name">Look</h3>
+          <div className="bandedit-group">
+            <Row label="Themes" info="It shows only on the themes picked. The stage shows the theme you're on.">
+              <div className="seg">
+                {BAND_THEMES.map((theme) => {
+                  const on = !selected.themes || selected.themes.includes(theme);
+                  const last = on && (selected.themes?.length ?? BAND_THEMES.length) === 1;
+                  return (
+                    <button
+                      key={theme}
+                      className={`seg-option ${on ? "active" : ""}`}
+                      aria-disabled={last}
+                      title={
+                        last
+                          ? "Its only theme — remove the picture instead"
+                          : `${on ? "Take it off" : "Show it on"} the ${theme} theme`
+                      }
+                      onClick={() => toggleTheme(selected, theme)}
+                    >
+                      {THEME_LABEL[theme]}
+                    </button>
+                  );
+                })}
+              </div>
+            </Row>
+            <Row label="Invert in dark" info="Swaps ink and paper on the dark themes: for line art drawn on white.">
+              <Switch
+                on={!!selected.invert}
+                label="Invert in dark themes"
+                onChange={(on) => update(selected.id, { invert: on })}
+              />
+            </Row>
+            <Row label="Mirror">
+              <Switch on={!!selected.flip} label="Mirror" onChange={(on) => update(selected.id, { flip: on })} />
+            </Row>
+          </div>
 
-          {selected.effect !== "none" && (
-            <>
-              <Row label="Strength">
-                <input
-                  type="range"
-                  className="bandedit-range"
-                  min={spec.min}
-                  max={spec.max}
-                  value={selected.amount}
-                  onChange={(e) => update(selected.id, { amount: Number(e.target.value) })}
-                />
-                <span className="bandedit-readout">
-                  {selected.amount}
-                  {spec.unit}
-                </span>
-              </Row>
-              <Row label="Speed">
-                <input
-                  type="range"
-                  className="bandedit-range"
-                  min={SPEED_MIN}
-                  max={SPEED_MAX}
-                  step={10}
-                  value={selected.speed}
-                  onChange={(e) => update(selected.id, { speed: Number(e.target.value) })}
-                />
-                <span className="bandedit-readout">
-                  {selected.speed} ms{spec.loops ? " a round" : ""}
-                </span>
-              </Row>
-            </>
-          )}
+          <h3 className="bandedit-group-name">On hover</h3>
+          <div className="bandedit-group">
+            <Row label="Effect">
+              <Dropdown
+                value={selected.effect}
+                options={EFFECT_OPTIONS}
+                onSelect={(value) => {
+                  const effect = value as HoverEffect;
+                  update(selected.id, { effect, amount: EFFECTS[effect].amount, speed: EFFECTS[effect].speed });
+                }}
+              />
+              <button
+                className="ghost"
+                title="Give every picture in the band this hover"
+                onClick={() =>
+                  setBand({
+                    pictures: getBand().pictures.map((p) => ({
+                      ...p,
+                      effect: selected.effect,
+                      amount: selected.amount,
+                      speed: selected.speed,
+                    })),
+                  })
+                }
+              >
+                Use on all
+              </button>
+            </Row>
 
-          <Row label="Hover picture">
-            {selected.hoverSrc ? (
+            {selected.effect !== "none" && (
               <>
-                <span className="bandedit-chip still">
-                  <Thumb src={selected.hoverSrc} invert={selected.invert} flip={selected.flip} />
-                </span>
-                <button className="ghost" onClick={() => openPicker("hover")}>
-                  Change…
-                </button>
-                <button className="ghost" onClick={() => dropHover(selected.id)}>
-                  Remove
-                </button>
+                <Row label="Strength">
+                  <input
+                    type="range"
+                    className="bandedit-range"
+                    min={spec.min}
+                    max={spec.max}
+                    value={selected.amount}
+                    onChange={(e) => update(selected.id, { amount: Number(e.target.value) })}
+                  />
+                  <span className="bandedit-readout">
+                    {selected.amount}
+                    {spec.unit}
+                  </span>
+                </Row>
+                <Row label="Speed">
+                  <input
+                    type="range"
+                    className="bandedit-range"
+                    min={SPEED_MIN}
+                    max={SPEED_MAX}
+                    step={10}
+                    value={selected.speed}
+                    onChange={(e) => update(selected.id, { speed: Number(e.target.value) })}
+                  />
+                  <span className="bandedit-readout">
+                    {selected.speed} ms{spec.loops ? " a round" : ""}
+                  </span>
+                </Row>
               </>
-            ) : (
-              <>
+            )}
+
+            <Row label="Swap picture" info="Shown instead while the pointer is on it. A GIF plays from the start.">
+              {selected.hoverSrc ? (
+                <>
+                  <span className="bandedit-chip still">
+                    <Thumb src={selected.hoverSrc} invert={selected.invert} flip={selected.flip} />
+                  </span>
+                  <button className="ghost" onClick={() => openPicker("hover")}>
+                    Change…
+                  </button>
+                  <button className="ghost" onClick={() => dropHover(selected.id)}>
+                    Remove
+                  </button>
+                </>
+              ) : (
                 <button className="ghost" onClick={() => openPicker("hover")}>
                   Pick one…
                 </button>
-                <span className="settings-note">
-                  shown instead while the pointer is on it; a GIF plays from the start
-                </span>
-              </>
-            )}
-          </Row>
-
-          {art?.animated && (
-            <Row label="Animation">
-              <div className="seg">
-                {ANIMATE.map((option) => (
-                  <button
-                    key={option.value}
-                    className={`seg-option ${selected.animate === option.value ? "active" : ""}`}
-                    title={option.title}
-                    onClick={() => update(selected.id, { animate: option.value })}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
+              )}
             </Row>
-          )}
 
-          <Row label="Themes">
-            <div className="seg">
-              {BAND_THEMES.map((theme) => {
-                const on = !selected.themes || selected.themes.includes(theme);
-                const last = on && (selected.themes?.length ?? BAND_THEMES.length) === 1;
-                return (
-                  <button
-                    key={theme}
-                    className={`seg-option ${on ? "active" : ""}`}
-                    aria-disabled={last}
-                    title={
-                      last
-                        ? "Its only theme — remove the picture instead"
-                        : `${on ? "Take it off" : "Show it on"} the ${theme} theme`
-                    }
-                    onClick={() => toggleTheme(selected, theme)}
-                  >
-                    {THEME_LABEL[theme]}
-                  </button>
-                );
-              })}
-            </div>
-            <span className="settings-note">
-              {selected.themes ? "only on these — the stage shows the theme you're on" : "on every theme"}
-            </span>
-          </Row>
+            {art?.animated && (
+              <Row label="Animation">
+                <div className="seg">
+                  {ANIMATE.map((option) => (
+                    <button
+                      key={option.value}
+                      className={`seg-option ${selected.animate === option.value ? "active" : ""}`}
+                      title={option.title}
+                      onClick={() => update(selected.id, { animate: option.value })}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+            )}
+          </div>
 
-          <Row label="Dark themes">
-            <button
-              className={`seg-option toggle ${selected.invert ? "active" : ""}`}
-              onClick={() => update(selected.id, { invert: !selected.invert })}
-            >
-              {selected.invert ? "On" : "Off"}
-            </button>
-            <span className="settings-note">
-              {selected.invert ? "ink and paper swap, for line art" : "keeps its own colours"}
-            </span>
-          </Row>
-
-          <Row label="Mirror">
-            <button
-              className={`seg-option toggle ${selected.flip ? "active" : ""}`}
-              onClick={() => update(selected.id, { flip: !selected.flip })}
-            >
-              {selected.flip ? "On" : "Off"}
-            </button>
-          </Row>
-
-          <Row label="Place">
+          <h3 className="bandedit-group-name">Position</h3>
+          <div className="bandedit-group">
             {(
               [
-                ["x", "from the left", selected.x],
-                ["drop", "down", selected.drop],
-                ["w", "wide", selected.w],
+                ["x", "From the left", selected.x],
+                ["drop", "Down", selected.drop],
+                ["w", "Width", selected.w],
               ] as const
             ).map(([field, label, value]) => (
-              <NumField
-                key={`${selected.id}-${field}`}
-                label={label}
-                value={value}
-                onChange={(n) => update(selected.id, { [field]: field === "w" ? Math.max(8, n) : n })}
-              />
+              <Row key={`${selected.id}-${field}`} label={label}>
+                <NumField
+                  label="px"
+                  value={value}
+                  onChange={(n) => update(selected.id, { [field]: field === "w" ? Math.max(8, n) : n })}
+                />
+              </Row>
             ))}
-          </Row>
+          </div>
         </div>
       ) : (
         pictures.length === 0 && (

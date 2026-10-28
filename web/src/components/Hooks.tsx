@@ -3,6 +3,7 @@ import type { HookDelivery, HookTargetView, ProjectEventKind } from "../../../sh
 import { useNow } from "../lib/beat";
 import { send, useRuri } from "../store";
 import { Capped } from "./Capped";
+import { InfoTip } from "./InfoTip";
 
 /**
  * Project hooks (server/projectHooks.ts): when a project's whole team goes
@@ -256,10 +257,12 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
   return (
     <div className="hooks">
       <p className="settings-note grants-note">
-        Run a command or call a URL when a project goes idle or needs you.{" "}
-        {projectId
-          ? `${projectName ?? "This project"} gets the global hooks unless it keeps them off, and can have its own as well.`
-          : "These reach every project; pick one above to give it its own."}
+        Run a command or call a URL when a project goes idle or needs you.
+        <InfoTip>
+          {projectId
+            ? `${projectName ?? "This project"} gets the global hooks unless it keeps them off, and can have its own as well.`
+            : "These reach every project. Pick one above to give it its own."}
+        </InfoTip>
       </p>
 
       {!projectId ? (
@@ -365,11 +368,11 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
         <button className="ghost" disabled={busy} onClick={() => act({ type: "hooks_test", ...scope })}>
           Send test event
         </button>
-        <span className="settings-note">
+        <InfoTip>
           {projectId
-            ? `a project.test event for ${projectName ?? "this project"}, to every hook its events go to`
-            : "a project.test event, to the global hooks"}
-        </span>
+            ? `Sends a project.test event for ${projectName ?? "this project"} to every hook its events go to.`
+            : "Sends a project.test event to the global hooks."}
+        </InfoTip>
       </div>
       {hooks.error && <p className="settings-note int-note failed">{hooks.error}</p>}
 

@@ -30,9 +30,11 @@ import {
   findMarkers,
   holdMarkers,
   holdMarkersAt,
+  markerSpan,
   markerText,
   releaseMarkers,
   removeMarker,
+  snapSelection,
   stripMarkers,
   type Marker,
 } from "../lib/markers";
@@ -179,6 +181,10 @@ export function Composer({
   /** Where the caret was last seen in the prompt — a marker drawn in the
    *  viewer lands there, since the textarea lost focus to the overlay. */
   const caretRef = useRef(0);
+  /** How the caret last moved — a key steps it through a tag, a click puts
+   *  it at the tag's nearer edge — and where it stood before. */
+  const navRef = useRef<"key" | "mouse">("mouse");
+  const lastCaret = useRef<number | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   /** The slash word the caret sits in, which is what opens the command
@@ -259,6 +265,8 @@ export function Composer({
     if (added.length === 0) return;
     setAtts((prev) => [...prev, ...added]);
     insertMarkers(added.map((a) => markerText(a.kind, a.n)).join(" "), at);
+    // the caret goes on past the tags and their space, not to the end
+    requestAnimationFrame(() => placeCaret(caretRef.current));
   };
 
   /** Drop marker text into the prompt at `at` (the end when unset), leaving
@@ -368,14 +376,19 @@ export function Composer({
   };
 
   /** Backspace right after a chip (or inside one), Delete right before:
-   *  the whole marker goes, never half of it. */
+   *  the whole marker goes, never half of it — and for an attachment's tag
+   *  that is its two spaces too, so the front one is the whole thing. */
   const deleteMarkerAt = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
     const area = e.currentTarget;
     if (area.selectionStart !== area.selectionEnd) return false;
     const at = area.selectionStart;
     const hit = findMarkers(text)
       .filter(markerPresent)
-      .find((m) => (e.key === "Backspace" ? backspaceHits(text, m, at) : at >= m.start && at < m.end));
+      .find((m) => {
+        if (e.key === "Backspace") return backspaceHits(text, m, at);
+        const span = m.kind === "command" ? m : markerSpan(text, m);
+        return at >= span.start && at < span.end;
+      });
     if (!hit) return false;
     // what the chip stood between may now be two words, or two chips
     const cut = removeMarker(text, hit);
@@ -605,17 +618,34 @@ export function Composer({
                   caretRef.current = held.caret;
                   setText(held.text);
                   trackSlash(held.text, held.caret);
-                  // a space kept between a chip and the word just typed against
-                  // it: the caret goes back to the end of that word
-                  if (held.caret !== e.target.selectionStart) placeCaret(held.caret);
+                  // a tag's space put in or taken back out: the box is given
+                  // new text, and the caret goes where it belongs in it
+                  if (held.caret !== e.target.selectionStart || held.text !== e.target.value) {
+                    placeCaret(held.caret);
+                  }
                 }}
                 // wherever the caret was when the viewer took focus is where a
                 // region's marker goes
+                // and the caret never stands inside a tag or its spaces
                 onSelect={(e) => {
-                  caretRef.current = e.currentTarget.selectionStart;
-                  trackSlash(e.currentTarget.value, e.currentTarget.selectionStart);
+                  const area = e.currentTarget;
+                  const snap = snapSelection(
+                    area.value,
+                    findMarkers(area.value).filter(markerPresent),
+                    area.selectionStart,
+                    area.selectionEnd,
+                    navRef.current === "key" ? lastCaret.current : null,
+                  );
+                  if (snap) area.setSelectionRange(snap.start, snap.end, area.selectionDirection);
+                  lastCaret.current = area.selectionStart === area.selectionEnd ? area.selectionStart : null;
+                  caretRef.current = area.selectionStart;
+                  trackSlash(area.value, area.selectionStart);
+                }}
+                onMouseDown={() => {
+                  navRef.current = "mouse";
                 }}
                 onKeyDown={(e) => {
+                  navRef.current = "key";
                   // while the command menu stands, the arrows, Enter, Tab and
                   // Escape are its keys — Enter takes a command rather than
                   // sending a prompt that is half a command's name

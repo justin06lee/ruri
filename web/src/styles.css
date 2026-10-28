@@ -290,7 +290,7 @@ button:hover {
 button:not([class]),
 button.secondary,
 .confirm-actions button:not(.primary),
-.settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger) {
+.settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger, .info-tip) {
   color: var(--ink);
   background: var(--fill);
 }
@@ -298,7 +298,7 @@ button.secondary,
 button:not([class]):hover:not(:disabled),
 button.secondary:hover:not(:disabled),
 .confirm-actions button:not(.primary):hover:not(:disabled),
-.settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger):hover:not(:disabled) {
+.settings-row button:not(.primary, .ghost, .seg-option, .skill-switch, .icon-button, .dropdown-trigger, .info-tip):hover:not(:disabled) {
   background: var(--selection);
 }
 
@@ -9824,8 +9824,8 @@ button.destructive:hover:not(:disabled) {
   display: flex;
 }
 .settings-navigation {
-  width: 180px;
-  flex: 0 0 180px;
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
   display: flex;
   flex-direction: column;
   background: var(--sidebar-bg);
@@ -9877,7 +9877,6 @@ button.destructive:hover:not(:disabled) {
   max-width: 100%;
 }
 @media (max-width: 1050px) {
-  .settings-navigation { width: 172px; flex-basis: 172px; }
   .board-inner.settings-inner { padding: 24px; }
   .settings-row { flex-wrap: wrap; }
   .settings-label { width: 112px; }
@@ -9892,7 +9891,8 @@ button.destructive:hover:not(:disabled) {
   .settings-category .icon { display: none; }
 }
 
-/* Settings uses the window's source-list column for its own categories. */
+/* Settings uses the window's source-list column for its own categories —
+   the sidebar's width, with the peek band across its top as ever. */
 .settings-open > .sidebar { display: none; }
 .desktop .settings-toolbar { padding-left: 84px; -webkit-app-region: drag; }
 .desktop .settings-toolbar button { -webkit-app-region: no-drag; }
@@ -9959,6 +9959,9 @@ button.primary.destructive:hover:not(:disabled) { background: color-mix(in srgb,
 .devices-code-row, .vault-form { flex-wrap: wrap; }
 .settings-row .settings-note { flex-basis: 100%; }
 .settings-row .settings-value > .skill-switch { flex: 0 0 32px; }
+/* in a value that stacks (the clock's), that basis would be its height —
+   a 32px circle; the switch keeps its own size there */
+.settings-row .settings-value.schedule > .skill-switch { flex: none; height: 19px; }
 .hook-delivery, .hook-event { border: none; border-radius: var(--radius-s); }
 @media (max-width: 900px) {
   .grant-row { flex-wrap: wrap; }
@@ -10167,8 +10170,6 @@ button.primary { min-height: 28px; }
 /* Settings, as System Settings lays it out: the category column runs the
    full height under the traffic lights, and the toolbar over the content
    names the category, so the page needs no big heading of its own. */
-.settings-nav-head { height: var(--toolbar-h); flex-shrink: 0; }
-.desktop .settings-nav-head { -webkit-app-region: drag; }
 .settings-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .chat-header.settings-toolbar {
   background: var(--paper-dim);
@@ -10301,4 +10302,175 @@ button.primary { min-height: 28px; }
 }
 .permission-actions button.primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--ink) 86%, var(--raised));
+}
+
+/* ── the agents page's brief and follow-up boxes, glass like the input
+   box; Start wears the send button's ink ───────────────────── */
+.agent-brief,
+.agent-reply-box {
+  background: color-mix(in srgb, var(--raised) 58%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  backdrop-filter: blur(28px) saturate(170%);
+  border-radius: 26px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #000 6%, transparent),
+    inset 0 0 0 0.5px color-mix(in srgb, var(--ink) 12%, transparent),
+    0 10px 36px rgba(0, 0, 0, 0.16),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.agent-brief:focus-within,
+.agent-reply-box:focus-within {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 20%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #000 6%, transparent),
+    inset 0 0 0 0.5px color-mix(in srgb, var(--ink) 18%, transparent),
+    0 12px 40px rgba(0, 0, 0, 0.2),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.agent-brief {
+  padding: 16px 18px 12px;
+}
+.agent-brief-bar button.primary {
+  background: var(--ink);
+  color: var(--raised);
+  box-shadow: none;
+  border-radius: 999px;
+  padding-inline: 16px;
+}
+.agent-brief-bar button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 86%, var(--raised));
+}
+.agent-brief-bar button.primary:disabled {
+  opacity: 0.35;
+}
+
+/* ── the ⓘ beside a setting, and the little card it opens (InfoTip.tsx) ── */
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  padding: 0;
+  margin-left: 6px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-faint);
+  vertical-align: -3px;
+  cursor: default;
+}
+.info-tip:hover,
+.info-tip.open {
+  color: var(--ink);
+  background: none;
+}
+.info-tip svg {
+  width: 15px;
+  height: 15px;
+}
+.info-tip-card {
+  position: fixed;
+  z-index: var(--z-popover);
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: var(--material);
+  backdrop-filter: var(--material);
+  box-shadow: var(--menu-shadow);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  animation: rise var(--move);
+}
+.settings-label .info-tip {
+  margin-left: 4px;
+}
+
+/* Settings → Models: the provider's hand-drawn mark leads the row, the
+   star ends it; no provider name (the mark's title says it) */
+.model-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  color: var(--ink);
+}
+.model-mark .model-icon {
+  width: 20px;
+  height: 20px;
+}
+.model-row {
+  padding: 4px 4px 4px 6px;
+}
+
+/* ── Settings → Peek band, tidied: the picked picture's actions as one
+   toolbar, then its settings in System Settings' grouped trays ──────── */
+.bandedit-hint {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+}
+.bandedit-restore {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.bandedit-panel {
+  gap: 0;
+  margin-top: 4px;
+}
+.bandedit-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bandedit-tools button.ghost {
+  background: var(--group-bg);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.bandedit-tools button.ghost:hover:not(:disabled) {
+  background: var(--fill);
+}
+.bandedit-tools .bandedit-remove {
+  margin-left: auto;
+  color: var(--diff-del-ink);
+}
+.bandedit-group-name {
+  margin: 20px 0 6px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+.bandedit-group {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-m);
+  background: var(--group-bg);
+  overflow: hidden;
+}
+.bandedit-group > .settings-row {
+  min-height: 44px;
+  padding: 8px 16px;
+}
+.bandedit-group > .settings-row + .settings-row {
+  box-shadow: inset 0 0.5px 0 var(--hairline);
+}
+.bandedit-group .settings-value {
+  justify-content: flex-end;
+}
+.bandedit-group .bandedit-num input {
+  width: 72px;
+  text-align: right;
+}
+/* the picked picture: ringed in ink, not blue */
+.bandedit-chip.active {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
 }

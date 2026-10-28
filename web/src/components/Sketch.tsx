@@ -25,7 +25,7 @@ import { MOD } from "../lib/keys";
  * another channel, come back, and the drawing is where it was.
  *
  * Text is written in a box first and placed second: the text tool opens a
- * box to write in (several lines, a font, a size), and Place hangs the
+ * box to write in (several lines, a size), and Place hangs the
  * words on the pointer to be stamped wherever the next click lands.
  */
 
@@ -124,13 +124,10 @@ function paint(color: string, palette: Palette): string {
 
 const WIDTHS = [2, 4, 8];
 
-/** The faces text can be set in. The first is the app's own. */
-const FONTS: Array<{ id: string; label: string; family: string }> = [
-  { id: "grotesk", label: "Sans", family: '-apple-system, system-ui, "Inter", sans-serif' },
-  { id: "mono", label: "Mono", family: 'ui-monospace, "SF Mono", Menlo, monospace' },
-  { id: "serif", label: "Serif", family: 'Georgia, "Times New Roman", serif' },
-  { id: "hand", label: "Hand", family: '"Bradley Hand", "Comic Sans MS", "Segoe Print", cursive' },
-];
+/** The face text is set in: the app's own, everywhere on the pad. (A
+ *  shape from before carries the face it was written in; it is drawn in
+ *  this one all the same.) */
+const FONT = '"Space Grotesk Variable", system-ui, -apple-system, sans-serif';
 
 /** Text sizes, in pad pixels on a blank pad; a big picture scales them up. */
 const SIZES: Array<{ id: string; label: string; px: number }> = [
@@ -323,7 +320,7 @@ function draw(ctx: CanvasRenderingContext2D, shape: Shape, palette: Palette): vo
   ctx.lineJoin = "round";
   const color = paint(shape.color, palette);
   if (shape.kind === "text") {
-    ctx.font = `600 ${shape.size}px ${shape.font ?? FONTS[0]!.family}`;
+    ctx.font = `600 ${shape.size}px ${FONT}`;
     ctx.textBaseline = "alphabetic";
     // a paper halo so the words read on a busy picture
     ctx.lineWidth = Math.max(3, shape.size / 6);
@@ -415,7 +412,6 @@ function Icon({ d }: { d: string }) {
 /** What is being written, before it is placed. */
 interface TextDraft {
   value: string;
-  font: string;
   size: string;
 }
 
@@ -449,11 +445,11 @@ export function Sketch({
   const [pictureUrl, setPictureUrl] = useState<string | undefined>(
     (kept as PadState | undefined)?.pictureUrl,
   );
-  /** The text box, open. Its last font and size are remembered for the next. */
+  /** The text box, open. Its last size is remembered for the next. */
   const [writing, setWriting] = useState<TextDraft | null>(null);
-  const lastText = useRef<Pick<TextDraft, "font" | "size">>({ font: FONTS[0]!.id, size: "m" });
+  const lastText = useRef<Pick<TextDraft, "size">>({ size: "m" });
   /** Words hung on the pointer, waiting for the click that stamps them. */
-  const [placing, setPlacing] = useState<{ text: string; font: string; size: number } | null>(null);
+  const [placing, setPlacing] = useState<{ text: string; size: number } | null>(null);
   const [placeAt, setPlaceAt] = useState<Point | null>(null);
 
   // the picture, when there is one: drawn at its own size, capped
@@ -489,7 +485,6 @@ export function Sketch({
             text: placing.text,
             color,
             size: placing.size,
-            font: placing.font,
           }
         : null,
     [placing, placeAt, color],
@@ -575,7 +570,6 @@ export function Sketch({
         text: placing.text,
         color,
         size: placing.size,
-        font: placing.font,
       });
       setPlacing(null);
       setPlaceAt(null);
@@ -689,12 +683,11 @@ export function Sketch({
   const place = () => {
     if (!writing) return;
     const text = writing.value.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
-    lastText.current = { font: writing.font, size: writing.size };
+    lastText.current = { size: writing.size };
     setWriting(null);
     if (!text.trim()) return;
-    const font = FONTS.find((f) => f.id === writing.font)?.family ?? FONTS[0]!.family;
     const px = (SIZES.find((s) => s.id === writing.size)?.px ?? 28) * scaleUp;
-    setPlacing({ text, font, size: Math.round(px) });
+    setPlacing({ text, size: Math.round(px) });
   };
 
   // keys: undo, tools — never while writing in the box. Escape puts down
@@ -758,7 +751,6 @@ export function Sketch({
     setPictureUrl(URL.createObjectURL(file));
   };
 
-  const writingFont = FONTS.find((f) => f.id === writing?.font) ?? FONTS[0]!;
   const writingSize = SIZES.find((s) => s.id === writing?.size) ?? SIZES[1]!;
 
   return (
@@ -880,7 +872,7 @@ export function Sketch({
               rows={5}
               placeholder="What to write on the pad…"
               style={{
-                fontFamily: writingFont.family,
+                fontFamily: FONT,
                 fontSize: Math.round(Math.max(14, Math.min(34, writingSize.px * 0.75))),
                 // the words as they will land: in their colour, on the pad's
                 // paper, haloed the way the pad halos them
@@ -903,19 +895,6 @@ export function Sketch({
               }}
             />
             <div className="sketch-font-row">
-              <div className="seg">
-                {FONTS.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    className={`seg-option ${writing.font === f.id ? "active" : ""}`}
-                    style={{ fontFamily: f.family }}
-                    onClick={() => setWriting({ ...writing, font: f.id })}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
               <div className="seg">
                 {SIZES.map((s) => (
                   <button

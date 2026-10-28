@@ -14,12 +14,16 @@ import { Icon } from "./chat/Icon";
 import { Devices } from "./Devices";
 import { GreetingEditor } from "./GreetingEditor";
 import { Integrations } from "./Integrations";
+import { InfoTip } from "./InfoTip";
+import { ModelIcon } from "./Marks";
+import { PeekBand } from "./PeekBand";
 import { AccountBar } from "./Sidebar";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
 import { setSessionsMode, useSessionsMode } from "../lib/sessionsMode";
 import { setDesignTaste, useDesignTaste } from "../lib/designTaste";
 import { roughName } from "../lib/models";
+import { markFor } from "../lib/marks";
 import {
   applyTheme,
   currentTheme,
@@ -153,6 +157,23 @@ function ModelCatalog() {
                 if (holder !== m.value) send({ type: "set_model_role", model: m.value, role });
               }}
             >
+              <span className="model-mark" title={m.providerLabel ?? "Claude Code"}>
+                <ModelIcon pick={markFor(m.value, m)} />
+              </span>
+              <span
+                className="model-name"
+                title={listed.has(m.value) ? m.value : `${m.value} — not in its harness's list right now`}
+              >
+                {m.displayName}
+              </span>
+              {small && tag("small", "small tasks", "Runs small background tasks such as notes and titles")}
+              {isDefault && tag("default", "default", "What new chats and projects start on")}
+              {keeper &&
+                tag(
+                  "memory",
+                  "memory",
+                  "Writes and checks each project's memory: folds finished turns in, and checks lines whose code moved",
+                )}
               <button
                 className={`model-star ${starred ? "on" : ""}`}
                 title={
@@ -176,33 +197,17 @@ function ModelCatalog() {
                   <path d={STAR_PATH} />
                 </svg>
               </button>
-              <span
-                className="model-name"
-                title={listed.has(m.value) ? m.value : `${m.value} — not in its harness's list right now`}
-              >
-                {m.displayName}
-              </span>
-              {small && tag("small", "small tasks", "Runs small background tasks such as notes and titles")}
-              {isDefault && tag("default", "default", "What new chats and projects start on")}
-              {keeper &&
-                tag(
-                  "memory",
-                  "memory",
-                  "Writes and checks each project's memory: folds finished turns in, and checks lines whose code moved",
-                )}
-              <span className="model-tag">{m.providerLabel ?? "Claude Code"}</span>
             </div>
           );
         })}
       </Capped>
-      <details className="settings-help">
-        <summary>About model roles</summary>
-        <p>
-          Star a model to include it in the composer. Drag a role label to another model to change the default
-          for new conversations, the model for small tasks, or the model that maintains project memory.
-          Existing conversations keep their current model.
-        </p>
-      </details>
+      <p className="settings-note">
+        Starred models are the ones the composer offers.
+        <InfoTip>
+          Drag a role label to another model to change the default for new conversations, the model for small
+          tasks, or the model that keeps project memory. Existing conversations keep their model.
+        </InfoTip>
+      </p>
     </div>
   );
 }
@@ -600,7 +605,10 @@ function DesignTaste() {
   const project = activeId && activeId !== HOME_ID ? activeId : null;
   return (
     <div className="settings-row">
-      <span className="settings-label">Design taste</span>
+      <span className="settings-label">
+        Design taste
+        <InfoTip>Agents follow your gusteau taste on interface work.</InfoTip>
+      </span>
       <div className="settings-value">
         <div className="seg">
           {([false, true] as const).map((on) => (
@@ -627,10 +635,7 @@ function DesignTaste() {
           </button>
         )}
       </div>
-      <p className="settings-note">
-        Agents follow your gusteau taste on interface work.{" "}
-        {taste === null ? "" : taste.found ? `Found at ${taste.found}.` : "gusteau isn't installed."}
-      </p>
+      {taste && !taste.found && <p className="settings-note">gusteau isn't installed.</p>}
       {learned && <p className="settings-note">{learned.output}</p>}
     </div>
   );
@@ -680,7 +685,10 @@ export function Settings({ onClose }: { onClose(): void }) {
     <main className="chat settings-page">
       <div className="settings-layout">
         <nav className="settings-navigation" aria-label="Settings categories">
-          <div className="settings-nav-head" />
+          {/* the sidebar's own top: the same width, the same band over it */}
+          <div className="sidebar-header">
+            <PeekBand />
+          </div>
           <div className="settings-categories">
           {SETTINGS_SECTIONS.map((item) => (
             <button
@@ -862,7 +870,7 @@ export function Settings({ onClose }: { onClose(): void }) {
 
             <section className="settings-group" hidden={section !== "permissions"}>
               <h2 className="settings-group-name">Privacy & Security</h2>
-              <Grants />
+              <Grants shown={section === "permissions"} />
             </section>
           </div>
         </div>
@@ -1004,14 +1012,30 @@ const STATUS_WORD: Record<PermissionState["status"], string> = {
  * database's own rows for ruri and the CLIs its sessions run, since each of
  * those is a client of its own to macOS.
  */
-function Grants() {
+function Grants({ shown }: { shown: boolean }) {
   const can = useRuri((s) => s.canPermissions);
   const platform = useRuri((s) => s.platform);
   const grants = useRuri((s) => s.grants);
   const [asking, setAsking] = useState<PermissionId | "all" | null>(null);
+  // A switch is flipped in System Settings, not here, so what this shows
+  // goes stale the moment someone goes there. While the page is up it reads
+  // macOS again on the way back to the window and every few seconds — not
+  // while an ask is waiting on its dialog, which answers for itself.
   useEffect(() => {
-    if (can) send({ type: "permissions_check" });
-  }, [can]);
+    if (!can || !shown || asking) return;
+    const look = () => {
+      if (!document.hidden) send({ type: "permissions_check" });
+    };
+    look();
+    const every = window.setInterval(look, 4_000);
+    window.addEventListener("focus", look);
+    document.addEventListener("visibilitychange", look);
+    return () => {
+      window.clearInterval(every);
+      window.removeEventListener("focus", look);
+      document.removeEventListener("visibilitychange", look);
+    };
+  }, [can, shown, asking]);
   // fresh grants from macOS are the answer to whatever was being asked
   const [grantsSeen, setGrantsSeen] = useState(grants);
   if (grants !== grantsSeen) {
@@ -1025,26 +1049,25 @@ function Grants() {
   if (platform === "linux")
     return (
       <p className="settings-note">
-        Linux keeps no per-app privacy grants: ruri and its sessions can reach whatever your account can, and
-        there is nothing here to ask for. The bridge reads native apps' controls over the desktop's
-        accessibility bus (AT-SPI) and photographs their windows off the X server — on a Wayland session it
-        can drive web pages and Electron apps, not native windows.
+        Linux has no per-app privacy grants: nothing to ask for here.
+        <InfoTip>
+          ruri and its sessions can reach whatever your account can. The bridge reads native apps' controls
+          over the desktop's accessibility bus (AT-SPI) and photographs their windows off the X server. On a
+          Wayland session it can drive web pages and Electron apps, not native windows.
+        </InfoTip>
       </p>
     );
   if (!can) return <p className="settings-note">Available in the desktop app.</p>;
   return (
     <div className="grants">
       <p className="settings-note grants-note">
-        Allow ruri to control apps and access files on this Mac. Manage access in System Settings.
+        What ruri may control and read on this Mac.
+        <InfoTip>
+          macOS ties access to the app's signature. After a rebuild a permission can need approving again even
+          if its switch is still on in System Settings: Ask requests it again. Manage access in System
+          Settings.
+        </InfoTip>
       </p>
-      <details className="settings-help">
-        <summary>About these permissions</summary>
-        <p>
-          macOS associates access with the app's signature. After a rebuild, a permission can need approval
-          again even if its switch is still on in System Settings. Use Ask to request access again, or Re-read
-          to check the current status.
-        </p>
-      </details>
       <div className="grants-head">
         <button className="ghost" disabled={asking !== null} onClick={() => ask()}>
           {asking === "all" ? "asking…" : "Ask for everything"}

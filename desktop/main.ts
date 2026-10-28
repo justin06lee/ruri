@@ -202,8 +202,10 @@ function windowDrag(phase: WindowDragPhase): void {
   }
   // back again — to the frame it had, put back by hand when this is what
   // filled the screen: macOS's own un-zoom, which unmaximize() asks for,
-  // is not dependable (a window it is not showing stays as big as ever)
-  if (unzoomed) win.setBounds(unzoomed);
+  // is not dependable (a window it is not showing stays as big as ever).
+  // Animated, as the title bar's own un-zoom is: without it the window
+  // snaps back in one frame (macOS only; elsewhere the flag is ignored)
+  if (unzoomed) win.setBounds(unzoomed, true);
   else win.unmaximize();
   unzoomed = undefined;
 }

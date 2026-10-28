@@ -265,18 +265,10 @@ function ProjectRow({ project }: { project: Project }) {
         setRenaming(true);
       }}
     >
-      <svg
-        className="team-row-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-      >
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-      </svg>
+      {/* a monogram tile, the name's first letter: rows tell apart at a glance */}
+      <span className="team-row-icon" aria-hidden>
+        {Array.from(project.name.trim())[0]?.toUpperCase() ?? "·"}
+      </span>
       {renaming ? (
         <NameEditor value={project.name} className="project-name" onDone={rename} />
       ) : (

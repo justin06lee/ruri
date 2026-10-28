@@ -21,8 +21,8 @@
 :root {
   --theme-light-paper: #ffffff;
   --theme-light-ink: #1d1d1f;
-  --theme-dark-paper: #1e1e1e;
-  --theme-dark-ink: #ededee;
+  --theme-dark-paper: #0c0c0c;
+  --theme-dark-ink: #ededed;
   --theme-ember-paper: #0f0b08;
   --theme-ember-ink: #f1e4d2;
   --paper: var(--theme-light-paper);
@@ -121,17 +121,17 @@
    flips through the tokens */
 :root[data-theme="dark"] {
   --paper: var(--theme-dark-paper);
-  --paper-dim: #292929;
-  --paper-deep: #38383a;
-  --paper-bright: #252525;
+  --paper-dim: #161616;
+  --paper-deep: #242424;
+  --paper-bright: #141414;
   --ink: var(--theme-dark-ink);
-  --ink-soft: #b0b0b5;
-  --ink-faint: #9b9ba0;
-  --hairline: rgba(237, 237, 238, 0.07);
-  --raised: #323232;
-  --line: #ededee;
-  --line-soft: rgba(237, 237, 238, 0.11);
-  --line-faint: rgba(237, 237, 238, 0.055);
+  --ink-soft: #b3b3b3;
+  --ink-faint: #8a8a8a;
+  --hairline: rgba(255, 255, 255, 0.07);
+  --raised: #1c1c1c;
+  --line: #ededed;
+  --line-soft: rgba(255, 255, 255, 0.1);
+  --line-faint: rgba(255, 255, 255, 0.05);
   --diff-add-bg: rgba(34, 197, 94, 0.11);
   --diff-add-ink: #4ade80;
   --diff-del-bg: rgba(248, 113, 113, 0.11);
@@ -140,15 +140,15 @@
   --badge: var(--accent);
   --ok: #30d158;
   --control-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
-  --menu-bg: rgba(38, 38, 41, 0.8);
+  --menu-bg: rgba(26, 26, 26, 0.86);
   --menu-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 12px 36px rgba(0, 0, 0, 0.5);
   --sheet-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 24px 64px rgba(0, 0, 0, 0.6);
   --veil: rgba(0, 0, 0, 0.42);
   color-scheme: dark;
-  --sidebar-bg: #28282a;
-  --toolbar-bg: rgba(38, 38, 40, 0.88);
-  --group-bg: #303032;
-  --field-bg: #373739;
+  --sidebar-bg: #131313;
+  --toolbar-bg: rgba(12, 12, 12, 0.88);
+  --group-bg: #181818;
+  --field-bg: #202020;
   --destructive: #ff6961;
 }
 
@@ -911,10 +911,17 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    it is on, the X while something works (a spinner stands there), the
    rest on hover. */
 .team-row-icon {
-  width: 13px;
-  height: 13px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  color: var(--ink-faint);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .project-row.active .team-row-icon {

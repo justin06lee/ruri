@@ -927,7 +927,12 @@ function ChatView({
               there before its first prompt too; Home has none */}
           {header}
           <div className="hero">
-            <EmptyTop home={isHome} {...(isHome ? {} : { title: isLead ? project.name : seatName })} />
+            <EmptyTop
+              home={isHome}
+              model={model}
+              {...(modelChoice ? { choice: modelChoice } : {})}
+              {...(isHome ? {} : { title: isLead ? project.name : seatName })}
+            />
             <div className="hero-composer">
               {rapid?.on && <RapidBar rapid={rapid} />}
               <Composer

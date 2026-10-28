@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Project, SubagentState, TranscriptEvent } from "../../../shared/protocol";
 import { isAwake } from "../lib/awake";
+import { markFor } from "../lib/marks";
 import { roughName } from "../lib/models";
 import { Markdown } from "../markdown";
 import {
@@ -33,6 +34,7 @@ function tally(agents: SubagentState[]): string {
 import { Icon, TOOL_ICONS } from "./chat/Icon";
 import { Dropdown } from "./Dropdown";
 import { EventView } from "./EventView";
+import { ModelIcon } from "./Marks";
 import { AskCard } from "./PermissionBanner";
 import { Spinner } from "./Thinking";
 
@@ -166,12 +168,14 @@ function AgentBrief({ channelId, project }: { channelId: string; project: Projec
   const options = (starred.length > 0 ? starred : allModels).map((m) => ({
     value: m.value,
     label: m.displayName,
+    icon: <ModelIcon pick={markFor(m.value, m)} />,
   }));
   if (!options.some((o) => o.value === model)) {
     const choice = allModels.find((m) => m.value === model);
     options.push({
       value: model,
       label: choice?.displayName ?? roughName(model),
+      icon: <ModelIcon pick={markFor(model, choice)} />,
     });
   }
   const start = () => {

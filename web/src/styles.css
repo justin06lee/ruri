@@ -10408,3 +10408,69 @@ button.primary { min-height: 28px; }
 .model-row {
   padding: 4px 4px 4px 6px;
 }
+
+/* ── Settings → Peek band, tidied: the picked picture's actions as one
+   toolbar, then its settings in System Settings' grouped trays ──────── */
+.bandedit-hint {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+}
+.bandedit-restore {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.bandedit-panel {
+  gap: 0;
+  margin-top: 4px;
+}
+.bandedit-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bandedit-tools button.ghost {
+  background: var(--group-bg);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.bandedit-tools button.ghost:hover:not(:disabled) {
+  background: var(--fill);
+}
+.bandedit-tools .bandedit-remove {
+  margin-left: auto;
+  color: var(--diff-del-ink);
+}
+.bandedit-group-name {
+  margin: 20px 0 6px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+.bandedit-group {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-m);
+  background: var(--group-bg);
+  overflow: hidden;
+}
+.bandedit-group > .settings-row {
+  min-height: 44px;
+  padding: 8px 16px;
+}
+.bandedit-group > .settings-row + .settings-row {
+  box-shadow: inset 0 0.5px 0 var(--hairline);
+}
+.bandedit-group .settings-value {
+  justify-content: flex-end;
+}
+.bandedit-group .bandedit-num input {
+  width: 72px;
+  text-align: right;
+}
+/* the picked picture: ringed in ink, not blue */
+.bandedit-chip.active {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}

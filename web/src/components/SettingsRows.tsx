@@ -52,3 +52,18 @@ export function NumField({
     </label>
   );
 }
+
+/** The Mac's switch, for a setting that is on or off. */
+export function Switch({ on, label, onChange }: { on: boolean; label: string; onChange(on: boolean): void }) {
+  return (
+    <button
+      className={`skill-switch ${on ? "on" : ""}`}
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+    >
+      <span className="skill-knob" />
+    </button>
+  );
+}

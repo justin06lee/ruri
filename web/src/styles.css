@@ -46,7 +46,7 @@
   --diff-add-ink: #15803d;
   --diff-del-bg: rgba(220, 38, 38, 0.08);
   --diff-del-ink: #b91c1c;
-  --sans: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --sans: "Space Grotesk Variable", system-ui, -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
   --sidebar-w: 240px;
   /* one scale of corners: tags, controls, cards, sheets, the big fields */
@@ -3327,13 +3327,13 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .thinking {
   position: relative;
-  width: 46px;
-  height: 46px;
-  margin: 6px 0;
+  width: 20px;
+  height: 20px;
+  margin: 4px 0;
   color: var(--ink-soft);
   transform: scaleX(-1) rotate(-5deg);
   /* a sealed box on its own layer: a step turns the layer and swaps which
-     pose is opaque, and nothing outside these 46px — nor inside — is
+     pose is opaque, and nothing outside these 20px — nor inside — is
      painted again for it */
   contain: strict;
   will-change: transform;
@@ -6956,6 +6956,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    past the field's top beside the title instead of pushing it down */
 .hero-composer .dragons {
   height: 0;
+  margin-bottom: 0;
   align-self: flex-end;
 }
 
@@ -6970,6 +6971,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: flex-end;
   gap: 12px;
   flex-shrink: 0;
+  /* lifted so the names and reset countdowns hung below have room */
+  margin-bottom: 16px;
   /* a readout, not a control */
   user-select: none;
 }

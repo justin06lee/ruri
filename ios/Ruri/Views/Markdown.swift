@@ -160,6 +160,8 @@ struct MarkdownText: View {
     var whole = true
     var lineLimit: Int?
     var font: Font = .subheadline
+    /// Across the whole width; false hugs the text, for a bubble.
+    var fill = true
 
     var body: some View {
         let blocks = MarkdownParser.parse(source)
@@ -169,7 +171,7 @@ struct MarkdownText: View {
                     MarkdownBlockView(block: block, font: font)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: fill ? .infinity : nil, alignment: .leading)
         } else {
             Text(blocks.reduce(into: AttributedString()) { result, block in
                 if !result.characters.isEmpty { result += AttributedString("\n") }

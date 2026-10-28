@@ -49,6 +49,8 @@ struct StatusChat: Codable, Hashable, Sendable {
     var lastWords: String
     /// When its last turn ended.
     var lastActive: Date?
+    /// The chat's id (asked for with ?ids=1): what its conversation is read by.
+    var id: String?
 }
 
 /// Something waiting on the user.
@@ -68,6 +70,8 @@ struct StatusNeed: Codable, Hashable, Sendable {
     var reason: Reason
     var text: String
     var since: Date
+    /// With ?ids=1: the chat waiting.
+    var chatId: String?
 }
 
 /// A project.

@@ -13,6 +13,11 @@ enum MacError: Error, Equatable {
     case newer
     /// The Mac's ruri can't pair a phone yet.
     case outdated
+    /// This phone's key reads the status only: it was paired before phones
+    /// could see and send chats.
+    case readOnly
+    /// The chat isn't open on the Mac anymore.
+    case noChat
 }
 
 /// One Mac's door — its sharing port — over a line pinned to its
@@ -66,8 +71,11 @@ final class MacClient: Sendable {
         return parts.url
     }
 
-    private func request(_ address: String, port: Int, path: String, timeout: TimeInterval) throws -> URLRequest {
-        guard let url = Self.url(address, port: port, path: path) else { throw MacError.unreachable }
+    private func request(
+        _ address: String, port: Int, path: String, query: [URLQueryItem] = [], timeout: TimeInterval
+    ) throws -> URLRequest {
+        guard var url = Self.url(address, port: port, path: path) else { throw MacError.unreachable }
+        if !query.isEmpty { url.append(queryItems: query) }
         var request = URLRequest(url: url, timeoutInterval: timeout)
         if let key { request.setValue(key, forHTTPHeaderField: "x-ruri-token") }
         return request
@@ -129,10 +137,13 @@ final class MacClient: Sendable {
         }
     }
 
+    /// The status with each chat's id, which its conversation is read by.
+    private static let ids = [URLQueryItem(name: "ids", value: "1")]
+
     /// Every project's state, once.
     func status(at address: String, port: Int) async throws -> StatusReport {
         let (data, response) = try await session.data(
-            for: request(address, port: port, path: "/status", timeout: 10)
+            for: request(address, port: port, path: "/status", query: Self.ids, timeout: 10)
         )
         try Self.check(response)
         do {
@@ -151,7 +162,7 @@ final class MacClient: Sendable {
                 do {
                     // the Mac says something at least every 25s: 40s of silence
                     // is a line gone dead, given up so it can be opened again
-                    var request = try self.request(address, port: port, path: "/status/live", timeout: 40)
+                    var request = try self.request(address, port: port, path: "/status/live", query: Self.ids, timeout: 40)
                     request.setValue("text/event-stream", forHTTPHeaderField: "accept")
                     let (bytes, response) = try await self.session.bytes(for: request)
                     try Self.check(response)
@@ -177,6 +188,77 @@ final class MacClient: Sendable {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// What a chat's live line sends.
+    enum ChatLive: Sendable {
+        case frame(ChatFrame)
+        /// The line is still open: nothing changed.
+        case heard
+    }
+
+    /// A chat's answer, read: 403 here is a key that reads the status only,
+    /// not one the Mac has forgotten.
+    private static func checkChat(_ response: URLResponse) throws {
+        switch (response as? HTTPURLResponse)?.statusCode {
+        case 200: return
+        case 401: throw MacError.notPaired
+        case 403: throw MacError.readOnly
+        case 404: throw MacError.noChat
+        default: throw MacError.unreachable
+        }
+    }
+
+    /// A chat's conversation as it changes: the whole of it on connecting,
+    /// then what changed. Ends when the Mac closes the line; throws when it
+    /// is lost.
+    func chatLive(_ chat: String, at address: String, port: Int) -> AsyncThrowingStream<ChatLive, any Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var request = try self.request(
+                        address, port: port, path: "/chat/live",
+                        query: [URLQueryItem(name: "id", value: chat)], timeout: 40
+                    )
+                    request.setValue("text/event-stream", forHTTPHeaderField: "accept")
+                    let (bytes, response) = try await self.session.bytes(for: request)
+                    try Self.checkChat(response)
+                    let decoder = StatusReport.decoder()
+                    var stream = EventStream()
+                    for try await byte in bytes {
+                        switch stream.feed(byte) {
+                        case .nothing:
+                            continue
+                        case .comment:
+                            continuation.yield(.heard)
+                        case .event(let event):
+                            if event.name == "gone" { throw MacError.noChat }
+                            guard event.name == "chat" else { continue }
+                            guard let frame = try? decoder.decode(ChatFrame.self, from: Data(event.data.utf8))
+                            else { throw MacError.newer }
+                            continuation.yield(.frame(frame))
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Send a prompt into a chat, under the phone's own id for it: sent
+    /// twice — after a dropped line — the Mac answers rather than runs it.
+    func send(_ text: String, to chat: String, id: String, at address: String, port: Int) async throws -> SentAs {
+        var request = try request(address, port: port, path: "/chat/send", timeout: 20)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONEncoder().encode(["id": chat, "text": text, "clientId": id])
+        let (data, response) = try await session.data(for: request)
+        try Self.checkChat(response)
+        guard let answer = try? JSONDecoder().decode(SendAnswer.self, from: data) else { throw MacError.newer }
+        return answer.as
     }
 
     /// Redeem a pairing code for this phone's key: find which of the code's

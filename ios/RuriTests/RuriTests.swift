@@ -215,3 +215,40 @@ struct MarkdownTests {
         #expect(String(flat.characters) == "3. third")
     }
 }
+
+struct ChatLogTests {
+    private func item(_ id: String, _ text: String = "") -> ChatItem {
+        ChatItem(id: id, kind: .assistant, text: text, at: .now)
+    }
+
+    private func frame(items: [ChatItem]? = nil, upsert: [ChatItem]? = nil, remove: [String]? = nil) -> ChatFrame {
+        ChatFrame(chat: "c", name: "ruri", project: "ruri", state: .working, queue: [], items: items, upsert: upsert, remove: remove)
+    }
+
+    @Test func takesTheWholeThenWhatChanged() {
+        var log = ChatLog()
+        log.apply(frame(items: [item("a", "1"), item("draft:m", "Hel")]))
+        log.apply(frame(upsert: [item("b", "2")], remove: ["draft:m"]))
+        #expect(log.items.map(\.id) == ["a", "b"])
+        log.apply(frame(upsert: [item("a", "one")]))
+        #expect(log.items.map(\.text) == ["one", "2"])
+        log.apply(frame(items: [item("z")]))
+        #expect(log.items.map(\.id) == ["z"])
+    }
+
+    @Test func knowsAPromptItHolds() {
+        var log = ChatLog()
+        var whole = frame(items: [ChatItem(id: "p1", kind: .user, text: "hi", at: .now)])
+        whole.queue = [ChatQueued(id: "p2", text: "next")]
+        log.apply(whole)
+        #expect(log.holds("p1") && log.holds("p2") && !log.holds("p3"))
+    }
+
+    @Test func readsTheMacsFrame() throws {
+        let json = #"{"chat":"c","name":"ruri","project":"ruri","state":"needs-you","queue":[],"items":[{"id":"t","kind":"steps","text":"2 steps","steps":["Read: a","Bash: b"],"at":"2026-10-27T10:00:00.000Z"},{"id":"x","kind":"something-new","text":"?","at":"2026-10-27T10:00:01Z"}]}"#
+        let frame = try StatusReport.decoder().decode(ChatFrame.self, from: Data(json.utf8))
+        #expect(frame.state == .needsYou)
+        #expect(frame.items?.first?.steps?.count == 2)
+        #expect(frame.items?.last?.kind == .note)
+    }
+}

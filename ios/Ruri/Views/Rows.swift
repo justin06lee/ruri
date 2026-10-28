@@ -61,7 +61,7 @@ struct ProjectRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .center) {
-                    if project.state == .working { WorkingSpinner() }
+                    StateGlyph(state: project.state)
                     Text(project.name)
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
@@ -91,6 +91,8 @@ struct ChatRow: View {
     var chat: StatusChat
     /// Shown whole, with no tap needed: the lead's card.
     var whole = false
+    /// A tap opens its conversation rather than the rest of its words.
+    var opens = false
     @State private var expanded = false
 
     private var full: Bool { whole || expanded }
@@ -110,7 +112,7 @@ struct ChatRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .center) {
-                    if chat.state == .working { WorkingSpinner() }
+                    StateGlyph(state: chat.state)
                     Text(chat.name)
                         .font(.body.weight(.semibold))
                         .lineLimit(1)
@@ -137,11 +139,37 @@ struct ChatRow: View {
         }
         .padding(.vertical, 2)
         .contentShape(.rect)
-        .onTapGesture {
-            guard !whole else { return }
-            withAnimation(.snappy) { expanded.toggle() }
-        }
+        // a row that opens its chat takes no tap of its own: a gesture
+        // here would swallow the link's
+        .onTapGesture(count: 1, perform: expand)
+        .allowsHitTesting(!opens)
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(whole ? [] : .isButton)
+        .accessibilityAddTraits(whole && !opens ? [] : .isButton)
+    }
+
+    private func expand() {
+        guard !whole else { return }
+        withAnimation(.snappy) { expanded.toggle() }
+    }
+}
+
+/// Before a name: the spinner while it works, a raised hand while it waits
+/// on you — nothing else.
+struct StateGlyph: View {
+    var state: StatusState
+
+    var body: some View {
+        switch state {
+        case .working:
+            WorkingSpinner()
+        case .needsYou:
+            Image(systemName: "hand.raised")
+                .font(.footnote)
+                .foregroundStyle(.orange)
+                .frame(width: 16, height: 16)
+                .accessibilityLabel("Waiting on you")
+        default:
+            EmptyView()
+        }
     }
 }

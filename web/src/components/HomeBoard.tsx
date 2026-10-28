@@ -21,6 +21,7 @@ import { useRuri, watchBoard } from "../store";
 import { Capped } from "./Capped";
 import { money } from "./figures";
 import { StatisticsPage } from "./Statistics";
+import { Spinner } from "./Thinking";
 
 /**
  * The projects page, and the strip at the top of Home.
@@ -106,7 +107,7 @@ function lineOf(event: TranscriptEvent): Line | null {
 }
 
 /** How many lines a session shows: its last few steps. */
-const LINES = 3;
+const LINES = 5;
 
 const NO_EVENTS: TranscriptEvent[] = [];
 
@@ -190,12 +191,11 @@ function ProjectCard({ project, status, fresh }: { project: Project; status: Sta
         onClick={() => lead && setActive(lead)}
         title={lead ? `Open ${project.name}` : undefined}
       >
-        <span className={`dot ${status}`} aria-hidden />
         <span className="pcard-name">{project.name}</span>
-        {fresh && <span className="unread-pip" title="A turn finished here since you last looked" />}
-        <span className="pcard-status">{status === "idle" && fresh ? "finished" : WORD[status]}</span>
+        {status === "working" && <Spinner />}
+        <span className="pcard-status">{status === "idle" && fresh ? "done" : WORD[status]}</span>
       </div>
-      <Capped max={4} className="pcard-body">
+      <Capped max={6} className="pcard-body">
         {lead ? (
           <LeadLines project={project} lead={lead} />
         ) : (
@@ -284,12 +284,8 @@ function HomeTabs({ tab, onTab }: { tab: HomeTab; onTab: (tab: HomeTab) => void 
           onClick={() => onTab("chat")}
         >
           Chat
-          {(homeStatus === "working" || homeStatus === "permission") && (
-            <span
-              className={`dot ${homeStatus}`}
-              aria-label={homeStatus === "working" ? "Home is working" : "Home needs you"}
-            />
-          )}
+          {homeStatus === "working" && <Spinner />}
+          {homeStatus === "permission" && <span className="home-tab-note">needs you</span>}
         </button>
         <button
           type="button"
@@ -471,10 +467,7 @@ export function ProjectsPage() {
                   </span>
                 )}
                 {fresh > 0 && (
-                  <span className="st-finished">
-                    <span className="unread-pip" aria-hidden />
-                    {fresh} finished
-                  </span>
+                  <span className="st-finished">{fresh} done</span>
                 )}
                 {live.length === 0 && fresh === 0 && (
                   <span className="st-idle">{projects.length === 0 ? "nothing open" : "all quiet"}</span>
@@ -485,25 +478,25 @@ export function ProjectsPage() {
 
           {projects.length === 0 && (
             <div className="board-empty projects-empty">
-              No projects open. Ask Home on the chat tab to open one — “let's work on X and Y today”.
+              No projects open.
             </div>
           )}
 
           {live.length > 0 && (
             <>
-              <div className="projects-group">live</div>
+              <div className="projects-group">Working</div>
               {grid(live)}
             </>
           )}
           {finished.length > 0 && (
             <>
-              <div className="projects-group">finished</div>
+              <div className="projects-group">Recently done</div>
               {grid(finished)}
             </>
           )}
           {idle.length > 0 && (
             <>
-              {live.length + finished.length > 0 && <div className="projects-group">idle</div>}
+              <div className="projects-group">Idle</div>
               {grid(idle)}
             </>
           )}

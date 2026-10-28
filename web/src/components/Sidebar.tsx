@@ -30,8 +30,7 @@ function HomeRow() {
       >
         <path d="M3 10.5L12 3l9 7.5M5 9.5V21h14V9.5M9 21v-6h6v6" />
       </svg>
-      <span className="project-name">Home</span>
-      {unread && <span className="unread-pip" title="Turn finished" />}
+      <span className={`project-name${unread ? " unread" : ""}`}>Home</span>
     </div>
   );
 }
@@ -272,9 +271,8 @@ function ProjectRow({ project }: { project: Project }) {
       {renaming ? (
         <NameEditor value={project.name} className="project-name" onDone={rename} />
       ) : (
-        <span className="project-name">{project.name}</span>
+        <span className={`project-name${unread ? " unread" : ""}`}>{project.name}</span>
       )}
-      {unread && <span className="unread-pip" title="Turn finished" />}
       {atWork > 0 && (
         <span
           className="row-count team-count"
@@ -383,7 +381,7 @@ export function AccountBar() {
         {user || "account"}
         {onto && <span className="account-where"> on {onto}</span>}
       </span>
-      {!connected && <span className="conn off" title="Reconnecting…" />}
+      {!connected && <span className="conn-text">reconnecting…</span>}
       <button
         className={`icon-button ${settingsOpen ? "active" : ""}`}
         title="Settings"

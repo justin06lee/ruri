@@ -667,18 +667,6 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   background: var(--fill);
 }
 
-.conn {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  transition: background var(--move);
-}
-
-.conn.off {
-  background: transparent;
-  border: 1px solid var(--ink-soft);
-}
-
 /* ── what moves by itself, stepped by web/src/lib/beat.ts ────────────
    Nothing here is an animation: an infinite one redraws the whole window
    at the display's rate for as long as it is on screen. The clocks set
@@ -755,39 +743,6 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   white-space: nowrap;
 }
 
-/* status dots: idle = hollow, working = filled, permission = thick ring,
-   error = filled diamond — held still: they mark chats that are not the
-   one open, and nothing outside the open chat moves */
-
-.dot {
-  width: 8px;
-  height: 8px;
-  min-width: 8px;
-  border-radius: 50%;
-  border: 0.5px solid var(--line-soft);
-  background: transparent;
-  transition:
-    background var(--move),
-    border-color var(--move);
-}
-
-.dot.working {
-  background: var(--ink);
-  border-color: var(--edge);
-}
-
-.dot.permission {
-  background: var(--accent);
-  border: 0;
-}
-
-.dot.error {
-  background: var(--ink);
-  border-color: var(--edge);
-  border-radius: 1px;
-  transform: rotate(45deg);
-}
-
 /* the chats from outside ruri, on the team page (TeamPage.tsx): each one
    found a quiet row, tagged by harness */
 .recent-note {
@@ -813,15 +768,6 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border-radius: var(--radius-xs);
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
-}
-
-.unread-pip {
-  width: 6px;
-  height: 6px;
-  min-width: 6px;
-  border-radius: 1px;
-  background: var(--badge);
-  transform: rotate(45deg);
 }
 
 .project-row .star {
@@ -1351,28 +1297,6 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border: 1px solid currentColor;
   opacity: 0.75;
   font-variant-numeric: tabular-nums;
-}
-
-/* `.working` is also the transcript's progress line, which pins itself to
-   the start of its column — a dot carrying the status word must not */
-.home-tab .dot,
-.pcard-head .dot {
-  align-self: center;
-}
-
-.home-tab .dot {
-  width: 7px;
-  height: 7px;
-  min-width: 7px;
-}
-
-.home-tab.on .dot.working {
-  background: var(--paper);
-  border-color: var(--paper);
-}
-
-.home-tab.on .dot.permission {
-  border-color: var(--paper);
 }
 
 /* ── home: the projects page ──────────────────────────────────────── */
@@ -10156,3 +10080,34 @@ button.primary { min-height: 28px; }
     animation: none;
   }
 }
+
+/* ── no status dots (2026-10-27): a finished chat's name goes bold, a
+   working one has the spinner, and the rest is said in words ── */
+.project-name.unread { font-weight: 650; color: var(--ink); }
+.conn-text { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
+.home-tab .spinner { width: 11px; height: 11px; margin-left: 6px; }
+.home-tab-note { margin-left: 6px; font-size: 11px; color: var(--ink-soft); }
+
+/* ── the projects page as a grid of small live views: each card is the
+   project's name over the last few things its chat did ── */
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.projects-grid .pcard,
+.projects-grid .pcard:nth-child(odd) {
+  display: flex;
+  flex-direction: column;
+  min-height: 150px;
+  background: var(--paper-dim);
+  border-radius: var(--radius-m);
+}
+.projects-grid .pcard:hover { background: var(--fill); }
+.projects-grid .pcard-head { padding: 12px 14px 4px; flex-wrap: nowrap; gap: 8px; }
+.projects-grid .pcard-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projects-grid .pcard-head .spinner { width: 12px; height: 12px; }
+.projects-grid .pcard-body { padding: 4px 14px 12px; }
+.projects-grid .board-line { font-family: var(--mono); font-size: 11px; line-height: 1.55; }
+.projects-group { margin: 28px 0 10px; font-size: 13px; color: var(--ink); text-transform: none; }
+.projects-head + .projects-group { margin-top: 20px; }

@@ -488,21 +488,59 @@ export function autoCompactShare(harness: string): number {
   return Number(process.env["RURI_AUTO_COMPACT_AT"]) || AUTO_COMPACT_AT[harness] || 0.8;
 }
 
-/** Why a chat whose turn just ended should be compacted now — its context
- *  past its share of the window — or undefined. Never while an agent or a
- *  script it started is still running in the session. */
-export function autoCompactDue(ctx: ServerContext, channelId: string): string | undefined {
+/** ruri's soft limit, in tokens: a chat whose context comes this close to
+ *  it compacts at its turn's end, however big its window — a 1M window
+ *  would otherwise run to 800k, every call re-reading all of it. */
+export const SOFT_COMPACT_TOKENS = 434_000;
+/** How near the soft limit counts as reaching it: the next turn would
+ *  likely cross it, so the compaction comes before that turn. */
+export const SOFT_MARGIN = 0.05;
+
+/** The soft limit — RURI_COMPACT_SOFT_TOKENS, then the
+ *  "ruri-compact-soft-tokens" preference ("434000", "434k", "1M"), else
+ *  SOFT_COMPACT_TOKENS; undefined when either says "off". */
+export function softCompactTokens(ctx: ServerContext): number | undefined {
+  const env = process.env["RURI_COMPACT_SOFT_TOKENS"]?.trim();
+  const said = (env || ctx.prefs.all()["ruri-compact-soft-tokens"])?.trim().toLowerCase();
+  if (said === "off") return undefined;
+  const m = said ? /^(\d+(?:\.\d+)?)\s*(k|m)?$/.exec(said) : null;
+  const n = m ? Number(m[1]) * (m[2] === "k" ? 1000 : m[2] === "m" ? 1_000_000 : 1) : 0;
+  return n >= 1000 ? Math.round(n) : SOFT_COMPACT_TOKENS;
+}
+
+/** Where ruri compacts a chat at a turn's end, in tokens, and which limit
+ *  that is: its harness's share of the window, or near the soft limit —
+ *  whichever comes first. Undefined when ruri's compaction is off. */
+export function autoCompactPoint(
+  ctx: ServerContext,
+  channelId: string,
+): { tokens: number; soft?: number } | undefined {
   if (channelId === HOME_ID || ctx.prefs.all()["ruri-auto-compact"] === "off") return undefined;
   const project = channelProject(ctx, channelId);
   if (!project) return undefined;
+  const hard = Math.round(contextWindow(ctx, channelId) * autoCompactShare(ctx.manager.harnessFor(project)));
+  const soft = softCompactTokens(ctx);
+  const near = soft === undefined ? Infinity : Math.round(soft * (1 - SOFT_MARGIN));
+  return near < hard ? { tokens: near, soft } : { tokens: hard };
+}
+
+/** Why a chat whose turn just ended should be compacted now — its context
+ *  past its share of the window, or near the soft limit — or undefined.
+ *  Never while an agent or a script it started is still running in the
+ *  session. */
+export function autoCompactDue(ctx: ServerContext, channelId: string): string | undefined {
+  const point = autoCompactPoint(ctx, channelId);
+  if (!point) return undefined;
   const tokens = ctx.turns.contexts.get(channelId)?.tokens ?? ctx.archive.contextTokens(channelId) ?? 0;
-  if (tokens === 0) return undefined;
-  const window = contextWindow(ctx, channelId);
-  if (tokens < window * autoCompactShare(ctx.manager.harnessFor(project))) return undefined;
+  if (tokens === 0 || tokens < point.tokens) return undefined;
   const work = ctx.manager.backgroundWork(channelId);
   if (work.agents > 0 || work.scripts > 0) return undefined;
-  const k = (n: number) => (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`);
-  return `the context reached ${Math.round((tokens / window) * 100)}% of ${k(window)} — ruri compacted it, keeping every prompt word for word and every exchange on file`;
+  const k = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(2)}M` : `${Math.round(n / 1000)}k`);
+  const kept = "keeping every prompt word for word and every exchange on file";
+  if (point.soft !== undefined)
+    return `the context reached ${k(tokens)}, near ruri's ${k(point.soft)} soft limit — handing off: ruri compacted it, ${kept}`;
+  const window = contextWindow(ctx, channelId);
+  return `the context reached ${Math.round((tokens / window) * 100)}% of ${k(window)} — ruri compacted it, ${kept}`;
 }
 
 /**

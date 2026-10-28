@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { excerpt, handoffNote, type TranscriptEvent } from "../shared/protocol.js";
 import type { ServerContext } from "./context.js";
 import { contextBriefing } from "./selfCompaction.js";
@@ -55,9 +55,16 @@ function chatAt(
 }
 
 const saved = process.env["RURI_SELF_COMPACT_AT"];
+const savedSoft = process.env["RURI_COMPACT_SOFT_TOKENS"];
+// the figures below are a 1M window's own; the soft limit has its test
+beforeEach(() => {
+  process.env["RURI_COMPACT_SOFT_TOKENS"] = "off";
+});
 afterEach(() => {
   if (saved === undefined) delete process.env["RURI_SELF_COMPACT_AT"];
   else process.env["RURI_SELF_COMPACT_AT"] = saved;
+  if (savedSoft === undefined) delete process.env["RURI_COMPACT_SOFT_TOKENS"];
+  else process.env["RURI_COMPACT_SOFT_TOKENS"] = savedSoft;
 });
 
 describe("where an agent compacts itself", () => {
@@ -88,6 +95,14 @@ describe("where an agent compacts itself", () => {
     expect(selfCompactAt(chatAt(0, { member: true, prefs: { "ruri-self-compact-at": "off" } }), "c1")).toBeUndefined();
     // a lead keeps half its window
     expect(selfCompactAt(chatAt(0), "c1")).toBe(500_000);
+  });
+
+  test("never past ruri's soft limit, so the agent's own note gets there first", () => {
+    delete process.env["RURI_COMPACT_SOFT_TOKENS"];
+    // 5% under 434k
+    expect(selfCompactAt(chatAt(0), "c1")).toBe(412_300);
+    expect(selfCompactAt(chatAt(0, { member: true }), "c1")).toBe(150_000);
+    expect(selfCompactAt(chatAt(0, { prefs: { "ruri-self-compact-at": "600k" } }), "c1")).toBe(412_300);
   });
 });
 

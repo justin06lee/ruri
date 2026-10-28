@@ -53,9 +53,10 @@ export const SELF_COMPACT_SHARE = 0.5;
 export const MEMBER_COMPACT_AT = 150_000;
 
 /** Where a lead — or the liaison — of a project run on workers compacts
- *  itself: it relays and hands on, and every relay re-reads its history,
- *  so its context is kept short (docs/token-efficiency.md, the new design). */
-export const LEAD_COMPACT_AT = 100_000;
+ *  itself, which is also a One-chat project's own chat. 100k had it
+ *  compacting every few exchanges of real work; Justin set it to 434k
+ *  (2026-10-27). */
+export const LEAD_COMPACT_AT = 434_000;
 
 /** How far the context climbs mid-turn before the model hears it again —
  *  a share of the window — and, past its compaction point, how far

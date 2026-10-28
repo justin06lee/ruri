@@ -186,8 +186,15 @@ export class ProjectWatch {
   }
 
   /** A chat's status changed: one at work, or at a card, is its project at
-   *  work now — and a question it ended on has had its answer. */
+   *  work now — and a question it ended on has had its answer. One in error
+   *  that no turn's end explains is a session that died mid-turn (its
+   *  process crashed, its stream broke): that is how its work ended. */
   status(chatId: string, status: ProjectStatus): void {
+    if (status === "error") {
+      if (this.ended.get(chatId)?.error === undefined)
+        this.ended.set(chatId, { at: this.now(), error: crashSays(this.ctx, chatId) });
+      return;
+    }
     if (status !== "working" && status !== "permission") return;
     this.questions.delete(chatId);
     const project = ownerProject(this.ctx, chatId);
@@ -321,7 +328,14 @@ export class ProjectWatch {
       );
     });
     if (failed) {
-      const error = this.ended.get(failed.id)?.error;
+      const ended = this.ended.get(failed.id)?.error;
+      // a line held for the usage limit picks up again at its reset, or
+      // on the user's word: say when
+      const held = this.ctx.queues.held.get(failed.id);
+      const error =
+        held?.by === "limit"
+          ? `usage limit${held.resetsAt ? `, resets ${new Date(held.resetsAt).toISOString()}` : ""}${ended ? `: ${ended}` : ""}`
+          : ended;
       this.emit({
         kind: "project.blocked",
         projectId: project.id,
@@ -345,9 +359,9 @@ export class ProjectWatch {
     for (const chat of chats) {
       const status = statuses[chat];
       if (status === "working" || status === "permission") return true;
-      // a line the user's Stop left standing waits on them, not the team
-      const held = ctx.queues.held.get(chat);
-      if (ctx.queues.pending(chat) > 0 && held?.by !== "stop") return true;
+      // a line held — by the user's Stop, the usage limit, the connection
+      // gone — waits on them or on the world, not on the team
+      if (ctx.queues.pending(chat) > 0 && !ctx.queues.held.has(chat)) return true;
       if (ctx.queues.cutIn.has(chat) || ctx.governor.waiting.includes(chat)) return true;
       if (ctx.retries.has(chat)) return true;
       const work = ctx.turns.work.get(chat);
@@ -424,6 +438,15 @@ function forTheUser(prompt: Extract<TranscriptEvent, { kind: "user" }>): boolean
   if (!from) return true;
   if (from.answer) return !from.owes;
   return false;
+}
+
+/** What a session that died mid-turn said of it: its "session error" line
+ *  (server/sessions.ts run), if the live transcript has one. */
+function crashSays(ctx: ServerContext, chatId: string): string {
+  const said = ctx.archive
+    .events(chatId)
+    .findLast((event) => event.kind === "info" && event.text.startsWith("session error:"));
+  return said?.kind === "info" ? said.text : "the session ended in the middle of a turn";
 }
 
 function clip(text: string): string {

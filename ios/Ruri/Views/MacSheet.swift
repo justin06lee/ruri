@@ -11,7 +11,7 @@ struct MacSheet: View {
         switch model.link {
         case .live: "Live"
         case .connecting: "Connecting…"
-        case .offline: "Not reachable"
+        case .offline: model.asleepWords()
         case .unpaired: "Not paired"
         }
     }

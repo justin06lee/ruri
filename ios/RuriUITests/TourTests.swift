@@ -78,7 +78,7 @@ final class TourTests: XCTestCase {
             FileManager.default.createFile(
                 atPath: (cue as NSString).deletingLastPathComponent + "/down", contents: Data())
             XCTAssertTrue(
-                app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Not reachable'")).firstMatch
+                app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Mac asleep or offline'")).firstMatch
                     .waitForExistence(timeout: 90),
                 "the line is down, and the screen says so")
             pause(2)

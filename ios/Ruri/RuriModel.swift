@@ -203,6 +203,13 @@ final class RuriModel {
         return address
     }
 
+    /// What the screens say while nothing answers: the Mac is asleep or off
+    /// every network this phone is on, and when it was last heard from.
+    func asleepWords(now: Date = .now) -> String {
+        guard let heard else { return "Mac asleep or offline" }
+        return "Mac asleep or offline · last seen \(Ago.long(heard, now: now))"
+    }
+
     private func take(_ report: StatusReport) {
         self.report = report
         heard = .now

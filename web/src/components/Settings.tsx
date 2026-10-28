@@ -14,6 +14,8 @@ import { Icon } from "./chat/Icon";
 import { Devices } from "./Devices";
 import { GreetingEditor } from "./GreetingEditor";
 import { Integrations } from "./Integrations";
+import { Row, Switch } from "./SettingsRows";
+import { FoldList, FoldRow } from "./FoldList";
 import { InfoTip } from "./InfoTip";
 import { ModelIcon } from "./Marks";
 import { PeekBand } from "./PeekBand";
@@ -925,72 +927,83 @@ function Harnesses() {
   const harnesses = useRuri((s) => s.harnesses);
   const looking = useRuri((s) => s.harnessesChecking);
   const checked = harnesses.reduce((latest, h) => Math.max(latest, h.checkedAt ?? 0), 0);
+  // one switch for all of them: on while every one that can keeps itself
+  // current does, and flipping it sets each
+  const ours = harnesses.filter((h) => h.channel !== "other");
+  const auto = ours.length > 0 && ours.every((h) => h.auto !== false);
   return (
-    <div className="grants harnesses">
-      <div className="grants-head">
-        <button className="ghost" disabled={looking} onClick={() => send({ type: "check_harnesses" })}>
-          {looking ? "looking…" : "Check now"}
-        </button>
-        <span className="settings-note">last looked {ago(checked || undefined)}</span>
+    <div className="harnesses">
+      <div className="settings-tray">
+        <Row
+          label="Update automatically"
+          info="Each coding CLI keeps itself current on the hour, the way it was installed, never under a running turn."
+        >
+          <Switch
+            on={auto}
+            label="Update the coding CLIs automatically"
+            onChange={(on) => ours.forEach((h) => send({ type: "set_harness_auto", id: h.id, auto: on }))}
+          />
+        </Row>
       </div>
-      {harnesses.length === 0 && (
-        <p className="settings-note">The first look is a minute and a half after launch — or Check now.</p>
-      )}
-      <Capped>
+      <FoldList
+        id="settings-harnesses"
+        title="Coding CLIs"
+        count={harnesses.length}
+        actions={
+          <>
+            <span className="fold-tag">looked {ago(checked || undefined)}</span>
+            <button className="ghost" disabled={looking} onClick={() => send({ type: "check_harnesses" })}>
+              {looking ? "Looking…" : "Check now"}
+            </button>
+          </>
+        }
+      >
+        {harnesses.length === 0 && (
+          <p className="fold-empty">The first look is a minute and a half after launch, or Check now.</p>
+        )}
         {harnesses.map((h) => {
           const late = behind(h);
           const status = h.updating
-            ? "updating"
+            ? "updating…"
             : h.channel === "other"
-              ? "not ours"
+              ? "updates itself elsewhere"
               : late
-                ? "behind"
-                : h.latest
-                  ? "current"
-                  : "unknown";
+                ? `v${h.latest} out`
+                : "";
           return (
-            <div key={h.id} className="grant-row harness-row">
-              <span className={`grant-status harness-status ${status.replace(" ", "-")}`}>
-                {status === "behind" ? `v${h.latest} out` : status}
-              </span>
-              <span className="grant-body">
-                <span className="grant-name">
-                  {h.label} <span className="harness-version">{h.version ? `v${h.version}` : "?"}</span>
+            <FoldRow
+              key={h.id}
+              name={
+                <span className="harness-name">
+                  <ModelIcon pick={markFor(h.id, { provider: h.id, displayName: h.label })} />
+                  {h.label}
+                  <span className="harness-version">{h.version ? `v${h.version}` : "?"}</span>
                 </span>
-                <span className="grant-why" title={h.path}>
-                  {[
-                    h.updatedAt ? `updated from v${h.from} ${ago(h.updatedAt)}` : undefined,
-                    late || h.channel === "other" ? h.note : undefined,
-                    `${CHANNEL_WORD[h.channel]}${h.pkg && h.channel !== "self" ? ` · ${h.pkg}` : ""}`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </span>
-              {h.channel !== "other" && (
-                <label className="harness-auto" title="Keep it current by itself, on the hour">
-                  <input
-                    type="checkbox"
-                    checked={h.auto !== false}
-                    onChange={(e) => send({ type: "set_harness_auto", id: h.id, auto: e.target.checked })}
-                  />
-                  by itself
-                </label>
-              )}
-              {h.channel !== "other" && (
+              }
+              tag={status}
+              title={[
+                h.updatedAt ? `updated from v${h.from} ${ago(h.updatedAt)}` : undefined,
+                late || h.channel === "other" ? h.note : undefined,
+                `${CHANNEL_WORD[h.channel]}${h.pkg && h.channel !== "self" ? ` · ${h.pkg}` : ""}`,
+                h.path,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            >
+              {late && h.channel !== "other" && (
                 <button
-                  className="ghost grant-ask"
-                  disabled={h.updating || !late}
-                  title={late ? `Update to v${h.latest} now` : "Already the newest"}
+                  className="ghost"
+                  disabled={h.updating}
+                  title={`Update to v${h.latest} now`}
                   onClick={() => send({ type: "check_harnesses", id: h.id })}
                 >
-                  {h.updating ? "updating…" : "Update"}
+                  Update
                 </button>
               )}
-            </div>
+            </FoldRow>
           );
         })}
-      </Capped>
+      </FoldList>
     </div>
   );
 }

@@ -10629,3 +10629,85 @@ button.primary { min-height: 28px; }
 .settings-tray > .devices-this {
   border-top: none;
 }
+
+/* Settings → Harnesses: one switch for automatic updates, then the CLIs
+   as a fold-away list, each led by its maker's hand-drawn mark */
+.harnesses {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.harness-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.harness-name .model-icon {
+  width: 20px;
+  height: 20px;
+}
+.harness-name .harness-version {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* Settings → Integrations: each section a fold-away list of plain rows
+   split by a hairline, led by its harness's mark; what only reads
+   (where it comes from) is faint, and what acts looks like a button */
+.integrations {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.fold-body .int-row {
+  background: none;
+  border-radius: 0;
+  padding: 8px 0;
+  margin: 0;
+  gap: 10px;
+}
+.fold-body .int-row + .int-row {
+  margin-top: 0;
+  box-shadow: inset 0 0.5px 0 var(--hairline);
+}
+.int-tag,
+.int-tag.claude {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+}
+.int-tag .model-icon {
+  width: 20px;
+  height: 20px;
+}
+.int-scope {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.int-spacer {
+  width: 0;
+}
+.fold-body .int-row button.ghost {
+  min-height: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--fill);
+}
+.fold-body .int-row button.ghost:hover:not(:disabled) {
+  background: var(--selection);
+}
+.int-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.fold-body .int-add {
+  margin: 8px 0 0;
+}

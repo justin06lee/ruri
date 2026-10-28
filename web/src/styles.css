@@ -2495,8 +2495,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .greeting-edit textarea {
   width: 100%;
-  max-width: 420px;
-  resize: vertical;
+  resize: none;
+  min-height: 0;
+  padding: 6px 10px;
+  line-height: 20px;
 }
 
 /* ── chat ─────────────────────────────────────────────────────────── */
@@ -10453,7 +10455,6 @@ button.primary { min-height: 28px; }
   flex-direction: column;
   border-radius: var(--radius-m);
   background: var(--group-bg);
-  overflow: hidden;
 }
 .bandedit-group > .settings-row {
   min-height: 44px;
@@ -10473,4 +10474,240 @@ button.primary { min-height: 28px; }
 .bandedit-chip.active {
   border-color: var(--ink);
   box-shadow: 0 0 0 1px var(--ink);
+}
+
+/* a file held over the glass box: still glass — a shade more ink and a
+   firmer rim, eased in, so carrying a file across it never flashes */
+.composer-box {
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+.composer-box.drag-over {
+  background: color-mix(in srgb, color-mix(in srgb, var(--ink) 6%, var(--raised)) 66%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 20%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent),
+    0 12px 40px rgba(0, 0, 0, 0.2),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* By the clock: the label and the switch hold the same line on or off —
+   the row's first 28px — and the dial opens beneath them, never moving
+   them up to make room */
+.settings-row.schedule-row {
+  align-items: flex-start;
+}
+.schedule-row > .settings-label {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+.settings-row .settings-value.schedule > .skill-switch {
+  margin: 4.5px 0;
+}
+
+/* ── a tray of settings rows (System Settings' grouped list) ──────── */
+.settings-tray {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-m);
+  background: var(--group-bg);
+}
+.settings-tray > .settings-row {
+  min-height: 44px;
+  padding: 8px 16px;
+  background: none;
+  margin: 0;
+  border-radius: 0;
+}
+.settings-tray > .settings-row + .settings-row {
+  box-shadow: inset 0 0.5px 0 var(--hairline);
+}
+.devices {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── a list that folds away (FoldList.tsx): a quiet heading, plain rows
+   split by a hairline, no tray ─────────────────────────────────────── */
+.fold-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 4px 4px 0;
+}
+.fold-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 0;
+  min-height: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  cursor: default;
+}
+.fold-toggle:hover:not(:disabled) {
+  background: none;
+  color: var(--ink);
+}
+.fold-chevron {
+  width: 12px;
+  height: 12px;
+  transform: rotate(90deg);
+  transition: transform 140ms ease;
+}
+.fold-list.shut .fold-chevron {
+  transform: none;
+}
+.fold-count {
+  margin-left: 2px;
+  color: var(--ink-faint);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.fold-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+}
+.fold-actions button.ghost,
+.fold-row-actions button.ghost {
+  min-height: 0;
+  padding: 3px 10px;
+  font-size: 13px;
+}
+.fold-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0 4px 0 16px;
+}
+.fold-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.fold-body > .fold-row + .fold-row,
+.fold-body > * + * > .fold-row,
+.fold-body > .fold-empty + * > .fold-row {
+  box-shadow: inset 0 0.5px 0 var(--hairline);
+}
+.fold-row.faded .fold-name {
+  color: var(--ink-faint);
+}
+.fold-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fold-tag {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.fold-row-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.fold-empty {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.fold-body .devices-setup {
+  margin: 0 0 12px;
+}
+.settings-tray > .devices-this {
+  border-top: none;
+}
+
+/* Settings → Harnesses: one switch for automatic updates, then the CLIs
+   as a fold-away list, each led by its maker's hand-drawn mark */
+.harnesses {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.harness-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.harness-name .model-icon {
+  width: 20px;
+  height: 20px;
+}
+.harness-name .harness-version {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* Settings → Integrations: each section a fold-away list of plain rows
+   split by a hairline, led by its harness's mark; what only reads
+   (where it comes from) is faint, and what acts looks like a button */
+.integrations {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.fold-body .int-row {
+  background: none;
+  border-radius: 0;
+  padding: 8px 0;
+  margin: 0;
+  gap: 10px;
+}
+.fold-body .int-row + .int-row {
+  margin-top: 0;
+  box-shadow: inset 0 0.5px 0 var(--hairline);
+}
+.int-tag,
+.int-tag.claude {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+}
+.int-tag .model-icon {
+  width: 20px;
+  height: 20px;
+}
+.int-scope {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.int-spacer {
+  width: 0;
+}
+.fold-body .int-row button.ghost {
+  min-height: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--fill);
+}
+.fold-body .int-row button.ghost:hover:not(:disabled) {
+  background: var(--selection);
+}
+.int-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.fold-body .int-add {
+  margin: 8px 0 0;
 }

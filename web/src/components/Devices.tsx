@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { SharedDevice } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 import { useNow } from "../lib/beat";
+import { FoldList, FoldRow } from "./FoldList";
 import { InfoTip } from "./InfoTip";
 import { ruriShell, type PairOutcome, type Peer, type ShellState } from "../lib/shell";
 
@@ -55,107 +56,109 @@ export function Devices() {
 
   return (
     <div className="devices">
-      <div className="settings-row">
-        <span className="settings-label">
-          Share
-          <InfoTip>
-            {`Your paired devices run their chats on ${name}, using its processor and memory, over your network, Tailscale or makima.`}
-            {remoteDevice === null && !/Mac/.test(navigator.userAgent)
-              ? " Closing this window leaves ruri running for them."
-              : ""}
-          </InfoTip>
-        </span>
-        <div className="settings-value">
-          <button
-            className={`skill-switch ${on ? "on" : ""}`}
-            role="switch"
-            aria-checked={on}
-            aria-label="Share this computer"
-            disabled={on && remoteDevice !== null}
-            title={
-              on && remoteDevice !== null
-                ? `This window reaches ${name} through sharing — turn it off there`
-                : on
-                  ? "Stop letting other devices in"
-                  : `Let your other devices use ${name}`
-            }
-            onClick={() => send({ type: "sharing_set", on: !on })}
-          >
-            <span className="skill-knob" />
-          </button>
-        </div>
-      </div>
-
-      {sharing.error && <p className="devices-error">{sharing.error}</p>}
-
-      {on && sharing.addresses.length > 0 && (
+      <div className="settings-tray">
         <div className="settings-row">
-          <span className="settings-label">Reached at</span>
+          <span className="settings-label">
+            Share
+            <InfoTip>
+              {`Your paired devices run their chats on ${name}, using its processor and memory, over your network, Tailscale or makima.`}
+              {remoteDevice === null && !/Mac/.test(navigator.userAgent)
+                ? " Closing this window leaves ruri running for them."
+                : ""}
+            </InfoTip>
+          </span>
           <div className="settings-value">
-            <span
-              className="devices-where"
-              title="Every address a device tries at once — it keeps whichever answers"
+            <button
+              className={`skill-switch ${on ? "on" : ""}`}
+              role="switch"
+              aria-checked={on}
+              aria-label="Share this computer"
+              disabled={on && remoteDevice !== null}
+              title={
+                on && remoteDevice !== null
+                  ? `This window reaches ${name} through sharing — turn it off there`
+                  : on
+                    ? "Stop letting other devices in"
+                    : `Let your other devices use ${name}`
+              }
+              onClick={() => send({ type: "sharing_set", on: !on })}
             >
-              {sharing.addresses.join(" · ")}
-              <span className="devices-port"> port {sharing.port}</span>
-            </span>
+              <span className="skill-knob" />
+            </button>
           </div>
         </div>
-      )}
 
-      <div className="settings-row tall">
-        <span className="settings-label">
-          Invite
-          <InfoTip>
-            Six words, for a device that can't sign in to {name} over SSH. They pair one device, once. Making
-            one turns sharing on.
-          </InfoTip>
-        </span>
-        <div className="settings-value devices-invite">
-          {liveInvite ? (
-            <>
+        {sharing.error && <p className="devices-error">{sharing.error}</p>}
+
+        {on && sharing.addresses.length > 0 && (
+          <div className="settings-row">
+            <span className="settings-label">Reached at</span>
+            <div className="settings-value">
+              <span
+                className="devices-where"
+                title="Every address a device tries at once — it keeps whichever answers"
+              >
+                {sharing.addresses.join(" · ")}
+                <span className="devices-port"> port {sharing.port}</span>
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="settings-row tall">
+          <span className="settings-label">
+            Invite
+            <InfoTip>
+              Six words, for a device that can't sign in to {name} over SSH. They pair one device, once.
+              Making one turns sharing on.
+            </InfoTip>
+          </span>
+          <div className="settings-value devices-invite">
+            {liveInvite ? (
+              <>
+                <div className="devices-code-row">
+                  <ol className="devices-words" title="Click to copy" onClick={copy}>
+                    {liveInvite.words.map((word, i) => (
+                      <li key={i}>
+                        <span className="devices-word-n">{i + 1}</span>
+                        {word}
+                      </li>
+                    ))}
+                  </ol>
+                  <button className="ghost grant-ask" onClick={copy}>
+                    {copied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                <span className="settings-note">
+                  Type these on the other device, in Settings → Devices. Until {clock(liveInvite.expires)}.
+                </span>
+              </>
+            ) : (
               <div className="devices-code-row">
-                <ol className="devices-words" title="Click to copy" onClick={copy}>
-                  {liveInvite.words.map((word, i) => (
-                    <li key={i}>
-                      <span className="devices-word-n">{i + 1}</span>
-                      {word}
-                    </li>
-                  ))}
-                </ol>
-                <button className="ghost grant-ask" onClick={copy}>
-                  {copied ? "Copied" : "Copy"}
+                <button
+                  className="ghost grant-ask"
+                  disabled={asked}
+                  onClick={() => {
+                    setAskedOver(invite?.words.join(" ") ?? null);
+                    send({ type: "sharing_invite" });
+                  }}
+                >
+                  {asked ? "making…" : "Invite a device"}
                 </button>
               </div>
-              <span className="settings-note">
-                Type these on the other device, in Settings → Devices. Until {clock(liveInvite.expires)}.
-              </span>
-            </>
-          ) : (
-            <div className="devices-code-row">
-              <button
-                className="ghost grant-ask"
-                disabled={asked}
-                onClick={() => {
-                  setAskedOver(invite?.words.join(" ") ?? null);
-                  send({ type: "sharing_invite" });
-                }}
-              >
-                {asked ? "making…" : "Invite a device"}
-              </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
+
+        <PhonePairing name={name} now={now} />
       </div>
 
-      <PhonePairing name={name} now={now} />
-
       {sharing.devices.length > 0 && (
-        <div className="devices-list">
+        <FoldList id="devices-paired" title="Paired devices" count={sharing.devices.length}>
           {sharing.devices.map((device) => (
             <DeviceRow key={device.id} device={device} here={device.id === remoteDevice?.id} now={now} />
           ))}
-        </div>
+        </FoldList>
       )}
 
       {ruriShell && <ThisDevice />}
@@ -166,21 +169,14 @@ export function Devices() {
 function DeviceRow({ device, here, now }: { device: SharedDevice; here: boolean; now: number }) {
   const [sure, setSure] = useState(false);
   return (
-    <div className="grant-row">
-      <span className={`grant-status device-status ${device.online ? "online" : ""}`}>
-        {device.online ? "online" : "away"}
-      </span>
-      <span className="grant-body">
-        <span className="grant-name">
-          {device.name}
-          {here && <span className="harness-version">this window</span>}
-        </span>
-        <span className="grant-why">
-          {device.scope === "status" && "phone · reads status only · "}
-          paired {ago(device.pairedAt, now)}
-          {!device.online && device.lastSeen ? ` · last here ${ago(device.lastSeen, now)}` : ""}
-        </span>
-      </span>
+    <FoldRow
+      name={device.name}
+      tag={[here ? "this window" : "", device.scope === "status" ? "phone" : "", device.online ? "" : "away"]
+        .filter(Boolean)
+        .join(" · ")}
+      faded={!device.online}
+      title={`Paired ${ago(device.pairedAt, now)}${!device.online && device.lastSeen ? ` · last here ${ago(device.lastSeen, now)}` : ""}`}
+    >
       <button
         className="ghost grant-ask"
         title={
@@ -197,7 +193,7 @@ function DeviceRow({ device, here, now }: { device: SharedDevice; here: boolean;
       >
         {sure ? "Unpair?" : "Unpair"}
       </button>
-    </div>
+    </FoldRow>
   );
 }
 
@@ -328,82 +324,69 @@ function ThisDevice() {
 
   return (
     <>
-      <div className="settings-row tall devices-this">
-        <span className="settings-label">
-          This device
-          <InfoTip>
-            Run your chats on a stronger computer and keep only the window here: pick one under Computers.
-            Chats running on {computer} stop when you switch.
-          </InfoTip>
-        </span>
-        <div className="settings-value devices-invite">
-          {using ? (
-            <div className="devices-code-row">
-              <span className="settings-note">
-                This window is onto <strong>{using.name}</strong>
-                {using.address ? ` at ${using.address}` : ""}: chats run there, and nothing runs on {computer}
-                .
-              </span>
-              <button className="ghost grant-ask" onClick={() => void shell.use(null)}>
-                Use {computer} instead
-              </button>
-            </div>
-          ) : (
-            <span className="settings-note">Chats run here</span>
-          )}
-        </div>
-      </div>
-
-      <div className="settings-row">
-        <span className="settings-label">
-          Computers
-          <InfoTip>Your other computers, found on makima, Tailscale and this network.</InfoTip>
-        </span>
-        <div className="settings-value">
-          <button className="ghost grant-ask" disabled={looking} onClick={look}>
-            {looking ? "looking…" : "Look again"}
-          </button>
-          <span className="settings-note">
-            {peers === null
-              ? "Looking on makima, Tailscale and this network…"
-              : peers.length === 0
-                ? "None found on makima, Tailscale or this network. Add one by its address."
-                : ""}
+      <div className="settings-tray">
+        <div className="settings-row tall devices-this">
+          <span className="settings-label">
+            This device
+            <InfoTip>
+              Run your chats on a stronger computer and keep only the window here: pick one under Computers.
+              Chats running on {computer} stop when you switch.
+            </InfoTip>
           </span>
+          <div className="settings-value devices-invite">
+            {using ? (
+              <div className="devices-code-row">
+                <span className="settings-note">
+                  This window is onto <strong>{using.name}</strong>
+                  {using.address ? ` at ${using.address}` : ""}: chats run there, and nothing runs on{" "}
+                  {computer}.
+                </span>
+                <button className="ghost grant-ask" onClick={() => void shell.use(null)}>
+                  Use {computer} instead
+                </button>
+              </div>
+            ) : (
+              <span className="settings-note">Chats run here</span>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="devices-list">
+      <FoldList
+        id="devices-computers"
+        title="Computers"
+        count={peers?.length}
+        info="Your other computers, found on makima, Tailscale and this network."
+        actions={
+          <button className="ghost" disabled={looking} onClick={look}>
+            {looking ? "Looking…" : "Look again"}
+          </button>
+        }
+      >
+        {peers === null && <p className="fold-empty">Looking on makima, Tailscale and this network…</p>}
+        {peers?.length === 0 && <p className="fold-empty">None found. Add one by its address below.</p>}
         {list.map((peer) => {
           const id = peer.via.length ? `peer:${peer.name}` : `addr:${peer.name}`;
           const paired = peer.ruri?.hostId;
           const current = paired !== undefined && paired === using?.id;
-          const status = paired ? "paired" : peer.ruri ? "ruri" : peer.online ? "online" : "offline";
           return (
             <div key={id} className="devices-peer">
-              <div className="grant-row">
-                <span className={`grant-status device-status ${status === "paired" ? "online" : ""}`}>
-                  {status}
-                </span>
-                <span className="grant-body">
-                  <span className="grant-name">
-                    {peer.name}
-                    {current && <span className="harness-version">this window</span>}
-                  </span>
-                  <span className="grant-why">
-                    {[peer.via.map((v) => VIA_WORD[v]).join(", "), peer.addresses.join(" · "), peer.os]
-                      .filter(Boolean)
-                      .join(" — ")}
-                  </span>
-                </span>
+              <FoldRow
+                name={peer.name}
+                tag={current ? "this window" : paired ? "paired" : peer.online ? "" : "offline"}
+                faded={!paired && !peer.online}
+                title={[peer.via.map((v) => VIA_WORD[v]).join(", "), peer.addresses.join(" · "), peer.os]
+                  .filter(Boolean)
+                  .join(" — ")}
+              >
                 {paired && !current && (
-                  <button className="ghost grant-ask" onClick={() => void shell.use(paired)}>
+                  <button className="ghost" onClick={() => void shell.use(paired)}>
                     Use
                   </button>
                 )}
                 {paired && (
                   <button
-                    className="ghost grant-ask"
+                    className="ghost"
                     title={`Forget ${peer.name} on this device`}
                     onClick={() =>
                       void shell.forget(paired).then((next) => {
@@ -416,36 +399,38 @@ function ThisDevice() {
                   </button>
                 )}
                 {!paired && peer.online && (
-                  <button className="ghost grant-ask" onClick={() => setOpen(open === id ? null : id)}>
+                  <button className="ghost" onClick={() => setOpen(open === id ? null : id)}>
                     {open === id ? "Close" : "Set up"}
                   </button>
                 )}
-              </div>
+              </FoldRow>
               {open === id && !paired && <SetUp peer={peer} user={state.user} />}
             </div>
           );
         })}
-      </div>
+      </FoldList>
 
-      <div className="settings-row">
-        <span className="settings-label">By address</span>
-        <div className="settings-value vault-form devices-address">
-          <input
-            placeholder="A computer none of these found — its name or IP"
-            value={byAddress}
-            spellCheck={false}
-            onChange={(e) => setByAddress(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && byAddress.trim()) setOpen(`addr:${byAddress.trim()}`);
-            }}
-          />
-          <button
-            className="ghost grant-ask"
-            disabled={!byAddress.trim()}
-            onClick={() => setOpen(`addr:${byAddress.trim()}`)}
-          >
-            Add
-          </button>
+      <div className="settings-tray">
+        <div className="settings-row">
+          <span className="settings-label">By address</span>
+          <div className="settings-value vault-form devices-address">
+            <input
+              placeholder="A computer none of these found — its name or IP"
+              value={byAddress}
+              spellCheck={false}
+              onChange={(e) => setByAddress(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && byAddress.trim()) setOpen(`addr:${byAddress.trim()}`);
+              }}
+            />
+            <button
+              className="ghost grant-ask"
+              disabled={!byAddress.trim()}
+              onClick={() => setOpen(`addr:${byAddress.trim()}`)}
+            >
+              Add
+            </button>
+          </div>
         </div>
       </div>
     </>
@@ -518,8 +503,8 @@ function SetUp({ peer, user }: { peer: Peer; user: string }) {
         Signs in to {peer.name} over SSH, sets ruri up there and pairs this device.
         <InfoTip>
           ruri signs in to {peer.name} over SSH, installs ruri there if it isn't (a few minutes: git, bun and
-          make needed there), starts it to keep running in the background, and pairs this device. Nothing to type
-          but, if it asks, a password.
+          make needed there), starts it to keep running in the background, and pairs this device. Nothing to
+          type but, if it asks, a password.
         </InfoTip>
       </p>
       <div className="devices-code-row vault-form">

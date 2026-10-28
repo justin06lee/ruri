@@ -4,6 +4,14 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- Turning By the clock on or off no longer moves its label and switch; the dial opens beneath them.
+- The peek band editor's menus open over everything instead of being cut off by their tray.
+- The greeting is a one-line field, centred in its row; it grows only as you add lines.
+- Devices is tidier: the settings sit in one tray, and paired devices and computers are fold-away lists of plain rows (name, a faint word, its action), with no trays or descriptions.
+- One Update automatically switch replaces every "by itself" checkbox; the coding CLIs are a fold-away list led by their makers' marks, with no descriptions and Update only when one is behind.
+- Integrations' sections fold away; each row is led by its harness's mark, a plugin's on/off is a switch, and only real controls look like buttons.
+- Carrying a file over the glass input box no longer flickers.
+- Design taste (gusteau) is on by default.
 - The agents page's brief box is glass like the input box, and its Start button is the send button's ink.
 - An attachment tag always has exactly one space either side, and the caret never stands inside the tag or its spaces: a click inside goes to the nearer edge (left of the left space when you click between the space and the tag), an arrow key steps straight through, and Delete on the front space or Backspace after the back one takes the whole thing. A pasted file leaves the caret just past its tag.
 - Text on the sketchpad is set in Space Grotesk, the app's own font; the font picker is gone.

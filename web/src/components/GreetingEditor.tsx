@@ -15,7 +15,8 @@ export function GreetingEditor() {
     >
       <div className="greeting-edit">
         <textarea
-          rows={Math.min(6, Math.max(2, text.split("\n").length))}
+          // one line, the way a field is — it grows only as lines are added
+          rows={Math.min(6, Math.max(1, text.split("\n").length))}
           value={text}
           placeholder="nothing — no title on Home"
           onChange={(e) => {

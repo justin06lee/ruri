@@ -561,9 +561,15 @@ export function Composer({
           className={`composer-box ${dragOver ? "drag-over" : ""} ${compact ? "compact" : ""}`}
           onDragOver={(e) => {
             e.preventDefault();
-            setDragOver(true);
+            if (!dragOver) setDragOver(true);
           }}
-          onDragLeave={() => setDragOver(false)}
+          // a file carried over the box's own words, chips or buttons has
+          // not left it: only going outside the box ends the wash, or it
+          // blinks off and on at every child the pointer crosses
+          onDragLeave={(e) => {
+            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+            setDragOver(false);
+          }}
           onDrop={(e) => {
             e.preventDefault();
             setDragOver(false);

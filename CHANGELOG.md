@@ -4,6 +4,16 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- The agents page's brief box is glass like the input box, and its Start button is the send button's ink.
+- An attachment tag always has exactly one space either side, and the caret never stands inside the tag or its spaces: a click inside goes to the nearer edge (left of the left space when you click between the space and the tag), an arrow key steps straight through, and Delete on the front space or Backspace after the back one takes the whole thing. A pasted file leaves the caret just past its tag.
+- Text on the sketchpad is set in Space Grotesk, the app's own font; the font picker is gone.
+- The left column keeps the sidebar's width in Settings, and the peek band stays across its top on every page.
+- A second double-click on the peek band animates the window back to its size, as the title bar does, instead of snapping.
+- The By the clock switch in Settings → Appearance is a switch again, not a blue circle.
+- The peek band editor is tidier: one toolbar for the picked picture (Replace, Bring forward, Send back, Remove), then grouped trays (Look, On hover, Position) with real switches and short labels.
+- Long descriptions in Settings give way to a small ⓘ that opens a card explaining the setting.
+- Settings → Models leads each row with its provider's hand-drawn mark and ends it with the star; the provider name is gone.
+- Settings → Privacy & Security keeps up with System Settings: it reads macOS again when you come back to the window and every few seconds while the page is open.
 - fix: Bypass permissions asks for nothing. Some commands (an `rm -rf`, a `kill`) still reached ruri's permission card in bypass mode, and a turn already running when you switched to Bypass kept asking until it ended. Both now go through, and a card already up when you switch goes through too.
 - A permission card's Allow is the send button's colour (ink, or cream and white in the dark themes), not blue.
 - A conversation runs to the window's top edge: the top bar floats over it and takes no room, and the text fades out across its height. Sidebar rows are rounder, and the input box is glass: translucent and blurred behind, with a bright hairline along its top and a soft shadow.

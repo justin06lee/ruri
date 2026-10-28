@@ -14,6 +14,7 @@ import { Icon } from "./chat/Icon";
 import { Devices } from "./Devices";
 import { GreetingEditor } from "./GreetingEditor";
 import { Integrations } from "./Integrations";
+import { PeekBand } from "./PeekBand";
 import { AccountBar } from "./Sidebar";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
@@ -680,7 +681,10 @@ export function Settings({ onClose }: { onClose(): void }) {
     <main className="chat settings-page">
       <div className="settings-layout">
         <nav className="settings-navigation" aria-label="Settings categories">
-          <div className="settings-nav-head" />
+          {/* the sidebar's own top: the same width, the same band over it */}
+          <div className="sidebar-header">
+            <PeekBand />
+          </div>
           <div className="settings-categories">
           {SETTINGS_SECTIONS.map((item) => (
             <button

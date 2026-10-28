@@ -9824,8 +9824,8 @@ button.destructive:hover:not(:disabled) {
   display: flex;
 }
 .settings-navigation {
-  width: 180px;
-  flex: 0 0 180px;
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
   display: flex;
   flex-direction: column;
   background: var(--sidebar-bg);
@@ -9877,7 +9877,6 @@ button.destructive:hover:not(:disabled) {
   max-width: 100%;
 }
 @media (max-width: 1050px) {
-  .settings-navigation { width: 172px; flex-basis: 172px; }
   .board-inner.settings-inner { padding: 24px; }
   .settings-row { flex-wrap: wrap; }
   .settings-label { width: 112px; }
@@ -9892,7 +9891,8 @@ button.destructive:hover:not(:disabled) {
   .settings-category .icon { display: none; }
 }
 
-/* Settings uses the window's source-list column for its own categories. */
+/* Settings uses the window's source-list column for its own categories —
+   the sidebar's width, with the peek band across its top as ever. */
 .settings-open > .sidebar { display: none; }
 .desktop .settings-toolbar { padding-left: 84px; -webkit-app-region: drag; }
 .desktop .settings-toolbar button { -webkit-app-region: no-drag; }
@@ -10167,8 +10167,6 @@ button.primary { min-height: 28px; }
 /* Settings, as System Settings lays it out: the category column runs the
    full height under the traffic lights, and the toolbar over the content
    names the category, so the page needs no big heading of its own. */
-.settings-nav-head { height: var(--toolbar-h); flex-shrink: 0; }
-.desktop .settings-nav-head { -webkit-app-region: drag; }
 .settings-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .chat-header.settings-toolbar {
   background: var(--paper-dim);

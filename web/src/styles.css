@@ -10474,3 +10474,17 @@ button.primary { min-height: 28px; }
   border-color: var(--ink);
   box-shadow: 0 0 0 1px var(--ink);
 }
+
+/* a file held over the glass box: still glass — a shade more ink and a
+   firmer rim, eased in, so carrying a file across it never flashes */
+.composer-box {
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+.composer-box.drag-over {
+  background: color-mix(in srgb, color-mix(in srgb, var(--ink) 6%, var(--raised)) 66%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 20%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent),
+    0 12px 40px rgba(0, 0, 0, 0.2),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+}

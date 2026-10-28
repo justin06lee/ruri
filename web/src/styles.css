@@ -10292,3 +10292,13 @@ button.primary { min-height: 28px; }
     0 12px 40px rgba(0, 0, 0, 0.2),
     0 1px 3px rgba(0, 0, 0, 0.08);
 }
+
+/* a card's Allow: the send button's ink (white in dark mode), not blue */
+.permission-actions button.primary {
+  background: var(--ink);
+  color: var(--raised);
+  box-shadow: none;
+}
+.permission-actions button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 86%, var(--raised));
+}

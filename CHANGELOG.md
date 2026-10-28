@@ -4,6 +4,8 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- fix: Bypass permissions asks for nothing. Some commands (an `rm -rf`, a `kill`) still reached ruri's permission card in bypass mode, and a turn already running when you switched to Bypass kept asking until it ended. Both now go through, and a card already up when you switch goes through too.
+- A permission card's Allow is the send button's colour (ink, or cream and white in the dark themes), not blue.
 - A conversation runs to the window's top edge: the top bar floats over it and takes no room, and the text fades out across its height. Sidebar rows are rounder, and the input box is glass: translucent and blurred behind, with a bright hairline along its top and a soft shadow.
 - The top bar is the page's own colour, with no band or material behind it; the conversation, Settings and Statistics fade out under it, the way the conversation fades into the input box at the bottom.
 - Project rows wear a small hand-drawn icon (moon, leaf, mushroom, rocket, cat… 28 of them) instead of a letter tile; each project gets one from its id, and right-clicking the row picks another.

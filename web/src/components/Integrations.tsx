@@ -73,9 +73,7 @@ export function Integrations() {
   return (
     <div className="integrations">
       <p className="settings-note grants-note">
-        The MCP servers and plugins Claude Code and Codex start with, as their own CLIs keep them — changing
-        one here is the CLI changing it. A chat picks a change up the next time its harness starts: the warm
-        ones are restarted as each goes idle, and carry on where they were.
+        MCP servers and plugins for Claude Code and Codex.
       </p>
       <div className="int-for">
         <span className="settings-label">For</span>

@@ -256,8 +256,7 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
   return (
     <div className="hooks">
       <p className="settings-note grants-note">
-        When a project’s whole team goes idle, or gets blocked waiting on you, ruri tells a command or a URL —
-        so midna, or anything else, can step in.{" "}
+        Run a command or call a URL when a project goes idle or needs you.{" "}
         {projectId
           ? `${projectName ?? "This project"} gets the global hooks unless it keeps them off, and can have its own as well.`
           : "These reach every project; pick one above to give it its own."}

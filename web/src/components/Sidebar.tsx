@@ -30,8 +30,7 @@ function HomeRow() {
       >
         <path d="M3 10.5L12 3l9 7.5M5 9.5V21h14V9.5M9 21v-6h6v6" />
       </svg>
-      <span className="project-name">Home</span>
-      {unread && <span className="unread-pip" title="Turn finished" />}
+      <span className={`project-name${unread ? " unread" : ""}`}>Home</span>
     </div>
   );
 }
@@ -215,9 +214,8 @@ const HOVER_MS = 90;
  * had going in it, and the sidebar filled with them. Now the lead is the
  * project's only chat the user sees; the rest are its team, which it hands
  * work to and which the team page (in the chat's header) shows. The row
- * says when anyone on the team is at work — the dragon where the X goes,
- * as a chat's row always had — and how many, beside it. The lead's own
- * turn lights neither: it delegates, and its work is the team's.
+ * says when any of its chats is at work, the lead's own turn included —
+ * the dragon where the X goes — and how many teammates, beside it.
  */
 function ProjectRow({ project }: { project: Project }) {
   const lead = leadOf(project);
@@ -228,11 +226,10 @@ function ProjectRow({ project }: { project: Project }) {
   const unread = useRuri((s) => (leadId ? (s.unread[leadId] ?? false) : false));
   const setActive = useRuri((s) => s.setActive);
   // how many teammates are at work — one number, so the row repaints when
-  // it changes rather than on every status in the app; any at all puts
-  // the head where the X goes
+  // it changes rather than on every status in the app
   const atWork = useRuri((s) => teamAtWork(s, project));
-  const busy = atWork > 0;
-  // what removing it would stop: the lead's own turn counts here
+  // any chat of it at work, the lead's own turn included (in One chat mode
+  // that is all there is), puts the head where the X goes
   const anyBusy = useRuri((s) => project.sessions.some((x) => isBusy(s, x.id)));
   const [renaming, setRenaming] = useState(false);
   const { confirm: ask, card } = useConfirm();
@@ -247,7 +244,7 @@ function ProjectRow({ project }: { project: Project }) {
   };
   return (
     <div
-      className={`project-row team-row ${active ? "active" : ""} ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${busy ? "busy" : ""}`}
+      className={`project-row team-row ${active ? "active" : ""} ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${anyBusy ? "busy" : ""}`}
       title={renaming ? undefined : `${project.path} — double-click to rename`}
       onClick={open}
       // the lead's history asked for while the pointer rests on the row, or
@@ -267,25 +264,16 @@ function ProjectRow({ project }: { project: Project }) {
         setRenaming(true);
       }}
     >
-      <svg
-        className="team-row-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-      >
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-      </svg>
+      {/* a monogram tile, the name's first letter: rows tell apart at a glance */}
+      <span className="team-row-icon" aria-hidden>
+        {Array.from(project.name.trim())[0]?.toUpperCase() ?? "·"}
+      </span>
       {renaming ? (
         <NameEditor value={project.name} className="project-name" onDone={rename} />
       ) : (
-        <span className="project-name">{project.name}</span>
+        <span className={`project-name${unread ? " unread" : ""}`}>{project.name}</span>
       )}
-      {unread && <span className="unread-pip" title="Turn finished" />}
-      {busy && (
+      {atWork > 0 && (
         <span
           className="row-count team-count"
           title={`${atWork} ${atWork === 1 ? "teammate" : "teammates"} at work`}
@@ -353,7 +341,7 @@ function ProjectRow({ project }: { project: Project }) {
           )}
         </button>
         <button
-          className={`remove ${busy ? "busy" : ""}`}
+          className={`remove ${anyBusy ? "busy" : ""}`}
           title={anyBusy ? "Working — click to remove this project anyway" : "Remove project"}
           onClick={(e) => {
             e.stopPropagation();
@@ -369,7 +357,7 @@ function ProjectRow({ project }: { project: Project }) {
             });
           }}
         >
-          <RemoveIcon busy={busy} />
+          <RemoveIcon busy={anyBusy} />
         </button>
       </span>
     </div>
@@ -393,7 +381,7 @@ export function AccountBar() {
         {user || "account"}
         {onto && <span className="account-where"> on {onto}</span>}
       </span>
-      {!connected && <span className="conn off" title="Reconnecting…" />}
+      {!connected && <span className="conn-text">reconnecting…</span>}
       <button
         className={`icon-button ${settingsOpen ? "active" : ""}`}
         title="Settings"

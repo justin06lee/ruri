@@ -35,9 +35,9 @@ const KINDS: Record<Beat, { ms: number; steps: number; prop?: string }> = {
   blink: { ms: 500, steps: 2 },
   doodle: { ms: 500, steps: 8 },
   chomp: { ms: 500, steps: 2 },
-  // twelve degrees a step at fifteen steps a second: a whole turn every two
-  // seconds, as it always took, in thirty steps where it had eight
-  spin: { ms: 67, steps: 30, prop: "--spin" },
+  // a spoke (45°) a step, eight steps a second: a whole turn a second, as
+  // the system's indicator turns
+  spin: { ms: 125, steps: 8, prop: "--spin" },
 };
 
 const movers = new Map<HTMLElement, Beat>();

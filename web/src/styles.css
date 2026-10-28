@@ -21,8 +21,8 @@
 :root {
   --theme-light-paper: #ffffff;
   --theme-light-ink: #1d1d1f;
-  --theme-dark-paper: #1e1e1e;
-  --theme-dark-ink: #ededee;
+  --theme-dark-paper: #0c0c0c;
+  --theme-dark-ink: #ededed;
   --theme-ember-paper: #0f0b08;
   --theme-ember-ink: #f1e4d2;
   --paper: var(--theme-light-paper);
@@ -46,7 +46,7 @@
   --diff-add-ink: #15803d;
   --diff-del-bg: rgba(220, 38, 38, 0.08);
   --diff-del-ink: #b91c1c;
-  --sans: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --sans: "Space Grotesk Variable", system-ui, -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
   --sidebar-w: 240px;
   /* one scale of corners: tags, controls, cards, sheets, the big fields */
@@ -121,17 +121,17 @@
    flips through the tokens */
 :root[data-theme="dark"] {
   --paper: var(--theme-dark-paper);
-  --paper-dim: #292929;
-  --paper-deep: #38383a;
-  --paper-bright: #252525;
+  --paper-dim: #161616;
+  --paper-deep: #242424;
+  --paper-bright: #141414;
   --ink: var(--theme-dark-ink);
-  --ink-soft: #b0b0b5;
-  --ink-faint: #9b9ba0;
-  --hairline: rgba(237, 237, 238, 0.07);
-  --raised: #323232;
-  --line: #ededee;
-  --line-soft: rgba(237, 237, 238, 0.11);
-  --line-faint: rgba(237, 237, 238, 0.055);
+  --ink-soft: #b3b3b3;
+  --ink-faint: #8a8a8a;
+  --hairline: rgba(255, 255, 255, 0.07);
+  --raised: #1c1c1c;
+  --line: #ededed;
+  --line-soft: rgba(255, 255, 255, 0.1);
+  --line-faint: rgba(255, 255, 255, 0.05);
   --diff-add-bg: rgba(34, 197, 94, 0.11);
   --diff-add-ink: #4ade80;
   --diff-del-bg: rgba(248, 113, 113, 0.11);
@@ -140,15 +140,15 @@
   --badge: var(--accent);
   --ok: #30d158;
   --control-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
-  --menu-bg: rgba(38, 38, 41, 0.8);
+  --menu-bg: rgba(26, 26, 26, 0.86);
   --menu-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 12px 36px rgba(0, 0, 0, 0.5);
   --sheet-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 24px 64px rgba(0, 0, 0, 0.6);
   --veil: rgba(0, 0, 0, 0.42);
   color-scheme: dark;
-  --sidebar-bg: #28282a;
-  --toolbar-bg: rgba(38, 38, 40, 0.88);
-  --group-bg: #303032;
-  --field-bg: #373739;
+  --sidebar-bg: #131313;
+  --toolbar-bg: rgba(12, 12, 12, 0.88);
+  --group-bg: #181818;
+  --field-bg: #202020;
   --destructive: #ff6961;
 }
 
@@ -667,18 +667,6 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   background: var(--fill);
 }
 
-.conn {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  transition: background var(--move);
-}
-
-.conn.off {
-  background: transparent;
-  border: 1px solid var(--ink-soft);
-}
-
 /* ── what moves by itself, stepped by web/src/lib/beat.ts ────────────
    Nothing here is an animation: an infinite one redraws the whole window
    at the display's rate for as long as it is on screen. The clocks set
@@ -755,39 +743,6 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   white-space: nowrap;
 }
 
-/* status dots: idle = hollow, working = filled, permission = thick ring,
-   error = filled diamond — held still: they mark chats that are not the
-   one open, and nothing outside the open chat moves */
-
-.dot {
-  width: 8px;
-  height: 8px;
-  min-width: 8px;
-  border-radius: 50%;
-  border: 0.5px solid var(--line-soft);
-  background: transparent;
-  transition:
-    background var(--move),
-    border-color var(--move);
-}
-
-.dot.working {
-  background: var(--ink);
-  border-color: var(--edge);
-}
-
-.dot.permission {
-  background: var(--accent);
-  border: 0;
-}
-
-.dot.error {
-  background: var(--ink);
-  border-color: var(--edge);
-  border-radius: 1px;
-  transform: rotate(45deg);
-}
-
 /* the chats from outside ruri, on the team page (TeamPage.tsx): each one
    found a quiet row, tagged by harness */
 .recent-note {
@@ -813,15 +768,6 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border-radius: var(--radius-xs);
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
-}
-
-.unread-pip {
-  width: 6px;
-  height: 6px;
-  min-width: 6px;
-  border-radius: 1px;
-  background: var(--badge);
-  transform: rotate(45deg);
 }
 
 .project-row .star {
@@ -911,10 +857,17 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    it is on, the X while something works (a spinner stands there), the
    rest on hover. */
 .team-row-icon {
-  width: 13px;
-  height: 13px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  color: var(--ink-faint);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .project-row.active .team-row-icon {
@@ -1130,9 +1083,10 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 /* ── the spinner: a chat or agent at work ─────────────────────────── */
 
-/* Apple's activity indicator: twelve spokes fading behind the darkest,
-   snapped to a spoke's turn (30°) per step of the ring's clock (--spin,
-   beat.ts), so it ticks round like the system one instead of gliding */
+/* Apple's activity indicator: eight thin round-capped spokes standing off
+   the centre, fading behind the darkest, snapped a spoke's turn (45°) per
+   step of the ring's clock (--spin, beat.ts), so it ticks round like the
+   system one instead of gliding */
 .spinner,
 .agent-status.running::before {
   display: inline-block;
@@ -1140,24 +1094,17 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   height: 14px;
   flex-shrink: 0;
   color: var(--ink-soft);
-  background: conic-gradient(from -15deg,
-    color-mix(in srgb, currentColor 100%, transparent) 0deg 30deg,
-    color-mix(in srgb, currentColor 22%, transparent) 30deg 60deg,
-    color-mix(in srgb, currentColor 28%, transparent) 60deg 90deg,
-    color-mix(in srgb, currentColor 35%, transparent) 90deg 120deg,
-    color-mix(in srgb, currentColor 41%, transparent) 120deg 150deg,
-    color-mix(in srgb, currentColor 47%, transparent) 150deg 180deg,
-    color-mix(in srgb, currentColor 54%, transparent) 180deg 210deg,
-    color-mix(in srgb, currentColor 60%, transparent) 210deg 240deg,
-    color-mix(in srgb, currentColor 66%, transparent) 240deg 270deg,
-    color-mix(in srgb, currentColor 72%, transparent) 270deg 300deg,
-    color-mix(in srgb, currentColor 79%, transparent) 300deg 330deg,
-    color-mix(in srgb, currentColor 85%, transparent) 330deg 360deg);
-  mask:
-    radial-gradient(circle, transparent 36%, #000 37%),
-    repeating-conic-gradient(from -8deg, #000 0 16deg, transparent 16deg 30deg);
-  mask-composite: intersect;
-  transform: rotate(round(down, calc(var(--spin, 0) * 12deg), 30deg));
+  background: conic-gradient(from -22.5deg,
+    color-mix(in srgb, currentColor 100%, transparent) 0deg 45deg,
+    color-mix(in srgb, currentColor 25%, transparent) 45deg 90deg,
+    color-mix(in srgb, currentColor 34%, transparent) 90deg 135deg,
+    color-mix(in srgb, currentColor 43%, transparent) 135deg 180deg,
+    color-mix(in srgb, currentColor 52%, transparent) 180deg 225deg,
+    color-mix(in srgb, currentColor 64%, transparent) 225deg 270deg,
+    color-mix(in srgb, currentColor 76%, transparent) 270deg 315deg,
+    color-mix(in srgb, currentColor 88%, transparent) 315deg 360deg);
+  mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g stroke='black' stroke-width='1.9' stroke-linecap='round'><path d='M12 2.5v4.5' transform='rotate(0 12 12)'/><path d='M12 2.5v4.5' transform='rotate(45 12 12)'/><path d='M12 2.5v4.5' transform='rotate(90 12 12)'/><path d='M12 2.5v4.5' transform='rotate(135 12 12)'/><path d='M12 2.5v4.5' transform='rotate(180 12 12)'/><path d='M12 2.5v4.5' transform='rotate(225 12 12)'/><path d='M12 2.5v4.5' transform='rotate(270 12 12)'/><path d='M12 2.5v4.5' transform='rotate(315 12 12)'/></g></svg>") center / contain no-repeat;
+  transform: rotate(calc(var(--spin, 0) * 45deg));
   will-change: transform;
 }
 
@@ -1350,28 +1297,6 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border: 1px solid currentColor;
   opacity: 0.75;
   font-variant-numeric: tabular-nums;
-}
-
-/* `.working` is also the transcript's progress line, which pins itself to
-   the start of its column — a dot carrying the status word must not */
-.home-tab .dot,
-.pcard-head .dot {
-  align-self: center;
-}
-
-.home-tab .dot {
-  width: 7px;
-  height: 7px;
-  min-width: 7px;
-}
-
-.home-tab.on .dot.working {
-  background: var(--paper);
-  border-color: var(--paper);
-}
-
-.home-tab.on .dot.permission {
-  border-color: var(--paper);
 }
 
 /* ── home: the projects page ──────────────────────────────────────── */
@@ -3327,13 +3252,13 @@ html:not([data-unfocused]) .desktop .sidebar-header {
 
 .thinking {
   position: relative;
-  width: 46px;
-  height: 46px;
-  margin: 6px 0;
+  width: 20px;
+  height: 20px;
+  margin: 4px 0;
   color: var(--ink-soft);
   transform: scaleX(-1) rotate(-5deg);
   /* a sealed box on its own layer: a step turns the layer and swaps which
-     pose is opaque, and nothing outside these 46px — nor inside — is
+     pose is opaque, and nothing outside these 20px — nor inside — is
      painted again for it */
   contain: strict;
   will-change: transform;
@@ -6956,6 +6881,7 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    past the field's top beside the title instead of pushing it down */
 .hero-composer .dragons {
   height: 0;
+  margin-bottom: 0;
   align-self: flex-end;
 }
 
@@ -6970,6 +6896,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: flex-end;
   gap: 12px;
   flex-shrink: 0;
+  /* lifted so the names and reset countdowns hung below have room */
+  margin-bottom: 16px;
   /* a readout, not a control */
   user-select: none;
 }
@@ -10024,3 +9952,207 @@ button.primary { min-height: 28px; }
 @media (max-width: 900px) {
   .sketch-name { flex: 1; max-width: none; }
 }
+
+/* ── the marks over an empty chat (components/Marks.tsx) ─────────────
+   The lab's mark × its product's, doodled: the lines are the theme's ink
+   (currentColor), the fills are the brands' own colours laid a hair off
+   them (.wash). Each mark sits at its own small tilt and gives a little
+   wiggle under the pointer. */
+.marks {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 104px;
+  margin-bottom: 14px;
+  color: var(--ink);
+}
+
+.mark {
+  width: 98px;
+  height: 98px;
+  flex-shrink: 0;
+  overflow: visible;
+  transform: rotate(var(--tilt, 0deg));
+}
+
+.mark .ink {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mark .wash {
+  transform: translate(2.6px, 2.3px);
+}
+
+/* a mark drawn as lines rather than shapes: the blossom */
+.mark .knot {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mark-x {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+
+.mark-x .ink {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+}
+
+/* a name lettered by hand, over a smudge of the brand's colour */
+.mark-letters {
+  max-width: 230px;
+  padding: 0 6px;
+  font-family: "Marker Felt", "Chalkboard SE", "Noteworthy", "Comic Sans MS", cursive;
+  font-size: 34px;
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  text-align: center;
+  text-shadow: 2.5px 2.5px 0 var(--wash);
+  transform: rotate(-3deg);
+  overflow-wrap: anywhere;
+}
+
+/* one mark, small, beside a model's name in a list (ModelIcon): drawn in
+   the text's own colour, so a highlighted row turns its lines with it */
+.model-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.model-icon .mark {
+  width: 100%;
+  height: 100%;
+}
+
+.dropdown-trigger .model-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: -2px;
+}
+
+.marks:hover .mark,
+.marks:hover .mark-letters {
+  animation: mark-wiggle 520ms ease-in-out;
+}
+
+.marks:hover .mark-x {
+  animation: mark-spin 520ms ease-in-out;
+}
+
+@keyframes mark-wiggle {
+  0%,
+  100% {
+    transform: rotate(var(--tilt, -3deg));
+  }
+  30% {
+    transform: rotate(calc(var(--tilt, -3deg) - 6deg));
+  }
+  65% {
+    transform: rotate(calc(var(--tilt, -3deg) + 5deg));
+  }
+}
+
+@keyframes mark-spin {
+  50% {
+    transform: rotate(90deg) scale(1.15);
+  }
+  100% {
+    transform: rotate(180deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marks:hover .mark,
+  .marks:hover .mark-letters,
+  .marks:hover .mark-x {
+    animation: none;
+  }
+}
+
+/* ── no status dots (2026-10-27): a finished chat's name goes bold, a
+   working one has the spinner, and the rest is said in words ── */
+.project-name.unread { font-weight: 650; color: var(--ink); }
+.conn-text { font-size: 11px; color: var(--ink-faint); white-space: nowrap; }
+.home-tab .spinner { width: 11px; height: 11px; margin-left: 6px; }
+.home-tab-note { margin-left: 6px; font-size: 11px; color: var(--ink-soft); }
+
+/* ── the projects page as a grid of small live views: each card is the
+   project's name over the last few things its chat did ── */
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.projects-grid .pcard,
+.projects-grid .pcard:nth-child(odd) {
+  display: flex;
+  flex-direction: column;
+  min-height: 150px;
+  background: var(--paper-dim);
+  border-radius: var(--radius-m);
+}
+.projects-grid .pcard:hover { background: var(--fill); }
+.projects-grid .pcard-head { padding: 12px 14px 4px; flex-wrap: nowrap; gap: 8px; }
+.projects-grid .pcard-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.projects-grid .pcard-head .spinner { width: 12px; height: 12px; }
+.projects-grid .pcard-body { padding: 4px 14px 12px; }
+.projects-grid .board-line { font-family: var(--mono); font-size: 11px; line-height: 1.55; }
+.projects-group { margin: 28px 0 10px; font-size: 13px; color: var(--ink); text-transform: none; }
+.projects-head + .projects-group { margin-top: 20px; }
+
+/* a project page's title is the project's name, and a way back to its chat */
+.chat-title-link {
+  border: none;
+  background: none;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: var(--radius-s);
+  font-family: inherit;
+  color: var(--ink);
+  cursor: default;
+}
+.chat-title-link:hover { background: var(--fill); }
+
+/* Settings, as System Settings lays it out: the category column runs the
+   full height under the traffic lights, and the toolbar over the content
+   names the category, so the page needs no big heading of its own. */
+.settings-nav-head { height: var(--toolbar-h); flex-shrink: 0; }
+.desktop .settings-nav-head { -webkit-app-region: drag; }
+.settings-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.chat-header.settings-toolbar {
+  background: var(--paper-dim);
+  backdrop-filter: none;
+  box-shadow: inset 0 -0.5px 0 var(--hairline);
+  padding: 8px 16px 8px 24px;
+}
+.desktop .settings-toolbar, .desktop.linux .settings-toolbar { padding-left: 24px; }
+.settings-toolbar .chat-title { font-size: 13px; font-weight: 600; }
+.settings-group-name {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; margin: 0;
+}
+.board-inner.settings-inner { max-width: 640px; margin: 0 auto; padding: 24px 24px 56px; }
+.settings-group > .settings-row { min-height: 44px; padding: 8px 16px; flex-wrap: wrap; row-gap: 4px; }
+.settings-row > .settings-note { flex-basis: 100%; margin: 0; font-size: 12px; line-height: 1.4; }
+/* the picked segment reads at a glance: a raised key with weight, the rest quieter */
+.seg { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+.seg-option { color: var(--ink-soft); }
+.seg-option.active, .seg-option.active:hover {
+  color: var(--ink);
+  font-weight: 500;
+  box-shadow: 0 0.5px 0 color-mix(in srgb, #000 12%, transparent), 0 1px 3px color-mix(in srgb, #000 14%, transparent);
+}
+[data-theme="dark"] .seg-option.active,
+[data-theme="ember"] .seg-option.active { background: color-mix(in srgb, var(--ink) 24%, var(--paper-dim)); }

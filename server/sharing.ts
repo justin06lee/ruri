@@ -180,7 +180,14 @@ export interface Seat {
 const STATUS_PATHS = new Set(["/status", "/status/live"]);
 /** A phone's: the status, and its chats' conversations and sending into
  *  them (server/phoneChat.ts). */
-const PHONE_PATHS = new Set([...STATUS_PATHS, "/chat", "/chat/live", "/chat/send"]);
+const PHONE_PATHS = new Set([
+  ...STATUS_PATHS,
+  "/chat",
+  "/chat/live",
+  "/chat/send",
+  "/phone/push",
+  "/phone/push/settings",
+]);
 const SCOPE_PATHS: Record<DeviceScope, Set<string>> = { status: STATUS_PATHS, phone: PHONE_PATHS };
 
 /** A scope as a request names it: none, or one ruri knows — or undefined
@@ -200,6 +207,8 @@ export interface SharingHooks {
   closeDevice(deviceId: string): void;
   /** Sharing changed. */
   changed(info: SharingInfo): void;
+  /** A phone's notifications: its token and settings (server/phonePush.ts). */
+  push?(req: http.IncomingMessage, res: http.ServerResponse, deviceId: string): void;
 }
 
 const hashKey = (key: string) => createHash("sha256").update(key).digest("hex");
@@ -387,6 +396,13 @@ export class Sharing {
   async pairDirect(name: unknown, scope?: DeviceScope): Promise<Pairing> {
     await this.ensureOpen();
     return this.admit(name, scope);
+  }
+
+  /** What a paired device's key may reach: its scope, "all" for
+   *  everything, undefined for a device not paired. */
+  scopeOf(deviceId: string): DeviceScope | "all" | undefined {
+    const device = this.stored.devices.find((d) => d.id === deviceId);
+    return device ? (device.scope ?? "all") : undefined;
   }
 
   /** Unpair a device: its key stops working, its windows close. */
@@ -661,6 +677,14 @@ export class Sharing {
       this.arrived(seat.deviceId);
       res.on("close", () => this.left(seat.deviceId));
     } else if (seat.scope) this.glimpsed(seat.deviceId);
+    if (seat.scope === "phone" && (pathname === "/phone/push" || pathname === "/phone/push/settings")) {
+      if (this.hooks?.push) this.hooks.push(req, res, seat.deviceId);
+      else {
+        res.writeHead(404);
+        res.end();
+      }
+      return;
+    }
     // the page came with its key in the URL: everything it loads by
     // itself after that carries it as a cookie
     if (from === "query" && req.method === "GET") {

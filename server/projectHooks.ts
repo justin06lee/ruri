@@ -786,7 +786,7 @@ function cardSays(request: PermissionRequest): string | undefined {
 }
 
 /** The chat's last word: the card it waits at, else its last reply. */
-function lastSummary(
+export function lastSummary(
   ctx: ServerContext,
   sessionId: string,
   events: TranscriptEvent[],

@@ -48,6 +48,9 @@ struct HomeView: View {
             }
             .navigationTitle(model.report?.computer ?? model.mac?.name ?? "ruri")
             .freshness()
+            .navigationDestination(for: ChatRoute.self) { route in
+                ChatView(route: route)
+            }
             .navigationDestination(for: String.self) { name in
                 ProjectView(name: name)
             }

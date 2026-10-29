@@ -31,7 +31,7 @@ beforeAll(async () => {
     options: { token: TOKEN },
     listeningPort: 0,
     sharing,
-    store: { list: () => [] },
+    store: { list: () => [], findSession: () => undefined },
   } as unknown as ServerContext;
   const serve = createRequestHandler(ctx);
   sharing.start({
@@ -153,6 +153,8 @@ describe("a key scoped to the status", () => {
       ["/bridge/some-chat", "POST"],
       ["/library/some-chat", "POST"],
       ["/sharing/invite", "POST"],
+      ["/chat?id=x", "GET"],
+      ["/chat/send", "POST"],
     ] as const) {
       const answer = await ask(pathname, phone.key, method);
       expect([pathname, answer.status]).toEqual([pathname, 403]);
@@ -300,9 +302,12 @@ describe("a phone's QR code", () => {
     expect(paired.fingerprint).toBe(query.get("fp")!);
     expect(sharing.info().devices.find((d) => d.id === paired.deviceId)).toMatchObject({
       name: "Justin's iPhone",
-      scope: "status",
+      scope: "phone",
     });
     expect((await ask("/status", paired.key)).status).toBe(200);
+    // a phone's key reaches the chats too: through the door, to a chat
+    // that isn't one
+    expect((await ask("/chat?id=no-such-chat", paired.key)).status).toBe(404);
     expect((await ask("/healthz", paired.key)).status).toBe(403);
     // used: the next phone needs a new one
     const again = await redeem(ticket);

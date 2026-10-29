@@ -24,6 +24,7 @@ import { MUSIC_CORS, scan as scanMusic, serveTrack } from "./music.js";
 import { contextReport, noteFromCall, requestCompaction } from "./selfCompaction.js";
 import { readScope } from "./sharing.js";
 import { serveStatic } from "./staticFiles.js";
+import { isPhoneChatPath, servePhoneChat } from "./phoneChat.js";
 import { isStatusPath, serveStatus } from "./status.js";
 import { serveUpload } from "./uploads.js";
 
@@ -425,6 +426,25 @@ export function createRequestHandler(
         return;
       }
       serveStatus(ctx, req, res);
+      return;
+    }
+    // a chat's conversation and prompts into it, for the phone: the same
+    // door as the status
+    if (isPhoneChatPath((req.url ?? "/").split("?")[0] ?? "/")) {
+      if (
+        !admitted &&
+        (!originAllowed(req.headers.origin, ctx.listeningPort, !options.staticDir) ||
+          !tokenMatches(presentedToken(req), options.token))
+      ) {
+        res.writeHead(401);
+        res.end();
+        return;
+      }
+      void servePhoneChat(ctx, req, res).catch((err: unknown) => {
+        warn("phone", err, "chat request");
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
       return;
     }
     if (req.url === "/music/playlists") {

@@ -16,8 +16,15 @@ import type { ClientMessage } from "./protocol.js";
 const id = z.string().min(1).max(500);
 /** A window's own name for something it shows ahead of the server (a
  *  prompt's bubble): a UUID, since the server makes it the id of an event
- *  that sits in the transcript among ids it minted itself. */
-const clientId = z.string().uuid();
+ *  that sits in the transcript among ids it minted itself — or "midna-"
+ *  and a UUID, how midna (~/.midna/rc.mjs) marks the prompts it sends, so
+ *  it is woken only for those. Nothing else. */
+const clientId = z
+  .string()
+  .regex(
+    /^(?:midna-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    "a UUID, or midna- and a UUID",
+  );
 /** The harnesses whose MCP servers and plugins ruri manages. */
 const integrationHarness = z.enum(["claude", "codex"]);
 /** Free text a person or a model wrote: generous, but not unbounded. */

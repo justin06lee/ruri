@@ -286,6 +286,32 @@ describe("valid messages", () => {
   });
 });
 
+describe("a prompt's clientId", () => {
+  const send = (clientId: string) =>
+    clientMessageSchema.safeParse({ type: "send", projectId: "p", text: "hi", clientId }).success;
+
+  test("is a UUID, or midna- and a UUID", () => {
+    expect(send("0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a")).toBe(true);
+    expect(send("0B6F6F4E-8F0C-4A8E-9A57-2F1F3C1D2E3A")).toBe(true);
+    expect(send("midna-0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a")).toBe(true);
+  });
+
+  test("and nothing else", () => {
+    for (const junk of [
+      "",
+      "hello",
+      "midna-",
+      "midna-hello",
+      "codex-0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a",
+      "0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a-midna",
+      "midna-0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a\n",
+      "0b6f6f4e8f0c4a8e9a572f1f3c1d2e3a",
+    ]) {
+      expect([junk, send(junk)]).toEqual([junk, false]);
+    }
+  });
+});
+
 describe("malformed messages are refused, with a path", () => {
   const cases: Array<[string, unknown, string]> = [
     ["an unknown type", { type: "drop_tables" }, "type"],

@@ -28,7 +28,12 @@ enum Pinning {
 
 /// A URLSession's delegate that lets a server in only by the pinned
 /// certificate: whatever the name or address, and with no authority asked.
-final class PinnedDelegate: NSObject, URLSessionDelegate, Sendable {
+/// It is each task's delegate too, so a streaming task (`bytes(for:)`) on a
+/// connection of its own is asked as well. App Transport Security is off
+/// (Info.plist) so a tailnet address (100.64.0.0/10, not "local" to iOS)
+/// reaches this check at all; a connection that somehow skipped it would
+/// still meet the system's trust, which refuses ruri's own certificate.
+final class PinnedDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     let fingerprint: String
 
     init(fingerprint: String) {
@@ -39,6 +44,18 @@ final class PinnedDelegate: NSObject, URLSessionDelegate, Sendable {
         _ session: URLSession,
         didReceive challenge: URLAuthenticationChallenge
     ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        answer(challenge)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        answer(challenge)
+    }
+
+    private func answer(_ challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               let trust = challenge.protectionSpace.serverTrust
         else { return (.performDefaultHandling, nil) }

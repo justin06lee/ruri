@@ -82,9 +82,12 @@ private struct NoPicture: View {
             ProgressView()
         case .offline:
             ContentUnavailableView {
-                Label("Can't Reach \(model.mac?.name ?? "Your Mac")", systemImage: "wifi.slash")
+                Label("\(model.mac?.name ?? "Your Mac") Is Asleep or Offline", systemImage: "moon.zzz")
             } description: {
-                Text("It may be asleep, or on another network. Away from home, turn on Tailscale on this iPhone.")
+                Text(
+                    (model.heard.map { "Last seen \(Ago.long($0)). " } ?? "")
+                        + "Away from home, keep Tailscale on, on this iPhone and the Mac."
+                )
             } actions: {
                 Button("Try Again") { Task { await model.refresh() } }
             }
@@ -129,7 +132,7 @@ private struct Freshness: ViewModifier {
         switch model.link {
         case .live: nil
         case .connecting: model.report == nil ? nil : "Connecting…"
-        case .offline: model.heard.map { "Not reachable · updated \(Ago.long($0, now: now))" } ?? "Not reachable"
+        case .offline: model.asleepWords(now: now)
         case .unpaired: "Not paired"
         }
     }

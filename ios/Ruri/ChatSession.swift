@@ -152,7 +152,7 @@ final class ChatSession {
                     tries += 1
                     model.lostTheMac()
                     if tries >= 3 {
-                        mark(id, .failed("Couldn't reach the Mac."))
+                        mark(id, .failed("Not sent: the Mac is asleep or offline."))
                         return
                     }
                     try? await Task.sleep(for: .seconds(1.5))

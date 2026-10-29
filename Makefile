@@ -105,7 +105,7 @@ update: stop
 # then swapped in from outside it (scripts/self-update.sh) once no chat is
 # at work — quitting ruri from inside would end the turn that asked.
 self-update: build reset-permissions
-	sh scripts/self-update.sh $(APP_SRC)
+	NOW=$(NOW) sh scripts/self-update.sh $(APP_SRC)
 
 # A superseded bundle goes the moment no running ruri was started from it.
 # Matched by the executable's inode: a moved bundle keeps its inode, while

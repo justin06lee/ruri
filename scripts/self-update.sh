@@ -11,6 +11,8 @@
 # chats mid-turn are carried on after the relaunch — swaps the bundle in,
 # opens it, and takes itself out. Its log: ~/Library/Caches/ruri-update/update.log.
 #
+# NOW=1 doesn't wait for chats at work (they carry on after the relaunch).
+#
 #   sh scripts/self-update.sh <built ruri.app>
 set -eu
 
@@ -41,6 +43,9 @@ done
 i=0
 while [ $i -lt 360 ]; do
   status=$(curl -s -m 5 -H "x-ruri-token: $token" "http://127.0.0.1:$port/status" || true)
+  # asked to go now (make self-update NOW=1, or touching $DIR/now): a
+  # moment for the chat that asked to finish its reply, then go
+  if [ -e "$DIR/now" ]; then rm -f "$DIR/now"; say "asked to go now"; sleep 15; break; fi
   case "$status" in
     *'"working"'*) sleep 5; i=$((i + 1)) ;;
     *) break ;;
@@ -74,6 +79,8 @@ cat > "$PLIST" <<EOF
 EOF
 
 : > "$DIR/update.log"
+rm -f "$DIR/now"
+[ "${NOW:-0}" = 1 ] && touch "$DIR/now"
 launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 echo "staged; ruri updates as soon as no chat is at work (log: $DIR/update.log) — relaunching ends this turn, and it carries on after"

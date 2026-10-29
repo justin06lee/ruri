@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct RuriApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model = RuriModel()
     @Environment(\.scenePhase) private var phase
 

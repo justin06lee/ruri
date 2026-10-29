@@ -29,6 +29,11 @@ struct MacSheet: View {
                     Text("Away from home, this iPhone reaches your Mac over Tailscale: keep it on, on both.")
                 }
                 Section {
+                    NavigationLink("Notifications") {
+                        NotificationsView()
+                    }
+                }
+                Section {
                     Button("Unpair This iPhone", role: .destructive) {
                         confirming = true
                     }

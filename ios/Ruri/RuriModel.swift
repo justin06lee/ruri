@@ -37,6 +37,8 @@ final class RuriModel {
     /// Counts the phone's network changing — Wi-Fi to cellular, onto
     /// Tailscale, back from nothing — so a chat's line can open again too.
     private(set) var network = 0
+    /// What this phone wants to hear, and when it wants quiet.
+    let notifications: Notifications
 
     private var key: String?
     private var client: MacClient?
@@ -50,6 +52,7 @@ final class RuriModel {
     private static let macKey = "pairedMac"
 
     init(demo: StatusReport? = nil) {
+        notifications = Notifications()
         if let demo {
             mac = PairedMac(
                 name: demo.computer, deviceId: "", addresses: [], port: 0, fingerprint: "",
@@ -72,6 +75,29 @@ final class RuriModel {
             heard = kept.heard
         }
         watchNetwork()
+        hearFrom(mac)
+    }
+
+    // MARK: notifications
+
+    /// Point the push token and the notification settings at `mac`.
+    private func hearFrom(_ mac: PairedMac?) {
+        let registrar = PushRegistrar.shared
+        registrar.deliver = { [weak self] token, env in
+            guard let self else { throw MacError.notPaired }
+            let (client, address, port) = try await self.line()
+            try await client.pushToken(token, env: env, at: address, port: port)
+        }
+        notifications.deliver = { [weak self] body in
+            guard let self else { throw MacError.notPaired }
+            let (client, address, port) = try await self.line()
+            try await client.pushSettings(body, at: address, port: port)
+        }
+        notifications.mac = mac?.deviceId
+        Task {
+            await registrar.macChanged(mac?.deviceId)
+            if mac != nil, awake { await notifications.wake() }
+        }
     }
 
     // MARK: the phone's network
@@ -117,6 +143,12 @@ final class RuriModel {
     /// The app came to the front: open the line.
     func wake() {
         awake = true
+        if client != nil {
+            Task {
+                await PushRegistrar.shared.sync()
+                await notifications.wake()
+            }
+        }
         guard client != nil, liveTask == nil else { return }
         liveTask = Task { await self.stayLive() }
     }
@@ -248,6 +280,7 @@ final class RuriModel {
             self.link = .connecting
             pairing = .idle
             restart()
+            hearFrom(mac)
             await refresh()
         } catch {
             pairing = .failed(Self.words(for: error, pairingWith: link.name))
@@ -259,6 +292,7 @@ final class RuriModel {
     func unpair() {
         forget()
         pairing = .idle
+        hearFrom(nil)
     }
 
     private func forget() {

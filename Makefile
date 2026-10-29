@@ -35,7 +35,7 @@ TCC_SERVICES := Accessibility ScreenCapture AppleEvents SystemPolicyAllFiles \
 # ruri was never running.
 RUNNING = ps -Ao pid=,comm= | awk '$$2 ~ /\/MacOS\/$(APP)$$/ {print $$1}'
 
-.PHONY: all build install update launch stop icon identity reset-permissions sweep-superseded tidy tenet
+.PHONY: all build install update self-update launch stop icon identity reset-permissions sweep-superseded tidy tenet
 
 all: build reset-permissions install tidy launch
 
@@ -100,6 +100,12 @@ install: sweep-superseded
 
 update: stop
 	$(MAKE) build reset-permissions install tidy launch
+
+# `make update` for a chat inside ruri: built and signed while ruri runs,
+# then swapped in from outside it (scripts/self-update.sh) once no chat is
+# at work — quitting ruri from inside would end the turn that asked.
+self-update: build reset-permissions
+	sh scripts/self-update.sh $(APP_SRC)
 
 # A superseded bundle goes the moment no running ruri was started from it.
 # Matched by the executable's inode: a moved bundle keeps its inode, while

@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- `make self-update`: a chat inside ruri can update it. The new build is made and signed while ruri runs, then swapped in from outside it once no chat is at work; chats carry on after the relaunch. Log: `~/Library/Caches/ruri-update/update.log`.
 - The Dock icon follows the theme: a dark and an ember version of ruri's three diamonds take over while the app is on those themes (by hand or by the clock). A quit ruri shows the light one.
 - A phone paired to read the status only can be let send without pairing again: Settings → Devices → Paired devices → Allow to send. The iPhone says exactly that where it can't send, with Try Again, and hands its notification token over again when it next comes to the front.
 - iPhone notifications: a project finished, or a chat needs you (a question, an approval, an error), each switchable in the app (Your Mac → Notifications). Tapping one opens the project. Quiet hours run from 21:30 until Fajr, worked out on the phone from a rough location (ISNA, 15°; 05:30 without one); in them a notification arrives silently, or they end with one summary. The Mac sends straight to Apple's push service with the team's key, read from `~/.local/share/ruri/apns`.

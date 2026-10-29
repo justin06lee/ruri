@@ -13,6 +13,7 @@
  * relaunch finds the theme you left on.
  */
 import { isAwake, subscribeAwake } from "./lib/awake";
+import { ruriShell } from "./lib/shell";
 import { getPref, setPref, watchPref } from "./prefs";
 
 export type Theme = "light" | "dark" | "ember";
@@ -94,16 +95,22 @@ export function currentTheme(): Theme {
   return schedule.on ? themeAt(nowMinutes(), schedule) : getTheme();
 }
 
+/** The page in a theme, and the Dock's icon with it (desktop/main.ts). */
+function paint(theme: Theme): void {
+  document.documentElement.dataset["theme"] = theme;
+  ruriShell?.setTheme?.(theme);
+}
+
 /** Paint a theme. `remember` marks it as the hand-picked one. */
 export function applyTheme(theme: Theme, remember = true): void {
-  document.documentElement.dataset["theme"] = theme;
+  paint(theme);
   if (!remember) return;
   setPref(KEY, theme);
 }
 
 /** Apply whatever is due before first paint. */
 export function initTheme(): void {
-  document.documentElement.dataset["theme"] = currentTheme();
+  paint(currentTheme());
   // The window's own copy can be empty — a machine that has never run a
   // build that kept these, or a launch that had to fall back to another
   // port. The snapshot brings the real one a moment later, and the page

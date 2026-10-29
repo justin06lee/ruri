@@ -28,4 +28,6 @@ contextBridge.exposeInMainWorld("ruriShell", {
   forget: (hostId: string) => ipcRenderer.invoke("ruri:forget", hostId),
   retry: () => ipcRenderer.invoke("ruri:retry"),
   windowDrag: (phase: string) => ipcRenderer.send("ruri:drag", phase),
+  /** The page's theme changed: the Dock's icon follows it. */
+  setTheme: (theme: string) => ipcRenderer.send("ruri:theme", theme),
 });

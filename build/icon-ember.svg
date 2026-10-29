@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="ruri">
+  <!-- the app icon, written by scripts/draw-icon.ts: ruri's three diamonds in
+       the model makers' marks' pen, on the ember theme's page, in the
+       macOS icon grid's rounded square -->
+  <defs>
+    <filter id="wobble" filterUnits="userSpaceOnUse" x="-12" y="-12" width="124" height="124">
+      <feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="2" seed="5" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#211a15"/>
+  <g transform="translate(512 499.1) rotate(-2) scale(8.6) translate(-50 -50)">
+    <g filter="url(#wobble)">
+      <g>
+        <path d="M50 33.2Q56.9 38.6 64.5 43.2Q57.7 49 50.2 54Q43 47.9 34.8 43Q42.3 37.9 50 33.2Z" fill="#4a78c9" transform="translate(2.6 2.3)"/>
+        <path d="M31.3 46.6Q38.1 52 45.7 56.2Q39 62 31.2 66.2Q23.3 62 16.3 56.3Q24.1 51.8 31.3 46.6Z" fill="#1e50a2" transform="translate(2.6 2.3)"/>
+        <path d="M68.7 46Q76.8 50.4 83.9 56.3Q76.2 60.9 69.2 66.4Q61.1 62.1 53.9 56.5Q61 50.8 68.7 46Z" fill="#163c80" transform="translate(2.6 2.3)"/>
+      </g>
+      <g fill="none" stroke="#f1e4d2" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M50 33.2Q56.9 38.6 64.5 43.2Q57.7 49 50.2 54Q43 47.9 34.8 43Q42.3 37.9 50 33.2Z"/>
+        <path d="M31.3 46.6Q38.1 52 45.7 56.2Q39 62 31.2 66.2Q23.3 62 16.3 56.3Q24.1 51.8 31.3 46.6Z"/>
+        <path d="M68.7 46Q76.8 50.4 83.9 56.3Q76.2 60.9 69.2 66.4Q61.1 62.1 53.9 56.5Q61 50.8 68.7 46Z"/>
+      </g>
+    </g>
+  </g>
+</svg>

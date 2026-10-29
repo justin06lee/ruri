@@ -138,6 +138,20 @@
       "package.json",
       "!node_modules/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icons/icon.png"
+      },
+      {
+        "from": "build/icon-dark.png",
+        "to": "icons/icon-dark.png"
+      },
+      {
+        "from": "build/icon-ember.png",
+        "to": "icons/icon-ember.png"
+      }
+    ],
     "npmRebuild": false,
     "electronLanguages": [
       "en",

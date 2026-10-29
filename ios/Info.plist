@@ -22,6 +22,10 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>ruri scans the pairing code on your Mac.</string>
+	<key>NSLocationDefaultAccuracyReduced</key>
+	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ruri ends quiet hours at Fajr where you are. Only a rough location is used, on this iPhone.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>ruri reaches your Mac on your network to show what it's working on.</string>
 </dict>

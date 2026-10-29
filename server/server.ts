@@ -58,6 +58,7 @@ import { ConnectionWatch } from "./blocked.js";
 import { Retries } from "./retry.js";
 import { createHttpServer, createRequestHandler } from "./routes.js";
 import { SecretStore } from "./secrets.js";
+import { phonePushOf, servePhonePush, startPhonePush } from "./phonePush.js";
 import { Sharing } from "./sharing.js";
 import { foldDigest } from "./digestFold.js";
 import { setMemoryModel, setSmallModel } from "./smallmodel.js";
@@ -319,9 +320,19 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       for (const ws of ctx.clients.sockets) {
         if (ctx.clients.seats.get(ws)?.deviceId === deviceId) ws.close(4003, "unpaired");
       }
+      phonePushOf(ctx).forget(deviceId);
     },
     changed: (sharing) => ctx.clients.broadcast({ type: "sharing", sharing }),
+    push: (req, res, deviceId) => {
+      void servePhonePush(ctx, req, res, deviceId).catch((err: unknown) => {
+        warn("push", err, "a phone's request");
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
+    },
   });
+  // a paired phone hears when a project finishes or needs the user
+  const stopPhonePush = startPhonePush(ctx);
 
   const host = options.host ?? "127.0.0.1";
 
@@ -430,6 +441,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             }
             relay.stop();
             ctx.meters.stop();
+            stopPhonePush();
             void ctx.sharing.close();
             for (const client of ctx.clients.sockets) client.close();
             // and whatever is still open to it goes too: a window still on

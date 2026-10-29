@@ -325,6 +325,33 @@ final class MacClient: Sendable {
         return answer.as
     }
 
+    /// Hand the Mac this phone's push token, for the APNs `env` it is good
+    /// for. The Mac takes the same token again as no news.
+    func pushToken(_ token: String, env: String, at address: String, port: Int) async throws {
+        try await post(["token": token, "env": env], to: "/phone/push", at: address, port: port)
+    }
+
+    /// The notification settings, and the quiet nights ahead.
+    func pushSettings(_ body: PushSettingsBody, at address: String, port: Int) async throws {
+        try await post(body, to: "/phone/push/settings", at: address, port: port)
+    }
+
+    private func post(_ body: some Encodable, to path: String, at address: String, port: Int) async throws {
+        var request = try request(address, port: port, path: path, timeout: 20)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONEncoder().encode(body)
+        let (_, response) = try await session.data(for: request, delegate: pinned)
+        switch (response as? HTTPURLResponse)?.statusCode {
+        case 200: return
+        case 401: throw MacError.notPaired
+        case 403: throw MacError.readOnly
+        // a ruri from before phones were sent notifications
+        case 404: throw MacError.outdated
+        default: throw MacError.unreachable
+        }
+    }
+
     /// Redeem a pairing code for this phone's key: find which of the code's
     /// addresses answers, over a line pinned to the code's fingerprint, then
     /// hand that one the ticket — once, since a ticket is good only once.

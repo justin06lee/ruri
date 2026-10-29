@@ -6,9 +6,11 @@ import SwiftUI
 struct HomeView: View {
     @Environment(RuriModel.self) private var model
     @State private var showingMac = false
+    @State private var path = NavigationPath()
+    @State private var opener = Opener.shared
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 if model.link == .unpaired {
                     UnpairedSection()
@@ -68,6 +70,13 @@ struct HomeView: View {
             .sheet(isPresented: $showingMac) {
                 MacSheet()
             }
+        }
+        // a tapped notification opens its project
+        .onChange(of: opener.project, initial: true) { _, project in
+            guard let project else { return }
+            opener.project = nil
+            showingMac = false
+            path = NavigationPath([project])
         }
     }
 }

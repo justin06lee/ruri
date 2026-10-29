@@ -20,6 +20,8 @@ let sharing: Sharing;
 let ctx: ServerContext;
 let full: Pairing;
 let phone: Pairing;
+/** The devices that reached the phone's notification routes. */
+const pushed: string[] = [];
 
 beforeAll(async () => {
   before = process.env["RURI_CONFIG_DIR"];
@@ -44,6 +46,11 @@ beforeAll(async () => {
       }),
     closeDevice: () => {},
     changed: () => {},
+    push: (_req, res, deviceId) => {
+      pushed.push(deviceId);
+      res.writeHead(200);
+      res.end("{}");
+    },
   });
   full = await sharing.pairDirect("laptop");
   phone = await sharing.pairDirect("Justin's iPhone", "status");
@@ -126,7 +133,8 @@ function upgrade(key: string): Promise<number> {
 }
 
 /** A request as the door's checks see it. */
-const showing = (key: string) => ({ headers: { "x-ruri-token": key }, url: "/" }) as unknown as http.IncomingMessage;
+const showing = (key: string) =>
+  ({ headers: { "x-ruri-token": key }, url: "/" }) as unknown as http.IncomingMessage;
 
 describe("a key scoped to the status", () => {
   test("reads GET /status and the live stream", async () => {
@@ -155,6 +163,8 @@ describe("a key scoped to the status", () => {
       ["/sharing/invite", "POST"],
       ["/chat?id=x", "GET"],
       ["/chat/send", "POST"],
+      ["/phone/push", "POST"],
+      ["/phone/push/settings", "POST"],
     ] as const) {
       const answer = await ask(pathname, phone.key, method);
       expect([pathname, answer.status]).toEqual([pathname, 403]);
@@ -309,6 +319,9 @@ describe("a phone's QR code", () => {
     // that isn't one
     expect((await ask("/chat?id=no-such-chat", paired.key)).status).toBe(404);
     expect((await ask("/healthz", paired.key)).status).toBe(403);
+    // and hands over its notification token, as itself
+    expect((await ask("/phone/push", paired.key, "POST")).status).toBe(200);
+    expect(pushed).toEqual([paired.deviceId]);
     // used: the next phone needs a new one
     const again = await redeem(ticket);
     expect(again.status).toBe(403);
@@ -337,7 +350,10 @@ describe("a phone's QR code", () => {
     const base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
     try {
       expect((await fetch(`${base}/sharing/phone`, { method: "POST" })).status).toBe(401);
-      const made = await fetch(`${base}/sharing/phone`, { method: "POST", headers: { "x-ruri-token": TOKEN } });
+      const made = await fetch(`${base}/sharing/phone`, {
+        method: "POST",
+        headers: { "x-ruri-token": TOKEN },
+      });
       expect(made.status).toBe(200);
       const code = (await made.json()) as PhoneCode;
       expect(code.link.startsWith("ruri://pair?")).toBe(true);

@@ -145,6 +145,7 @@ final class RuriModel {
         awake = true
         if client != nil {
             Task {
+                PushRegistrar.shared.retryNow()
                 await PushRegistrar.shared.sync()
                 await notifications.wake()
             }
@@ -332,7 +333,8 @@ final class RuriModel {
         case .outdated: "The ruri on \(name) can't pair a phone yet. Update it, then try again."
         case .newer: "\(name) runs a newer ruri than this app. Update the app, then try again."
         case .notPaired: "\(name) didn't accept this iPhone. Make a new code there and scan it."
-        case .readOnly: "This iPhone was paired to read \(name)'s status only. Pair it again to see and send chats."
+        case .readOnly:
+            "This iPhone can only read \(name)'s status. On \(name), open ruri's Settings → Devices → Paired devices and click Allow to send next to this iPhone."
         case .noChat: "That chat isn't open on \(name) anymore."
         case .unreachable, nil:
             "Couldn't reach \(name). Make sure this iPhone is on the same network as it, or on Tailscale."

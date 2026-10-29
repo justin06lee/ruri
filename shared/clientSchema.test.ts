@@ -229,6 +229,7 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   sharing_invite: { type: "sharing_invite" },
   sharing_phone: { type: "sharing_phone" },
   sharing_forget: { type: "sharing_forget", deviceId: "a1b2c3" },
+  sharing_allow_send: { type: "sharing_allow_send", deviceId: "a1b2c3" },
   talk_get: { type: "talk_get" },
   talk_set: {
     type: "talk_set",

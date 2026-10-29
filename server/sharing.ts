@@ -405,6 +405,19 @@ export class Sharing {
     return device ? (device.scope ?? "all") : undefined;
   }
 
+  /** A phone paired to read the status only may see and send chats too,
+   *  with the key it has: nothing to pair again. Only a "status" key
+   *  widens, and only to "phone"; a full key is left as it is. */
+  allowSend(deviceId: string): boolean {
+    const device = this.stored.devices.find((d) => d.id === deviceId);
+    if (device?.scope !== "status") return false;
+    device.scope = "phone";
+    this.save();
+    this.changed();
+    console.log(`ruri: ${device.name} may send now`);
+    return true;
+  }
+
   /** Unpair a device: its key stops working, its windows close. */
   forget(deviceId: string): void {
     const before = this.stored.devices.length;

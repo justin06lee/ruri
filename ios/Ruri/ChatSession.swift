@@ -66,6 +66,8 @@ final class ChatSession {
     /// changed under it.
     func reopen() {
         close()
+        // a key that read the status only may have been let send since
+        if line == .readOnly { line = .connecting }
         open()
     }
 

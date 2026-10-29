@@ -4,6 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
+- A phone paired to read the status only can be let send without pairing again: Settings → Devices → Paired devices → Allow to send. The iPhone says exactly that where it can't send, with Try Again, and hands its notification token over again when it next comes to the front.
 - iPhone notifications: a project finished, or a chat needs you (a question, an approval, an error), each switchable in the app (Your Mac → Notifications). Tapping one opens the project. Quiet hours run from 21:30 until Fajr, worked out on the phone from a rough location (ISNA, 15°; 05:30 without one); in them a notification arrives silently, or they end with one summary. The Mac sends straight to Apple's push service with the team's key, read from `~/.local/share/ruri/apns`.
 - The Mac app is signed with the Developer ID, with hardened runtime and a secure timestamp, then notarized and stapled on every `make build`. It opens on any Mac with no "Open Anyway". The first install of it asks for ruri's privacy grants once more, because the signer changed.
 - iPhone: tap a chat to read its whole conversation, live, with tool calls folded into steps, and send it a prompt from the field at the bottom. While a turn runs, the prompt waits in the queue and says so; a failed send offers Try Again. A raised hand marks a chat waiting on you. A phone paired before this reads the status only until it is paired again. `make testflight` in ios/ uploads a build for team 65UN46K6FA.

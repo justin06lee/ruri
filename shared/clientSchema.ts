@@ -397,6 +397,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("sharing_invite") }),
   z.object({ type: z.literal("sharing_phone") }),
   z.object({ type: z.literal("sharing_forget"), deviceId: id }),
+  z.object({ type: z.literal("sharing_allow_send"), deviceId: id }),
   z.object({ type: z.literal("talk_get") }),
   z.object({ type: z.literal("talk_set"), policy: talkPolicy }),
   z.object({ type: z.literal("team_get"), ...projectId }),

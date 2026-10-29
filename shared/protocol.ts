@@ -2294,6 +2294,9 @@ export type ClientMessage =
   | { type: "sharing_phone" }
   /** Unpair a device: its key stops working and its windows are closed. */
   | { type: "sharing_forget"; deviceId: string }
+  /** Let a phone paired to read the status only see and send chats too:
+   *  its key's scope widened to "phone", from this computer's own window. */
+  | { type: "sharing_allow_send"; deviceId: string }
   /** The talk page opened: send who may message whom, and what has been
    *  said lately. Answered with `talk`. */
   | { type: "talk_get" }

@@ -135,12 +135,16 @@ struct ChatView: View {
     private func composer(_ session: ChatSession) -> some View {
         Group {
             if session.line == .readOnly {
-                Text("This iPhone was paired to read the status only. Pair it again on your Mac to send here.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                VStack(spacing: 6) {
+                    Text("This iPhone can only read. To send from here, open ruri on your Mac, go to Settings → Devices → Paired devices, and click Allow to send next to this iPhone.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Try Again") { session.reopen() }
+                        .font(.footnote)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
             } else {
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField("Message", text: $draft, axis: .vertical)

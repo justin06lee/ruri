@@ -168,15 +168,30 @@ export function Devices() {
 
 function DeviceRow({ device, here, now }: { device: SharedDevice; here: boolean; now: number }) {
   const [sure, setSure] = useState(false);
+  // only this computer's own window may widen a phone's key
+  const remote = useRuri((s) => s.remoteDevice) !== null;
   return (
     <FoldRow
       name={device.name}
-      tag={[here ? "this window" : "", device.scope === "status" ? "phone" : "", device.online ? "" : "away"]
+      tag={[
+        here ? "this window" : "",
+        device.scope === "status" ? "phone · reads only" : device.scope === "phone" ? "phone" : "",
+        device.online ? "" : "away",
+      ]
         .filter(Boolean)
         .join(" · ")}
       faded={!device.online}
       title={`Paired ${ago(device.pairedAt, now)}${!device.online && device.lastSeen ? ` · last here ${ago(device.lastSeen, now)}` : ""}`}
     >
+      {device.scope === "status" && !remote && (
+        <button
+          className="ghost grant-ask"
+          title="Let this phone read your chats and send prompts, with the pairing it has"
+          onClick={() => send({ type: "sharing_allow_send", deviceId: device.id })}
+        >
+          Allow to send
+        </button>
+      )}
       <button
         className="ghost grant-ask"
         title={

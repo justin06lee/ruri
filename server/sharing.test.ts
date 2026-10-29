@@ -364,6 +364,23 @@ describe("a phone's QR code", () => {
   });
 });
 
+describe("letting a read-only phone send", () => {
+  test("widens its key to the chats, with no pairing again; a full key is left alone", async () => {
+    const old = await sharing.pairDirect("Old iPhone", "status");
+    expect((await ask("/chat?id=no-such-chat", old.key)).status).toBe(403);
+    expect(sharing.allowSend(old.deviceId)).toBe(true);
+    expect(sharing.scopeOf(old.deviceId)).toBe("phone");
+    // through the door, as itself: the chats now, still not the rest
+    expect((await ask("/chat?id=no-such-chat", old.key)).status).toBe(404);
+    expect((await ask("/healthz", old.key)).status).toBe(403);
+    expect(new Sharing().scopeOf(old.deviceId)).toBe("phone");
+    expect(sharing.allowSend(old.deviceId)).toBe(false);
+    expect(sharing.allowSend(full.deviceId)).toBe(false);
+    expect(sharing.scopeOf(full.deviceId)).toBe("all");
+    sharing.forget(old.deviceId);
+  });
+});
+
 describe("unpairing", () => {
   test("a scoped key, or a full one, stops working", async () => {
     sharing.forget(phone.deviceId);

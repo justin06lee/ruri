@@ -94,6 +94,12 @@ final class PushRegistrar {
         await sync(now: now)
     }
 
+    /// The app came to the front: a try that failed may go again now —
+    /// the Mac may have let this phone send since.
+    func retryNow() {
+        failedAt = nil
+    }
+
     /// Whether the Mac needs the token handed over.
     func due(now: Date = .now) -> Bool {
         guard let token, let mac else { return false }

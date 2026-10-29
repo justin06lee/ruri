@@ -6,11 +6,13 @@ SwiftUI, iOS 17 or later, and no dependencies. The plan behind it is [docs/mobil
 
 ## How it reaches the Mac
 
-The app talks only to ruri's sharing door (Settings → Devices on the Mac; `server/sharing.ts`). That door is TLS with ruri's own certificate, and the app pins the certificate by its fingerprint. The phone's key can read only the status: `GET /remote/hello` to find the Mac, then `GET /status` and the live stream `GET /status/live`. Every other route refuses that key, the socket included.
+The app talks only to ruri's sharing door (Settings → Devices on the Mac; `server/sharing.ts`). That door is TLS with ruri's own certificate, and the app pins the certificate by its fingerprint. The phone's key reaches `GET /remote/hello` to find the Mac, the status (`GET /status`, `GET /status/live`), each chat (`/chat`, `/chat/live`, `POST /chat/send`) and its notification routes (`/phone/push`). Every other route refuses that key, the socket included.
 
 **Pairing.** On the Mac, open Settings → Devices → Pair a phone. Scan the code it shows, either with the iPhone's Camera app (it offers "Open in ruri") or with Scan Code in the app. You can also press Copy link on the Mac and tap Paste on the app's first screen; Universal Clipboard carries the link across. The code is a `ruri://pair` link. It carries the Mac's addresses, the door's port, the certificate's fingerprint and a one-time ticket that lasts 15 minutes. The app redeems the ticket at `POST /pair/ticket` for its key, which it keeps in the keychain.
 
 **Away from home: Tailscale.** Install Tailscale on the Mac and on the iPhone, sign both in to the same account, and keep it on. The door already listens on the Mac's tailnet address. Every time the app reaches the Mac, it learns the Mac's current addresses, so pair (or open the app once) while Tailscale is on on the Mac. The Mac has to be awake. If you want to check in from away, set the Mac to stay awake on power: System Settings → Battery → Options → Prevent automatic sleeping when the display is off.
+
+**Notifications.** The app asks for a push token once per launch and hands it to the Mac (`POST /phone/push`). The Mac sends straight to Apple's push service when a project finishes or a chat needs you. Your Mac → Notifications turns each kind on or off, and sets the quiet hours: from a time you pick until Fajr, worked out on the phone from a rough location (05:30 without one). The Mac needs the team's APNs key at `~/.local/share/ruri/apns/AuthKey_699PDG8BFP.p8`; without it, nothing is sent. `RuriUITests/NotificationTests` runs it end to end against the scratch ruri below. A simulator on an Apple-silicon Mac gets a real sandbox token, so the banner is a real one.
 
 ## Run it in the simulator
 

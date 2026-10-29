@@ -84,6 +84,15 @@ describe("registering a token", () => {
     expect(again.registered("d1")).toBe(true);
   });
 
+  test("a phone paired again takes its token from the old pairing: it hears each thing once", async () => {
+    const { center, sent } = phones();
+    center.register("old", TOKEN, "production");
+    center.register("new", TOKEN, "production");
+    expect(center.registered("old")).toBe(false);
+    await center.tell(notice());
+    expect(sent).toHaveLength(1);
+  });
+
   test(`a phone may change its token ${TOKEN_CHANGES_PER_HOUR} times an hour`, () => {
     const { center, clock } = phones();
     for (let i = 0; i < TOKEN_CHANGES_PER_HOUR; i++) {

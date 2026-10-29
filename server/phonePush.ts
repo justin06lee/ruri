@@ -475,6 +475,11 @@ export class PhonePush {
       env,
       changes: [...changes, now],
     };
+    // one phone, one token: a phone paired again leaves its old pairing
+    // here until it is removed, and it would hear everything twice
+    for (const [id, other] of Object.entries(this.stored.devices)) {
+      if (id !== deviceId && other.token === clean) delete other.token;
+    }
     this.save();
     return { ok: true, changed: true };
   }
@@ -527,6 +532,7 @@ export class PhonePush {
       sends.push(this.deliver(deviceId, device, noticePayload(notice, until !== undefined)));
     }
     if (held) this.save();
+    if (sends.length) console.log(`ruri: telling ${sends.length} phone(s): ${notice.project} ${notice.kind}`);
     await Promise.all(sends);
   }
 

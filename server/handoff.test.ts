@@ -285,12 +285,12 @@ describe("what rides in ahead of a prompt", () => {
       store: {
         ...ctx.store,
         defaultModel: () => "m",
-        // a lead, not a teammate: half its window, held under ruri's soft limit
+        // a lead, not a teammate: half its window, 500k
         isMember: () => false,
       },
     } as unknown as ServerContext;
     expect(catchUp(measured, CHAT, "hello").brief).toBe(
-      "<ruri:context>300k of 1M tokens used (30%). You compact yourself at 412k, 112k from here.</ruri:context>\n",
+      "<ruri:context>300k of 1M tokens used (30%). You compact yourself at 500k, 200k from here.</ruri:context>\n",
     );
   });
 });

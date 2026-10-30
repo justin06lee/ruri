@@ -595,7 +595,7 @@ function SplitLongPrompts() {
   const on = useSplitLongPrompts();
   return (
     <Row
-      label="Split long prompts"
+      label="Split prompts"
       info="A long prompt with several tasks goes out one task at a time, in your own words, so nothing is lost to a compaction."
     >
       <Switch on={on} label="Split long prompts into tasks" onChange={setSplitLongPrompts} />

@@ -4,7 +4,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 
 ## Unreleased
 
-- A long prompt holding several tasks goes out one task at a time, each its own turn, in your own words: while it is sorted it waits in the queue, then the tasks stand there to edit, move, combine or remove. A prompt that is one job stays whole, and so does any prompt if the small model is slow or wrong. Settings → General → Split long prompts turns it off. midna's prompts are never split.
+- A long prompt holding several tasks goes out one task at a time, each its own turn, in your own words: while it is sorted it waits in the queue, then the tasks stand there to edit, move, combine or remove. A prompt that is one job stays whole, and so does any prompt if the small model is slow or wrong. Settings → General → Split prompts turns it off. midna's prompts are never split.
 - `make self-update`: a chat inside ruri can update it. The new build is made and signed while ruri runs, then swapped in from outside it once no chat is at work; chats carry on after the relaunch. Log: `~/Library/Caches/ruri-update/update.log`.
 - The Dock icon follows the theme: a dark and an ember version of ruri's three diamonds take over while the app is on those themes (by hand or by the clock). A quit ruri shows the light one.
 - A phone paired to read the status only can be let send without pairing again: Settings → Devices → Paired devices → Allow to send. The iPhone says exactly that where it can't send, with Try Again, and hands its notification token over again when it next comes to the front.

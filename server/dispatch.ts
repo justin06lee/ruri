@@ -490,14 +490,17 @@ export function autoCompactShare(harness: string): number {
 
 /** ruri's soft limit, in tokens: a chat whose context comes this close to
  *  it compacts at its turn's end, however big its window — a 1M window
- *  would otherwise run to 800k, every call re-reading all of it. */
-export const SOFT_COMPACT_TOKENS = 434_000;
+ *  would otherwise run to 800k, every call re-reading all of it. Set so its
+ *  margin ends above the 500k where an agent writes its handoff note
+ *  (selfCompaction.ts LEAD_COMPACT_AT): this is the backstop for one that
+ *  didn't, and firing first would throw the note away. */
+export const SOFT_COMPACT_TOKENS = 550_000;
 /** How near the soft limit counts as reaching it: the next turn would
  *  likely cross it, so the compaction comes before that turn. */
 export const SOFT_MARGIN = 0.05;
 
 /** The soft limit — RURI_COMPACT_SOFT_TOKENS, then the
- *  "ruri-compact-soft-tokens" preference ("434000", "434k", "1M"), else
+ *  "ruri-compact-soft-tokens" preference ("550000", "550k", "1M"), else
  *  SOFT_COMPACT_TOKENS; undefined when either says "off". */
 export function softCompactTokens(ctx: ServerContext): number | undefined {
   const env = process.env["RURI_COMPACT_SOFT_TOKENS"]?.trim();

@@ -43,6 +43,11 @@ export interface QueueEntry {
    *  (server/handlers/talk.ts): it follows the messages that cut in, so
    *  one cutting in later still goes ahead of it. */
   resume?: boolean;
+  /** Being cut into tasks (server/promptSplit.ts): nothing behind it goes
+   *  until the answer is in, and then its tasks stand in its place. */
+  splitting?: boolean;
+  /** One task of a prompt that was cut: which, of how many. */
+  part?: { n: number; of: number };
 }
 
 export class SendQueues {
@@ -73,6 +78,7 @@ export class SendQueues {
         text: entry.text,
         ...(entry.attachments?.length ? { attachments: entry.attachments } : {}),
         ...(entry.editing ? { editing: true as const } : {}),
+        ...(entry.splitting ? { splitting: true as const } : {}),
         ...(entry.from ? { from: seatName(entry.from.project, entry.from.title) } : {}),
       }));
   }
@@ -229,7 +235,7 @@ export function mergeEntries(first: QueueEntry, second: QueueEntry): QueueEntry 
  */
 export function combine(queue: QueueEntry[], fromId: string, intoId: string): QueueEntry[] | null {
   if (fromId === intoId) return null;
-  const inLine = (e: QueueEntry) => !e.silent && !e.editing;
+  const inLine = (e: QueueEntry) => !e.silent && !e.editing && !e.splitting;
   const from = queue.find((e) => e.id === fromId && inLine(e));
   const into = queue.find((e) => e.id === intoId && inLine(e));
   if (!from || !into) return null;

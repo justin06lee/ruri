@@ -475,6 +475,30 @@ export async function summarizePrompt(text: string): Promise<string> {
   return note(PROMPT_SUMMARY_SYSTEM, source, source, 80);
 }
 
+const TASK_CUTS_SYSTEM = `You find where a long message from a user to a coding agent divides into separate tasks, so each can be done as its own turn.
+The message comes as numbered pieces, in order. Answer with JSON only: {"tasks":[the number of the piece each task starts at, ascending],"shared":[numbers of pieces that belong to every task]}.
+
+Cut only where one job ends and a different one begins: requests that could be done, checked and reported one after another.
+- One job described at length stays one task: a bug with its details, a spec, a pasted log and a question about it. Answer {"tasks":[1],"shared":[]}. When unsure, do not cut.
+- Pieces of one request stay together, however many: steps, details, follow-up thoughts on the same thing ("also for this...", "and make it...").
+- Things that have to be designed together stay together.
+- A marker such as [image #3] belongs with the words about that image.
+- "shared" is for the few short pieces that apply to every task: who it is from, an opening that sets them all up, standing rules such as "don't push" or "commit each one". Most messages have none.`;
+
+export interface TaskCuts {
+  tasks: number[];
+  shared: number[];
+}
+
+/** Where a numbered prompt divides into tasks (server/promptSplit.ts).
+ *  Someone is waiting on the answer. */
+export async function taskCuts(numbered: string): Promise<TaskCuts | undefined> {
+  const parsed = objectIn(await complete(TASK_CUTS_SYSTEM, numbered, 400, "now"));
+  if (!parsed || !Array.isArray(parsed["tasks"])) return undefined;
+  const shared = Array.isArray(parsed["shared"]) ? parsed["shared"] : [];
+  return { tasks: parsed["tasks"] as number[], shared: shared as number[] };
+}
+
 const REPLY_SUMMARY_SYSTEM = `You compress a coding agent's reply into the fewest words that lose no outcome.
 Telegraphic fragments, almost caveman: keep what changed and where (files, functions, commands), decisions, errors hit, test/build results; drop narration, reasoning, filler.
 Never invent; only compress. Plain text, one line, no markdown, no trailing period.

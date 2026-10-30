@@ -55,6 +55,9 @@ export function dispatch(
   /** The id the user event should go by — the one the window already shows
    *  the prompt under, or the queue entry it waited in (see userEventId). */
   eventId?: string,
+  /** One task of a prompt ruri cut (server/promptSplit.ts): the model is
+   *  told, in its copy only. */
+  part?: { n: number; of: number },
 ): string | undefined {
   // /compact is ruri's own, not the harness's: summaries + full-turn file
   // hooks into a fresh session, with the zigzag mark in the transcript —
@@ -131,13 +134,27 @@ export function dispatch(
     from ? wrapped(ctx, channelId, from, processed.text) : processed.text,
   );
   ctx.archive.noteSent(channelId, harness, userEvent.id);
-  ctx.manager.send(project, brief + reports + said + named, processed.images, undefined, true, userEvent.id);
+  ctx.manager.send(
+    project,
+    brief + reports + said + partLine(part) + named,
+    processed.images,
+    undefined,
+    true,
+    userEvent.id,
+  );
   // a message the other chat has now started on — or an answer now in the
   // sender's hands, which is that letter done with. Only once it has gone:
   // one that fails to go goes back in line, and stays in the book
   if (from) ctx.talk.arrived(from);
   for (const one of held) ctx.talk.arrived(one.from);
   return userEvent.id;
+}
+
+/** What the model is told of a task cut from a longer prompt: the rest are
+ *  coming, so it needn't look for them, ask about them or offer them. */
+function partLine(part: { n: number; of: number } | undefined): string {
+  if (!part) return "";
+  return `\n\n<ruri:part>Part ${part.n} of ${part.of} of one long message from the user, which ruri cut into tasks. Do this part and end your turn; the next one follows on its own.</ruri:part>`;
 }
 
 /**
@@ -221,6 +238,9 @@ export function drainQueue(ctx: ServerContext, channelId: string): boolean {
   // the one being rewritten is not in line — whatever is behind it goes
   const at = queue?.findIndex((entry) => !entry.editing) ?? -1;
   if (!queue || at === -1) return false;
+  // being cut into tasks: nothing goes ahead of it, and the answer moves
+  // the queue on (server/promptSplit.ts)
+  if (queue[at]!.splitting) return false;
   const next = queue[at]!;
   queue.splice(at, 1);
   if (queue.length === 0) ctx.queues.entries.delete(channelId);
@@ -231,7 +251,7 @@ export function drainQueue(ctx: ServerContext, channelId: string): boolean {
     try {
       // the user event takes the entry's id: the card the window showed in
       // the queue becomes the bubble in the transcript, in place
-      dispatch(ctx, channelId, next.text, next.uploads, next.silent, next.from, next.id);
+      dispatch(ctx, channelId, next.text, next.uploads, next.silent, next.from, next.id, next.part);
     } catch (err) {
       // the send failed (the channel vanished, the harness would not
       // start): the prompt goes back to the head of the line rather than

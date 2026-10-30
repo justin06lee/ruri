@@ -22,7 +22,7 @@
  * the job are its answer (talkTurnEnded).
  *
  * ruri's own compaction at about four fifths of the window, or near its
- * soft limit (434k) if that comes first (dispatch.ts autoCompactDue),
+ * soft limit (550k, so from 522k) if that comes first (dispatch.ts autoCompactDue),
  * stays the backstop for an agent that never
  * gets round to it. The system prompt's words about all this never change
  * (contextBriefing), so the cache holds; the figures ride per turn.
@@ -55,9 +55,9 @@ export const MEMBER_COMPACT_AT = 150_000;
 
 /** Where a lead — or the liaison — of a project run on workers compacts
  *  itself, which is also a One-chat project's own chat. 100k had it
- *  compacting every few exchanges of real work; Justin set it to 434k
- *  (2026-10-27). */
-export const LEAD_COMPACT_AT = 434_000;
+ *  compacting every few exchanges of real work; Justin set it to 500k
+ *  (2026-10-30). */
+export const LEAD_COMPACT_AT = 500_000;
 
 /** How far the context climbs mid-turn before the model hears it again —
  *  a share of the window — and, past its compaction point, how far

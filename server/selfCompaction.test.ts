@@ -99,10 +99,10 @@ describe("where an agent compacts itself", () => {
 
   test("never past ruri's soft limit, so the agent's own note gets there first", () => {
     delete process.env["RURI_COMPACT_SOFT_TOKENS"];
-    // 5% under 434k
-    expect(selfCompactAt(chatAt(0), "c1")).toBe(412_300);
+    // half a 1M window, told before the backstop at 5% under 550k
+    expect(selfCompactAt(chatAt(0), "c1")).toBe(500_000);
     expect(selfCompactAt(chatAt(0, { member: true }), "c1")).toBe(150_000);
-    expect(selfCompactAt(chatAt(0, { prefs: { "ruri-self-compact-at": "600k" } }), "c1")).toBe(412_300);
+    expect(selfCompactAt(chatAt(0, { prefs: { "ruri-self-compact-at": "600k" } }), "c1")).toBe(522_500);
   });
 });
 

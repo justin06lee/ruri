@@ -86,6 +86,8 @@ export const SESSIONS_MODE_PREF = "ruri-sessions-mode";
 /** The pref that has sessions hold UI work to the user's design taste
  *  through gusteau ("on"); off when unset (server/gusteau.ts). */
 export const GUSTEAU_PREF = "ruri-gusteau";
+/** Long prompts cut into tasks and sent one at a time, unless "off". */
+export const SPLIT_PREF = "ruri-split-long-prompts";
 
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 
@@ -993,6 +995,8 @@ export interface QueuedPrompt {
    *  where it was (relative to what is still there) when the rewrite is
    *  sent — see queue_edit / queue_update. */
   editing?: true;
+  /** A long prompt being cut into its tasks (server/promptSplit.ts). */
+  splitting?: true;
   /** Sent by another agent: whose, as "project · chat". */
   from?: string;
 }

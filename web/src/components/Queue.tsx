@@ -86,7 +86,7 @@ function QueuedCard({
     >
       <div className="queued-head">
         <span className="queued-label">
-          {item.editing ? "Editing in the composer" : onUndo ? "Combined" : held ? "Standing by" : "Queued"}
+          {item.editing ? "Editing in the composer" : item.splitting ? "Sorting into tasks…" : onUndo ? "Combined" : held ? "Standing by" : "Queued"}
         </span>
         {onUndo && (
           <button

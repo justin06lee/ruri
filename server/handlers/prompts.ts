@@ -26,6 +26,7 @@ import {
 } from "../dispatch.js";
 import { combine, reslot, uncombine, type QueueEntry } from "../queue.js";
 import { projectWatch } from "../projectWatch.js";
+import { splitQueued, wantsSplit } from "../promptSplit.js";
 import { storeAttachments, storeUpload } from "../uploads.js";
 import { followCrew } from "./crew.js";
 import { answerTalk, onAJob, talkDropped } from "./talk.js";
@@ -152,34 +153,45 @@ const send: Handler<"send"> = (ctx, ws, msg) => {
   if (msg.text.trim().length === 0 && !msg.attachments?.length) return;
   const channelId = msg.projectId;
   const uploads = msg.attachments ?? [];
-  const clientId = msg.clientId;
+  const split = wantsSplit(ctx, channelId, msg.text, msg.clientId);
+  // a long prompt is cut in the queue, so it needs an id to be found by
+  const clientId = msg.clientId ?? (split ? randomUUID() : undefined);
   taking(ctx, ws, channelId, clientId, () => {
     // the user is driving again: whatever ruri was about to try again
     // for them, this prompt says it better
     ctx.retries.cancelRetry(channelId);
     // sent to cut in: the running turn stops and this goes in its place —
     // or, when that turn is another agent's job, straight after it
-    if (msg.now && nextAfterJob(ctx, channelId, msg.text, uploads, clientId)) return;
-    if (msg.now && cutIn(ctx, channelId, msg.text, uploads, clientId)) return;
+    if (
+      msg.now &&
+      (nextAfterJob(ctx, channelId, msg.text, uploads, clientId) ||
+        cutIn(ctx, channelId, msg.text, uploads, clientId))
+    ) {
+      if (split) splitQueued(ctx, channelId, clientId!);
+      return;
+    }
     // A queue that has been standing by since a stopped turn: this
     // prompt is the reason it stopped — a clarification, a correction —
     // so it goes out now, ahead of the queue, and the queue falls in
     // behind it and moves again the moment this turn is done.
     const ahead = ctx.queues.releaseQueue(channelId) && !running(ctx, channelId);
     if (queueWithCommands(ctx, channelId, msg.text, uploads, ahead, clientId)) return;
-    if (!ahead && busy(ctx, channelId)) {
+    if (split || (!ahead && busy(ctx, channelId))) {
       // hold it app-side — nothing reaches the harness until the
       // running turn (and everything queued before it) finishes
       const queue = ctx.queues.entries.get(channelId) ?? [];
-      queue.push({
+      const entry: QueueEntry = {
         id: clientId ?? randomUUID(),
         text: msg.text,
         uploads,
         silent: false,
         ...(uploads.length ? { attachments: storeAttachments(uploads) } : {}),
-      });
+      };
+      if (ahead) queue.unshift(entry);
+      else queue.push(entry);
       ctx.queues.entries.set(channelId, queue);
       ctx.queues.broadcastQueue(channelId);
+      if (split) splitQueued(ctx, channelId, entry.id);
       return;
     }
     dispatch(ctx, channelId, msg.text, uploads, false, undefined, clientId);
@@ -243,6 +255,8 @@ export const promptHandlers = {
     const entry = queue?.find((e) => e.id === msg.itemId && !e.silent);
     if (!queue || !entry || entry.editing) return;
     entry.editing = true;
+    // the user's rewrite, not the model's cut
+    delete entry.splitting;
     // a rewrite is the prompt now: taking the fold back would undo it too
     delete entry.combined;
     entry.editAfter = queue

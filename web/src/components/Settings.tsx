@@ -24,6 +24,7 @@ import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
 import { setSessionsMode, useSessionsMode } from "../lib/sessionsMode";
 import { setDesignTaste, useDesignTaste } from "../lib/designTaste";
+import { setSplitLongPrompts, useSplitLongPrompts } from "../lib/splitPrompts";
 import { roughName } from "../lib/models";
 import { markFor } from "../lib/marks";
 import {
@@ -589,6 +590,19 @@ const SETTINGS_SECTIONS = [
   },
 ] as const;
 
+/** Settings → General: long prompts cut into tasks (server/promptSplit.ts). */
+function SplitLongPrompts() {
+  const on = useSplitLongPrompts();
+  return (
+    <Row
+      label="Split prompts"
+      info="A long prompt with several tasks goes out one task at a time, in your own words, so nothing is lost to a compaction."
+    >
+      <Switch on={on} label="Split long prompts into tasks" onChange={setSplitLongPrompts} />
+    </Row>
+  );
+}
+
 /** Settings → General → Design taste (server/gusteau.ts): the switch,
  *  whether gusteau is on this machine, and "Learn from project" for the
  *  project that's open. */
@@ -745,6 +759,7 @@ export function Settings({ onClose }: { onClose(): void }) {
                 </div>
               </div>
 
+              <SplitLongPrompts />
               <DesignTaste />
             </section>
 

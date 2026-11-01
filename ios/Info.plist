@@ -21,7 +21,7 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>ruri scans the pairing code on your Mac.</string>
+	<string>ruri scans the pairing code on your Mac, and takes photos you attach to a prompt.</string>
 	<key>NSLocationDefaultAccuracyReduced</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>

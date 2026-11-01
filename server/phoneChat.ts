@@ -6,7 +6,9 @@
  *   GET  /chat?id=<chat>        the chat's recent conversation, once
  *   GET  /chat/live?id=<chat>   the same as server-sent events: a whole
  *                               frame on connect, then what changed
- *   POST /chat/send             { id, text, clientId } → where it went
+ *   POST /chat/send             { id, text, clientId, attachments? } → where
+ *                               it went; attachments are { id, kind,
+ *                               mediaType, name, n, data } in base64
  *
  * What the phone is shown is what the user reads in the web app: their
  * prompts and the replies in full, tool calls folded into one line of
@@ -19,8 +21,12 @@
  */
 import type * as http from "node:http";
 import { WebSocket } from "ws";
+import { z } from "zod";
 import {
   CARRY_ON,
+  type Attachment,
+  type AttachmentUpload,
+  type PhoneAttachment,
   type PhoneChatFrame,
   type PhoneChatItem,
   type PhoneSent,
@@ -45,6 +51,41 @@ export const CHAT_READ_MS = 700;
 const PING_MS = 25_000;
 /** The longest prompt the phone may send. */
 const PROMPT_MAX = 100_000;
+/** The most a send may be as JSON: about 140 MB of files, in base64. */
+const SEND_MAX = 190_000_000;
+const ATTACHMENTS_MAX = 20;
+
+/** What a phone may attach. The id names a file on this Mac's disk
+ *  (uploads.ts), so only what cannot walk out of the uploads folder. */
+const phoneUploads = z
+  .array(
+    z.object({
+      id: z.string().regex(/^[A-Za-z0-9-]{1,100}$/),
+      kind: z.enum(["image", "video", "file"]),
+      mediaType: z.string().max(200),
+      name: z.string().max(1_000),
+      n: z.number().int().min(1),
+      data: z.string().min(1).max(SEND_MAX),
+    }),
+  )
+  .max(ATTACHMENTS_MAX);
+
+export interface PhoneSendBody {
+  id: string;
+  text: string;
+  clientId: string;
+  uploads: AttachmentUpload[];
+}
+
+/** A /chat/send body, checked — or undefined. A prompt may be files alone. */
+export function readSendBody(body: Record<string, unknown>): PhoneSendBody | undefined {
+  const { id, text, clientId, attachments } = body;
+  if (typeof id !== "string" || typeof text !== "string" || typeof clientId !== "string") return undefined;
+  if (text.length > PROMPT_MAX || clientId.length === 0 || clientId.length > 100) return undefined;
+  const uploads = phoneUploads.safeParse(attachments ?? []);
+  if (!uploads.success || (!text.trim() && uploads.data.length === 0)) return undefined;
+  return { id, text, clientId, uploads: uploads.data };
+}
 
 const CHAT_PATHS = new Set(["/chat", "/chat/live", "/chat/send"]);
 
@@ -66,6 +107,16 @@ const oneLine = (text: string) => {
  *  after a cut-in — are not the user's. */
 const ruris = (text: string) => text.startsWith(CARRY_ON) || /^[↩↪↻]/.test(text);
 
+/** What the phone is told of a prompt's attachments: only what is on file. */
+function phoneAttachments(attachments: Attachment[] | undefined): { attachments?: PhoneAttachment[] } {
+  const stored = (attachments ?? []).flatMap((att) =>
+    att.url
+      ? [{ id: att.id, kind: att.kind, mediaType: att.mediaType, name: att.name, n: att.n, url: att.url }]
+      : [],
+  );
+  return stored.length ? { attachments: stored } : {};
+}
+
 /** A chat's transcript as the phone shows it: what was said, tool calls
  *  between two things said folded into one line of steps. */
 export function phoneItems(events: TranscriptEvent[], draft?: { id: string; text: string }): PhoneChatItem[] {
@@ -82,13 +133,14 @@ export function phoneItems(events: TranscriptEvent[], draft?: { id: string; text
       continue;
     }
     if (event.kind === "user") {
-      if (ruris(event.text) || !event.text.trim()) continue;
+      if (ruris(event.text) || (!event.text.trim() && !event.attachments?.length)) continue;
       fold();
       items.push({
         id: event.id,
         kind: "user",
         text: cut(event.text),
         ...(event.from ? { from: event.from.title || event.from.project } : {}),
+        ...phoneAttachments(event.attachments),
         at: iso(event.ts),
       });
     } else if (event.kind === "assistant") {
@@ -121,7 +173,7 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
   );
   const queue = (ctx.queues.entries.get(chatId) ?? [])
     .filter((entry) => !entry.silent && !entry.from)
-    .map((entry) => ({ id: entry.id, text: cut(entry.text) }));
+    .map((entry) => ({ id: entry.id, text: cut(entry.text), ...phoneAttachments(entry.attachments) }));
   return {
     chat: chatId,
     name: session.title || project.name,
@@ -257,6 +309,7 @@ export async function phoneSend(
   chat: string,
   text: string,
   clientId: string,
+  uploads: AttachmentUpload[] = [],
 ): Promise<PhoneSent> {
   let as: PhoneSent["as"] | undefined;
   // the handler answers a window over its socket: here, a stand-in that
@@ -269,7 +322,13 @@ export async function phoneSend(
     },
   } as unknown as ClientConn;
   try {
-    await promptHandlers.send(ctx, answer, { type: "send", projectId: chat, text, clientId });
+    await promptHandlers.send(ctx, answer, {
+      type: "send",
+      projectId: chat,
+      text,
+      clientId,
+      ...(uploads.length ? { attachments: uploads } : {}),
+    });
   } catch (err) {
     warn("phone", err, "send");
     return { as: "failed" };
@@ -300,32 +359,25 @@ export async function servePhoneChat(
       res.end();
       return;
     }
-    let body: { id?: unknown; text?: unknown; clientId?: unknown };
+    let body: PhoneSendBody | undefined;
     try {
-      body = JSON.parse(await readBody(req, PROMPT_MAX * 4)) as typeof body;
+      const parsed = JSON.parse(await readBody(req, SEND_MAX)) as unknown;
+      body = parsed && typeof parsed === "object" ? readSendBody(parsed as Record<string, unknown>) : undefined;
     } catch {
       json(res, 400, { error: "bad request" });
       return;
     }
-    const { id, text, clientId } = body;
-    if (
-      typeof id !== "string" ||
-      typeof text !== "string" ||
-      typeof clientId !== "string" ||
-      !text.trim() ||
-      text.length > PROMPT_MAX ||
-      clientId.length === 0 ||
-      clientId.length > 100
-    ) {
-      json(res, 400, { error: "send { id, text, clientId }" });
+    if (!body) {
+      json(res, 400, { error: "send { id, text, clientId, attachments? }" });
       return;
     }
+    const { id, text, clientId, uploads } = body;
     const found = ctx.store.findSession(id);
     if (!found || found.project.hidden || !channelProject(ctx, id)) {
       json(res, 404, { error: "no such chat" });
       return;
     }
-    json(res, 200, await phoneSend(ctx, id, text, clientId));
+    json(res, 200, await phoneSend(ctx, id, text, clientId, uploads));
     return;
   }
   if (req.method !== "GET" && req.method !== "HEAD") {

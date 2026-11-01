@@ -314,15 +314,28 @@ final class MacClient: Sendable {
 
     /// Send a prompt into a chat, under the phone's own id for it: sent
     /// twice — after a dropped line — the Mac answers rather than runs it.
-    func send(_ text: String, to chat: String, id: String, at address: String, port: Int) async throws -> SentAs {
-        var request = try request(address, port: port, path: "/chat/send", timeout: 20)
+    func send(
+        _ text: String, attachments: [Attachment] = [], to chat: String, id: String, at address: String, port: Int
+    ) async throws -> SentAs {
+        // files take as long as they take: this is silence, not the whole send
+        var request = try request(address, port: port, path: "/chat/send", timeout: attachments.isEmpty ? 20 : 120)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.httpBody = try JSONEncoder().encode(["id": chat, "text": text, "clientId": id])
+        request.httpBody = try JSONEncoder().encode(
+            SendBody(id: chat, text: text, clientId: id, attachments: attachments.isEmpty ? nil : attachments)
+        )
         let (data, response) = try await session.data(for: request, delegate: pinned)
         try Self.checkChat(response)
         guard let answer = try? JSONDecoder().decode(SendAnswer.self, from: data) else { throw MacError.newer }
         return answer.as
+    }
+
+    /// A file a chat's prompt came with, from where the Mac serves it.
+    func attachment(_ path: String, at address: String, port: Int) async throws -> Data {
+        let request = try request(address, port: port, path: path, timeout: 60)
+        let (data, response) = try await session.data(for: request, delegate: pinned)
+        try Self.checkChat(response)
+        return data
     }
 
     /// Hand the Mac this phone's push token, for the APNs `env` it is good

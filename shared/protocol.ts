@@ -1730,6 +1730,8 @@ export interface StatusProject {
 /** One thing said in a chat, as the phone shows it (server/phoneChat.ts). */
 export interface PhoneChatItem {
   id: string;
+  /** What came with a prompt; each file is at `url` through the door. */
+  attachments?: PhoneAttachment[];
   /** "steps" is a run of tool calls between two things said, folded into
    *  one; "note" is ruri's own line — a turn stopped, or on an error. */
   kind: "user" | "assistant" | "steps" | "note";
@@ -1745,10 +1747,22 @@ export interface PhoneChatItem {
   pending?: true;
 }
 
+/** Something attached to a prompt, as the phone is told of it. */
+export interface PhoneAttachment {
+  id: string;
+  kind: "image" | "video" | "file";
+  mediaType: string;
+  name: string;
+  /** Its number in the prompt's marker: [image #2] is 2. */
+  n: number;
+  url: string;
+}
+
 /** A prompt waiting in the chat's queue, by the id it was sent with. */
 export interface PhoneQueued {
   id: string;
   text: string;
+  attachments?: PhoneAttachment[];
 }
 
 /**

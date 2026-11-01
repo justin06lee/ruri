@@ -329,6 +329,14 @@ describe("a phone's QR code", () => {
     sharing.forget(paired.deviceId);
   });
 
+  test("a phone's key reads what its chats' prompts came with, and only reads it", async () => {
+    const paired = await sharing.pairDirect("Attaching iPhone", "phone");
+    expect((await ask("/uploads/a.png", paired.key)).status).not.toBe(403);
+    expect((await ask("/uploads/a.png", paired.key, "POST")).status).toBe(403);
+    expect((await ask("/uploads/a.png", undefined)).status).toBe(401);
+    sharing.forget(paired.deviceId);
+  });
+
   test("a ticket that ran out, or never was, lets nothing in", async () => {
     const code = await sharing.phoneCode();
     const ticket = new URL(code.link).searchParams.get("ticket")!;

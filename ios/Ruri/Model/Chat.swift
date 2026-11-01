@@ -3,6 +3,28 @@ import Foundation
 // What GET /chat answers, and each frame of GET /chat/live — the shapes are
 // shared/protocol.ts's PhoneChatFrame and PhoneChatItem (server/phoneChat.ts).
 
+/// Something attached to a prompt, as the Mac has it on file.
+struct ChatAttachment: Codable, Hashable, Sendable, Identifiable {
+    enum Kind: String, Codable, Sendable {
+        case image
+        case video
+        case file
+
+        init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = Kind(rawValue: raw) ?? .file
+        }
+    }
+
+    var id: String
+    var kind: Kind
+    var mediaType: String
+    var name: String
+    var n: Int
+    /// Where the Mac serves it. Empty until the Mac has it.
+    var url: String
+}
+
 /// One thing said in a chat.
 struct ChatItem: Codable, Hashable, Sendable, Identifiable {
     enum Kind: String, Codable, Sendable {
@@ -28,12 +50,14 @@ struct ChatItem: Codable, Hashable, Sendable, Identifiable {
     var at: Date
     /// The reply still being written.
     var pending: Bool?
+    var attachments: [ChatAttachment]?
 }
 
 /// A prompt waiting in the chat's queue, by the id it was sent with.
 struct ChatQueued: Codable, Hashable, Sendable, Identifiable {
     var id: String
     var text: String
+    var attachments: [ChatAttachment]?
 }
 
 /// How the chat stands.
@@ -116,4 +140,12 @@ struct ChatLog: Equatable, Sendable {
     func holds(_ id: String) -> Bool {
         items.contains { $0.id == id } || queue.contains { $0.id == id }
     }
+}
+
+/// What POST /chat/send carries.
+struct SendBody: Encodable, Sendable {
+    var id: String
+    var text: String
+    var clientId: String
+    var attachments: [Attachment]?
 }

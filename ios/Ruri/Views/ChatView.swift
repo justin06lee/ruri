@@ -17,6 +17,7 @@ struct ChatView: View {
 
     @State private var session: ChatSession?
     @State private var draft = ""
+    @State private var attachments = AttachmentPicking()
     @FocusState private var typing: Bool
 
     var body: some View {
@@ -146,7 +147,10 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
             } else {
+                VStack(alignment: .leading, spacing: 8) {
+                AttachmentStrip(picking: attachments)
                 HStack(alignment: .bottom, spacing: 8) {
+                    AttachButton(picking: attachments)
                     TextField("Message", text: $draft, axis: .vertical)
                         .lineLimit(1...6)
                         .focused($typing)
@@ -158,24 +162,32 @@ struct ChatView: View {
                         )
                         .accessibilityIdentifier("chat.field")
                     Button {
-                        session.send(draft)
+                        session.send(draft, attachments: attachments.ready)
                         draft = ""
+                        attachments.clear()
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 30))
                             .symbolRenderingMode(.hierarchical)
                     }
                     .tint(.primary)
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(
+                        attachments.loading > 0
+                            || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.ready.isEmpty
+                    )
                     .accessibilityLabel("Send")
                     .accessibilityIdentifier("chat.send")
                     .padding(.bottom, 2)
+                }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }
         }
         .background(.bar)
+        #if DEBUG
+        .task { await attachments.attachForTest() }
+        #endif
     }
 }
 
@@ -206,7 +218,7 @@ private struct RowView: View {
         switch row {
         case .item(let item):
             switch item.kind {
-            case .user: Bubble(text: item.text, from: item.from)
+            case .user: Bubble(text: item.text, from: item.from, attachments: item.attachments ?? [], session: session)
             case .assistant: Reply(item: item)
             case .steps: Steps(item: item)
             case .note:
@@ -217,7 +229,7 @@ private struct RowView: View {
                     .multilineTextAlignment(.center)
             }
         case .queued(let queued):
-            Bubble(text: queued.text, under: "Queued", faded: true)
+            Bubble(text: queued.text, under: "Queued", faded: true, attachments: queued.attachments ?? [], session: session)
         case .outgoing(let outgoing):
             Outgoing(outgoing: outgoing, session: session)
         case .typing:
@@ -234,6 +246,12 @@ private struct Bubble: View {
     var under: String?
     var faded = false
     var failed = false
+    var attachments: [ChatAttachment] = []
+    var session: ChatSession?
+
+    private var words: String {
+        attachments.isEmpty ? text : Attaching.afterMarkers(text)
+    }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 3) {
@@ -242,12 +260,21 @@ private struct Bubble: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            MarkdownText(source: text, font: .body, fill: false)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 8)
-                .background(Color(.systemGray5), in: .rect(cornerRadius: 18, style: .continuous))
+            if let session, !attachments.isEmpty {
+                ForEach(attachments) { attachment in
+                    SentAttachment(attachment: attachment, session: session)
+                }
                 .opacity(faded ? 0.55 : 1)
+            }
+            // a prompt that is only its files has nothing more to say
+            if !words.isEmpty {
+                MarkdownText(source: words, font: .body, fill: false)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 8)
+                    .background(Color(.systemGray5), in: .rect(cornerRadius: 18, style: .continuous))
+                    .opacity(faded ? 0.55 : 1)
+            }
             if let under {
                 Text(under)
                     .font(.caption2)
@@ -329,7 +356,10 @@ private struct Outgoing: View {
     }
 
     var body: some View {
-        Bubble(text: outgoing.text, under: under, faded: outgoing.state == .sending, failed: failed)
+        Bubble(
+            text: outgoing.text, under: under, faded: outgoing.state == .sending, failed: failed,
+            attachments: outgoing.attachments.map(\.shown), session: session
+        )
             .contentShape(.rect)
             .onTapGesture { if failed { asking = true } }
             .confirmationDialog(

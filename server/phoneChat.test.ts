@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CARRY_ON, type PhoneChatFrame, type TranscriptEvent } from "../shared/protocol.js";
-import { nextFrame, phoneItems } from "./phoneChat.js";
+import { nextFrame, phoneItems, readSendBody } from "./phoneChat.js";
 
 const at = 1_700_000_000_000;
 
@@ -25,6 +25,25 @@ describe("phoneItems", () => {
       ["r3", "note", "Stopped"],
     ]);
     expect(items[1]!.steps).toEqual(["Read: Makefile", "Bash: make build"]);
+  });
+
+  test("a prompt's attachments come with it, and files alone are still a prompt", () => {
+    const attachment = {
+      id: "a1",
+      kind: "image" as const,
+      mediaType: "image/jpeg",
+      name: "photo.jpg",
+      n: 1,
+      url: "/uploads/a1-photo.jpg",
+    };
+    const items = phoneItems([
+      { kind: "user", id: "u1", text: "", attachments: [attachment], ts: at },
+      { kind: "user", id: "u2", text: "no file", ts: at + 1 },
+      { kind: "user", id: "u3", text: "", ts: at + 2 },
+    ]);
+    expect(items.map((item) => item.id)).toEqual(["u1", "u2"]);
+    expect(items[0]!.attachments).toEqual([attachment]);
+    expect(items[1]!.attachments).toBeUndefined();
   });
 
   test("the reply still being written comes last, marked pending", () => {
@@ -88,5 +107,34 @@ describe("nextFrame", () => {
       held,
     );
     expect(next.send?.items?.map((item) => item.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("a send from the phone", () => {
+  const file = { id: "a-1", kind: "image" as const, mediaType: "image/png", name: "x.png", n: 1, data: "aGk=" };
+  const send = (more: Record<string, unknown>) => readSendBody({ id: "c", text: "hi", clientId: "p", ...more });
+
+  test("words, files or both", () => {
+    expect(send({})?.uploads).toEqual([]);
+    expect(send({ attachments: [file] })?.uploads).toEqual([file]);
+    expect(send({ text: "", attachments: [file] })?.uploads).toEqual([file]);
+  });
+
+  test("not nothing, and not what isn't one", () => {
+    expect(send({ text: "  " })).toBeUndefined();
+    expect(send({ attachments: "x" })).toBeUndefined();
+    expect(send({ attachments: [{ ...file, kind: "virus" }] })).toBeUndefined();
+    expect(send({ attachments: [{ ...file, data: "" }] })).toBeUndefined();
+    expect(send({ attachments: Array(21).fill(file) })).toBeUndefined();
+  });
+
+  test("an id can't walk out of the uploads folder", () => {
+    for (const id of ["../../evil", "a/b", "a\\b", "..", ""])
+      expect(send({ attachments: [{ ...file, id }] })).toBeUndefined();
+  });
+
+  test("only the fields it may set get through", () => {
+    const body = send({ attachments: [{ ...file, url: "/x", picture: "aGk=", regions: [] }] });
+    expect(Object.keys(body!.uploads[0]!).sort()).toEqual(["data", "id", "kind", "mediaType", "n", "name"]);
   });
 });

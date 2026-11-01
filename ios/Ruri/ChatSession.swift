@@ -33,6 +33,7 @@ final class ChatSession {
 
         var id: String
         var text: String
+        var attachments: [Attachment] = []
         var state: State
     }
 
@@ -43,6 +44,9 @@ final class ChatSession {
 
     private let model: RuriModel
     private var task: Task<Void, Never>?
+    /// Attachments already in hand, by id: those sent from here, and those
+    /// fetched from the Mac, so a bubble doesn't fetch what it just showed.
+    private let files = NSCache<NSString, NSData>()
 
     init(chat: String, model: RuriModel) {
         self.chat = chat
@@ -117,10 +121,13 @@ final class ChatSession {
 
     // MARK: sending
 
-    func send(_ text: String) {
-        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    func send(_ text: String, attachments: [Attachment] = []) {
+        let words = Attaching.prompt(text, naming: attachments)
         guard !words.isEmpty else { return }
-        let outgoing = Outgoing(id: UUID().uuidString.lowercased(), text: words, state: .sending)
+        for attachment in attachments { files.setObject(attachment.data as NSData, forKey: attachment.id as NSString) }
+        let outgoing = Outgoing(
+            id: UUID().uuidString.lowercased(), text: words, attachments: attachments, state: .sending
+        )
         outbox.append(outgoing)
         deliver(outgoing.id)
     }
@@ -143,7 +150,9 @@ final class ChatSession {
             while let outgoing = outbox.first(where: { $0.id == id }) {
                 do {
                     let (client, address, port) = try await model.line()
-                    let went = try await client.send(outgoing.text, to: chat, id: id, at: address, port: port)
+                    let went = try await client.send(
+                        outgoing.text, attachments: outgoing.attachments, to: chat, id: id, at: address, port: port
+                    )
                     mark(id, went == .failed ? .failed("ruri couldn't take it.") : .sent(went))
                     settle()
                     return
@@ -161,6 +170,17 @@ final class ChatSession {
                 }
             }
         }
+    }
+
+    // MARK: attachments
+
+    /// An attachment's bytes: in hand, or from the Mac.
+    func file(_ attachment: ChatAttachment) async throws -> Data {
+        if let held = files.object(forKey: attachment.id as NSString) { return held as Data }
+        let (client, address, port) = try await model.line()
+        let data = try await client.attachment(attachment.url, at: address, port: port)
+        files.setObject(data as NSData, forKey: attachment.id as NSString)
+        return data
     }
 
     private func mark(_ id: String, _ state: Outgoing.State) {

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UIKit
 
 @testable import Ruri
 
@@ -250,5 +251,92 @@ struct ChatLogTests {
         #expect(frame.state == .needsYou)
         #expect(frame.items?.first?.steps?.count == 2)
         #expect(frame.items?.last?.kind == .note)
+    }
+}
+
+struct AttachingTests {
+    private func image(_ n: Int, kind: ChatAttachment.Kind = .image) -> Ruri.Attachment {
+        Ruri.Attachment(id: "a\(n)", kind: kind, mediaType: "image/png", name: "x.png", n: n, data: Data([1]))
+    }
+
+    @Test func numbersEachKindOnItsOwn() {
+        let held = [image(1), image(3), image(1, kind: .file)]
+        #expect(Attaching.nextNumber(.image, among: held) == 4)
+        #expect(Attaching.nextNumber(.file, among: held) == 2)
+        #expect(Attaching.nextNumber(.video, among: held) == 1)
+    }
+
+    @Test func everyFileIsNamedInWhatGoesOut() {
+        #expect(Attaching.prompt("  fix this  ", naming: []) == "fix this")
+        #expect(Attaching.prompt("", naming: []) == "")
+        #expect(Attaching.prompt("[image #1] fix this", naming: [image(1)]) == "[image #1] fix this")
+        #expect(Attaching.prompt("fix this", naming: [image(1)]) == "[image #1] fix this")
+        #expect(Attaching.prompt("", naming: [image(1), image(1, kind: .file)]) == "[image #1] [file #1]")
+    }
+
+    @Test func aBubbleLeavesOutTheMarkersLeadingIt() {
+        #expect(Attaching.afterMarkers("[image #1]") == "")
+        #expect(Attaching.afterMarkers(" [image #1] [file #2] ") == "")
+        #expect(Attaching.afterMarkers("[image #1] fix this") == "fix this")
+        #expect(Attaching.afterMarkers("fix [image #1] and this") == "fix [image #1] and this")
+        #expect(Attaching.afterMarkers("") == "")
+    }
+
+    @Test func knowsAKindByItsType() {
+        #expect(Attaching.kind(of: .heic) == .image)
+        #expect(Attaching.kind(of: .quickTimeMovie) == .video)
+        #expect(Attaching.kind(of: .pdf) == .file)
+        #expect(Attaching.kind(of: nil) == .file)
+    }
+
+    private func picture(side: CGFloat) -> UIImage {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side / 2), format: format).image { context in
+            UIColor.systemTeal.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: side, height: side / 2))
+        }
+    }
+
+    @Test func aSmallPictureGoesAsItIs() throws {
+        let png = try #require(picture(side: 100).pngData())
+        let fitted = try #require(Attaching.fitted(image: png, type: .png))
+        #expect(fitted.mediaType == "image/png")
+        #expect(fitted.data == png)
+    }
+
+    @Test func whatTheModelCantTakeBecomesAJPEGOfASensibleSize() throws {
+        // not a type the model takes, and over the side kept
+        let png = try #require(picture(side: 3000).pngData())
+        let fitted = try #require(Attaching.fitted(image: png, type: .heic))
+        #expect(fitted.mediaType == "image/jpeg")
+        let image = try #require(UIImage(data: fitted.data))
+        #expect(max(image.size.width, image.size.height) * image.scale == 2048)
+    }
+
+    @Test func notAPictureIsNoPicture() {
+        #expect(Attaching.fitted(image: Data([1, 2, 3]), type: .heic) == nil)
+    }
+
+    @Test func aSendCarriesItsFilesInBase64() throws {
+        let body = SendBody(id: "c", text: "[image #1]", clientId: "p", attachments: [image(1)])
+        let json = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any]
+        )
+        let file = try #require((json["attachments"] as? [[String: Any]])?.first)
+        #expect(file["data"] as? String == "AQ==")
+        #expect(file["kind"] as? String == "image")
+        #expect(file["n"] as? Int == 1)
+        #expect(Set(file.keys) == ["id", "kind", "mediaType", "name", "n", "data"])
+    }
+
+    @Test func readsAPromptsAttachments() throws {
+        let json = """
+            {"id":"u","kind":"user","text":"[image #1]","at":"2026-10-30T00:00:00.000Z",
+             "attachments":[{"id":"a","kind":"image","mediaType":"image/jpeg","name":"p.jpg","n":1,"url":"/uploads/a-p.jpg"}]}
+            """
+        let item = try StatusReport.decoder().decode(ChatItem.self, from: Data(json.utf8))
+        #expect(item.attachments?.first?.url == "/uploads/a-p.jpg")
+        #expect(item.attachments?.first?.kind == .image)
     }
 }

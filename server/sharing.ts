@@ -675,7 +675,9 @@ export class Sharing {
       res.end(`This device is not paired with ${computerName()}.`);
       return;
     }
-    if (seat.scope && !SCOPE_PATHS[seat.scope].has(pathname)) {
+    // a phone is shown what its chats' prompts came with (server/uploads.ts)
+    const upload = seat.scope === "phone" && pathname.startsWith("/uploads/") && req.method === "GET";
+    if (seat.scope && !upload && !SCOPE_PATHS[seat.scope].has(pathname)) {
       res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
       res.end(
         seat.scope === "status"

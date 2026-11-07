@@ -38,6 +38,7 @@ import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import type { ServerContext } from "./context.js";
 import { errorCode, errorMessage, isMissing, warn } from "./log.js";
+import { seatName } from "./talk.js";
 
 /** The global hook when the user has set none and midna is on this machine:
  *  the title reaches it through the environment, so a project's name is
@@ -911,6 +912,30 @@ function spentSince(ctx: ServerContext, project: Project, busySince: number): nu
   return cents(sum);
 }
 
+/** A prompt someone wrote, not one of ruri's own: those open with a mark
+ *  (↩ back to work, ↪ passing an answer on, ↻ carrying on) or are `carried`. */
+function written(event: TranscriptEvent): event is Extract<TranscriptEvent, { kind: "user" }> {
+  return event.kind === "user" && !event.from?.carried && !/^[↩↪↻]/.test(event.text);
+}
+
+/** Who wrote the project's most recent prompt. A prompt's event goes by the
+ *  id its sender gave it (dispatch.ts userEventId), which is how midna's are
+ *  told from the user's. */
+export function lastPromptOf(ctx: ServerContext, project: Project): ProjectEventPayload["lastPrompt"] {
+  let latest: { event: Extract<TranscriptEvent, { kind: "user" }>; chatId: string } | undefined;
+  for (const session of project.sessions) {
+    // a chat just compacted may hold only ruri's prompt carrying it on
+    const event =
+      ctx.archive.events(session.id).findLast(written) ??
+      (ctx.archive.hasHistory(session.id) ? ctx.archive.allEvents(session.id).findLast(written) : undefined);
+    if (event && (!latest || event.ts >= latest.event.ts)) latest = { event, chatId: session.id };
+  }
+  if (!latest) return undefined;
+  const { event, chatId } = latest;
+  if (event.from) return { author: "agent", chatId, agent: seatName(event.from.project, event.from.title) };
+  return { author: event.id.startsWith("midna-") ? "midna" : "user", chatId, clientId: event.id };
+}
+
 /**
  * An event about a project. Its chats are the ones that did something
  * since `busySince` and the lead always — every chat, with no `busySince`
@@ -946,12 +971,14 @@ export function buildPayload(
     if (session.id === options.chatId) chats.unshift(row);
     else chats.push(row);
   }
+  const lastPrompt = lastPromptOf(ctx, project);
   return fitPayload({
     id: randomUUID(),
     source: "ruri",
     kind,
     project: { id: project.id, name: project.name, path: project.path },
     chats,
+    ...(lastPrompt ? { lastPrompt } : {}),
     costUsd: options.costUsd,
     at: new Date(options.at ?? Date.now()).toISOString(),
   });

@@ -4,7 +4,7 @@ import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { PermissionRequest, Project, ProjectEventPayload, TranscriptEvent } from "../shared/protocol.js";
+import type { LetterFrom, PermissionRequest, Project, ProjectEventPayload, TranscriptEvent } from "../shared/protocol.js";
 import type { ServerContext } from "./context.js";
 import {
   buildPayload,
@@ -745,6 +745,38 @@ describe("the payload", () => {
     expect(payload.costUsd).toBe(1.25);
     for (const chat of payload.chats)
       expect(Object.keys(chat).sort()).toEqual(["id", "lastSummary", "name", "role"]);
+  });
+
+  test("says who wrote the project's latest prompt, across its chats", () => {
+    const prompt = (id: string, ts: number, extra: Partial<TranscriptEvent> = {}): TranscriptEvent =>
+      ({ kind: "user", id, text: "Do it.", ts, ...extra }) as TranscriptEvent;
+    const last = (events: Record<string, TranscriptEvent[]>) =>
+      buildPayload(fakeCtx([team], events).ctx, "project.idle", team, { costUsd: 0 }).lastPrompt;
+    const letter = { agent: "lead", project: "Una", title: "Lead" } as LetterFrom;
+
+    expect(last({ lead: [said("a", "Done.", 200)] })).toBeUndefined();
+    expect(last({ lead: [prompt("win-1", 100)] })).toEqual({ author: "user", chatId: "lead", clientId: "win-1" });
+    expect(last({ lead: [prompt("win-1", 100)], ui: [prompt("midna-2", 150)] })).toEqual({
+      author: "midna",
+      chatId: "ui",
+      clientId: "midna-2",
+    });
+    expect(last({ lead: [prompt("midna-2", 100)], ui: [prompt("q", 150, { from: letter })] })).toEqual({
+      author: "agent",
+      chatId: "ui",
+      agent: "Una · Lead",
+    });
+    // ruri's own prompts carrying a chat on aren't anyone's
+    expect(
+      last({
+        lead: [
+          prompt("midna-2", 100),
+          prompt("c", 150, { text: "↻ You compacted yourself: …" }),
+          prompt("d", 160, { from: { ...letter, carried: true } }),
+          prompt("e", 170, { text: "↩ Back to what you were doing" }),
+        ],
+      }),
+    ).toEqual({ author: "midna", chatId: "lead", clientId: "midna-2" });
   });
 
   test("names the lead always, and the others only if they worked since the team went busy", () => {

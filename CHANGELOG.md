@@ -5,6 +5,7 @@ Release notes, taken from the annotated `vX.Y.Z` tags (`git tag -n99`). Versions
 ## Unreleased
 
 - iPhone: attach pictures and files to a prompt with the plus beside the field: Photo Library, Take Photo or Choose File (up to 20, about 100 MB). They sit as thumbnails above the field, each with its own X, and show in the bubble once sent; a tap opens one in Quick Look. Big pictures and HEIC go as a JPEG the model can read. The Mac needs this update too.
+- `project.idle` and `project.blocked` events carry an optional `lastPrompt`: who wrote the project's latest prompt (`user`, `midna` or `agent`), the chat it went to, and its `clientId`.
 - A long prompt holding several tasks goes out one task at a time, each its own turn, in your own words: while it is sorted it waits in the queue, then the tasks stand there to edit, move, combine or remove. A prompt that is one job stays whole, and so does any prompt if the small model is slow or wrong. Settings → General → Split prompts turns it off. midna's prompts are never split.
 - `make self-update`: a chat inside ruri can update it. The new build is made and signed while ruri runs, then swapped in from outside it once no chat is at work; chats carry on after the relaunch. Log: `~/Library/Caches/ruri-update/update.log`.
 - The Dock icon follows the theme: a dark and an ember version of ruri's three diamonds take over while the app is on those themes (by hand or by the clock). A quit ruri shows the light one.

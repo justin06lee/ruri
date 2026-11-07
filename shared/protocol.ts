@@ -1666,6 +1666,19 @@ export interface ProjectEventPayload {
      *  waiting at a card, what the card asks. */
     lastSummary: string;
   }>;
+  /** Who wrote the project's most recent prompt, across its chats. ruri's
+   *  own prompts (carrying a chat on after a compaction, back to work after
+   *  a message) don't count. Absent when no chat has had one. */
+  lastPrompt?: {
+    author: "user" | "midna" | "agent";
+    /** The chat it went to. */
+    chatId: string;
+    /** Its id: the one its sender gave it, "midna-<uuid>" for midna's, or
+     *  ruri's own when it gave none. Not for an agent's message. */
+    clientId?: string;
+    /** The agent that sent it, as "project · chat". */
+    agent?: string;
+  };
   /** What the project's chats spent since the team went busy, in dollars. */
   costUsd: number;
   /** When it happened, ISO 8601. */

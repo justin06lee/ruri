@@ -6,7 +6,7 @@ import Testing
 /// Which addresses get the tailnet's patience.
 struct TailnetTests {
     @Test func knowsATailnetAddress() {
-        #expect(MacClient.isTailnet("100.98.21.63"))
+        #expect(MacClient.isTailnet("100.98.7.42"))
         #expect(MacClient.isTailnet("100.64.0.1"))
         #expect(MacClient.isTailnet("100.127.255.254"))
         #expect(MacClient.isTailnet("justins-mbp.tail1234.ts.net"))

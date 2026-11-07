@@ -1,11 +1,13 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { HOME_ID, leadOf, type Project } from "../../../shared/protocol";
 import { useConfirm } from "./Confirm";
-import { PeekBand } from "./PeekBand";
-import { Player } from "./Player";
-import { getPref, setPref } from "../prefs";
+import { getPref, setPref, watchPref } from "../prefs";
+import { defaultProjectIcon, PROJECT_ICON_NAMES } from "../lib/marks";
+import { ProjectIcon } from "./Marks";
 import { STAR_PATH } from "../icons";
 import { isBusy, prefetchTranscript, renameProject, send, toggleProject, useRuri } from "../store";
+import { PeekBand } from "./PeekBand";
 import { DragonHead } from "./Thinking";
 
 function HomeRow() {
@@ -24,15 +26,14 @@ function HomeRow() {
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="1.75"
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden
       >
         <path d="M3 10.5L12 3l9 7.5M5 9.5V21h14V9.5M9 21v-6h6v6" />
       </svg>
-      <span className="project-name">Home</span>
-      {unread && <span className="unread-pip" title="Turn finished" />}
+      <span className={`project-name${unread ? " unread" : ""}`}>Home</span>
     </div>
   );
 }
@@ -85,7 +86,7 @@ function ProjectsRow() {
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="1.75"
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden
@@ -123,7 +124,7 @@ function RapidRow() {
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="1.75"
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden
@@ -195,7 +196,7 @@ function RemoveIcon({ busy }: { busy: boolean }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.75"
       strokeLinecap="round"
       aria-hidden
     >
@@ -216,10 +217,64 @@ const HOVER_MS = 90;
  * had going in it, and the sidebar filled with them. Now the lead is the
  * project's only chat the user sees; the rest are its team, which it hands
  * work to and which the team page (in the chat's header) shows. The row
- * says when anyone on the team is at work — the dragon where the X goes,
- * as a chat's row always had — and how many, beside it. The lead's own
- * turn lights neither: it delegates, and its work is the team's.
+ * says when any of its chats is at work, the lead's own turn included —
+ * the dragon where the X goes — and how many teammates, beside it.
  */
+/** The grid of project drawings a row's right-click opens, at the pointer.
+ *  On the body, so the sidebar's scrolling can't clip it. */
+function IconPicker({
+  at,
+  current,
+  onPick,
+  onClose,
+}: {
+  at: { x: number; y: number };
+  current: string;
+  onPick: (name: string) => void;
+  onClose: () => void;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const away = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) onClose();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("keydown", key);
+    };
+  }, [onClose]);
+  const left = Math.min(at.x, window.innerWidth - 236);
+  const top = Math.min(at.y, window.innerHeight - 160);
+  return createPortal(
+    <div
+      ref={box}
+      className="icon-picker"
+      role="menu"
+      style={{ left, top }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {PROJECT_ICON_NAMES.map((name) => (
+        <button
+          key={name}
+          role="menuitemradio"
+          aria-checked={name === current}
+          className={name === current ? "on" : ""}
+          title={name}
+          onClick={() => onPick(name)}
+        >
+          <ProjectIcon name={name} />
+        </button>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
 function ProjectRow({ project }: { project: Project }) {
   const lead = leadOf(project);
   const leadId = lead?.id;
@@ -229,13 +284,17 @@ function ProjectRow({ project }: { project: Project }) {
   const unread = useRuri((s) => (leadId ? (s.unread[leadId] ?? false) : false));
   const setActive = useRuri((s) => s.setActive);
   // how many teammates are at work — one number, so the row repaints when
-  // it changes rather than on every status in the app; any at all puts
-  // the head where the X goes
+  // it changes rather than on every status in the app
   const atWork = useRuri((s) => teamAtWork(s, project));
-  const busy = atWork > 0;
-  // what removing it would stop: the lead's own turn counts here
+  // any chat of it at work, the lead's own turn included (in One chat mode
+  // that is all there is), puts the head where the X goes
   const anyBusy = useRuri((s) => project.sessions.some((x) => isBusy(s, x.id)));
   const [renaming, setRenaming] = useState(false);
+  // its drawing: the one the user picked, or one from its id
+  const iconKey = `ruri-project-icon:${project.id}`;
+  const [icon, setIcon] = useState(() => getPref(iconKey) ?? defaultProjectIcon(project.id));
+  useEffect(() => watchPref(iconKey, (v) => v && setIcon(v)), [iconKey]);
+  const [picking, setPicking] = useState<{ x: number; y: number } | null>(null);
   const { confirm: ask, card } = useConfirm();
   const hover = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(hover.current), []);
@@ -248,7 +307,7 @@ function ProjectRow({ project }: { project: Project }) {
   };
   return (
     <div
-      className={`project-row team-row ${active ? "active" : ""} ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${busy ? "busy" : ""}`}
+      className={`project-row team-row ${active ? "active" : ""} ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${anyBusy ? "busy" : ""}`}
       title={renaming ? undefined : `${project.path} — double-click to rename`}
       onClick={open}
       // the lead's history asked for while the pointer rests on the row, or
@@ -267,26 +326,33 @@ function ProjectRow({ project }: { project: Project }) {
         e.preventDefault();
         setRenaming(true);
       }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setPicking({ x: e.clientX, y: e.clientY });
+      }}
     >
-      <svg
-        className="team-row-icon"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-      >
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-      </svg>
+      {/* a small drawing: rows tell apart at a glance; right-click picks another */}
+      <span className="team-row-icon" aria-hidden>
+        <ProjectIcon name={icon} />
+      </span>
+      {picking && (
+        <IconPicker
+          at={picking}
+          current={icon}
+          onPick={(name) => {
+            setIcon(name);
+            setPref(iconKey, name);
+            setPicking(null);
+          }}
+          onClose={() => setPicking(null)}
+        />
+      )}
       {renaming ? (
         <NameEditor value={project.name} className="project-name" onDone={rename} />
       ) : (
-        <span className="project-name">{project.name}</span>
+        <span className={`project-name${unread ? " unread" : ""}`}>{project.name}</span>
       )}
-      {unread && <span className="unread-pip" title="Turn finished" />}
-      {busy && (
+      {atWork > 0 && (
         <span
           className="row-count team-count"
           title={`${atWork} ${atWork === 1 ? "teammate" : "teammates"} at work`}
@@ -328,7 +394,7 @@ function ProjectRow({ project }: { project: Project }) {
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="1.75"
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden
@@ -341,7 +407,7 @@ function ProjectRow({ project }: { project: Project }) {
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="1.75"
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden
@@ -354,7 +420,7 @@ function ProjectRow({ project }: { project: Project }) {
           )}
         </button>
         <button
-          className={`remove ${busy ? "busy" : ""}`}
+          className={`remove ${anyBusy ? "busy" : ""}`}
           title={anyBusy ? "Working — click to remove this project anyway" : "Remove project"}
           onClick={(e) => {
             e.stopPropagation();
@@ -364,12 +430,13 @@ function ProjectRow({ project }: { project: Project }) {
                 ? "Its lead and its team go with it, the working ones stopped; files are untouched."
                 : "Its lead and its team go with it; files are untouched.",
               ok: "Remove",
+              destructive: true,
             }).then((yes) => {
               if (yes) send({ type: "remove_project", projectId: project.id });
             });
           }}
         >
-          <RemoveIcon busy={busy} />
+          <RemoveIcon busy={anyBusy} />
         </button>
       </span>
     </div>
@@ -378,12 +445,46 @@ function ProjectRow({ project }: { project: Project }) {
 
 /** Memoised: it takes no props, and everything it needs it selects for
  *  itself — so a re-render of the app around it is never a reason to run. */
-export const Sidebar = memo(function Sidebar() {
-  const projects = useRuri((s) => s.projects);
+/** The foot of the source list: who is signed in here, and Settings. Settings
+ *  shows it too, at the foot of its own categories, so it never goes away. */
+export function AccountBar() {
   const connected = useRuri((s) => s.connected);
   const user = useRuri((s) => s.user);
   // a window onto another computer says which, beside whose account it is
   const onto = useRuri((s) => (s.remoteDevice !== null ? s.sharing?.name : undefined));
+  const settingsOpen = useRuri((s) => s.settingsOpen);
+  const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
+  return (
+    <div className="account-bar">
+      <span className="account-name" title={onto ? `Chats run on ${onto} — Settings, Devices` : undefined}>
+        {user || "account"}
+        {onto && <span className="account-where"> on {onto}</span>}
+      </span>
+      {!connected && <span className="conn-text">reconnecting…</span>}
+      <button
+        className={`icon-button ${settingsOpen ? "active" : ""}`}
+        title="Settings"
+        onClick={() => setSettingsOpen(!settingsOpen)}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+export const Sidebar = memo(function Sidebar() {
+  const projects = useRuri((s) => s.projects);
   // The fold at the bottom: hidden projects stay out of sight until it is
   // opened, and whether it is open is remembered.
   const [showHidden, setShowHidden] = useState<boolean>(() => {
@@ -402,8 +503,6 @@ export const Sidebar = memo(function Sidebar() {
       // preference just won't persist
     }
   };
-  const settingsOpen = useRuri((s) => s.settingsOpen);
-  const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
 
   // A chat inside a hidden project being looked at — reached by the
   // switcher, or the Home agent — opens the fold, so the row that is
@@ -443,9 +542,7 @@ export const Sidebar = memo(function Sidebar() {
             Tell Home what to work on.
           </div>
         )}
-        {ordered.length > 0 && (
-          <div className="group-label">Projects</div>
-        )}
+        {ordered.length > 0 && <div className="group-label">Projects</div>}
         {ordered.map((p) => (
           <ProjectRow key={p.id} project={p} />
         ))}
@@ -467,55 +564,15 @@ export const Sidebar = memo(function Sidebar() {
               >
                 <path d="M9 6l6 6-6 6" />
               </svg>
-              {showHidden ? "hide" : "show"} {hidden.length} hidden
+              Hidden
+              <span className="hidden-count">{hidden.length}</span>
             </button>
             {showHidden && hidden.map((p) => <ProjectRow key={p.id} project={p} />)}
           </>
         )}
       </div>
 
-      <Player />
-
-      {/* the account bar — a stub for real accounts later; for now it names
-          the local user and houses the settings gear */}
-      <div className="account-bar">
-        <svg
-          className="account-avatar"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <circle cx="12" cy="8" r="4" />
-          <path d="M4 21c1.5-4 4.4-6 8-6s6.5 2 8 6" />
-        </svg>
-        <span className="account-name" title={onto ? `Chats run on ${onto} — Settings, Devices` : undefined}>
-          {user || "account"}
-          {onto && <span className="account-where"> on {onto}</span>}
-        </span>
-        {!connected && <span className="conn off" title="Reconnecting…" />}
-        <button
-          className={`icon-button ${settingsOpen ? "active" : ""}`}
-          title="Settings"
-          onClick={() => setSettingsOpen(!settingsOpen)}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
-          </svg>
-        </button>
-      </div>
+      <AccountBar />
     </aside>
   );
 });

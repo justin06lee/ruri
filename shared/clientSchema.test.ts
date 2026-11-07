@@ -33,7 +33,6 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
     attachments: [upload],
     clientId: "0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a",
   },
-  send_split: { type: "send_split", projectId: "p", text: "a\n\nb" },
   ping: { type: "ping" },
   queue_remove: { type: "queue_remove", projectId: "p", itemId: "i" },
   queue_move: { type: "queue_move", projectId: "p", itemId: "i", beforeId: "j" },
@@ -46,7 +45,6 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
     itemId: "i",
     text: "t",
     attachments: [upload],
-    split: true,
   },
   queue_edit_cancel: { type: "queue_edit_cancel", projectId: "p", itemId: "i" },
   queue_send: { type: "queue_send", projectId: "p" },
@@ -177,7 +175,6 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   new_session: { type: "new_session", projectId: "p" },
   rename_session: { type: "rename_session", sessionId: "s", title: "Frontend UI" },
   archive_session: { type: "archive_session", sessionId: "s", archived: true },
-  side_chat: { type: "side_chat", projectId: "p" },
   set_workspace: { type: "set_workspace", path: "/Users/me/work" },
   set_music_dir: { type: "set_music_dir", path: "/Users/me/Music" },
   toggle_model_star: { type: "toggle_model_star", model: "haiku" },
@@ -200,6 +197,8 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
     reset: false,
   },
   hooks_test: { type: "hooks_test", projectId: "p" },
+  taste_get: { type: "taste_get" },
+  taste_learn: { type: "taste_learn", projectId: "p" },
   mcp_add: {
     type: "mcp_add",
     add: {
@@ -230,6 +229,7 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   sharing_invite: { type: "sharing_invite" },
   sharing_phone: { type: "sharing_phone" },
   sharing_forget: { type: "sharing_forget", deviceId: "a1b2c3" },
+  sharing_allow_send: { type: "sharing_allow_send", deviceId: "a1b2c3" },
   talk_get: { type: "talk_get" },
   talk_set: {
     type: "talk_set",
@@ -283,6 +283,32 @@ describe("valid messages", () => {
   test("a field the type does not name is dropped, not passed on", () => {
     const parsed = clientMessageSchema.parse({ type: "interrupt", projectId: "p", admin: true });
     expect(parsed).toEqual({ type: "interrupt", projectId: "p" });
+  });
+});
+
+describe("a prompt's clientId", () => {
+  const send = (clientId: string) =>
+    clientMessageSchema.safeParse({ type: "send", projectId: "p", text: "hi", clientId }).success;
+
+  test("is a UUID, or midna- and a UUID", () => {
+    expect(send("0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a")).toBe(true);
+    expect(send("0B6F6F4E-8F0C-4A8E-9A57-2F1F3C1D2E3A")).toBe(true);
+    expect(send("midna-0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a")).toBe(true);
+  });
+
+  test("and nothing else", () => {
+    for (const junk of [
+      "",
+      "hello",
+      "midna-",
+      "midna-hello",
+      "codex-0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a",
+      "0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a-midna",
+      "midna-0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a\n",
+      "0b6f6f4e8f0c4a8e9a572f1f3c1d2e3a",
+    ]) {
+      expect([junk, send(junk)]).toEqual([junk, false]);
+    }
   });
 });
 

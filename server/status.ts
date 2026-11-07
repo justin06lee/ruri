@@ -101,7 +101,7 @@ function readProject(
   const team: StatusChat[] = [];
   const working: StatusChat[] = [];
   for (const session of project.sessions) {
-    // the /btw side chat is the user's own aside, not the project's work
+    // an old /btw side chat was the user's own aside, not the project's work
     if (session.side) continue;
     const hooks = said.get(session.id);
     const events = ctx.archive.events(session.id);

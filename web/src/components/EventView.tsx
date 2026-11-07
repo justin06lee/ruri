@@ -84,7 +84,7 @@ export function CompactionMark({
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2"
+            strokeWidth="1.75"
             strokeLinecap="round"
             strokeLinejoin="round"
             aria-hidden
@@ -293,7 +293,7 @@ export const EventView = memo(function EventView({
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="1.75"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 aria-hidden
@@ -366,12 +366,16 @@ export const EventView = memo(function EventView({
       return event.ok ? (
         <div className="result-line ok">
           <span className="result-rule" />
-          <span className="result-text">
-            <Icon d="M20 6L9 17l-5-5" />
-            done
-            {event.costUsd !== undefined && ` · $${event.costUsd.toFixed(4)}`}
-            {event.durationMs !== undefined && ` · ${(event.durationMs / 1000).toFixed(1)}s`}
-          </span>
+          <details className="result-details">
+            <summary className="result-text">
+              <Icon d="M20 6L9 17l-5-5" />
+              Done
+            </summary>
+            <span className="result-meta">
+              {event.costUsd !== undefined && `$${event.costUsd.toFixed(4)}`}
+              {event.durationMs !== undefined && ` · ${(event.durationMs / 1000).toFixed(1)}s`}
+            </span>
+          </details>
           <span className="result-rule" />
         </div>
       ) : (

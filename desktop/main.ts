@@ -202,8 +202,10 @@ function windowDrag(phase: WindowDragPhase): void {
   }
   // back again — to the frame it had, put back by hand when this is what
   // filled the screen: macOS's own un-zoom, which unmaximize() asks for,
-  // is not dependable (a window it is not showing stays as big as ever)
-  if (unzoomed) win.setBounds(unzoomed);
+  // is not dependable (a window it is not showing stays as big as ever).
+  // Animated, as the title bar's own un-zoom is: without it the window
+  // snaps back in one frame (macOS only; elsewhere the flag is ignored)
+  if (unzoomed) win.setBounds(unzoomed, true);
   else win.unmaximize();
   unzoomed = undefined;
 }
@@ -779,6 +781,23 @@ async function main(): Promise<void> {
   });
   ipcMain.handle("ruri:retry", (event) => {
     if (fromWindow(event) && away) void goRemote(away.host);
+  });
+  // the Dock's icon follows the page's theme: the light one is the bundle's
+  // own, dark and ember are drawn alongside it (scripts/draw-icon.ts). Only
+  // while ruri runs — a quit app shows the bundle's, which is never changed
+  // in place: that would break its signature
+  let iconTheme = "light";
+  ipcMain.on("ruri:theme", (event, theme: unknown) => {
+    if (!fromWindow(event) || !["light", "dark", "ember"].includes(theme as string) || theme === iconTheme)
+      return;
+    iconTheme = theme as string;
+    const dir = app.isPackaged
+      ? path.join(process.resourcesPath, "icons")
+      : path.join(import.meta.dirname, "..", "build");
+    const file = path.join(dir, theme === "light" ? "icon.png" : `icon-${theme as string}.png`);
+    if (!fs.existsSync(file)) return;
+    if (process.platform === "darwin") app.dock?.setIcon(file);
+    else appWindow?.setIcon(file);
   });
   ipcMain.on("ruri:drag", (event, phase: unknown) => {
     if (fromWindow(event) && ["start", "move", "end", "zoom"].includes(phase as string)) {

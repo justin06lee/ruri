@@ -82,6 +82,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.245",
+    "@fontsource-variable/space-grotesk": "^5.3.0",
     "@justin06lee/yagami": "^0.10.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
@@ -137,6 +138,20 @@
       "package.json",
       "!node_modules/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icons/icon.png"
+      },
+      {
+        "from": "build/icon-dark.png",
+        "to": "icons/icon-dark.png"
+      },
+      {
+        "from": "build/icon-ember.png",
+        "to": "icons/icon-ember.png"
+      }
+    ],
     "npmRebuild": false,
     "electronLanguages": [
       "en",
@@ -153,7 +168,12 @@
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "ruri drives the apps you ask it to work in."
+      },
       "gatekeeperAssess": false,
       "notarize": false
     },

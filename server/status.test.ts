@@ -72,7 +72,7 @@ function world() {
     turns: { work: new Map() },
     talk: new TalkBook(),
     permissions,
-    archive: { events: (id: string) => events[id] ?? [] },
+    archive: { events: (id: string) => events[id] ?? [], hasHistory: () => false },
   } as unknown as ServerContext;
   let ts = 1_700_000_000_000;
   const say = (chat: string, event: Partial<TranscriptEvent> & { kind: TranscriptEvent["kind"] }) => {

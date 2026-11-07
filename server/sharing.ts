@@ -178,12 +178,23 @@ export interface Seat {
 /** What a key scoped to the status may reach — nothing else, the socket
  *  included (docs/mobile-app.md). */
 const STATUS_PATHS = new Set(["/status", "/status/live"]);
+/** A phone's: the status, and its chats' conversations and sending into
+ *  them (server/phoneChat.ts). */
+const PHONE_PATHS = new Set([
+  ...STATUS_PATHS,
+  "/chat",
+  "/chat/live",
+  "/chat/send",
+  "/phone/push",
+  "/phone/push/settings",
+]);
+const SCOPE_PATHS: Record<DeviceScope, Set<string>> = { status: STATUS_PATHS, phone: PHONE_PATHS };
 
 /** A scope as a request names it: none, or one ruri knows — or undefined
  *  for one it doesn't, which is refused rather than taken as everything. */
 export function readScope(raw: unknown): { scope?: DeviceScope } | undefined {
   if (raw === undefined || raw === null || raw === "") return {};
-  return raw === "status" ? { scope: "status" } : undefined;
+  return raw === "status" || raw === "phone" ? { scope: raw } : undefined;
 }
 
 /** What sharing needs of the rest of the server. */
@@ -196,6 +207,8 @@ export interface SharingHooks {
   closeDevice(deviceId: string): void;
   /** Sharing changed. */
   changed(info: SharingInfo): void;
+  /** A phone's notifications: its token and settings (server/phonePush.ts). */
+  push?(req: http.IncomingMessage, res: http.ServerResponse, deviceId: string): void;
 }
 
 const hashKey = (key: string) => createHash("sha256").update(key).digest("hex");
@@ -257,7 +270,7 @@ function originOk(req: http.IncomingMessage): boolean {
   return origin === undefined || origin === `https://${req.headers.host ?? ""}`;
 }
 
-function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
+export function readBody(req: http.IncomingMessage, limit: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -383,6 +396,26 @@ export class Sharing {
   async pairDirect(name: unknown, scope?: DeviceScope): Promise<Pairing> {
     await this.ensureOpen();
     return this.admit(name, scope);
+  }
+
+  /** What a paired device's key may reach: its scope, "all" for
+   *  everything, undefined for a device not paired. */
+  scopeOf(deviceId: string): DeviceScope | "all" | undefined {
+    const device = this.stored.devices.find((d) => d.id === deviceId);
+    return device ? (device.scope ?? "all") : undefined;
+  }
+
+  /** A phone paired to read the status only may see and send chats too,
+   *  with the key it has: nothing to pair again. Only a "status" key
+   *  widens, and only to "phone"; a full key is left as it is. */
+  allowSend(deviceId: string): boolean {
+    const device = this.stored.devices.find((d) => d.id === deviceId);
+    if (device?.scope !== "status") return false;
+    device.scope = "phone";
+    this.save();
+    this.changed();
+    console.log(`ruri: ${device.name} may send now`);
+    return true;
   }
 
   /** Unpair a device: its key stops working, its windows close. */
@@ -642,17 +675,31 @@ export class Sharing {
       res.end(`This device is not paired with ${computerName()}.`);
       return;
     }
-    if (seat.scope && !STATUS_PATHS.has(pathname)) {
+    // a phone is shown what its chats' prompts came with (server/uploads.ts)
+    const upload = seat.scope === "phone" && pathname.startsWith("/uploads/") && req.method === "GET";
+    if (seat.scope && !upload && !SCOPE_PATHS[seat.scope].has(pathname)) {
       res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
-      res.end(`This device's key reads ${computerName()}'s status only (/status, /status/live).`);
+      res.end(
+        seat.scope === "status"
+          ? `This device's key reads ${computerName()}'s status only (/status, /status/live) — pair it again to see and send chats.`
+          : `This device's key reaches ${computerName()}'s status and chats only.`,
+      );
       return;
     }
     // a phone has no window: watching the live status is it being here,
     // and a look at the status is it having been
-    if (seat.scope && pathname === "/status/live") {
+    if (seat.scope && (pathname === "/status/live" || pathname === "/chat/live")) {
       this.arrived(seat.deviceId);
       res.on("close", () => this.left(seat.deviceId));
     } else if (seat.scope) this.glimpsed(seat.deviceId);
+    if (seat.scope === "phone" && (pathname === "/phone/push" || pathname === "/phone/push/settings")) {
+      if (this.hooks?.push) this.hooks.push(req, res, seat.deviceId);
+      else {
+        res.writeHead(404);
+        res.end();
+      }
+      return;
+    }
     // the page came with its key in the URL: everything it loads by
     // itself after that carries it as a cookie
     if (from === "query" && req.method === "GET") {
@@ -768,7 +815,7 @@ export class Sharing {
       return;
     }
     this.tickets = this.tickets.filter((t) => t !== matched);
-    json(res, 200, this.admit(body["name"], "status"));
+    json(res, 200, this.admit(body["name"], "phone"));
   }
 
   /* ── what is kept ─────────────────────────────────────────────────── */

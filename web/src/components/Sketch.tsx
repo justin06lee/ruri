@@ -25,7 +25,7 @@ import { MOD } from "../lib/keys";
  * another channel, come back, and the drawing is where it was.
  *
  * Text is written in a box first and placed second: the text tool opens a
- * box to write in (several lines, a font, a size), and Place hangs the
+ * box to write in (several lines, a size), and Place hangs the
  * words on the pointer to be stamped wherever the next click lands.
  */
 
@@ -54,7 +54,11 @@ const TOOLS: Array<{ id: Tool; title: string; d: string }> = [
   { id: "rect", title: "Box (R)", d: "M4 5h16v14H4z" },
   { id: "ellipse", title: "Ellipse (E)", d: "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z" },
   { id: "text", title: "Text (T)", d: "M5 5h14M12 5v14M9 19h6" },
-  { id: "erase", title: "Erase a shape (X)", d: "M4 15l7-7 8 8-4 4H8l-4-4zM11 8l8 8" },
+  {
+    id: "erase",
+    title: "Eraser — drag across what should go (X)",
+    d: "M21 21H8a2 2 0 0 1-1.42-.59l-4-4a2 2 0 0 1 0-2.82l10-10a2 2 0 0 1 2.83 0l6 6a2 2 0 0 1 0 2.82L12.83 21M5.08 11.09l8.83 8.83",
+  },
 ];
 
 /**
@@ -73,9 +77,9 @@ const SWATCHES: Swatch[] = ["ink", "red", "blue", "green", "paper"];
 type Palette = Record<Swatch, string>;
 
 const ACCENTS: Record<"light" | "dark" | "ember", Pick<Palette, "red" | "blue" | "green">> = {
-  light: { red: "#d0342c", blue: "#2b6cb0", green: "#2f855a" },
-  dark: { red: "#ff6b5e", blue: "#6aa8f0", green: "#55c48a" },
-  ember: { red: "#ff6a4a", blue: "#86a9d4", green: "#9cc46a" },
+  light: { red: "#ff3b30", blue: "#007aff", green: "#34c759" },
+  dark: { red: "#ff453a", blue: "#0a84ff", green: "#30d158" },
+  ember: { red: "#ff453a", blue: "#0a84ff", green: "#30d158" },
 };
 
 /** The light theme's colours as older pads kept them, by hex — they are
@@ -120,13 +124,10 @@ function paint(color: string, palette: Palette): string {
 
 const WIDTHS = [2, 4, 8];
 
-/** The faces text can be set in. The first is the app's own. */
-const FONTS: Array<{ id: string; label: string; family: string }> = [
-  { id: "grotesk", label: "Sans", family: '-apple-system, system-ui, "Inter", sans-serif' },
-  { id: "mono", label: "Mono", family: 'ui-monospace, "SF Mono", Menlo, monospace' },
-  { id: "serif", label: "Serif", family: 'Georgia, "Times New Roman", serif' },
-  { id: "hand", label: "Hand", family: '"Bradley Hand", "Comic Sans MS", "Segoe Print", cursive' },
-];
+/** The face text is set in: the app's own, everywhere on the pad. (A
+ *  shape from before carries the face it was written in; it is drawn in
+ *  this one all the same.) */
+const FONT = '"Space Grotesk Variable", system-ui, -apple-system, sans-serif';
 
 /** Text sizes, in pad pixels on a blank pad; a big picture scales them up. */
 const SIZES: Array<{ id: string; label: string; px: number }> = [
@@ -255,13 +256,71 @@ function bounds(shape: Shape): { x: number; y: number; w: number; h: number } {
   }
 }
 
+/** How far a point is from the segment a–b. */
+function toSegment(x: number, y: number, a: Point, b: Point): number {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len = dx * dx + dy * dy;
+  const t = len === 0 ? 0 : Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / len));
+  return Math.hypot(x - (a[0] + t * dx), y - (a[1] + t * dy));
+}
+
+/** Whether the eraser at x,y touches the shape's ink — the stroke itself,
+ *  not the box around it, so a ring erases from its rim and not its middle. */
+function touches(shape: Shape, x: number, y: number, reach: number): boolean {
+  if (shape.kind === "text") {
+    const b = bounds(shape);
+    return x >= b.x - reach && x <= b.x + b.w + reach && y >= b.y - reach && y <= b.y + b.h + reach;
+  }
+  const r = reach + shape.width / 2;
+  switch (shape.kind) {
+    case "pen": {
+      const pts = shape.points;
+      if (pts.length === 1) return Math.hypot(x - pts[0]![0], y - pts[0]![1]) <= r;
+      for (let i = 1; i < pts.length; i++) if (toSegment(x, y, pts[i - 1]!, pts[i]!) <= r) return true;
+      return false;
+    }
+    case "line":
+    case "arrow":
+      return toSegment(x, y, [shape.x1, shape.y1], [shape.x2, shape.y2]) <= r;
+    case "rect": {
+      const a: Point = [shape.x, shape.y];
+      const b: Point = [shape.x + shape.w, shape.y];
+      const c: Point = [shape.x + shape.w, shape.y + shape.h];
+      const d: Point = [shape.x, shape.y + shape.h];
+      return [toSegment(x, y, a, b), toSegment(x, y, b, c), toSegment(x, y, c, d), toSegment(x, y, d, a)].some(
+        (dist) => dist <= r,
+      );
+    }
+    case "ellipse": {
+      const rx = Math.abs(shape.w / 2);
+      const ry = Math.abs(shape.h / 2);
+      const cx = shape.x + shape.w / 2;
+      const cy = shape.y + shape.h / 2;
+      if (rx < 1 || ry < 1) return Math.hypot(x - cx, y - cy) <= r + Math.max(rx, ry);
+      const k = Math.hypot((x - cx) / rx, (y - cy) / ry);
+      return Math.abs(k - 1) * Math.min(rx, ry) <= r;
+    }
+  }
+}
+
+/** A pen's next point, eased toward the pointer: a little of the hand's
+ *  tremble smoothed out, and samples closer than a pixel dropped. */
+function follow(points: Point[], x: number, y: number, ease: number): Point[] {
+  const last = points[points.length - 1];
+  if (!last) return [[x, y]];
+  const next: Point = [last[0] + (x - last[0]) * ease, last[1] + (y - last[1]) * ease];
+  if (Math.hypot(next[0] - last[0], next[1] - last[1]) < 0.75) return points;
+  return [...points, next];
+}
+
 function draw(ctx: CanvasRenderingContext2D, shape: Shape, palette: Palette): void {
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   const color = paint(shape.color, palette);
   if (shape.kind === "text") {
-    ctx.font = `600 ${shape.size}px ${shape.font ?? FONTS[0]!.family}`;
+    ctx.font = `600 ${shape.size}px ${FONT}`;
     ctx.textBaseline = "alphabetic";
     // a paper halo so the words read on a busy picture
     ctx.lineWidth = Math.max(3, shape.size / 6);
@@ -284,7 +343,15 @@ function draw(ctx: CanvasRenderingContext2D, shape: Shape, palette: Palette): vo
       ctx.beginPath();
       ctx.moveTo(first[0], first[1]);
       if (rest.length === 0) ctx.lineTo(first[0] + 0.1, first[1]);
-      for (const p of rest) ctx.lineTo(p[0], p[1]);
+      // a curve through the midpoints, each point its control: no corners
+      // where the samples were, the way a stroke in Notes comes out
+      for (let i = 0; i < rest.length - 1; i++) {
+        const p = rest[i]!;
+        const q = rest[i + 1]!;
+        ctx.quadraticCurveTo(p[0], p[1], (p[0] + q[0]) / 2, (p[1] + q[1]) / 2);
+      }
+      const last = rest[rest.length - 1];
+      if (last) ctx.lineTo(last[0], last[1]);
       ctx.stroke();
       break;
     }
@@ -332,7 +399,7 @@ function Icon({ d }: { d: string }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
@@ -345,7 +412,6 @@ function Icon({ d }: { d: string }) {
 /** What is being written, before it is placed. */
 interface TextDraft {
   value: string;
-  font: string;
   size: string;
 }
 
@@ -371,18 +437,19 @@ export function Sketch({
   const [history, setHistory] = useState<Shape[][]>((kept as PadState | undefined)?.history ?? []);
   const [draft, setDraft] = useState<Shape | null>(null);
   const draftRef = useRef<Shape | null>(null);
+  /** A drag of the eraser under way, and the shapes as they were before it. */
+  const erasing = useRef<{ before: Shape[] } | null>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [size, setSize] = useState(kept?.size ?? BLANK);
   const [name, setName] = useState(background?.name ?? kept?.name ?? "");
   const [pictureUrl, setPictureUrl] = useState<string | undefined>(
     (kept as PadState | undefined)?.pictureUrl,
   );
-  /** The text box, open. Its last font and size are remembered for the next. */
+  /** The text box, open. Its last size is remembered for the next. */
   const [writing, setWriting] = useState<TextDraft | null>(null);
-  const [fontRow, setFontRow] = useState(false);
-  const lastText = useRef<Pick<TextDraft, "font" | "size">>({ font: FONTS[0]!.id, size: "m" });
+  const lastText = useRef<Pick<TextDraft, "size">>({ size: "m" });
   /** Words hung on the pointer, waiting for the click that stamps them. */
-  const [placing, setPlacing] = useState<{ text: string; font: string; size: number } | null>(null);
+  const [placing, setPlacing] = useState<{ text: string; size: number } | null>(null);
   const [placeAt, setPlaceAt] = useState<Point | null>(null);
 
   // the picture, when there is one: drawn at its own size, capped
@@ -418,7 +485,6 @@ export function Sketch({
             text: placing.text,
             color,
             size: placing.size,
-            font: placing.font,
           }
         : null,
     [placing, placeAt, color],
@@ -504,7 +570,6 @@ export function Sketch({
         text: placing.text,
         color,
         size: placing.size,
-        font: placing.font,
       });
       setPlacing(null);
       setPlaceAt(null);
@@ -515,15 +580,11 @@ export function Sketch({
       return;
     }
     if (tool === "erase") {
-      const pad = 12 * scaleUp;
-      for (let i = shapes.length - 1; i >= 0; i--) {
-        const b = bounds(shapes[i]!);
-        if (x >= b.x - pad && x <= b.x + b.w + pad && y >= b.y - pad && y <= b.y + b.h + pad) {
-          setHistory((h) => remember(h, shapes));
-          setShapes(shapes.filter((_, j) => j !== i));
-          break;
-        }
-      }
+      // a drag, as Markup's eraser is: whatever it passes over goes, and
+      // the whole drag is one undo
+      e.currentTarget.setPointerCapture(e.pointerId);
+      erasing.current = { before: shapes };
+      eraseAt(x, y);
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -537,19 +598,40 @@ export function Sketch({
     setDraft(started);
   };
 
+  /** The eraser at x,y: every shape it touches leaves. */
+  const eraseAt = (x: number, y: number) => {
+    const reach = 8 * scaleUp;
+    setShapes((s) => {
+      const kept = s.filter((shape) => !touches(shape, x, y, reach));
+      return kept.length === s.length ? s : kept;
+    });
+  };
+
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (placing) {
       setPlaceAt(at(e));
       return;
     }
+    // every sample the pointer made since the last frame, not just the
+    // last one: a quick stroke keeps its curve instead of going polygonal
+    const samples = e.nativeEvent.getCoalescedEvents?.() ?? [];
+    const points = (samples.length > 0 ? samples : [e]).map(at);
+    if (erasing.current) {
+      for (const [x, y] of points) eraseAt(x, y);
+      return;
+    }
     const current = draftRef.current;
     if (!current) return;
-    const [x, y] = at(e);
+    const [x, y] = points[points.length - 1]!;
     let next: Shape;
     switch (current.kind) {
-      case "pen":
-        next = { ...current, points: [...current.points, [x, y]] };
+      case "pen": {
+        let trail = current.points;
+        for (const [px, py] of points) trail = follow(trail, px, py, 0.6);
+        if (trail === current.points) return;
+        next = { ...current, points: trail };
         break;
+      }
       case "arrow":
       case "line":
         next = { ...current, x2: x, y2: y };
@@ -566,6 +648,12 @@ export function Sketch({
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const erased = erasing.current;
+    if (erased) {
+      erasing.current = null;
+      if (shapes !== erased.before) setHistory((h) => remember(h, erased.before));
+      return;
+    }
     const current = draftRef.current;
     draftRef.current = null;
     setDraft(null);
@@ -578,6 +666,16 @@ export function Sketch({
     const b = bounds(current);
     // a click is not a shape — except with the pen, where a dot is a dot
     if (current.kind !== "pen" && b.w < 2 && b.h < 2) return;
+    // the pen's last stretch: the eased trail lags the pointer, so it is
+    // finished where the pointer let go
+    if (current.kind === "pen") {
+      const end = at(e);
+      const last = current.points[current.points.length - 1]!;
+      if (Math.hypot(end[0] - last[0], end[1] - last[1]) >= 0.75) {
+        commit({ ...current, points: [...current.points, end] });
+        return;
+      }
+    }
     commit(current);
   };
 
@@ -585,13 +683,11 @@ export function Sketch({
   const place = () => {
     if (!writing) return;
     const text = writing.value.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
-    lastText.current = { font: writing.font, size: writing.size };
+    lastText.current = { size: writing.size };
     setWriting(null);
-    setFontRow(false);
     if (!text.trim()) return;
-    const font = FONTS.find((f) => f.id === writing.font)?.family ?? FONTS[0]!.family;
     const px = (SIZES.find((s) => s.id === writing.size)?.px ?? 28) * scaleUp;
-    setPlacing({ text, font, size: Math.round(px) });
+    setPlacing({ text, size: Math.round(px) });
   };
 
   // keys: undo, tools — never while writing in the box. Escape puts down
@@ -655,47 +751,62 @@ export function Sketch({
     setPictureUrl(URL.createObjectURL(file));
   };
 
-  const writingFont = FONTS.find((f) => f.id === writing?.font) ?? FONTS[0]!;
   const writingSize = SIZES.find((s) => s.id === writing?.size) ?? SIZES[1]!;
 
   return (
     <section className="sketch-page">
+      {/* a Mac toolbar: close and the name on the left, the tools in the
+          middle as segmented controls, and the one blue button on the right */}
       <div className="sketch-tools">
-        {TOOLS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={`icon-button ${tool === t.id ? "active" : ""}`}
-            title={t.title}
-            onClick={() => pickTool(t.id)}
-          >
-            <Icon d={t.d} />
-          </button>
-        ))}
-        <span className="sketch-sep" />
-        {SWATCHES.map((swatch) => (
-          <button
-            key={swatch}
-            type="button"
-            className={`sketch-swatch ${color === swatch ? "active" : ""}`}
-            style={{ background: palette[swatch] }}
-            title={swatch}
-            onClick={() => setColor(swatch)}
-          />
-        ))}
-        <span className="sketch-sep" />
-        {WIDTHS.map((w) => (
-          <button
-            key={w}
-            type="button"
-            className={`sketch-width ${width === w ? "active" : ""}`}
-            title={`${w}px`}
-            onClick={() => setWidth(w)}
-          >
-            <span style={{ width: w + 2, height: w + 2 }} />
-          </button>
-        ))}
-        <span className="sketch-sep" />
+        <button
+          type="button"
+          className="icon-button"
+          title="Close the pad — the drawing is kept"
+          onClick={onClose}
+        >
+          <Icon d="M6 6l12 12M18 6L6 18" />
+        </button>
+        <span className="sketch-name">{name || "Sketch"}</span>
+        <div className="sketch-middle">
+          <div className="seg sketch-seg">
+            {TOOLS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`seg-option ${tool === t.id ? "active" : ""}`}
+                title={t.title}
+                onClick={() => pickTool(t.id)}
+              >
+                <Icon d={t.d} />
+              </button>
+            ))}
+          </div>
+          <div className="sketch-swatches">
+            {SWATCHES.map((swatch) => (
+              <button
+                key={swatch}
+                type="button"
+                className={`sketch-swatch ${color === swatch ? "active" : ""}`}
+                style={{ background: palette[swatch] }}
+                title={swatch}
+                onClick={() => setColor(swatch)}
+              />
+            ))}
+          </div>
+          <div className="seg sketch-seg">
+            {WIDTHS.map((w) => (
+              <button
+                key={w}
+                type="button"
+                className={`seg-option sketch-width ${width === w ? "active" : ""}`}
+                title={`${w}px`}
+                onClick={() => setWidth(w)}
+              >
+                <span style={{ height: w }} />
+              </button>
+            ))}
+          </div>
+        </div>
         <button
           type="button"
           className="icon-button"
@@ -718,22 +829,13 @@ export function Sketch({
           <Icon d="M4 5h16v14H4zM8 15l3-4 3 3 2-2 3 3" />
           <input type="file" accept="image/*" onChange={(e) => openPicture(e.target.files)} />
         </label>
-        <span className="sketch-name">{name || "a sketch"}</span>
         <button
           type="button"
           className="primary sketch-attach"
           title="Put it in the prompt as an image"
           onClick={attach}
         >
-          {background?.id ? "Put it back" : "Attach"}
-        </button>
-        <button
-          type="button"
-          className="icon-button"
-          title="Close the pad — the drawing is kept"
-          onClick={onClose}
-        >
-          <Icon d="M6 6l12 12M18 6L6 18" />
+          {background?.id ? "Put Back" : "Attach"}
         </button>
       </div>
       <div className="sketch-stage" ref={stageRef}>
@@ -770,7 +872,7 @@ export function Sketch({
               rows={5}
               placeholder="What to write on the pad…"
               style={{
-                fontFamily: writingFont.family,
+                fontFamily: FONT,
                 fontSize: Math.round(Math.max(14, Math.min(34, writingSize.px * 0.75))),
                 // the words as they will land: in their colour, on the pad's
                 // paper, haloed the way the pad halos them
@@ -786,51 +888,33 @@ export function Sketch({
                 if (e.key === "Escape") {
                   e.preventDefault();
                   setWriting(null);
-                  setFontRow(false);
-                } else if (e.key === "Enter" && !e.shiftKey) {
+                              } else if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   place();
                 }
               }}
             />
-            {fontRow && (
-              <div className="sketch-font-row">
-                {FONTS.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    className={`sketch-font ${writing.font === f.id ? "active" : ""}`}
-                    style={{ fontFamily: f.family }}
-                    onClick={() => setWriting({ ...writing, font: f.id })}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-                <span className="sketch-sep" />
+            <div className="sketch-font-row">
+              <div className="seg">
                 {SIZES.map((s) => (
                   <button
                     key={s.id}
                     type="button"
-                    className={`sketch-font ${writing.size === s.id ? "active" : ""}`}
+                    className={`seg-option ${writing.size === s.id ? "active" : ""}`}
                     onClick={() => setWriting({ ...writing, size: s.id })}
                   >
                     {s.label}
                   </button>
                 ))}
               </div>
-            )}
+            </div>
             <div className="confirm-actions sketch-text-actions">
-              <button type="button" className="ghost" onClick={() => setFontRow(!fontRow)}>
-                Font…
-              </button>
-              <span className="sketch-text-gap" />
               <button
                 type="button"
                 className="ghost"
                 onClick={() => {
                   setWriting(null);
-                  setFontRow(false);
-                }}
+                              }}
               >
                 Cancel
               </button>

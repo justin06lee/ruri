@@ -3,6 +3,7 @@ import type { HookDelivery, HookTargetView, ProjectEventKind } from "../../../sh
 import { useNow } from "../lib/beat";
 import { send, useRuri } from "../store";
 import { Capped } from "./Capped";
+import { InfoTip } from "./InfoTip";
 
 /**
  * Project hooks (server/projectHooks.ts): when a project's whole team goes
@@ -256,11 +257,12 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
   return (
     <div className="hooks">
       <p className="settings-note grants-note">
-        When a project’s whole team goes idle, or gets blocked waiting on you, ruri tells a command or a URL —
-        so midna, or anything else, can step in.{" "}
-        {projectId
-          ? `${projectName ?? "This project"} gets the global hooks unless it keeps them off, and can have its own as well.`
-          : "These reach every project; pick one above to give it its own."}
+        Run a command or call a URL when a project goes idle or needs you.
+        <InfoTip>
+          {projectId
+            ? `${projectName ?? "This project"} gets the global hooks unless it keeps them off, and can have its own as well.`
+            : "These reach every project. Pick one above to give it its own."}
+        </InfoTip>
       </p>
 
       {!projectId ? (
@@ -366,11 +368,11 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
         <button className="ghost" disabled={busy} onClick={() => act({ type: "hooks_test", ...scope })}>
           Send test event
         </button>
-        <span className="settings-note">
+        <InfoTip>
           {projectId
-            ? `a project.test event for ${projectName ?? "this project"}, to every hook its events go to`
-            : "a project.test event, to the global hooks"}
-        </span>
+            ? `Sends a project.test event for ${projectName ?? "this project"} to every hook its events go to.`
+            : "Sends a project.test event to the global hooks."}
+        </InfoTip>
       </div>
       {hooks.error && <p className="settings-note int-note failed">{hooks.error}</p>}
 
@@ -392,8 +394,9 @@ export function Hooks({ projectId, projectName }: { projectId: string; projectNa
           (or what its card asks) in about 600 characters; <code>costUsd</code> is what was spent since then.
         </p>
         <p>
-          One that fails is tried again after 5s, 30s, 2m and 10m — five tries in all — unless it can’t get
-          better: an HTTP 4xx other than 408 or 429, or a command that exits 126 or 127.
+          One that fails is tried again after 5s, 30s, 2m and 10m, then every 15m for up to six hours, even
+          across a relaunch — unless it can’t get better: an HTTP 4xx other than 408 or 429, or a command that
+          exits 126 or 127.
         </p>
       </details>
 

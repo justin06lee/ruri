@@ -20,6 +20,8 @@ let sharing: Sharing;
 let ctx: ServerContext;
 let full: Pairing;
 let phone: Pairing;
+/** The devices that reached the phone's notification routes. */
+const pushed: string[] = [];
 
 beforeAll(async () => {
   before = process.env["RURI_CONFIG_DIR"];
@@ -31,7 +33,7 @@ beforeAll(async () => {
     options: { token: TOKEN },
     listeningPort: 0,
     sharing,
-    store: { list: () => [] },
+    store: { list: () => [], findSession: () => undefined },
   } as unknown as ServerContext;
   const serve = createRequestHandler(ctx);
   sharing.start({
@@ -44,6 +46,11 @@ beforeAll(async () => {
       }),
     closeDevice: () => {},
     changed: () => {},
+    push: (_req, res, deviceId) => {
+      pushed.push(deviceId);
+      res.writeHead(200);
+      res.end("{}");
+    },
   });
   full = await sharing.pairDirect("laptop");
   phone = await sharing.pairDirect("Justin's iPhone", "status");
@@ -126,7 +133,8 @@ function upgrade(key: string): Promise<number> {
 }
 
 /** A request as the door's checks see it. */
-const showing = (key: string) => ({ headers: { "x-ruri-token": key }, url: "/" }) as unknown as http.IncomingMessage;
+const showing = (key: string) =>
+  ({ headers: { "x-ruri-token": key }, url: "/" }) as unknown as http.IncomingMessage;
 
 describe("a key scoped to the status", () => {
   test("reads GET /status and the live stream", async () => {
@@ -153,6 +161,10 @@ describe("a key scoped to the status", () => {
       ["/bridge/some-chat", "POST"],
       ["/library/some-chat", "POST"],
       ["/sharing/invite", "POST"],
+      ["/chat?id=x", "GET"],
+      ["/chat/send", "POST"],
+      ["/phone/push", "POST"],
+      ["/phone/push/settings", "POST"],
     ] as const) {
       const answer = await ask(pathname, phone.key, method);
       expect([pathname, answer.status]).toEqual([pathname, 403]);
@@ -300,14 +312,28 @@ describe("a phone's QR code", () => {
     expect(paired.fingerprint).toBe(query.get("fp")!);
     expect(sharing.info().devices.find((d) => d.id === paired.deviceId)).toMatchObject({
       name: "Justin's iPhone",
-      scope: "status",
+      scope: "phone",
     });
     expect((await ask("/status", paired.key)).status).toBe(200);
+    // a phone's key reaches the chats too: through the door, to a chat
+    // that isn't one
+    expect((await ask("/chat?id=no-such-chat", paired.key)).status).toBe(404);
     expect((await ask("/healthz", paired.key)).status).toBe(403);
+    // and hands over its notification token, as itself
+    expect((await ask("/phone/push", paired.key, "POST")).status).toBe(200);
+    expect(pushed).toEqual([paired.deviceId]);
     // used: the next phone needs a new one
     const again = await redeem(ticket);
     expect(again.status).toBe(403);
     expect(JSON.parse(again.body).error).toContain("Pair a phone");
+    sharing.forget(paired.deviceId);
+  });
+
+  test("a phone's key reads what its chats' prompts came with, and only reads it", async () => {
+    const paired = await sharing.pairDirect("Attaching iPhone", "phone");
+    expect((await ask("/uploads/a.png", paired.key)).status).not.toBe(403);
+    expect((await ask("/uploads/a.png", paired.key, "POST")).status).toBe(403);
+    expect((await ask("/uploads/a.png", undefined)).status).toBe(401);
     sharing.forget(paired.deviceId);
   });
 
@@ -332,7 +358,10 @@ describe("a phone's QR code", () => {
     const base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
     try {
       expect((await fetch(`${base}/sharing/phone`, { method: "POST" })).status).toBe(401);
-      const made = await fetch(`${base}/sharing/phone`, { method: "POST", headers: { "x-ruri-token": TOKEN } });
+      const made = await fetch(`${base}/sharing/phone`, {
+        method: "POST",
+        headers: { "x-ruri-token": TOKEN },
+      });
       expect(made.status).toBe(200);
       const code = (await made.json()) as PhoneCode;
       expect(code.link.startsWith("ruri://pair?")).toBe(true);
@@ -340,6 +369,23 @@ describe("a phone's QR code", () => {
     } finally {
       server.close();
     }
+  });
+});
+
+describe("letting a read-only phone send", () => {
+  test("widens its key to the chats, with no pairing again; a full key is left alone", async () => {
+    const old = await sharing.pairDirect("Old iPhone", "status");
+    expect((await ask("/chat?id=no-such-chat", old.key)).status).toBe(403);
+    expect(sharing.allowSend(old.deviceId)).toBe(true);
+    expect(sharing.scopeOf(old.deviceId)).toBe("phone");
+    // through the door, as itself: the chats now, still not the rest
+    expect((await ask("/chat?id=no-such-chat", old.key)).status).toBe(404);
+    expect((await ask("/healthz", old.key)).status).toBe(403);
+    expect(new Sharing().scopeOf(old.deviceId)).toBe("phone");
+    expect(sharing.allowSend(old.deviceId)).toBe(false);
+    expect(sharing.allowSend(full.deviceId)).toBe(false);
+    expect(sharing.scopeOf(full.deviceId)).toBe("all");
+    sharing.forget(old.deviceId);
   });
 });
 

@@ -8,6 +8,8 @@ import { repairSheets } from "./catchupBrief.js";
 import type { ServerContext } from "./context.js";
 import { describeJob, placeholderJob, sheetWords, withinBudget } from "./sheetBudget.js";
 
+const runConfig = process.env["RURI_CONFIG_DIR"];
+
 let dir: string;
 let config: string;
 beforeEach(() => {
@@ -18,7 +20,9 @@ beforeEach(() => {
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(config, { recursive: true, force: true });
-  delete process.env["RURI_CONFIG_DIR"];
+  // back to the run's own folder (scripts/test-config.ts), never to the user's
+  if (runConfig === undefined) delete process.env["RURI_CONFIG_DIR"];
+  else process.env["RURI_CONFIG_DIR"] = runConfig;
 });
 
 function write(file: string, text: string): void {

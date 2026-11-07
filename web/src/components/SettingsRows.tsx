@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { InfoTip } from "./InfoTip";
 
 /**
  * The pieces a settings panel is made of, for the editors that are more
@@ -6,10 +7,13 @@ import { useState, type ReactNode } from "react";
  * number field that can be typed into.
  */
 
-export function Row({ label, children }: { label: string; children: ReactNode }) {
+export function Row({ label, info, children }: { label: string; info?: ReactNode; children: ReactNode }) {
   return (
     <div className="settings-row">
-      <span className="settings-label">{label}</span>
+      <span className="settings-label">
+        {label}
+        {info && <InfoTip>{info}</InfoTip>}
+      </span>
       <div className="settings-value">{children}</div>
     </div>
   );
@@ -46,5 +50,20 @@ export function NumField({
       />
       <span>{label}</span>
     </label>
+  );
+}
+
+/** The Mac's switch, for a setting that is on or off. */
+export function Switch({ on, label, onChange }: { on: boolean; label: string; onChange(on: boolean): void }) {
+  return (
+    <button
+      className={`skill-switch ${on ? "on" : ""}`}
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+    >
+      <span className="skill-knob" />
+    </button>
   );
 }

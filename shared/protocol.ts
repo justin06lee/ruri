@@ -71,9 +71,8 @@ export interface SessionInfo {
   model?: string;
   permissionMode?: PermissionMode;
   effort?: string;
-  /** The project's /btw side chat: quick questions on the side, in a
-   *  chat of their own beside the project chat — never its lead, never a
-   *  member, never in the sidebar. */
+  /** A /btw side chat from before that was taken out: kept on file but
+   *  out of every list — never the lead, never a member. */
   side?: boolean;
   /** Put away by the user in Sessions mode: out of the project's list
    *  (kept under "archived"), its transcript untouched. */
@@ -83,6 +82,12 @@ export interface SessionInfo {
 /** The pref that switches a project between a list of chats ("sessions",
  *  the default) and a lead with a team ("team"). */
 export const SESSIONS_MODE_PREF = "ruri-sessions-mode";
+
+/** The pref that has sessions hold UI work to the user's design taste
+ *  through gusteau ("on"); off when unset (server/gusteau.ts). */
+export const GUSTEAU_PREF = "ruri-gusteau";
+/** Long prompts cut into tasks and sent one at a time, unless "off". */
+export const SPLIT_PREF = "ruri-split-long-prompts";
 
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
 
@@ -153,11 +158,6 @@ export function isMember(project: Pick<Project, "sessions">, sessionId: string):
     leadOf(project)?.id !== sessionId &&
     project.sessions.some((session) => session.id === sessionId && !session.liaison && !session.side)
   );
-}
-
-/** A project's /btw side chat, once it has one. */
-export function sideOf(project: Pick<Project, "sessions">): SessionInfo | undefined {
-  return project.sessions.find((session) => session.side);
 }
 
 /** A project's liaison, once an outside agent has written to it. */
@@ -995,6 +995,8 @@ export interface QueuedPrompt {
    *  where it was (relative to what is still there) when the rewrite is
    *  sent — see queue_edit / queue_update. */
   editing?: true;
+  /** A long prompt being cut into its tasks (server/promptSplit.ts). */
+  splitting?: true;
   /** Sent by another agent: whose, as "project · chat". */
   from?: string;
 }
@@ -1506,9 +1508,10 @@ export interface TccRow {
 
 /** A device let in to use this computer (server/sharing.ts). */
 /** What a paired device's key may reach: "status" is GET /status and
- *  /status/live alone — a phone's — and no scope at all is everything a
- *  window can. */
-export type DeviceScope = "status";
+ *  /status/live alone — a phone paired before it could talk — "phone" is
+ *  that and the chats' conversations, live, and sending into them
+ *  (server/phoneChat.ts); no scope at all is everything a window can. */
+export type DeviceScope = "status" | "phone";
 
 export interface SharedDevice {
   id: string;
@@ -1663,6 +1666,19 @@ export interface ProjectEventPayload {
      *  waiting at a card, what the card asks. */
     lastSummary: string;
   }>;
+  /** Who wrote the project's most recent prompt, across its chats. ruri's
+   *  own prompts (carrying a chat on after a compaction, back to work after
+   *  a message) don't count. Absent when no chat has had one. */
+  lastPrompt?: {
+    author: "user" | "midna" | "agent";
+    /** The chat it went to. */
+    chatId: string;
+    /** Its id: the one its sender gave it, "midna-<uuid>" for midna's, or
+     *  ruri's own when it gave none. Not for an agent's message. */
+    clientId?: string;
+    /** The agent that sent it, as "project · chat". */
+    agent?: string;
+  };
   /** What the project's chats spent since the team went busy, in dollars. */
   costUsd: number;
   /** When it happened, ISO 8601. */
@@ -1722,6 +1738,68 @@ export interface StatusProject {
   team: StatusChat[];
   /** Only with ?ids=1. */
   id?: string;
+}
+
+/** One thing said in a chat, as the phone shows it (server/phoneChat.ts). */
+export interface PhoneChatItem {
+  id: string;
+  /** What came with a prompt; each file is at `url` through the door. */
+  attachments?: PhoneAttachment[];
+  /** "steps" is a run of tool calls between two things said, folded into
+   *  one; "note" is ruri's own line — a turn stopped, or on an error. */
+  kind: "user" | "assistant" | "steps" | "note";
+  /** What was said; for steps, how many there were. */
+  text: string;
+  /** For steps: each one's one-line summary. */
+  steps?: string[];
+  /** A message another agent sent, not the user: its name. */
+  from?: string;
+  /** ISO 8601. */
+  at: string;
+  /** The reply still being written. */
+  pending?: true;
+}
+
+/** Something attached to a prompt, as the phone is told of it. */
+export interface PhoneAttachment {
+  id: string;
+  kind: "image" | "video" | "file";
+  mediaType: string;
+  name: string;
+  /** Its number in the prompt's marker: [image #2] is 2. */
+  n: number;
+  url: string;
+}
+
+/** A prompt waiting in the chat's queue, by the id it was sent with. */
+export interface PhoneQueued {
+  id: string;
+  text: string;
+  attachments?: PhoneAttachment[];
+}
+
+/**
+ * GET /chat answers one; GET /chat/live sends one on connect and again
+ * whenever the chat changes. `items` is the chat's recent conversation,
+ * whole; a live frame after the first sends `items` again only when the
+ * order changed, and otherwise only what is new or changed (`upsert`, in
+ * order, after what the phone holds) and what is gone (`remove`).
+ */
+export interface PhoneChatFrame {
+  chat: string;
+  name: string;
+  project: string;
+  state: "working" | "needs-you" | "idle";
+  queue: PhoneQueued[];
+  items?: PhoneChatItem[];
+  upsert?: PhoneChatItem[];
+  remove?: string[];
+}
+
+/** What POST /chat/send answers: where the prompt went — "event" sent
+ *  now, "queued" behind the turn running, "failed" not taken. */
+export interface PhoneSent {
+  as: "event" | "queued" | "other" | "failed";
 }
 
 /**
@@ -1854,14 +1932,6 @@ export type ClientMessage =
       now?: true;
       clientId?: string;
     }
-  | {
-      type: "send_split";
-      projectId: string;
-      text: string;
-      attachments?: AttachmentUpload[];
-      now?: true;
-      clientId?: string;
-    }
   /** Is the server still there? Answered with `pong` — how a window onto
    *  another computer finds out its socket died without saying so (a laptop
    *  waking up on a different network), rather than typing into it. */
@@ -1886,15 +1956,13 @@ export type ClientMessage =
   | { type: "queue_edit"; projectId: string; itemId: string }
   /** The rewrite is done: this is the prompt now, back in line where it
    *  was — after whichever prompts that were ahead of it are still waiting,
-   *  at the front otherwise — and sent at once if nothing is running.
-   *  `split` sends it the scissors way when its turn comes. */
+   *  at the front otherwise — and sent at once if nothing is running. */
   | {
       type: "queue_update";
       projectId: string;
       itemId: string;
       text: string;
       attachments?: AttachmentUpload[];
-      split?: boolean;
     }
   /** Never mind the rewrite: the prompt steps back in line as it was. */
   | { type: "queue_edit_cancel"; projectId: string; itemId: string }
@@ -2162,9 +2230,6 @@ export type ClientMessage =
   | { type: "new_session"; projectId: string }
   | { type: "rename_session"; sessionId: string; title: string }
   | { type: "archive_session"; sessionId: string; archived: boolean }
-  /** The project's /btw side chat: made the first time it is asked for,
-   *  then it is in the project's sessions (`side`). */
-  | { type: "side_chat"; projectId: string }
   | { type: "set_workspace"; path: string }
   | { type: "set_music_dir"; path: string }
   /** Cycle a model's star: none → starred → small-tasks → default → none. */
@@ -2212,6 +2277,10 @@ export type ClientMessage =
   /** Send a `project.test` event: with `projectId`, to every hook that
    *  project's events go to, about it; without, to the global hooks. */
   | { type: "hooks_test"; projectId?: string }
+  /** Design taste (server/gusteau.ts): where gusteau is, answered as `taste`. */
+  | { type: "taste_get" }
+  /** Run `gusteau learn --from-project` in this project's folder. */
+  | { type: "taste_learn"; projectId: string }
   | { type: "mcp_add"; add: McpAdd; projectId?: string }
   | {
       type: "mcp_remove";
@@ -2256,6 +2325,9 @@ export type ClientMessage =
   | { type: "sharing_phone" }
   /** Unpair a device: its key stops working and its windows are closed. */
   | { type: "sharing_forget"; deviceId: string }
+  /** Let a phone paired to read the status only see and send chats too:
+   *  its key's scope widened to "phone", from this computer's own window. */
+  | { type: "sharing_allow_send"; deviceId: string }
   /** The talk page opened: send who may message whom, and what has been
    *  said lately. Answered with `talk`. */
   | { type: "talk_get" }
@@ -2415,6 +2487,9 @@ export type ServerMessage =
   /** The hooks and their latest deliveries, to every window when either
    *  changes — and `error` to the one whose change was refused. */
   | { type: "hooks"; hooks: HooksView; error?: string }
+  /** Where gusteau is on this machine (null: not installed), and what a
+   *  "Learn from project" the window asked for came back with. */
+  | { type: "taste"; found: string | null; learned?: { ok: boolean; output: string } }
   /** Who may message whom, and the latest messages between agents. */
   | { type: "talk"; policy: TalkPolicy; letters: TalkLetter[] }
   /** A project's team as it stands: its members, its liaison once an

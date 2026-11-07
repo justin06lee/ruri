@@ -6,9 +6,11 @@ import SwiftUI
 struct HomeView: View {
     @Environment(RuriModel.self) private var model
     @State private var showingMac = false
+    @State private var path = NavigationPath()
+    @State private var opener = Opener.shared
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 if model.link == .unpaired {
                     UnpairedSection()
@@ -48,6 +50,9 @@ struct HomeView: View {
             }
             .navigationTitle(model.report?.computer ?? model.mac?.name ?? "ruri")
             .freshness()
+            .navigationDestination(for: ChatRoute.self) { route in
+                ChatView(route: route)
+            }
             .navigationDestination(for: String.self) { name in
                 ProjectView(name: name)
             }
@@ -66,6 +71,13 @@ struct HomeView: View {
                 MacSheet()
             }
         }
+        // a tapped notification opens its project
+        .onChange(of: opener.project, initial: true) { _, project in
+            guard let project else { return }
+            opener.project = nil
+            showingMac = false
+            path = NavigationPath([project])
+        }
     }
 }
 
@@ -79,9 +91,12 @@ private struct NoPicture: View {
             ProgressView()
         case .offline:
             ContentUnavailableView {
-                Label("Can't Reach \(model.mac?.name ?? "Your Mac")", systemImage: "wifi.slash")
+                Label("\(model.mac?.name ?? "Your Mac") Is Asleep or Offline", systemImage: "moon.zzz")
             } description: {
-                Text("It may be asleep, or on another network. Away from home, turn on Tailscale on this iPhone.")
+                Text(
+                    (model.heard.map { "Last seen \(Ago.long($0)). " } ?? "")
+                        + "Away from home, keep Tailscale on, on this iPhone and the Mac."
+                )
             } actions: {
                 Button("Try Again") { Task { await model.refresh() } }
             }
@@ -126,7 +141,7 @@ private struct Freshness: ViewModifier {
         switch model.link {
         case .live: nil
         case .connecting: model.report == nil ? nil : "Connecting…"
-        case .offline: model.heard.map { "Not reachable · updated \(Ago.long($0, now: now))" } ?? "Not reachable"
+        case .offline: model.asleepWords(now: now)
         case .unpaired: "Not paired"
         }
     }

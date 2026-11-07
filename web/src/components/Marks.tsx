@@ -1,6 +1,6 @@
 import { type CSSProperties, type ReactNode, useId } from "react";
-import { arc, blob, poly, type Pt, shaker, stroke, strokes, through, tile } from "../lib/doodle";
-import type { Lab, MarkPick } from "../lib/marks";
+import { arc, arcPoints, blob, poly, type Pt, shaker, stroke, strokes, through, tile } from "../lib/doodle";
+import type { Lab, MarkPick, ProjectIconName } from "../lib/marks";
 
 /**
  * The marks over an empty chat: whoever made the model the chat runs on,
@@ -1066,5 +1066,315 @@ export function MarkPair({ pick }: { pick: MarkPick }) {
       )}
       <Letters text={clip(pick.name)} />
     </div>
+  );
+}
+
+/* ── the composer's other pickers: permissions and effort ───────────
+   Drawn with the same pen on the same page as the marks, ink only, a
+   little heavier so they hold up at a menu row's size. */
+
+const PICK_INK = 7.5;
+
+const ASK_FIRST = strokes(
+  through([[50, 14], [82, 22], [92, 42], [80, 60], [50, 68], [22, 60], [10, 42], [20, 22]], true),
+  stroke([30, 62], [18, 88], 0.6),
+  stroke([18, 88], [46, 67], -0.6),
+  through([[38, 32], [50, 24], [62, 32], [52, 42], [50, 50]]),
+  stroke([50, 58], [50.4, 58.6], 0),
+);
+
+const ACCEPT_EDITS = strokes(
+  stroke([36, 66], [80, 22], 0.5),
+  stroke([24, 54], [68, 10], -0.5),
+  stroke([80, 22], [68, 10], 0.3),
+  stroke([72, 30], [60, 18], 0.3),
+  stroke([36, 66], [12, 78], 0.3),
+  stroke([12, 78], [24, 54], 0.3),
+  stroke([50, 78], [62, 90], 0.4),
+  stroke([62, 90], [92, 58], -0.8),
+);
+
+const PLAN_MODE = strokes(
+  stroke([20, 12], [80, 14], 0.8),
+  stroke([80, 14], [82, 90], -0.8),
+  stroke([82, 90], [18, 88], 0.8),
+  stroke([18, 88], [20, 12], -0.8),
+  stroke([34, 36], [68, 35], 0.6),
+  stroke([34, 52], [66, 53], -0.6),
+  stroke([34, 69], [54, 68], 0.5),
+);
+
+const BYPASS = strokes(
+  stroke([60, 6], [24, 54], 0.4),
+  stroke([24, 54], [50, 53], 0.3),
+  stroke([50, 53], [36, 94], -0.4),
+  stroke([36, 94], [78, 40], 0.4),
+  stroke([78, 40], [52, 41], -0.3),
+  stroke([52, 41], [60, 6], -0.4),
+);
+
+/** Effort as tally marks: one for low up to the struck five for max. */
+const tally = (n: number): string => {
+  const marks: string[] = [];
+  for (let i = 0; i < Math.min(n, 4); i++) {
+    const x = 22 + i * 18;
+    marks.push(stroke([x, 18 + (i % 2) * 3], [x + 2, 84 - (i % 2) * 2], i % 2 ? -1.6 : 1.6));
+  }
+  if (n >= 5) marks.push(stroke([8, 74], [94, 30], 2));
+  return strokes(...marks);
+};
+
+const PICK_ART: Record<string, { d: string; seed: number; tilt: number }> = {
+  "permission:default": { d: ASK_FIRST, seed: 21, tilt: -4 },
+  "permission:acceptEdits": { d: ACCEPT_EDITS, seed: 22, tilt: 3 },
+  "permission:plan": { d: PLAN_MODE, seed: 23, tilt: -3 },
+  "permission:bypassPermissions": { d: BYPASS, seed: 24, tilt: 5 },
+  "effort:minimal": { d: tally(1), seed: 30, tilt: -3 },
+  "effort:low": { d: tally(1), seed: 31, tilt: -3 },
+  "effort:medium": { d: tally(2), seed: 32, tilt: 2 },
+  "effort:high": { d: tally(3), seed: 33, tilt: -2 },
+  "effort:xhigh": { d: tally(4), seed: 34, tilt: 3 },
+  "effort:max": { d: tally(5), seed: 35, tilt: -2 },
+};
+
+/** A permission mode's or an effort level's own drawing, sized like a
+ *  model's mark beside its name; nothing for a value it has no drawing for. */
+export function PickIcon({ kind, value }: { kind: "permission" | "effort"; value: string }) {
+  const art = PICK_ART[`${kind}:${value}`];
+  if (!art) return null;
+  return (
+    <span className="model-icon">
+      <Doodle label={value} seed={art.seed} tilt={art.tilt}>
+        {() => <Line d={art.d} width={PICK_INK} />}
+      </Doodle>
+    </span>
+  );
+}
+
+/* ── project icons ───────────────────────────────────────────────────
+   A small drawing for each project's sidebar row, from the same pen on the
+   same page: things from a notebook margin. A project gets one from its id
+   until the user picks another (the row's right-click). */
+
+/** Straight strokes from point to point, each with a slight bow. */
+const path = (points: Pt[], bow = 0.5, closed = false): string => {
+  const parts: string[] = [];
+  const last = closed ? points.length : points.length - 1;
+  for (let i = 0; i < last; i++) {
+    parts.push(stroke(points[i]!, points[(i + 1) % points.length]!, i % 2 ? -bow : bow));
+  }
+  return strokes(...parts);
+};
+
+/** Points round a ring, every other one pulled in: a star, a sun's rays. */
+const ring = (n: number, outer: number, inner: number, turn = -90): Pt[] =>
+  Array.from({ length: n * 2 }, (_, i) => {
+    const a = ((turn + (i * 180) / n) * Math.PI) / 180;
+    const r = i % 2 ? inner : outer;
+    return [50 + Math.cos(a) * r, 50 + Math.sin(a) * r] as Pt;
+  });
+
+/** A dot: a tiny loop the pen fills in by its own width. */
+const dot = (x: number, y: number, r = 2.5) => blob(x, y, r, r, { wobble: 0.2, seed: Math.round(x + y) });
+
+const sunRays = Array.from({ length: 8 }, (_, i) => {
+  const a = (i * 45 * Math.PI) / 180;
+  return stroke([50 + Math.cos(a) * 29, 50 + Math.sin(a) * 29], [50 + Math.cos(a) * 42, 50 + Math.sin(a) * 42], 0.3);
+});
+
+/** A ring round a planet, tilted, only the half that passes in front. */
+const planetRing = (() => {
+  const tilt = (-18 * Math.PI) / 180;
+  const points: Pt[] = [];
+  for (let d = -20; d <= 200; d += 20) {
+    const a = (d * Math.PI) / 180;
+    const x = Math.cos(a) * 45;
+    const y = Math.sin(a) * 12;
+    points.push([50 + x * Math.cos(tilt) - y * Math.sin(tilt), 52 + x * Math.sin(tilt) + y * Math.cos(tilt)]);
+  }
+  return through(points);
+})();
+
+const snailShell = (() => {
+  const points: Pt[] = [];
+  for (let i = 0; i <= 24; i++) {
+    const t = i / 24;
+    const a = ((90 + t * 660) * Math.PI) / 180;
+    const r = 30 * (1 - t * 0.85);
+    points.push([44 + Math.cos(a) * r, 50 + Math.sin(a) * r]);
+  }
+  return through(points);
+})();
+
+const petals = strokes(
+  ...Array.from({ length: 5 }, (_, i) => {
+    const a = ((-90 + i * 72) * Math.PI) / 180;
+    return blob(50 + Math.cos(a) * 23, 50 + Math.sin(a) * 23, 13, 13, { wobble: 0.6, seed: 40 + i });
+  }),
+  blob(50, 50, 8, 8, { wobble: 0.3, seed: 46 }),
+);
+
+const cloud = through(
+  [
+    ...arcPoints(30, 60, 14, 14, 100, 160, { wobble: 0.4, seed: 51 }),
+    ...arcPoints(52, 44, 20, 20, 200, 140, { wobble: 0.4, seed: 52 }),
+    ...arcPoints(74, 58, 16, 16, 250, 200, { wobble: 0.4, seed: 53 }),
+  ],
+  true,
+);
+
+/** Every project icon, by the name a person would call it. */
+const PROJECT_ART: Record<ProjectIconName, string> = {
+  moon: strokes(arc(50, 50, 38, 60, 240, { wobble: 0.5, seed: 61 }), arc(90, 50, 39, 122, 116, { wobble: 0.4, seed: 62 })),
+  star: path(ring(5, 42, 18), 0.6, true),
+  leaf: strokes(
+    through([[20, 82], [26, 44], [56, 20], [84, 16]]),
+    through([[84, 16], [80, 48], [54, 76], [20, 82]]),
+    stroke([20, 82], [64, 36], 2),
+    stroke([20, 82], [10, 92], 0.4),
+  ),
+  mushroom: strokes(
+    through([[10, 54], [20, 26], [50, 12], [80, 26], [90, 54]]),
+    stroke([90, 54], [10, 54], -2),
+    through([[38, 54], [35, 72], [40, 88]]),
+    through([[62, 54], [65, 72], [60, 88]]),
+    stroke([40, 88], [60, 88], 1),
+    dot(38, 36, 4),
+    dot(62, 32, 3),
+  ),
+  fish: strokes(
+    through([[16, 50], [38, 30], [64, 34], [78, 50], [64, 66], [38, 70]], true),
+    path([[78, 50], [94, 32], [92, 68], [78, 50]], 0.8),
+    dot(32, 46),
+  ),
+  cat: strokes(
+    path([[18, 64], [22, 16], [40, 32], [60, 32], [78, 16], [82, 64]], 0.8),
+    through([[82, 64], [70, 84], [50, 90], [30, 84], [18, 64]]),
+    dot(37, 56, 3),
+    dot(63, 56, 3),
+    path([[46, 68], [50, 72], [54, 68]], 0.3),
+  ),
+  cloud,
+  key: strokes(
+    blob(28, 50, 16, 16, { wobble: 0.6, seed: 71 }),
+    stroke([44, 50], [92, 50], 0.6),
+    stroke([78, 50], [78, 66], 0.3),
+    stroke([90, 50], [90, 62], 0.3),
+  ),
+  flame: strokes(
+    through([[50, 6], [62, 30], [78, 52], [74, 76], [50, 92], [26, 76], [22, 54], [36, 34], [44, 44], [50, 6]]),
+    through([[50, 50], [60, 64], [58, 78], [50, 84], [42, 78], [40, 64], [50, 50]]),
+  ),
+  mountain: strokes(
+    path([[6, 86], [38, 24], [58, 62]], 0.6),
+    path([[50, 46], [68, 30], [94, 86]], 0.6),
+    stroke([94, 86], [6, 86], 0.8),
+    through([[29, 42], [35, 48], [41, 42], [47, 46]]),
+  ),
+  cup: strokes(
+    stroke([16, 38], [22, 86], 0.6),
+    through([[22, 86], [42, 92], [62, 86]]),
+    stroke([62, 86], [68, 38], 0.6),
+    stroke([68, 38], [16, 38], -0.8),
+    arc(70, 60, 13, -70, 160, { wobble: 0.4, seed: 81 }),
+    through([[34, 28], [30, 18], [36, 8]]),
+    through([[50, 28], [46, 18], [52, 8]]),
+  ),
+  sun: strokes(blob(50, 50, 19, 19, { wobble: 0.6, seed: 91 }), ...sunRays),
+  house: strokes(
+    path([[10, 50], [50, 12], [90, 50]], 0.5),
+    stroke([22, 40], [22, 88], 0.6),
+    stroke([78, 40], [78, 88], -0.6),
+    stroke([22, 88], [78, 88], 0.6),
+    path([[42, 88], [42, 64], [58, 64], [58, 88]], 0.3),
+  ),
+  pine: strokes(
+    path(
+      [[50, 6], [30, 34], [40, 34], [20, 58], [34, 58], [12, 80], [88, 80], [66, 58], [80, 58], [60, 34], [70, 34]],
+      0.4,
+      true,
+    ),
+    stroke([44, 80], [44, 94], 0.2),
+    stroke([56, 80], [56, 94], -0.2),
+  ),
+  anchor: strokes(
+    blob(50, 14, 8, 8, { wobble: 0.3, seed: 101 }),
+    stroke([50, 22], [50, 90], 0.4),
+    stroke([32, 36], [68, 36], 0.4),
+    arc(50, 58, 33, 20, 140, { wobble: 0.6, seed: 102 }),
+    stroke([12, 62], [19, 72], 0.2),
+    stroke([88, 62], [81, 72], 0.2),
+  ),
+  heart: strokes(
+    through([[50, 30], [40, 14], [22, 14], [10, 32], [18, 54], [50, 88]]),
+    through([[50, 88], [82, 54], [90, 32], [78, 14], [60, 14], [50, 30]]),
+  ),
+  flower: petals,
+  rocket: strokes(
+    through([[50, 6], [64, 24], [66, 64], [34, 64], [36, 24], [50, 6]]),
+    blob(50, 36, 7, 7, { wobble: 0.3, seed: 111 }),
+    path([[34, 50], [20, 74], [36, 68]], 0.4),
+    path([[66, 50], [80, 74], [64, 68]], 0.4),
+    through([[42, 70], [50, 94], [58, 70]]),
+  ),
+  umbrella: strokes(
+    arc(50, 52, 40, 180, 180, { wobble: 0.6, seed: 121 }),
+    through([[10, 52], [23, 44], [36, 52], [50, 44], [64, 52], [77, 44], [90, 52]]),
+    stroke([50, 48], [50, 84], 0.3),
+    arc(42, 84, 8, 0, 180, { wobble: 0.2, seed: 122 }),
+    stroke([50, 12], [50, 5], 0.2),
+  ),
+  bell: strokes(
+    through([[18, 74], [28, 62], [30, 36], [50, 16], [70, 36], [72, 62], [82, 74]]),
+    stroke([82, 74], [18, 74], 0.8),
+    dot(50, 84, 6),
+    stroke([50, 16], [50, 7], 0.2),
+  ),
+  planet: strokes(blob(50, 52, 24, 24, { wobble: 0.6, seed: 131 }), planetRing),
+  ghost: strokes(
+    through([[20, 86], [18, 40], [32, 16], [50, 10], [68, 16], [82, 40], [80, 86]]),
+    path([[80, 86], [69, 76], [58, 86], [50, 76], [42, 86], [31, 76], [20, 86]], 0.3),
+    dot(40, 42, 4),
+    dot(60, 42, 4),
+  ),
+  snail: strokes(
+    snailShell,
+    stroke([8, 82], [80, 82], 1),
+    through([[66, 82], [82, 74], [86, 58]]),
+    stroke([84, 60], [78, 42], 0.4),
+    stroke([88, 60], [96, 44], -0.4),
+  ),
+  wave: strokes(
+    through([[6, 72], [24, 58], [40, 38], [60, 24], [80, 28], [88, 42], [78, 50], [68, 42]]),
+    through([[6, 88], [22, 80], [38, 88], [54, 80], [70, 88], [86, 80], [96, 86]]),
+  ),
+  plane: strokes(
+    path([[6, 46], [94, 12], [64, 88], [44, 58]], 0.3, true),
+    stroke([44, 58], [94, 12], 0.3),
+    path([[44, 58], [42, 82], [54, 70]], 0.3),
+  ),
+  gem: strokes(
+    path([[24, 18], [76, 18], [94, 40], [50, 90], [6, 40]], 0.4, true),
+    stroke([6, 40], [94, 40], 0.4),
+    path([[24, 18], [36, 40], [50, 90], [64, 40], [76, 18]], 0.3),
+  ),
+  cactus: strokes(
+    through([[40, 88], [40, 20], [50, 10], [60, 20], [60, 88]]),
+    through([[40, 64], [24, 62], [18, 48], [20, 34], [26, 30], [30, 36], [30, 50], [40, 52]]),
+    through([[60, 50], [74, 48], [80, 36], [80, 24], [74, 20], [70, 26], [70, 38], [60, 40]]),
+    stroke([20, 88], [80, 88], 0.6),
+  ),
+  bolt: BYPASS,
+};
+
+/** One project icon, drawn to fill whatever holds it. */
+export function ProjectIcon({ name }: { name: string }) {
+  const d = PROJECT_ART[name as ProjectIconName] ?? PROJECT_ART.star;
+  let seed = 0;
+  for (const ch of name) seed = (seed * 31 + ch.charCodeAt(0)) % 997;
+  return (
+    <Doodle label={name} seed={seed} tilt={(seed % 9) - 4}>
+      {() => <Line d={d} width={PICK_INK} />}
+    </Doodle>
   );
 }

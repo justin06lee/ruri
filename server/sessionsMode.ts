@@ -34,18 +34,3 @@ export function projectChatBriefing(project: string): string {
     "</ruri:project-chat>",
   ].join("\n");
 }
-
-/** What the /btw side chat is told: quick answers, nothing changed. */
-export function sideChatBriefing(project: string): string {
-  return [
-    "<ruri:btw>",
-    `You are the side chat of ${project} in ruri: the user asks quick questions here — "by the way" — while the project's own chat gets on with its work in the same folder. Answer short and plainly, a few lines unless more is asked for. Read the code, git and the project's notes (.ruri/catchup.md) to answer; run read-only commands.`,
-    "Change nothing: no edits, no commits, no installs, no starting servers. When a question turns into a job, say it belongs in the project chat and say what to ask it.",
-    "</ruri:btw>",
-  ].join("\n");
-}
-
-/** The tools the side chat is refused, and why. */
-export const SIDE_REFUSED = ["Edit", "Write", "NotebookEdit", "MultiEdit", "Agent", "Task"];
-export const sideRefusal = (tool: string) =>
-  `The side chat changes nothing and starts no one (${tool}): answer from what you can read, and when it needs doing, tell the user to ask the project chat.`;

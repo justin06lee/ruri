@@ -11,7 +11,7 @@ struct MacSheet: View {
         switch model.link {
         case .live: "Live"
         case .connecting: "Connecting…"
-        case .offline: "Not reachable"
+        case .offline: model.asleepWords()
         case .unpaired: "Not paired"
         }
     }
@@ -27,6 +27,11 @@ struct MacSheet: View {
                     }
                 } footer: {
                     Text("Away from home, this iPhone reaches your Mac over Tailscale: keep it on, on both.")
+                }
+                Section {
+                    NavigationLink("Notifications") {
+                        NotificationsView()
+                    }
                 }
                 Section {
                     Button("Unpair This iPhone", role: .destructive) {

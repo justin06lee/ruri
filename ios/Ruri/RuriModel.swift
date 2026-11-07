@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 
 /// Everything the screens show: the Mac this phone is paired with, the last
@@ -33,16 +34,25 @@ final class RuriModel {
     private(set) var heard: Date?
     private(set) var link: Link = .connecting
     var pairing: Pairing = .idle
+    /// Counts the phone's network changing — Wi-Fi to cellular, onto
+    /// Tailscale, back from nothing — so a chat's line can open again too.
+    private(set) var network = 0
+    /// What this phone wants to hear, and when it wants quiet.
+    let notifications: Notifications
 
     private var key: String?
     private var client: MacClient?
     private var address: String?
     private var liveTask: Task<Void, Never>?
     private var awake = false
+    private let paths = NWPathMonitor()
+    private var lastPath: String?
+    private var watching = false
 
     private static let macKey = "pairedMac"
 
     init(demo: StatusReport? = nil) {
+        notifications = Notifications()
         if let demo {
             mac = PairedMac(
                 name: demo.computer, deviceId: "", addresses: [], port: 0, fingerprint: "",
@@ -64,6 +74,68 @@ final class RuriModel {
             report = kept.report
             heard = kept.heard
         }
+        watchNetwork()
+        hearFrom(mac)
+    }
+
+    // MARK: notifications
+
+    /// Point the push token and the notification settings at `mac`.
+    private func hearFrom(_ mac: PairedMac?) {
+        let registrar = PushRegistrar.shared
+        registrar.deliver = { [weak self] token, env in
+            guard let self else { throw MacError.notPaired }
+            let (client, address, port) = try await self.line()
+            try await client.pushToken(token, env: env, at: address, port: port)
+        }
+        notifications.deliver = { [weak self] body in
+            guard let self else { throw MacError.notPaired }
+            let (client, address, port) = try await self.line()
+            try await client.pushSettings(body, at: address, port: port)
+        }
+        notifications.mac = mac?.deviceId
+        Task {
+            await registrar.macChanged(mac?.deviceId)
+            if mac != nil, awake { await notifications.wake() }
+        }
+    }
+
+    // MARK: the phone's network
+
+    /// When the network changes the Mac may answer somewhere else, or only
+    /// now: find it again and open the line, without waiting out a backoff.
+    private func watchNetwork() {
+        guard !watching else { return }
+        watching = true
+        paths.pathUpdateHandler = { [weak self] path in
+            let now =
+                path.status == .satisfied
+                ? path.availableInterfaces.map { "\($0.type)" }.joined(separator: ",") : "down"
+            Task { @MainActor in self?.networkChanged(now) }
+        }
+        paths.start(queue: DispatchQueue(label: "ruri.network"))
+    }
+
+    private func networkChanged(_ now: String) {
+        defer { lastPath = now }
+        guard let lastPath, lastPath != now else { return }
+        network += 1
+        address = nil
+        if now != "down" { restart() }
+    }
+
+    // MARK: a chat's line
+
+    /// The way to the Mac for a chat's line: the client, where the Mac
+    /// answers now, and its door.
+    func line() async throws -> (client: MacClient, address: String, port: Int) {
+        guard let client, let mac else { throw MacError.notPaired }
+        return (client, try await reach(client, mac), mac.port)
+    }
+
+    /// A chat's line lost the Mac: look for it afresh next time.
+    func lostTheMac() {
+        address = nil
     }
 
     // MARK: the app in front, or not
@@ -71,6 +143,13 @@ final class RuriModel {
     /// The app came to the front: open the line.
     func wake() {
         awake = true
+        if client != nil {
+            Task {
+                PushRegistrar.shared.retryNow()
+                await PushRegistrar.shared.sync()
+                await notifications.wake()
+            }
+        }
         guard client != nil, liveTask == nil else { return }
         liveTask = Task { await self.stayLive() }
     }
@@ -157,6 +236,13 @@ final class RuriModel {
         return address
     }
 
+    /// What the screens say while nothing answers: the Mac is asleep or off
+    /// every network this phone is on, and when it was last heard from.
+    func asleepWords(now: Date = .now) -> String {
+        guard let heard else { return "Mac asleep or offline" }
+        return "Mac asleep or offline · last seen \(Ago.long(heard, now: now))"
+    }
+
     private func take(_ report: StatusReport) {
         self.report = report
         heard = .now
@@ -191,9 +277,11 @@ final class RuriModel {
             self.key = key
             client = MacClient(fingerprint: mac.fingerprint, key: key)
             address = mac.lastAddress
+            watchNetwork()
             self.link = .connecting
             pairing = .idle
             restart()
+            hearFrom(mac)
             await refresh()
         } catch {
             pairing = .failed(Self.words(for: error, pairingWith: link.name))
@@ -205,6 +293,7 @@ final class RuriModel {
     func unpair() {
         forget()
         pairing = .idle
+        hearFrom(nil)
     }
 
     private func forget() {
@@ -244,6 +333,9 @@ final class RuriModel {
         case .outdated: "The ruri on \(name) can't pair a phone yet. Update it, then try again."
         case .newer: "\(name) runs a newer ruri than this app. Update the app, then try again."
         case .notPaired: "\(name) didn't accept this iPhone. Make a new code there and scan it."
+        case .readOnly:
+            "This iPhone can only read \(name)'s status. On \(name), open ruri's Settings → Devices → Paired devices and click Allow to send next to this iPhone."
+        case .noChat: "That chat isn't open on \(name) anymore."
         case .unreachable, nil:
             "Couldn't reach \(name). Make sure this iPhone is on the same network as it, or on Tailscale."
         }

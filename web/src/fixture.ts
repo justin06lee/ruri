@@ -166,7 +166,6 @@ export function installFixture(): void {
     ],
     activeId: "home",
     workspaceDir: "/Users/you/Workspace",
-    musicDir: "/Users/you/Music/ruri",
     user: "you",
     statuses: { p1: "permission", p2: "working", p3: "idle" },
     // p2's turn, mid-stream, for the working line under its draft. The
@@ -190,8 +189,6 @@ export function installFixture(): void {
     starredModels: ["claude-fable-5[1m]", "codex:gpt-5.3-codex", "claude-sonnet-5"],
     smallModel: "claude-sonnet-5",
     memoryModel: "sonnet",
-    // enough for all four gauges: a context reading that would have read as
-    // full against the wrong window, and windows that all roll over later
     contexts: {
       p1: { tokens: 393_315, window: 1_000_000 },
       p2: { tokens: 84_120, window: 200_000 },
@@ -294,13 +291,13 @@ export function installFixture(): void {
       prj1: [
         {
           id: "c1",
-          name: "the usage gauges",
-          slug: "dragon-gauges",
-          aliases: ["the bars", "the gauges"],
-          files: ["web/src/components/UsageGauges.tsx"],
-          uses: ["web/src/styles.css:2864"],
-          tags: ["gauge", "usage"],
-          note: "Four of them flank the composer: context, 5h, weekly, per-model.",
+          name: "the input box",
+          slug: "input-box",
+          aliases: ["the field"],
+          files: ["web/src/components/Composer.tsx"],
+          uses: ["web/src/styles.css:6040"],
+          tags: ["composer"],
+          note: "The composer's rounded field, with send a filled round arrow.",
           shots: [],
           ts: now - 400_000,
         },
@@ -500,9 +497,9 @@ export function installFixture(): void {
         toolName: "name_component",
         kind: "component",
         input: {
-          name: "the usage gauges",
-          files: ["web/src/components/UsageGauges.tsx", "web/src/styles.css:2864"],
-          note: "Four bottom-up bars flanking the composer: context, 5h, weekly, per-model.",
+          name: "the input box",
+          files: ["web/src/components/Composer.tsx", "web/src/styles.css:6040"],
+          note: "The composer's rounded field, with send a filled round arrow.",
         },
         ts: now - 3_000,
       },

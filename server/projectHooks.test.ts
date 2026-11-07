@@ -4,7 +4,7 @@ import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { PermissionRequest, Project, ProjectEventPayload, TranscriptEvent } from "../shared/protocol.js";
+import type { LetterFrom, PermissionRequest, Project, ProjectEventPayload, TranscriptEvent } from "../shared/protocol.js";
 import type { ServerContext } from "./context.js";
 import {
   buildPayload,
@@ -294,9 +294,9 @@ describe("delivering", () => {
     expect(JSON.parse(world.calls[0]!.input).kind).toBe("project.blocked");
   });
 
-  test("a failing hook is tried again at 5s, 30s, 2m and 10m, then given up — and nothing waits on it", async () => {
+  test("a failing hook is tried again at 5s, 30s, 2m and 10m, then every 15m until 6h after — and nothing waits on it", async () => {
     const fail: Attempt = { ok: false, retry: true, result: "exit 1: midna is not running" };
-    const world = fakeWorld({ answers: [fail, fail, fail, fail, fail] });
+    const world = fakeWorld({ answers: Array.from({ length: 40 }, () => fail) });
     let heard = 0;
     const center = new HookCenter(world.io, () => heard++, files());
     center.set({ command: "midna-down" });
@@ -311,12 +311,23 @@ describe("delivering", () => {
     });
     expect(center.view().deliveries[0]?.nextAt).toBe(1_000_000 + 5_000);
     const waits: number[] = [];
-    for (let i = 0; i < 5; i++) waits.push(...(await world.retry()));
-    expect(waits).toEqual([5_000, 30_000, 120_000, 600_000]);
-    expect(world.calls).toHaveLength(5);
-    expect(center.view().deliveries[0]).toMatchObject({ state: "failed", attempts: 5 });
+    for (let i = 0; i < 40 && center.view().deliveries[0]?.state === "retrying"; i++) {
+      // the clock moves on by the wait, then the try goes
+      const next = world.timers.find((t) => !t.cancelled && t.ms !== 500);
+      if (next) world.tick(next.ms);
+      waits.push(...(await world.retry()));
+    }
+    expect(waits.slice(0, 5)).toEqual([5_000, 30_000, 120_000, 600_000, 900_000]);
+    expect(new Set(waits.slice(4))).toEqual(new Set([900_000]));
+    // the last try is within six hours of the event, and none after
+    const total = waits.reduce((a, b) => a + b, 0);
+    expect(total).toBeLessThanOrEqual(6 * 60 * 60_000);
+    expect(total + 900_000).toBeGreaterThan(6 * 60 * 60_000);
+    expect(center.view().deliveries[0]).toMatchObject({ state: "failed", attempts: waits.length + 1 });
     expect(center.view().deliveries[0]?.nextAt).toBeUndefined();
     expect(heard).toBeGreaterThan(5);
+    // given up: nothing left in the outbox
+    expect(fs.existsSync(path.join(dir, "hook-outbox.json"))).toBe(false);
   });
 
   test("a retry sends the same event again, id and all — midna drops it if the first got through", async () => {
@@ -373,7 +384,7 @@ describe("delivering", () => {
     expect(world.calls).toHaveLength(1);
   });
 
-  test("the newest 50 are kept, and one still going when ruri closed reads as failed after", async () => {
+  test("the newest 50 are kept — one still going is kept however old it is", async () => {
     const world = fakeWorld({ answers: [{ ok: false, retry: true, result: "exit 1" }] });
     const center = new HookCenter(world.io, () => {}, files());
     center.set({ command: "cat" });
@@ -381,12 +392,52 @@ describe("delivering", () => {
     await settle();
     expect(center.view().deliveries).toHaveLength(50);
     expect(center.view().deliveries[0]?.eventId).toBe("e59");
-    // the first one is still retrying: it is kept however old it is
     expect(center.view().deliveries.some((d) => d.eventId === "e0")).toBe(true);
     center.close();
-    const again = new HookCenter(fakeWorld().io, () => {}, files());
-    const first = again.view().deliveries.find((d) => d.eventId === "e0");
-    expect(first).toMatchObject({ state: "failed", result: "ruri closed before it went" });
+  });
+
+  test("one still going when ruri closed goes on at the next launch, the same event, and lands", async () => {
+    const down: Attempt = { ok: false, retry: true, result: "exit 1: can't reach midna" };
+    const world = fakeWorld({ answers: [down] });
+    const center = new HookCenter(world.io, () => {}, files());
+    center.set({ command: "cat", url: "http://127.0.0.1:9/h", token: "s3cret" });
+    center.deliver(samplePayload({ id: "kept" }), center.targets(), dir);
+    await settle();
+    // the command failed and waits to go again; the webhook went
+    expect(Object.fromEntries(center.view().deliveries.map((d) => [d.target, d.state]))).toEqual({
+      command: "retrying",
+      webhook: "ok",
+    });
+    const outbox = path.join(dir, "hook-outbox.json");
+    expect(fs.statSync(outbox).mode & 0o777).toBe(0o600);
+    center.close();
+
+    const next = fakeWorld();
+    const again = new HookCenter(next.io, () => {}, files());
+    expect(again.view().deliveries.find((d) => d.target === "command")).toMatchObject({
+      state: "retrying",
+      eventId: "kept",
+    });
+    expect(await next.retry()).toEqual([5_000]);
+    expect(next.calls).toHaveLength(1);
+    expect(JSON.parse(next.calls[0]!.input)).toEqual(samplePayload({ id: "kept" }));
+    expect(again.view().deliveries.find((d) => d.target === "command")).toMatchObject({ state: "ok", attempts: 2 });
+    expect(fs.existsSync(outbox)).toBe(false);
+  });
+
+  test("one the last run left with nothing to send, or past six hours, reads as failed", async () => {
+    const world = fakeWorld({ answers: [{ ok: false, retry: true, result: "exit 1" }] });
+    const center = new HookCenter(world.io, () => {}, files());
+    center.set({ command: "cat" });
+    center.deliver(samplePayload({ id: "old" }), center.targets(), dir);
+    await settle();
+    center.close();
+    const late = fakeWorld();
+    late.tick(7 * 60 * 60_000);
+    const again = new HookCenter(late.io, () => {}, files());
+    expect(again.view().deliveries[0]).toMatchObject({ state: "failed", result: "ruri closed before it went" });
+    expect(await late.retry()).toEqual([]);
+    expect(late.calls).toHaveLength(0);
   });
 });
 
@@ -694,6 +745,38 @@ describe("the payload", () => {
     expect(payload.costUsd).toBe(1.25);
     for (const chat of payload.chats)
       expect(Object.keys(chat).sort()).toEqual(["id", "lastSummary", "name", "role"]);
+  });
+
+  test("says who wrote the project's latest prompt, across its chats", () => {
+    const prompt = (id: string, ts: number, extra: Partial<TranscriptEvent> = {}): TranscriptEvent =>
+      ({ kind: "user", id, text: "Do it.", ts, ...extra }) as TranscriptEvent;
+    const last = (events: Record<string, TranscriptEvent[]>) =>
+      buildPayload(fakeCtx([team], events).ctx, "project.idle", team, { costUsd: 0 }).lastPrompt;
+    const letter = { agent: "lead", project: "Una", title: "Lead" } as LetterFrom;
+
+    expect(last({ lead: [said("a", "Done.", 200)] })).toBeUndefined();
+    expect(last({ lead: [prompt("win-1", 100)] })).toEqual({ author: "user", chatId: "lead", clientId: "win-1" });
+    expect(last({ lead: [prompt("win-1", 100)], ui: [prompt("midna-2", 150)] })).toEqual({
+      author: "midna",
+      chatId: "ui",
+      clientId: "midna-2",
+    });
+    expect(last({ lead: [prompt("midna-2", 100)], ui: [prompt("q", 150, { from: letter })] })).toEqual({
+      author: "agent",
+      chatId: "ui",
+      agent: "Una · Lead",
+    });
+    // ruri's own prompts carrying a chat on aren't anyone's
+    expect(
+      last({
+        lead: [
+          prompt("midna-2", 100),
+          prompt("c", 150, { text: "↻ You compacted yourself: …" }),
+          prompt("d", 160, { from: { ...letter, carried: true } }),
+          prompt("e", 170, { text: "↩ Back to what you were doing" }),
+        ],
+      }),
+    ).toEqual({ author: "midna", chatId: "lead", clientId: "midna-2" });
   });
 
   test("names the lead always, and the others only if they worked since the team went busy", () => {

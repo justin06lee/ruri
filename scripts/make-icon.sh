@@ -28,3 +28,15 @@ done
 iconutil -c icns "$SET" -o build/icon.icns
 rm -rf "$SET"
 echo "wrote $PNG and build/icon.icns"
+
+# the Dock's icon while the app is on the dark or ember theme
+# (desktop/main.ts): a PNG each, as large as the Dock ever draws it
+for theme in dark ember; do
+  if command -v rsvg-convert >/dev/null 2>&1; then
+    rsvg-convert -w 1024 -h 1024 "build/icon-$theme.svg" -o "build/icon-$theme.png"
+  else
+    qlmanage -t -s 1024 -o build "build/icon-$theme.svg" >/dev/null
+    mv "build/icon-$theme.svg.png" "build/icon-$theme.png"
+  fi
+  echo "wrote build/icon-$theme.png"
+done

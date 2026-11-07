@@ -13,6 +13,11 @@ enum MacError: Error, Equatable {
     case newer
     /// The Mac's ruri can't pair a phone yet.
     case outdated
+    /// This phone's key reads the status only: it was paired before phones
+    /// could see and send chats.
+    case readOnly
+    /// The chat isn't open on the Mac anymore.
+    case noChat
 }
 
 /// One Mac's door — its sharing port — over a line pinned to its
@@ -29,26 +34,68 @@ final class MacClient: Sendable {
 
     let fingerprint: String
     private let key: String?
+    /// One-off requests: the status, a prompt sent, a pairing. Each sets its
+    /// own timeout; the session's is never the shorter.
     private let session: URLSession
+    /// Finding the Mac: patient, since a tailnet path that has been idle can
+    /// take many seconds to come up, and it waits out a network still
+    /// coming up rather than failing at once.
+    private let finder: URLSession
+    /// The live streams. The Mac speaks at least every 25s; the request
+    /// timeout here is how long silence may last, so it is the stream's.
+    private let streams: URLSession
+    /// Asked by every task as well as every session (Pinning.swift).
+    private let pinned: PinnedDelegate
+
+    /// How long the first try at an address may take to answer the hello,
+    /// and each try after it.
+    static let findTimeout: TimeInterval = 20
+    static let retryTimeout: TimeInterval = 12
+    /// How many more times a tailnet address is tried before the Mac is
+    /// called asleep or offline.
+    static let tailnetRetries = 2
+    /// Silence on a live stream, in seconds, before it is a line gone dead.
+    static let streamSilence: TimeInterval = 40
 
     init(fingerprint: String, key: String?) {
         self.fingerprint = fingerprint
         self.key = key
+        pinned = PinnedDelegate(fingerprint: fingerprint)
+        session = Self.makeSession(pinned, timeout: 20, waits: false)
+        finder = Self.makeSession(pinned, timeout: Self.findTimeout, waits: true, resource: Self.findTimeout + 5)
+        streams = Self.makeSession(pinned, timeout: Self.streamSilence, waits: false)
+    }
+
+    private static func makeSession(
+        _ pinned: PinnedDelegate, timeout: TimeInterval, waits: Bool, resource: TimeInterval? = nil
+    ) -> URLSession {
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 8
-        config.waitsForConnectivity = false
+        config.timeoutIntervalForRequest = timeout
+        if let resource { config.timeoutIntervalForResource = resource }
+        config.waitsForConnectivity = waits
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        session = URLSession(
+        return URLSession(
             configuration: config,
-            delegate: PinnedDelegate(fingerprint: fingerprint),
+            delegate: pinned,
             delegateQueue: nil
         )
     }
 
     deinit {
         session.invalidateAndCancel()
+        finder.invalidateAndCancel()
+        streams.invalidateAndCancel()
+    }
+
+    /// An address on a tailnet: Tailscale's 100.64.0.0/10, its IPv6 range,
+    /// or a MagicDNS name.
+    static func isTailnet(_ address: String) -> Bool {
+        let host = address.lowercased()
+        if host.hasSuffix(".ts.net") || host.hasPrefix("fd7a:115c:a1e0:") { return true }
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        return parts.count == 4 && parts[0] == 100 && (64...127).contains(parts[1])
     }
 
     /// An address and port as an https URL: names and IPv4 as they are,
@@ -66,8 +113,11 @@ final class MacClient: Sendable {
         return parts.url
     }
 
-    private func request(_ address: String, port: Int, path: String, timeout: TimeInterval) throws -> URLRequest {
-        guard let url = Self.url(address, port: port, path: path) else { throw MacError.unreachable }
+    private func request(
+        _ address: String, port: Int, path: String, query: [URLQueryItem] = [], timeout: TimeInterval
+    ) throws -> URLRequest {
+        guard var url = Self.url(address, port: port, path: path) else { throw MacError.unreachable }
+        if !query.isEmpty { url.append(queryItems: query) }
         var request = URLRequest(url: url, timeoutInterval: timeout)
         if let key { request.setValue(key, forHTTPHeaderField: "x-ruri-token") }
         return request
@@ -114,25 +164,48 @@ final class MacClient: Sendable {
     }
 
     /// Where the Mac answers now, of `addresses`, and what it says of itself.
-    /// With a key, only a hello that knows it counts.
+    /// With a key, only a hello that knows it counts. A tailnet address that
+    /// doesn't answer is tried again — a cold path often answers the second
+    /// time — before the Mac is called unreachable.
     func find(_ addresses: [String], port: Int) async throws -> (address: String, value: Hello) {
         try await Self.race(addresses) { address in
-            let (data, response) = try await self.session.data(
-                for: self.request(address, port: port, path: "/remote/hello", timeout: 6)
-            )
-            guard (response as? HTTPURLResponse)?.statusCode == 200,
-                  let hello = try? JSONDecoder().decode(Hello.self, from: data),
-                  hello.service == "ruri"
-            else { throw MacError.unreachable }
-            if self.key != nil, !hello.paired { throw MacError.notPaired }
-            return hello
+            let tries = Self.isTailnet(address) ? 1 + Self.tailnetRetries : 1
+            var reason: any Error = MacError.unreachable
+            for attempt in 0..<tries {
+                if attempt > 0 { try await Task.sleep(for: .seconds(attempt)) }
+                do {
+                    return try await self.hello(at: address, port: port, timeout: attempt == 0 ? Self.findTimeout : Self.retryTimeout)
+                } catch let error as MacError where error != .unreachable {
+                    // the Mac answered: trying again won't change its words
+                    throw error
+                } catch {
+                    if Task.isCancelled { throw CancellationError() }
+                    reason = error
+                }
+            }
+            throw reason
         }
     }
+
+    private func hello(at address: String, port: Int, timeout: TimeInterval) async throws -> Hello {
+        let (data, response) = try await finder.data(
+            for: request(address, port: port, path: "/remote/hello", timeout: timeout), delegate: pinned
+        )
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let hello = try? JSONDecoder().decode(Hello.self, from: data),
+              hello.service == "ruri"
+        else { throw MacError.unreachable }
+        if key != nil, !hello.paired { throw MacError.notPaired }
+        return hello
+    }
+
+    /// The status with each chat's id, which its conversation is read by.
+    private static let ids = [URLQueryItem(name: "ids", value: "1")]
 
     /// Every project's state, once.
     func status(at address: String, port: Int) async throws -> StatusReport {
         let (data, response) = try await session.data(
-            for: request(address, port: port, path: "/status", timeout: 10)
+            for: request(address, port: port, path: "/status", query: Self.ids, timeout: 10), delegate: pinned
         )
         try Self.check(response)
         do {
@@ -151,9 +224,11 @@ final class MacClient: Sendable {
                 do {
                     // the Mac says something at least every 25s: 40s of silence
                     // is a line gone dead, given up so it can be opened again
-                    var request = try self.request(address, port: port, path: "/status/live", timeout: 40)
+                    var request = try self.request(
+                        address, port: port, path: "/status/live", query: Self.ids, timeout: Self.streamSilence
+                    )
                     request.setValue("text/event-stream", forHTTPHeaderField: "accept")
-                    let (bytes, response) = try await self.session.bytes(for: request)
+                    let (bytes, response) = try await self.streams.bytes(for: request, delegate: self.pinned)
                     try Self.check(response)
                     let decoder = StatusReport.decoder()
                     var stream = EventStream()
@@ -179,6 +254,117 @@ final class MacClient: Sendable {
         }
     }
 
+    /// What a chat's live line sends.
+    enum ChatLive: Sendable {
+        case frame(ChatFrame)
+        /// The line is still open: nothing changed.
+        case heard
+    }
+
+    /// A chat's answer, read: 403 here is a key that reads the status only,
+    /// not one the Mac has forgotten.
+    private static func checkChat(_ response: URLResponse) throws {
+        switch (response as? HTTPURLResponse)?.statusCode {
+        case 200: return
+        case 401: throw MacError.notPaired
+        case 403: throw MacError.readOnly
+        case 404: throw MacError.noChat
+        default: throw MacError.unreachable
+        }
+    }
+
+    /// A chat's conversation as it changes: the whole of it on connecting,
+    /// then what changed. Ends when the Mac closes the line; throws when it
+    /// is lost.
+    func chatLive(_ chat: String, at address: String, port: Int) -> AsyncThrowingStream<ChatLive, any Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var request = try self.request(
+                        address, port: port, path: "/chat/live",
+                        query: [URLQueryItem(name: "id", value: chat)], timeout: Self.streamSilence
+                    )
+                    request.setValue("text/event-stream", forHTTPHeaderField: "accept")
+                    let (bytes, response) = try await self.streams.bytes(for: request, delegate: self.pinned)
+                    try Self.checkChat(response)
+                    let decoder = StatusReport.decoder()
+                    var stream = EventStream()
+                    for try await byte in bytes {
+                        switch stream.feed(byte) {
+                        case .nothing:
+                            continue
+                        case .comment:
+                            continuation.yield(.heard)
+                        case .event(let event):
+                            if event.name == "gone" { throw MacError.noChat }
+                            guard event.name == "chat" else { continue }
+                            guard let frame = try? decoder.decode(ChatFrame.self, from: Data(event.data.utf8))
+                            else { throw MacError.newer }
+                            continuation.yield(.frame(frame))
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Send a prompt into a chat, under the phone's own id for it: sent
+    /// twice — after a dropped line — the Mac answers rather than runs it.
+    func send(
+        _ text: String, attachments: [Attachment] = [], to chat: String, id: String, at address: String, port: Int
+    ) async throws -> SentAs {
+        // files take as long as they take: this is silence, not the whole send
+        var request = try request(address, port: port, path: "/chat/send", timeout: attachments.isEmpty ? 20 : 120)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONEncoder().encode(
+            SendBody(id: chat, text: text, clientId: id, attachments: attachments.isEmpty ? nil : attachments)
+        )
+        let (data, response) = try await session.data(for: request, delegate: pinned)
+        try Self.checkChat(response)
+        guard let answer = try? JSONDecoder().decode(SendAnswer.self, from: data) else { throw MacError.newer }
+        return answer.as
+    }
+
+    /// A file a chat's prompt came with, from where the Mac serves it.
+    func attachment(_ path: String, at address: String, port: Int) async throws -> Data {
+        let request = try request(address, port: port, path: path, timeout: 60)
+        let (data, response) = try await session.data(for: request, delegate: pinned)
+        try Self.checkChat(response)
+        return data
+    }
+
+    /// Hand the Mac this phone's push token, for the APNs `env` it is good
+    /// for. The Mac takes the same token again as no news.
+    func pushToken(_ token: String, env: String, at address: String, port: Int) async throws {
+        try await post(["token": token, "env": env], to: "/phone/push", at: address, port: port)
+    }
+
+    /// The notification settings, and the quiet nights ahead.
+    func pushSettings(_ body: PushSettingsBody, at address: String, port: Int) async throws {
+        try await post(body, to: "/phone/push/settings", at: address, port: port)
+    }
+
+    private func post(_ body: some Encodable, to path: String, at address: String, port: Int) async throws {
+        var request = try request(address, port: port, path: path, timeout: 20)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONEncoder().encode(body)
+        let (_, response) = try await session.data(for: request, delegate: pinned)
+        switch (response as? HTTPURLResponse)?.statusCode {
+        case 200: return
+        case 401: throw MacError.notPaired
+        case 403: throw MacError.readOnly
+        // a ruri from before phones were sent notifications
+        case 404: throw MacError.outdated
+        default: throw MacError.unreachable
+        }
+    }
+
     /// Redeem a pairing code for this phone's key: find which of the code's
     /// addresses answers, over a line pinned to the code's fingerprint, then
     /// hand that one the ticket — once, since a ticket is good only once.
@@ -189,7 +375,7 @@ final class MacClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try JSONEncoder().encode(["ticket": link.ticket, "name": deviceName])
-        let (data, response) = try await client.session.data(for: request)
+        let (data, response) = try await client.session.data(for: request, delegate: client.pinned)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else {
             if let said = try? JSONDecoder().decode(Refusal.self, from: data).error, !said.isEmpty {

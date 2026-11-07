@@ -72,77 +72,139 @@ function bindMarkers(text: string): string {
   return text.replace(/\[(image|video|file|region) #(\d+)\]/g, `[$1${MARKER_SPACE}#$2]`);
 }
 
-/** Punctuation that may sit against a chip: "see [image #2]." reads as a
- *  sentence, "see [image #2] ." does not. */
-const CLOSERS = ".,;:!?)";
-const OPENERS = "(";
-
-/** Spaces between two chips standing side by side. One leaves their pills
- *  0.6px apart, which reads as a single wide chip; this is what looks like
- *  two things. Anything wider that is already there is left alone. */
+/** Spaces between two slash commands standing side by side. One leaves
+ *  their pills 0.6px apart, which reads as a single wide chip; this is what
+ *  looks like two things. Anything wider that is already there is left
+ *  alone. */
 const CHIP_GAP = 3;
 
+/** Whether a marker is an attachment's — the ones that carry their own
+ *  spaces and that the caret never goes into. */
+const isAttachment = (marker: Marker) => marker.kind !== "command";
+
 /**
- * The prompt with the right amount of space around every chip: one space
- * between a chip and a word against it — a word touching a chip reads as
- * being inside it — and `CHIP_GAP` between chip and chip. Only ever adds;
- * what is already there is left alone.
+ * The prompt with the right amount of space around every chip.
  *
- * Returns the new text and where a caret at `caret` now stands: a space put
- * in ahead of it moves it along, one put in behind it (between a word just
- * typed and the chip after it) does not.
+ * An attachment's marker always has exactly one space on either side —
+ * none before it at the start of a line, where there is nothing to hold it
+ * apart from — so the tag and its two spaces are one thing, which the
+ * caret steps over whole (`snapSelection`) and a delete takes whole
+ * (`markerSpan`). Two side by side keep a space each. Extra spaces typed
+ * against one are taken back out; missing ones are put in.
+ *
+ * A slash command is the words the person typed, and only ever gets more:
+ * `CHIP_GAP` between it and a command after it, nothing pushed into one
+ * being written.
+ *
+ * Returns the new text and where a caret at `caret` now stands. A caret
+ * that was in a run of spaces against a tag comes out on the outside of
+ * the tag's space — to its left before a tag, to its right after one.
  */
 export function spaceMarkers(text: string, caret = 0): { text: string; caret: number } {
   const markers = findMarkers(text);
   if (markers.length === 0) return { text, caret };
-  const starts = new Set(markers.map((marker) => marker.start));
-  /** How many spaces to put in at a position. Two chips with nothing at all
-   *  between them are one boundary asked about from both sides, so the
-   *  larger answer is the one that stands. */
-  const inserts = new Map<number, number>();
-  const want = (at: number, n: number) => {
-    if (n > 0) inserts.set(at, Math.max(inserts.get(at) ?? 0, n));
+  const ends = new Map(markers.map((marker) => [marker.end, marker]));
+  const starts = new Map(markers.map((marker) => [marker.start, marker]));
+  /** Each run of plain spaces against a chip: where it starts and ends, how
+   *  long it should be, and where a caret inside it belongs. */
+  const gaps = new Map<number, { end: number; want: number; exact: boolean; home: (gs: number) => number }>();
+  const runAt = (from: number) => {
+    let gs = from;
+    while (text[gs - 1] === " ") gs -= 1;
+    let ge = from;
+    while (text[ge] === " ") ge += 1;
+    return { gs, ge };
   };
   for (const marker of markers) {
-    // the run of spaces on each side of the chip, and what stands past it
-    let left = marker.start;
-    while (text[left - 1] === " ") left -= 1;
-    let right = marker.end;
-    while (text[right] === " ") right += 1;
-    const before = text[left - 1];
-    const after = text[right];
-    // a command is the words the person typed — nothing is ever pushed
-    // into the middle of one being written
-    if (
-      marker.kind !== "command" &&
-      before !== undefined &&
-      !/\s/.test(before) &&
-      !OPENERS.includes(before)
-    ) {
-      want(marker.start, 1 - (marker.start - left));
-    }
-    if (after !== undefined && !/\s/.test(after)) {
-      const need = starts.has(right)
-        ? CHIP_GAP
-        : marker.kind === "command"
-          ? 0
-          : CLOSERS.includes(after)
-            ? 0
-            : 1;
-      want(marker.end, need - (right - marker.end));
+    for (const side of ["left", "right"] as const) {
+      const { gs, ge } = runAt(side === "left" ? marker.start : marker.end);
+      if (gaps.has(gs)) continue;
+      const leftChip = ends.get(gs);
+      const rightChip = starts.get(ge);
+      const leftTag = leftChip !== undefined && isAttachment(leftChip);
+      const rightTag = rightChip !== undefined && isAttachment(rightChip);
+      if (leftTag || rightTag) {
+        const lineStart = gs === 0 || text[gs - 1] === "\n";
+        // a space each between two chips; none before a tag at a line's start
+        const want = leftChip && rightChip ? 2 : rightTag && lineStart ? 0 : 1;
+        // before a tag the caret goes out to the left of its space, after
+        // one to the right of it — between two, that is the same place
+        const home = leftTag
+          ? (s: number) => s + Math.min(1, want)
+          : (s: number) => s + Math.max(0, want - 1);
+        gaps.set(gs, { end: ge, want, exact: true, home });
+        continue;
+      }
+      // a command's after side: held apart from a command after it
+      if (side === "right" && rightChip !== undefined) {
+        gaps.set(gs, { end: ge, want: Math.max(CHIP_GAP, ge - gs), exact: false, home: () => -1 });
+      }
     }
   }
-  if (inserts.size === 0) return { text, caret };
   let out = "";
   let at = 0;
-  let moved = caret;
-  for (const cut of [...inserts.keys()].sort((a, b) => a - b)) {
-    const n = inserts.get(cut)!;
-    out += text.slice(at, cut) + " ".repeat(n);
-    at = cut;
-    if (caret > cut) moved += n;
+  let shift = 0;
+  let moved: number | null = caret < 0 ? caret : null;
+  for (const gs of [...gaps.keys()].sort((a, b) => a - b)) {
+    const gap = gaps.get(gs)!;
+    if (moved === null && caret < gs) moved = caret + shift;
+    if (moved === null && caret <= gap.end) {
+      const home = gap.exact ? gap.home(gs + shift) : -1;
+      // a command's gap only ever grows at its far end, so a caret in it stays
+      moved = home >= 0 ? home : caret + shift;
+    }
+    out += text.slice(at, gs) + " ".repeat(gap.want);
+    at = gap.end;
+    shift += gap.want - (gap.end - gs);
   }
+  if (moved === null) moved = caret + shift;
   return { text: out + text.slice(at), caret: moved };
+}
+
+/**
+ * The stretch of the prompt an attachment's tag owns: the tag and the one
+ * space either side of it. The caret is never inside it, and a backspace
+ * or delete that reaches into it takes the whole of it.
+ */
+export function markerSpan(text: string, marker: Marker): { start: number; end: number } {
+  return {
+    start: text[marker.start - 1] === " " ? marker.start - 1 : marker.start,
+    end: text[marker.end] === " " ? marker.end + 1 : marker.end,
+  };
+}
+
+/**
+ * A selection moved out of every tag it landed in.
+ *
+ * A caret that stepped into one from outside goes on through it — moving
+ * right past its left space lands it after its right space, and the other
+ * way round — and one put down inside by a click (`from` null) goes to the
+ * nearer edge, the left one when it is a tie: a click between the left
+ * space and the tag is a caret before the space. A selection grows to take
+ * in the whole of any tag it ends in. Null when nothing needs to move.
+ */
+export function snapSelection(
+  text: string,
+  markers: Marker[],
+  start: number,
+  end: number,
+  from: number | null,
+): { start: number; end: number } | null {
+  const spans = markers.filter(isAttachment).map((marker) => markerSpan(text, marker));
+  const inside = (at: number) => spans.find((span) => at > span.start && at < span.end);
+  if (start === end) {
+    const span = inside(start);
+    if (!span) return null;
+    let to: number;
+    if (from !== null && from <= span.start && start > from) to = span.end;
+    else if (from !== null && from >= span.end && start < from) to = span.start;
+    else to = start - span.start <= span.end - start ? span.start : span.end;
+    return { start: to, end: to };
+  }
+  const a = inside(start);
+  const b = inside(end);
+  if (!a && !b) return null;
+  return { start: a ? a.start : start, end: b ? b.end : end };
 }
 
 /** The prompt as it is sent: the space a chip was held apart from its
@@ -193,6 +255,10 @@ export function releaseMarkers(text: string): string {
  * lying there as words to be deleted a letter at a time.
  */
 export function backspaceHits(text: string, marker: Marker, at: number): boolean {
+  if (isAttachment(marker)) {
+    const span = markerSpan(text, marker);
+    return at > span.start && at <= span.end;
+  }
   if (at > marker.start && at <= marker.end) return true;
   return marker.kind === "command" && at === marker.end + 1 && text[marker.end] === " ";
 }

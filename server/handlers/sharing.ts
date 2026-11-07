@@ -41,4 +41,16 @@ export const sharingHandlers = {
   sharing_forget: (ctx, _ws, msg) => {
     ctx.sharing.forget(msg.deviceId);
   },
+  // a key's power grows only by a click in front of this computer, never
+  // from a window come in through sharing
+  sharing_allow_send: (ctx, ws, msg) => {
+    if (ctx.clients.seats.has(ws)) {
+      reply(ws, {
+        type: "error",
+        message: `Let a phone send from ${ctx.sharing.info().name}'s own window.`,
+      });
+      return;
+    }
+    ctx.sharing.allowSend(msg.deviceId);
+  },
 } satisfies Partial<Handlers>;

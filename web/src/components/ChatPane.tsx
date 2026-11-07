@@ -8,9 +8,7 @@ import {
   type TranscriptEvent,
 } from "../../../shared/protocol";
 import { beat } from "../lib/beat";
-import { spinStar } from "../lib/spin";
 import { StreamingMarkdown } from "../markdown";
-import { BtwPanel, closeBtw, openBtw, useBtwOpen } from "./BtwPanel";
 import { useSessionsMode } from "../lib/sessionsMode";
 import { getPref, setPref } from "../prefs";
 import {
@@ -26,24 +24,20 @@ import { AgentsPage } from "./AgentsPage";
 import { BridgeStrip } from "./Bridge";
 import { Icon, TOOL_ICONS } from "./chat/Icon";
 import { NO_EARLIER, NO_EVENTS, NO_QUEUED, NO_SUMMARIES } from "./chat/empty";
-import { Architecture } from "./Architecture";
 import { Components } from "./Components";
 import { Composer } from "./Composer";
 import { EmptyTop } from "./EmptyTop";
 import { CompactionMark, EventView } from "./EventView";
 import { Exchange, groupTurns, NO_EXCERPTS, turnExcerpts, type Half } from "./Exchange";
 import { HomeDeck, type HomeTab } from "./HomeBoard";
-import { Ideas } from "./Ideas";
 import { AskCard } from "./PermissionBanner";
 import { QueuedList, QueueStandby } from "./Queue";
 import { RapidBar, type RapidFire } from "./RapidFire";
 import { SelectionFlags } from "./Selection";
 import { Sketch, type SketchBackground } from "./Sketch";
 import { Skills } from "./Skills";
-import { TalkPage } from "./TalkPage";
 import { TeamPage } from "./TeamPage";
 import { Thinking, WorkingLine } from "./Thinking";
-import { Tracker } from "./Tracker";
 
 /** Turns rendered before the first paint — more than fills a screen; the
  *  rest arrive behind it. */
@@ -75,6 +69,68 @@ const EARLIER_STEP = 40;
 
 /** Rapid fire's card fades in as it takes over and out as it hands on —
  *  the pane is the same one either way, so the classes ride on it. */
+/** The toolbar's "…": the project's quieter pages, out of the bar until
+ *  wanted. A dot on it says a turn named a new component. */
+function PageMenu({
+  fresh,
+  onSkills,
+  onComponents,
+}: {
+  fresh: number;
+  onSkills(): void;
+  onComponents(): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  const pick = (fn: () => void) => () => {
+    setOpen(false);
+    fn();
+  };
+  return (
+    <div className="page-menu" ref={ref}>
+      <button
+        className={`icon-button ${open ? "active" : ""}`}
+        title="More"
+        aria-haspopup="menu"
+        onClick={() => setOpen(!open)}
+      >
+        <svg className="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+          <circle cx="5" cy="12" r="1.8" />
+          <circle cx="12" cy="12" r="1.8" />
+          <circle cx="19" cy="12" r="1.8" />
+        </svg>
+        {fresh > 0 && <span className="page-menu-dot" aria-label="new components" />}
+      </button>
+      {open && (
+        <div className="dropdown-menu more-menu" role="menu">
+          <button className="dropdown-item" role="menuitem" onClick={pick(onSkills)}>
+            Skills
+          </button>
+          <button className="dropdown-item" role="menuitem" onClick={pick(onComponents)}>
+            Components
+            {fresh > 0 && <span className="page-menu-count">{fresh} new</span>}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function paneClass(base: string, rapid: RapidFire | undefined): string {
   return rapid?.on ? `${base} rapid-page${rapid.leaving ? " rapid-leaving" : ""}` : base;
 }
@@ -151,11 +207,7 @@ export function ChatPane({
   );
   useEffect(() => {
     if (!picked) return;
-    send(
-      picked.target === "music"
-        ? { type: "set_music_dir", path: picked.path }
-        : { type: "set_workspace", path: picked.path },
-    );
+    if (picked.target === "workspace") send({ type: "set_workspace", path: picked.path });
     clearPicked();
   }, [picked, clearPicked]);
 
@@ -202,7 +254,6 @@ function ChatView({
     stopping,
     unsent,
     crewAgents,
-    trackerItems,
     earlier,
     history,
   } = useRuri(
@@ -217,7 +268,6 @@ function ChatView({
       stopping: s.stopping[activeId] === true,
       unsent: Object.values(s.unsent).filter((id) => id === activeId).length,
       crewAgents: s.crew[activeId],
-      trackerItems: s.tracker[activeId],
       // What a compaction left behind it: the live transcript opens on
       // the newest mark, and the exchanges before it come with it as an
       // outline (`earlier`) — shown above the mark, each folded to its
@@ -287,10 +337,9 @@ function ChatView({
   // error #185). Components named since the user last looked wear a star,
   // which is how you find out a turn named something without being taken
   // anywhere: the cards themselves are one click away.
-  const { agentsOpen, ideaCount, freshComponents } = useRuri(
+  const { agentsOpen, freshComponents } = useRuri(
     useShallow((s) => ({
       agentsOpen: s.agentPanel !== null && s.agentPanel.projectId === activeId,
-      ideaCount: boardId ? (s.ideas[boardId] ?? []).filter((i) => !i.done).length : 0,
       freshComponents: boardId ? (s.components[boardId] ?? []).filter((i) => i.star).length : 0,
     })),
   );
@@ -302,22 +351,10 @@ function ChatView({
    * tracker items, but it does not yank you onto the tracker page to look
    * at them — the toggle's badge is the whole notification.
    */
-  const [page, setPage] = useState<
-    "chat" | "tracker" | "ideas" | "components" | "architecture" | "skills" | "talk" | "team"
-  >("chat");
+  const [page, setPage] = useState<"chat" | "components" | "skills" | "team">("chat");
   // One chat (the default) has no team behind the project chat, so no
-  // Team page; /btw's side panel is open on this project or not
+  // Team page
   const oneChat = useSessionsMode();
-  const btwOpen = useBtwOpen(boardId ?? "");
-  // messages between this chat's agent and others still on their way
-  const talking = useRuri(
-    (s) =>
-      s.talk?.letters.filter(
-        (l) =>
-          (l.from === activeId || l.to === activeId) &&
-          (l.status === "asking" || l.status === "queued" || l.status === "working"),
-      ).length ?? 0,
-  );
   /**
    * Home is two pages under one strip — the agent's chat and the
    * statistics — and the strip remembers which one you were on across
@@ -335,7 +372,6 @@ function ChatView({
   // Home's pages slide past each other under one strip (HomeDeck); the
   // chat's side leaves the strip's height free at its top
   const homeDeck = isHome && !rapid?.on;
-  const openCount = (trackerItems ?? []).filter((i) => i.status === "open").length;
 
   // another of the project's pages takes the agents page's place, as it
   // would the chat's
@@ -725,9 +761,31 @@ function ChatView({
 
   // Home keeps no header bar — the transcript starts at the top; the
   // tracker page still auto-opens there and closes from its own X.
+  const pageName = agentsOpen
+    ? "Agents"
+    : page === "skills"
+      ? "Skills"
+      : page === "components"
+        ? "Components"
+        : page === "team"
+          ? "Team"
+          : null;
   const header = !isHome && (
     <header className="chat-header">
-      {isLead ? (
+      {isLead && pageName ? (
+        // a page of the project's own: its title is the project's, and it
+        // goes back to the chat — no second heading naming the page
+        <div className="chat-id">
+          <button
+            type="button"
+            className="chat-title chat-title-link"
+            title={`Back to ${project.name}`}
+            onClick={() => (agentsOpen ? closeAgent() : setPage("chat"))}
+          >
+            {project.name}
+          </button>
+        </div>
+      ) : isLead ? (
         <div className="chat-id">
           <div className="chat-title">{project.name}</div>
         </div>
@@ -750,19 +808,6 @@ function ChatView({
         </div>
       )}
       <div className="header-controls">
-        {boardId && (
-          <button
-            className={`icon-button btw-button ${btwOpen ? "active" : ""}`}
-            title={
-              btwOpen
-                ? "Close btw (Esc)"
-                : "btw — a quick question on the side; the chat carries on (or send /btw <question>)"
-            }
-            onClick={() => (btwOpen ? closeBtw() : openBtw(boardId))}
-          >
-            btw
-          </button>
-        )}
         {!oneChat && (
           <button
             className={`icon-button ${page === "team" ? "active" : ""} ${teamWorking > 0 ? "badged" : ""}`}
@@ -798,66 +843,17 @@ function ChatView({
           <Icon d={TOOL_ICONS["agent"]!} />
           {agentsWorking > 0 && <span className="tracker-badge">{agentsWorking}</span>}
         </button>
-        <button
-          className={`icon-button ${page === "talk" ? "active" : ""} ${talking > 0 ? "badged" : ""}`}
-          title={
-            talking > 0
-              ? `Talk — ${talking} ${talking === 1 ? "message" : "messages"} between this chat and other agents on the way; and which projects your agents may reach`
-              : "Talk — which projects your agents may reach, and what they have said lately"
-          }
-          onClick={() => setPage(page === "talk" ? "chat" : "talk")}
-        >
-          {/* two speech bubbles: one agent, and another answering */}
-          <Icon d="M3 5.5A1.5 1.5 0 0 1 4.5 4h9A1.5 1.5 0 0 1 15 5.5v5a1.5 1.5 0 0 1-1.5 1.5H8l-3 2.5V12h-.5A1.5 1.5 0 0 1 3 10.5zM17.5 8h2A1.5 1.5 0 0 1 21 9.5v5a1.5 1.5 0 0 1-1.5 1.5H19v2.5L16 16h-4.5a1.5 1.5 0 0 1-1.5-1.5V14" />
-          {talking > 0 && <span className="tracker-badge">{talking}</span>}
-        </button>
-        <button
-          className={`icon-button ${page === "skills" ? "active" : ""}`}
-          title="Skills — what this project and this machine load before working"
-          onClick={() => setPage(page === "skills" ? "chat" : "skills")}
-        >
-          {/* a puzzle piece: what a skill is — a part that fits onto the
-              model, installed and taken out as one piece */}
-          <Icon d="M4 7.5A1.5 1.5 0 0 1 5.5 6H9a2.2 2.2 0 1 1 4 0h3.5A1.5 1.5 0 0 1 18 7.5V11a2.2 2.2 0 1 1 0 4v3.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5z" />
-        </button>
-        <button
-          className={`icon-button ${page === "architecture" ? "active" : ""}`}
-          title="Architecture — what this project is, the stack, how it fits together, and where things are"
-          onClick={() => setPage(page === "architecture" ? "chat" : "architecture")}
-        >
-          {/* three layers stacked: the stack, and the page that draws it */}
-          <Icon d="M12 3l9 4.5-9 4.5-9-4.5zM3 12l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5" />
-        </button>
-        <button
-          className={`icon-button comp-toggle ${page === "components" ? "active" : ""}`}
-          title="Components — this project's component library"
-          onClick={() => setPage(page === "components" ? "chat" : "components")}
-        >
-          <Icon d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" />
-          {freshComponents > 0 && (
-            <span className="comp-star just header" aria-label="new components" ref={spinStar}>
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                <path d="M12 2.5l2.7 6.1 6.6.7-4.9 4.5 1.4 6.5L12 17l-5.8 3.3 1.4-6.5L2.7 9.3l6.6-.7z" />
-              </svg>
-            </span>
-          )}
-        </button>
-        <button
-          className={`icon-button ${page === "ideas" ? "active" : ""} ${ideaCount > 0 ? "badged" : ""}`}
-          title="Ideas — the board of things you want out of this project"
-          onClick={() => setPage(page === "ideas" ? "chat" : "ideas")}
-        >
-          <Icon d="M9 18h6M10 21h4M12 3a6 6 0 0 1 4 10.5c-.6.6-1 1.4-1 2.2v.3H9v-.3c0-.8-.4-1.6-1-2.2A6 6 0 0 1 12 3z" />
-          {ideaCount > 0 && <span className="tracker-badge">{ideaCount}</span>}
-        </button>
-        <button
-          className={`icon-button tracker-toggle ${page === "tracker" ? "active" : ""} ${openCount > 0 ? "badged" : ""}`}
-          title={page === "tracker" ? "Back to the chat" : "Feature tracker — things to test by hand"}
-          onClick={() => setPage(page === "tracker" ? "chat" : "tracker")}
-        >
-          <Icon d="M9 11l3 3 8-8M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" />
-          {openCount > 0 && <span className="tracker-badge">{openCount}</span>}
-        </button>
+        <PageMenu
+          fresh={freshComponents}
+          onSkills={() => {
+            if (agentsOpen) closeAgent();
+            setPage("skills");
+          }}
+          onComponents={() => {
+            if (agentsOpen) closeAgent();
+            setPage("components");
+          }}
+        />
       </div>
     </header>
   );
@@ -907,12 +903,8 @@ function ChatView({
       return (
         <main className={pane("chat")}>
           {header}
-          {page === "tracker" && <Tracker projectId={activeId} onClose={() => setPage("chat")} />}
-          {page === "ideas" && boardId && <Ideas projectId={boardId} channelId={activeId} />}
           {page === "components" && boardId && <Components projectId={boardId} />}
-          {page === "architecture" && boardId && <Architecture projectId={boardId} />}
           {page === "skills" && <Skills {...(boardId ? { projectId: boardId } : {})} />}
-          {page === "talk" && <TalkPage channelId={activeId} />}
           {page === "team" && <TeamPage project={project} onClose={() => setPage("chat")} />}
         </main>
       );
@@ -924,8 +916,12 @@ function ChatView({
       return (
         <main className={pane("chat home-hero")}>
           {lastError && (
-            <div className="error-bar" onClick={dismissError}>
-              {lastError} <span className="dismiss">dismiss</span>
+            <div className="error-bar" role="status">
+              <Icon d="M12 3l10 18H2L12 3zM12 9v5M12 17h.01" />
+              <span>{lastError}</span>
+              <button className="icon-button" aria-label="Dismiss error" onClick={dismissError}>
+                <Icon d="M6 6l12 12M18 6L6 18" />
+              </button>
             </div>
           )}
           {/* a project chat's header — the agents, skills and boards — is
@@ -949,7 +945,6 @@ function ChatView({
               />
             </div>
           </div>
-          {!isHome && project && <BtwPanel project={project} />}
         </main>
       );
     }
@@ -959,8 +954,12 @@ function ChatView({
         {header}
 
         {lastError && (
-          <div className="error-bar" onClick={dismissError}>
-            {lastError} <span className="dismiss">dismiss</span>
+          <div className="error-bar" role="status">
+            <Icon d="M12 3l10 18H2L12 3zM12 9v5M12 17h.01" />
+            <span>{lastError}</span>
+            <button className="icon-button" aria-label="Dismiss error" onClick={dismissError}>
+              <Icon d="M6 6l12 12M18 6L6 18" />
+            </button>
           </div>
         )}
 
@@ -1129,12 +1128,15 @@ function ChatView({
           <div className="confirm-overlay" onClick={() => setRewindTarget(null)}>
             <div
               className="confirm-card"
+              role="alertdialog"
+              aria-modal="true"
+              aria-label="Rewind to this prompt"
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
                 if (e.key === "Escape") setRewindTarget(null);
               }}
             >
-              <div className="confirm-title">Rewind to this prompt</div>
+              <div className="confirm-title">Rewind to this prompt?</div>
               <div className="confirm-quote">
                 {rewindTarget.text.length > 240
                   ? `${rewindTarget.text.slice(0, 240).trimEnd()}…`
@@ -1153,7 +1155,7 @@ function ChatView({
                   Cancel
                 </button>
                 <button
-                  className="primary"
+                  className="primary destructive"
                   autoFocus
                   onClick={() => {
                     send({ type: "rewind", projectId: activeId, eventId: rewindTarget.id });
@@ -1176,7 +1178,6 @@ function ChatView({
             {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
           />
         </div>
-        {!isHome && project && <BtwPanel project={project} />}
       </main>
     );
   })();

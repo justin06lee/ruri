@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import type { IntegrationHarness, McpAdd, McpServerRow, PluginRow } from "../../../shared/protocol";
 import { splitCommand } from "../lib/commandLine";
 import { send, useRuri } from "../store";
+import { markFor } from "../lib/marks";
 import { Capped } from "./Capped";
+import { FoldList } from "./FoldList";
+import { ModelIcon } from "./Marks";
+import { Switch } from "./SettingsRows";
 import { Hooks } from "./Hooks";
 
 /**
@@ -41,8 +45,13 @@ function pairs(text: string, sep: "=" | ":"): Record<string, string> {
   return out;
 }
 
+/** Whose it is: the harness's hand-drawn mark, its name on hover. */
 function Tag({ harness }: { harness: IntegrationHarness }) {
-  return <span className={`int-tag ${harness}`}>{harness === "claude" ? "claude" : "codex"}</span>;
+  return (
+    <span className={`int-tag ${harness}`} title={HARNESS[harness]}>
+      <ModelIcon pick={markFor(harness, { provider: harness, displayName: HARNESS[harness] })} />
+    </span>
+  );
 }
 
 export function Integrations() {
@@ -72,11 +81,7 @@ export function Integrations() {
 
   return (
     <div className="integrations">
-      <p className="settings-note grants-note">
-        The MCP servers and plugins Claude Code and Codex start with, as their own CLIs keep them — changing
-        one here is the CLI changing it. A chat picks a change up the next time its harness starts: the warm
-        ones are restarted as each goes idle, and carry on where they were.
-      </p>
+      <p className="settings-note grants-note">MCP servers and plugins for Claude Code and Codex.</p>
       <div className="int-for">
         <span className="settings-label">For</span>
         <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
@@ -102,89 +107,92 @@ export function Integrations() {
 
       {data && (
         <>
-          <h3 className="int-head">MCP servers</h3>
-          {data.servers.length === 0 && <p className="settings-note">none yet</p>}
-          <Capped>
-            {data.servers.map((server) => (
-              <div key={`${server.harness}:${server.scope}:${server.name}`} className="int-row">
-                <Tag harness={server.harness} />
-                <span className="int-body">
-                  <span className="int-name">
-                    {server.name}
-                    {!server.enabled && <span className="int-off"> · off</span>}
-                  </span>
-                  <span className="int-target" title={server.target}>
-                    {server.target}
-                  </span>
-                  {(server.env || server.headers) && (
-                    <span className="int-given">
-                      given {[...(server.env ?? []), ...(server.headers ?? [])].join(", ")}
+          <FoldList id="int-servers" title="MCP servers" count={data.servers.length}>
+            {data.servers.length === 0 && <p className="fold-empty">None yet.</p>}
+            <Capped>
+              {data.servers.map((server) => (
+                <div key={`${server.harness}:${server.scope}:${server.name}`} className="int-row">
+                  <Tag harness={server.harness} />
+                  <span className="int-body">
+                    <span className="int-name">
+                      {server.name}
+                      {!server.enabled && <span className="int-off"> · off</span>}
                     </span>
+                    <span className="int-target" title={server.target}>
+                      {server.target}
+                    </span>
+                    {(server.env || server.headers) && (
+                      <span className="int-given">
+                        given {[...(server.env ?? []), ...(server.headers ?? [])].join(", ")}
+                      </span>
+                    )}
+                  </span>
+                  <span className="int-scope">
+                    {server.scope === "plugin"
+                      ? `from ${server.plugin?.split("@")[0]}`
+                      : SCOPE_WORD[server.scope]}
+                  </span>
+                  {server.scope !== "plugin" ? (
+                    <button
+                      className="ghost grant-ask"
+                      disabled={busy}
+                      title={`Take ${server.name} out of ${HARNESS[server.harness]}'s config`}
+                      onClick={() =>
+                        act({
+                          type: "mcp_remove",
+                          harness: server.harness,
+                          name: server.name,
+                          scope: server.scope,
+                          ...(projectId ? { projectId } : {}),
+                        })
+                      }
+                    >
+                      Remove
+                    </button>
+                  ) : (
+                    <span className="int-spacer" />
                   )}
-                </span>
-                <span className="int-scope">
-                  {server.scope === "plugin"
-                    ? `from ${server.plugin?.split("@")[0]}`
-                    : SCOPE_WORD[server.scope]}
-                </span>
-                {server.scope !== "plugin" ? (
+                </div>
+              ))}
+            </Capped>
+            <AddServer projectId={projectId} projectName={project?.name} busy={busy} onAdd={act} />
+          </FoldList>
+
+          <FoldList id="int-plugins" title="Plugins" count={data.plugins.length}>
+            {data.plugins.length === 0 && <p className="fold-empty">None installed.</p>}
+            <Capped>
+              {data.plugins.map((plugin) => (
+                <PluginLine key={`${plugin.harness}:${plugin.id}`} plugin={plugin} busy={busy} onAct={act} />
+              ))}
+            </Capped>
+            <BrowsePlugins busy={busy} onAct={act} projectId={projectId} />
+          </FoldList>
+
+          <FoldList id="int-markets" title="Marketplaces" count={data.marketplaces.length}>
+            <Capped>
+              {data.marketplaces.map((market) => (
+                <div key={`${market.harness}:${market.name}`} className="int-row">
+                  <Tag harness={market.harness} />
+                  <span className="int-body">
+                    <span className="int-name">{market.name}</span>
+                    <span className="int-target" title={market.source}>
+                      {market.source || "built in"}
+                    </span>
+                  </span>
                   <button
                     className="ghost grant-ask"
                     disabled={busy}
-                    title={`Take ${server.name} out of ${HARNESS[server.harness]}'s config`}
                     onClick={() =>
-                      act({
-                        type: "mcp_remove",
-                        harness: server.harness,
-                        name: server.name,
-                        scope: server.scope,
-                        ...(projectId ? { projectId } : {}),
-                      })
+                      act({ type: "marketplace_remove", harness: market.harness, name: market.name })
                     }
                   >
                     Remove
                   </button>
-                ) : (
-                  <span className="int-spacer" />
-                )}
-              </div>
-            ))}
-          </Capped>
-          <AddServer projectId={projectId} projectName={project?.name} busy={busy} onAdd={act} />
-
-          <h3 className="int-head">Plugins</h3>
-          {data.plugins.length === 0 && <p className="settings-note">none installed</p>}
-          <Capped>
-            {data.plugins.map((plugin) => (
-              <PluginLine key={`${plugin.harness}:${plugin.id}`} plugin={plugin} busy={busy} onAct={act} />
-            ))}
-          </Capped>
-          <BrowsePlugins busy={busy} onAct={act} projectId={projectId} />
-
-          <h3 className="int-head">Marketplaces</h3>
-          <Capped>
-            {data.marketplaces.map((market) => (
-              <div key={`${market.harness}:${market.name}`} className="int-row">
-                <Tag harness={market.harness} />
-                <span className="int-body">
-                  <span className="int-name">{market.name}</span>
-                  <span className="int-target" title={market.source}>
-                    {market.source || "built in"}
-                  </span>
-                </span>
-                <button
-                  className="ghost grant-ask"
-                  disabled={busy}
-                  onClick={() =>
-                    act({ type: "marketplace_remove", harness: market.harness, name: market.name })
-                  }
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-          </Capped>
-          <AddMarketplace busy={busy} onAct={act} />
+                </div>
+              ))}
+            </Capped>
+            <AddMarketplace busy={busy} onAct={act} />
+          </FoldList>
         </>
       )}
 
@@ -218,15 +226,13 @@ function PluginLine({
         </span>
       </span>
       {plugin.harness === "claude" && (
-        <label className="harness-auto" title="Load it in new Claude sessions">
-          <input
-            type="checkbox"
-            checked={plugin.enabled !== false}
-            disabled={busy}
-            onChange={(e) => onAct({ type: "plugin_enable", id: plugin.id, enabled: e.target.checked })}
+        <span className="int-switch" title="Load it in new Claude sessions">
+          <Switch
+            on={plugin.enabled !== false}
+            label={`Load ${plugin.name} in new Claude sessions`}
+            onChange={(on) => onAct({ type: "plugin_enable", id: plugin.id, enabled: on })}
           />
-          on
-        </label>
+        </span>
       )}
       <button
         className="ghost grant-ask"

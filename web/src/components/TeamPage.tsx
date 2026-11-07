@@ -129,31 +129,37 @@ function useModelName(model: string): string {
 function SeatMeta({
   seat,
   now,
+  model,
 }: {
   seat: Pick<TeamMember, "context" | "exchanges" | "lastActive">;
   now: number;
+  model: string;
 }) {
   const usage = seat.context
     ? Math.round((seat.context.tokens / Math.max(1, seat.context.window)) * 100)
     : undefined;
   return (
-    <span className="team-member-meta">
-      {usage !== undefined && (
-        <span
-          title={`${seat.context!.tokens.toLocaleString()} of ${seat.context!.window.toLocaleString()} tokens`}
-        >
-          context {usage}%
+    <details className="team-member-details" onClick={(e) => e.stopPropagation()}>
+      <summary>Details</summary>
+      <span className="team-member-meta">
+        <span>{model}</span>
+        {usage !== undefined && (
+          <span
+            title={`${seat.context!.tokens.toLocaleString()} of ${seat.context!.window.toLocaleString()} tokens`}
+          >
+            context {usage}%
+          </span>
+        )}
+        <span>
+          {seat.exchanges} exchange{seat.exchanges === 1 ? "" : "s"}
         </span>
-      )}
-      <span>
-        {seat.exchanges} exchange{seat.exchanges === 1 ? "" : "s"}
+        {seat.lastActive ? (
+          <span>worked {ago(seat.lastActive, now)}</span>
+        ) : (
+          seat.exchanges === 0 && <span>not worked yet</span>
+        )}
       </span>
-      {seat.lastActive ? (
-        <span>worked {ago(seat.lastActive, now)}</span>
-      ) : (
-        seat.exchanges === 0 && <span>not worked yet</span>
-      )}
-    </span>
+    </details>
   );
 }
 
@@ -175,7 +181,7 @@ function MemberCard({ member, now }: { member: TeamMember; now: number }) {
         >
           {STATE_WORD[member.state]}
         </span>
-        <SeatMeta seat={member} now={now} />
+        <SeatMeta seat={member} now={now} model={model} />
       </div>
       <div className="team-member-duty">{member.duty || "no duty given"}</div>
       {member.layers.length > 0 && (
@@ -189,12 +195,11 @@ function MemberCard({ member, now }: { member: TeamMember; now: number }) {
       )}
       {member.lastWords && <div className="team-member-words">“{member.lastWords}”</div>}
       <div className="team-member-actions">
-        <span className="team-member-model">{model}</span>
         {card}
         {ACTIONS.map(({ action, label, title, ask: why }) => (
           <button
             key={action}
-            className="ghost"
+            className={`ghost${action === "retire" || action === "refresh" ? " destructive" : ""}`}
             title={title}
             // only a running turn can be stopped
             disabled={action === "stop" && !atWork}
@@ -207,6 +212,7 @@ function MemberCard({ member, now }: { member: TeamMember; now: number }) {
                 title: `${label} ${member.name || "this teammate"}?`,
                 body: atWork ? `It is at work — that stops. ${why}` : why,
                 ok: label,
+                destructive: action === "retire" || action === "refresh",
               }).then((yes) => {
                 if (yes) teamAction(member.id, action);
               });
@@ -250,7 +256,7 @@ function LiaisonCard({ liaison, now }: { liaison: TeamLiaison; now: number }) {
       <div className="team-member-head">
         <SeatName id={liaison.id} name="Liaison" />
         <span className={`team-state ${liaison.state}`}>{STATE_WORD[liaison.state]}</span>
-        <SeatMeta seat={liaison} now={now} />
+        <SeatMeta seat={liaison} now={now} model={model} />
       </div>
       <div className="team-member-duty">
         Other projects’ agents reach it, never the lead, and it hands their jobs to this team.
@@ -262,9 +268,7 @@ function LiaisonCard({ liaison, now }: { liaison: TeamLiaison; now: number }) {
       )}
       <Letters label="answering" letters={liaison.answering} now={now} />
       <Letters label="waiting on" letters={liaison.waitingOn} now={now} />
-      <div className="team-member-actions">
-        <span className="team-member-model">{model}</span>
-      </div>
+      <div className="team-member-actions"></div>
     </div>
   );
 }
@@ -393,9 +397,7 @@ export function TeamPage({ project, onClose }: { project: Project; onClose(): vo
         {team?.tasks && <TaskList tasks={team.tasks} now={now} />}
         {team !== undefined && members.length === 0 && (
           <div className="board-empty">
-            You talk to the lead; the lead hands every job to its team — chats of their own, each looking
-            after a layer or a part of {project.name}, asleep between jobs. It makes them as the work calls
-            for them: just give it work.
+            No teammates yet.
           </div>
         )}
         {team !== undefined && team.freeLayers.length > 0 && (

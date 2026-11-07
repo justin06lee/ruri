@@ -252,14 +252,6 @@ export const projectHandlers = {
     if (made && ws.readyState === WebSocket.OPEN)
       ws.send(JSON.stringify({ type: "open_session", projectId: made.id } satisfies ServerMessage));
   },
-  side_chat: (ctx, _ws, msg) => {
-    const project = ctx.store.list().find((p) => p.id === msg.projectId);
-    if (!project || project.sessions.some((session) => session.side)) return;
-    // quick questions go to Sonnet when the project runs on Claude
-    const claude = !ctx.models.registry.parse(project.model || ctx.store.defaultModel()).providerId;
-    ctx.store.sideChat(msg.projectId, claude ? "sonnet" : undefined);
-    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
-  },
   rename_session: (ctx, _ws, msg) => {
     const title = msg.title.trim();
     if (title && ctx.store.findSession(msg.sessionId)) {

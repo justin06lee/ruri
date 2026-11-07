@@ -73,6 +73,8 @@ export interface RuriShell {
   forget(hostId: string): Promise<ShellState | null>;
   retry(): Promise<void>;
   windowDrag(phase: WindowDragPhase): void;
+  /** Missing from a shell older than the page. */
+  setTheme?(theme: "light" | "dark" | "ember"): void;
 }
 
 export const ruriShell: RuriShell | undefined =

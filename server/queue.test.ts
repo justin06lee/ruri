@@ -66,7 +66,7 @@ describe("taking a fold back", () => {
     }
   });
 
-  test("a split's silent remainder keeps the front", () => {
+  test("a silent remainder keeps the front", () => {
     const queue = [entry("s", { silent: true }), entry("1"), entry("2")];
     const back = uncombine(combine(queue, "1", "2")!, "2")!;
     expect(ids(back)).toEqual(["s", "1", "2"]);

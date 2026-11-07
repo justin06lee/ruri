@@ -36,7 +36,7 @@ import { Dropdown } from "./Dropdown";
 import { EventView } from "./EventView";
 import { ModelIcon } from "./Marks";
 import { AskCard } from "./PermissionBanner";
-import { Thinking } from "./Thinking";
+import { Spinner } from "./Thinking";
 
 type Ruri = ReturnType<typeof useRuri.getState>;
 
@@ -146,9 +146,7 @@ function AgentList({
         </AgentHost.Provider>
         {agents.length === 0 && (
           <div className="board-empty">
-            The agents the model starts show up here as it starts them, and so do the scripts it leaves
-            running in the background. Brief one of your own above and it goes off to work in {project.name}{" "}
-            by itself — you can watch it here, tell it more, or stop it.
+            No agents yet.
           </div>
         )}
       </div>
@@ -334,7 +332,7 @@ function AgentView({
             ))}
             {agent?.status === "running" && (
               <div className="agent-live">
-                <Thinking />
+                <Spinner />
                 <span className="agent-live-line">
                   {agent.script ? "running…" : agent.activity ? `${agent.activity}…` : "working…"}
                 </span>

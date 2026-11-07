@@ -14,19 +14,26 @@ struct ProjectView: View {
                     if !needs.isEmpty {
                         Section("Needs you") {
                             ForEach(needs) { need in
-                                NeedRow(need: need, showProject: false)
+                                if let chat = need.chatId {
+                                    NavigationLink(value: ChatRoute(id: chat, name: need.who)) {
+                                        NeedRow(need: need, showProject: false)
+                                    }
+                                } else {
+                                    NeedRow(need: need, showProject: false)
+                                }
                             }
                         }
                     }
                     if let lead = project.lead {
                         Section("Lead") {
-                            ChatRow(chat: lead, whole: true)
+                            linked(lead, whole: true)
+                                .accessibilityIdentifier("lead")
                         }
                     }
                     if !project.team.isEmpty {
                         Section("Team") {
                             ForEach(project.team, id: \.name) { chat in
-                                ChatRow(chat: chat)
+                                linked(chat)
                                     .accessibilityIdentifier("chat.\(chat.name)")
                             }
                         }
@@ -45,6 +52,18 @@ struct ProjectView: View {
             }
         }
         .refreshable { await model.refresh() }
+    }
+
+    /// A chat's row, opening its conversation when the Mac named it.
+    @ViewBuilder
+    private func linked(_ chat: StatusChat, whole: Bool = false) -> some View {
+        if let id = chat.id {
+            NavigationLink(value: ChatRoute(id: id, name: chat.name)) {
+                ChatRow(chat: chat, whole: whole, opens: true)
+            }
+        } else {
+            ChatRow(chat: chat, whole: whole)
+        }
     }
 }
 

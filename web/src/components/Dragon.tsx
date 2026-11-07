@@ -1,26 +1,31 @@
 /**
- * The usage gauges flanking the composer: context occupancy, the 5-hour
+ * The dragon gauges flanking the composer: context occupancy, the 5-hour
  * window, the weekly window, and the account's model-scoped weekly window
  * (the harness names that one itself — "Fable", "Opus").
  *
  * The windows belong to whichever harness the channel's model runs on, not
  * to Claude: a session on Codex reads Codex's own limits, and a harness that
- * reports none shows empty bars rather than someone else's numbers.
+ * reports none shows empty dragons rather than someone else's numbers.
  *
- * Each gauge is a number over a thin bar that fills left to right; past 90%
- * the fill turns the diff's red, the one place a gauge asks to be looked at.
+ * Each dragon fills from his feet up. Below the waterline his body is solid
+ * ink and his own outline inverts to paper; above it he is the plain drawing.
+ * The art is two alpha masks generated from the line art — one the strokes,
+ * one the flood-filled body — so both halves are painted with theme colors
+ * and follow light/dark for free. Past 80% he starts sweating.
  *
  * Under each name, for the windows that roll over, is how long until they
  * do — the percentage says how much is left, which is not the thing you plan
  * around.
  */
 
+import { useId } from "react";
 import type { ContextUsage, UsageLimits } from "../../../shared/protocol";
+import { DRAGON, DRAGON_H, DRAGON_W } from "../dragonArt";
 import { useNow } from "../lib/beat";
 import { useRuri } from "../store";
 
-/** Where a bar turns red. */
-const HOT_AT = 90;
+/** Where the drawing swaps to the sweating one. */
+const SWEAT_AT = 80;
 
 /** A harness with nothing to report — a stable identity, so the selector
  *  it comes out of never re-renders on a fresh object. */
@@ -34,7 +39,7 @@ function shortTokens(n: number): string {
 }
 
 interface Gauge {
-  /** The short name under the bar — which window this gauge watches. */
+  /** The short name under the number — which window this dragon watches. */
   name: string;
   /** 0-100, already clamped. */
   percent: number;
@@ -46,16 +51,36 @@ interface Gauge {
   title: string;
 }
 
-function Meter({ gauge }: { gauge: Gauge }) {
+function Dragon({ gauge }: { gauge: Gauge }) {
+  const art = DRAGON[gauge.percent >= SWEAT_AT ? "sweat" : "calm"];
+  const uid = useId().replace(/:/g, "");
+  // the waterline in the art's own coordinates — clipping the paths rather
+  // than scaling anything, so the drawing never stretches as it fills
+  const y = DRAGON_H * (1 - gauge.percent / 100);
   return (
-    <div className="usage-gauge" title={gauge.title}>
-      <div className="usage-value">{gauge.value}</div>
-      <div className={`usage-bar${gauge.percent >= HOT_AT ? " hot" : ""}`} aria-hidden>
-        <div className="usage-fill" style={{ width: `${gauge.percent}%` }} />
-      </div>
-      <div className="usage-name">
+    <div className="dragon-gauge" title={gauge.title}>
+      <svg className="dragon" viewBox={`0 0 ${DRAGON_W} ${DRAGON_H}`} aria-hidden>
+        <clipPath id={`below-${uid}`}>
+          <rect className="dragon-clip" x="0" y={y} width={DRAGON_W} height={DRAGON_H - y} />
+        </clipPath>
+        <clipPath id={`above-${uid}`}>
+          <rect className="dragon-clip" x="0" y="0" width={DRAGON_W} height={y} />
+        </clipPath>
+        {/* filled: solid body, its own detail knocked back out of it — the
+            contour stays the edge of the fill instead of inverting away */}
+        <g clipPath={`url(#below-${uid})`}>
+          <path className="dragon-body" d={art.body} fillRule="evenodd" />
+          <path className="dragon-detail" d={art.detail} fillRule="evenodd" />
+        </g>
+        {/* empty: the drawing as inked */}
+        <g clipPath={`url(#above-${uid})`}>
+          <path className="dragon-stroke" d={art.stroke} fillRule="evenodd" />
+        </g>
+      </svg>
+      <div className="dragon-value">{gauge.value}</div>
+      <div className="dragon-name">
         {gauge.name}
-        {gauge.reset && <span className="usage-reset">{gauge.reset}</span>}
+        {gauge.reset && <span className="dragon-reset">{gauge.reset}</span>}
       </div>
     </div>
   );
@@ -145,7 +170,7 @@ function gaugesFor(context: ContextUsage | undefined, usage: UsageLimits, now: n
     },
   ];
   // the scoped window only exists on plans that have one, but the row is
-  // built for four — an absent one still shows its empty bar
+  // built for four — an absent one still shows its empty dragon
   const scoped = usage.scoped;
   gauges.push({
     name: scoped ? scoped.label.toLowerCase() : "model",
@@ -167,11 +192,11 @@ function useMinute(): number {
 }
 
 /**
- * Two gauges for one side of the composer — context and 5h on the left,
+ * Two dragons for one side of the composer — context and 5h on the left,
  * the two weekly windows on the right. `model` decides whose account the
  * windows come from; Claude models carry no provider id.
  */
-export function UsageGauges({
+export function DragonGauges({
   channelId,
   model,
   side,
@@ -188,9 +213,9 @@ export function UsageGauges({
   const gauges = gaugesFor(context, usage, now);
   const pair = side === "left" ? gauges.slice(0, 2) : gauges.slice(2, 4);
   return (
-    <div className={`usage-gauges ${side}`}>
+    <div className={`dragons ${side}`}>
       {pair.map((g) => (
-        <Meter key={g.name} gauge={g} />
+        <Dragon key={g.name} gauge={g} />
       ))}
     </div>
   );

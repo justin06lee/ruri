@@ -86,7 +86,7 @@ function QueuedCard({
     >
       <div className="queued-head">
         <span className="queued-label">
-          {item.editing ? "editing — in the composer" : onUndo ? "combined" : held ? "standing by" : "queued"}
+          {item.editing ? "Editing in the composer" : item.splitting ? "Sorting into tasks…" : onUndo ? "Combined" : held ? "Standing by" : "Queued"}
         </span>
         {onUndo && (
           <button
@@ -108,7 +108,7 @@ function QueuedCard({
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="1.75"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 aria-hidden
@@ -126,7 +126,7 @@ function QueuedCard({
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="1.75"
               strokeLinecap="round"
               aria-hidden
             >

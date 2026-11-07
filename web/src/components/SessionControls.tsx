@@ -10,19 +10,22 @@ import { markFor } from "../lib/marks";
 import { roughName } from "../lib/models";
 import { pickSetting, useRuri } from "../store";
 import { ComboDropdown, Dropdown } from "./Dropdown";
-import { ModelIcon } from "./Marks";
+import { ModelIcon, PickIcon } from "./Marks";
 
-const PERMISSION_MODES: Array<{ value: PermissionMode; label: string }> = [
-  { value: "default", label: "Ask first" },
-  { value: "acceptEdits", label: "Accept edits" },
-  { value: "plan", label: "Plan mode" },
-  { value: "bypassPermissions", label: "Bypass" },
-];
+const PERMISSION_MODES = (
+  [
+    { value: "default", label: "Ask first" },
+    { value: "acceptEdits", label: "Accept edits" },
+    { value: "plan", label: "Plan mode" },
+    { value: "bypassPermissions", label: "Bypass" },
+  ] satisfies Array<{ value: PermissionMode; label: string }>
+).map((mode) => ({ ...mode, icon: <PickIcon kind="permission" value={mode.value} /> }));
 
 // no "default" entry — an unset effort simply IS xhigh (DEFAULT_EFFORT)
 const EFFORT_OPTIONS = EFFORT_LEVELS.map((level) => ({
   value: level,
   label: level === "xhigh" ? "XHigh" : level[0]!.toUpperCase() + level.slice(1),
+  icon: <PickIcon kind="effort" value={level} />,
 }));
 
 /** The composer's three pickers. `channelId` is who the pick is for — this
@@ -62,6 +65,7 @@ export function SessionControls({
     ? reportedEfforts.map((effort) => ({
         value: effort.value,
         label: effort.value === "xhigh" ? "XHigh" : effort.value[0]!.toUpperCase() + effort.value.slice(1),
+        icon: <PickIcon kind="effort" value={effort.value} />,
       }))
     : selected
       ? []
@@ -78,8 +82,8 @@ export function SessionControls({
     pickSetting(channelId, "effort", fallbackEffort);
   }, [selectedValue, pickedEffort, supportedEffort, fallbackEffort, effortOptions.length, channelId]);
   const modelOptions = models.map((m) => ({
-    // the model's own name only — which harness serves it is the
-    // Settings catalog's business, not the picker's — and its maker's mark
+    // the model's own name and its maker's mark — which harness serves it
+    // is the Settings catalog's business, not the picker's
     value: m.value,
     label: m.displayName,
     icon: <ModelIcon pick={markFor(m.value, m)} />,

@@ -9,10 +9,14 @@ import { Row } from "./SettingsRows";
 export function GreetingEditor() {
   const [text, setText] = useState(() => getGreetings().join("\n"));
   return (
-    <Row label="Home says">
+    <Row
+      label="Home says"
+      info="One line is always said. Put several, one to a line, and they take turns: a new one each launch."
+    >
       <div className="greeting-edit">
         <textarea
-          rows={Math.min(6, Math.max(2, text.split("\n").length))}
+          // one line, the way a field is — it grows only as lines are added
+          rows={Math.min(6, Math.max(1, text.split("\n").length))}
           value={text}
           placeholder="nothing — no title on Home"
           onChange={(e) => {
@@ -20,9 +24,6 @@ export function GreetingEditor() {
             setGreetings(greetingsFromText(e.target.value));
           }}
         />
-        <span className="settings-note">
-          One line is always said; put several, one to a line, and they take turns — a new one each launch.
-        </span>
       </div>
     </Row>
   );

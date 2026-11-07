@@ -16,8 +16,15 @@ import type { ClientMessage } from "./protocol.js";
 const id = z.string().min(1).max(500);
 /** A window's own name for something it shows ahead of the server (a
  *  prompt's bubble): a UUID, since the server makes it the id of an event
- *  that sits in the transcript among ids it minted itself. */
-const clientId = z.string().uuid();
+ *  that sits in the transcript among ids it minted itself — or "midna-"
+ *  and a UUID, how midna (~/.midna/rc.mjs) marks the prompts it sends, so
+ *  it is woken only for those. Nothing else. */
+const clientId = z
+  .string()
+  .regex(
+    /^(?:midna-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    "a UUID, or midna- and a UUID",
+  );
 /** The harnesses whose MCP servers and plugins ruri manages. */
 const integrationHarness = z.enum(["claude", "codex"]);
 /** Free text a person or a model wrote: generous, but not unbounded. */
@@ -129,14 +136,6 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     now: z.literal(true).optional(),
     clientId: clientId.optional(),
   }),
-  z.object({
-    type: z.literal("send_split"),
-    ...projectId,
-    text,
-    attachments: z.array(attachmentUpload).optional(),
-    now: z.literal(true).optional(),
-    clientId: clientId.optional(),
-  }),
   z.object({ type: z.literal("ping") }),
   z.object({ type: z.literal("queue_remove"), ...projectId, itemId: id }),
   z.object({ type: z.literal("queue_move"), ...projectId, itemId: id, beforeId: id.optional() }),
@@ -149,7 +148,6 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     itemId: id,
     text,
     attachments: z.array(attachmentUpload).optional(),
-    split: z.boolean().optional(),
   }),
   z.object({ type: z.literal("queue_edit_cancel"), ...projectId, itemId: id }),
   z.object({ type: z.literal("queue_send"), ...projectId }),
@@ -331,7 +329,6 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("new_session"), ...projectId }),
   z.object({ type: z.literal("rename_session"), sessionId: id, title: label }),
   z.object({ type: z.literal("archive_session"), sessionId: id, archived: z.boolean() }),
-  z.object({ type: z.literal("side_chat"), projectId: id }),
   z.object({ type: z.literal("set_workspace"), path: filePath }),
   z.object({ type: z.literal("set_music_dir"), path: filePath }),
   z.object({ type: z.literal("toggle_model_star"), model: label }),
@@ -354,6 +351,8 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     reset: z.boolean().optional(),
   }),
   z.object({ type: z.literal("hooks_test"), projectId: id.optional() }),
+  z.object({ type: z.literal("taste_get") }),
+  z.object({ type: z.literal("taste_learn"), projectId: id }),
   z.object({
     type: z.literal("mcp_add"),
     add: z.object({
@@ -405,6 +404,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("sharing_invite") }),
   z.object({ type: z.literal("sharing_phone") }),
   z.object({ type: z.literal("sharing_forget"), deviceId: id }),
+  z.object({ type: z.literal("sharing_allow_send"), deviceId: id }),
   z.object({ type: z.literal("talk_get") }),
   z.object({ type: z.literal("talk_set"), policy: talkPolicy }),
   z.object({ type: z.literal("team_get"), ...projectId }),

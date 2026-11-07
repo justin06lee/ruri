@@ -2,9 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { isMember, leadOf, SESSIONS_MODE_PREF, sideOf, type Project } from "../shared/protocol.js";
-import { ProjectStore } from "./projects.js";
-import { projectChatBriefing, sessionsMode, sideChatBriefing, SIDE_REFUSED } from "./sessionsMode.js";
+import { isMember, leadOf, SESSIONS_MODE_PREF, type Project } from "../shared/protocol.js";
+import { projectChatBriefing, sessionsMode } from "./sessionsMode.js";
 import { sweepTalk } from "./handlers/talk.js";
 
 const withPref = (value?: string) => ({
@@ -24,24 +23,8 @@ afterAll(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe("the /btw side chat", () => {
-  function store(projects: Project[]): ProjectStore {
-    fs.writeFileSync(path.join(dir, "projects.json"), JSON.stringify({ projects }));
-    return new ProjectStore();
-  }
-
-  test("one per project, made once, on the model asked for", () => {
-    const s = store([
-      { id: "p", name: "p", path: "/tmp", sessions: [{ id: "lead", title: "Lead", lead: true }] },
-    ]);
-    const made = s.sideChat("p", "sonnet")!;
-    expect(made).toMatchObject({ title: "btw", side: true, model: "sonnet" });
-    expect(s.sideChat("p")!.id).toBe(made.id);
-    expect(s.get("p")!.sessions.filter((x) => x.side)).toHaveLength(1);
-    expect(s.sideChat("nope")).toBeUndefined();
-  });
-
-  test("never the lead, never a member", () => {
+describe("the project chat", () => {
+  test("an old /btw side chat is never the lead, never a member", () => {
     const project: Project = {
       id: "p",
       name: "p",
@@ -52,15 +35,12 @@ describe("the /btw side chat", () => {
       ],
     };
     expect(leadOf(project)!.id).toBe("chat");
-    expect(sideOf(project)!.id).toBe("side");
     expect(isMember(project, "side")).toBe(false);
   });
 
-  test("the briefs: the project chat works alone, the side chat changes nothing", () => {
+  test("the brief: the project chat works alone", () => {
     expect(projectChatBriefing("cobalt")).toContain("Do the work yourself");
     expect(projectChatBriefing("cobalt")).toContain("only when the user asks");
-    expect(sideChatBriefing("cobalt")).toContain("Change nothing");
-    expect(SIDE_REFUSED).toEqual(expect.arrayContaining(["Edit", "Write", "Agent"]));
   });
 });
 

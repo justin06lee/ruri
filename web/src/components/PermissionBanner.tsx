@@ -66,12 +66,12 @@ export function PermissionBanner({ request }: { request: PermissionRequest }) {
       {request.agent && <div className="permission-from">asked by your agent{from ? ` “${from}”` : ""}</div>}
       {body}
       <div className="permission-actions">
-        <button className="primary" onClick={() => respond(true)}>
-          Allow
-        </button>
-        <button onClick={() => respond(true, true)}>Always allow</button>
         <button className="ghost" onClick={() => respond(false)}>
           Deny
+        </button>
+        <button onClick={() => respond(true, true)}>Always allow</button>
+        <button className="primary" onClick={() => respond(true)}>
+          Allow
         </button>
       </div>
     </div>

@@ -369,6 +369,64 @@ describe("a project's team done", () => {
       }),
     ]);
   });
+  test("a session that died mid-turn — no turn's end, its status in error — is blocked, not done", () => {
+    const w = world();
+    w.start("ui");
+    w.events["ui"]!.push({ kind: "info", id: "x", text: "session error: the CLI exited (code 1)", ts: w.now() });
+    w.statuses["ui"] = "error";
+    w.watch.status("ui", "error");
+    w.pass(IDLE_AFTER_MS + SWEEP_MS);
+    expect(w.heard).toEqual([
+      expect.objectContaining({
+        kind: "project.blocked",
+        chatId: "ui",
+        reason: "error",
+        text: "session error: the CLI exited (code 1)",
+      }),
+    ]);
+    // and one that fails at a turn's end keeps that turn's own words
+    const v = world();
+    v.start("ui");
+    v.end("ui", "", { ok: false, error: "the account is out of credit" });
+    v.watch.status("ui", "error");
+    v.pass(IDLE_AFTER_MS + SWEEP_MS);
+    expect(v.blocks()[0]).toMatchObject({ text: "the account is out of credit" });
+  });
+
+  test("stopped by the usage limit with prompts waiting: blocked once, saying when it resets — not at work for good", () => {
+    const w = world();
+    w.start("lead");
+    w.end("lead", "", { ok: false, error: "You've hit your limit", blocked: "limit" });
+    w.queue("lead", "the rest of the job");
+    w.queue("lead", "and the next one");
+    w.ctx.queues.holdQueue("lead", { by: "limit", resetsAt: Date.UTC(2026, 9, 28, 23, 0) });
+    w.pass(IDLE_AFTER_MS * 3);
+    expect(w.heard).toEqual([
+      expect.objectContaining({
+        kind: "project.blocked",
+        chatId: "lead",
+        reason: "error",
+        text: "usage limit, resets 2026-10-28T23:00:00.000Z: You've hit your limit",
+      }),
+    ]);
+    // the queue moves again at the reset: a new stretch, done as ever
+    w.ctx.queues.releaseQueue("lead");
+    w.start("lead");
+    w.end("lead");
+    w.ctx.queues.entries.delete("lead");
+    w.pass(IDLE_AFTER_MS + SWEEP_MS);
+    expect(w.idles()).toHaveLength(1);
+  });
+
+  test("a line the connection's loss held waits on the world, not the team", () => {
+    const w = world();
+    w.start("lead");
+    w.end("lead", "", { ok: false, error: "fetch failed", blocked: "network" });
+    w.queue("lead");
+    w.ctx.queues.holdQueue("lead", { by: "network" });
+    w.pass(IDLE_AFTER_MS + SWEEP_MS);
+    expect(w.blocks()).toEqual([expect.objectContaining({ chatId: "lead", text: "fetch failed" })]);
+  });
 });
 
 describe("a project waiting on the user", () => {

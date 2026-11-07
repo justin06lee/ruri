@@ -73,7 +73,7 @@ function Row({ skill, projectId }: { skill: SkillInfo; projectId?: string }) {
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
-          strokeWidth="2"
+          strokeWidth="1.75"
           strokeLinecap="round"
           aria-hidden
         >
@@ -114,7 +114,7 @@ function SkillReader() {
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="1.75"
               strokeLinecap="round"
               aria-hidden
             >
@@ -218,8 +218,7 @@ export function Skills({ projectId }: { projectId?: string }) {
           <div className="skill-group-head">Just this project</div>
           {local.length === 0 && (
             <div className="board-empty">
-              None yet. A skill installed here lives in the repo at <code>.claude/skills/</code> and travels
-              with it.
+              No skills yet.
             </div>
           )}
           <Capped max={8}>

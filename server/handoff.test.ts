@@ -280,17 +280,17 @@ describe("what rides in ahead of a prompt", () => {
     const measured = {
       ...ctx,
       prefs: { all: () => ({}) },
-      turns: { contexts: new Map([[CHAT, { tokens: 412_000, window: 1_000_000 }]]) },
+      turns: { contexts: new Map([[CHAT, { tokens: 300_000, window: 1_000_000 }]]) },
       models: { windows: new Map([["m", 1_000_000]]) },
       store: {
         ...ctx.store,
         defaultModel: () => "m",
-        // a lead, not a teammate: half its window
+        // a lead, not a teammate: half its window, 500k
         isMember: () => false,
       },
     } as unknown as ServerContext;
     expect(catchUp(measured, CHAT, "hello").brief).toBe(
-      "<ruri:context>412k of 1M tokens used (41%). You compact yourself at 500k, 88k from here.</ruri:context>\n",
+      "<ruri:context>300k of 1M tokens used (30%). You compact yourself at 500k, 200k from here.</ruri:context>\n",
     );
   });
 });

@@ -3,12 +3,11 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 export interface DropdownOption {
   value: string;
   label: string;
-  /** Drawn before the label, in the menu and on the trigger — a model's
-   *  mark (Marks.tsx ModelIcon). */
+  /** Drawn before the label, in the menu and on the trigger. */
   icon?: ReactNode;
 }
 
-/** Manga-styled replacement for a native <select>: trigger + ink-bordered menu. */
+/** A native-feeling replacement for <select>: a trigger and a pop-up menu. */
 export function Dropdown({
   value,
   options,

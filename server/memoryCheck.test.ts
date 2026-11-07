@@ -8,6 +8,8 @@ import type { ServerContext } from "./context.js";
 import { candidatePairs, cancelChecks, checkMemory } from "./memoryCheck.js";
 import { linesWith, MemoryBook } from "./memoryLog.js";
 
+const runConfig = process.env["RURI_CONFIG_DIR"];
+
 let config: string;
 let repo: string;
 let ctx: ServerContext;
@@ -67,7 +69,9 @@ afterEach(() => {
   cancelChecks();
   fs.rmSync(config, { recursive: true, force: true });
   fs.rmSync(repo, { recursive: true, force: true });
-  delete process.env["RURI_CONFIG_DIR"];
+  // back to the run's own folder (scripts/test-config.ts), never to the user's
+  if (runConfig === undefined) delete process.env["RURI_CONFIG_DIR"];
+  else process.env["RURI_CONFIG_DIR"] = runConfig;
 });
 
 /** The memory as an older ruri kept it, brought into the log. */

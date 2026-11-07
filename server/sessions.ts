@@ -245,6 +245,9 @@ interface ChannelSession {
   interrupt(): void;
   setModel(model: string): void;
   setPermissionMode(mode: PermissionMode): void;
+  /** The mode the user chose, known at once — even mid-turn, before the
+   *  harness is told (setPermissionMode waits for the turn to end). */
+  noteMode?(mode: PermissionMode): void;
   /** Apply a new reasoning effort. No harness changes it on a warm session,
    *  so implementations either take it for their next turn (run-per-turn)
    *  or retire themselves — the next send rebuilds with resume. */
@@ -1020,6 +1023,8 @@ class ProjectSession implements ChannelSession {
   private turnEventId: string | undefined;
   private readonly pending = new Map<string, PendingPermission>();
   private readonly pendingQuestions = new Map<string, PendingQuestion>();
+  /** The mode the user chose: in bypass, nothing asks them anything. */
+  private mode: PermissionMode;
   /** Output tokens this turn has produced so far, across its API calls —
    *  the number under the doodle. Zeroed when a turn starts and ends. */
   private turnOutput = 0;
@@ -1109,6 +1114,7 @@ class ProjectSession implements ChannelSession {
   ) {
     this.lastSessionId = resume;
     this.resumed = resume;
+    this.mode = project.permissionMode ?? DEFAULT_PERMISSION_MODE;
     this.secretFill = extras?.fillSecrets;
     this.toolBarrier = extras?.beforeTools;
     this.afterCompact = extras?.afterCompact;
@@ -1243,7 +1249,15 @@ class ProjectSession implements ChannelSession {
   }
 
   setPermissionMode(mode: PermissionMode): void {
+    this.noteMode(mode);
     void this.session.setPermissionMode(mode).catch(() => {});
+  }
+
+  noteMode(mode: PermissionMode): void {
+    this.mode = mode;
+    // switched to bypass with a card up: it goes through, as if allowed
+    if (mode === "bypassPermissions")
+      for (const requestId of [...this.pending.keys()]) this.respondPermission(requestId, true);
   }
 
   /** Effort is a construction-time SDK option — retire; resume carries on. */
@@ -1512,6 +1526,11 @@ class ProjectSession implements ChannelSession {
     // decision left to make and the only thing it can do is confuse. So the
     // call goes straight through.
     if (req.toolName === "AskUserQuestion") return Promise.resolve({ behavior: "allow" });
+    // Bypass means no card. The CLI still routes some calls here in
+    // bypassPermissions (an rm -rf, a kill), and a turn already running
+    // when the user switched to bypass is still in its old mode until it
+    // ends (SessionManager.setPermissionMode): either way, allowed.
+    if (this.mode === "bypassPermissions") return Promise.resolve({ behavior: "allow" });
     return new Promise<PermissionDecision>((resolve) => {
       const requestId = randomUUID();
       this.pending.set(requestId, {
@@ -3841,6 +3860,7 @@ export class SessionManager {
 
   /** Apply a permission-mode change to the live session, if one is running. */
   setPermissionMode(projectId: string, mode: PermissionMode): void {
+    this.sessions.get(projectId)?.noteMode?.(mode);
     this.whenIdle(projectId, () => this.sessions.get(projectId)?.setPermissionMode(mode));
   }
 

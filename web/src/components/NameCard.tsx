@@ -74,9 +74,6 @@ export function NameCard({ request }: { request: PermissionRequest }) {
       )}
 
       {note.trim() && !open && <p className="name-note">{note}</p>}
-      {(proposal.files ?? []).length > 0 && !open && (
-        <p className="name-files">{(proposal.files ?? []).join(" · ")}</p>
-      )}
 
       {open && (
         <div className="name-detail">

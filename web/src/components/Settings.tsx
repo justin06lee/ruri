@@ -6,18 +6,27 @@ import type {
   PermissionId,
   PermissionState,
 } from "../../../shared/protocol";
+import { HOME_ID } from "../../../shared/protocol";
 import { send, useRuri } from "../store";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
+import { Icon } from "./chat/Icon";
 import { Devices } from "./Devices";
 import { GreetingEditor } from "./GreetingEditor";
-import { ModelIcon } from "./Marks";
 import { Integrations } from "./Integrations";
+import { Row, Switch } from "./SettingsRows";
+import { FoldList, FoldRow } from "./FoldList";
+import { InfoTip } from "./InfoTip";
+import { ModelIcon } from "./Marks";
+import { PeekBand } from "./PeekBand";
+import { AccountBar } from "./Sidebar";
 import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
 import { setSessionsMode, useSessionsMode } from "../lib/sessionsMode";
-import { markFor } from "../lib/marks";
+import { setDesignTaste, useDesignTaste } from "../lib/designTaste";
+import { setSplitLongPrompts, useSplitLongPrompts } from "../lib/splitPrompts";
 import { roughName } from "../lib/models";
+import { markFor } from "../lib/marks";
 import {
   applyTheme,
   currentTheme,
@@ -151,6 +160,23 @@ function ModelCatalog() {
                 if (holder !== m.value) send({ type: "set_model_role", model: m.value, role });
               }}
             >
+              <span className="model-mark" title={m.providerLabel ?? "Claude Code"}>
+                <ModelIcon pick={markFor(m.value, m)} />
+              </span>
+              <span
+                className="model-name"
+                title={listed.has(m.value) ? m.value : `${m.value} — not in its harness's list right now`}
+              >
+                {m.displayName}
+              </span>
+              {small && tag("small", "small tasks", "Runs small background tasks such as notes and titles")}
+              {isDefault && tag("default", "default", "What new chats and projects start on")}
+              {keeper &&
+                tag(
+                  "memory",
+                  "memory",
+                  "Writes and checks each project's memory: folds finished turns in, and checks lines whose code moved",
+                )}
               <button
                 className={`model-star ${starred ? "on" : ""}`}
                 title={
@@ -174,36 +200,17 @@ function ModelCatalog() {
                   <path d={STAR_PATH} />
                 </svg>
               </button>
-              <ModelIcon pick={markFor(m.value, m)} />
-              <span
-                className="model-name"
-                title={listed.has(m.value) ? m.value : `${m.value} — not in its harness's list right now`}
-              >
-                {m.displayName}
-              </span>
-              {small &&
-                tag("small", "small tasks", "Runs the small tasks: notes, titles, splitting, the tracker")}
-              {isDefault && tag("default", "default", "What new chats and projects start on")}
-              {keeper &&
-                tag(
-                  "memory",
-                  "memory",
-                  "Writes and checks each project's memory: folds finished turns in, and checks lines whose code moved",
-                )}
-              <span className="model-tag">{m.providerLabel ?? "Claude Code"}</span>
             </div>
           );
         })}
       </Capped>
-      <div className="model-hint">
-        Starred models are what the composer's model picker offers. The star only favourites and unfavourites
-        — except on a model wearing a tag, which stays starred until the tag moves. The small-tasks model —
-        session titles, turn summaries, prompt splitting, the tracker, starting on GPT Luna — and the default
-        that new chats and projects start on, starting on Fable 5.1, move by dragging their tags onto another
-        model (nothing already open moves). The memory tag marks the model that writes and checks each
-        project's memory — what was decided, what failed, the traps — starting on Sonnet: a capable model,
-        since it decides what every later session is told.
-      </div>
+      <p className="settings-note">
+        Starred models are the ones the composer offers.
+        <InfoTip>
+          Drag a role label to another model to change the default for new conversations, the model for small
+          tasks, or the model that keeps project memory. Existing conversations keep their model.
+        </InfoTip>
+      </p>
     </div>
   );
 }
@@ -308,10 +315,7 @@ function Vault() {
       </div>
 
       <div className="vault-hint">
-        The model is told the names, never the values. It writes <code>{"{{name}}"}</code> into a command or a
-        file and ruri swaps the real value in after it has finished writing — or it uses{" "}
-        <code>$RURI_SECRET_NAME</code>, which is already set in its shell on every harness. Anything a value
-        leaks back into is redacted to its handle.
+        Agents see the names, never the values.
       </div>
     </div>
   );
@@ -553,17 +557,110 @@ function ScheduleClock({
 }
 
 /**
- * Settings: theme, workspace root, music folder, the vault, model catalog.
+ * Settings: theme, workspace root, the vault, model catalog.
  *
  * It is a page, not a dialog. It was a dialog, and it kept growing — a card
  * centred in the window has a ceiling, and past it the thing you came for is
  * simply off screen. A page has the whole pane and scrolls, which is what a
  * list of settings has always wanted.
  */
+const SETTINGS_SECTIONS = [
+  {
+    id: "general",
+    name: "General",
+    icon: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1 1-3z",
+  },
+  { id: "appearance", name: "Appearance", icon: "M12 3a9 9 0 1 0 0 18V3zM12 3a9 9 0 0 1 0 18" },
+  { id: "peek-band", name: "Peek band", icon: "M3 5h18v14H3zM3 16l5-5 4 4 3-3 6 6M16 8h.01" },
+  { id: "greeting", name: "Greeting", icon: "M21 11a8 8 0 0 1-8 8H7l-4 3V11a9 9 0 0 1 18 0zM8 10h8M8 14h5" },
+  { id: "folders", name: "Folders", icon: "M3 5h6l2 2h10v12H3z" },
+  { id: "devices", name: "Devices", icon: "M3 4h15v11H3zM7 19h7M10 15v4M18 9h4v12h-6v-6" },
+  { id: "vault", name: "Passwords", icon: "M14 8a5 5 0 1 0 0 .1M14 8h8M18 8v4M21 8v3" },
+  { id: "models", name: "Models", icon: "M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6" },
+  { id: "harnesses", name: "Harnesses", icon: "M4 5h16v14H4zM7 9l3 3-3 3M13 15h4" },
+  {
+    id: "integrations",
+    name: "Integrations",
+    icon: "M8 3v5M16 3v5M5 8h14v4a7 7 0 0 1-7 7v3M12 19a7 7 0 0 1-7-7",
+  },
+  {
+    id: "permissions",
+    name: "Privacy & Security",
+    icon: "M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3zM9 12l2 2 4-4",
+  },
+] as const;
+
+/** Settings → General: long prompts cut into tasks (server/promptSplit.ts). */
+function SplitLongPrompts() {
+  const on = useSplitLongPrompts();
+  return (
+    <Row
+      label="Split prompts"
+      info="A long prompt with several tasks goes out one task at a time, in your own words, so nothing is lost to a compaction."
+    >
+      <Switch on={on} label="Split long prompts into tasks" onChange={setSplitLongPrompts} />
+    </Row>
+  );
+}
+
+/** Settings → General → Design taste (server/gusteau.ts): the switch,
+ *  whether gusteau is on this machine, and "Learn from project" for the
+ *  project that's open. */
+function DesignTaste() {
+  const designTaste = useDesignTaste();
+  const taste = useRuri((s) => s.taste);
+  const connected = useRuri((s) => s.connected);
+  const activeId = useRuri((s) => s.activeId);
+  useEffect(() => {
+    if (connected) send({ type: "taste_get" });
+  }, [connected]);
+  // a learn answered comes back as `taste`, newer than the ask
+  const [sentAt, setSentAt] = useState(0);
+  const learning = sentAt > 0 && (taste?.at ?? 0) < sentAt;
+  const learned = sentAt > 0 && !learning ? taste?.learned : undefined;
+  const project = activeId && activeId !== HOME_ID ? activeId : null;
+  return (
+    <div className="settings-row">
+      <span className="settings-label">
+        Design taste
+        <InfoTip>Agents follow your gusteau taste on interface work.</InfoTip>
+      </span>
+      <div className="settings-value">
+        <div className="seg">
+          {([false, true] as const).map((on) => (
+            <button
+              key={String(on)}
+              className={`seg-option ${designTaste === on ? "active" : ""}`}
+              onClick={() => setDesignTaste(on)}
+            >
+              {on ? "On" : "Off"}
+            </button>
+          ))}
+        </div>
+        {designTaste && taste?.found && project && (
+          <button
+            className="ghost"
+            disabled={learning}
+            title="Learn the design choices recorded in this project's review notes and decisions"
+            onClick={() => {
+              setSentAt(Date.now());
+              send({ type: "taste_learn", projectId: project });
+            }}
+          >
+            {learning ? "Learning…" : "Learn from project"}
+          </button>
+        )}
+      </div>
+      {taste && !taste.found && <p className="settings-note">gusteau isn't installed.</p>}
+      {learned && <p className="settings-note">{learned.output}</p>}
+    </div>
+  );
+}
+
 export function Settings({ onClose }: { onClose(): void }) {
+  const [section, setSection] = useState<string>("general");
   const sessionsMode = useSessionsMode();
   const workspaceDir = useRuri((s) => s.workspaceDir);
-  const musicDir = useRuri((s) => s.musicDir);
   const canPickFolder = useRuri((s) => s.canPickFolder);
   const remoteDevice = useRuri((s) => s.remoteDevice);
   const computer = useRuri((s) => s.sharing?.name);
@@ -602,203 +699,198 @@ export function Settings({ onClose }: { onClose(): void }) {
 
   return (
     <main className="chat settings-page">
-      {/* every other page has a header bar to drag the window by; this one
-          has open air instead, so the air does the job — as a band of its
-          own above the scroller, not a sheet laid over it, so nothing ever
-          scrolls underneath it to be clicked at and dragged instead */}
-      <div className="page-drag" aria-hidden />
-      {/* the whole pane scrolls, edge to edge; the settings themselves stay
-          a centred column inside it */}
-      <div className="settings-scroll">
-        <div className="board-inner settings-inner">
-          <div className="board-head">
-            <span className="board-title">Settings</span>
-            <span className="board-sub">
-              {remoteDevice !== null && computer ? `on ${computer}` : "this machine"}
-            </span>
-            <button className="ghost" onClick={onClose}>
-              Done
-            </button>
+      <div className="settings-layout">
+        <nav className="settings-navigation" aria-label="Settings categories">
+          {/* the sidebar's own top: the same width, the same band over it */}
+          <div className="sidebar-header">
+            <PeekBand />
           </div>
-
-          {/* Grouped, the way a settings page is: a heading, then the handful
+          <div className="settings-categories">
+          {SETTINGS_SECTIONS.map((item) => (
+            <button
+              key={item.id}
+              className={`settings-category ${section === item.id ? "selected" : ""}`}
+              aria-current={section === item.id ? "page" : undefined}
+              onClick={() => setSection(item.id)}
+            >
+              <Icon d={item.icon} />
+              {item.name}
+            </button>
+          ))}
+          </div>
+          <AccountBar />
+        </nav>
+        <div className="settings-main">
+        <header className="chat-header settings-toolbar">
+          <span className="chat-title">{SETTINGS_SECTIONS.find((item) => item.id === section)?.name ?? "Settings"}</span>
+          <span className="settings-location">{remoteDevice !== null && computer ? `on ${computer}` : ""}</span>
+          <button className="icon-button" onClick={onClose} aria-label="Close Settings" title="Close Settings">
+            <Icon d="M6 6l12 12M18 6L6 18" />
+          </button>
+        </header>
+        <div className="settings-scroll">
+          <div className="board-inner settings-inner">
+            {/* Grouped, the way a settings page is: a heading, then the handful
             of rows it covers, then air. The two that are more than a row —
             the vault and the catalog — take the whole width under their
             heading instead of being squeezed into the value column. */}
-          <section className="settings-group">
-            <h2 className="settings-group-name">General</h2>
+            <section className="settings-group" hidden={section !== "general"}>
+              <h2 className="settings-group-name">General</h2>
 
-            <div className="settings-row">
-              <span className="settings-label">Projects run as</span>
-              <div className="settings-value">
-                <div className="seg">
-                  {([true, false] as const).map((on) => (
-                    <button
-                      key={String(on)}
-                      className={`seg-option ${sessionsMode === on ? "active" : ""}`}
-                      title={
-                        on
-                          ? "Each project is one chat that does its own work; nothing spawns unless you ask"
-                          : "Each project is its lead with a team behind it, handing jobs to teammates"
-                      }
-                      onClick={() => setSessionsMode(on)}
-                    >
-                      {on ? "One chat" : "Team"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="settings-group">
-            <h2 className="settings-group-name">Appearance</h2>
-
-            <div className="settings-row">
-              <span className="settings-label">Theme</span>
-              <div className="settings-value">
-                <div className="seg">
-                  {THEMES.map((option) => (
-                    <button
-                      key={option}
-                      className={`seg-option ${theme === option ? "active" : ""}`}
-                      title={
-                        option === "ember"
-                          ? "Warm through and through — no blue light, for late sessions"
-                          : undefined
-                      }
-                      onClick={() => pickTheme(option)}
-                    >
-                      {option[0]!.toUpperCase() + option.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className={`settings-row ${schedule.on ? "tall" : ""}`}>
-              <span className="settings-label">By the clock</span>
-              <div className="settings-value schedule">
-                <button
-                  className={`seg-option toggle ${schedule.on ? "active" : ""}`}
-                  title="Turn the theme over at set times — picking one by hand turns this off"
-                  onClick={() => keepSchedule({ ...schedule, on: !schedule.on })}
-                >
-                  {schedule.on ? "On" : "Off"}
-                </button>
-                {schedule.on && (
-                  <div className="schedule-face">
-                    <ScheduleClock schedule={schedule} onChange={keepSchedule} />
-                    <div className="schedule-times">
-                      {THEMES.map((option) => (
-                        <div className="schedule-slot" key={option}>
-                          <span className={`schedule-swatch ${option}`} aria-hidden />
-                          <span className="schedule-name">{option}</span>
-                          <span className="schedule-from">from</span>
-                          <TimeField
-                            minutes={schedule[option]}
-                            onChange={(next) => keepSchedule({ ...schedule, [option]: next })}
-                          />
-                        </div>
-                      ))}
-                      <p className="schedule-hint">
-                        One turn is one day. Drag a mark round the dial, or nudge a time here.
-                      </p>
-                    </div>
+              <div className="settings-row">
+                <span className="settings-label">Projects run as</span>
+                <div className="settings-value">
+                  <div className="seg">
+                    {([true, false] as const).map((on) => (
+                      <button
+                        key={String(on)}
+                        className={`seg-option ${sessionsMode === on ? "active" : ""}`}
+                        title={
+                          on
+                            ? "Each project is one chat that does its own work; nothing spawns unless you ask"
+                            : "Each project is its lead with a team behind it, handing jobs to teammates"
+                        }
+                        onClick={() => setSessionsMode(on)}
+                      >
+                        {on ? "One chat" : "Team"}
+                      </button>
+                    ))}
                   </div>
-                )}
+                </div>
               </div>
-            </div>
-          </section>
 
-          <section className="settings-group">
-            <h2 className="settings-group-name">Peek band</h2>
-            <BandEditor />
-          </section>
+              <SplitLongPrompts />
+              <DesignTaste />
+            </section>
 
-          <section className="settings-group">
-            <h2 className="settings-group-name">Greeting</h2>
-            <GreetingEditor />
-          </section>
+            <section className="settings-group" hidden={section !== "appearance"}>
+              <h2 className="settings-group-name">Appearance</h2>
 
-          <section className="settings-group">
-            <h2 className="settings-group-name">Folders</h2>
-
-            <div className="settings-row">
-              <span className="settings-label">Workspace</span>
-              <div className="settings-value">
-                {/* LRM anchors keep the leading slash in place inside the rtl-ellipsis trick */}
-                <span className="settings-path" title={workspaceDir}>
-                  {workspaceDir ? `‎${workspaceDir}‎` : "—"}
-                </span>
-                <button
-                  className="ghost"
-                  disabled={!canPickFolder}
-                  title={
-                    canPickFolder
-                      ? "Pick the folder your projects live in"
-                      : remoteDevice !== null
-                        ? `Change it on ${computer ?? "that computer"} itself`
-                        : "Available in the desktop app"
-                  }
-                  onClick={() => send({ type: "pick_folder", target: "workspace" })}
-                >
-                  Change
-                </button>
+              <div className="settings-row">
+                <span className="settings-label">Theme</span>
+                <div className="settings-value">
+                  <div className="seg">
+                    {THEMES.map((option) => (
+                      <button
+                        key={option}
+                        className={`seg-option ${theme === option ? "active" : ""}`}
+                        title={option === "ember" ? "Warm brown-black surfaces for late sessions" : undefined}
+                        onClick={() => pickTheme(option)}
+                      >
+                        {option[0]!.toUpperCase() + option.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <div className="settings-row">
-              <span className="settings-label">Music</span>
-              <div className="settings-value">
-                <span className="settings-path" title={musicDir}>
-                  {musicDir ? `‎${musicDir}‎` : "—"}
-                </span>
-                <button
-                  className="ghost"
-                  disabled={!canPickFolder}
-                  title={
-                    canPickFolder
-                      ? "Pick the folder your music lives in (each subfolder is a playlist)"
-                      : "Available in the desktop app"
-                  }
-                  onClick={() => send({ type: "pick_folder", target: "music" })}
-                >
-                  Change
-                </button>
+              <div className="settings-row schedule-row">
+                <span className="settings-label">By the clock</span>
+                <div className="settings-value schedule">
+                  <button
+                    className={`skill-switch ${schedule.on ? "on" : ""}`}
+                    role="switch"
+                    aria-checked={schedule.on}
+                    aria-label="Change appearance on a schedule"
+                    title="Turn the theme over at set times — picking one by hand turns this off"
+                    onClick={() => keepSchedule({ ...schedule, on: !schedule.on })}
+                  >
+                    <span className="skill-knob" />
+                  </button>
+                  {schedule.on && (
+                    <div className="schedule-face">
+                      <ScheduleClock schedule={schedule} onChange={keepSchedule} />
+                      <div className="schedule-times">
+                        {THEMES.map((option) => (
+                          <div className="schedule-slot" key={option}>
+                            <span className={`schedule-swatch ${option}`} aria-hidden />
+                            <span className="schedule-name">{option}</span>
+                            <span className="schedule-from">from</span>
+                            <TimeField
+                              minutes={schedule[option]}
+                              onChange={(next) => keepSchedule({ ...schedule, [option]: next })}
+                            />
+                          </div>
+                        ))}
+                        <p className="schedule-hint">
+                          One turn is one day. Drag a mark round the dial, or nudge a time here.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
 
-          <section className="settings-group">
-            <h2 className="settings-group-name">Devices</h2>
-            <Devices />
-          </section>
+            <section className="settings-group" hidden={section !== "peek-band"}>
+              <h2 className="settings-group-name">Peek band</h2>
+              <BandEditor />
+            </section>
 
-          <section className="settings-group">
-            <h2 className="settings-group-name">Vault</h2>
-            <Vault />
-          </section>
+            <section className="settings-group" hidden={section !== "greeting"}>
+              <h2 className="settings-group-name">Greeting</h2>
+              <GreetingEditor />
+            </section>
 
-          <section className="settings-group">
-            <h2 className="settings-group-name">Models</h2>
-            <ModelCatalog />
-          </section>
+            <section className="settings-group" hidden={section !== "folders"}>
+              <h2 className="settings-group-name">Folders</h2>
 
-          <section className="settings-group">
-            <h2 className="settings-group-name">Harnesses</h2>
-            <Harnesses />
-          </section>
+              <div className="settings-row">
+                <span className="settings-label">Workspace</span>
+                <div className="settings-value">
+                  {/* LRM anchors keep the leading slash in place inside the rtl-ellipsis trick */}
+                  <span className="settings-path" title={workspaceDir}>
+                    {workspaceDir ? `‎${workspaceDir}‎` : "—"}
+                  </span>
+                  <button
+                    className="ghost"
+                    disabled={!canPickFolder}
+                    title={
+                      canPickFolder
+                        ? "Pick the folder your projects live in"
+                        : remoteDevice !== null
+                          ? `Change it on ${computer ?? "that computer"} itself`
+                          : "Available in the desktop app"
+                    }
+                    onClick={() => send({ type: "pick_folder", target: "workspace" })}
+                  >
+                    Change
+                  </button>
+                </div>
+              </div>
+            </section>
 
-          <section className="settings-group">
-            <h2 className="settings-group-name">Integrations</h2>
-            <Integrations />
-          </section>
+            <section className="settings-group" hidden={section !== "devices"}>
+              <h2 className="settings-group-name">Devices</h2>
+              <Devices />
+            </section>
 
-          <section className="settings-group">
-            <h2 className="settings-group-name">Permissions</h2>
-            <Grants />
-          </section>
+            <section className="settings-group" hidden={section !== "vault"}>
+              <h2 className="settings-group-name">Passwords</h2>
+              <Vault />
+            </section>
+
+            <section className="settings-group" hidden={section !== "models"}>
+              <h2 className="settings-group-name">Models</h2>
+              <ModelCatalog />
+            </section>
+
+            <section className="settings-group" hidden={section !== "harnesses"}>
+              <h2 className="settings-group-name">Harnesses</h2>
+              <Harnesses />
+            </section>
+
+            <section className="settings-group" hidden={section !== "integrations"}>
+              <h2 className="settings-group-name">Integrations</h2>
+              <Integrations />
+            </section>
+
+            <section className="settings-group" hidden={section !== "permissions"}>
+              <h2 className="settings-group-name">Privacy & Security</h2>
+              <Grants shown={section === "permissions"} />
+            </section>
+          </div>
+        </div>
         </div>
       </div>
     </main>
@@ -850,77 +942,83 @@ function Harnesses() {
   const harnesses = useRuri((s) => s.harnesses);
   const looking = useRuri((s) => s.harnessesChecking);
   const checked = harnesses.reduce((latest, h) => Math.max(latest, h.checkedAt ?? 0), 0);
+  // one switch for all of them: on while every one that can keeps itself
+  // current does, and flipping it sets each
+  const ours = harnesses.filter((h) => h.channel !== "other");
+  const auto = ours.length > 0 && ours.every((h) => h.auto !== false);
   return (
-    <div className="grants harnesses">
-      <p className="settings-note grants-note">
-        The CLIs every chat runs on. ruri looks on the hour and brings each one up to date the way it was
-        installed — its own updater, bun, npm or brew — never while a chat on it is mid-turn; a chat that was
-        warm on the old one picks up the new one with its next prompt.
-      </p>
-      <div className="grants-head">
-        <button className="ghost" disabled={looking} onClick={() => send({ type: "check_harnesses" })}>
-          {looking ? "looking…" : "Check now"}
-        </button>
-        <span className="settings-note">last looked {ago(checked || undefined)}</span>
+    <div className="harnesses">
+      <div className="settings-tray">
+        <Row
+          label="Update automatically"
+          info="Each coding CLI keeps itself current on the hour, the way it was installed, never under a running turn."
+        >
+          <Switch
+            on={auto}
+            label="Update the coding CLIs automatically"
+            onChange={(on) => ours.forEach((h) => send({ type: "set_harness_auto", id: h.id, auto: on }))}
+          />
+        </Row>
       </div>
-      {harnesses.length === 0 && (
-        <p className="settings-note">The first look is a minute and a half after launch — or Check now.</p>
-      )}
-      <Capped>
+      <FoldList
+        id="settings-harnesses"
+        title="Coding CLIs"
+        count={harnesses.length}
+        actions={
+          <>
+            <span className="fold-tag">looked {ago(checked || undefined)}</span>
+            <button className="ghost" disabled={looking} onClick={() => send({ type: "check_harnesses" })}>
+              {looking ? "Looking…" : "Check now"}
+            </button>
+          </>
+        }
+      >
+        {harnesses.length === 0 && (
+          <p className="fold-empty">The first look is a minute and a half after launch, or Check now.</p>
+        )}
         {harnesses.map((h) => {
           const late = behind(h);
           const status = h.updating
-            ? "updating"
+            ? "updating…"
             : h.channel === "other"
-              ? "not ours"
+              ? "updates itself elsewhere"
               : late
-                ? "behind"
-                : h.latest
-                  ? "current"
-                  : "unknown";
+                ? `v${h.latest} out`
+                : "";
           return (
-            <div key={h.id} className="grant-row harness-row">
-              <span className={`grant-status harness-status ${status.replace(" ", "-")}`}>
-                {status === "behind" ? `v${h.latest} out` : status}
-              </span>
-              <span className="grant-body">
-                <span className="grant-name">
-                  {h.label} <span className="harness-version">{h.version ? `v${h.version}` : "?"}</span>
+            <FoldRow
+              key={h.id}
+              name={
+                <span className="harness-name">
+                  <ModelIcon pick={markFor(h.id, { provider: h.id, displayName: h.label })} />
+                  {h.label}
+                  <span className="harness-version">{h.version ? `v${h.version}` : "?"}</span>
                 </span>
-                <span className="grant-why" title={h.path}>
-                  {[
-                    h.updatedAt ? `updated from v${h.from} ${ago(h.updatedAt)}` : undefined,
-                    late || h.channel === "other" ? h.note : undefined,
-                    `${CHANNEL_WORD[h.channel]}${h.pkg && h.channel !== "self" ? ` · ${h.pkg}` : ""}`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </span>
-              {h.channel !== "other" && (
-                <label className="harness-auto" title="Keep it current by itself, on the hour">
-                  <input
-                    type="checkbox"
-                    checked={h.auto !== false}
-                    onChange={(e) => send({ type: "set_harness_auto", id: h.id, auto: e.target.checked })}
-                  />
-                  by itself
-                </label>
-              )}
-              {h.channel !== "other" && (
+              }
+              tag={status}
+              title={[
+                h.updatedAt ? `updated from v${h.from} ${ago(h.updatedAt)}` : undefined,
+                late || h.channel === "other" ? h.note : undefined,
+                `${CHANNEL_WORD[h.channel]}${h.pkg && h.channel !== "self" ? ` · ${h.pkg}` : ""}`,
+                h.path,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            >
+              {late && h.channel !== "other" && (
                 <button
-                  className="ghost grant-ask"
-                  disabled={h.updating || !late}
-                  title={late ? `Update to v${h.latest} now` : "Already the newest"}
+                  className="ghost"
+                  disabled={h.updating}
+                  title={`Update to v${h.latest} now`}
                   onClick={() => send({ type: "check_harnesses", id: h.id })}
                 >
-                  {h.updating ? "updating…" : "Update"}
+                  Update
                 </button>
               )}
-            </div>
+            </FoldRow>
           );
         })}
-      </Capped>
+      </FoldList>
     </div>
   );
 }
@@ -942,14 +1040,30 @@ const STATUS_WORD: Record<PermissionState["status"], string> = {
  * database's own rows for ruri and the CLIs its sessions run, since each of
  * those is a client of its own to macOS.
  */
-function Grants() {
+function Grants({ shown }: { shown: boolean }) {
   const can = useRuri((s) => s.canPermissions);
   const platform = useRuri((s) => s.platform);
   const grants = useRuri((s) => s.grants);
   const [asking, setAsking] = useState<PermissionId | "all" | null>(null);
+  // A switch is flipped in System Settings, not here, so what this shows
+  // goes stale the moment someone goes there. While the page is up it reads
+  // macOS again on the way back to the window and every few seconds — not
+  // while an ask is waiting on its dialog, which answers for itself.
   useEffect(() => {
-    if (can) send({ type: "permissions_check" });
-  }, [can]);
+    if (!can || !shown || asking) return;
+    const look = () => {
+      if (!document.hidden) send({ type: "permissions_check" });
+    };
+    look();
+    const every = window.setInterval(look, 4_000);
+    window.addEventListener("focus", look);
+    document.addEventListener("visibilitychange", look);
+    return () => {
+      window.clearInterval(every);
+      window.removeEventListener("focus", look);
+      document.removeEventListener("visibilitychange", look);
+    };
+  }, [can, shown, asking]);
   // fresh grants from macOS are the answer to whatever was being asked
   const [grantsSeen, setGrantsSeen] = useState(grants);
   if (grants !== grantsSeen) {
@@ -963,20 +1077,24 @@ function Grants() {
   if (platform === "linux")
     return (
       <p className="settings-note">
-        Linux keeps no per-app privacy grants: ruri and its sessions can reach whatever your account can, and
-        there is nothing here to ask for. The bridge reads native apps' controls over the desktop's
-        accessibility bus (AT-SPI) and photographs their windows off the X server — on a Wayland session it
-        can drive web pages and Electron apps, not native windows.
+        Linux has no per-app privacy grants: nothing to ask for here.
+        <InfoTip>
+          ruri and its sessions can reach whatever your account can. The bridge reads native apps' controls
+          over the desktop's accessibility bus (AT-SPI) and photographs their windows off the X server. On a
+          Wayland session it can drive web pages and Electron apps, not native windows.
+        </InfoTip>
       </p>
     );
   if (!can) return <p className="settings-note">Available in the desktop app.</p>;
   return (
     <div className="grants">
       <p className="settings-note grants-note">
-        macOS ties every grant to the app's signature, and a rebuilt ruri is a new app to it: a switch that
-        reads "on" in System Settings may be for a ruri that no longer exists. This is what macOS actually
-        holds. <code>make update</code> resets them all and the next launch asks again; ask by hand here to
-        tell a broken feature from a lapsed grant.
+        What ruri may control and read on this Mac.
+        <InfoTip>
+          macOS ties access to the app's signature. After a rebuild a permission can need approving again even
+          if its switch is still on in System Settings: Ask requests it again. Manage access in System
+          Settings.
+        </InfoTip>
       </p>
       <div className="grants-head">
         <button className="ghost" disabled={asking !== null} onClick={() => ask()}>

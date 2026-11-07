@@ -1,9 +1,11 @@
 /**
  * Draw the app icon: build/icon.svg, which `make icon` (scripts/make-icon.sh)
- * turns into build/icon.png and build/icon.icns.
+ * turns into build/icon.png and build/icon.icns — and its dark and ember
+ * pages, build/icon-dark.svg and build/icon-ember.svg, which become the
+ * PNGs the Dock shows while the app is on that theme (desktop/main.ts).
  *
  * ruri's own mark, drawn with the pen the model makers' marks are drawn with
- * (components/Marks.tsx, lib/doodle.ts): three sideways diamonds, one sitting
+ * (lib/doodle.ts): three sideways diamonds, one sitting
  * in the notch between the other two, each outlined in the paper theme's ink
  * with its colour laid a hair off the line, the way a cheap print
  * misregisters, and every line shaken a little. The colours are ruri's own —
@@ -12,7 +14,7 @@
  * Deterministic: the same seeds shake the same way, so running this again
  * without changing it writes the same file.
  *
- *   bun scripts/draw-icon.ts [out.svg]
+ *   bun scripts/draw-icon.ts [out-dir]
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -20,9 +22,15 @@ import { type Pt, shaker } from "../web/src/lib/doodle.js";
 
 const r1 = (n: number): number => Math.round(n * 10) / 10;
 
-/** The paper theme's page and ink (styles.css, :root). */
-const PAPER = "#f6f1e6";
-const INK = "#191510";
+/** Each theme's tile and ink: light is the paper the mark was first drawn
+ *  on; dark and ember are their pages (styles.css), a step up from the
+ *  window's so the tile still reads in a dark Dock. */
+const PAGES = {
+  light: { paper: "#f6f1e6", ink: "#191510" },
+  dark: { paper: "#1c1c1c", ink: "#ededed" },
+  ember: { paper: "#211a15", ink: "#f1e4d2" },
+} as const;
+export type IconTheme = keyof typeof PAGES;
 /** The pen the marks drawn in several parts use (Marks.tsx, Blocks), on
  *  their 100-unit page — the single-shape marks' 4.2 is heavy on a diamond
  *  a third their size. */
@@ -90,7 +98,8 @@ const WOBBLE = `<filter id="wobble" filterUnits="userSpaceOnUse" x="-12" y="-12"
       <feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G"/>
     </filter>`;
 
-export function iconSvg(): string {
+export function iconSvg(theme: IconTheme = "light"): string {
+  const { paper, ink } = PAGES[theme];
   const faces = mark();
   // the page, scaled so the mark spans about three quarters of the tile,
   // set a hair above the middle (where the eye puts the middle), and tipped
@@ -103,18 +112,18 @@ export function iconSvg(): string {
   const lines = faces.map((f) => `<path d="${f.d}"/>`).join("\n        ");
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="ruri">
   <!-- the app icon, written by scripts/draw-icon.ts: ruri's three diamonds in
-       the model makers' marks' pen, on the paper theme's page, in the macOS
-       icon grid's rounded square -->
+       the model makers' marks' pen, on the ${theme} theme's page, in the
+       macOS icon grid's rounded square -->
   <defs>
     ${WOBBLE}
   </defs>
-  <rect x="100" y="100" width="824" height="824" rx="185" fill="${PAPER}"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="${paper}"/>
   <g transform="${place}">
     <g filter="url(#wobble)">
       <g>
         ${washes}
       </g>
-      <g fill="none" stroke="${INK}" stroke-width="${PEN}" stroke-linejoin="round" stroke-linecap="round">
+      <g fill="none" stroke="${ink}" stroke-width="${PEN}" stroke-linejoin="round" stroke-linecap="round">
         ${lines}
       </g>
     </g>
@@ -124,7 +133,10 @@ export function iconSvg(): string {
 }
 
 if (import.meta.main) {
-  const out = path.resolve(process.argv[2] ?? path.join(import.meta.dir, "..", "build", "icon.svg"));
-  fs.writeFileSync(out, iconSvg());
-  console.log(`wrote ${out}`);
+  const dir = path.resolve(process.argv[2] ?? path.join(import.meta.dir, "..", "build"));
+  for (const theme of Object.keys(PAGES) as IconTheme[]) {
+    const out = path.join(dir, theme === "light" ? "icon.svg" : `icon-${theme}.svg`);
+    fs.writeFileSync(out, iconSvg(theme));
+    console.log(`wrote ${out}`);
+  }
 }

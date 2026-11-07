@@ -72,11 +72,11 @@ import {
   type PromptMessage,
 } from "./lib/outgoing";
 import { overlay, reuse } from "./lib/transcript";
-import { pictureStored } from "./pictures";
 import { hydratePrefs } from "./prefs";
 import { isAwake, subscribeAwake } from "./lib/awake";
 import { Held } from "./lib/held";
 import { fileToBase64 } from "./lib/files";
+import { pictureStored } from "./pictures";
 
 export interface Draft {
   messageId: string;
@@ -425,7 +425,7 @@ interface RuriState {
    *  connection, a usage limit): nothing goes out until the next prompt
    *  pulls it along, or it is sent on by hand. */
   queueHeld: Record<string, QueueHold | undefined>;
-  /** Limit windows per provider id (percent used) for the usage gauges. */
+  /** Limit windows per provider id (percent used), for Statistics. */
   usage: Record<string, UsageLimits>;
   /** Context-window occupancy per channel. */
   contexts: Record<string, ContextUsage>;
@@ -470,10 +470,6 @@ interface RuriState {
   draftBumps: Record<string, number>;
   /** The workspace root the Home agent manages. */
   workspaceDir: string;
-  /** Where the music player's playlists live. */
-  musicDir: string;
-  /** Bumped when the music dir changes, so the player rescans. */
-  musicEpoch: number;
   /** The Home agent's model/permission settings. */
   home: HomeSettings;
   /** Starred model ids — the composer picker shows only these. */
@@ -515,6 +511,9 @@ interface RuriState {
    *  deliveries (Settings → Integrations, server/projectHooks.ts), with
    *  what the server refused of the last change this window made. */
   hooks: { view: HooksView; error?: string; at: number } | null;
+  /** Where gusteau is (null: not installed) and what the last "Learn from
+   *  project" came back with (Settings → Design taste, server/gusteau.ts). */
+  taste: { found: string | null; learned?: { ok: boolean; output: string }; at: number } | null;
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
   canPermissions: boolean;
@@ -663,8 +662,6 @@ export const useRuri = create<RuriState>((set) => ({
   resources: undefined,
   draftBumps: {},
   workspaceDir: "",
-  musicDir: "",
-  musicEpoch: 0,
   home: {},
   starredModels: [],
   smallModel: "",
@@ -679,6 +676,7 @@ export const useRuri = create<RuriState>((set) => ({
   pluginsFound: null,
   integrationNote: null,
   hooks: null,
+  taste: null,
   canPickFolder: false,
   canPermissions: false,
   platform: "",
@@ -737,7 +735,7 @@ const WS_URL = import.meta.env.DEV
   ? `ws://${location.hostname}:${DEV_PORT}`
   : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
 
-/** Base for the server's HTTP endpoints (music etc.) — empty when same-origin. */
+/** Base for the server's HTTP endpoints (uploads etc.) — empty when same-origin. */
 export const HTTP_BASE = import.meta.env.DEV ? `http://${location.hostname}:${DEV_PORT}` : "";
 let ws: WebSocket | null = null;
 
@@ -1778,7 +1776,6 @@ function apply(msg: ServerMessage): void {
         remoteDevice: msg.remoteDevice ?? null,
         bridges: msg.bridges,
         workspaceDir: msg.workspaceDir,
-        musicDir: msg.musicDir,
         home: msg.home,
         starredModels: msg.starredModels,
         smallModel: msg.smallModel,
@@ -1806,6 +1803,10 @@ function apply(msg: ServerMessage): void {
       const panel = useRuri.getState().agentPanel;
       const showing = panel?.keys.at(-1);
       if (panel && showing) requestAgentLog(panel.projectId, showing);
+      break;
+    }
+    case "picture_stored": {
+      pictureStored(msg.id, msg.url);
       break;
     }
     case "agent_log": {
@@ -2065,10 +2066,6 @@ function apply(msg: ServerMessage): void {
       setState({ workspaceDir: msg.path });
       break;
     }
-    case "music_dir": {
-      setState((s) => ({ musicDir: msg.path, musicEpoch: s.musicEpoch + 1 }));
-      break;
-    }
     case "home_settings": {
       setState({ home: msg.home });
       break;
@@ -2241,6 +2238,10 @@ function apply(msg: ServerMessage): void {
       setState({ hooks: { view: msg.hooks, ...(msg.error ? { error: msg.error } : {}), at: Date.now() } });
       break;
     }
+    case "taste": {
+      setState({ taste: { found: msg.found, ...(msg.learned ? { learned: msg.learned } : {}), at: Date.now() } });
+      break;
+    }
     case "integration_done": {
       setState({ integrationNote: { ok: msg.ok, message: msg.message, at: Date.now() } });
       break;
@@ -2298,10 +2299,6 @@ function apply(msg: ServerMessage): void {
     }
     case "folder_picked": {
       if (msg.path) setState({ picked: { path: msg.path, target: msg.target ?? "workspace" } });
-      break;
-    }
-    case "picture_stored": {
-      pictureStored(msg.id, msg.url);
       break;
     }
     case "tracker": {

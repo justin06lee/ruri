@@ -22,18 +22,19 @@ import {
   type ComposerAttachment,
   type Region,
 } from "./Attachments";
-import { btwQuestion, openBtw } from "./BtwPanel";
 import { CommandMenu, commandPrefix } from "./CommandMenu";
-import { UsageGauges } from "./UsageGauges";
+import { DragonGauges } from "./Dragon";
 import { MarkerMirror } from "./Markers";
 import {
   backspaceHits,
   findMarkers,
   holdMarkers,
   holdMarkersAt,
+  markerSpan,
   markerText,
   releaseMarkers,
   removeMarker,
+  snapSelection,
   stripMarkers,
   type Marker,
 } from "../lib/markers";
@@ -41,7 +42,7 @@ import { SessionControls } from "./SessionControls";
 import type { SketchBackground } from "./Sketch";
 import { Icon } from "./chat/Icon";
 import { NO_QUEUED } from "./chat/empty";
-import { MAC, MOD } from "../lib/keys";
+import { MOD } from "../lib/keys";
 
 /* The shell panel brings xterm with it — a quarter of the app's JavaScript,
    for a mode most sessions never turn on. It arrives when the `>_` button is
@@ -53,19 +54,10 @@ const BAR_GAP = 14;
 
 /**
  * The composer's lesser buttons behind one, for a box too narrow to show
- * them all: the shell, the sketch pad, the scissors. Send stays out, and
+ * them all: the shell and the sketch pad. Send stays out, and
  * so does stop — those are the ones a hand reaches for.
  */
-function MoreActions({
-  onShell,
-  onSketch,
-  onSplit,
-}: {
-  onShell(): void;
-  onSketch?: () => void;
-  /** Absent while there is nothing to split. */
-  onSplit?: () => void;
-}) {
+function MoreActions({ onShell, onSketch }: { onShell(): void; onSketch?: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -108,10 +100,6 @@ function MoreActions({
               Draw
             </button>
           )}
-          <button className="dropdown-item" role="menuitem" disabled={!onSplit} onClick={pick(onSplit)}>
-            <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
-            Split and send
-          </button>
         </div>
       )}
     </div>
@@ -193,7 +181,12 @@ export function Composer({
   /** Where the caret was last seen in the prompt — a marker drawn in the
    *  viewer lands there, since the textarea lost focus to the overlay. */
   const caretRef = useRef(0);
+  /** How the caret last moved — a key steps it through a tag, a click puts
+   *  it at the tag's nearer edge — and where it stood before. */
+  const navRef = useRef<"key" | "mouse">("mouse");
+  const lastCaret = useRef<number | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   /** The slash word the caret sits in, which is what opens the command
    *  menu — null when it is nowhere near one, or when Escape put it away
    *  until the word changes. */
@@ -272,6 +265,8 @@ export function Composer({
     if (added.length === 0) return;
     setAtts((prev) => [...prev, ...added]);
     insertMarkers(added.map((a) => markerText(a.kind, a.n)).join(" "), at);
+    // the caret goes on past the tags and their space, not to the end
+    requestAnimationFrame(() => placeCaret(caretRef.current));
   };
 
   /** Drop marker text into the prompt at `at` (the end when unset), leaving
@@ -381,14 +376,19 @@ export function Composer({
   };
 
   /** Backspace right after a chip (or inside one), Delete right before:
-   *  the whole marker goes, never half of it. */
+   *  the whole marker goes, never half of it — and for an attachment's tag
+   *  that is its two spaces too, so the front one is the whole thing. */
   const deleteMarkerAt = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
     const area = e.currentTarget;
     if (area.selectionStart !== area.selectionEnd) return false;
     const at = area.selectionStart;
     const hit = findMarkers(text)
       .filter(markerPresent)
-      .find((m) => (e.key === "Backspace" ? backspaceHits(text, m, at) : at >= m.start && at < m.end));
+      .find((m) => {
+        if (e.key === "Backspace") return backspaceHits(text, m, at);
+        const span = m.kind === "command" ? m : markerSpan(text, m);
+        return at >= span.start && at < span.end;
+      });
     if (!hit) return false;
     // what the chip stood between may now be two words, or two chips
     const cut = removeMarker(text, hit);
@@ -473,19 +473,10 @@ export function Composer({
   // a prompt being rewritten goes back in line; only a new one cuts in
   const cutting = busy && !editing;
 
-  const submit = async (mode: "send" | "send_split" = "send", now = false) => {
+  const submit = async (now = false) => {
     const trimmed = releaseMarkers(text).trim();
     if (!trimmed && atts.length === 0) return;
     const files = atts;
-    // "/btw <question>" goes to the project's side panel (BtwPanel), not
-    // into this chat: asked there, the chat's turn and context are left be
-    const aside = !editing && channelId !== HOME_ID ? btwQuestion(trimmed) : null;
-    if (aside !== null) {
-      openBtw(project.id, aside);
-      clearComposerDraft(channelId);
-      setText("");
-      return;
-    }
     if (editing) {
       // the rewrite goes back in line where the prompt was
       const uploads = await encodeUploads(files);
@@ -495,7 +486,6 @@ export function Composer({
         itemId: editing.id,
         text: trimmed,
         ...(uploads.length ? { attachments: uploads } : {}),
-        ...(mode === "send_split" ? { split: true } : {}),
       });
       // nothing took it: the prompt stays here, files and all, to send again
       if (!sent) {
@@ -512,7 +502,7 @@ export function Composer({
       // bytes are even packed for the wire.
       sendPrompt(
         {
-          type: mode,
+          type: "send",
           projectId,
           text: trimmed,
           ...(now ? { now: true as const } : {}),
@@ -566,14 +556,20 @@ export function Composer({
     <div className="composer">
       {card}
       <div className="composer-row">
-        <UsageGauges channelId={channelId} model={project.model} side="left" />
+        <DragonGauges channelId={channelId} model={project.model} side="left" />
         <div
           className={`composer-box ${dragOver ? "drag-over" : ""} ${compact ? "compact" : ""}`}
           onDragOver={(e) => {
             e.preventDefault();
-            setDragOver(true);
+            if (!dragOver) setDragOver(true);
           }}
-          onDragLeave={() => setDragOver(false)}
+          // a file carried over the box's own words, chips or buttons has
+          // not left it: only going outside the box ends the wash, or it
+          // blinks off and on at every child the pointer crosses
+          onDragLeave={(e) => {
+            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+            setDragOver(false);
+          }}
           onDrop={(e) => {
             e.preventDefault();
             setDragOver(false);
@@ -628,17 +624,34 @@ export function Composer({
                   caretRef.current = held.caret;
                   setText(held.text);
                   trackSlash(held.text, held.caret);
-                  // a space kept between a chip and the word just typed against
-                  // it: the caret goes back to the end of that word
-                  if (held.caret !== e.target.selectionStart) placeCaret(held.caret);
+                  // a tag's space put in or taken back out: the box is given
+                  // new text, and the caret goes where it belongs in it
+                  if (held.caret !== e.target.selectionStart || held.text !== e.target.value) {
+                    placeCaret(held.caret);
+                  }
                 }}
                 // wherever the caret was when the viewer took focus is where a
                 // region's marker goes
+                // and the caret never stands inside a tag or its spaces
                 onSelect={(e) => {
-                  caretRef.current = e.currentTarget.selectionStart;
-                  trackSlash(e.currentTarget.value, e.currentTarget.selectionStart);
+                  const area = e.currentTarget;
+                  const snap = snapSelection(
+                    area.value,
+                    findMarkers(area.value).filter(markerPresent),
+                    area.selectionStart,
+                    area.selectionEnd,
+                    navRef.current === "key" ? lastCaret.current : null,
+                  );
+                  if (snap) area.setSelectionRange(snap.start, snap.end, area.selectionDirection);
+                  lastCaret.current = area.selectionStart === area.selectionEnd ? area.selectionStart : null;
+                  caretRef.current = area.selectionStart;
+                  trackSlash(area.value, area.selectionStart);
+                }}
+                onMouseDown={() => {
+                  navRef.current = "mouse";
                 }}
                 onKeyDown={(e) => {
+                  navRef.current = "key";
                   // while the command menu stands, the arrows, Enter, Tab and
                   // Escape are its keys — Enter takes a command rather than
                   // sending a prompt that is half a command's name
@@ -655,7 +668,7 @@ export function Composer({
                     // a turn is running: ⌘Enter cuts in at once; plain Enter
                     // queues on release, or cuts in if held long enough
                     if (e.metaKey || e.ctrlKey) {
-                      void submit("send", true);
+                      void submit(true);
                       return;
                     }
                     if (e.repeat || hold.current) return;
@@ -663,7 +676,7 @@ export function Composer({
                     held.timer = window.setTimeout(() => {
                       held.cut = true;
                       setHolding(false);
-                      void submit("send", true);
+                      void submit(true);
                     }, CUT_IN_HOLD_MS);
                     hold.current = held;
                     setHolding(true);
@@ -734,12 +747,31 @@ export function Composer({
               <SessionControls project={project} channelId={channelId} compact={compact} />
             )}
             <div className="composer-actions">
+              {!shell && (
+                <>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    multiple
+                    hidden
+                    aria-label="Choose attachments"
+                    onChange={(e) => {
+                      if (e.target.files) addFiles(e.target.files, caretRef.current);
+                      e.target.value = "";
+                    }}
+                  />
+                  <button
+                    className="attach-button"
+                    title="Attach files"
+                    aria-label="Attach files"
+                    onClick={() => fileRef.current?.click()}
+                  >
+                    <Icon d="M8 12l6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9M6 14l8-8" />
+                  </button>
+                </>
+              )}
               {compact && !shell && (
-                <MoreActions
-                  onShell={toggleShell}
-                  onSketch={onSketch ? () => onSketch() : undefined}
-                  onSplit={text.trim() ? () => void submit("send_split") : undefined}
-                />
+                <MoreActions onShell={toggleShell} onSketch={onSketch ? () => onSketch() : undefined} />
               )}
               {(!compact || shell) && (
                 <button
@@ -771,16 +803,6 @@ export function Composer({
                   </svg>
                 </button>
               )}
-              {!compact && !shell && (
-                <button
-                  className="split-send"
-                  title="Split into separate prompts and send them one by one"
-                  onClick={() => void submit("send_split")}
-                  disabled={!text.trim()}
-                >
-                  <Icon d="M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 4L8.6 15.4M14.7 14.7L20 20M8.6 8.6L12 12" />
-                </button>
-              )}
               {!shell && (
                 <button
                   className={`send ${holding ? "holding" : ""}`}
@@ -789,7 +811,7 @@ export function Composer({
                       ? `Queue it behind the running turn (Enter) — ${MOD}click, ${MOD}Enter or hold Enter to stop the turn and send this instead`
                       : "Send (Enter)"
                   }
-                  onClick={(e) => void submit("send", cutting && (e.metaKey || e.ctrlKey))}
+                  onClick={(e) => void submit(cutting && (e.metaKey || e.ctrlKey))}
                   disabled={!text.trim() && atts.length === 0}
                 >
                   <Icon d="M12 19V5M5 12l7-7 7 7" />
@@ -803,18 +825,7 @@ export function Composer({
             </div>
           </div>
         </div>
-        <UsageGauges channelId={channelId} model={project.model} side="right" />
-      </div>
-      <div className="composer-hint">
-        {shell
-          ? `Shells in this project — ${MAC ? "⌘T" : "Ctrl+Shift+T"} for another, ${MAC ? "⌘" : "Alt+"}1–9 to switch · they keep running while you're away`
-          : editing
-            ? "Enter puts the rewrite back in line · the prompts behind it go on without it meanwhile"
-            : cutting
-              ? `Enter queues it behind the running turn · hold Enter or ${MOD}Enter to stop the turn and send this instead`
-              : compact
-                ? "Enter to send · Shift+Enter for a new line · drop files to attach"
-                : "Enter to send · Shift+Enter for a new line · drop images, videos, or files to attach · scissors to split a long prompt"}
+        <DragonGauges channelId={channelId} model={project.model} side="right" />
       </div>
       {viewingAtt && (
         <Viewer

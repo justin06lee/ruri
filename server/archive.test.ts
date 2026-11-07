@@ -4,6 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { TranscriptEvent } from "../shared/protocol.js";
 
+const runConfig = process.env["RURI_CONFIG_DIR"];
+
 let dir: string;
 let SessionArchive: typeof import("./archive.js").SessionArchive;
 
@@ -15,7 +17,9 @@ beforeEach(async () => {
 
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
-  delete process.env["RURI_CONFIG_DIR"];
+  // back to the run's own folder (scripts/test-config.ts), never to the user's
+  if (runConfig === undefined) delete process.env["RURI_CONFIG_DIR"];
+  else process.env["RURI_CONFIG_DIR"] = runConfig;
 });
 
 function user(id: string, text = id): TranscriptEvent {

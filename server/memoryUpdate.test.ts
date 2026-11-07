@@ -8,6 +8,8 @@ import type { ServerContext } from "./context.js";
 import { memoryUpdate } from "./handoff.js";
 import { MemoryBook } from "./memoryLog.js";
 
+const runConfig = process.env["RURI_CONFIG_DIR"];
+
 let dir: string;
 let ctx: ServerContext;
 let archive: SessionArchive;
@@ -55,7 +57,9 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
-  delete process.env["RURI_CONFIG_DIR"];
+  // back to the run's own folder (scripts/test-config.ts), never to the user's
+  if (runConfig === undefined) delete process.env["RURI_CONFIG_DIR"];
+  else process.env["RURI_CONFIG_DIR"] = runConfig;
 });
 
 const other = { by: "agent" as const, chat: OTHER };

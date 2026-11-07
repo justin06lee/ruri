@@ -10,6 +10,8 @@ import { MemoryBook } from "./memoryLog.js";
 import { cancelChecks } from "./memoryCheck.js";
 import { backfillFolds, enqueueFold, foldCoverage, FoldQueue, runFolds } from "./memoryQueue.js";
 
+const runConfig = process.env["RURI_CONFIG_DIR"];
+
 let dir: string;
 let projectDir: string;
 let ctx: ServerContext;
@@ -72,7 +74,9 @@ afterEach(() => {
   cancelChecks();
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(projectDir, { recursive: true, force: true });
-  delete process.env["RURI_CONFIG_DIR"];
+  // back to the run's own folder (scripts/test-config.ts), never to the user's
+  if (runConfig === undefined) delete process.env["RURI_CONFIG_DIR"];
+  else process.env["RURI_CONFIG_DIR"] = runConfig;
 });
 
 function finish(chat: string, n: number): void {

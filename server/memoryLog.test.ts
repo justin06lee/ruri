@@ -15,6 +15,8 @@ import {
   type MemoryState,
 } from "./memoryLog.js";
 
+const runConfig = process.env["RURI_CONFIG_DIR"];
+
 let dir: string;
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-memlog-"));
@@ -22,7 +24,9 @@ beforeEach(() => {
 });
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
-  delete process.env["RURI_CONFIG_DIR"];
+  // back to the run's own folder (scripts/test-config.ts), never to the user's
+  if (runConfig === undefined) delete process.env["RURI_CONFIG_DIR"];
+  else process.env["RURI_CONFIG_DIR"] = runConfig;
 });
 
 const line = (id: string, text: string, extra: Partial<MemoryLine> = {}): MemoryLine => ({

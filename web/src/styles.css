@@ -4564,8 +4564,29 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   overflow: hidden;
   min-height: 180px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+}
+
+/* the same thing, rendered from its code: a frame as wide as the box,
+   as tall as what it draws */
+.lib-live {
+  display: block;
+  width: 100%;
+  border: none;
+  background-color: var(--raised);
+}
+
+.lib-live-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lib-live-said {
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
 }
 
 .lib-preview-pick {

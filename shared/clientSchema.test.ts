@@ -198,6 +198,8 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   },
   hooks_test: { type: "hooks_test", projectId: "p" },
   taste_get: { type: "taste_get" },
+  mycelium_get: { type: "mycelium_get", projectId: "p1", link: true },
+  component_play: { type: "component_play", projectId: "p1" },
   taste_learn: { type: "taste_learn", projectId: "p" },
   mcp_add: {
     type: "mcp_add",

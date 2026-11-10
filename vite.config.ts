@@ -53,6 +53,12 @@ function devToken(): Plugin {
  * and data URLs the page made itself. A reply's markdown can therefore not
  * pull a script, a frame or a tracking pixel from anywhere else. Build only:
  * the dev page needs Vite's inline preamble and its own HMR socket.
+ *
+ * One frame comes from elsewhere: a component rendered from its code by
+ * mycelium's playground (server/mycelium.ts), which is a server of its own
+ * on this machine, at localhost on whatever port it found. Frames from
+ * localhost are let in for it and from nowhere else; the frame is
+ * sandboxed, and being another origin it reaches nothing of ruri's.
  */
 function contentSecurityPolicy(): Plugin {
   const policy = [
@@ -63,7 +69,7 @@ function contentSecurityPolicy(): Plugin {
     "media-src 'self' blob:",
     "font-src 'self' data:",
     "connect-src 'self'",
-    "frame-src 'self' blob:",
+    "frame-src 'self' blob: http://localhost:*",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'none'",

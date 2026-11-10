@@ -11,6 +11,16 @@ import { scoreComponent, searchComponents } from "../shared/librarySearch.js";
 import { anchorsAt, checkoutFor, codeSig } from "./checkouts.js";
 import { configPath } from "./configDir.js";
 import { isMissing, warn } from "./log.js";
+import {
+  type MycCandidate,
+  mycJson,
+  parseExample,
+  parseRoot,
+  readMirror,
+  rendersLive,
+  rootRef,
+  runMyc,
+} from "./mycelium.js";
 import { storedFilePath } from "./uploads.js";
 
 /**
@@ -286,6 +296,7 @@ export function entryLines(item: NamedComponent, view: EntryView = "full"): stri
   const lines = [`## ${item.slug} — ${item.name}`];
   if (item.note.trim()) lines.push(item.note.trim());
   if (item.aliases.length) lines.push(`Also called: ${item.aliases.join(", ")}`);
+  if (item.root) lines.push(`Starts at: ${item.root}`);
   if (item.files.length) lines.push(`Its files: ${item.files.join(", ")}`);
   if (item.uses?.length) {
     // the committed file names a line by what is on it, which moves with
@@ -302,6 +313,11 @@ export function entryLines(item: NamedComponent, view: EntryView = "full"): stri
   if (item.deps?.length) lines.push(`Needs packages: ${item.deps.join(", ")}`);
   if (view !== "prompt" && item.selector) lines.push(`On screen: ${item.selector}`);
   if (view === "file") return lines;
+  if (item.orphaned && item.root) {
+    lines.push(
+      `Its root is gone from the code and nothing like it was found — if it lives on under another name, \`ruri edit ${item.slug} --root <file#Symbol>\``,
+    );
+  }
   if (item.missing?.length) {
     lines.push(
       `Gone from the project: ${item.missing.join(", ")} — if it moved, \`ruri edit ${item.slug} --files <paths>\``,
@@ -611,6 +627,9 @@ const VALUED = new Set([
   "shot",
   "selector",
   "route",
+  "root",
+  "example",
+  "unexample",
 ]);
 
 export interface ParsedArgs {
@@ -671,10 +690,12 @@ export const HELP = `ruri — this project's component library, and its memory
   ruri add <project>/<slug> ...      copy one from another open project's library (it joins this one's)
   ruri register <slug> --name "<what a person calls it>" --files <paths> --note "<one line>"
                 [--uses <paths:line>] [--tags a,b] [--deps pkg,pkg] [--shot <image>]
+                [--root <file#Symbol>]
                                      put a piece of interface you built into the library — the name is the
                                      user's own words for it, never a file or class name
   ruri edit <slug> [--name] [--slug] [--note] [--files] [--uses] [--tags] [--deps] [--aliases]
                 [--alias "<another name>"] [--shot <image>] [--current]
+                [--root <file#Symbol>] [--example '<name>={"prop": value}'] [--unexample <name>]
                                      change an entry (lists replace what was there; --alias adds a name the
                                      user calls it by; --shot adds a picture, which becomes the one shown;
                                      --current says its picture and note still show it as it is) — do this
@@ -684,7 +705,12 @@ export const HELP = `ruri — this project's component library, and its memory
 
 Interface only: screens, panels, cards, controls, dialogs, their styles and pictures — never backend code.
 Paths are from the root of the checkout you are in (a git worktree of the project counts), or from where
-you are. Lists take commas: --files a.tsx,a.css`;
+you are. Lists take commas: --files a.tsx,a.css
+
+With Live components on (ruri's Settings; it needs myc), --root ties an entry to the declaration it starts
+from: its files are traced from there, it is followed through renames and moves, \`ruri show\` prints exactly
+its code, and the Components page renders it from the code with the props each --example gives
+(--root none unties it).`;
 
 /** A project the command can reach. */
 export interface LibraryProject {
@@ -742,6 +768,28 @@ export interface LibraryHost {
   follow(projectId: string, componentId: string): Promise<void>;
   /** Something changed: the files in the project, the skill, the windows. */
   changed(projectId: string): void;
+  /** mycelium under the library (server/mycelium.ts) — absent while the
+   *  "Live components" setting is off, or myc isn't on this machine. */
+  mycelium?: LibraryMycelium;
+}
+
+export interface LibraryMycelium {
+  /** The myc to run. */
+  bin: string;
+  /** Tie an entry to its root, `file#Symbol`; null unties it. */
+  link(projectId: string, componentId: string, root: string | null): void;
+  /** Write the rooted entries into the project's mycelium, now. */
+  mirror(projectId: string): void;
+  /** Give a rooted entry examples to render with, or take some away;
+   *  false when mycelium doesn't hold it. */
+  examples(
+    projectId: string,
+    slug: string,
+    add: Array<{ name: string; props: Record<string, unknown> }>,
+    remove: string[],
+  ): boolean;
+  /** Trace everything again, in the background: files follow the roots. */
+  settle(projectId: string): void;
 }
 
 /** Where a picture or note was filed: what the component's code said
@@ -860,6 +908,93 @@ function showText(roots: string[], item: NamedComponent, code: boolean, handle: 
     }
   }
   return parts.join("\n");
+}
+
+/** A rooted entry as mycelium reads it: exactly its code from every file
+ *  it spans, what it uses and what uses it — from the first place that
+ *  holds it (the session's checkout, then the project's folder). Undefined
+ *  when mycelium can't say, and the files are read whole instead. */
+async function liveText(
+  host: LibraryHost,
+  project: LibraryProject,
+  roots: string[],
+  item: NamedComponent,
+  code: boolean,
+): Promise<string | undefined> {
+  const myc = host.mycelium;
+  if (!myc || !item.root) return undefined;
+  if (!roots.some((dir) => readMirror(dir).has(item.slug))) myc.mirror(project.id);
+  for (const dir of roots) {
+    if (!readMirror(dir).has(item.slug)) continue;
+    const run = await runMyc(myc.bin, dir, ["show", item.slug, ...(code ? [] : ["--no-code"])]);
+    // 1 is an orphan, which it still describes
+    if ((run.code === 0 || run.code === 1) && run.out.trim()) {
+      const text = run.out.trimEnd();
+      return text.length > SHOW_BUDGET
+        ? `${text.slice(0, SHOW_BUDGET)}\n… (cut here — read the files for the rest)`
+        : text;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * `--root <file[#Symbol]>` made exact: the file from where the session
+ * stands, and the declaration checked against what mycelium finds in the
+ * code. A file that holds one component (or a default one) needs no
+ * `#Symbol`. Answers the root, or what to say instead.
+ */
+async function resolveRoot(
+  host: LibraryHost,
+  where: Where,
+  spec: string,
+  self?: NamedComponent,
+): Promise<{ root: string } | { error: string }> {
+  const myc = host.mycelium;
+  if (!myc) {
+    return {
+      error:
+        "--root ties an entry to its code through mycelium, which is off: the user turns on Live components in ruri's Settings (it needs myc installed). Register it with --files for now.",
+    };
+  }
+  const typed = parseRoot(spec);
+  const file = fromCwd(host.here, where, typed.file);
+  if (!inside(where.root, file)) return { error: `outside the project: ${typed.file}` };
+  const at = where.roots.find((root) => fs.existsSync(path.join(root, file)));
+  if (!at) return { error: `not found: ${file} (paths are from the root of ${where.root})` };
+  const found = (await mycJson<MycCandidate[]>(myc.bin, at, ["scan", "--all"])) ?? [];
+  const known = new Map<string, MycCandidate>();
+  for (const c of [...found, ...[...readMirror(at).values()].map((entry) => entry.root)]) {
+    if (c.file === file) known.set(c.symbol, { ...known.get(c.symbol), ...c });
+  }
+  const here = [...known.values()];
+  const options = here.map((c) => `${file}#${c.symbol}`).join(", ");
+  let symbol = typed.symbol;
+  if (symbol) {
+    const text = fs.readFileSync(path.join(at, file), "utf8");
+    const named = new RegExp(`(^|[^\\w$])${symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^\\w$]|$)`);
+    if (!known.has(symbol) && !named.test(text))
+      return { error: `${file} has no declaration named ${symbol}${options ? ` — its components: ${options}` : ""}` };
+  } else {
+    const pick = here.length === 1 ? here : here.filter((c) => c.default);
+    if (pick.length !== 1) {
+      return {
+        error:
+          here.length === 0
+            ? `mycelium found no component in ${file} — name the declaration it starts from: --root ${file}#Name`
+            : `${file} holds ${here.length} components — say which: ${options}`,
+      };
+    }
+    symbol = pick[0]!.symbol;
+  }
+  const root = rootRef({ file, symbol });
+  const owner = host.items(host.here.id).find((item) => item.root === root && item.id !== self?.id);
+  if (owner) {
+    return {
+      error: `${root} is already ${owner.slug}'s root ("${owner.name}") — if this is that component, \`ruri edit ${owner.slug} ...\``,
+    };
+  }
+  return { root };
 }
 
 /** Another open project, by its name, its folder's name, or its id. */
@@ -1060,7 +1195,7 @@ function joinLibrary(
   return entry;
 }
 
-function register(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAnswer {
+async function register(host: LibraryHost, args: ParsedArgs, cwd?: string): Promise<LibraryAnswer> {
   const here = host.here;
   const where = whereFor(here, cwd);
   const handle = args.words[1];
@@ -1093,6 +1228,11 @@ function register(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAns
   }
   const typed = (listFlag(args, "files") ?? []).map((f) => fromCwd(here, where, f));
   const usesTyped = (listFlag(args, "uses") ?? []).map((f) => fromCwd(here, where, f));
+  // a root names its own file; the rest are traced from it
+  const rootSpec = oneFlag(args, "root");
+  const rooted = rootSpec ? await resolveRoot(host, where, rootSpec) : undefined;
+  if (rooted && "error" in rooted) return no(rooted.error);
+  if (rooted && !typed.includes(parseRoot(rooted.root).file)) typed.unshift(parseRoot(rooted.root).file);
   if (typed.length === 0 && usesTyped.length === 0) {
     return no(
       `ruri register ${slug} --files <paths> — which files are its own? (a part that lives inside other files: --uses <file>:<line>)`,
@@ -1129,7 +1269,8 @@ function register(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAns
   // the same code under another handle is the same component
   for (const item of host.items(here.id)) {
     const overlap = files.filter((f) => item.files.includes(f));
-    if (files.length > 0 && overlap.length === files.length) {
+    // a root says which declaration in a shared file is meant
+    if (!rooted && files.length > 0 && overlap.length === files.length) {
       return no(
         `${overlap.join(", ")} ${overlap.length === 1 ? "is" : "are"} already ${item.slug}'s ("${item.name}") — if this is that component, \`ruri edit ${item.slug} ...\` (--alias "${name}" adds your name for it); if it is a part inside it, register the part with --uses ${overlap[0]}:<line> instead of --files`,
       );
@@ -1147,6 +1288,7 @@ function register(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAns
     slug,
     files,
     note: oneFlag(args, "note") ?? "",
+    ...(rooted ? { root: rooted.root } : {}),
     ...(uses.length ? { uses } : {}),
     ...(listFlag(args, "tags") ? { tags: listFlag(args, "tags")! } : {}),
     ...(listFlag(args, "deps") ? { deps: listFlag(args, "deps")! } : {}),
@@ -1179,15 +1321,25 @@ function register(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAns
   const item = host.find(here.id, slug) ?? host.find(here.id, name);
   host.changed(here.id);
   if (!item) return no(`${slug} could not be put in the library`);
+  if (rooted) host.mycelium?.settle(here.id);
   const lines = [
     `registered ${item.slug} — "${item.name}"`,
-    `  its files: ${item.files.join(", ") || "(none)"}`,
+    ...(rooted
+      ? [
+          `  starts at ${rooted.root} — its files are traced from there (\`ruri show ${item.slug}\` prints them)`,
+          ...(rendersLive(rooted.root)
+            ? [
+                `  it renders live on the Components page; if it needs props to show anything: \`ruri edit ${item.slug} --example 'basic={"title":"Hello"}'\``,
+              ]
+            : []),
+        ]
+      : [`  its files: ${item.files.join(", ") || "(none)"}`]),
   ];
   if (item.uses?.length) lines.push(`  reaches into: ${item.uses.join(", ")}`);
   return yes([...lines, ...notes].join("\n"));
 }
 
-function edit(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAnswer {
+async function edit(host: LibraryHost, args: ParsedArgs, cwd?: string): Promise<LibraryAnswer> {
   const here = host.here;
   const where = whereFor(here, cwd);
   const handle = args.words[1];
@@ -1216,7 +1368,27 @@ function edit(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAnswer 
   };
   const shots = (args.flags.get("shot") ?? []).map((shot) => ({ shot, file: shotFile(where, shot) }));
   const current = args.switches.has("current");
-  if (Object.keys(patch).length === 0 && shots.length === 0 && !current) {
+  // its tie to the code: the root, and the props it is rendered with
+  const rootSpec = oneFlag(args, "root");
+  const untie = rootSpec !== undefined && /^(none|off|-)?$/i.test(rootSpec.trim());
+  const rooted = rootSpec !== undefined && !untie ? await resolveRoot(host, where, rootSpec, item) : undefined;
+  if (rooted && "error" in rooted) return no(rooted.error);
+  const examples = (args.flags.get("example") ?? []).map(parseExample);
+  const unexamples = listFlag(args, "unexample") ?? [];
+  const badExample = examples.find((example): example is string => typeof example === "string");
+  if (badExample) return no(badExample);
+  const live = rootSpec !== undefined || examples.length > 0 || unexamples.length > 0;
+  if (live && !host.mycelium) {
+    return no(
+      "--root and --example work through mycelium, which is off: the user turns on Live components in ruri's Settings (it needs myc installed).",
+    );
+  }
+  if ((examples.length || unexamples.length) && !(rooted ? true : item.root && !untie)) {
+    return no(
+      `${item.slug} isn't tied to the code yet, so there is nothing to render — \`ruri edit ${item.slug} --root <file#Symbol>\` first`,
+    );
+  }
+  if (Object.keys(patch).length === 0 && shots.length === 0 && !current && !live) {
     return no(`nothing to change — ruri edit ${item.slug} --note "..." (see ruri help)`);
   }
   if (patch.name !== undefined && codeLike(patch.name)) {
@@ -1243,6 +1415,29 @@ function edit(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAnswer 
   };
   host.update(here.id, item.id, patch, filed);
   if (current) host.current(here.id, item.id, filed);
+  const tied: string[] = [];
+  if (host.mycelium && live) {
+    if (untie) {
+      host.mycelium.link(here.id, item.id, null);
+      tied.push("  no longer tied to a root: its files are the ones listed");
+    } else if (rooted) {
+      host.mycelium.link(here.id, item.id, rooted.root);
+      tied.push(`  starts at ${rooted.root} — its files are traced from there`);
+    }
+    if (examples.length || unexamples.length) {
+      const slugNow = (host.find(here.id, patch.slug ?? item.slug) ?? item).slug;
+      host.mycelium.mirror(here.id);
+      const given = examples.filter((example) => typeof example !== "string");
+      if (host.mycelium.examples(here.id, slugNow, given, unexamples)) {
+        if (given.length)
+          tied.push(`  renders with ${given.map((example) => example.name).join(", ")} on the Components page`);
+        if (unexamples.length) tied.push(`  no longer renders ${unexamples.join(", ")}`);
+      } else {
+        tied.push("  its examples could not be kept: mycelium doesn't hold it yet");
+      }
+    }
+    host.mycelium.settle(here.id);
+  }
   // each new picture goes in front, so the first one given is filed last
   // and ends up the one shown
   const unread = [...shots].reverse().filter((s) => !host.shoot(here.id, item.id, s.file, filed));
@@ -1257,6 +1452,7 @@ function edit(host: LibraryHost, args: ParsedArgs, cwd?: string): LibraryAnswer 
         ? [`  ${shots.length === 1 ? "the picture is" : "the first picture is"} now the one shown`]
         : []),
       ...(current ? ["  its picture and note are marked as showing it as it is"] : []),
+      ...tied,
     ].join("\n"),
   );
 }
@@ -1362,17 +1558,20 @@ export async function runLibrary(host: LibraryHost, argv: string[], cwd?: string
         const theirs = found.project.id !== here.id;
         const roots = theirs ? [found.project.path] : whereFor(here, cwd).roots;
         const label = theirs ? `${found.project.name}/${found.item.slug}` : found.item.slug;
-        return yes(showText(roots, found.item, !args.switches.has("no-code"), label));
+        const code = !args.switches.has("no-code");
+        const live = await liveText(host, found.project, roots, found.item, code);
+        if (!live) return yes(showText(roots, found.item, code, label));
+        return yes([showText(roots, found.item, false, label), "", live].join("\n"));
       }
       case "add":
       case "install":
         return await add(host, args, cwd);
       case "register":
       case "new":
-        return register(host, args, cwd);
+        return await register(host, args, cwd);
       case "edit":
       case "update":
-        return edit(host, args, cwd);
+        return await edit(host, args, cwd);
       case "remove":
       case "rm": {
         const handle = args.words[1];

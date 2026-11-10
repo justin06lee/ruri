@@ -34,6 +34,16 @@ import {
 } from "../library.js";
 import { isMissing, warn } from "../log.js";
 import { IMAGE_MIME } from "../mime.js";
+import {
+  findMyc,
+  mycFor,
+  myceliumOn,
+  playUrl,
+  setExamples,
+  settleMycelium,
+  stopPlays,
+  writeMirror,
+} from "../mycelium.js";
 import { dispatch } from "../dispatch.js";
 import {
   changesSince,
@@ -68,6 +78,7 @@ function fromProposal(proposal: ComponentProposal, name: string, confirmed: bool
     note: proposal.note,
     exact: true,
     ...(proposal.slug ? { slug: proposal.slug } : {}),
+    ...(proposal.root ? { root: proposal.root } : {}),
     ...(proposal.uses ? { uses: proposal.uses } : {}),
     ...(proposal.tags ? { tags: proposal.tags } : {}),
     ...(proposal.deps ? { deps: proposal.deps } : {}),
@@ -245,6 +256,7 @@ export function ensureLibrarySkill(ctx: ServerContext, projectId: string): void 
 export function libraryHost(ctx: ServerContext, channelId: string): LibraryHost | undefined {
   const owner = ownerProject(ctx, channelId);
   if (!owner) return undefined;
+  const myc = mycFor(ctx);
   const open = (): LibraryProject[] =>
     ctx.store.list().map((p) => ({ id: p.id, name: p.name, path: p.path }));
   return {
@@ -288,7 +300,115 @@ export function libraryHost(ctx: ServerContext, channelId: string): LibraryHost 
       if (item) await followFiles(ctx, projectId, [item]);
     },
     changed: (projectId) => pushComponents(ctx, projectId, ctx.store.get(projectId)?.path),
+    ...(myc
+      ? {
+          mycelium: {
+            bin: myc,
+            link: (projectId, componentId, root) => {
+              ctx.components.link(projectId, componentId, { root });
+            },
+            mirror: (projectId) => {
+              const dir = ctx.store.get(projectId)?.path;
+              if (dir) writeMirror(dir, ctx.components.items(projectId));
+            },
+            examples: (projectId, slug, add, remove) => {
+              const dir = ctx.store.get(projectId)?.path;
+              return dir ? setExamples(dir, slug, add, remove) : false;
+            },
+            settle: (projectId) => void libraryMycelium(ctx, projectId),
+          },
+        }
+      : {}),
   };
+}
+
+/* ── mycelium under the library ───────────────────────────────────── */
+
+/** A settle under way per project, and whether another was asked for
+ *  meanwhile (with a scan, when any of the asks wanted one). */
+const settlingMycelium = new Map<string, { run: Promise<void>; again?: { link: boolean } }>();
+/** Components in a project's code that aren't in its library, as of the
+ *  last scan — and whether the code has moved since. */
+const unnamedIn = new Map<string, { count: number; stale: boolean }>();
+/** Entries a scan found no root for, by what they held then: not scanned
+ *  for again until their files change. */
+const rootless = new Map<string, Set<string>>();
+
+const triedKey = (item: NamedComponent): string => `${item.id}\n${item.files.join("\n")}`;
+
+/** Whether a project has entries no scan has tried to find a root for. */
+function untied(ctx: ServerContext, projectId: string): boolean {
+  const tried = rootless.get(projectId);
+  return ctx.components.items(projectId).some((item) => !item.root && !tried?.has(triedKey(item)));
+}
+
+/**
+ * Hold a project's library up against mycelium's reading of the code
+ * (server/mycelium.ts settleMycelium), in the background and one at a
+ * time per project: roots found for the entries that have none (`link`, a
+ * scan), each rooted entry found again, its files taken from the trace.
+ * Nothing happens while the setting is off or myc isn't here.
+ */
+export function libraryMycelium(ctx: ServerContext, projectId: string, opts: { link?: boolean } = {}): Promise<void> {
+  const bin = mycFor(ctx);
+  const project = ctx.store.get(projectId);
+  if (!bin || !project?.path) return Promise.resolve();
+  const busy = settlingMycelium.get(projectId);
+  if (busy) {
+    busy.again = { link: !!opts.link || !!busy.again?.link };
+    return busy.run;
+  }
+  const dir = project.path;
+  const link = !!opts.link;
+  const state: { run: Promise<void>; again?: { link: boolean } } = { run: Promise.resolve() };
+  state.run = (async () => {
+    try {
+      const settled = await settleMycelium(
+        bin,
+        dir,
+        {
+          items: () => ctx.components.items(projectId),
+          link: (componentId, patch) => ctx.components.link(projectId, componentId, patch),
+          refile: (componentId, files) => {
+            const sig = codeSig(dir, files);
+            return ctx.components.update(projectId, componentId, { files }, sig ? { sig } : {});
+          },
+        },
+        { link },
+      );
+      if (link) {
+        rootless.set(
+          projectId,
+          new Set(
+            ctx.components
+              .items(projectId)
+              .filter((item) => !item.root)
+              .map(triedKey),
+          ),
+        );
+      }
+      if (settled.unnamed !== undefined) {
+        unnamedIn.set(projectId, { count: settled.unnamed, stale: false });
+        ctx.clients.broadcast({ type: "mycelium", found: bin, projectId, unnamed: settled.unnamed });
+      }
+      if (settled.changed) {
+        checkLibrary(ctx, projectId);
+        pushComponents(ctx, projectId, dir);
+      }
+    } catch (err) {
+      warn("components", err, "libraryMycelium");
+    } finally {
+      settlingMycelium.delete(projectId);
+      if (state.again) void libraryMycelium(ctx, projectId, state.again);
+    }
+  })();
+  settlingMycelium.set(projectId, state);
+  return state.run;
+}
+
+/** The playgrounds stopped: the server is closing. */
+export function stopLiveComponents(): void {
+  stopPlays();
 }
 
 /* ── keeping it true to the code ──────────────────────────────────── */
@@ -405,6 +525,15 @@ export function libraryAfterTurn(ctx: ServerContext, projectId: string): void {
   }
   const moved = checkLibrary(ctx, projectId);
   if (moved) pushComponents(ctx, projectId, project.path);
+  // the code moved, or something new has no root yet: mycelium looks again
+  if (moved) {
+    const unnamed = unnamedIn.get(projectId);
+    if (unnamed) unnamed.stale = true;
+  }
+  if (mycFor(ctx)) {
+    const link = untied(ctx, projectId);
+    if (moved || link) void libraryMycelium(ctx, projectId, { link });
+  }
   const lost = lostFiles.get(projectId);
   const astray = ctx.components
     .items(projectId)
@@ -420,6 +549,9 @@ export async function settleLibraries(ctx: ServerContext): Promise<void> {
     try {
       if (!ctx.components.checked(project.id)) await settleLibrary(ctx, project.id);
       else if (checkLibrary(ctx, project.id)) pushComponents(ctx, project.id, project.path);
+      // one project at a time: each is a read of its whole code
+      if (ctx.components.items(project.id).length > 0)
+        await libraryMycelium(ctx, project.id, { link: untied(ctx, project.id) });
     } catch (err) {
       warn("components", err, "settleLibraries");
     }
@@ -770,11 +902,61 @@ export const componentHandlers = {
         ...(anchors ? { anchors } : {}),
       },
     );
+    if (msg.root !== undefined) {
+      ctx.components.link(msg.projectId, msg.componentId, { root: msg.root.trim() || null });
+    }
     pushComponents(ctx, msg.projectId, project?.path);
+    // a new root is traced; a new name, handle or note is only written through
+    if (msg.root !== undefined) void libraryMycelium(ctx, msg.projectId);
+    else if (project?.path && mycFor(ctx)) writeMirror(project.path, ctx.components.items(msg.projectId));
   },
   component_remove: (ctx, _ws, msg) => {
     ctx.components.remove(msg.projectId, msg.componentId);
     pushComponents(ctx, msg.projectId, ctx.store.get(msg.projectId)?.path);
+    void libraryMycelium(ctx, msg.projectId);
+  },
+  // Settings asks whether myc is here; the Components page asks how its
+  // project stands, and has what can be tied to the code tied first.
+  mycelium_get: (ctx, ws, msg) => {
+    const found = findMyc();
+    const reply = (unnamed?: number): void => {
+      const message: ServerMessage = {
+        type: "mycelium",
+        found,
+        ...(msg.projectId ? { projectId: msg.projectId } : {}),
+        ...(unnamed !== undefined ? { unnamed } : {}),
+      };
+      ws.send(JSON.stringify(message));
+    };
+    if (!myceliumOn(ctx)) stopPlays();
+    if (!msg.projectId || !mycFor(ctx)) return reply();
+    // code that changed with no turn of ruri's (an editor, a pull) is seen
+    // here: the page is being opened
+    const moved = checkLibrary(ctx, msg.projectId);
+    if (moved) pushComponents(ctx, msg.projectId, ctx.store.get(msg.projectId)?.path);
+    const known = unnamedIn.get(msg.projectId);
+    if (known && moved) known.stale = true;
+    reply(known?.count);
+    // a scan when there is something it could change; its count is broadcast
+    const link = !!msg.link && (!known || known.stale || untied(ctx, msg.projectId));
+    if (link || moved) void libraryMycelium(ctx, msg.projectId, { link });
+  },
+  component_play: (ctx, ws, msg) => {
+    const reply = (answer: { url: string } | { error: string }): void => {
+      const message: ServerMessage = { type: "component_play", projectId: msg.projectId, ...answer };
+      ws.send(JSON.stringify(message));
+    };
+    const project = ctx.store.get(msg.projectId);
+    if (!project?.path) return reply({ error: "That project isn't open." });
+    if (!myceliumOn(ctx)) return reply({ error: "Live components is off in Settings." });
+    const bin = findMyc();
+    if (!bin) return reply({ error: "myc isn't installed." });
+    // what it serves is what mycelium holds: the mirror, as it is now
+    writeMirror(project.path, ctx.components.items(msg.projectId));
+    playUrl(bin, project.path).then(
+      (url) => reply({ url }),
+      (err: unknown) => reply({ error: (err as Error).message }),
+    );
   },
   component_shot: (ctx, _ws, msg) => {
     const { url } = storeUpload(msg.upload);

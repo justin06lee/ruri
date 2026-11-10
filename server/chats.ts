@@ -50,6 +50,7 @@ import {
   sessionsMode,
 } from "./sessionsMode.js";
 import { afterTurnTaste, tasteBriefing } from "./gusteau.js";
+import { MYCELIUM_BRIEFING, mycFor } from "./mycelium.js";
 import { taskTurnEnded, workerMode } from "./workers.js";
 
 /**
@@ -325,6 +326,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         context: owner ? contextBriefing(claude ? undefined : talkEndpoint) : "",
         stack: owner ? stackBriefing(ctx.briefs.get(owner.id)) : "",
         taste: tasteBriefing(ctx),
+        mycelium: owner && mycFor(ctx) ? MYCELIUM_BRIEFING : "",
       });
       return tagged(project.id, {
         transcript: () => ctx.archive.events(project.id),

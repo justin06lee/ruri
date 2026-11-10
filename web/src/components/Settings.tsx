@@ -24,6 +24,7 @@ import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
 import { setSessionsMode, useSessionsMode } from "../lib/sessionsMode";
 import { setDesignTaste, useDesignTaste } from "../lib/designTaste";
+import { setLiveComponents, useLiveComponents } from "../lib/liveComponents";
 import { setSplitLongPrompts, useSplitLongPrompts } from "../lib/splitPrompts";
 import { roughName } from "../lib/models";
 import { markFor } from "../lib/marks";
@@ -657,6 +658,43 @@ function DesignTaste() {
   );
 }
 
+/** Settings → General → Live components (server/mycelium.ts): the switch,
+ *  and whether myc is on this machine. */
+function LiveComponents() {
+  const live = useLiveComponents();
+  const mycelium = useRuri((s) => s.mycelium);
+  const connected = useRuri((s) => s.connected);
+  // asked again on a flip: turning it off stops the renders on the Mac
+  useEffect(() => {
+    if (connected) send({ type: "mycelium_get" });
+  }, [connected, live]);
+  return (
+    <div className="settings-row">
+      <span className="settings-label">
+        Live components
+        <InfoTip>
+          Ties each component in the library to its code with mycelium: its files follow it through renames,
+          and the Components page renders it from the code.
+        </InfoTip>
+      </span>
+      <div className="settings-value">
+        <div className="seg">
+          {([false, true] as const).map((on) => (
+            <button
+              key={String(on)}
+              className={`seg-option ${live === on ? "active" : ""}`}
+              onClick={() => setLiveComponents(on)}
+            >
+              {on ? "On" : "Off"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {live && mycelium && !mycelium.found && <p className="settings-note">myc isn't installed.</p>}
+    </div>
+  );
+}
+
 export function Settings({ onClose }: { onClose(): void }) {
   const [section, setSection] = useState<string>("general");
   const sessionsMode = useSessionsMode();
@@ -761,6 +799,7 @@ export function Settings({ onClose }: { onClose(): void }) {
 
               <SplitLongPrompts />
               <DesignTaste />
+              <LiveComponents />
             </section>
 
             <section className="settings-group" hidden={section !== "appearance"}>

@@ -61,6 +61,9 @@ export function sessionBriefing(input: {
   /** The user's design taste, when they keep it in gusteau and have it on
    *  (server/gusteau.ts) — empty otherwise. */
   taste?: string;
+  /** What the library's block gains while mycelium is under it
+   *  (server/mycelium.ts MYCELIUM_BRIEFING) — empty otherwise. */
+  mycelium?: string;
 }): string {
   const blocks: string[] = [];
 
@@ -110,6 +113,8 @@ export function sessionBriefing(input: {
       "When you change a piece that is already in the library, update its entry before you finish: `ruri edit <slug> --shot <new screenshot>`, and `--note` if what it says no longer holds — or `--current` when it still looks just like its picture. A new picture becomes the one shown, so the entry shows the thing as it is now.",
       'The name is the user\'s own words for the thing when it came from them ("the price cards"), never a file or class name — it is how they will refer to it. When the user calls a piece in the library by a name it doesn\'t have, add theirs: `ruri edit <slug> --alias "<their words>"`.',
       "When the user names a part of the interface you can't place, look it up there before searching the code for their words.",
+      // the same words in every session that has it, so the prompt stays cached
+      ...(input.mycelium ? [input.mycelium] : []),
       "</ruri:library>",
     ].join("\n"),
   );

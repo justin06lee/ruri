@@ -86,6 +86,18 @@ export const SESSIONS_MODE_PREF = "ruri-sessions-mode";
 /** The pref that has sessions hold UI work to the user's design taste
  *  through gusteau ("on"); off when unset (server/gusteau.ts). */
 export const GUSTEAU_PREF = "ruri-gusteau";
+/** The pref that puts mycelium under the component library ("on"): entries
+ *  tied to their root in the code, shown and rendered from it; off when
+ *  unset (server/mycelium.ts). */
+export const MYCELIUM_PREF = "ruri-mycelium";
+/** Whether a component's root (`file#Symbol`) is one a browser can render:
+ *  mycelium's playground shows React, and says of Go and SwiftUI that it
+ *  can't. */
+export function rendersLive(root: string | undefined): boolean {
+  if (!root) return false;
+  const at = root.lastIndexOf("#");
+  return /\.(tsx|jsx|ts|js|mjs)$/i.test(at < 0 ? root : root.slice(0, at));
+}
 /** Long prompts cut into tasks and sent one at a time, unless "off". */
 export const SPLIT_PREF = "ruri-split-long-prompts";
 
@@ -407,6 +419,14 @@ export interface NamedComponent {
   /** Its own code: the files `ruri add` copies and the page shows, as
    *  repo-relative paths ("web/src/components/Dragon.tsx"). */
   files: string[];
+  /** The declaration it starts from, as `file#Symbol`
+   *  ("web/src/components/Dragon.tsx#DragonGauge"). With mycelium under the
+   *  library (server/mycelium.ts) its files are traced from here, it is
+   *  followed through renames and moves, and it is rendered from here. */
+  root?: string;
+  /** Its root is nowhere in the code any more, and nothing like it was
+   *  found: the entry points at code that is gone. */
+  orphaned?: true;
   /** Other places it reaches into — shared styles, the screen it sits on,
    *  the server side of it — optionally with a line ("styles.css:2864").
    *  Shown and read, never copied. */
@@ -925,6 +945,8 @@ export interface ComponentProposal {
    *  arrives — so the card can show the user what is being named, and so a
    *  file the model wrote to /tmp is still there when they answer. */
   image?: Attachment;
+  /** The declaration it starts from, `file#Symbol` (NamedComponent.root). */
+  root?: string;
   /** Server-side only: the checkout it was built in (a git worktree of the
    *  project, server/checkouts.ts), its files and picture read there. */
   checkout?: string;
@@ -2110,7 +2132,17 @@ export type ClientMessage =
       /** false: the user says the sweep's guess is right ("Looks right") —
        *  it is no longer marked found, and its name is theirs. */
       found?: false;
+      /** The declaration it starts from, `file#Symbol`; "" unties it. */
+      root?: string;
     }
+  /** The address of the project's live renders (server/mycelium.ts),
+   *  answered as `component_play`. Asked again while a render is on
+   *  screen: the playground stops some minutes after the last ask. */
+  | { type: "component_play"; projectId: string }
+  /** Whether mycelium is on this machine and, with a project, how its
+   *  library stands against the code; answered as `mycelium`. `link`
+   *  ties what can be tied first (a scan of the code). */
+  | { type: "mycelium_get"; projectId?: string; link?: boolean }
   | { type: "component_remove"; projectId: string; componentId: string }
   | { type: "component_shot"; projectId: string; componentId: string; upload: AttachmentUpload }
   | { type: "component_unshot"; projectId: string; componentId: string; shotId: string }
@@ -2490,6 +2522,11 @@ export type ServerMessage =
   /** Where gusteau is on this machine (null: not installed), and what a
    *  "Learn from project" the window asked for came back with. */
   | { type: "taste"; found: string | null; learned?: { ok: boolean; output: string } }
+  /** Where myc is on this machine (null: not installed) and, for a project
+   *  asked about, how many components in its code aren't in the library. */
+  | { type: "mycelium"; found: string | null; projectId?: string; unnamed?: number }
+  /** Where a project's components render live, or why they can't. */
+  | { type: "component_play"; projectId: string; url?: string; error?: string }
   /** Who may message whom, and the latest messages between agents. */
   | { type: "talk"; policy: TalkPolicy; letters: TalkLetter[] }
   /** A project's team as it stands: its members, its liaison once an

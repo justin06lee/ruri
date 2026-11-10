@@ -354,6 +354,8 @@ export class ComponentStore {
     input: {
       name: string;
       slug?: string;
+      /** The declaration it starts from, `file#Symbol`. */
+      root?: string;
       files?: string[];
       uses?: string[];
       tags?: string[];
@@ -399,6 +401,10 @@ export class ComponentStore {
         this.sign(existing, "noteSig", input.sig, input.filedIn);
       }
       if (input.selector?.trim()) existing.selector = input.selector.trim();
+      if (input.root?.trim()) {
+        existing.root = input.root.trim();
+        delete existing.orphaned;
+      }
       if (input.confirmed) this.confirm(existing);
       existing.updated = Date.now();
       this.save(projectId);
@@ -413,6 +419,7 @@ export class ComponentStore {
       ),
       aliases: [],
       files: split?.files ?? [],
+      ...(input.root?.trim() ? { root: input.root.trim() } : {}),
       ...(split?.uses?.length ? { uses: split.uses } : {}),
       ...(input.tags?.length ? { tags: input.tags } : {}),
       ...(input.anchors && split?.uses?.some((ref) => input.anchors![ref])
@@ -595,6 +602,30 @@ export class ComponentStore {
       else delete item.clicks;
     }
     item.updated = Date.now();
+    this.save(projectId);
+    return true;
+  }
+
+  /**
+   * Tie an entry to the declaration it starts from (`file#Symbol`; null
+   * unties it), and say whether that root is lost — mycelium's word on it
+   * (server/mycelium.ts). Answers whether anything changed.
+   */
+  link(projectId: string, componentId: string, patch: { root?: string | null; orphaned?: boolean }): boolean {
+    const item = this.load(projectId).find((i) => i.id === componentId);
+    if (!item) return false;
+    const before = `${item.root ?? ""}\n${item.orphaned ?? ""}`;
+    if (patch.root !== undefined) {
+      const root = patch.root?.trim();
+      if (root) item.root = root;
+      else delete item.root;
+      // a new root is not the lost one
+      if (patch.orphaned === undefined) delete item.orphaned;
+    }
+    if (patch.orphaned === true && item.root) item.orphaned = true;
+    else if (patch.orphaned === false) delete item.orphaned;
+    if (!item.root) delete item.orphaned;
+    if (`${item.root ?? ""}\n${item.orphaned ?? ""}` === before) return false;
     this.save(projectId);
     return true;
   }

@@ -31,7 +31,7 @@ import type { PendingComponent, RuriServer, ServerContext, StartServerOptions } 
 import { DraftStore } from "./drafts.js";
 import { createTurnTracker } from "./events.js";
 import { UsageGauges } from "./gauges.js";
-import { createComponentHost, settleLibraries } from "./handlers/components.js";
+import { createComponentHost, settleLibraries, stopLiveComponents } from "./handlers/components.js";
 import { createCrewManager } from "./handlers/crew.js";
 import { createManagerHost } from "./handlers/projects.js";
 import { announceRoles } from "./handlers/settings.js";
@@ -418,6 +418,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         close: () =>
           new Promise<void>((done) => {
             freezeResume();
+            stopLiveComponents();
             clearInterval(usageTimer);
             clearInterval(sweepTimer);
             clearTimeout(firstSweep);

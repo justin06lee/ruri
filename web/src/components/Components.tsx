@@ -13,6 +13,7 @@ import {
 import { searchComponents, searchTerms, wordMatches } from "../../../shared/librarySearch";
 import {
   componentStale,
+  rendersLive,
   type Attachment,
   type ComponentFile,
   type NamedComponent,
@@ -21,6 +22,7 @@ import { Viewer } from "./Attachments";
 import { useConfirm } from "./Confirm";
 import { fileToBase64 } from "../lib/files";
 import { highlightFor } from "../lib/highlighter";
+import { useLiveComponents } from "../lib/liveComponents";
 import { useNoteStale } from "../lib/runNote";
 import { probe, useGone, useThumb } from "../lib/thumbs";
 import { HTTP_BASE, send, useRuri } from "../store";
@@ -191,7 +193,7 @@ const FILTERS: Array<{ id: Filter; label: string; title: string }> = [
     id: "lost",
     label: "Files gone",
     title:
-      "Its files are in neither the project nor any of its worktrees — say where they went, or take it out",
+      "Its files are in neither the project nor any of its worktrees, or its root is gone from the code — say where they went, or take it out",
   },
 ];
 
@@ -208,7 +210,7 @@ function inFilter(item: NamedComponent, filter: Filter, gone: ReadonlySet<string
     case "unsure":
       return !item.confirmed;
     case "lost":
-      return (item.missing?.length ?? 0) > 0;
+      return (item.missing?.length ?? 0) > 0 || (item.orphaned === true && !!item.root);
   }
 }
 
@@ -472,14 +474,18 @@ function Tile({
             <span className="lib-tile-hint">drop one here</span>
           </span>
         ) : null}
-        {lost > 0 && (
+        {lost > 0 ? (
           <span
             className="lib-badge left"
             title={`Not in the project or any of its worktrees: ${item.missing!.join(", ")}`}
           >
             {lost === item.files.length ? "files gone" : `${lost} file${lost === 1 ? "" : "s"} gone`}
           </span>
-        )}
+        ) : item.orphaned && item.root ? (
+          <span className="lib-badge left" title={`Nowhere in the code any more: ${item.root}`}>
+            root gone
+          </span>
+        ) : null}
         {over && <span className="lib-tile-dropping">Drop to add the picture</span>}
       </span>
       <span className="lib-tile-name">
@@ -758,6 +764,7 @@ type Patch = Partial<{
   selector: string;
   route: string;
   clicks: string[];
+  root: string;
 }>;
 
 /** One of a component's pictures, small, in the strip under the big one. */
@@ -807,6 +814,115 @@ function ShotThumb({
   );
 }
 
+/* ── rendered from the code ────────────────────────────────────────── */
+
+/** A page with nothing on it is the playground's own padding and no more. */
+const EMPTY_HEIGHT = 56;
+/** The first render of a project reads its whole code first. */
+const LIVE_WAIT_MS = 15_000;
+/** The playground stops some minutes after the last ask (PLAY_IDLE_MS). */
+const LIVE_ASK_MS = 4 * 60_000;
+
+/**
+ * One component rendered from its code as it is now: mycelium's playground
+ * for the project (server/mycelium.ts playUrl), its page for this component
+ * in a frame that grows to fit and reloads itself when the code changes.
+ * One frame at a time — the playground holds a line open per page, and a
+ * browser allows it six.
+ *
+ * `onNothing` is told when the render has nothing to show: the playground
+ * didn't start, the page never answered, or it came up empty.
+ */
+function LiveFrame({
+  projectId,
+  slug,
+  name,
+  onNothing,
+}: {
+  projectId: string;
+  slug: string;
+  name: string;
+  onNothing(why: string): void;
+}) {
+  const play = useRuri((s) => s.componentPlay[projectId]);
+  const url = play?.url;
+  const error = play?.error;
+  // the height a page said, kept with the page that said it: another
+  // component's frame starts over without an effect having to clear it
+  const page = `${url}${slug}`;
+  const [said, setSaid] = useState<{ page: string; height: number }>();
+  const height = said?.page === page ? said.height : undefined;
+  const nothing = useRef(onNothing);
+  useEffect(() => {
+    nothing.current = onNothing;
+  });
+  useEffect(() => {
+    send({ type: "component_play", projectId });
+    const again = setInterval(() => send({ type: "component_play", projectId }), LIVE_ASK_MS);
+    return () => clearInterval(again);
+  }, [projectId]);
+  useEffect(() => {
+    if (error) nothing.current(error);
+  }, [error]);
+  useEffect(() => {
+    if (!url) return;
+    let heard = false;
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    const onMessage = (e: MessageEvent) => {
+      const myc = (e.data as { myc?: { slug?: unknown; height?: unknown } } | null)?.myc;
+      if (!myc || myc.slug !== slug || typeof myc.height !== "number") return;
+      if (!url.startsWith(e.origin)) return;
+      heard = true;
+      const tall = myc.height;
+      setSaid({ page, height: tall });
+      // it says its height as it fills in: empty is what it still is a moment later
+      clearTimeout(settle);
+      if (tall <= EMPTY_HEIGHT) {
+        settle = setTimeout(
+          () => nothing.current("It rendered nothing — it may need props to show anything."),
+          2_500,
+        );
+      }
+    };
+    window.addEventListener("message", onMessage);
+    const silent = setTimeout(() => {
+      if (!heard) nothing.current("The render never came up.");
+    }, LIVE_WAIT_MS);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      clearTimeout(silent);
+      clearTimeout(settle);
+    };
+  }, [url, slug, page]);
+  if (!url) {
+    return (
+      <div className="lib-preview-blank">
+        <p>{error ?? "Rendering it from the code…"}</p>
+      </div>
+    );
+  }
+  // A page never says it is shorter than its frame, so the frame starts
+  // a pixel tall: the first height it hears is what the component draws,
+  // and nothing drawn is told from something small.
+  return (
+    <>
+      {height === undefined && (
+        <div className="lib-preview-blank">
+          <p>Rendering it from the code…</p>
+        </div>
+      )}
+      <iframe
+        key={page}
+        className="lib-live"
+        title={`${name}, rendered from its code`}
+        src={`${url}c/${slug}`}
+        sandbox="allow-scripts allow-same-origin allow-forms"
+        style={{ height: height === undefined ? 1 : Math.min(height, 640) }}
+      />
+    </>
+  );
+}
+
 function Detail({
   projectId,
   item,
@@ -835,6 +951,12 @@ function Detail({
   useEffect(() => {
     if (item.star) send({ type: "component_seen", projectId, componentId: item.id });
   }, [projectId, item.id, item.star]);
+  // rendered from its code where it can be (server/mycelium.ts); the
+  // picture is what it falls back to, and what the user can switch to
+  const liveOn = useLiveComponents();
+  const canLive = liveOn && !item.orphaned && rendersLive(item.root);
+  const [showing, setShowing] = useState<"live" | "picture">("live");
+  const [liveSaid, setLiveSaid] = useState<string>();
 
   const patch = (extra: Patch) =>
     send({ type: "component_update", projectId, componentId: item.id, ...extra });
@@ -975,6 +1097,15 @@ function Detail({
         </div>
       ) : null}
 
+      {item.orphaned && item.root ? (
+        <div className="lib-ask lost">
+          <span>
+            <b>Its root is gone from the code:</b> <span className="mono">{item.root}</span> — and nothing
+            like it was found. Say where it starts now under “starts at”, or take it out of the library.
+          </span>
+        </div>
+      ) : null}
+
       <div className="lib-install">
         <code>{install}</code>
         {dir && (
@@ -1005,8 +1136,44 @@ function Detail({
             void addShots(projectId, item.id, pasted);
           }}
         >
+          {canLive && (
+            <div className="lib-live-bar">
+              <div className="seg">
+                {(["live", "picture"] as const).map((which) => (
+                  <button
+                    key={which}
+                    type="button"
+                    className={`seg-option ${showing === which ? "active" : ""}`}
+                    title={
+                      which === "live"
+                        ? "Rendered from its code as it is now"
+                        : "The picture taken of it in the app"
+                    }
+                    onClick={() => {
+                      setShowing(which);
+                      setLiveSaid(undefined);
+                    }}
+                  >
+                    {which === "live" ? "Live" : "Picture"}
+                  </button>
+                ))}
+              </div>
+              {liveSaid && <span className="lib-live-said">{liveSaid}</span>}
+            </div>
+          )}
           <div className="lib-preview-main">
-            {shot ? (
+            {canLive && showing === "live" ? (
+              <LiveFrame
+                projectId={projectId}
+                slug={item.slug}
+                name={item.name}
+                onNothing={(why) => {
+                  // said once, beside the switch; the picture takes over when there is one
+                  if (liveSaid === undefined) setLiveSaid(why);
+                  if (shot) setShowing("picture");
+                }}
+              />
+            ) : shot ? (
               <button
                 type="button"
                 className="lib-preview-pick"
@@ -1131,16 +1298,35 @@ function Detail({
             normalize={asList}
             onSave={(v) => patch({ tags: parseList(v) })}
           />
-          <Field
-            label="its files"
-            value={item.files.join(", ")}
-            placeholder="none — say which"
-            title="Its own code, from the project's root: what `ruri add` copies — src/components/Card.tsx"
-            mono
-            wrap
-            normalize={asList}
-            onSave={(v) => patch({ files: parseList(v) })}
-          />
+          {liveOn && (
+            <Field
+              label="starts at"
+              value={item.root ?? ""}
+              placeholder="not tied to the code"
+              title="The declaration it starts from — src/components/Card.tsx#Card. Its files are traced from here, it is followed through renames, and it is rendered from here"
+              mono
+              wrap
+              normalize={(typed) => typed.trim()}
+              onSave={(root) => patch({ root })}
+            />
+          )}
+          {liveOn && item.root && !item.orphaned ? (
+            <div className="lib-field static" title="Traced from where it starts, each time the code changes">
+              <span>its files</span>
+              <div className="mono">{item.files.join(", ")}</div>
+            </div>
+          ) : (
+            <Field
+              label="its files"
+              value={item.files.join(", ")}
+              placeholder="none — say which"
+              title="Its own code, from the project's root: what `ruri add` copies — src/components/Card.tsx"
+              mono
+              wrap
+              normalize={asList}
+              onSave={(v) => patch({ files: parseList(v) })}
+            />
+          )}
           <Field
             label="reaches into"
             value={(item.uses ?? []).join(", ")}
@@ -1273,6 +1459,14 @@ function Library({ projectId }: { projectId: string }) {
     // how far down it is, the scroll listener keeps
     views.set(projectId, { ...now, scroll: views.get(projectId)?.scroll ?? 0 });
   };
+
+  // with Live components on, opening the page has what can be tied to the
+  // code tied, and counts what the code holds that nobody has named
+  const liveOn = useLiveComponents();
+  const unnamed = useRuri((s) => s.mycelium?.unnamed[projectId]);
+  useEffect(() => {
+    if (liveOn) send({ type: "mycelium_get", projectId, link: true });
+  }, [liveOn, projectId]);
 
   // The sweep's last word stays up for a moment after it finishes — long
   // enough to read what it did, not long enough to still be there next time
@@ -1445,6 +1639,12 @@ function Library({ projectId }: { projectId: string }) {
                     (items.length === 0
                       ? "none yet"
                       : `${items.length} in the library${counts.new ? ` · ${counts.new} new` : ""}`)}
+                  {!note && liveOn && unnamed ? (
+                    <span title="Components in the code that aren't in the library — Update everything names them">
+                      {" "}
+                      · {unnamed} in the code not named yet
+                    </span>
+                  ) : null}
                 </span>
                 {items.length > 0 && sweepButton}
               </div>

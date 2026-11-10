@@ -514,6 +514,12 @@ interface RuriState {
   /** Where gusteau is (null: not installed) and what the last "Learn from
    *  project" came back with (Settings → Design taste, server/gusteau.ts). */
   taste: { found: string | null; learned?: { ok: boolean; output: string }; at: number } | null;
+  /** mycelium under the component library (Settings → Live components,
+   *  server/mycelium.ts): where myc is (null: not installed), and for each
+   *  project asked about, how many components in its code aren't named. */
+  mycelium: { found: string | null; unnamed: Record<string, number> } | null;
+  /** Where each project's components render live, or why they can't. */
+  componentPlay: Record<string, { url?: string; error?: string; at: number }>;
   /** Whether the host can show a native folder picker (Electron shell). */
   canPickFolder: boolean;
   canPermissions: boolean;
@@ -677,6 +683,8 @@ export const useRuri = create<RuriState>((set) => ({
   integrationNote: null,
   hooks: null,
   taste: null,
+  mycelium: null,
+  componentPlay: {},
   canPickFolder: false,
   canPermissions: false,
   platform: "",
@@ -2240,6 +2248,31 @@ function apply(msg: ServerMessage): void {
     }
     case "taste": {
       setState({ taste: { found: msg.found, ...(msg.learned ? { learned: msg.learned } : {}), at: Date.now() } });
+      break;
+    }
+    case "mycelium": {
+      setState((s) => ({
+        mycelium: {
+          found: msg.found,
+          unnamed: {
+            ...s.mycelium?.unnamed,
+            ...(msg.projectId && msg.unnamed !== undefined ? { [msg.projectId]: msg.unnamed } : {}),
+          },
+        },
+      }));
+      break;
+    }
+    case "component_play": {
+      setState((s) => ({
+        componentPlay: {
+          ...s.componentPlay,
+          [msg.projectId]: {
+            ...(msg.url ? { url: msg.url } : {}),
+            ...(msg.error ? { error: msg.error } : {}),
+            at: Date.now(),
+          },
+        },
+      }));
       break;
     }
     case "integration_done": {

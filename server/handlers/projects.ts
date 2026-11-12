@@ -264,6 +264,12 @@ export const projectHandlers = {
     ctx.store.setSessionArchived(msg.sessionId, msg.archived);
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
   },
+  // midna's to set: which chats' ends it hears of (server/projectHooks.ts)
+  set_chat_watch: (ctx, _ws, msg) => {
+    if (!ctx.store.findSession(msg.chatId)) return;
+    ctx.store.setSessionWatched(msg.chatId, msg.watch);
+    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+  },
   toggle_star: (ctx, _ws, msg) => {
     const project = ctx.store.get(msg.projectId);
     if (project) {

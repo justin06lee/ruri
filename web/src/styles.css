@@ -2582,6 +2582,14 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   color: var(--ink-faint);
 }
 
+/* midna watching the chat: a word beside the controls, no control itself */
+.chat-watch {
+  flex-shrink: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
 /* the page buttons read as one group, so they sit tight against each other */
 .header-controls {
   display: flex;

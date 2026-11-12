@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { LetterFrom, PermissionRequest, Project, ProjectEventPayload, TranscriptEvent } from "../shared/protocol.js";
+import { SESSIONS_MODE_PREF } from "../shared/protocol.js";
 import type { ServerContext } from "./context.js";
 import {
   buildPayload,
@@ -672,7 +673,7 @@ describe("the real world", () => {
 function fakeCtx(
   projects: Project[],
   events: Record<string, TranscriptEvent[]>,
-  options: { ledger?: () => number; cards?: PermissionRequest[] } = {},
+  options: { ledger?: () => number; cards?: PermissionRequest[]; prefs?: Record<string, string> } = {},
 ) {
   const broadcasts: unknown[] = [];
   const ctx = {
@@ -695,6 +696,7 @@ function fakeCtx(
     ledger: { stats: () => ({ total: { costUsd: options.ledger?.() ?? 0 } }) },
     permissions: new Map((options.cards ?? []).map((card) => [card.requestId, card])),
     clients: { broadcast: (message: unknown) => broadcasts.push(message) },
+    prefs: { all: () => options.prefs ?? {} },
   } as unknown as ServerContext;
   return { ctx, broadcasts };
 }
@@ -989,5 +991,140 @@ describe("firing", () => {
     expect(payload.kind).toBe("project.test");
     expect(payload.project.id).toBe("p1");
     expect(payload.costUsd).toBe(0);
+  });
+});
+
+describe("midna's own hook hears only what midna asked to", () => {
+  const MIDNA = "/home/u/.local/bin/midna";
+  /** The team, with these chats watched. */
+  const watching = (...ids: string[]): Project => ({
+    ...team,
+    sessions: team.sessions.map((s) => (ids.includes(s.id) ? { ...s, watched: true as const } : { ...s })),
+  });
+  const prompt = (id: string, ts: number): TranscriptEvent => ({ kind: "user", id, text: "Do it.", ts });
+  const worked = {
+    lead: [prompt("win-1", 120), said("a", "Handed it on.", 130)],
+    ui: [prompt("midna-2", 140), said("b", "The panel is built.", 150)],
+  };
+  /** midna's default hook on a server of `project`, and what it got. */
+  function midnaOn(project: Project, options: { prefs?: Record<string, string> } = {}) {
+    const { ctx } = fakeCtx([project], worked, options);
+    const world = fakeWorld({ midna: MIDNA });
+    const center = new HookCenter(world.io, () => {}, files());
+    useHooks(ctx, center);
+    const got = () =>
+      world.calls
+        .filter((c) => c.to.startsWith(`'${MIDNA}'`))
+        .map((c) => JSON.parse(c.input) as ProjectEventPayload);
+    return { ctx, world, center, got };
+  }
+  const idle = { kind: "project.idle", projectId: "p1", busySince: 100 } as const;
+  const blocked = (chatId: string) =>
+    ({ kind: "project.blocked", projectId: "p1", busySince: 100, chatId, reason: "question" }) as const;
+
+  test("nothing watched: no event, though the project's own hooks hear it as ever", async () => {
+    const { ctx, world, center, got } = midnaOn(team);
+    center.set({ projectId: "p1", command: "cat" });
+    fireProjectEvent(ctx, idle);
+    fireProjectEvent(ctx, blocked("ui"));
+    await settle();
+    expect(got()).toHaveLength(0);
+    const theirs = world.calls
+      .filter((c) => c.to === "cat")
+      .map((c) => JSON.parse(c.input) as ProjectEventPayload);
+    expect(theirs.map((p) => p.kind)).toEqual(["project.idle", "project.blocked"]);
+    expect(theirs[0]?.chats.map((c) => c.id)).toEqual(["lead", "ui"]);
+  });
+
+  test("a watched chat that worked: the event, with it alone in it and its own latest prompt", async () => {
+    const { ctx, got } = midnaOn(watching("ui"));
+    fireProjectEvent(ctx, idle);
+    await settle();
+    expect(got()).toHaveLength(1);
+    expect(got()[0]?.chats.map((c) => c.id)).toEqual(["ui"]);
+    expect(got()[0]?.lastPrompt).toEqual({ author: "midna", chatId: "ui", clientId: "midna-2" });
+  });
+
+  test("a watched chat that did nothing since the team went busy — the lead too — is no news", async () => {
+    const { ctx, got } = midnaOn(watching("db"));
+    fireProjectEvent(ctx, idle);
+    await settle();
+    expect(got()).toHaveLength(0);
+    const { ctx: quiet, got: heard } = midnaOn(watching("lead"));
+    fireProjectEvent(quiet, { ...idle, busySince: 500 });
+    await settle();
+    expect(heard()).toHaveLength(0);
+  });
+
+  test("blocked: told when the chat waiting is watched, it first; not when it is another", async () => {
+    const { ctx, got } = midnaOn(watching("lead", "db"));
+    fireProjectEvent(ctx, blocked("ui"));
+    await settle();
+    expect(got()).toHaveLength(0);
+    fireProjectEvent(ctx, blocked("db"));
+    await settle();
+    expect(got()[0]?.kind).toBe("project.blocked");
+    expect(got()[0]?.chats.map((c) => c.id)).toEqual(["db", "lead"]);
+  });
+
+  test("a prompt sent with notify: told when its chat blocks, and when it is done — then no more", async () => {
+    const { ctx, center, got } = midnaOn(team);
+    center.notifyOnEnd("ui");
+    fireProjectEvent(ctx, blocked("ui"));
+    await settle();
+    expect(got().map((p) => p.kind)).toEqual(["project.blocked"]);
+    // blocked isn't the end of the run
+    expect(center.notifies("ui")).toBe(true);
+    fireProjectEvent(ctx, idle);
+    await settle();
+    expect(got().map((p) => p.kind)).toEqual(["project.blocked", "project.idle"]);
+    expect(got()[1]?.chats.map((c) => c.id)).toEqual(["ui"]);
+    expect(center.notifies("ui")).toBe(false);
+    fireProjectEvent(ctx, idle);
+    await settle();
+    expect(got()).toHaveLength(2);
+  });
+
+  test("one whose chat didn't run yet stays asked for", async () => {
+    const { ctx, center, got } = midnaOn(team);
+    center.notifyOnEnd("db");
+    fireProjectEvent(ctx, idle);
+    await settle();
+    expect(got()).toHaveLength(0);
+    expect(center.notifies("db")).toBe(true);
+  });
+
+  test("in Team mode a watched lead brings its team; in One chat mode a chat is itself", async () => {
+    const teamMode = midnaOn(watching("lead"), { prefs: { [SESSIONS_MODE_PREF]: "team" } });
+    fireProjectEvent(teamMode.ctx, idle);
+    fireProjectEvent(teamMode.ctx, blocked("ui"));
+    await settle();
+    expect(teamMode.got().map((p) => p.chats.map((c) => c.id))).toEqual([
+      ["lead", "ui"],
+      ["ui", "lead"],
+    ]);
+    const oneChat = midnaOn(watching("lead"));
+    fireProjectEvent(oneChat.ctx, idle);
+    fireProjectEvent(oneChat.ctx, blocked("ui"));
+    await settle();
+    expect(oneChat.got().map((p) => p.chats.map((c) => c.id))).toEqual([["lead"]]);
+  });
+
+  test("midna's command set by hand, beside a webhook: still midna's; the webhook hears everything", async () => {
+    const { ctx, world, center, got } = midnaOn(team);
+    // the first change to the default keeps midna's command in it
+    center.set({ url: "http://127.0.0.1:9/h" });
+    expect(center.targets("p1").map((t) => t.to)).toEqual([MIDNA_COMMAND, "http://127.0.0.1:9/h"]);
+    fireProjectEvent(ctx, idle);
+    await settle();
+    expect(got()).toHaveLength(0);
+    expect(world.calls.filter((c) => c.kind === "webhook")).toHaveLength(1);
+  });
+
+  test("the test button still reaches midna, whatever it watches", async () => {
+    const { ctx, got } = midnaOn(team);
+    expect(sendTestEvent(ctx, "p1")).toBeUndefined();
+    await settle();
+    expect(got().map((p) => p.kind)).toEqual(["project.test"]);
   });
 });

@@ -302,6 +302,7 @@ function ChatView({
         name: session?.title ?? "",
         duty: session?.duty ?? "",
         liaison: session?.liaison === true,
+        watched: session?.watched === true,
       };
     }),
   );
@@ -805,6 +806,12 @@ function ChatView({
               ? `liaison of ${project.name} · other projects’ agents reach it`
               : `teammate of ${project.name}${seat.duty ? ` · ${seat.duty}` : ""}`}
           </div>
+        </div>
+      )}
+      {seat.watched && (
+        // midna's to set and unset (set_chat_watch): only a word here
+        <div className="chat-watch" title="midna hears when this chat is done or waiting on you">
+          midna is watching
         </div>
       )}
       <div className="header-controls">

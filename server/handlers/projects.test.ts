@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ServerContext } from "../context.js";
 import { ProjectStore } from "../projects.js";
-import { createManagerHost } from "./projects.js";
+import { createManagerHost, projectHandlers } from "./projects.js";
 
 let root: string;
 /** The workspace as the disk has it, and a symlink onto it — the way
@@ -95,5 +95,29 @@ describe("Home opens a project once", () => {
     host.openProject({ path: path.join(real, "ruri") });
     expect(host.openProject({ path: path.join(linked, "umi") })).toStartWith("opened: umi");
     expect(names()).toEqual(["ruri", "umi"]);
+  });
+});
+
+describe("midna watching a chat", () => {
+  test("set_chat_watch marks the chat, every window hears it, and it outlives a restart", () => {
+    host.openProject({ path: path.join(real, "ruri") });
+    const chatId = store.list()[0]!.sessions[0]!.id;
+    const broadcasts: unknown[] = [];
+    const ctx = {
+      store,
+      clients: { broadcast: (m: unknown) => broadcasts.push(m) },
+    } as unknown as ServerContext;
+    const watch = (id: string, on: boolean) =>
+      projectHandlers.set_chat_watch(ctx, {} as never, { type: "set_chat_watch", chatId: id, watch: on });
+    watch(chatId, true);
+    expect(store.findSession(chatId)?.session.watched).toBe(true);
+    expect(broadcasts).toHaveLength(1);
+    expect(new ProjectStore().findSession(chatId)?.session.watched).toBe(true);
+    watch(chatId, false);
+    expect(store.findSession(chatId)?.session).not.toHaveProperty("watched");
+    expect(new ProjectStore().findSession(chatId)?.session).not.toHaveProperty("watched");
+    // a chat that isn't there is no one's
+    watch("nope", true);
+    expect(broadcasts).toHaveLength(2);
   });
 });

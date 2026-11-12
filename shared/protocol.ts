@@ -77,6 +77,10 @@ export interface SessionInfo {
   /** Put away by the user in Sessions mode: out of the project's list
    *  (kept under "archived"), its transcript untouched. */
   archived?: boolean;
+  /** Watched by midna (set_chat_watch): its project's idle and blocked
+   *  events go to midna's own hook when this chat is in them. midna hears
+   *  of no chat it hasn't asked about. */
+  watched?: true;
 }
 
 /** The pref that switches a project between a list of chats ("sessions",
@@ -1679,7 +1683,9 @@ export interface ProjectEventPayload {
   kind: ProjectEventKind;
   project: { id: string; name: string; path: string };
   /** The chats that worked since the team went busy, the lead always — a
-   *  blocked event's waiting chat first. */
+   *  blocked event's waiting chat first. midna's own hook gets only the
+   *  chats it watches (`watched`, or a prompt sent with `notify`) that
+   *  worked since, or the one waiting, and no event when there are none. */
   chats: Array<{
     id: string;
     name: string;
@@ -1688,7 +1694,8 @@ export interface ProjectEventPayload {
      *  waiting at a card, what the card asks. */
     lastSummary: string;
   }>;
-  /** Who wrote the project's most recent prompt, across its chats. ruri's
+  /** Who wrote the project's most recent prompt, across its chats (for
+   *  midna's own hook, across the chats in `chats`). ruri's
    *  own prompts (carrying a chat on after a compaction, back to work after
    *  a message) don't count. Absent when no chat has had one. */
   lastPrompt?: {
@@ -1727,6 +1734,8 @@ export interface StatusChat {
   lastWords: string;
   /** When its last turn ended, ISO 8601. */
   lastActive?: string;
+  /** midna watches it (set_chat_watch). */
+  watched?: true;
   /** Only with ?ids=1. */
   id?: string;
 }
@@ -1945,7 +1954,11 @@ export type ClientMessage =
    *  lands exactly where the window's guess stood. It is also what makes a
    *  prompt safe to send twice: one the server already has (a window that
    *  lost its socket after sending, and sends again on reconnecting) is
-   *  answered again and not run again. Answered with `sent`. */
+   *  answered again and not run again. Answered with `sent`.
+   *
+   *  `notify`: midna's, on a prompt of its own — tell midna's hook when the
+   *  chat's run ends: blocked on the way (as often as it is), and idle once,
+   *  after which the chat is unwatched again unless set_chat_watch says. */
   | {
       type: "send";
       projectId: string;
@@ -1953,6 +1966,7 @@ export type ClientMessage =
       attachments?: AttachmentUpload[];
       now?: true;
       clientId?: string;
+      notify?: true;
     }
   /** Is the server still there? Answered with `pong` — how a window onto
    *  another computer finds out its socket died without saying so (a laptop
@@ -2262,6 +2276,10 @@ export type ClientMessage =
   | { type: "new_session"; projectId: string }
   | { type: "rename_session"; sessionId: string; title: string }
   | { type: "archive_session"; sessionId: string; archived: boolean }
+  /** midna watching a chat, or not: while it is, the chat's project's idle
+   *  and blocked events reach midna's own hook (projectHooks.ts), with
+   *  only the chats it watches in them. Kept on the chat (`watched`). */
+  | { type: "set_chat_watch"; chatId: string; watch: boolean }
   | { type: "set_workspace"; path: string }
   | { type: "set_music_dir"; path: string }
   /** Cycle a model's star: none → starred → small-tasks → default → none. */

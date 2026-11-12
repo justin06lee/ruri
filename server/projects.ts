@@ -457,6 +457,15 @@ export class ProjectStore {
     this.save();
   }
 
+  /** midna watching a chat, or no longer (SessionInfo.watched). */
+  setSessionWatched(sessionId: string, watched: boolean): void {
+    const found = this.findSession(sessionId);
+    if (!found || (found.session.watched === true) === watched) return;
+    if (watched) found.session.watched = true;
+    else delete found.session.watched;
+    this.save();
+  }
+
   /** A member's name, duty or layers changed. "" layers clears them. */
   setMember(sessionId: string, patch: { name?: string; duty?: string; layers?: string[] }): void {
     const found = this.findSession(sessionId);

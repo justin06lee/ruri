@@ -143,6 +143,7 @@ function readProject(
       ...(doing ? { doing } : {}),
       lastWords: trimSummary(hooks?.lastSummary ?? "", WORDS_CHARS),
       ...(ended !== undefined ? { lastActive: iso(ended) } : {}),
+      ...(session.watched ? { watched: true as const } : {}),
       ...(ids ? { id: session.id } : {}),
     };
     if (state === "working") working.push(chat);

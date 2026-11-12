@@ -15,6 +15,12 @@
  * file rather than in the window's preferences or on the project record:
  * both of those go out whole to every window, and a webhook's bearer token
  * must not. Windows see whether there is one, never what it is.
+ *
+ * midna's own hook (MIDNA_COMMAND) hears only what midna asked to: a chat
+ * it watches (SessionInfo.watched, set_chat_watch) or one it sent a prompt
+ * with `notify` — the event carrying just those chats, and none at all when
+ * none of them is in it. Every other hook hears every event, as it always
+ * has: what it does with them is the user's business.
  */
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -38,6 +44,7 @@ import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
 import type { ServerContext } from "./context.js";
 import { errorCode, errorMessage, isMissing, warn } from "./log.js";
+import { sessionsMode } from "./sessionsMode.js";
 import { seatName } from "./talk.js";
 
 /** The global hook when the user has set none and midna is on this machine:
@@ -450,6 +457,11 @@ export class HookCenter {
   private closed = false;
   /** The deliveries not through yet, by delivery id. */
   private readonly unsent = new Map<string, Unsent>();
+  /** The chats a prompt of midna's asked to hear the end of (send's
+   *  `notify`), each until its project is next idle with it in the event.
+   *  For this run of the server: an end not seen across a relaunch is not
+   *  told anyway. */
+  private readonly notifying = new Set<string>();
   private readonly outbox: string;
 
   constructor(
@@ -622,6 +634,21 @@ export class HookCenter {
         : "it has none of its own",
     ];
     return `${name}'s events go nowhere: ${why.join(", and ")}.`;
+  }
+
+  /** midna sent a chat a prompt it wants to hear the end of. */
+  notifyOnEnd(chatId: string): void {
+    this.notifying.add(chatId);
+  }
+
+  /** Whether midna is waiting to hear how a chat's run ends. */
+  notifies(chatId: string): boolean {
+    return this.notifying.has(chatId);
+  }
+
+  /** midna has heard these chats' runs end. */
+  notified(chatIds: Iterable<string>): void {
+    for (const id of chatIds) this.notifying.delete(id);
   }
 
   /** The team went busy: what it spends from here is the next event's. */
@@ -939,24 +966,35 @@ export function lastPromptOf(ctx: ServerContext, project: Project): ProjectEvent
 /**
  * An event about a project. Its chats are the ones that did something
  * since `busySince` and the lead always — every chat, with no `busySince`
- * (a test) — and `chatId`'s first.
+ * (a test) — and `chatId`'s first. With `only`, just those of them that
+ * did something, or are `chatId` — the lead no different — and the latest
+ * prompt among them.
  */
 export function buildPayload(
   ctx: ServerContext,
   kind: ProjectEventKind,
   project: Project,
-  options: { busySince?: number; chatId?: string; why?: BlockedWhy; costUsd: number; at?: number },
+  options: {
+    busySince?: number;
+    chatId?: string;
+    why?: BlockedWhy;
+    costUsd: number;
+    at?: number;
+    only?: ReadonlySet<string>;
+  },
 ): ProjectEventPayload {
   const leadId = leadOf(project)?.id;
   const chats: ProjectEventPayload["chats"] = [];
   for (const session of project.sessions) {
+    if (options.only && !options.only.has(session.id)) continue;
     const role = session.id === leadId ? "lead" : session.liaison ? "liaison" : "teammate";
     const events =
       options.busySince === undefined
         ? ctx.archive.events(session.id)
         : eventsSince(ctx, session.id, options.busySince);
     const worked = options.busySince === undefined || events.some((event) => event.ts >= options.busySince!);
-    if (role !== "lead" && session.id !== options.chatId && !worked) continue;
+    const always = role === "lead" && !options.only;
+    if (!always && session.id !== options.chatId && !worked) continue;
     const row = {
       id: session.id,
       name: session.title ?? (role === "lead" ? "Lead" : role === "liaison" ? "Liaison" : "Teammate"),
@@ -971,7 +1009,11 @@ export function buildPayload(
     if (session.id === options.chatId) chats.unshift(row);
     else chats.push(row);
   }
-  const lastPrompt = lastPromptOf(ctx, project);
+  const named = new Set(chats.map((chat) => chat.id));
+  const lastPrompt = lastPromptOf(
+    ctx,
+    options.only ? { ...project, sessions: project.sessions.filter((s) => named.has(s.id)) } : project,
+  );
   return fitPayload({
     id: randomUUID(),
     source: "ruri",
@@ -1078,10 +1120,36 @@ export interface ProjectEventInput {
   at?: number;
 }
 
+/** Whether a hook is midna's own command, which hears only what midna
+ *  asked to — by the command, so the default the user has since switched
+ *  off and on, or added a webhook beside, still is. */
+function isMidnaHook(target: HookTarget): boolean {
+  return target.target === "command" && target.to === MIDNA_COMMAND;
+}
+
+/** The chats of a project midna has asked to hear of: those it watches,
+ *  and those it sent a prompt with `notify`. In Team mode a lead's team
+ *  works out of sight for it, so watching the lead is watching them too. */
+export function watchedChats(ctx: ServerContext, project: Project): Set<string> {
+  const center = hooksOf(ctx);
+  const watched = new Set<string>();
+  const leadId = leadOf(project)?.id;
+  for (const session of project.sessions) {
+    if (!session.watched && !center.notifies(session.id)) continue;
+    watched.add(session.id);
+    if (session.id === leadId && !sessionsMode(ctx))
+      for (const member of project.sessions) if (!member.side) watched.add(member.id);
+  }
+  return watched;
+}
+
 /**
  * A project went idle, or one of its chats is waiting on someone: tell its
  * hooks. Returns at once; never throws. The payload is built a moment
  * later, so a turn's spend recorded in the same breath as its end is in it.
+ * midna's own hook is told only of the chats it watches, and only when one
+ * of them is in it: on idle, one that worked since the team went busy; on
+ * blocked, the one waiting.
  */
 export function fireProjectEvent(ctx: ServerContext, event: ProjectEventInput): void {
   setImmediate(() => {
@@ -1095,14 +1163,26 @@ export function fireProjectEvent(ctx: ServerContext, event: ProjectEventInput): 
       // a blocked event should carry when its period began; one that
       // doesn't takes the last this server saw, or names only who is waiting
       const busySince = event.busySince ?? center.busySince(project.id);
-      const payload = buildPayload(ctx, event.kind, project, {
+      const options = {
         busySince: busySince ?? at,
         costUsd: busySince === undefined ? 0 : spentSince(ctx, project, busySince),
         at,
         ...(event.chatId ? { chatId: event.chatId } : {}),
         ...(event.reason || event.text ? { why: { reason: event.reason, text: event.text } } : {}),
-      });
-      center.deliver(payload, targets, workDir(project));
+      };
+      const theirs = targets.filter(isMidnaHook);
+      const rest = targets.filter((target) => !isMidnaHook(target));
+      if (rest.length)
+        center.deliver(buildPayload(ctx, event.kind, project, options), rest, workDir(project));
+      if (!theirs.length) return;
+      const watched = watchedChats(ctx, project);
+      if (event.kind === "project.blocked" && !(event.chatId && watched.has(event.chatId))) return;
+      if (!watched.size) return;
+      const payload = buildPayload(ctx, event.kind, project, { ...options, only: watched });
+      if (!payload.chats.length) return;
+      center.deliver(payload, theirs, workDir(project));
+      // a run midna asked after has ended: it heard
+      if (event.kind === "project.idle") center.notified(payload.chats.map((chat) => chat.id));
     } catch (err) {
       warn("hooks", err, `${event.kind} for ${event.projectId}`);
     }

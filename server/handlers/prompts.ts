@@ -25,6 +25,7 @@ import {
   stopTurn,
 } from "../dispatch.js";
 import { combine, reslot, uncombine, type QueueEntry } from "../queue.js";
+import { hooksOf } from "../projectHooks.js";
 import { projectWatch } from "../projectWatch.js";
 import { splitQueued, wantsSplit } from "../promptSplit.js";
 import { storeAttachments, storeUpload } from "../uploads.js";
@@ -157,6 +158,9 @@ const send: Handler<"send"> = (ctx, ws, msg) => {
   // a long prompt is cut in the queue, so it needs an id to be found by
   const clientId = msg.clientId ?? (split ? randomUUID() : undefined);
   taking(ctx, ws, channelId, clientId, () => {
+    // midna wants to hear how this run ends (a copy sent again, already
+    // taken, doesn't ask twice)
+    if (msg.notify && ctx.store.findSession(channelId)) hooksOf(ctx).notifyOnEnd(channelId);
     // the user is driving again: whatever ruri was about to try again
     // for them, this prompt says it better
     ctx.retries.cancelRetry(channelId);

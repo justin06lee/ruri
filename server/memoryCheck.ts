@@ -14,7 +14,8 @@ import { dayOf } from "./memoryLines.js";
 import { misfiled, words } from "./memoryQuality.js";
 import { linesWith, MemoryBook, type LineRecord, type MemoryChange } from "./memoryLog.js";
 import { similarity } from "./similarity.js";
-import { completeMemory, smallModelEnabled } from "./smallmodel.js";
+import { accountFor } from "./accounts.js";
+import { completeMemory, onAccountOf, smallModelEnabled } from "./smallmodel.js";
 
 /**
  * The memory checked against the code, and against itself — so a reader
@@ -735,7 +736,8 @@ export async function checkMemory(
   running.add(projectId);
   try {
     const verifying = options.verify !== false && smallModelEnabled();
-    const ask = options.ask ?? completeMemory;
+    // on the Claude account the project runs on
+    const ask = onAccountOf(accountFor(ctx.store, projectId), options.ask ?? completeMemory);
     // the layers' sheets first: a key file listed with no word on what it does
     report.sheetJobs = await repairSheets(
       ctx,

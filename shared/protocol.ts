@@ -154,8 +154,31 @@ export interface Project {
    *  and a task on the project's list (server/workers.ts). Set when the
    *  project switches; false only when switched back by hand. */
   workers?: boolean;
+  /** Which Claude sign-in its sessions spend from (CLAUDE_ACCOUNTS); work
+   *  when unset. Read at every spawn, so a change reaches the next one and
+   *  leaves a running session alone (server/accounts.ts). */
+  account?: ClaudeAccount;
   /** Its lead first, then the members of its team. */
   sessions: SessionInfo[];
+}
+
+/**
+ * The two Claude sign-ins a project can run on. "work" is Claude Code's
+ * default config — whatever CLAUDE_CONFIG_DIR ruri itself was started
+ * with, normally none; "personal" is CLAUDE_CONFIG_DIR=~/.claude-personal.
+ */
+export type ClaudeAccount = "work" | "personal";
+export const CLAUDE_ACCOUNTS: readonly ClaudeAccount[] = ["work", "personal"];
+export const DEFAULT_CLAUDE_ACCOUNT: ClaudeAccount = "work";
+
+/**
+ * Where a harness's limit windows sit in `usage`: under its provider id, as
+ * ever — "claude" is the work account's, so a client that knows nothing of
+ * accounts reads the default one — and the personal account's beside it,
+ * under "claude-personal".
+ */
+export function usageKey(provider: string, account?: ClaudeAccount): string {
+  return provider === "claude" && account === "personal" ? "claude-personal" : provider;
 }
 
 /** A project's lead: the session marked so, else its first — never its
@@ -2102,6 +2125,11 @@ export type ClientMessage =
   | { type: "set_permission_mode"; projectId: string; mode: PermissionMode }
   /** Set a chat's reasoning effort (one of EFFORT_LEVELS); same addressing. */
   | { type: "set_effort"; projectId: string; effort: string }
+  /** Which Claude sign-in a project runs on. `projectId` is the project's
+   *  id or any of its chats' — the setting is the whole project's. Running
+   *  sessions keep theirs; the next one each chat starts (or resumes) runs
+   *  on the new account. Answered with `projects`. */
+  | { type: "set_account"; projectId: string; account: ClaudeAccount }
   /* ── the ideas board (per PROJECT id, not per session) ──────────── */
   | { type: "idea_add"; projectId: string; text: string; attachments?: AttachmentUpload[] }
   /** `attachments`, when present, is the idea's whole list: one already
@@ -2419,7 +2447,9 @@ export type ServerMessage =
       queued: Record<string, QueuedPrompt[]>;
       /** Channels whose queue is standing by, and why. */
       queuesHeld: Record<string, QueueHold>;
-      /** Limit windows per provider id (empty until the first read). */
+      /** Limit windows per provider id (empty until the first read):
+       *  `claude` is the work account's, `claude-personal` the personal
+       *  one's (usageKey). */
       usage: Record<string, UsageLimits>;
       /** Context occupancy per channel (Claude sessions that have run). */
       contexts: Record<string, ContextUsage>;

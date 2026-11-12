@@ -15,6 +15,7 @@ import {
   touchProject,
   writeLayerSheets,
 } from "./catchupBrief.js";
+import { accountFor, accountOf } from "./accounts.js";
 import { layerOfFile, stacked } from "./brief.js";
 import { editedSince, noteToolRead } from "./sheetEdits.js";
 import { writeIndexFile } from "./components.js";
@@ -33,6 +34,7 @@ import {
   endsIntact,
   extractTrackerItems,
   foldLayerSheet,
+  onAccount,
   smallModelEnabled,
   summarizePrompt,
   summarizeReply,
@@ -157,13 +159,8 @@ async function foldShape(
   const current = ctx.briefs.get(project.id);
   const frame = stacked(current);
   const unowned = frame ? unownedFiles(current.layers ?? [], project.path, turns) : [];
-  const next = await updateShape(
-    project.name,
-    pickShape(current),
-    shapeHappened,
-    project.path,
-    frame,
-    unowned,
+  const next = await onAccount(accountOf(project), () =>
+    updateShape(project.name, pickShape(current), shapeHappened, project.path, frame, unowned),
   );
   if (!next || JSON.stringify(next) === JSON.stringify(pickShape(current))) return;
   // the user corrected the shape while the model wrote: theirs stands,
@@ -288,12 +285,14 @@ export function foldLayers(ctx: ServerContext, projectId: string, turns: Gathere
   for (const [slug, { layer, turns: its }] of busiest) {
     const before = brief.layerSheets?.[slug];
     if (!before) continue;
-    foldLayerSheet(
-      project.name,
-      layer,
-      before,
-      its.map((turn) => turn.text).join("\n\n---\n\n"),
-      project.path,
+    onAccount(accountOf(project), () =>
+      foldLayerSheet(
+        project.name,
+        layer,
+        before,
+        its.map((turn) => turn.text).join("\n\n---\n\n"),
+        project.path,
+      ),
     )
       .then((next) => {
         if (!next) return;
@@ -433,7 +432,7 @@ export function createTurnTracker(ctx: ServerContext): TurnTracker {
       })
       .catch((err: unknown) => warn("events", err, "settleTurnFiles"));
     if (!smallModelEnabled()) return;
-    summarizeReply(turn)
+    onAccount(accountOf(owner), () => summarizeReply(turn))
       .then((note) => {
         if (note) noteSummary(ctx, projectId, turn.turnId, "reply", note);
       })
@@ -485,13 +484,15 @@ export function recordEvent(ctx: ServerContext, projectId: string, raw: Transcri
   // so interrupted turns and "continue" follow-ups can't lose requests.
   // The reply's recall half lands separately when the turn finishes.
   if (event.kind === "user" && smallModelEnabled()) {
-    summarizePrompt(event.text)
+    // on the Claude account the chat's project runs on (Home: work)
+    const account = accountFor(ctx.store, projectId);
+    onAccount(account, () => summarizePrompt(event.text))
       .then((note) => {
         if (note) noteSummary(ctx, projectId, event.id, "user", note);
       })
       .catch(() => {});
     if (projectId !== HOME_ID) {
-      extractTrackerItems(event.text, ctx.tracker.openTexts(projectId))
+      onAccount(account, () => extractTrackerItems(event.text, ctx.tracker.openTexts(projectId)))
         .then((items) => {
           if (items.length === 0) return;
           for (const text of items) ctx.tracker.add(projectId, text, "auto", event.id);

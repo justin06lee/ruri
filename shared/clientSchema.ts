@@ -207,6 +207,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("set_model"), ...projectId, model: label }),
   z.object({ type: z.literal("set_permission_mode"), ...projectId, mode: permissionMode }),
   z.object({ type: z.literal("set_effort"), ...projectId, effort: z.string().max(32) }),
+  z.object({ type: z.literal("set_account"), ...projectId, account: z.enum(["work", "personal"]) }),
   z.object({
     type: z.literal("idea_add"),
     ...projectId,

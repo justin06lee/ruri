@@ -317,7 +317,14 @@ export function StatisticsPage() {
     const many = Object.keys(usage).length > 1;
     const out: Array<{ key: string; label: string; percent: number; resets?: string; title: string }> = [];
     for (const [provider, limit] of Object.entries(usage)) {
-      const lead = many ? `${provider} · ` : "";
+      // with both Claude sign-ins read, each says which it is
+      const name =
+        provider === "claude-personal"
+          ? "claude (personal)"
+          : provider === "claude" && "claude-personal" in usage
+            ? "claude (work)"
+            : provider;
+      const lead = many ? `${name} · ` : "";
       const add = (name: string, percent: number | undefined, at: number | undefined) => {
         if (percent === undefined) return;
         out.push({

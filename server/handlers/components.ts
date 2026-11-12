@@ -59,7 +59,8 @@ import {
 } from "../libraryRefresh.js";
 import { photoPrompt, type PhotoTarget } from "../photographer.js";
 import { withProjectRunning, type ShotTarget } from "../shots.js";
-import { reviewComponents, smallModelEnabled, type ReviewEntry } from "../smallmodel.js";
+import { onAccount, reviewComponents, smallModelEnabled, type ReviewEntry } from "../smallmodel.js";
+import { accountFor } from "../accounts.js";
 import { describeFile, sweepProject } from "../sweep.js";
 import { storedFilePath, storeUpload } from "../uploads.js";
 import type { Handlers } from "./types.js";
@@ -981,7 +982,10 @@ export const componentHandlers = {
     pushComponents(ctx, msg.projectId, ctx.store.get(msg.projectId)?.path);
   },
   components_sweep: (ctx, _ws, msg) => {
-    void runSweep(ctx, msg.projectId, msg.shots !== false);
+    // its naming and its reviews on the project's Claude account
+    void onAccount(accountFor(ctx.store, msg.projectId), () =>
+      runSweep(ctx, msg.projectId, msg.shots !== false),
+    );
   },
   /** The star comes off what has been looked at — one card, or the page. */
   component_seen: (ctx, _ws, msg) => {

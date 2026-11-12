@@ -31,6 +31,7 @@ import {
   type PreToolUseHookSpecificOutput,
   type SessionStartHookSpecificOutput,
 } from "@anthropic-ai/claude-agent-sdk";
+import { claudeSessionEnv } from "./accounts.js";
 import { buildDiff, parseUnifiedDiff, readBefore } from "./diff.js";
 import { CostMeter, type CallUsage } from "./turnCost.js";
 import { trimCommand } from "./trimOutput.js";
@@ -1124,6 +1125,9 @@ class ProjectSession implements ChannelSession {
     this.agents = new AgentBook(project.id, events, () =>
       (extras?.transcript?.() ?? []).filter((e): e is ToolEvent => e.kind === "tool" && !!e.agent),
     );
+    // The project's Claude account, as it stands now: every chat, teammate
+    // and agent of the user's is built here, so this is where it lands
+    const env = claudeSessionEnv(project, resume, extras?.options?.env);
     this.session = new AgentSession({
       cwd: project.path,
       appName: "ruri",
@@ -1191,6 +1195,8 @@ class ProjectSession implements ChannelSession {
         // forked so the original chain stays intact on disk
         ...(resume && resumeAt ? { resumeSessionAt: resumeAt, forkSession: true } : {}),
         ...extras?.options,
+        // last, so nothing the extras carry can put it on another account
+        env,
       },
     });
     void this.run();

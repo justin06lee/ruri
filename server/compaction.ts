@@ -354,6 +354,8 @@ export interface DigestExchange {
 export type FoldDigest = (
   digest: Digest | undefined,
   exchanges: DigestExchange[],
+  /** The chat whose digest it is — whose project's account it spends from. */
+  channelId: string,
 ) => Promise<DigestOp[] | undefined>;
 
 /**
@@ -398,7 +400,7 @@ export class DigestFolder {
           user: cut(turn.user, 1500),
           reply: notesOf(turn, summaries).reply,
         }));
-        const ops = await this.fold(digest, exchanges);
+        const ops = await this.fold(digest, exchanges, channelId);
         if (!ops) return;
         const through = due[due.length - 1]!;
         // a rewind while the model wrote may have taken what it folded, or

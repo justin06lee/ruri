@@ -21,7 +21,8 @@ import type { ServerContext } from "./context.js";
 import { drainQueue } from "./dispatch.js";
 import { warn } from "./log.js";
 import type { QueueEntry } from "./queue.js";
-import { smallModelEnabled, taskCuts, type TaskCuts } from "./smallmodel.js";
+import { accountFor } from "./accounts.js";
+import { onAccount, smallModelEnabled, taskCuts, type TaskCuts } from "./smallmodel.js";
 
 /** A prompt shorter than this is sent as it is. */
 export const SPLIT_LONGER_THAN = 1200;
@@ -193,7 +194,7 @@ export function splitQueued(ctx: ServerContext, channelId: string, id: string): 
   if (!entry) return;
   entry.splitting = true;
   ctx.queues.broadcastQueue(channelId);
-  void tasksIn(entry.text)
+  void onAccount(accountFor(ctx.store, channelId), () => tasksIn(entry.text))
     .catch((err: unknown) => {
       warn("split", err, channelId);
       return undefined;

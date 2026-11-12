@@ -23,7 +23,10 @@ function chat(opts: { prefs?: Record<string, string>; status?: string } = {}) {
     prefs: { all: () => opts.prefs ?? {} },
     queues: new SendQueues((m) => sent.push(m)),
     retries: { cancelRetry: () => {} },
-    store: { findSession: () => ({ session: { id: "c1" }, project: { id: "p", path: undefined } }) },
+    store: {
+      get: () => undefined,
+      findSession: () => ({ session: { id: "c1" }, project: { id: "p", path: undefined } }),
+    },
     manager: { statuses: () => status },
     archive: {
       events: () => [],

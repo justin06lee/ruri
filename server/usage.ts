@@ -2,8 +2,9 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { accountKeychainService, claudeHome, personalConfigDir } from "./accounts.js";
 import { configPath } from "./configDir.js";
-import type { UsageLimits } from "../shared/protocol.js";
+import { usageKey, type ClaudeAccount, type UsageLimits } from "../shared/protocol.js";
 import { isMissing, warn } from "./log.js";
 
 /**
@@ -12,7 +13,9 @@ import { isMissing, warn } from "./log.js";
  * active session actually spends from.
  *
  * Claude's come from the same endpoint Claude Code's own /usage uses,
- * authenticated with the user's existing Claude Code sign-in. Codex writes
+ * authenticated with the user's existing Claude Code sign-in — each of the
+ * two accounts' own (server/accounts.ts): the work one under "claude", as
+ * it always was, and the personal one beside it. Codex writes
  * its windows into every session rollout on disk, so its come from there —
  * no second sign-in, no network. Everything here is best-effort: an
  * unreadable source just leaves that harness's gauges empty.
@@ -28,12 +31,14 @@ function parseToken(raw: string): string | null {
   }
 }
 
-/** The Claude Code OAuth access token: keychain on macOS (the freshest copy —
- *  the CLI refreshes it there), ~/.claude/.credentials.json as the fallback. */
-async function accessToken(): Promise<string | null> {
+/** An account's Claude Code OAuth access token: keychain on macOS (the
+ *  freshest copy — the CLI refreshes it there), under the item Claude Code
+ *  names for that config dir; its .credentials.json as the fallback. */
+async function accessToken(account: ClaudeAccount): Promise<string | null> {
   if (process.platform === "darwin") {
+    const service = accountKeychainService(account);
     const raw = await new Promise<string>((resolve) => {
-      execFile("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], (err, stdout) =>
+      execFile("security", ["find-generic-password", "-s", service, "-w"], (err, stdout) =>
         resolve(err ? "" : stdout),
       );
     });
@@ -41,7 +46,7 @@ async function accessToken(): Promise<string | null> {
     if (token) return token;
   }
   try {
-    return parseToken(fs.readFileSync(path.join(os.homedir(), ".claude", ".credentials.json"), "utf8"));
+    return parseToken(fs.readFileSync(path.join(claudeHome(account), ".credentials.json"), "utf8"));
   } catch (err) {
     if (!isMissing(err)) warn("usage", err, "accessToken");
     return null;
@@ -59,26 +64,29 @@ function epoch(iso: string | null | undefined): number | undefined {
  *  read that comes back empty used to be retried within seconds, which
  *  kept it answering 429 for hours: the gauges went blank, and the usage
  *  guard had no number. After a 429 it is left alone this long at least
- *  (longer when it says so), and never asked more often than CLAUDE_EVERY_MS. */
+ *  (longer when it says so), and never asked more often than CLAUDE_EVERY_MS.
+ *  Each account is its own client to it, with its own back-off. */
 export const CLAUDE_BACKOFF_MS = 5 * 60_000;
 export const CLAUDE_EVERY_MS = 60_000;
-let claudeQuietUntil = 0;
-let claudeAskedAt = 0;
+const claudeQuietUntil: Record<ClaudeAccount, number> = { work: 0, personal: 0 };
+const claudeAskedAt: Record<ClaudeAccount, number> = { work: 0, personal: 0 };
 
 /** Forget the back-off (tests). */
 export function resetUsageBackoff(): void {
-  claudeQuietUntil = 0;
-  claudeAskedAt = 0;
+  for (const account of ["work", "personal"] as const) {
+    claudeQuietUntil[account] = 0;
+    claudeAskedAt[account] = 0;
+  }
 }
 
-/** Fetch the account's limit windows; null when unavailable — or not
+/** Fetch an account's limit windows; null when unavailable — or not
  *  asked for now, while the endpoint wants to be left alone. */
-async function fetchUsageLimits(): Promise<UsageLimits | null> {
+async function fetchUsageLimits(account: ClaudeAccount): Promise<UsageLimits | null> {
   const now = Date.now();
-  if (now < claudeQuietUntil || now - claudeAskedAt < CLAUDE_EVERY_MS) return null;
-  const token = await accessToken();
+  if (now < claudeQuietUntil[account] || now - claudeAskedAt[account] < CLAUDE_EVERY_MS) return null;
+  const token = await accessToken(account);
   if (!token) return null;
-  claudeAskedAt = now;
+  claudeAskedAt[account] = now;
   try {
     const res = await fetch("https://api.anthropic.com/api/oauth/usage", {
       headers: {
@@ -89,7 +97,8 @@ async function fetchUsageLimits(): Promise<UsageLimits | null> {
     });
     if (res.status === 429) {
       const after = Number(res.headers.get("retry-after"));
-      claudeQuietUntil = Date.now() + Math.max(CLAUDE_BACKOFF_MS, Number.isFinite(after) ? after * 1000 : 0);
+      claudeQuietUntil[account] =
+        Date.now() + Math.max(CLAUDE_BACKOFF_MS, Number.isFinite(after) ? after * 1000 : 0);
       return null;
     }
     if (!res.ok) return null;
@@ -134,7 +143,7 @@ async function fetchUsageLimits(): Promise<UsageLimits | null> {
     }
     return limits;
   } catch (err) {
-    warn("usage", err, "fetchUsageLimits");
+    warn("usage", err, `fetchUsageLimits ${account}`);
     return null;
   }
 }
@@ -340,8 +349,14 @@ function rolloutFor(session: string): string | undefined {
 export async function fetchAllUsageLimits(): Promise<Record<string, UsageLimits>> {
   const limits: Record<string, UsageLimits> = {};
   const at = Date.now();
-  const claude = await fetchUsageLimits();
-  if (claude) limits["claude"] = { ...claude, at };
+  // the personal account only once there is one: its config dir is made
+  // by its first sign-in, and a Mac with no such login is asked nothing
+  const [work, personal] = await Promise.all([
+    fetchUsageLimits("work"),
+    fs.existsSync(personalConfigDir()) ? fetchUsageLimits("personal") : null,
+  ]);
+  if (work) limits[usageKey("claude", "work")] = { ...work, at };
+  if (personal) limits[usageKey("claude", "personal")] = { ...personal, at };
   const codex = readCodexCounts();
   if (codex && (codex.limits.fiveHour !== undefined || codex.limits.weekly !== undefined)) {
     limits["codex"] = { ...codex.limits, at };

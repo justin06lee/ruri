@@ -1,7 +1,9 @@
 import type { ServerContext } from "./context.js";
 import { HOME_ID } from "./manager.js";
+import { accountFor } from "./accounts.js";
 import {
   assembleTurns,
+  onAccount,
   smallModelEnabled,
   summarizePrompt,
   summarizeReply,
@@ -123,8 +125,9 @@ export async function noteWorker(ctx: ServerContext): Promise<void> {
         // a chat closed meanwhile, or a note the live path wrote first
         if (!ctx.store.sessionIds().includes(job.channelId)) continue;
         if (ctx.archive.summaries(job.channelId)[job.turn.turnId]?.[job.part] !== undefined) continue;
-        const note =
-          job.part === "user" ? await summarizePrompt(job.turn.user) : await summarizeReply(job.turn);
+        const note = await onAccount(accountFor(ctx.store, job.channelId), () =>
+          job.part === "user" ? summarizePrompt(job.turn.user) : summarizeReply(job.turn),
+        );
         ctx.notes.misses = 0;
         // a rewind may have taken the turn while its note was written
         if (!turnStands(ctx, job.channelId, job.turn.turnId)) continue;

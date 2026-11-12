@@ -2,7 +2,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ConceptPlace, LayerSheet, Project, StackLayer } from "../shared/protocol.js";
 import { layerOfFile } from "./brief.js";
-import { catchupBrief, placeFiles, splitLayer, writeLayerSheet, type FullBrief } from "./smallmodel.js";
+import { accountOf } from "./accounts.js";
+import {
+  catchupBrief,
+  onAccount,
+  placeFiles,
+  splitLayer,
+  writeLayerSheet,
+  type FullBrief,
+} from "./smallmodel.js";
 import { describeFile, layerCandidates, sourceFiles, sweepCandidates } from "./sweep.js";
 import { isMissing, warn } from "./log.js";
 
@@ -192,7 +200,8 @@ async function catchupMaterial(project: Project): Promise<string> {
 /** Read the repo and write the whole shape. Null when the model gave
  *  nothing usable (the sheet then stays as it was). */
 export async function buildCatchup(project: Project, current: Partial<FullBrief>): Promise<FullBrief | null> {
-  return catchupBrief(project.name, await catchupMaterial(project), current, project.path);
+  const material = await catchupMaterial(project);
+  return onAccount(accountOf(project), () => catchupBrief(project.name, material, current, project.path));
 }
 
 /* ── a stack cut fine enough to have a sheet a layer ────────────────── */
@@ -245,7 +254,9 @@ export async function splitBigLayers(
     }
     onNote(`cutting ${layer.name} (${mine.length} files) into its parts…`);
     const list = mine.map((rel) => `${rel} — ${firstWords(project.path, rel)}`).join("\n");
-    const parts = await splitLayer(project.name, layer, stack, list, project.path);
+    const parts = await onAccount(accountOf(project), () =>
+      splitLayer(project.name, layer, stack, list, project.path),
+    );
     out.push(...(parts.length ? parts.slice(0, room + 1) : [layer]));
   }
   return out;
@@ -283,7 +294,7 @@ export async function placeUnowned(
   for (let at = 0; at < unowned.length; at += PLACE_BATCH) {
     const batch = unowned.slice(at, at + PLACE_BATCH);
     const list = batch.map((rel) => `${rel} — ${firstWords(project.path, rel)}`).join("\n");
-    Object.assign(placed, await placeFiles(project.name, stack, list));
+    Object.assign(placed, await onAccount(accountOf(project), () => placeFiles(project.name, stack, list)));
   }
   for (const rel of unowned) {
     const slug = placed[rel];
@@ -406,12 +417,14 @@ export async function buildLayerSheets(
       const job = work[next++];
       if (!job) return;
       const { layer, owned, hints } = job;
-      const sheet = await writeLayerSheet(
-        project.name,
-        layer,
-        layerMaterial(project.path, layers, layer, owned, hints),
-        current[layer.slug!],
-        project.path,
+      const sheet = await onAccount(accountOf(project), () =>
+        writeLayerSheet(
+          project.name,
+          layer,
+          layerMaterial(project.path, layers, layer, owned, hints),
+          current[layer.slug!],
+          project.path,
+        ),
       );
       done += 1;
       if (sheet) {

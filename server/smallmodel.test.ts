@@ -3,7 +3,14 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { quietCodex, setCompletionClient, summarizePrompt } from "./smallmodel.js";
+import {
+  onAccount,
+  onAccountOf,
+  quietCodex,
+  setCompletionClient,
+  smallModelAccount,
+  summarizePrompt,
+} from "./smallmodel.js";
 
 describe("the small model's codex", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-small-"));
@@ -83,5 +90,34 @@ describe("the small model's queue", () => {
     }
     await all;
     expect(started.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("the small model's account", () => {
+  afterAll(() => setCompletionClient(null));
+
+  test("a call made for a project spends from that project's Claude account", async () => {
+    // the account each call reached the CLI with, through the queue
+    const seen: string[] = [];
+    let held: (() => void) | undefined;
+    setCompletionClient(async (request) => {
+      const which = JSON.stringify(request.messages).includes("first") ? "first" : "second";
+      seen.push(`${which}:${smallModelAccount()}`);
+      // the first one holds the slot, so the second waits its turn in line
+      if (!held) await new Promise<void>((resolve) => (held = resolve));
+      return "Fine";
+    });
+    const first = onAccount("personal", () => summarizePrompt("first"));
+    const second = summarizePrompt("second");
+    await new Promise((r) => setTimeout(r, 10));
+    held?.();
+    await Promise.all([first, second]);
+    expect(seen.sort()).toEqual(["first:personal", "second:work"]);
+  });
+
+  test("an ask handed on keeps the account it was bound to", async () => {
+    const ask = onAccountOf("personal", async () => smallModelAccount());
+    expect(await ask()).toBe("personal");
+    expect(smallModelAccount()).toBe("work");
   });
 });

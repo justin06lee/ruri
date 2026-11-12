@@ -12,7 +12,8 @@ import { foldTurns, outsideTool, turnMaterial, type Ask, type FoldTurn } from ".
 import { scheduleCheck, withAnchors } from "./memoryCheck.js";
 import { linesWith, MemoryBook } from "./memoryLog.js";
 import { projectRelative } from "./recall.js";
-import { completeMemory, smallModelEnabled } from "./smallmodel.js";
+import { accountFor } from "./accounts.js";
+import { completeMemory, onAccountOf, smallModelEnabled } from "./smallmodel.js";
 
 /**
  * Every finished turn of every chat, folded into its project's memory.
@@ -343,7 +344,8 @@ export async function runFolds(ctx: ServerContext, projectId: string): Promise<v
             turns: chunk,
             resolve: (ref) => resolveRef(ctx, projectId, ref),
           },
-          ctx.folds.ask,
+          // on the Claude account the project runs on
+          onAccountOf(accountFor(ctx.store, projectId), ctx.folds.ask),
         );
       } catch (err) {
         // the model can't be reached: everything stays waiting

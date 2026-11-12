@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import type { Project, RecentSession, TranscriptEvent } from "../shared/protocol.js";
+import { claudeHomes, claudeProjectDirIn, claudeSessionCopies } from "./accounts.js";
 import { readImage, toolSummary } from "./sessions.js";
 import { codexHome } from "./usage.js";
 import { isMissing, warn } from "./log.js";
@@ -80,35 +80,17 @@ async function listClaude(project: Project, taken: Set<string>): Promise<RecentS
   }
 }
 
-/** Where the CLI keeps every project's transcripts: its config folder
- *  (CLAUDE_CONFIG_DIR, as the CLI itself reads it, else ~/.claude). */
-function claudeProjectsRoot(): string {
-  return path.join(process.env["CLAUDE_CONFIG_DIR"] || path.join(os.homedir(), ".claude"), "projects");
-}
-
-/** The folder the CLI keeps a project's transcripts in, by its guess. */
-function claudeProjectDir(projectPath: string): string {
-  // the CLI files a project under its real path: one reached through a
-  // symlink (~/Workspace → /Volumes/…, /tmp → /private/tmp) is kept under
-  // where the link leads, and the path as written finds nothing there
-  let real = projectPath;
-  try {
-    real = fs.realpathSync(projectPath);
-  } catch (err) {
-    if (!isMissing(err)) warn("recent", err, "claudeProjectDir");
-  }
-  return path.join(claudeProjectsRoot(), real.replace(/[^A-Za-z0-9]/g, "-"));
-}
-
 /**
  * Whether a Claude session is known to be gone: the CLI keeps this
  * project's transcripts in a folder we can see, and the session's file is
- * in neither it nor anywhere else the CLI keeps them. False when it can't
- * tell — no such folder, as with a CLI keeping its sessions somewhere else
- * — so a session is only ever given up on for a reason.
+ * in neither it nor anywhere else the CLI keeps them — under either
+ * account's config dir, since a chat whose project changed account is
+ * resumed from the other one's copy (accounts.ts, carrySession). False
+ * when it can't tell — no such folder, as with a CLI keeping its sessions
+ * somewhere else — so a session is only ever given up on for a reason.
  */
 export function claudeSessionGone(projectPath: string, sessionId: string): boolean {
-  if (!fs.existsSync(claudeProjectDir(projectPath))) return false;
+  if (!claudeHomes().some((home) => fs.existsSync(claudeProjectDirIn(home, projectPath)))) return false;
   return claudeSessionFile({ path: projectPath }, sessionId) === undefined;
 }
 
@@ -128,23 +110,10 @@ export function claudeSessionHas(projectPath: string, sessionId: string, uuid: s
   }
 }
 
-/** Where the CLI keeps a project's transcripts: the path, every
- *  non-alphanumeric turned to a dash. Falls back to a scan when the CLI's
- *  own encoding differs from this guess. */
+/** A session's transcript: the newest copy of it under either account's
+ *  config dir — the one the next resume carries on from. */
 function claudeSessionFile(project: Pick<Project, "path">, sessionId: string): string | undefined {
-  const root = claudeProjectsRoot();
-  const guess = path.join(claudeProjectDir(project.path), `${sessionId}.jsonl`);
-  if (fs.existsSync(guess)) return guess;
-  try {
-    for (const dir of fs.readdirSync(root)) {
-      const file = path.join(root, dir, `${sessionId}.jsonl`);
-      if (fs.existsSync(file)) return file;
-    }
-  } catch (err) {
-    if (!isMissing(err)) warn("recent", err, "claudeSessionFile");
-    // no projects dir
-  }
-  return undefined;
+  return claudeSessionCopies(project.path, sessionId)[0]?.file;
 }
 
 interface ClaudeLine {

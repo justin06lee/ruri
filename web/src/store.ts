@@ -60,6 +60,7 @@ import {
   type TurnProgress,
   type TeamTask,
   type UsageLimits,
+  type ClaudeAccount,
 } from "../../shared/protocol";
 import type { ComposerAttachment } from "./components/Attachments";
 import {
@@ -1129,6 +1130,25 @@ export function renameProject(projectId: string, name: string): void {
     (projects) => onProject(projects, projectId, (p) => ({ ...p, name })),
     (projects) => projects.find((p) => p.id === projectId)?.name === name,
   );
+}
+
+/** Put a project on one of the Claude accounts. Its running sessions keep
+ *  theirs; each chat's next process starts on this one (server/accounts.ts). */
+export function setProjectAccount(projectId: string, account: ClaudeAccount): void {
+  changeProjects(
+    { type: "set_account", projectId, account },
+    (projects) =>
+      onProject(projects, projectId, (p) => {
+        const { account: _was, ...rest } = p;
+        return account === "work" ? rest : { ...rest, account };
+      }),
+    (projects) => accountOf(projects.find((p) => p.id === projectId)) === account,
+  );
+}
+
+/** A project's Claude account: work unless it says personal. */
+export function accountOf(project: Pick<Project, "account"> | undefined): ClaudeAccount {
+  return project?.account === "personal" ? "personal" : "work";
 }
 
 /** Star or unstar a project — or tuck it away or bring it back. The server

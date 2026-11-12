@@ -61,7 +61,8 @@ import { SecretStore } from "./secrets.js";
 import { phonePushOf, servePhonePush, startPhonePush } from "./phonePush.js";
 import { Sharing } from "./sharing.js";
 import { foldDigest } from "./digestFold.js";
-import { setMemoryModel, setSmallModel } from "./smallmodel.js";
+import { onAccount, setMemoryModel, setSmallModel } from "./smallmodel.js";
+import { accountFor } from "./accounts.js";
 import { createSocketServer } from "./socket.js";
 import { TalkBook } from "./talk.js";
 import { TeamGovernor } from "./team.js";
@@ -176,7 +177,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         clients.broadcast({ type: "terminal_exit", projectId, termId, note });
       },
     }),
-    digests: new DigestFolder(archive, (digest, exchanges) => foldDigest(digest, exchanges)),
+    digests: new DigestFolder(archive, (digest, exchanges, channelId) =>
+      onAccount(accountFor(store, channelId), () => foldDigest(digest, exchanges)),
+    ),
     clients,
     readable: new ReadableImages((channelId) => ownerProject(ctx, channelId)?.path),
     turns: new Turns(clients.toViewers),

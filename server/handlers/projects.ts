@@ -1,9 +1,11 @@
 /**
- * The projects: opened, closed, renamed, starred and hidden, a member
- * taken off a team, a terminal's chat brought onto one — and the same
- * moves as the Home agent makes them through its tools.
+ * The projects: opened, closed, renamed, starred and hidden, put on a
+ * Claude account, a member taken off a team, a terminal's chat brought
+ * onto one — and the same moves as the Home agent makes them through its
+ * tools.
  */
 import { removeLibrarySkill } from "../library.js";
+import { accountOf } from "../accounts.js";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -283,6 +285,15 @@ export const projectHandlers = {
       ctx.store.update(msg.projectId, { hidden: project.hidden ? undefined : true });
       ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
     }
+  },
+  // which Claude sign-in the project runs on: a chat's id names its
+  // project. Nothing running is stopped — each chat's next process starts
+  // on the new account, and resumes its session there (accounts.ts)
+  set_account: (ctx, _ws, msg) => {
+    const project = ctx.store.get(msg.projectId) ?? ctx.store.findSession(msg.projectId)?.project;
+    if (!project || accountOf(project) === msg.account) return;
+    ctx.store.update(project.id, { account: msg.account === "work" ? undefined : msg.account });
+    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
   },
   rename_project: (ctx, _ws, msg) => {
     const name = msg.name.trim();

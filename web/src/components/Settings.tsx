@@ -7,7 +7,7 @@ import type {
   PermissionState,
 } from "../../../shared/protocol";
 import { HOME_ID } from "../../../shared/protocol";
-import { send, useRuri } from "../store";
+import { accountOf, send, setProjectAccount, useRuri } from "../store";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
 import { Icon } from "./chat/Icon";
@@ -658,6 +658,40 @@ function DesignTaste() {
   );
 }
 
+/** Settings → General → Claude account (server/accounts.ts): which sign-in
+ *  the open project's Claude sessions run on. Only with a project open —
+ *  Home always runs on work. */
+function ClaudeAccountRow() {
+  const project = useRuri((s) => s.projects.find((p) => p.sessions.some((x) => x.id === s.activeId)));
+  if (!project) return null;
+  const account = accountOf(project);
+  return (
+    <div className="settings-row">
+      <span className="settings-label">
+        Claude account
+        <InfoTip>
+          Which Claude sign-in {project.name}&apos;s chats, teammates and agents run on: work is Claude
+          Code&apos;s own, personal is ~/.claude-personal. A chat already running keeps its account; its next
+          start, or its next resume, is on this one.
+        </InfoTip>
+      </span>
+      <div className="settings-value">
+        <div className="seg">
+          {(["work", "personal"] as const).map((option) => (
+            <button
+              key={option}
+              className={`seg-option ${account === option ? "active" : ""}`}
+              onClick={() => setProjectAccount(project.id, option)}
+            >
+              {option === "work" ? "Work" : "Personal"}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Settings → General → Live components (server/mycelium.ts): the switch,
  *  and whether myc is on this machine. */
 function LiveComponents() {
@@ -800,6 +834,7 @@ export function Settings({ onClose }: { onClose(): void }) {
               <SplitLongPrompts />
               <DesignTaste />
               <LiveComponents />
+              <ClaudeAccountRow />
             </section>
 
             <section className="settings-group" hidden={section !== "appearance"}>

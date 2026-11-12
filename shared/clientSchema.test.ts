@@ -96,6 +96,7 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   set_model: { type: "set_model", projectId: "p", model: "opus" },
   set_permission_mode: { type: "set_permission_mode", projectId: "p", mode: "plan" },
   set_effort: { type: "set_effort", projectId: "p", effort: "high" },
+  set_account: { type: "set_account", projectId: "p", account: "personal" },
   idea_add: { type: "idea_add", projectId: "p", text: "an idea" },
   idea_update: { type: "idea_update", projectId: "p", ideaId: "i", text: "better", done: true },
   idea_remove: { type: "idea_remove", projectId: "p", ideaId: "i" },

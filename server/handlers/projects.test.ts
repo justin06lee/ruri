@@ -121,3 +121,31 @@ describe("midna watching a chat", () => {
     expect(broadcasts).toHaveLength(2);
   });
 });
+
+describe("a project's Claude account", () => {
+  test("set_account puts the project on it — by its id or a chat's — and it outlives a restart", () => {
+    host.openProject({ path: path.join(real, "ruri") });
+    const project = store.list()[0]!;
+    const chatId = project.sessions[0]!.id;
+    const broadcasts: unknown[] = [];
+    const ctx = {
+      store,
+      clients: { broadcast: (m: unknown) => broadcasts.push(m) },
+    } as unknown as ServerContext;
+    const set = (id: string, account: "work" | "personal") =>
+      projectHandlers.set_account(ctx, {} as never, { type: "set_account", projectId: id, account });
+    // unset is work, so asking for work changes nothing
+    set(project.id, "work");
+    expect(broadcasts).toHaveLength(0);
+    set(chatId, "personal");
+    expect(store.get(project.id)?.account).toBe("personal");
+    expect(new ProjectStore().get(project.id)?.account).toBe("personal");
+    expect(broadcasts).toEqual([{ type: "projects", projects: store.list() }]);
+    // back to work is back to unset
+    set(project.id, "work");
+    expect(store.get(project.id)).not.toHaveProperty("account");
+    expect(new ProjectStore().get(project.id)).not.toHaveProperty("account");
+    set("nope", "personal");
+    expect(broadcasts).toHaveLength(2);
+  });
+});

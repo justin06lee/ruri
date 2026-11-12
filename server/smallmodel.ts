@@ -1,14 +1,17 @@
 import { findExecutable, Yagami, type MessagesRequest } from "@justin06lee/yagami";
+import { AsyncLocalStorage } from "node:async_hooks";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
+  ClaudeAccount,
   ConceptPlace,
   LayerSheet,
   StackLayer,
   SystemFlow,
   TranscriptEvent,
 } from "../shared/protocol.js";
-import { DEFAULT_MEMORY_MODEL } from "../shared/protocol.js";
+import { DEFAULT_CLAUDE_ACCOUNT, DEFAULT_MEMORY_MODEL } from "../shared/protocol.js";
+import { claudeConfigDir } from "./accounts.js";
 import { configPath } from "./configDir.js";
 import { errorMessage, warn } from "./log.js";
 import { describeJob, placeholderJob, SECTION_MAX, SHEET_WORDS, withinBudget } from "./sheetBudget.js";
@@ -28,7 +31,9 @@ import { describeJob, placeholderJob, SECTION_MAX, SHEET_WORDS, withinBudget } f
 /** One small-model request: its text answer, given up on when `signal` fires. */
 export type Completer = (request: MessagesRequest, signal: AbortSignal) => Promise<string>;
 
-let client: Yagami | null = null;
+/** One client per Claude account: a Claude model asked for a project on
+ *  the personal account runs under its config dir (server/accounts.ts). */
+const clients = new Map<ClaudeAccount, Yagami>();
 let completer: Completer | null = null;
 let configured: string | undefined;
 let memoryConfigured: string | undefined;
@@ -60,6 +65,41 @@ export function setMemoryModel(next: string | undefined): void {
 
 export function memoryModel(): string {
   return process.env["RURI_MEMORY_MODEL"] || memoryConfigured || DEFAULT_MEMORY_MODEL;
+}
+
+/**
+ * Whose Claude account a call spends from. The calls are made for a
+ * project — its titles and notes, its sheets, its memory — and a project
+ * on the personal account has its small-model work on that account too.
+ * Carried through the call rather than as an argument, so that every
+ * function here and every queue between the caller and the CLI passes it
+ * on without knowing: the caller wraps its call in onAccount, and a call
+ * nobody wrapped runs on work, the default. Only Claude models care; the
+ * other harnesses have one sign-in each.
+ */
+const accountScope = new AsyncLocalStorage<ClaudeAccount>();
+
+/** Run `work` — and every small-model call it makes — on this account. */
+export function onAccount<T>(account: ClaudeAccount, work: () => T): T {
+  return accountScope.run(account, work);
+}
+
+/** `fn`, made to run on this account whoever calls it later — for an ask
+ *  handed to code that has no project to say which. */
+export function onAccountOf<A extends unknown[], R>(account: ClaudeAccount, fn: (...args: A) => R) {
+  return (...args: A): R => onAccount(account, () => fn(...args));
+}
+
+/** The account the call being made spends from. */
+export function smallModelAccount(): ClaudeAccount {
+  return accountScope.getStore() ?? DEFAULT_CLAUDE_ACCOUNT;
+}
+
+/** A model's id as the rest list keeps it: a Claude model's per account,
+ *  since the two accounts' limits are their own; any other harness's as it is. */
+function restKey(id: string): string {
+  const claude = id !== "codex" && (!id.includes(":") || id.startsWith("claude:"));
+  return claude ? `${smallModelAccount()}/${id}` : id;
 }
 
 /** Who stands in when the memory model can't answer: the other harness's
@@ -223,9 +263,13 @@ export function quietCodex(): string | undefined {
   }
 }
 
-function makeClient(): Yagami {
+function makeClient(account: ClaudeAccount): Yagami {
   const codex = quietCodex();
-  return new Yagami(codex ? { providerConfig: { codex: { path: codex } } } : {});
+  const claudeDir = claudeConfigDir(account);
+  return new Yagami({
+    ...(codex ? { providerConfig: { codex: { path: codex } } } : {}),
+    ...(claudeDir ? { claudeConfigDir: claudeDir } : {}),
+  });
 }
 
 /**
@@ -235,7 +279,12 @@ function makeClient(): Yagami {
  * are killed.
  */
 const streamed: Completer = async (request, signal) => {
-  client ??= makeClient();
+  const account = smallModelAccount();
+  let client = clients.get(account);
+  if (!client) {
+    client = makeClient(account);
+    clients.set(account, client);
+  }
   const { events } = client.engine.stream(request, { signal });
   let text = "";
   for await (const { event, data } of events) {
@@ -370,7 +419,7 @@ async function completeNow(
   const primary = model();
   const order = models ?? [primary, fallbackFor(primary)];
   const now = Date.now();
-  const ready = order.filter((id) => (resting.get(id) ?? 0) <= now);
+  const ready = order.filter((id) => (resting.get(restKey(id)) ?? 0) <= now);
   let failure: unknown;
   for (const id of ready.length > 0 ? ready : order) {
     // two goes each: a cold CLI, a turn spent on nothing — the second
@@ -379,7 +428,7 @@ async function completeNow(
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const text = await ask(request(id), maxTokens);
-        resting.delete(id);
+        resting.delete(restKey(id));
         return text;
       } catch (error) {
         failure = error;
@@ -387,7 +436,7 @@ async function completeNow(
         if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 800));
       }
     }
-    resting.set(id, Date.now() + REST_MS);
+    resting.set(restKey(id), Date.now() + REST_MS);
   }
   throw failure;
 }

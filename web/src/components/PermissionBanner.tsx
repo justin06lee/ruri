@@ -1,5 +1,6 @@
 import { HOME_ID, leadOf, type PermissionRequest, type TalkAsk } from "../../../shared/protocol";
 import { harnessName } from "../lib/models";
+import { useSessionsMode } from "../lib/sessionsMode";
 import { Markdown } from "../markdown";
 import { answerCard, showError, useRuri } from "../store";
 import { Icon, toolIcon } from "./chat/Icon";
@@ -88,6 +89,9 @@ const REPLY_WORD: Record<TalkAsk["reply"], string> = {
  *  bypass mode, every message waits on this. */
 function MessageCard({ request }: { request: PermissionRequest }) {
   const ask = request.input as TalkAsk;
+  // a project that is one chat has no lead to speak of: the message goes
+  // to its chat
+  const oneChat = useSessionsMode();
   const respond = (allow: boolean) => {
     if (!answerCard({ type: "permission_response", requestId: request.requestId, allow })) {
       showError("Not connected — the answer did not go through; try again once ruri is back.");
@@ -102,7 +106,7 @@ function MessageCard({ request }: { request: PermissionRequest }) {
         </span>
         {ask.opening ? (
           <>
-            wants to open <b>{ask.project}</b> as a project and send its lead
+            wants to open <b>{ask.project}</b> as a project and send its {oneChat ? "chat" : "lead"}
           </>
         ) : (
           <>

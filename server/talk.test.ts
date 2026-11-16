@@ -24,6 +24,7 @@ import {
 } from "./handlers/talk.js";
 import { promptHandlers } from "./handlers/prompts.js";
 import { SendQueues } from "./queue.js";
+import { handsOn } from "./handlers/team.js";
 import { TeamGovernor } from "./team.js";
 import {
   asksTheLead,
@@ -178,10 +179,12 @@ function world(
   modes: Record<string, PermissionMode> = {},
   /** Another run's archive, for a relaunch: transcripts outlive the process. */
   events: Record<string, TranscriptEvent[]> = {},
+  /** Projects that are one chat each (Sessions mode), in place of the teams. */
+  oneChat?: Project[],
 ) {
   // a and c are members; b is api's liaison — the chat other projects'
   // agents reach — and each project has its lead, the user's
-  const projects: Project[] = [
+  const projects: Project[] = oneChat ?? [
     {
       id: "p",
       name: "web",
@@ -211,6 +214,8 @@ function world(
   const interrupted: string[] = [];
   const broadcast = (message: ServerMessage) => said.push(message);
   const ctx = {
+    // teams, unless the projects handed in are one chat each
+    prefs: { all: () => (oneChat ? {} : { "ruri-sessions-mode": "team" }) },
     store: {
       list: () => projects,
       workspaceDir: () => "/tmp",
@@ -856,6 +861,145 @@ describe("an agent deciding who to disturb, and handing jobs to other projects",
     expect((await going).text).toContain("did not let");
     expect(ctx.queues.entries.get("b")).toBeUndefined();
     expect(said.filter((m) => m.type === "permission_request")).toHaveLength(1);
+  });
+});
+
+/* ── a project that is one chat (Sessions mode) ───────────────────── */
+
+/** Three projects as the sidebar has them: one chat each, its lead. */
+function sidebar(modes: Record<string, PermissionMode> = {}) {
+  return world(modes, {}, [
+    { id: "p", name: "web", path: "/tmp/web", sessions: [{ id: "web-chat", title: "Lead", lead: true }] },
+    { id: "q", name: "api", path: "/tmp/api", sessions: [{ id: "api-chat", title: "Lead", lead: true }] },
+    // as a disk hands the name over: decomposed, each syllable its jamo
+    {
+      id: "r",
+      name: "공항".normalize("NFD"),
+      path: "/tmp/air",
+      sessions: [{ id: "air-chat", title: "Lead", lead: true }],
+    },
+  ]);
+}
+
+describe("a project that is one chat messages the other projects' chats", () => {
+  test("the list is the other chats on the sidebar, by project — no liaison, and not itself", () => {
+    const { ctx } = sidebar();
+    const listed = listSeats(ctx, "web-chat");
+    expect(listed).toContain(`${ctx.talk.handleOf("api-chat")}  api — /tmp/api`);
+    expect(listed).toContain(ctx.talk.handleOf("air-chat"));
+    expect(listed).not.toContain(ctx.talk.handleOf("web-chat"));
+    expect(listed).not.toContain("liaison");
+    expect(listed).toContain("where the user sees it");
+  });
+
+  test("a message to a project lands in that project's own chat, marked as the sender's project", async () => {
+    const { ctx, projects } = sidebar();
+    const sent = await sendLetter(ctx, "web-chat", { to: "api", message: "what port?", reply: "later" });
+    expect(sent.text).toContain("Sent to api");
+    expect(sent.text).not.toContain("liaison");
+    const queued = ctx.queues.entries.get("api-chat")!;
+    expect(queued).toHaveLength(1);
+    // told by its project alone: there is one chat there
+    expect(queued[0]!.from).toMatchObject({ agent: "web-chat", project: "web", title: "", reply: "later" });
+    expect(ctx.queues.visibleQueue("api-chat")[0]!.from).toBe("web");
+    // and nothing was made on the way
+    expect(projects.every((project) => project.sessions.length === 1)).toBe(true);
+  });
+
+  test("it is found by its handle, by its name in any script, and never by its own project", async () => {
+    const { ctx } = sidebar();
+    await sendLetter(ctx, "web-chat", { to: ctx.talk.handleOf("api-chat"), message: "1", reply: "none" });
+    expect(ctx.queues.entries.get("api-chat")).toHaveLength(1);
+    // typed composed, kept decomposed: the same name
+    await sendLetter(ctx, "web-chat", { to: "공항", message: "2", reply: "none" });
+    expect(ctx.queues.entries.get("air-chat")).toHaveLength(1);
+    expect((await sendLetter(ctx, "web-chat", { to: "web", message: "3" })).text).toContain(
+      "No agent answers",
+    );
+  });
+
+  test("it waits for the answer like anyone — a project's chat hands nothing on — and hears it by project", async () => {
+    const { ctx, arrive, answer } = sidebar();
+    const going = sendLetter(ctx, "web-chat", { to: "api", message: "what port?" });
+    const prompt = arrive("api-chat");
+    // the chat it reached answers for itself: nobody to hand the job to
+    expect(handsOn(ctx, "api-chat")).toBe(false);
+    const read = letterPrompt(prompt.from!, "h", prompt.text, handsOn(ctx, "api-chat"));
+    expect(read).toContain('<ruri:message from="web"');
+    expect(read).toContain("your last message goes straight back to it");
+    expect(read).not.toContain("teammate");
+    answer("api-chat", "It listens on 8080.");
+    expect(await going).toMatchObject({ text: "api answered:\n\nIt listens on 8080.", answered: true });
+    expect(ctx.talk.pending.size).toBe(0);
+  });
+
+  test("asked for later, the answer comes back to the sender's chat as a message from that project", async () => {
+    const { ctx, arrive, answer } = sidebar();
+    await sendLetter(ctx, "web-chat", { to: "api", message: "tell me when done", reply: "later" });
+    arrive("api-chat");
+    answer("api-chat", "Done.");
+    const back = ctx.queues.entries.get("web-chat")!;
+    expect(back).toHaveLength(1);
+    expect(back[0]!.from).toMatchObject({ agent: "api-chat", project: "api", title: "", answer: true });
+  });
+
+  test("a chat at work is stopped for it, then sent back to its work; \"queue\" waits instead", async () => {
+    const { ctx, statuses, interrupted } = sidebar();
+    statuses["api-chat"] = "working";
+    const cut = await sendLetter(ctx, "web-chat", { to: "api", message: "now", reply: "later" });
+    expect(cut.text).toContain("stopped what it was doing to read it");
+    expect(interrupted).toEqual(["api-chat"]);
+    const line = ctx.queues.entries.get("api-chat")!;
+    expect(line[0]!.from).toMatchObject({ agent: "web-chat", cutIn: true });
+    expect(line[1]!.resume).toBe(true);
+    expect(line[1]!.text).toContain("web's message interrupted you");
+
+    statuses["air-chat"] = "working";
+    const queued = await sendLetter(ctx, "web-chat", {
+      to: "공항",
+      message: "when you can",
+      reply: "later",
+      delivery: "queue",
+    });
+    expect(queued.text).toContain("queued behind what it is doing, as you asked");
+    expect(interrupted).toEqual(["api-chat"]);
+  });
+
+  test("ask_project is the same by name, and its own project is this chat", async () => {
+    const { ctx, projects } = sidebar();
+    const sent = await askProject(ctx, "web-chat", { project: "api", message: "run the tests", reply: "later" });
+    expect(sent.text).toContain("Sent to api");
+    expect(sent.text).not.toContain("liaison");
+    expect(ctx.queues.entries.get("api-chat")).toHaveLength(1);
+    expect(projects[1]!.sessions).toHaveLength(1);
+    const own = await askProject(ctx, "web-chat", { project: "web", message: "x" });
+    expect(own.text).toContain("do it yourself");
+    expect(ctx.queues.entries.get("web-chat")).toBeUndefined();
+  });
+
+  test("outside bypass mode the card names the project, and a no sends nothing", async () => {
+    const { ctx, said } = sidebar({ "web-chat": "default" });
+    const going = sendLetter(ctx, "web-chat", { to: "api", message: "may I?", reply: "later" });
+    const card = said.find((m) => m.type === "permission_request");
+    expect(card?.type === "permission_request" && card.request.input).toMatchObject({
+      to: "api-chat",
+      project: "api",
+      title: "",
+    });
+    answerTalk(ctx, card?.type === "permission_request" ? card.request.requestId : "", false);
+    expect((await going).text).toContain("did not let that message go to api");
+    expect(ctx.queues.entries.get("api-chat")).toBeUndefined();
+  });
+
+  test("the user's limits hold between projects here too", async () => {
+    const { ctx } = sidebar();
+    ctx.talk.setPolicy({ everyone: { to: "listed", projects: ["q"] }, projects: {} });
+    expect((await sendLetter(ctx, "web-chat", { to: "공항", message: "x" })).text).toContain("has not let you");
+    expect(listSeats(ctx, "web-chat")).toContain("1 other project is off limits");
+    expect((await sendLetter(ctx, "web-chat", { to: "api", message: "y", reply: "none" })).text).toContain(
+      "Sent to api",
+    );
+    ctx.talk.setPolicy(defaultPolicy());
   });
 });
 

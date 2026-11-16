@@ -313,10 +313,13 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         bridge,
         // the other agents open in ruri: tools, or the same over HTTP —
         // told how long one call waits on this harness
-        // (with no team, other projects stay in reach through the project
-        // chat's brief — ask_project — and nothing else)
+        // (with no team, the other projects' chats are in reach: Claude
+        // is told in the project chat's brief, with the tools; any other
+        // harness's project chat here, over HTTP)
         talk: plain
-          ? ""
+          ? owner && !claude && leadOf(owner)?.id === project.id
+            ? talkHttpBriefing(talkEndpoint, httpWaitMs(harness), false, true)
+            : ""
           : claude
             ? talkToolBriefing(!!head)
             : talkHttpBriefing(talkEndpoint, httpWaitMs(harness), !!head),
@@ -369,7 +372,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
           mcpServers: {
             ruri: componentTools(ctx.componentHost, project.id, [
               ...(plain
-                ? talkTools(talkHost(ctx), project.id).filter((t) =>
+                ? talkTools(talkHost(ctx), project.id, false, true).filter((t) =>
                     PLAIN_TALK_TOOLS.includes(`mcp__ruri__${t.name}`),
                   )
                 : talkTools(talkHost(ctx), project.id, !!head)),

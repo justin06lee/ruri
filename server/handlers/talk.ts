@@ -13,6 +13,12 @@
  * there, never at the lead the user talks to, and the liaison is made the
  * first time one does.
  *
+ * Where a project is one chat (Sessions mode, server/sessionsMode.ts) there
+ * is no liaison and no team: another project is reached at its own chat,
+ * the one on the user's sidebar. The message lands there, where the user
+ * sees it, cutting in on a turn at work the way any message does, and that
+ * chat's last words are its answer.
+ *
  * A lead or a liaison hands its jobs on. A message it is answering is
  * answered when the job is done: by the turn it started when that turn
  * sent nothing on; otherwise by the turn the last answer to what it sent
@@ -56,11 +62,13 @@ import {
   type TalkHost,
 } from "../talk.js";
 import { warn } from "../log.js";
+import { foldName } from "../finder.js";
 import { expandPath } from "../projects.js";
 import { handOff, heldReport, taskSettled, tasksOf } from "../workers.js";
 import type { QueueEntry } from "../queue.js";
 import { createManagerHost } from "./projects.js";
 import {
+  handsOn,
   hasSlot,
   headOf,
   isMemberChat,
@@ -82,8 +90,16 @@ interface Found {
 }
 
 /** Who a chat can reach: the rest of its own project's team — its lead,
- *  its liaison, its members — and every other project, through its door. */
+ *  its liaison, its members — and every other project, through its door.
+ *  Where a project is one chat, every other project's own chat, and no
+ *  one else. */
 function seats(ctx: ServerContext, self: string): Found[] {
+  if (sessionsMode(ctx))
+    return ctx.store.list().flatMap((project) => {
+      if (project.sessions.some((session) => session.id === self)) return [];
+      const chat = leadOf(project);
+      return chat ? [{ project, session: chat }] : [];
+    });
   return ctx.store.list().flatMap((project) => {
     const mine = project.sessions.some((session) => session.id === self);
     if (mine)
@@ -95,14 +111,23 @@ function seats(ctx: ServerContext, self: string): Found[] {
   });
 }
 
-function nameOf(seat: Found): string {
-  return seat.door ? `${seat.project.name}'s liaison` : seatName(seat.project.name, seat.session.title ?? "");
+/** A chat's title as the others are told it: none for a project's own
+ *  chat where a project is one chat — there it goes by its project. */
+function titleOf(ctx: ServerContext, project: Project, session: SessionInfo): string {
+  return sessionsMode(ctx) && leadOf(project)?.id === session.id ? "" : (session.title ?? "");
 }
 
-/** "Frontend UI", "ruri · frontend ui", "ruri/Frontend UI" all read alike. */
+function nameOf(ctx: ServerContext, seat: Found): string {
+  return seat.door
+    ? `${seat.project.name}'s liaison`
+    : seatName(seat.project.name, titleOf(ctx, seat.project, seat.session));
+}
+
+/** "Frontend UI", "ruri · frontend ui", "ruri/Frontend UI" all read alike —
+ *  and so does a name in any script, however the disk or the keyboard
+ *  spelled its characters (foldName). */
 function plain(text: string): string {
-  return text
-    .toLowerCase()
+  return foldName(text)
     .replace(/[·/:|—–-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -137,7 +162,7 @@ function findSeat(ctx: ServerContext, to: string, self: string): Found | string 
   if (named.length === 0 && layered.length === 1) return layered[0]!;
   if (named.length > 1)
     return `More than one agent answers to "${to}": use its handle from list_agents (${named
-      .map((seat) => `${ctx.talk.handleOf(seat.session.id)} is ${nameOf(seat)}`)
+      .map((seat) => `${ctx.talk.handleOf(seat.session.id)} is ${nameOf(ctx, seat)}`)
       .join(", ")}).`;
   return `No agent answers to "${to}". list_agents shows who you may message, and each one's handle.`;
 }
@@ -216,7 +241,25 @@ export function listSeats(ctx: ServerContext, channelId: string): string {
   if (open.length === 0) {
     return offLimits
       ? `There is no one you may message right now: ${offLimits}`
-      : "There is no one to message: no teammates yet, and no other project open in ruri.";
+      : sessionsMode(ctx)
+        ? "There is no one to message: no other project is open in ruri."
+        : "There is no one to message: no teammates yet, and no other project open in ruri.";
+  }
+  if (sessionsMode(ctx)) {
+    // a project is one chat: the others are the chats on the user's sidebar
+    const lines = ["Other projects' chats you may message — handle, project, model, what it is doing right now:"];
+    for (const seat of open) {
+      const model = channelProject(ctx, seat.session.id)?.model || ctx.store.defaultModel();
+      lines.push(
+        `  ${ctx.talk.handleOf(seat.session.id)}  ${seat.project.name} — ${seat.project.path} · ${model} — ${doing(ctx, seat.session.id)}`,
+      );
+    }
+    lines.push(
+      "",
+      'A message lands in that project\'s own chat, where the user sees it, and interrupts it if it is working unless you send it with delivery "queue". ask_project (or {"do": "project"}) does the same by the project\'s name — or takes a folder\'s path, opened as a project first.',
+    );
+    if (offLimits) lines.push("", offLimits);
+    return lines.join("\n");
   }
   const lines: string[] = ["Agents you may message — handle, chat, model, what it is doing right now:"];
   for (const project of ctx.store.list()) {
@@ -466,7 +509,7 @@ function waitAgain(via: WaitOptions["via"], letter: string): string {
 
 function whoIs(ctx: ServerContext, chat: string): string {
   const found = ctx.store.findSession(chat);
-  return found ? seatName(found.project.name, found.session.title ?? "") : "that agent";
+  return found ? seatName(found.project.name, titleOf(ctx, found.project, found.session)) : "that agent";
 }
 
 /** The message as the other chat receives it: whose, and what it wants back. */
@@ -512,10 +555,11 @@ export async function sendLetter(
   const door = found.door === true;
   const had = door ? liaisonOf(found.project) : found.session;
   let target = had?.id ?? "";
-  const toName = nameOf(found);
+  const toName = nameOf(ctx, found);
   // a lead — or the liaison — hands jobs on and stays free: what it sends
-  // comes back "later", whatever it asked for
-  const head = headOf(ctx, channelId) !== undefined;
+  // comes back "later", whatever it asked for (a project that is one chat
+  // has neither: it waits like anyone)
+  const head = handsOn(ctx, channelId);
   const reply: TalkReply = head ? (args.reply === "none" ? "none" : "later") : (args.reply ?? "wait");
   const book = ctx.talk;
   const id = randomUUID();
@@ -555,7 +599,7 @@ export async function sendLetter(
       to: target || found.session.id,
       project: found.project.name,
       // another project, through its liaison, is the project on the card
-      title: door ? "" : (found.session.title ?? ""),
+      title: door ? "" : titleOf(ctx, found.project, found.session),
       text,
       reply,
     });
@@ -588,7 +632,7 @@ export async function sendLetter(
     depth,
     text,
     ts: base.ts,
-    sender: { project: me.project.name, title: me.session.title ?? "" },
+    sender: { project: me.project.name, title: titleOf(ctx, me.project, me.session) },
     stage: "queued",
     ...(owes ? { for: owes } : {}),
     waiters: new Set(),
@@ -702,11 +746,14 @@ export async function askProject(
   const query = args.project.trim();
   const open = ctx.store.findByQuery(query);
   const dir = open ? open.path : expandPath(query, ctx.store.workspaceDir());
+  const oneChat = sessionsMode(ctx);
   if (open?.id === me.project.id) {
     return {
-      text: headOf(ctx, channelId)
-        ? `${open.name} is your own project: hand the job to a teammate with message_agent (team shows who), or add one with add_teammate when no one holds its layer.`
-        : `${open.name} is your own project: message the teammate whose part it is (list_agents shows the team), or ask whoever handed you the job.`,
+      text: oneChat
+        ? `${open.name} is your own project, and this chat is the one that works in it: do it yourself.`
+        : headOf(ctx, channelId)
+          ? `${open.name} is your own project: hand the job to a teammate with message_agent (team shows who), or add one with add_teammate when no one holds its layer.`
+          : `${open.name} is your own project: message the teammate whose part it is (list_agents shows the team), or ask whoever handed you the job.`,
     };
   }
   if (!open) {
@@ -730,7 +777,7 @@ export async function askProject(
       text: `The user has not let you message ${where}: their talk settings say who you may message. list_agents shows where you can.`,
     };
   }
-  const reply: TalkReply = headOf(ctx, channelId)
+  const reply: TalkReply = handsOn(ctx, channelId)
     ? args.reply === "none"
       ? "none"
       : "later"
@@ -762,8 +809,9 @@ export async function askProject(
     if (!project) return { text: `Couldn't open ${dir}: ${said}` };
   }
   // its door: the liaison it has, or its lead's handle, which reaches the
-  // liaison made for this message
-  const door = liaisonOf(project) ?? leadOf(project);
+  // liaison made for this message — or, where a project is one chat, that
+  // chat itself
+  const door = oneChat ? leadOf(project) : (liaisonOf(project) ?? leadOf(project));
   if (!door) return { text: `Couldn't reach ${project.name}.` };
   const sent = await sendLetter(
     ctx,
@@ -771,6 +819,7 @@ export async function askProject(
     { to: ctx.talk.handleOf(door.id), message: text, ...(args.reply ? { reply: args.reply } : {}), approved },
     opts,
   );
+  if (oneChat) return { ...sent, text: `${open ? "" : `Opened ${project.name}. `}${sent.text}` };
   const liaison = liaisonOf(project);
   return {
     ...sent,
@@ -845,7 +894,9 @@ function waitOn(ctx: ServerContext, pending: Pending, opts: WaitOptions): Promis
 function notYet(ctx: ServerContext, pending: Pending, via: WaitOptions["via"]): string {
   const who = whoIs(ctx, pending.to);
   const state = ctx.talk.outstanding(pending.id)
-    ? "has handed your message on to its team, and answers when what it is waiting on comes back"
+    ? sessionsMode(ctx)
+      ? "has asked another chat something for your message, and answers when that comes back"
+      : "has handed your message on to its team, and answers when what it is waiting on comes back"
     : pending.stage === "working"
       ? doing(ctx, pending.to) === "waiting on the user"
         ? "is on your message, waiting on its user"
@@ -974,7 +1025,7 @@ function sendBack(ctx: ServerContext, pending: Pending): void {
   const from: LetterFrom = {
     agent: pending.to,
     project: found?.project.name ?? "a closed project",
-    title: found?.session.title ?? "",
+    title: found ? titleOf(ctx, found.project, found.session) : "",
     letter: pending.id,
     reply: "none",
     answer: true,
@@ -990,6 +1041,7 @@ function sendBack(ctx: ServerContext, pending: Pending): void {
   if (
     ending.outcome === "answered" &&
     !pending.for &&
+    !sessionsMode(ctx) &&
     headOf(ctx, pending.from)?.head === "lead" &&
     isMemberChat(ctx, pending.to) &&
     !asksTheLead(ending.text)

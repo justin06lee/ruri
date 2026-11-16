@@ -104,9 +104,17 @@ export function cleanClaudeModels(
   list: RawClaudeModel[],
   known?: ReadonlyMap<string, string>,
 ): ModelChoice[] {
+  // the "default" alias goes, but which model it stands for is kept: the
+  // first entry resolving to the same one is the catalog's own default
+  // (shared/modelLine.ts catalogDefault), so ruri never has to name one
+  const recommended = list.find((m) => m.id === "default")?.resolved_model;
+  const standsFor = recommended
+    ? list.find((m) => m.id !== "default" && m.resolved_model === recommended)?.id
+    : undefined;
   const named = list
     .filter((m) => m.id !== "default")
     .map((m) => ({
+      ...(m.id === standsFor ? { providerDefault: true as const } : {}),
       value: m.id,
       displayName:
         nameFromId(m.resolved_model) ??

@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import {
-  DEFAULT_EFFORT,
   DEFAULT_PERMISSION_MODE,
   EFFORT_LEVELS,
   type PermissionMode,
@@ -21,7 +20,8 @@ const PERMISSION_MODES = (
   ] satisfies Array<{ value: PermissionMode; label: string }>
 ).map((mode) => ({ ...mode, icon: <PickIcon kind="permission" value={mode.value} /> }));
 
-// no "default" entry — an unset effort simply IS xhigh (DEFAULT_EFFORT)
+// no "default" entry — an unset effort simply IS the default chosen in
+// Settings (the store's defaultEffort)
 const EFFORT_OPTIONS = EFFORT_LEVELS.map((level) => ({
   value: level,
   label: level === "xhigh" ? "XHigh" : level[0]!.toUpperCase() + level.slice(1),
@@ -70,7 +70,8 @@ export function SessionControls({
     : selected
       ? []
       : EFFORT_OPTIONS;
-  const pickedEffort = project.effort || DEFAULT_EFFORT;
+  const defaultEffort = useRuri((s) => s.defaultEffort);
+  const pickedEffort = project.effort || defaultEffort;
   const supportedEffort = effortOptions.some((option) => option.value === pickedEffort);
   const fallbackEffort = selected?.defaultEffort ?? effortOptions[0]?.value;
   // A project can carry xhigh from its previous model. Once a new catalog

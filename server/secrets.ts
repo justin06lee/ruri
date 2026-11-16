@@ -34,6 +34,14 @@ import { isMissing, warn } from "./log.js";
  * that deliberately prints one — so anything ruri sees come back gets
  * redacted on the way into the transcript, and the instruction the model
  * gets is explicit about never echoing them.
+ *
+ * The values come from two places. ruri's own file on this machine
+ * (secrets.json, mode 0600) is the one it always had. The other is the
+ * ghostly vault, when this machine has one (server/vault.ts keeps the two
+ * in step): what the owner shares there is read into memory here and
+ * never written down by ruri, so taking a secret back in the vault takes
+ * it back from ruri too. From there on the two are used alike — and where
+ * both hold a name, the vault's is the one that answers to it.
  */
 
 interface SecretRecord {
@@ -42,6 +50,22 @@ interface SecretRecord {
   username?: string;
   note?: string;
   value: string;
+  updated: number;
+}
+
+/** One the ghostly vault holds: here in memory for as long as ghostly lists
+ *  it, and on ruri's disk never. Its id is the vault's own. */
+export interface GhostlyRecord {
+  id: string;
+  name: string;
+  username?: string;
+  /** Empty when ghostly would not hand it over (humanOnly) or the read failed. */
+  value: string;
+  /** The owner marked it for people only: listed, never read. */
+  humanOnly?: boolean;
+  /** The shared collection it is in; none for one in the agent's own vault. */
+  collection?: string;
+  /** When ruri last read it. */
   updated: number;
 }
 
@@ -58,6 +82,12 @@ function envSlug(name: string): string {
     .toUpperCase();
 }
 
+/** What makes two names the same secret: they would share an environment
+ *  variable, or (a name with no letter or digit in it) are spelled alike. */
+function nameKey(name: string): string {
+  return envSlug(name) || name.trim().toLowerCase();
+}
+
 /** Placeholder handles a name answers to: {{name}}, and its env slug. */
 function handles(name: string): string[] {
   const slug = envSlug(name);
@@ -65,42 +95,166 @@ function handles(name: string): string[] {
 }
 
 export class SecretStore {
-  private records: SecretRecord[] = [];
+  /** The ones kept in ruri's own file on this machine. */
+  private local: SecretRecord[] = [];
+  /** The ones the ghostly vault holds, as last read: memory only. */
+  private ghostly: GhostlyRecord[] = [];
+  /** What each of the vault's is for, in the user's words, by its id. The
+   *  vault has no place for it that ghostly writes, so it is kept here. */
+  private notes: Record<string, string> = {};
+  private readonly file = secretsFile();
 
   constructor() {
     try {
-      const raw = JSON.parse(fs.readFileSync(secretsFile(), "utf8")) as { secrets?: SecretRecord[] };
-      this.records = (Array.isArray(raw.secrets) ? raw.secrets : []).filter(
+      const raw = JSON.parse(fs.readFileSync(this.file, "utf8")) as {
+        secrets?: SecretRecord[];
+        ghostlyNotes?: Record<string, string>;
+      };
+      this.local = (Array.isArray(raw.secrets) ? raw.secrets : []).filter(
         (r) => typeof r?.name === "string" && typeof r?.value === "string",
       );
+      if (raw.ghostlyNotes && typeof raw.ghostlyNotes === "object") {
+        this.notes = Object.fromEntries(
+          Object.entries(raw.ghostlyNotes).filter(([, note]) => typeof note === "string" && note),
+        );
+      }
     } catch (err) {
       if (!isMissing(err)) warn("secrets", err, "new SecretStore");
-      this.records = [];
+      this.local = [];
     }
   }
 
   private save(): void {
     try {
       // every save is a fresh temp file renamed into place, so the mode
-      // takes each time rather than only on the first
-      writeJsonAtomic(secretsFile(), { secrets: this.records }, 2, 0o600);
+      // takes each time rather than only on the first. The vault's values
+      // are not in what is written: only ruri's own, and the notes.
+      writeJsonAtomic(
+        this.file,
+        { secrets: this.local, ...(Object.keys(this.notes).length > 0 ? { ghostlyNotes: this.notes } : {}) },
+        2,
+        0o600,
+      );
     } catch (err) {
       warn("secrets", err, "save");
       // best-effort persistence
     }
   }
 
+  /**
+   * The ones a name answers with, the vault's first: where both places
+   * hold a name, the vault's is used and the other waits behind it. One
+   * of the vault's that ruri holds no value for — kept for people only,
+   * or not read yet — is not among them: there is nothing to use, so it
+   * is not offered to a model and stands in front of nothing.
+   */
+  private get records(): SecretRecord[] {
+    const seen = new Set<string>();
+    const out: SecretRecord[] = [];
+    const held = this.ghostly.filter((g) => g.value).map((g) => this.asRecord(g));
+    for (const r of [...held, ...this.local]) {
+      const key = nameKey(r.name);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(r);
+    }
+    return out;
+  }
+
+  private asRecord(g: GhostlyRecord): SecretRecord {
+    const note = this.notes[g.id];
+    return {
+      id: g.id,
+      name: g.name,
+      ...(g.username ? { username: g.username } : {}),
+      ...(note ? { note } : {}),
+      value: g.value,
+      updated: g.updated,
+    };
+  }
+
   /** What the UI is allowed to know: everything except the values. */
   meta(): SecretMeta[] {
-    return this.records.map((r) => ({
-      id: r.id,
-      name: r.name,
-      ...(r.username ? { username: r.username } : {}),
-      ...(r.note ? { note: r.note } : {}),
-      hasValue: r.value.length > 0,
-      updated: r.updated,
-    }));
+    // by name, the one that answers to it: another of that name is behind it
+    const answers = new Map(this.records.map((r) => [nameKey(r.name), r.id]));
+    const behind = (r: { id: string; name: string }): boolean =>
+      (answers.get(nameKey(r.name)) ?? r.id) !== r.id;
+    return [
+      ...this.ghostly.map((g): SecretMeta => {
+        const note = this.notes[g.id];
+        return {
+          id: g.id,
+          name: g.name,
+          ...(g.username ? { username: g.username } : {}),
+          ...(note ? { note } : {}),
+          hasValue: g.value.length > 0,
+          updated: g.updated,
+          store: "ghostly",
+          ...(g.humanOnly ? { humanOnly: true } : {}),
+          ...(g.collection ? { collection: g.collection } : {}),
+          ...(behind(g) ? { shadowed: true } : {}),
+        };
+      }),
+      ...this.local.map((r): SecretMeta => ({
+        id: r.id,
+        name: r.name,
+        ...(r.username ? { username: r.username } : {}),
+        ...(r.note ? { note: r.note } : {}),
+        hasValue: r.value.length > 0,
+        updated: r.updated,
+        ...(behind(r) ? { shadowed: true } : {}),
+      })),
+    ];
   }
+
+  /* ── the vault's ────────────────────────────────────────────────── */
+
+  /** Everything the vault shares, as just read: what is no longer in the
+   *  list is no longer here. */
+  setGhostly(records: GhostlyRecord[]): void {
+    this.ghostly = records.map((r) => ({ ...r }));
+  }
+
+  /** One of the vault's, by its id — value and all, for the server alone. */
+  ghostlyOne(id: string): GhostlyRecord | undefined {
+    return this.ghostly.find((g) => g.id === id);
+  }
+
+  /** The vault's one of this name, however it is cased. */
+  ghostlyNamed(name: string): GhostlyRecord | undefined {
+    const wanted = name.trim().toLowerCase();
+    return this.ghostly.find((g) => g.name.trim().toLowerCase() === wanted);
+  }
+
+  /** Every one of the vault's, as held. */
+  ghostlyAll(): GhostlyRecord[] {
+    return this.ghostly.map((g) => ({ ...g }));
+  }
+
+  /** What one of the vault's is for. Kept in ruri's file, by the item's id. */
+  noteGhostly(id: string, note: string | undefined): void {
+    const next = note?.trim();
+    if ((this.notes[id] ?? "") === (next ?? "")) return;
+    if (next) this.notes[id] = next;
+    else delete this.notes[id];
+    this.save();
+  }
+
+  /** One of ruri's own, by its id — value and all, for the server alone. */
+  localOne(
+    id: string,
+  ): { id: string; name: string; username?: string; note?: string; value: string } | undefined {
+    const found = this.local.find((r) => r.id === id);
+    return found ? { ...found } : undefined;
+  }
+
+  /** ruri's own one of this name, however it is cased. */
+  localNamed(name: string): { id: string } | undefined {
+    const wanted = name.trim().toLowerCase();
+    return this.local.find((r) => r.name.toLowerCase() === wanted);
+  }
+
+  /* ── ruri's own ─────────────────────────────────────────────────── */
 
   /** Add or edit one. An absent `secret` leaves the stored value alone, so
    *  fixing a typo in a note never costs you the password. */
@@ -108,8 +262,8 @@ export class SecretStore {
     const name = patch.name.trim();
     if (!name) return;
     const existing = patch.id
-      ? this.records.find((r) => r.id === patch.id)
-      : this.records.find((r) => r.name.toLowerCase() === name.toLowerCase());
+      ? this.local.find((r) => r.id === patch.id)
+      : this.local.find((r) => r.name.toLowerCase() === name.toLowerCase());
     if (existing) {
       existing.name = name;
       existing.username = patch.username?.trim() || undefined;
@@ -117,7 +271,7 @@ export class SecretStore {
       if (patch.secret !== undefined && patch.secret !== "") existing.value = patch.secret;
       existing.updated = Date.now();
     } else {
-      this.records.push({
+      this.local.push({
         id: randomUUID(),
         name,
         ...(patch.username?.trim() ? { username: patch.username.trim() } : {}),
@@ -130,7 +284,7 @@ export class SecretStore {
   }
 
   remove(id: string): void {
-    this.records = this.records.filter((r) => r.id !== id);
+    this.local = this.local.filter((r) => r.id !== id);
     this.save();
   }
 
@@ -200,7 +354,8 @@ export class SecretStore {
   redact(text: string): string {
     if (!text) return text;
     let out = text;
-    for (const record of this.records) {
+    // every value held, the ones standing behind another of their name too
+    for (const record of [...this.ghostly, ...this.local]) {
       // a short value would match half the words in a log line
       if (record.value.length < 6) continue;
       out = out.replaceAll(record.value, `{{${record.name}}}`);

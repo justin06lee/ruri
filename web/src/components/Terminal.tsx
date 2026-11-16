@@ -1,19 +1,23 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { getPref, setPref } from "../prefs";
 import { onTerminal, send, useRuri } from "../store";
 import { MAC } from "../lib/keys";
 
 /**
- * The composer's other mode: real shells in the project's directory, in the
- * box you'd otherwise type a prompt into. They're the same shell you'd get in
- * Terminal.app — your rc files, your prompt, your colors — and they keep
- * running while you're away, so coming back finds them where you left them.
+ * The shell pane: real shells in the project's directory, in a split at the
+ * foot of the chat — under the conversation and its composer, which stay
+ * what they were. They're the same shell you'd get in Terminal.app — your
+ * rc files, your prompt, your colors — and they keep running while the pane
+ * is put away, so coming back finds them where you left them.
  *
  * A channel can have as many as you open tabs for. The tab row is the
- * server's: it outlives the window, so reopening the panel finds the same
- * row, each tab starting a fresh shell the first time it's looked at.
+ * server's: it outlives the window, so reopening the pane finds the same
+ * row, each tab starting a fresh shell the first time it's looked at. A
+ * shell that is quit takes its tab with it, and the last one going takes
+ * the pane (store.ts, terminal_tabs).
  *
  * The type is the app's mono face and the colors come from the theme
  * tokens, read off the document so light, dark and ember all just work.
@@ -53,8 +57,8 @@ function themeColors(): Record<string, string> {
   };
 }
 
-/** Which tab each channel was last looking at — the panel unmounts every
- *  time you switch back to writing a prompt, and coming back should land on
+/** Which tab each channel was last looking at — the pane unmounts when it
+ *  is put away or another chat is opened, and coming back should land on
  *  the shell you were using, not the first one. */
 const lastTab = new Map<string, string>();
 
@@ -141,7 +145,17 @@ function TerminalView({ channelId, termId, shown }: { channelId: string; termId:
   return <div className={`terminal-view ${shown ? "" : "hidden"}`} ref={hostRef} />;
 }
 
-export function TerminalPanel({ channelId }: { channelId: string }) {
+function TerminalPanel({
+  channelId,
+  name,
+  onHide,
+}: {
+  channelId: string;
+  /** Whose shell this is, said at the end of the tab row. */
+  name: string;
+  /** Put the pane away; the shells go on running. */
+  onHide(): void;
+}) {
   const tabs = useRuri((s) => s.terminals[channelId]);
   const [active, setActive] = useState<string | null>(() => lastTab.get(channelId) ?? null);
 
@@ -249,12 +263,102 @@ export function TerminalPanel({ channelId }: { channelId: string }) {
             <path d="M12 5v14M5 12h14" />
           </svg>
         </button>
+        <span className="term-where">{name} · shell</span>
+        <button className="term-hide" title="Put the shell away — it keeps running (Ctrl+`)" onClick={onHide}>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
       </div>
       <div className="term-stack">
         {open.map((id) => (
           <TerminalView key={id} channelId={channelId} termId={id} shown={id === active} />
         ))}
       </div>
+    </div>
+  );
+}
+
+/** How tall the pane is, remembered on this machine across chats. */
+const HEIGHT_PREF = "ruri-shell-height";
+const DEFAULT_HEIGHT = 300;
+const MIN_HEIGHT = 120;
+/** What the chat above keeps however far the pane is dragged up: its
+ *  composer, and a little of the conversation over it. */
+const CHAT_KEEPS = 240;
+
+function savedHeight(): number {
+  const saved = Number(getPref(HEIGHT_PREF));
+  return Number.isFinite(saved) && saved >= MIN_HEIGHT ? saved : DEFAULT_HEIGHT;
+}
+
+/**
+ * A chat's shell, as a split at the foot of its pane (ChatPane.tsx puts it
+ * last in the pane, which is a column): the tab row and the shells under a
+ * top edge that drags to resize. The chat's composer floats over the foot
+ * of the conversation, so the pane says how tall it stands (--shell-h on
+ * the pane) and the composer stands that much higher.
+ */
+export function ShellPane({ channelId, name }: { channelId: string; name: string }) {
+  const setShellOpen = useRuri((s) => s.setShellOpen);
+  const [height, setHeight] = useState(savedHeight);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ y: number; height: number } | null>(null);
+
+  // as tall as it really stands — the window can be shorter than it asks
+  useLayoutEffect(() => {
+    const pane = paneRef.current;
+    const chat = pane?.parentElement;
+    if (!pane || !chat) return;
+    const measure = () => chat.style.setProperty("--shell-h", `${pane.offsetHeight}px`);
+    const observer = new ResizeObserver(measure);
+    observer.observe(pane);
+    measure();
+    return () => {
+      observer.disconnect();
+      chat.style.removeProperty("--shell-h");
+    };
+  }, []);
+
+  const most = () => Math.max(MIN_HEIGHT, (paneRef.current?.parentElement?.clientHeight ?? 800) - CHAT_KEEPS);
+
+  return (
+    <div className="shell-pane" ref={paneRef} style={{ height }}>
+      <div
+        className="shell-resize"
+        title="Drag to resize"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          drag.current = { y: e.clientY, height: paneRef.current?.offsetHeight ?? height };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          const from = drag.current;
+          if (!from) return;
+          setHeight(Math.round(Math.min(most(), Math.max(MIN_HEIGHT, from.height + from.y - e.clientY))));
+        }}
+        onPointerUp={() => {
+          if (!drag.current) return;
+          drag.current = null;
+          setPref(HEIGHT_PREF, String(height));
+        }}
+        onPointerCancel={() => {
+          drag.current = null;
+        }}
+        onDoubleClick={() => {
+          setHeight(DEFAULT_HEIGHT);
+          setPref(HEIGHT_PREF, String(DEFAULT_HEIGHT));
+        }}
+      />
+      <TerminalPanel channelId={channelId} name={name} onHide={() => setShellOpen(channelId, false)} />
     </div>
   );
 }

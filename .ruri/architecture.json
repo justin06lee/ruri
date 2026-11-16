@@ -2,20 +2,20 @@
   "description": "A desktop app for macOS and Linux for managing projects — each one lead agent the user talks to, with a team of persistent agent sessions behind it — powered by installed agent CLIs.",
   "features": [
     "Project workspaces: delegating lead, liaison card, layer teammates on demand, openable teammate/liaison chats with direct talk, Stop/Refresh controls, unstaffed chips, single-open guard",
-    "Home workspace agent: finds projects by name, opens them, hands their leads a first prompt",
-    "Any harness verbatim: Claude, Codex, OpenCode, Gemini, ACP, per-chat model/effort/permissions",
+    "Home workspace agent: finds projects by name in any language, opens them, hands leads a first prompt",
+    "Any harness verbatim: Claude, Codex, OpenCode, Gemini, ACP; catalog-driven default model and effort",
     "Streaming markdown replies: tool chips, inline diffs, read previews, unified permission cards",
-    "App-side prompt queue: reorder, merge with undo, edit, interrupt, holds on connection/limit errors",
+    "App-side prompt queue: reorder, merge with undo, edit, interrupt, hold-click send-now, error holds",
     "Attachments: images, videos, PDFs, files, region crops, viewer, sketch pad",
     "Edit and rewind: per-harness checkpoints, outside chats brought in as teammates, lost-session auto fresh-start with resend, startup-failure auto-retry",
-    "Subagents and background scripts as live cards, agents page, brief-started agents",
+    "Subagents and background scripts as live cards, agents page, brief-started agents; a running script's card shows its newest line and how long it has been quiet, and its page its output in timed stretches",
     "Agent messaging with interrupt-or-queue delivery, busy status, jobs handed to another project's lead (ask_project), per-project rules, approvals",
     "Bridge preview and takeover for web pages via hidden CDP browser and native apps via Accessibility (macOS) or X11 + AT-SPI over D-Bus (Linux)",
-    "MCP servers, plugins, marketplaces for Claude Code and Codex via Settings",
-    "Project memory as an audited log, folded from every finished turn and checked against the code, with project-wide recall by words and meaning, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup",
-    "Sessions edit layer sheets only after reading, by line number with stale-read guard",
-    "Frontend component library with freshness stamps, auto-refresh and picture capture",
-    "Self-compaction at half-window: handoff note, owed letters carried forward",
+    "MCP servers, plugins, marketplaces for Claude Code and Codex via Settings; passwords in ruri's own file or a ghostly (Bitwarden) vault, held in memory, used as {{handles}}, never shown to a model",
+    "Project memory as an audited log, folded from every finished turn and checked against the code, with project-wide recall by words and meaning, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup; sessions edit a sheet only after reading it, by line number with a stale-read guard",
+    "A sidebar you arrange (folders that fold, drag to order, one right-click menu per project), and the shell as a split pane under the chat that closes when its last shell is quit",
+    "Frontend component library with freshness stamps, auto-refresh, picture capture, per-project mycelium toggle",
+    "Model-decided self-compaction with 500k and 800k notices, handoff note or none",
     "Idle/blocked project hooks: command, webhook, or midna inbound events"
   ],
   "layers": [
@@ -84,7 +84,9 @@
         "web/src/lib/models.ts",
         "scripts/meters.ts",
         "web/src/components/TeamPage.tsx",
-        "web/src/components/Hooks.tsx"
+        "web/src/components/Hooks.tsx",
+        "web/src/lib/quiet.ts",
+        "web/src/lib/quiet.test.ts"
       ]
     },
     {
@@ -259,7 +261,10 @@
         "server/handlers/hooks.ts",
         "server/projectHooks.test.ts",
         "server/projectHooks.midna.test.ts",
-        "scripts/project-hooks.ts"
+        "scripts/project-hooks.ts",
+        "scripts/terminal.ts",
+        "server/scriptWatch.ts",
+        "server/scriptWatch.test.ts"
       ]
     },
     {
@@ -275,7 +280,9 @@
         "shared/protocol.ts",
         "shared/clientSchema.ts",
         "bunfig.toml",
-        "scripts/test-config.ts"
+        "scripts/test-config.ts",
+        "shared/modelLine.ts",
+        "shared/sidebar.ts"
       ]
     },
     {
@@ -296,7 +303,8 @@
         "scripts/provider-events.ts",
         "scripts/provider-session.ts",
         "scripts/subagents-live.ts",
-        "scripts/subagents.ts"
+        "scripts/subagents.ts",
+        "server/modelCatalog.ts"
       ]
     },
     {
@@ -359,16 +367,16 @@
     }
   ],
   "layout": [
-    "server/ — Node backend: sessions, chats, queue, checkpoints, memory, bridge, routes",
+    "server/ — Node backend: sessions, chats, queue, checkpoints, memory, bridge, vault, routes",
     "server/handlers/ — WebSocket/HTTP handlers per surface: projects, prompts, rewind, talk, skills",
-    "server/projectHooks.ts — idle/blocked hook config, midna detection, payload, retried delivery",
-    "server/projectWatch.ts — busy-period tracking and idle/blocked detection that fires project events",
+    "server/projectHooks.ts, server/projectWatch.ts — idle/blocked hooks: busy tracking, midna detection, retried delivery",
     "server/handlers/hooks.ts — hooks_get, hooks_set and hooks_test socket handlers",
     "web/src/ — React UI: ChatPane, Composer, Queue, Sidebar, Settings, theming",
     "web/src/components/ — chat, attachments, bridge, agents, architecture, ideas, tracker views",
     "web/src/components/Hooks.tsx — hooks settings: global and per-project on/off, command, webhook, token, deliveries",
+    "web/src/components/Terminal.tsx — bottom shell pane: tabs, split, put-away button",
     "web/src/lib/ — markdown, markers, models, transcript, effects, peek band helpers",
-    "shared/ — single wire contract: protocol.ts, client schema, question input",
+    "shared/ — single wire contract: protocol.ts, client schema, question input, sidebar folder layout (sidebar.ts)",
     "desktop/ — Electron shell: main, permissions, hidden bridge windows, native apps (linuxApps.ts on Linux), headless.ts frameless windows when no screen",
     "scripts/ — per-capability smoke/dev scripts run via bun run *-test",
     "docs/ — features, permissions, long-form capability docs",
@@ -474,9 +482,10 @@
           ]
         },
         {
-          "name": "Composer terminal tabs",
+          "name": "The shell pane under the chat (tabs, resize, Ctrl+`)",
           "files": [
             "web/src/components/Terminal.tsx",
+            "web/src/components/ChatPane.tsx",
             "web/src/components/Composer.tsx"
           ]
         },
@@ -524,6 +533,14 @@
             "One question shown at a time with slide navigation and persisted picks",
             "Answer sent back in harness-native shape via store send"
           ]
+        },
+        {
+          "name": "Open and quit the shell",
+          "steps": [
+            "Ctrl+` or the composer's menu opens the pane along the bottom of ChatPane.tsx (Terminal.tsx; its top edge drags, the height is a remembered pref)",
+            "the prompt stays usable above it",
+            "exit or ^D closes that tab (the server's terminal tabs message); the last one closing closes the pane and puts the caret back in the prompt"
+          ]
         }
       ],
       "files": [],
@@ -533,18 +550,21 @@
         "Keep markers as text: find, move, space and strip them only with lib/markers.ts so mirror width and wrapping stay identical to the textarea.",
         "Compaction events are solo turns in groupTurns and never fold or host other events.",
         "Sketch keeps shapes and redraws at export size with per-channel autosave; it closes only on its own close button, never on Escape.",
-        "A user event whose text opens with CARRY_ON (shared handoffNote) is ruri's carry-on after a self-compaction: render it as CarryOn, never as the user's bubble or as a letter from its `from` (with `carried` that only says whose job it still is); server continuePrompt must keep opening with CARRY_ON."
+        "A user event whose text opens with CARRY_ON (shared handoffNote) is ruri's carry-on after a self-compaction: render it as CarryOn, never as the user's bubble or as a letter from its `from` (with `carried` that only says whose job it still is); server continuePrompt must keep opening with CARRY_ON.",
+        "The shell is a pane of the chat, never a mode of the composer: Composer.tsx only asks for it to open. A channel's tab list can be empty — an empty list means no pane, not a pane to fill."
       ],
-      "edges": []
+      "edges": [
+        "Terminals, agents and integrations — the shell pane's tabs and output (server/terminal.ts); a running script's card line and its timed page come from server/scriptWatch.ts and server/scripts.ts, drawn in web/src/components/chat/AgentCard.tsx and AgentsPage.tsx with web/src/lib/quiet.ts"
+      ]
     },
     "navigation-projects": {
       "summary": "This layer moves the user between projects: a sidebar row per project (its lead behind it, the count of teammates at work beside it), HomeBoard projects overview, ⌘K/right-Option Switcher, per-chat Queue list, Rapid Fire line, SessionControls pickers, and Player music bar. It is built as presentational React components over the app store (useRuri/send) plus three small libs (fuzzy scoring, run-note staleness, Web Audio engine). Newcomers must grasp that a project is one chat for the user, its lead; its team's members never show here as their own rows, and these components navigate and display state but never own turn execution.",
       "map": [
         {
-          "name": "Sidebar project rows (one a project, its lead)",
+          "name": "Sidebar project rows (one a project, its lead), folders, and the order you drag them into",
           "files": [
             "web/src/components/Sidebar.tsx",
-            "web/src/components/Player.tsx"
+            "shared/sidebar.ts"
           ]
         },
         {
@@ -567,7 +587,7 @@
           ]
         },
         {
-          "name": "Queued prompts list",
+          "name": "Queued prompts list, and holding one to send it now",
           "files": [
             "web/src/components/Queue.tsx"
           ]
@@ -602,6 +622,12 @@
           "files": [
             "web/src/lib/runNote.ts"
           ]
+        },
+        {
+          "name": "A project's right-click menu (drawing, folder, live components)",
+          "files": [
+            "web/src/components/Sidebar.tsx"
+          ]
         }
       ],
       "flows": [
@@ -632,10 +658,28 @@
             "Next project's name announces big (the project alone) before its lead's chat rises",
             "Leaving the line restores the prior active chat"
           ]
+        },
+        {
+          "name": "Arrange the sidebar",
+          "steps": [
+            "pointer down on a row or folder lifts it after a few pixels (FolderRow / ProjectRow, the Lift)",
+            "the drop names a place: before a row, onto a folder, or out of one",
+            "send sidebar_move {id, folderId?, beforeId?} (folder_add / folder_set / folder_remove for folders)",
+            "the server changes the one layout value through shared/sidebar.ts and broadcasts sidebar",
+            "every window draws it from the store"
+          ]
+        },
+        {
+          "name": "Send a queued prompt now",
+          "steps": [
+            "press and hold its card for CUT_IN_HOLD_MS (the composer's cut-in hold), a line filling",
+            "queue_now {projectId, itemId}",
+            "the server sends it in place of the running turn, the rest keeping their order"
+          ]
         }
       ],
       "files": [
-        "web/src/components/Sidebar.tsx — project rows, team-at-work dragons and counts (teamAtWork), star/hide/remove, Home and Projects rows, account bar",
+        "web/src/components/Sidebar.tsx — project rows and FolderRow (fold, rename, remove), dragging to arrange, RowMenu (the right-click menu), team-at-work dragons and counts (teamAtWork), star/hide/remove, Home and Projects rows, account bar",
         "web/src/components/HomeBoard.tsx — HomeTab/HomeDeck/ProjectsPage grid of per-project cards: the lead's last lines (LeadLines), the whole team's status",
         "web/src/components/Switcher.tsx — ⌘K/right-Option fuzzy search over places and projects, each opening its lead",
         "web/src/components/Queue.tsx — QueuedList/QueueStandby editable held-prompt cards with drag reorder/merge",
@@ -650,11 +694,12 @@
         "HomeBoard never animates: streaming reply words and anything moving belong only to the open chat.",
         "Each project shows once here, as its lead (leadOf): the sidebar row, switcher, rapid fire line and projects board all open the lead, never a teammate. Only the team page opens a teammate or the liaison; then the row stays active. RapidFire must not move the app's active session; leaving the line returns to where the user was.",
         "SessionControls picks are per chat (session id / Home channelId), never per project.",
-        "Queued prompts stay app-side until their turn; editable/removable up to dispatch only.",
+        "Queued prompts stay app-side until their turn; editable/removable up to dispatch only. A held card (queue_now) is a press that didn't become a drag: the same pointer starts both, so keep the hold cancelled once it moves.",
         "Switcher opens on right-Option tap alone; Option held for shortcuts (e.g. ⌥→) must not open it.",
         "Finished run notes expire after FINAL_NOTE_MS (25s) so stale results don't linger across opens.",
         "Row dragons and counts show the team's work, never the lead's: one predicate (teamAtWork in Sidebar.tsx) — every session but leadOf, liaison included, isBusy — lights a project row's dragon, its count and the Projects row; only the remove confirmation still counts the lead.",
-        "A question or permission card the lead is waiting on does not light the sidebar row; the unread dot marks the lead's reply instead."
+        "A question or permission card the lead is waiting on does not light the sidebar row; the unread dot marks the lead's reply instead.",
+        "The sidebar's order and folders are the server's one value (sidebar in projects.json): change it only by sending sidebar_move / folder_* and never sort rows here — a star marks a project but no longer moves it."
       ],
       "edges": [
         "App shell, state and tooling — reads/writes store via useRuri/send/setActive/composeInto and prefs via getPref/setPref",
@@ -668,9 +713,10 @@
       "summary": "Management layer holds the secondary boards and settings pages: agents/scripts, harness integrations, skills, ideas, tracker review, talk rules, and cost/machine statistics. Pages are thin views over server state via the store's `send`/`useRuri`, with formatting shared in figures.ts and model-name helpers in models.ts. Newcomer idea: ruri never owns harness config here — it displays and delegates to harness CLIs, bmo, ledger, and tracker/talk servers.",
       "map": [
         {
-          "name": "Agents and background scripts",
+          "name": "Agents and background scripts; a script's page (timed stretches of what it printed, the quiet between them)",
           "files": [
-            "web/src/components/AgentsPage.tsx"
+            "web/src/components/AgentsPage.tsx",
+            "web/src/lib/quiet.ts"
           ]
         },
         {
@@ -780,7 +826,7 @@
       ],
       "files": [
         "web/src/components/Statistics.tsx — money/machine cost page over ledger and ps sampling",
-        "web/src/components/AgentsPage.tsx — per-chat agents and running scripts with live log",
+        "web/src/components/AgentsPage.tsx — per-chat agents and running scripts with live log; a script's log reads as a chat you can't write in: its command, each stretch of output with its time, an info line per silence, and a live \"running · printing / quiet for…\" line",
         "web/src/components/Integrations.tsx — MCP servers/plugins view delegating to harness CLIs",
         "web/src/components/Tracker.tsx — hand-test checklist review with finish-to-composer",
         "web/src/components/Ideas.tsx — user-written wants board with draft persistence and attachments",
@@ -789,7 +835,8 @@
         "web/src/components/Bridge.tsx — live hidden-window plate above composer with take-over",
         "web/src/components/TalkPage.tsx — which projects may reach which (every project's rule, a project's own over it) plus recent letters (figures.ts formats money/counts/spans for every page)",
         "web/src/lib/models.ts — harnessName and roughName label helpers",
-        "web/src/components/Hooks.tsx — the hooks section on the Integrations page: on/off, command, webhook, write-only token, midna's default, test event, recent deliveries"
+        "web/src/components/Hooks.tsx — the hooks section on the Integrations page: on/off, command, webhook, write-only token, midna's default, test event, recent deliveries",
+        "web/src/lib/quiet.ts — span / printing / clock: how a script's quiet time and stretch times are worded, shared by the script card (web/src/components/chat/AgentCard.tsx) and its page"
       ],
       "rules": [
         "Nothing here owns harness config: integrations go through harness CLIs, skills through bmo and skills-off/ folders — never write harness files directly.",
@@ -798,7 +845,8 @@
         "Statistics money must come off the ledger so rewinds/compactions agree; machine sampling only while the page watches (view message starts/stops it).",
         "figures.ts formatting is shared with project cards — change in one place so both pages agree.",
         "Bridge picture opens read-only in the viewer; take-over/give-back is the only control.",
-        "The team page acts only on teammates: the liaison is a lead (actOn refuses it), so its card has no buttons; Stop is disabled unless the member's turn is running (working, waiting on an answer, or at a card)."
+        "The team page acts only on teammates: the liaison is a lead (actOn refuses it), so its card has no buttons; Stop is disabled unless the member's turn is running (working, waiting on an answer, or at a card).",
+        "Helpers shared by AgentsPage.tsx and the script card live in web/src/lib (quiet.ts), not in a component file: an exported non-component there trips react-refresh."
       ],
       "edges": [
         "Protocol — all rows, rules, letters, totals typed in shared/protocol.ts",
@@ -1000,6 +1048,15 @@
           ]
         },
         {
+          "name": "Script progress on agent cards and Agents page",
+          "files": [
+            "web/src/components/chat/AgentCard.tsx",
+            "web/src/lib/quiet.ts",
+            "web/src/components/AgentsPage.tsx",
+            "web/src/styles.css"
+          ]
+        },
+        {
           "name": "Build, lint and script tests",
           "files": [
             "vite.config.ts",
@@ -1011,6 +1068,14 @@
           "name": "Settings permissions Linux copy",
           "files": [
             "web/src/components/Settings.tsx"
+          ]
+        },
+        {
+          "name": "Passwords page and vault view",
+          "files": [
+            "web/src/components/Settings.tsx",
+            "web/src/store.ts",
+            "web/src/styles.css"
           ]
         },
         {
@@ -1038,38 +1103,6 @@
             "web/src/components/PermissionBanner.tsx",
             "web/src/components/Exchange.tsx",
             "web/src/store.ts"
-          ]
-        },
-        {
-          "name": "Sidebar project rows and session navigation",
-          "files": [
-            "web/src/components/Sidebar.tsx",
-            "web/src/components/ChatPane.tsx",
-            "web/src/store.ts"
-          ]
-        },
-        {
-          "name": "Home board and queue",
-          "files": [
-            "web/src/components/HomeBoard.tsx",
-            "web/src/components/Queue.tsx",
-            "web/src/styles.css"
-          ]
-        },
-        {
-          "name": "Project hooks state and styling",
-          "files": [
-            "web/src/store.ts",
-            "web/src/styles.css"
-          ]
-        },
-        {
-          "name": "Packaging and release artifacts",
-          "files": [
-            "Makefile",
-            "package.json",
-            "scripts/build-main.ts",
-            "build/"
           ]
         }
       ],
@@ -1123,12 +1156,12 @@
         "web/src/fixture.ts — canned ?fixture state for UI eyeballing without server",
         "web/src/tuner.tsx — dev-only peek-band and hero-frame art placer",
         "web/src/lib/beat.ts — slow shared tick clock for self-moving elements",
+        "web/src/lib/quiet.ts — newest script line and quiet-time readout for running scripts",
         "vite.config.ts — dev server plus tuner-save endpoint with dev-origin check",
         "web/src/components/TeamPage.tsx — team roster, Stop/Refresh controls, liaison card and unstaffed chips",
         "web/src/components/Exchange.tsx — chat exchange rendering with continuation and handoff note",
         "web/src/components/ChatPane.tsx — chat pane driving store team actions",
-        "web/src/components/Sidebar.tsx — project rows staying lit while any of its chats is open",
-        "web/src/components/HomeBoard.tsx — home board surfacing team state"
+        "web/src/components/Sidebar.tsx — project rows, folders, drag and row menu, staying lit while any of its chats is open"
       ],
       "rules": [
         "No CSS animations for ambient motion — drive steps from lib/beat.ts or lib/spin.ts so Chromium composites one layer instead of repainting at display rate.",
@@ -1144,10 +1177,13 @@
       ],
       "edges": [
         "Protocol — store.ts types every client/server message from shared/protocol.ts",
+        "Sidebar folders — the folder layout arrives in the server snapshot and folder changes go back as client messages typed in shared/protocol.ts",
         "Appearance — tuner.tsx writes src/peek.ts and styles.css carries theme tokens theme.ts paints into",
         "Chat runs and queue — store watchers deliver server transcripts, queue, progress and permissions",
+        "Background scripts — the newest script line and quiet time arrive from the server over the protocol typed in shared/protocol.ts, and AgentCard and AgentsPage render them",
         "Terminals, agents and integrations — prefs.ts cache fronts server/prefs.ts over the socket",
         "Project hooks — store.ts and styles.css carry the hooks UI state and styling; the hook logic itself lives in the integrations layer",
+        "Passwords vault — store.ts carries vault state the server sends over the socket for the Passwords page in Settings",
         "Test scripts: composer, windows and previews — ?fixture and ?awake flags exist to be driven by shot/chips scripts"
       ]
     },
@@ -1163,11 +1199,19 @@
           ]
         },
         {
-          "name": "prompt queue (order, edit, rearrange, stop/hold)",
+          "name": "prompt queue (order, edit, rearrange, stop/hold, hold-to-send on a queued prompt)",
           "files": [
             "server/queue.ts",
             "server/handlers/prompts.ts",
             "server/dispatch.ts"
+          ]
+        },
+        {
+          "name": "default model and reasoning level for each chat",
+          "files": [
+            "server/chats.ts",
+            "server/dispatch.ts",
+            "server/channel.ts"
           ]
         },
         {
@@ -1224,12 +1268,6 @@
             "server/retry.ts",
             "server/dispatch.ts"
           ]
-        },
-        {
-          "name": "project idle and blocked detection for the hooks",
-          "files": [
-            "server/projectWatch.ts"
-          ]
         }
       ],
       "flows": [
@@ -1239,7 +1277,7 @@
             "handlers/prompts.ts accepts send, split, stop, or queue rearrange",
             "dispatch.ts writes prompt to transcript, checkpoints, titles, splits slash commands",
             "queue.ts holds it if channel busy, visible or silent entry",
-            "chats.ts hands it to the chat session with briefing and tools",
+            "chats.ts hands it to the chat session with briefing, tools, and the default model and reasoning level",
             "turns.ts tracks progress and context during the run",
             "events.ts records, redacts, archives, and pushes each event",
             "finished turn triggers drainQueue and maybeRetry in dispatch.ts"
@@ -1280,12 +1318,12 @@
         "server/queue.ts — app-side waiting prompts, visible and silent entries, reslot and combine",
         "server/turns.ts — turn in flight per channel, progress clock, context window",
         "server/events.ts — transcript event intake, redact, archive, push, small-model follow-ups",
-        "server/chats.ts — chat session manager wiring sessions to server",
+        "server/chats.ts — chat session manager wiring sessions to server, default model and effort",
+        "server/channel.ts — per-channel turn state and context gauge wiring",
         "server/team.ts — the team: the optional RURI_TEAM_MAX cap, the lead's, liaison's and members' words, what a lead is refused (HEAD_REFUSED, refusal) and told mid-turn (headWatch), the leads' tools",
         "server/handlers/team.ts — team message with roster, liaison and freeLayers, headOf, team page actOn (stop, compact, refresh, restart, retire)",
-        "server/handlers/prompts.ts — composer messages: send, split, queue, stop, drafts, cards",
-        "server/talk.ts — agent-to-agent rules, handles, wording, in-flight book, tools",
-        "server/handlers/rewind.ts — rewind across harnesses (a native fork back to the kept exchange, a brief, or a fresh start)"
+        "server/handlers/prompts.ts — composer messages: send, split, queue, stop, hold-to-send, drafts, cards",
+        "server/talk.ts — agent-to-agent rules, handles, wording, in-flight book, tools"
       ],
       "rules": [
         "Split sub-prompts ride silent under the original prompt; split only when reaching the front so earlier commands run first.",
@@ -1295,27 +1333,35 @@
         "Turn progress lives in turns.ts not the window so the clock survives reload; broadcast deltas throttled to one message a second.",
         "Rewind restores files, branch, transcript, composer prompt and context gauge to the kept exchange, not the tip.",
         "A letter is answered by the last words of the turn that finishes the job: owedLetter() is what a turn owes (its own letter, a carried one, or via an answer's owes); talkTurnEnded settles it only when nothing sent for it is out (TalkBook.outstanding). An answer that leaves the book any other way — a wait in another job, taken out of the queue — goes through answerOnward. Self-compaction marks the carry (carryLetter) at the turn's result, before talkTurnEnded.",
-        "The liaison (session.liaison) is never lead (leadOf skips it) nor a member: code taking 'every non-lead session' as the team must skip it (membersOf, isMember). unattended() covers members and the liaison: held lines let go for letters; the user's 'send now' waits behind a turn on another agent's job (onAJob).",
-        "projectWatch.atWork is the one list of what keeps a team at work (turns, lines, slots, retries, background work, letters out): a new way for a chat to be at work goes there, or midna hears 'done' while it runs."
+        "The liaison (session.liaison) is never lead (leadOf skips it) nor a member: code taking 'every non-lead session' as the team must skip it (membersOf, isMember). unattended() covers members and the liaison: held lines let go for letters; the user's 'send now' waits behind a turn on another agent's job (onAJob)."
       ],
       "edges": [
         "Protocol — every socket message and transcript event is typed in shared/protocol.ts",
         "Agent harnesses — dispatch and chats hand prompts to sessions and get turns, checkpoints, and forks back",
+        "Model catalog — chats and dispatch take the default model and reasoning level from the catalog rather than fixed values",
         "Projects, memory and history — checkpoints, compaction, handoff briefs, notes, and archive feed prompts, rewind, and events",
         "Server runtime and transport — socket routing, clients push, uploads, and stores carry transcript and queue messages",
         "Conversation — composer sends and queue/transcript handlers drive what the chat pane shows"
       ]
     },
     "projects-memory-history": {
-      "summary": "This layer owns project sessions and everything remembered about them: sessions/chats in projects.json, live transcripts plus history with stable exchange numbers, per-prompt file checkpoints, the project memory, project-wide recall, and the .ruri briefs and sheets. The memory is an append-only event log per project (memory/<id>.jsonl) whose current lines are written to briefs.json; every finished turn is folded in by the memory model as ops, and each line is checked against the code it names. A newcomer must grasp the split: the live session file is rewritten per event, history JSONL is append-only by compaction, the memory changes only through its log, briefs are assembled at send time without calling a model, leads are pure delegators with a hidden liaison for cross-project work, and every agent now compacts itself at half its window with its own handoff note while ruri's 80% compaction stays as backstop.",
+      "summary": "This layer owns project sessions and everything remembered about them: sessions/chats in projects.json (with the sidebar's order and folders), live transcripts plus history with stable exchange numbers, per-prompt file checkpoints, the project memory, project-wide recall, and the .ruri briefs and sheets. The memory is an append-only event log per project (memory/<id>.jsonl) whose current lines are written to briefs.json; every finished turn is folded in by the memory model as ops, and each line is checked against the code it names. A newcomer must grasp the split: the live session file is rewritten per event, history JSONL is append-only by compaction, the memory changes only through its log, briefs are assembled at send time without calling a model, leads are pure delegators with a hidden liaison for cross-project work, and compaction is the agent's own call — it gets a notice at its point (500k for a project's own chat) and at four fifths of its window, and ruri compacts by itself only at the top of the window.",
       "map": [
         {
-          "name": "Projects (open/close/rename/star/hide), leads and the hidden liaison, and their teams' members (stop/refresh/restart/retire, closeMember, the one teardown forgetChat)",
+          "name": "Projects (open/close/rename/star/hide), sidebar folders and their layout, leads and the hidden liaison, and their teams' members (stop/refresh/restart/retire, closeMember, the one teardown forgetChat)",
           "files": [
             "server/projects.ts",
             "server/handlers/projects.ts",
             "server/talk.ts",
             "server/ruriDir.ts"
+          ]
+        },
+        {
+          "name": "Finding a project by name (find_project) and Home's use of it",
+          "files": [
+            "server/finder.ts",
+            "server/projects.ts",
+            "server/finder.test.ts"
           ]
         },
         {
@@ -1378,35 +1424,18 @@
             "server/catchupBrief.ts",
             "scripts/history.ts"
           ]
-        },
-        {
-          "name": "Outside chats import",
-          "files": [
-            "server/recent.ts",
-            "server/orphans.ts",
-            "scripts/orphans.ts"
-          ]
-        },
-        {
-          "name": "Tracker, ledger and ideas",
-          "files": [
-            "server/tracker.ts",
-            "server/ledger.ts",
-            "server/ideas.ts",
-            "server/handlers/boards.ts"
-          ]
         }
       ],
       "flows": [
         {
           "name": "Compact and resume",
           "steps": [
-            "past the harness's share of the window at turn end (0.8; Gemini 0.6), or by the user, or by the agent itself past half its window via mcp__ruri__compact with its own note",
+            "the agent at a notice (mcp__ruri__compact with its note), the user's /compact, or ruri at a turn's end at the top of the window (Claude 100k short; others 0.8, Gemini 0.6) or near a soft limit",
             "compactChannel (server/dispatch.ts)",
             "server/archive.ts appends live events to history JSONL, keeps exchange numbers, retires the live session",
             "brief built at send within 10k tokens, no model call (server/compaction.ts, server/handoff.ts); when Claude compacts itself, its PreCompact/SessionStart hooks (server/sessions.ts) get afterCompactBrief and the sheet-read guard resets",
-            "self-compact continuation queued at head of line then drained into the fresh session (server/selfCompaction.ts); thin notes, early requests, and immediate re-compacts refused",
-            "a continuation answering a delegated letter keeps the same letter id with carried: true, carried via carryLetter in the result branch before talk turn-end"
+            "the continuation is queued at the head and drained into the fresh session (server/selfCompaction.ts); thin notes, early requests and immediate re-compacts refused",
+            "one answering a delegated letter keeps its letter id with carried: true (carryLetter, before talk turn-end)"
           ]
         },
         {
@@ -1431,15 +1460,14 @@
       ],
       "files": [
         "server/projects.ts — ProjectStore over projects.json plus per-chat session settings; a project's lead first and its members with duty and layers, plus the hidden liaison session (formTeams at launch, addMember, setMember)",
-        "server/handlers/projects.ts — socket moves for projects, a member off its team (closeMember), an outside chat brought in as a teammate",
+        "server/handlers/projects.ts — socket moves for projects, sidebar folder moves, a member off its team (closeMember), an outside chat brought in as a teammate",
+        "server/finder.ts — find_project lookup of projects by name, the fallback Home uses when a project is hard to locate",
         "server/archive.ts — live sessions/<id>.json plus append-only history/<id>.jsonl and turn summaries",
         "server/checkpoints.ts — per-prompt hidden git commits and rewind",
         "server/compaction.ts — briefs within the token budget, state lines, anchored digest sections",
         "server/selfCompaction.ts — agent self-compact notes, threshold checks and continuation into the fresh session",
         "server/memoryLog.ts — the memory event log: actor rules, caps that archive, undo, reconcile with briefs.json; fed by server/memoryQueue.ts, checked by server/memoryCheck.ts",
-        "server/projectSearch.ts — project-wide hybrid search over exchanges and memory lines (BM25 in server/recall.ts)",
-        "server/brief.ts — .ruri/architecture.md shape and stack/layer sheets",
-        "server/catchupBrief.ts — sheet broadcast and rebuild from app side"
+        "server/projectSearch.ts — project-wide hybrid search over exchanges and memory lines (BM25 in server/recall.ts)"
       ],
       "rules": [
         "Nothing except compaction appends to history/<id>.jsonl; live session file is the only rewritten transcript.",
@@ -1448,13 +1476,13 @@
         "Building and sending a brief calls no model and never waits on one (embeddings count only if already warmed; the digest folds in the background), and the system-prompt briefing stays byte-stable so the prompt cache holds — anything dynamic (<state>, <memory-update>) rides in the prompt.",
         "Only sessions ruri did not start are offered by recent import, and one brought in joins the team as a named member (addMember) — never re-import one of ruri's own chats. A project's chats change only through its team: no new, close or rename moves, and a lead goes only with its project.",
         "Exchange numbers are stable (seqs/nextSeq in server/archive.ts); refs and turn files use them, never a position.",
-        "The compact tool only stores the note and tells the model to end its turn; it never stops the turn itself. Compaction runs at that turn's result: ok compacts with the continuation, stopped drops the note and settles the letter as today, failed keeps the note for the next ok turn.",
-        "A self-compact continuation answering a letter keeps the same letter id with carried: true on its from; carryLetter is called in the result branch at selfCompactDue time, never inside the tool call, or a stopped turn leaves the letter hanging."
+        "The compact tool only stores the note and tells the model to end its turn; it never stops the turn itself. Compaction runs at that turn's result: ok compacts with the continuation, stopped drops the note and settles the letter as today, failed keeps the note for the next ok turn."
       ],
       "edges": [
         "Chat runs and queue — supplies prompts, turns, events and rewind entry points this layer archives and checkpoints",
-        "Protocol — TranscriptEvent, TurnSummary, MemoryLine, Project/Session and brief sheet types in shared/protocol.ts",
+        "Protocol — TranscriptEvent, TurnSummary, MemoryLine, Project/Session and brief sheet types in shared/protocol.ts; the sidebar folder messages and layout in the snapshot also live there",
         "Server runtime and transport — routing, auth, uploads and stores hosting projects/handlers endpoints",
+        "Sidebar UI — folder layout computed by shared/sidebar.ts and shown in web/src/components/Sidebar.tsx; folder moves reach server/handlers/projects.ts over the socket",
         "Agent harnesses — session ids resumed; the memory model's lane (completeMemory in server/smallmodel.ts); Claude's PreCompact/SessionStart hooks and the PostToolBatch hook that tells it its context mid-turn (SessionExtras.contextNotice, server/sessions.ts)",
         "Library, skills and sweeps — sweep/describe candidates feed catchup; library owns skill removal on teardown"
       ]
@@ -1530,6 +1558,14 @@
             "shared/librarySearch.ts",
             "server/library.ts"
           ]
+        },
+        {
+          "name": "Live components (mycelium), on or off per project",
+          "files": [
+            "server/mycelium.ts",
+            "server/handlers/components.ts",
+            "server/handlers/projects.ts"
+          ]
         }
       ],
       "flows": [
@@ -1579,7 +1615,8 @@
         "Do not delete on skill disable: park to skills-off/ so bmo metadata and updates survive.",
         "Shots cannot cover login-gated, state-dependent, or non-web UI — route those to photographer agent flow, not shots.ts.",
         "Every path a session gives (files, shots, --dir) resolves against its checkout (checkoutFor), never project.path directly — teammates work in worktrees, and copies or reads in the main checkout were the bug.",
-        ".ruri/components.md is committed: it holds only what lasts (no picture paths, no out-of-date lines, line refs by anchor text) and is written only when it changes — volatile detail goes to the skill, ruri show and the prompt block."
+        ".ruri/components.md is committed: it holds only what lasts (no picture paths, no out-of-date lines, line refs by anchor text) and is written only when it changes — volatile detail goes to the skill, ruri show and the prompt block.",
+        "Whether live components is on is asked per project, never read from the setting alone: myceliumOn(ctx, project) in server/mycelium.ts — the project's own word (set_mycelium: on / off / default) over the setting in Settings. Turning it off for a project stops its play server."
       ],
       "edges": [
         "Protocol — NamedComponent, ComponentProposal, Attachment, SkillInfo types in shared/protocol.ts",
@@ -1593,7 +1630,7 @@
       "summary": "This layer runs everything beside the chat turn: composer pty terminals, background script output, user-started crew agents, folder-backed music serving, harness integrations plus host/settings plumbing, and the project hooks that tell midna (or any command/webhook) when a team is idle or blocked. It is built as small stateful server modules (Terminals, TerminalRelay, Scrollback, PrefStore, HookCenter) fronted by thin socket handlers, with CLI-mediated side effects. Newcomers must grasp that terminals are paced append-streams with backpressure, integration changes apply only at next harness launch, and hooks never block a project.",
       "map": [
         {
-          "name": "Composer terminal tabs",
+          "name": "The shell pane's tabs (the split pane under the chat)",
           "files": [
             "server/terminal.ts",
             "server/handlers/terminal.ts",
@@ -1610,9 +1647,11 @@
           ]
         },
         {
-          "name": "Background script output page",
+          "name": "A background script's card line and page (newest line, quiet time, timed stretches)",
           "files": [
+            "server/scriptWatch.ts",
             "server/scripts.ts",
+            "server/sessions.ts",
             "server/handlers/crew.ts"
           ]
         },
@@ -1649,6 +1688,12 @@
           "files": [
             "server/handlers/settings.ts",
             "server/prefs.ts"
+          ]
+        },
+        {
+          "name": "Passwords page (vault-held secrets in Settings)",
+          "files": [
+            "server/handlers/settings.ts"
           ]
         },
         {
@@ -1711,21 +1756,40 @@
             "refusals given up, the rest retried 5s/30s/2m/10m with the same id",
             "hook-deliveries.json, broadcast as hooks"
           ]
+        },
+        {
+          "name": "Script progress",
+          "steps": [
+            "AgentBook.watch (server/sessions.ts) starts watchScript on a running script's output file",
+            "a look every 2 s marks {offset, ts} when it grew",
+            "newest line onto the card (activity, printedAt) at most every 5 s",
+            "scriptLog cuts the tail at the marks into timed stretches, a \"printed nothing for…\" line per silence ≥ 7 s"
+          ]
+        },
+        {
+          "name": "Shell quit from inside (exit, ^D)",
+          "steps": [
+            "its tab goes",
+            "onTabs tells every window",
+            "a channel with no tabs has no pane. A shell dying unhappily within 1.5 s keeps its tab"
+          ]
         }
       ],
       "files": [
-        "server/terminal.ts — real pty shells per channel/tab behind composer terminal mode",
+        "server/terminal.ts — real pty shells per channel/tab behind the shell pane; a channel may have no tabs at all",
         "server/relay.ts — paces shell output to windows with per-window queues and pty backpressure",
         "server/scrollback.ts — chunk-list scrollback, joined only on read",
         "server/handlers/terminal.ts — socket handlers for terminal list/new/open/input/resize/close",
         "server/handlers/crew.ts — user-started crew agents on their own session manager",
-        "server/scripts.ts — background script output page read from harness output file tail",
+        "server/scripts.ts — a background script's page: its command, then the tail of its output file as timed stretches (stretches), or one untimed block when there are no marks",
         "server/integrations.ts — MCP/plugin/marketplace read and CLI-mediated changes",
         "server/handlers/integrations.ts — Integrations settings handlers; retires warm sessions on change",
+        "server/handlers/settings.ts — settings socket handlers for model, folders, art, and the Passwords page",
         "server/music.ts — folder-as-playlist music library scan and same-origin track serving",
         "server/prefs.ts — machine-scoped untyped window preference bag",
         "server/projectHooks.ts — HookCenter (hooks.json config with on/off, midna default, deliveries, retries, midna receipts) and the payload builder; projectBusy/fireProjectEvent/sendTestEvent for the rest of the server",
-        "server/handlers/hooks.ts — hooks_get / hooks_set / hooks_test socket handlers"
+        "server/handlers/hooks.ts — hooks_get / hooks_set / hooks_test socket handlers",
+        "server/scriptWatch.ts — watchScript: watches a running script's output file, keeps the in-memory marks of when it grew, tells the newest printed line (ANSI stripped, \\r redraws collapsed)"
       ],
       "rules": [
         "Never write a harness config format by hand; every integration change goes through that CLI's own command.",
@@ -1735,18 +1799,21 @@
         "New window preferences need no change in server/prefs.ts — it is a deliberately untyped bag (max 200 keys).",
         "The project-event payload is a contract with midna (midna docs/inbound-events.md): never add or rename a field without telling midna's team; keep it under midna's 64 KB.",
         "A hook's bearer token never leaves the server: hooks.json is 0600 and windows see hasToken only — not prefs, the project record or the vault, all of which reach windows or every agent.",
-        "Event data reaches a hook command through RURI_EVENT_*/RURI_PROJECT_* env vars, never spliced into the command line. Tests: RURI_MIDNA=\"\" or a stub, MIDNA_URL/MIDNA_TOKEN at a stand-in for the real CLI, RURI_HOOK_RETRY_MS to shorten the backoff."
+        "Event data reaches a hook command through RURI_EVENT_*/RURI_PROJECT_* env vars, never spliced into the command line. Tests: RURI_MIDNA=\"\" or a stub, MIDNA_URL/MIDNA_TOKEN at a stand-in for the real CLI, RURI_HOOK_RETRY_MS to shorten the backoff.",
+        "Script stretch times are in-memory marks, never written: after a restart an old script's page is one untimed block. RURI_SCRIPT_LOOK_MS / RURI_SCRIPT_TELL_MS shorten the watch in tests.",
+        "Only Terminals.list() mints a first tab; add() and close() read this.tabs directly so a channel can stay empty."
       ],
       "edges": [
         "Agent harnesses — integration changes take effect only when a harness next starts; warm sessions retired idle",
         "Bridge — host handlers reach desktop shell for picker, permissions, bridge windows; no-ops headless",
         "Protocol — tabs, permissions, playlists, crew cards, integration rows typed in shared/protocol.ts",
         "Server runtime and transport — music served over /music/* same-origin; prefs/config live machine-side",
-        "Chat runs and queue — server/projectWatch.ts decides idle/blocked and calls projectBusy/fireProjectEvent; delivery and the payload are this layer's"
+        "Chat runs and queue — server/projectWatch.ts decides idle/blocked and calls projectBusy/fireProjectEvent; delivery and the payload are this layer's",
+        "Vault — the Passwords page in Settings reads vault-held secrets through server/handlers/settings.ts; the vault layer owns the secret store"
       ]
     },
     "server-runtime-transport": {
-      "summary": "This layer is the Node HTTP + WebSocket transport everything else rides on: one port serving the UI, uploads, and the socket every window talks over. It is built around a single shared ServerContext (server/context.ts) assembled once in server/server.ts and handed to routes, socket, and handlers. A newcomer must grasp: this layer moves bytes and enforces origin/token gates — domain logic lives in handlers and other layers, not here — it also carries each agent's context-usage line and self-compact request path with continuation queueing and owed-answer routing, now with a CARRY_ON-prefixed continuation prompt detected by its opening text, and a window only sleeps when it cannot be seen at all (minimized, on another Space, or fully covered); a visible-but-unfocused window stays live and keeps receiving streams. It also serves the team status behind the team page: liaison state with current work/answering/waiting-on rows, free-layer chips, Stop/Refresh semantics with a stop note carried once on the next prompt, send-now-next queueing behind another agent's job, and hook-refused AskUserQuestion, plus an optional machine cap only when RURI_TEAM_MAX is set.",
+      "summary": "This layer is the Node HTTP + WebSocket transport everything else rides on: one port serving the UI, uploads, and the socket every window talks over, assembled once around a shared ServerContext (server/context.ts) in server/server.ts. It moves bytes and enforces origin/token gates, while domain logic lives in handlers and other layers. It also carries each agent's context-usage line and self-compaction with CARRY_ON continuations (the agent decides; ruri compacts by itself only at the top of the window), the team status page, the sidebar layout, the model catalog, and the secret store, which holds ghostly's items in memory beside its own file. A window only sleeps when it cannot be seen at all; a visible-but-unfocused window stays live and keeps receiving streams.",
       "map": [
         {
           "name": "Server assembly and startup",
@@ -1793,7 +1860,18 @@
           "name": "Secrets vault and placeholders",
           "files": [
             "server/secrets.ts",
+            "server/vault.ts",
             "server/atomic.ts"
+          ]
+        },
+        {
+          "name": "Ghostly password source (Passwords page)",
+          "files": [
+            "server/ghostly.ts",
+            "server/vault.ts",
+            "server/secrets.ts",
+            "server/vault.test.ts",
+            "server/vault.ghostly.test.ts"
           ]
         },
         {
@@ -1814,11 +1892,11 @@
           ]
         },
         {
-          "name": "Carry-on continuation after compaction",
+          "name": "Sidebar order and folders, one value",
           "files": [
-            "shared/protocol.ts",
-            "server/selfCompaction.ts",
-            "server/talk.ts"
+            "shared/sidebar.ts",
+            "server/projects.ts",
+            "server/handlers/projects.ts"
           ]
         }
       ],
@@ -1829,7 +1907,7 @@
             "HTTP server from server/routes.ts and socket from server/socket.ts listen on one claimed port (server/port.ts)",
             "Socket upgrade checked for page origin and token (server/auth.ts), rejected otherwise",
             "New client registered with its on-screen view (server/clients.ts)",
-            "Snapshot of everything sent on connect, then per-chat transcript only to windows showing it",
+            "Snapshot of everything sent on connect, including the sidebar layout, then per-chat transcript only to windows showing it",
             "A window reports live:false only when unseen (minimized, another Space, fully covered) and then its chat streams are gated off and other updates held latest-only; a visible-but-unfocused window stays live; on wake it catches up in one redraw plus per-chat missed content",
             "Each incoming message schema-checked and handed to server/handlers/index.ts"
           ]
@@ -1845,6 +1923,15 @@
           ]
         },
         {
+          "name": "Passwords and ghostly",
+          "steps": [
+            "Vault (server/vault.ts) asks the ghostly command (server/ghostly.ts) at launch, on Refresh, on page open (once a minute at most) and every 15 min",
+            "items go to SecretStore (server/secrets.ts), in memory beside its own secrets.json",
+            "the page gets names and where each is kept, never a value",
+            "save, Forget and Move go back through Vault, the secret on stdin"
+          ]
+        },
+        {
           "name": "Mutating request gate",
           "steps": [
             "Route or socket handler asks server/auth.ts for originAllowed and tokenMatches",
@@ -1856,25 +1943,25 @@
         {
           "name": "Agent self-compaction",
           "steps": [
-            "Every prompt carries a usage line (used/of threshold) from catchUp in server/handoff.ts (contextLine, server/selfCompaction.ts), repeated mid-turn on PostToolBatch; agent can query mcp__ruri__context or {\"do\":\"context\"} on /talk/<id>",
-            "Past threshold the agent calls mcp__ruri__compact or {\"do\":\"compact\",\"note\"|\"file\"} (server/routes.ts, server/handlers/talk.ts, shared/protocol.ts); tool only stores the note and tells the model to end its turn, it does not stop the turn",
-            "At that turn's result in server/chats.ts, selfCompactDue returns the note; carryLetter is called then, before talkTurnEnded, so a stopped turn drops the note and settles the letter as today",
-            "Continuation is queued at the head (server/queue.ts) then compactChannel runs and its drain sends it into the fresh session",
-            "Continuation prompt starts with CARRY_ON via continuePrompt (server/selfCompaction.ts) and is detected by that opening text plus handoffNote() in shared/protocol.ts, so old transcripts still match",
-            "Transcript shows a compacted-itself line plus the handoff note bubble; a carried continuation keeps the same letter id with carried:true so the owed answer still routes back"
+            "every prompt carries a usage line (contextLine in server/selfCompaction.ts, via catchUp in server/handoff.ts), repeated mid-turn on PostToolBatch, with a notice near 500k and at 4/5 of the window; the agent decides",
+            "it calls mcp__ruri__compact or {\"do\":\"compact\"} on /talk/<id> (server/routes.ts, server/handlers/talk.ts): the note is stored, the turn not stopped",
+            "at that turn's result (server/chats.ts) selfCompactDue returns the note; carryLetter runs before talkTurnEnded",
+            "the continuation is queued at the head (server/queue.ts), compactChannel runs, its drain sends it into the fresh session",
+            "it opens with CARRY_ON (continuePrompt), recognised by that text plus handoffNote() in shared/protocol.ts; a carried continuation keeps its letter id with carried:true"
           ]
         }
       ],
       "files": [
         "server/server.ts — assembles stores, managers, timers, routes and socket on one port",
         "server/context.ts — the shared ServerContext object every part takes first",
+        "server/modelCatalog.ts — model list, highest-version picks and the default reasoning effort",
         "server/routes.ts — HTTP side: health, uploads, static UI, origin/token-gated mutations",
         "server/socket.ts — WebSocket upgrade gate, snapshot on connect, schema-checked dispatch",
         "server/clients.ts — per-window views and targeted transcript/status broadcast",
         "server/auth.ts — origin and token checks for HTTP and socket",
-        "server/selfCompaction.ts — self-compact threshold, note validation and due check",
-        "server/chats.ts — turn result branch running self-compact and continuation queueing",
-        "server/uploads.ts — attachment persist, model payload, serve and sweep"
+        "server/secrets.ts — secret store; hands out only names and placeholders",
+        "server/vault.ts — Vault: when ghostly is asked, its state for the page, and save / remove / move through it",
+        "server/ghostly.ts — runs the ghostly command (RURI_GHOSTLY, PATH or ~/.local/bin): one at a time, timed out, secrets on stdin"
       ],
       "rules": [
         "Never put domain logic in routes/socket — dispatch to server/handlers/index.ts; what each message does lives per-domain.",
@@ -1882,8 +1969,8 @@
         "The port is identity (origin for stored prefs) — claim it via server/port.ts, never silently fall to an ephemeral port.",
         "Transcript fan-out is scoped: live per-chat events go only to windows showing that chat (server/clients.ts); the snapshot and the projects page carry only Home's and the leads' tails (ProjectStore.leadIds) — a team's members are never sent whole, though a window (or a test script) may still view one by id",
         "Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder of its own (bunfig.toml, scripts/test-config.ts), so a test run never touches ~/.config/ruri.",
-        "Secrets must never enter model context, logs, or transcripts — only names/placeholders leave server/secrets.ts.",
-        "The compact tool must not stop the turn or settle the owed letter: call carryLetter in the chats.ts result branch only when selfCompactDue returns a note, still before talkTurnEnded, so a stopped turn drops the note and settles normally."
+        "Secrets must never enter model context, logs, or transcripts — only names/placeholders leave server/secrets.ts and server/vault.ts.",
+        "Ghostly items are held in memory only; never write them to the secrets file, logs or transcripts. Tests and scripts keep RURI_GHOSTLY=\"\" (scripts/test-config.ts, scripts/lib/server.ts) or they reach the user's real vault."
       ],
       "edges": [
         "Protocol — every socket message is typed/validated in shared/protocol.ts and shared/clientSchema.ts",
@@ -1891,11 +1978,12 @@
         "Agent harnesses — session managers and usage/resource sources (agents, sessions, providers) plug into server.ts assembly",
         "Bridge — HTTP routes proxy bridge pictures/calls via bridge state, not directly; native-app driving needs X11 plus AT-SPI and must refuse on Wayland",
         "Desktop shell — single-instance lock and served UI origin depend on the claimed port",
-        "Terminals, agents and integrations — project hooks wire types live in shared/protocol.ts and are validated in shared/clientSchema.ts; the hook logic itself lives in server/projectHooks.ts and server/handlers/hooks.ts"
+        "Terminals, agents and integrations — project hooks wire types live in shared/protocol.ts and are validated in shared/clientSchema.ts; the hook logic itself lives in server/projectHooks.ts and server/handlers/hooks.ts",
+        "Settings — the default model and reasoning effort chosen in Settings reach every new chat through server/handlers/settings.ts"
       ]
     },
     "harnesses": {
-      "summary": "This layer drives installed coding CLIs (claude/codex/opencode/gemini/ACP) through yagami's AgentSession/ProviderSession, translating harness events into ruri transcript events. It is built around server/sessions.ts (SessionManager, ~3474 lines) with a provider registry, model catalog, Home manager agent, persistent team subagents with idle sleep/wake and budget gating, auto-updater, and cheap small-model client. Newcomers must grasp: ruri never talks to models directly — every prompt goes through a session object owned here, and transcript/usage/permission shapes are normalized here.",
+      "summary": "This layer drives installed coding CLIs (claude/codex/opencode/gemini/ACP) through yagami's AgentSession/ProviderSession, translating harness events into ruri transcript events. It is built around server/sessions.ts (SessionManager, ~3474 lines) with a provider registry, a model catalog, the Home manager agent, persistent team subagents with idle sleep/wake and budget gating, an auto-updater, and a cheap small-model client. Newcomers must grasp that ruri never talks to models directly: every prompt goes through a session object owned here, and transcript, usage and permission shapes are normalized here.",
       "map": [
         {
           "name": "Harness sessions and prompt turns",
@@ -1906,8 +1994,9 @@
           ]
         },
         {
-          "name": "Model catalog and picker",
+          "name": "Model catalog, defaults and picker",
           "files": [
+            "server/modelCatalog.ts",
             "server/models.ts",
             "server/providers.ts"
           ]
@@ -1917,6 +2006,14 @@
           "files": [
             "server/providers.ts",
             "server/models.ts"
+          ]
+        },
+        {
+          "name": "Default reasoning effort",
+          "files": [
+            "server/sessions.ts",
+            "server/providers.ts",
+            "server/modelCatalog.ts"
           ]
         },
         {
@@ -1991,7 +2088,7 @@
           "name": "Small-model background call",
           "steps": [
             "sessions.ts or memory layer requests title/summary/split",
-            "server/smallmodel.ts picks double-starred model, RURI_SMALL_MODEL fallback, then codex default",
+            "server/smallmodel.ts picks the catalog's newest small model, RURI_SMALL_MODEL fallback, then the catalog default",
             "yagami engine.stream over the signed-in CLI, aborted at a deadline (60s + 20ms/token), stalled model rests and the fallback answers",
             "Result folded back (title, summary, tracker items); skipped when RURI_NO_MEMORY=1"
           ]
@@ -2005,12 +2102,21 @@
             "Agent work streams to per-agent log in server/agents.ts",
             "Card updates in place; report ends it; idle teammates sleep and wake on message; dead process marked stopped"
           ]
+        },
+        {
+          "name": "Script card progress",
+          "steps": [
+            "AgentBook.watch (server/sessions.ts), called from attach() and update(), starts server/scriptWatch.ts on a running script card that has an output file",
+            "its newest printed line becomes the card's activity, with printedAt",
+            "the watch stops when the script ends"
+          ]
         }
       ],
       "files": [
         "server/sessions.ts — SessionManager: owns AgentSession lifecycle, event-to-transcript translation, permissions, usage",
         "server/providers.ts — ProviderRegistry: creates/loads yagami providers, parses model refs, capability mapping",
         "server/models.ts — Models: startup-probed Claude + harness model picker, live-session replacement",
+        "server/modelCatalog.ts — model catalog whose defaults come from the newest versions, not fixed ids",
         "server/smallmodel.ts — cheap completions client for titles, summaries, splits, briefs, tracker extraction",
         "server/manager.ts — Home agent at workspace root with MCP/drop-file tools managing projects",
         "server/agents.ts — per-subagent JSON logs under config agents/<channel>/<key>.json with debounce and cap; team-aware roster, idle sleep/wake and budget gating",
@@ -2022,6 +2128,7 @@
       "rules": [
         "Never bypass SessionManager to call a CLI directly; session resume, permissions and usage accounting live there.",
         "A live session's Claude model report only replaces probed ids/names — never clobber display names resolved from the startup catalog.",
+        "Never hard-code model ids or default effort; defaults must come from the catalog's highest versions so the picker and defaults stay current. A star or a role on a model passes to the newer model of its line (shared/modelLine.ts); smallmodel.ts names lines and aliases only, resolved to the newest listed.",
         "Never replace a harness binary mid-turn; updater defers when a chat is active.",
         "Subagent transcript text must never leak into the parent chat — only the card carries SubagentState.",
         "Small-model calls are one per sent prompt and per finished reply, honor RURI_NO_MEMORY=1, and each runs through client.engine.stream with an AbortSignal and a deadline (smallmodel.ts ask) — never messages.create, which takes no signal, so a harness that never answers would keep its process and its place in line for good.",

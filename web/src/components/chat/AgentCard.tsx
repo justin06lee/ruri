@@ -1,6 +1,7 @@
 import { createContext, useContext, useRef } from "react";
 import { excerpt, unmarked, type SubagentState } from "../../../../shared/protocol";
 import { beat, useNow } from "../../lib/beat";
+import { printing, span } from "../../lib/quiet";
 import { openAgent, useRuri } from "../../store";
 import { Icon, TOOL_ICONS } from "./Icon";
 
@@ -33,14 +34,10 @@ function tokenCount(n: number): string {
       : String(n);
 }
 
-function span(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000));
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
-}
-
 /** The numbers under an agent: tools run, tokens spent, for how long, and
- *  whether it was left working in the background. Its clock ticks only
- *  while it runs and ruri is in front. */
+ *  whether it was left working in the background — and, for a script that
+ *  is running, whether it is printing or how long it has been quiet. Its
+ *  clock ticks only while it runs and ruri is in front. */
 export function AgentMeta({ agent }: { agent: SubagentState }) {
   const shown = useRef<HTMLSpanElement>(null);
   const now = useNow(1000, agent.status === "running", shown);
@@ -52,6 +49,7 @@ export function AgentMeta({ agent }: { agent: SubagentState }) {
     agent.tools ? `${agent.tools} tool${agent.tools === 1 ? "" : "s"}` : undefined,
     agent.tokens ? `${tokenCount(agent.tokens)} tokens` : undefined,
     span((agent.endedAt ?? now) - agent.startedAt),
+    agent.script && agent.status === "running" ? printing(agent.printedAt, agent.startedAt, now) : undefined,
     agent.background ? "in the background" : undefined,
     agent.resumed ? (agent.resumed === 1 ? "picked back up" : `picked back up ${agent.resumed}×`) : undefined,
     model,
@@ -89,18 +87,22 @@ export function AgentHead({ agent }: { agent: SubagentState }) {
  * its own conversation — the brief, everything it read, ran and said.
  *
  * A script the model left running in the background is one of these too:
- * its command where an agent's doings go, how it exited where an agent's
- * report goes, and it opens onto what it has printed.
+ * the newest line it printed where an agent's doings go (its command,
+ * until it prints), how it exited where an agent's report goes, and it
+ * opens onto what it has printed.
  */
 export function AgentCard({ agent, channelId }: { agent: SubagentState; channelId?: string }) {
   const host = useContext(AgentHost);
   const line = agent.script
     ? agent.status !== "running" && agent.result
       ? scriptEnd(agent.result)
-      : // the command, unless the head already is it (no description given)
-        agent.prompt && agent.prompt.trim() !== agent.description.trim()
-        ? `$ ${excerpt(agent.prompt, 220)}`
-        : undefined
+      : // how far along it is, in its own words, once it has said
+        agent.status === "running" && agent.activity
+        ? agent.activity
+        : // the command, unless the head already is it (no description given)
+          agent.prompt && agent.prompt.trim() !== agent.description.trim()
+          ? `$ ${excerpt(agent.prompt, 220)}`
+          : undefined
     : agent.status === "running"
       ? agent.activity
       : agent.result
@@ -111,7 +113,7 @@ export function AgentCard({ agent, channelId }: { agent: SubagentState; channelI
       className={`agent-card ${agent.status}${agent.script ? " script" : ""}`}
       title={
         agent.script
-          ? "Open this script — its command, and everything it has printed"
+          ? "Open this script — its command, and what it has printed, as it prints it"
           : "Open this agent — its brief, everything it did, and what it came back with"
       }
       onClick={() => channelId && openAgent(channelId, agent.key, host === "page")}

@@ -103,6 +103,7 @@ export function createSocketServer(
     const snapshot: ServerMessage = {
       type: "snapshot",
       projects: ctx.store.list(),
+      sidebar: ctx.store.sidebar(),
       transcripts: ctx.readable.allowArchived(ctx.archive.tails(shown, TRANSCRIPT_TAIL)),
       statuses: ctx.manager.statuses(),
       work: Object.fromEntries(ctx.turns.work),
@@ -114,6 +115,7 @@ export function createSocketServer(
       components: ctx.components.all(boardIds),
       componentDirs: ctx.components.allDirs(boardIds),
       secrets: ctx.secrets.meta(),
+      vault: ctx.vault.view(),
       queued: Object.fromEntries(projectIds.map((id) => [id, ctx.queues.visibleQueue(id)])),
       queuesHeld: Object.fromEntries(
         projectIds.flatMap((id) => {
@@ -149,6 +151,7 @@ export function createSocketServer(
       smallModel: ctx.store.smallModel() ?? "",
       memoryModel: ctx.store.memoryModel(),
       defaultModel: ctx.store.defaultModel(),
+      defaultEffort: ctx.store.defaultEffort(),
       user: os.userInfo().username,
       harnesses: ctx.updater.list(),
       ...(ctx.updater.checking() ? { harnessesChecking: true } : {}),

@@ -11,15 +11,15 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 
 1. **Conversation: composer and chat** — Composing prompts and reading replies, with attachments, markdown, diffs and questions (`web/src/components/, web/src/, web/src/lib/ · 24 files`) → `.ruri/layers/conversation.md`
 2. **Navigation: sidebar, projects and queue** — Moving between projects (each its lead), with sidebar, home board, switcher, queue and rapid fire (`web/src/components/, web/src/lib/ · 10 files`) → `.ruri/layers/navigation-projects.md`
-3. **Management: agents, skills and tracking** — Managing agents, integrations, skills, ideas, talk and cost/tracker pages (`web/src/components/, web/src/lib/, scripts/ · 13 files`) → `.ruri/layers/management-pages.md`
+3. **Management: agents, skills and tracking** — Managing agents, integrations, skills, ideas, talk and cost/tracker pages (`web/src/components/, web/src/lib/, scripts/ · 15 files`) → `.ruri/layers/management-pages.md`
 4. **Appearance: theme, art and component library** — Theming, peek band and hero art, dragon gauges and shared UI pieces (`web/src/components/, web/src/, web/src/lib/ +3 · 24 files`) → `.ruri/layers/appearance-library.md`
 5. **App shell, state and tooling** — App entry, store, prefs, global styles, clocks, fixture and art tuner tooling (`web/src/, web/, ./ +2 · 10 files`) → `.ruri/layers/app-shell.md`
 6. **Chat runs and queue** — Live prompts, queue, turns, rewind and transcript delivery over the socket. (`server/, server/handlers/, scripts/ · 26 files`) → `.ruri/layers/chat-runs-queue.md`
 7. **Projects, memory and history** — Project sessions, checkpoints, working memory, archive, tracker and briefs. (`server/, server/handlers/, scripts/ · 41 files`) → `.ruri/layers/projects-memory-history.md`
 8. **Library, skills and sweeps** — Component library, skills, repo sweeps and their screenshots. (`server/, server/handlers/, shared/ · 11 files`) → `.ruri/layers/library-skills-sweeps.md`
-9. **Terminals, agents and integrations** — Composer terminals, background scripts, crew agents, music and harness integrations. (`server/, server/handlers/, scripts/ · 19 files`) → `.ruri/layers/terminals-agents-integrations.md`
-10. **Server runtime and transport** — Node HTTP+WebSocket server, routing, auth, uploads, secrets, gauges and shared stores. (`server/, scripts/, scripts/lib/ +2 · 8 files`) → `.ruri/layers/server-runtime-transport.md`
-11. **Agent harnesses** — yagami AgentSession to installed claude/Codex/OpenCode/Gemini/ACP CLIs, models, small-model layer (`server/, scripts/ · 14 files`) → `.ruri/layers/harnesses.md`
+9. **Terminals, agents and integrations** — Composer terminals, background scripts, crew agents, music and harness integrations. (`server/, server/handlers/, scripts/ · 22 files`) → `.ruri/layers/terminals-agents-integrations.md`
+10. **Server runtime and transport** — Node HTTP+WebSocket server, routing, auth, uploads, secrets, gauges and shared stores. (`server/, scripts/, scripts/lib/ +2 · 10 files`) → `.ruri/layers/server-runtime-transport.md`
+11. **Agent harnesses** — yagami AgentSession to installed claude/Codex/OpenCode/Gemini/ACP CLIs, models, small-model layer (`server/, scripts/ · 15 files`) → `.ruri/layers/harnesses.md`
 12. **Bridge** — Hidden Chromium over CDP plus native apps over Accessibility, previews above composer (`server/, desktop/ · 13 files`) → `.ruri/layers/bridge.md`
 
 ## How it flows
@@ -31,16 +31,16 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 
 ## Where things are
 
-- server/ — Node backend: sessions, chats, queue, checkpoints, memory, bridge, routes
+- server/ — Node backend: sessions, chats, queue, checkpoints, memory, bridge, vault, routes
 - server/handlers/ — WebSocket/HTTP handlers per surface: projects, prompts, rewind, talk, skills
-- server/projectHooks.ts — idle/blocked hook config, midna detection, payload, retried delivery
-- server/projectWatch.ts — busy-period tracking and idle/blocked detection that fires project events
+- server/projectHooks.ts, server/projectWatch.ts — idle/blocked hooks: busy tracking, midna detection, retried delivery
 - server/handlers/hooks.ts — hooks_get, hooks_set and hooks_test socket handlers
 - web/src/ — React UI: ChatPane, Composer, Queue, Sidebar, Settings, theming
 - web/src/components/ — chat, attachments, bridge, agents, architecture, ideas, tracker views
 - web/src/components/Hooks.tsx — hooks settings: global and per-project on/off, command, webhook, token, deliveries
+- web/src/components/Terminal.tsx — bottom shell pane: tabs, split, put-away button
 - web/src/lib/ — markdown, markers, models, transcript, effects, peek band helpers
-- shared/ — single wire contract: protocol.ts, client schema, question input
+- shared/ — single wire contract: protocol.ts, client schema, question input, sidebar folder layout (sidebar.ts)
 - desktop/ — Electron shell: main, permissions, hidden bridge windows, native apps (linuxApps.ts on Linux), headless.ts frameless windows when no screen
 - scripts/ — per-capability smoke/dev scripts run via bun run *-test
 - docs/ — features, permissions, long-form capability docs
@@ -69,18 +69,18 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 ## What it does
 
 - Project workspaces: delegating lead, liaison card, layer teammates on demand, openable teammate/liaison chats with direct talk, Stop/Refresh controls, unstaffed chips, single-open guard
-- Home workspace agent: finds projects by name, opens them, hands their leads a first prompt
-- Any harness verbatim: Claude, Codex, OpenCode, Gemini, ACP, per-chat model/effort/permissions
+- Home workspace agent: finds projects by name in any language, opens them, hands leads a first prompt
+- Any harness verbatim: Claude, Codex, OpenCode, Gemini, ACP; catalog-driven default model and effort
 - Streaming markdown replies: tool chips, inline diffs, read previews, unified permission cards
-- App-side prompt queue: reorder, merge with undo, edit, interrupt, holds on connection/limit errors
+- App-side prompt queue: reorder, merge with undo, edit, interrupt, hold-click send-now, error holds
 - Attachments: images, videos, PDFs, files, region crops, viewer, sketch pad
 - Edit and rewind: per-harness checkpoints, outside chats brought in as teammates, lost-session auto fresh-start with resend, startup-failure auto-retry
-- Subagents and background scripts as live cards, agents page, brief-started agents
+- Subagents and background scripts as live cards, agents page, brief-started agents; a running script's card shows its newest line and how long it has been quiet, and its page its output in timed stretches
 - Agent messaging with interrupt-or-queue delivery, busy status, jobs handed to another project's lead (ask_project), per-project rules, approvals
 - Bridge preview and takeover for web pages via hidden CDP browser and native apps via Accessibility (macOS) or X11 + AT-SPI over D-Bus (Linux)
-- MCP servers, plugins, marketplaces for Claude Code and Codex via Settings
-- Project memory as an audited log, folded from every finished turn and checked against the code, with project-wide recall by words and meaning, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup
-- Sessions edit layer sheets only after reading, by line number with stale-read guard
-- Frontend component library with freshness stamps, auto-refresh and picture capture
-- Self-compaction at half-window: handoff note, owed letters carried forward
+- MCP servers, plugins, marketplaces for Claude Code and Codex via Settings; passwords in ruri's own file or a ghostly (Bitwarden) vault, held in memory, used as {{handles}}, never shown to a model
+- Project memory as an audited log, folded from every finished turn and checked against the code, with project-wide recall by words and meaning, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup; sessions edit a sheet only after reading it, by line number with a stale-read guard
+- A sidebar you arrange (folders that fold, drag to order, one right-click menu per project), and the shell as a split pane under the chat that closes when its last shell is quit
+- Frontend component library with freshness stamps, auto-refresh, picture capture, per-project mycelium toggle
+- Model-decided self-compaction with 500k and 800k notices, handoff note or none
 - Idle/blocked project hooks: command, webhook, or midna inbound events

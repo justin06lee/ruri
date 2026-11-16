@@ -4,15 +4,32 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { writeTextAtomic } from "./atomic.js";
 import { configDir } from "./configDir.js";
+import { foldName } from "./finder.js";
 import { isMissing, warn } from "./log.js";
+import { catalogDefault, newestInLine, supersededBy } from "../shared/modelLine.js";
+import {
+  addFolder,
+  firstLayout,
+  flatOrder,
+  folderOf,
+  moveInLayout,
+  removeFolder,
+  sameLayout,
+  setFolder,
+  type SidebarLayout,
+  type SidebarPlace,
+  tidyLayout,
+} from "../shared/sidebar.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_MEMORY_MODEL,
-  DEFAULT_MODEL,
   DEFAULT_PERMISSION_MODE,
+  HARNESS_DEFAULT_MODEL,
   type HomeSettings,
+  isEffort,
   leadOf,
   liaisonOf,
+  type ModelChoice,
   type ModelRole,
   type Project,
   type SessionInfo,
@@ -32,10 +49,11 @@ export type SessionSettings = Pick<SessionInfo, "model" | "permissionMode" | "ef
 
 const SETTING_KEYS = ["model", "permissionMode", "effort"] as const;
 
-/** The built-in fallbacks. The model's is only the floor: the store's
- *  defaultModel() is what an unset model actually means. */
+/** The built-in fallbacks. The model's and the effort's are only floors:
+ *  the store's defaultModel() and defaultEffort() are what an unset one
+ *  actually means. */
 const DEFAULTS: Required<SessionSettings> = {
-  model: DEFAULT_MODEL,
+  model: HARNESS_DEFAULT_MODEL,
   permissionMode: DEFAULT_PERMISSION_MODE,
   effort: DEFAULT_EFFORT,
 };
@@ -69,18 +87,36 @@ function canonical(p: string): string {
 }
 
 export class ProjectStore {
+  /** Kept in the order the sidebar stands them (arrange), so everything
+   *  that lists the projects — the board, the switcher, rapid fire, the
+   *  phone — follows the sidebar without knowing of it. */
   private projects: Project[] = [];
+  /** The sidebar's order and folders (shared/sidebar.ts). */
+  private layout: SidebarLayout = { order: [], folders: [] };
   private workspace: string | undefined;
   private music: string | undefined;
   private home: HomeSettings = {};
-  // The out-of-the-box favourites; a saved list (even an empty one) wins.
-  private starredModelIds: string[] = [DEFAULT_MODEL, "codex:gpt-5.6-luna"];
-  /** The small-tasks model; fresh installs start on GPT Luna. */
-  private smallModelId: string | undefined = "codex:gpt-5.6-luna";
-  /** The triple-starred model new chats start on; undefined = DEFAULT_MODEL. */
+  /** The user's favourites. None out of the box: no model is named here,
+   *  and a picker with nothing starred shows the whole catalog. */
+  private starredModelIds: string[] = [];
+  /** The small-tasks model, when the user has handed the role to one. */
+  private smallModelId: string | undefined;
+  /** The crowned model new chats start on; undefined = the catalog's own
+   *  default (defaultModel). */
   private defaultModelId: string | undefined;
   /** The model that keeps the memory; undefined = DEFAULT_MEMORY_MODEL. */
   private memoryModelId: string | undefined;
+  /** The effort new chats start at; undefined = DEFAULT_EFFORT. */
+  private defaultEffortLevel: string | undefined;
+  /** The catalog as the harnesses last reported it (setCatalog). */
+  private catalog: ModelChoice[] = [];
+  /** Every model id a catalog has ever listed here — how a model listed
+   *  for the first time is told from one that was always there. Undefined
+   *  until the first catalog is read. */
+  private knownModels: string[] | undefined;
+  /** The catalog's own default as last read, for the launches before the
+   *  catalog is in. */
+  private catalogModel: string | undefined;
 
   constructor() {
     try {
@@ -93,6 +129,10 @@ export class ProjectStore {
         smallModel?: string;
         defaultModel?: string;
         memoryModel?: string;
+        defaultEffort?: string;
+        knownModels?: string[];
+        catalogModel?: string;
+        sidebar?: SidebarLayout;
       };
       this.projects = (raw.projects ?? []).filter(
         (p) => typeof p?.id === "string" && typeof p?.name === "string" && typeof p?.path === "string",
@@ -114,6 +154,23 @@ export class ProjectStore {
       if (typeof raw.smallModel === "string" && raw.smallModel) this.smallModelId = raw.smallModel;
       if (typeof raw.defaultModel === "string" && raw.defaultModel) this.defaultModelId = raw.defaultModel;
       if (typeof raw.memoryModel === "string" && raw.memoryModel) this.memoryModelId = raw.memoryModel;
+      if (isEffort(raw.defaultEffort)) this.defaultEffortLevel = raw.defaultEffort;
+      if (Array.isArray(raw.knownModels))
+        this.knownModels = raw.knownModels.filter((m) => typeof m === "string");
+      if (typeof raw.catalogModel === "string" && raw.catalogModel) this.catalogModel = raw.catalogModel;
+      // The sidebar's arrangement — or, the first time, the one it used to
+      // draw: starred first, and a folder for each group label a project
+      // was opened under, which was kept on the project and never shown.
+      const labelled = this.projects as Array<Project & { folder?: string }>;
+      this.layout =
+        raw.sidebar && typeof raw.sidebar === "object"
+          ? tidyLayout(
+              raw.sidebar,
+              this.projects.map((p) => p.id),
+            )
+          : firstLayout(labelled, randomUUID);
+      for (const project of labelled) delete project.folder;
+      this.arrange();
     } catch (err) {
       if (!isMissing(err)) warn("projects", err, "new ProjectStore");
       // first run
@@ -165,9 +222,88 @@ export class ProjectStore {
     return this.memoryModelId ?? DEFAULT_MEMORY_MODEL;
   }
 
-  /** What an unset model means: the crowned default, else the built-in. */
+  /**
+   * What an unset model means: the crowned default, else the one the
+   * catalog itself starts a chat on (shared/modelLine.ts catalogDefault) —
+   * as it stands now, as it stood at the last launch, or, on a first
+   * launch with no catalog read yet, the harness's own alias for it.
+   */
   defaultModel(): string {
-    return this.defaultModelId ?? DEFAULT_MODEL;
+    return this.defaultModelId ?? catalogDefault(this.catalog) ?? this.catalogModel ?? HARNESS_DEFAULT_MODEL;
+  }
+
+  /** What an unset effort means: the default chosen in Settings, else the
+   *  built-in. */
+  defaultEffort(): string {
+    return this.defaultEffortLevel ?? DEFAULT_EFFORT;
+  }
+
+  /**
+   * Choose the effort new chats and projects start at. As with a new
+   * default model, nothing that exists moves: every project (and Home)
+   * that was riding the old default is pinned to it first.
+   */
+  setDefaultEffort(effort: string): void {
+    if (!isEffort(effort)) return;
+    const was = this.defaultEffort();
+    if (effort !== was) {
+      for (const project of this.projects) if (!project.effort) project.effort = was;
+      if (!this.home.effort) this.home.effort = was;
+    }
+    this.defaultEffortLevel = effort === DEFAULT_EFFORT ? undefined : effort;
+    this.save();
+  }
+
+  /**
+   * The harnesses' catalog, as it lands and each time it changes.
+   *
+   * A model listed for the first time that is the newest of its line — a
+   * new Fable, a new GPT — takes over whatever stood on the one it
+   * supersedes: its star, and the default, small-tasks and memory roles.
+   * So the picker and the defaults keep to the newest version without
+   * anyone retyping one. Only what stood on the line's newest moves: a
+   * star left on an older model on purpose stays where it was put. Chats
+   * riding the default ride it to the new one; a chat that picked its
+   * model keeps its pick. True when a star or a role moved.
+   */
+  setCatalog(models: ModelChoice[]): boolean {
+    this.catalog = models;
+    if (models.length === 0) return false;
+    const listed = models.map((m) => m.value);
+    const own = catalogDefault(models);
+    let dirty = own !== undefined && own !== this.catalogModel;
+    if (own) this.catalogModel = own;
+    let moved = false;
+    if (this.knownModels === undefined) {
+      // the first catalog this store has seen: all of it was always there
+      this.knownModels = listed;
+      dirty = true;
+    } else {
+      const known = new Set(this.knownModels);
+      for (const arrival of listed) {
+        if (known.has(arrival)) continue;
+        dirty = true;
+        const old = supersededBy(models, this.knownModels, arrival);
+        if (!old) continue;
+        if (this.starredModelIds.includes(old)) {
+          this.starredModelIds = [...new Set(this.starredModelIds.map((id) => (id === old ? arrival : id)))];
+          moved = true;
+        }
+        if (this.smallModelId === old) this.smallModelId = arrival;
+        if (this.defaultModelId === old) this.defaultModelId = arrival;
+        if (this.memoryModelId === old) this.memoryModelId = arrival;
+        moved ||= [this.smallModelId, this.defaultModelId, this.memoryModelId].includes(arrival);
+      }
+      if (dirty) this.knownModels = [...new Set([...this.knownModels, ...listed])];
+    }
+    if (dirty || moved) this.save();
+    return moved;
+  }
+
+  /** The newest model the catalog lists in `id`'s line (`id` itself until
+   *  a catalog is in). */
+  latest(id: string): string {
+    return newestInLine(this.catalog, id);
   }
 
   /**
@@ -178,14 +314,13 @@ export class ProjectStore {
   setDefaultModel(model: string | undefined): void {
     const was = this.defaultModel();
     const next = model || undefined;
-    if ((next ?? DEFAULT_MODEL) === was) {
-      this.defaultModelId = next;
+    this.defaultModelId = next;
+    if (this.defaultModel() === was) {
       this.save();
       return;
     }
     for (const project of this.projects) if (!project.model) project.model = was;
     if (!this.home.model) this.home.model = was;
-    this.defaultModelId = next;
     this.save();
   }
 
@@ -289,11 +424,12 @@ export class ProjectStore {
   }
 
   /** The open project that already answers to any of these names — as its
-   *  display name or its folder's, case-insensitive. */
+   *  display name or its folder's, whatever the case and however the
+   *  characters are composed (foldName). */
   findByName(...names: string[]): Project | undefined {
-    const wanted = new Set(names.map((n) => n.trim().toLowerCase()).filter(Boolean));
+    const wanted = new Set(names.map((n) => foldName(n.trim())).filter(Boolean));
     return this.projects.find(
-      (p) => wanted.has(p.name.toLowerCase()) || wanted.has(path.basename(p.path).toLowerCase()),
+      (p) => wanted.has(foldName(p.name)) || wanted.has(foldName(path.basename(p.path))),
     );
   }
 
@@ -306,12 +442,12 @@ export class ProjectStore {
   findByQuery(query: string): Project | undefined {
     const q = query.trim().replace(/\/+$/, "");
     if (!q) return undefined;
-    const lower = q.toLowerCase();
+    const folded = foldName(q);
     const resolved = path.resolve(q.startsWith("~/") ? path.join(os.homedir(), q.slice(2)) : q);
     return (
       this.projects.find((p) => p.id === q || p.path.replace(/\/+$/, "") === q || p.path === resolved) ??
-      this.projects.find((p) => p.name.toLowerCase() === lower) ??
-      this.projects.find((p) => path.basename(p.path).toLowerCase() === lower)
+      this.projects.find((p) => foldName(p.name) === folded) ??
+      this.projects.find((p) => foldName(path.basename(p.path)) === folded)
     );
   }
 
@@ -319,6 +455,61 @@ export class ProjectStore {
     return this.projects.find((p) => p.id === id);
   }
 
+  /** The sidebar's arrangement, as it stands. */
+  sidebar(): SidebarLayout {
+    return structuredClone(this.layout);
+  }
+
+  /** The name of the sidebar folder a project is in, if it is in one. */
+  folderName(projectId: string): string | undefined {
+    return folderOf(this.layout, projectId)?.name;
+  }
+
+  /** A project or a folder carried to another place in the sidebar. */
+  moveInSidebar(id: string, place: SidebarPlace): void {
+    this.lay(moveInLayout(this.layout, id, place));
+  }
+
+  /** A new sidebar folder — around a project, when one is named. */
+  addFolder(folderId: string, name: string, projectId?: string): void {
+    this.lay(addFolder(this.layout, { id: folderId, name }, projectId));
+  }
+
+  /** A folder renamed, or folded shut or opened. */
+  setFolder(folderId: string, patch: { name?: string; collapsed?: boolean }): void {
+    this.lay(setFolder(this.layout, folderId, patch));
+  }
+
+  /** A folder taken away; its projects stay where it stood. */
+  removeFolder(folderId: string): void {
+    this.lay(removeFolder(this.layout, folderId));
+  }
+
+  /** Take a new arrangement: tidied against the projects there are, and
+   *  the projects stood in its order. */
+  private lay(next: SidebarLayout): void {
+    const tidy = tidyLayout(
+      next,
+      this.projects.map((p) => p.id),
+    );
+    if (sameLayout(tidy, this.layout)) return;
+    this.layout = tidy;
+    this.arrange();
+    this.save();
+  }
+
+  /** The projects, stood in the sidebar's order. */
+  private arrange(): void {
+    const at = new Map(flatOrder(this.layout).map((id, i) => [id, i]));
+    const last = this.projects.length;
+    this.projects.sort((a, b) => (at.get(a.id) ?? last) - (at.get(b.id) ?? last));
+  }
+
+  /**
+   * Open a folder on disk as a project. It joins the end of the sidebar —
+   * or, given a group label (`folder`: Home's open_project can pass one),
+   * the sidebar folder of that name, made when there is none yet.
+   */
   add(name: string, projectPath: string, folder?: string): Project {
     const resolved = expandPath(projectPath);
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
@@ -328,12 +519,24 @@ export class ProjectStore {
       id: randomUUID(),
       name: name.trim() || path.basename(resolved),
       path: resolved,
-      ...(folder?.trim() ? { folder: folder.trim() } : {}),
       sessions: [{ id: randomUUID(), title: LEAD_TITLE, lead: true }],
       // a new project's teammates are workers from the start
       workers: true,
     };
     this.projects.push(project);
+    let layout = tidyLayout(
+      this.layout,
+      this.projects.map((p) => p.id),
+    );
+    const label = folder?.trim();
+    if (label) {
+      const held = layout.folders.find((f) => foldName(f.name) === foldName(label));
+      layout = held
+        ? moveInLayout(layout, project.id, { folderId: held.id })
+        : addFolder(layout, { id: randomUUID(), name: label }, project.id);
+    }
+    this.layout = layout;
+    this.arrange();
     this.save();
     return project;
   }
@@ -527,13 +730,12 @@ export class ProjectStore {
     for (const key of SETTING_KEYS) {
       if (!(key in patch)) continue;
       const value = patch[key];
-      const was = project[key] ?? (key === "model" ? this.defaultModel() : DEFAULTS[key]);
+      const was = project[key] ?? this.unset(key);
       for (const sibling of project.sessions) {
         if (sibling.id === sessionId || sibling[key] !== undefined) continue;
         (sibling as unknown as Record<string, unknown>)[key] = was;
       }
-      (session as unknown as Record<string, unknown>)[key] =
-        value || (key === "model" ? this.defaultModel() : DEFAULTS[key]);
+      (session as unknown as Record<string, unknown>)[key] = value || this.unset(key);
       const record = project as unknown as Record<string, unknown>;
       if (value === undefined || value === "") delete record[key];
       else record[key] = value;
@@ -551,6 +753,17 @@ export class ProjectStore {
     this.save();
   }
 
+  /** What a setting nobody picked means: the default model, the default
+   *  effort, the built-in permission mode. */
+  private unset<K extends (typeof SETTING_KEYS)[number]>(key: K): Required<SessionSettings>[K] {
+    const value: Required<SessionSettings> = {
+      model: this.defaultModel(),
+      permissionMode: DEFAULTS.permissionMode,
+      effort: this.defaultEffort(),
+    };
+    return value[key];
+  }
+
   /** What a chat runs on: its own picks over the project's defaults. */
   effectiveSettings(sessionId: string): Required<SessionSettings> | undefined {
     const found = this.findSession(sessionId);
@@ -558,7 +771,7 @@ export class ProjectStore {
     return {
       model: found.session.model || found.project.model || this.defaultModel(),
       permissionMode: found.session.permissionMode ?? found.project.permissionMode ?? DEFAULTS.permissionMode,
-      effort: found.session.effort || found.project.effort || DEFAULTS.effort,
+      effort: found.session.effort || found.project.effort || this.defaultEffort(),
     };
   }
 
@@ -585,6 +798,10 @@ export class ProjectStore {
 
   remove(id: string): void {
     this.projects = this.projects.filter((p) => p.id !== id);
+    this.layout = tidyLayout(
+      this.layout,
+      this.projects.map((p) => p.id),
+    );
     this.save();
   }
 
@@ -594,6 +811,7 @@ export class ProjectStore {
       `${JSON.stringify(
         {
           projects: this.projects,
+          sidebar: this.layout,
           ...(this.workspace ? { workspaceDir: this.workspace } : {}),
           ...(this.music ? { musicDir: this.music } : {}),
           ...(Object.keys(this.home).length ? { home: this.home } : {}),
@@ -602,6 +820,9 @@ export class ProjectStore {
           ...(this.smallModelId ? { smallModel: this.smallModelId } : {}),
           ...(this.defaultModelId ? { defaultModel: this.defaultModelId } : {}),
           ...(this.memoryModelId ? { memoryModel: this.memoryModelId } : {}),
+          ...(this.defaultEffortLevel ? { defaultEffort: this.defaultEffortLevel } : {}),
+          ...(this.knownModels ? { knownModels: this.knownModels } : {}),
+          ...(this.catalogModel ? { catalogModel: this.catalogModel } : {}),
         },
         null,
         2,

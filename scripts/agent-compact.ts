@@ -1,12 +1,14 @@
 /**
  * An agent compacts itself, the way Codex does (server/selfCompaction.ts).
  *
- * Real turns (haiku), on a temp project, with the compaction point set
- * just above what a first small turn holds — so a job that reads four big
- * files crosses it in the middle:
+ * Real turns (haiku), on a temp project, with the first compaction notice
+ * set just above what a first small turn holds — so a job that reads four
+ * big files crosses it in the middle. A notice is the agent's to weigh, so
+ * the job says to take it: what is proven here is the mechanism, not the
+ * choice.
  *   1. a chat on a plain prompt — a teammate, the job typed into its chat
- *      (the lead delegates, and reads no files itself): told mid-turn it is
- *      past its point, it writes its handoff note and calls
+ *      (the lead delegates, and reads no files itself): given its notice
+ *      mid-turn, it writes its handoff note and calls
  *      mcp__ruri__compact; ruri
  *      compacts it when the turn ends, and the fresh session — sent the
  *      note, with no word from the user — finishes the job, every file's
@@ -78,7 +80,8 @@ const job = (dir: string, out: string, reader = "your Read tool (not grep, tail 
   `In ${dir}/ there are four files, part1.txt to part4.txt, each ending with a line "CODEWORD n: <word>". ` +
   `Work through them strictly one at a time, in order: read the whole file with ${reader}, ` +
   `then append its codeword as a line to ${out} with your shell (echo … >> ${out}), and only then go on to the next. ` +
-  `Don't read two files in one step. When all four are done, reply with the four codewords in order, one per line.`;
+  `Don't read two files in one step. When all four are done, reply with the four codewords in order, one per line. ` +
+  `This job is longer than it looks: if ruri gives you a compaction notice on the way, take it — compact with a handoff note at once, and let the fresh session finish.`;
 
 let failed = 0;
 function check(name: string, ok: boolean, detail?: unknown): void {
@@ -197,8 +200,8 @@ send({ type: "set_pref", key: "ruri-self-compact-at", value: String(point) });
 await settle(500);
 const told = await talkCall(lead.id, { do: "context" });
 check(
-  "the context check tells the lead its tokens and its compaction point",
-  Boolean(told?.text.includes("of 1M tokens used") && told.text.includes("You compact yourself at")),
+  "the context check tells the lead its tokens and where its first compaction notice comes",
+  Boolean(told?.text.includes("of 1M tokens used") && told.text.includes("first compaction notice")),
   told,
 );
 console.log(`    context ${base} after a first turn; compaction point set at ${point}`);

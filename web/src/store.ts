@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
-  DEFAULT_MODEL,
+  DEFAULT_EFFORT,
+  HARNESS_DEFAULT_MODEL,
   HOME_ID,
   HOME_TRANSCRIPT_MAX,
   keepRecent,
@@ -60,8 +61,20 @@ import {
   type TurnProgress,
   type TeamTask,
   type UsageLimits,
+  type VaultState,
   type ClaudeAccount,
 } from "../../shared/protocol";
+import {
+  addFolder as folderAdded,
+  moveInLayout,
+  NEW_FOLDER_NAME,
+  removeFolder as folderRemoved,
+  sameLayout,
+  setFolder as folderSet,
+  type SidebarLayout,
+  type SidebarPlace,
+  tidyLayout,
+} from "../../shared/sidebar";
 import type { ComposerAttachment } from "./components/Attachments";
 import {
   insertAt,
@@ -360,7 +373,12 @@ function appendDraft(channelId: string, text: string): void {
 
 interface RuriState {
   connected: boolean;
+  /** In the order the sidebar stands them, as the server keeps them. */
   projects: Project[];
+  /** The sidebar's order and folders (shared/sidebar.ts) — the server's
+   *  copy, with this window's own rearranging laid over it. The sidebar
+   *  tidies it against `projects` before drawing. */
+  sidebar: SidebarLayout;
   activeId: string | null;
   /** Every channel's events — whole for the chats marked in `loaded`, the
    *  last few for the rest (what the Home board's lines need). */
@@ -405,6 +423,9 @@ interface RuriState {
   bridges: Record<string, BridgeState>;
   /** The vault's names — the values live on the server and stay there. */
   secrets: SecretMeta[];
+  /** The ghostly vault as this machine has it: whether there is one, and
+   *  whether it answered — where a new secret goes when it did. */
+  vault: VaultState;
   /** Skills as of the last scan: every global one, plus one project's own. */
   skills: SkillInfo[];
   /** Slash commands the composer's menu offers, and the project they were
@@ -457,6 +478,10 @@ interface RuriState {
   sheetFacts: Record<string, { sources: Record<string, SourceLabel>; git?: SheetGit }>;
   /** Shell tab ids per channel, in the order the tab row shows them. */
   terminals: Record<string, string[]>;
+  /** The chats whose shell pane is open under them (Terminal.tsx): a split
+   *  at the foot of the chat, there until it is closed or its last shell
+   *  is quit. Per window, and only for as long as it is open. */
+  shellOpen: Record<string, boolean>;
   /** Rapid-fire mode: the main pane cycles through projects whose lead awaits a prompt. */
   rapid: boolean;
   /** The projects page, off the sidebar, is showing instead of a chat. */
@@ -480,6 +505,9 @@ interface RuriState {
   memoryModel: string;
   /** What an unset model means: the crowned default, else the built-in. */
   defaultModel: string;
+  /** The reasoning effort new chats and projects start at: the one chosen
+   *  in Settings, else the built-in (server ProjectStore.defaultEffort). */
+  defaultEffort: string;
   /** The local account name shown on the sidebar's account bar. */
   user: string;
   /** Every coding CLI on this machine, as the updater last saw it. */
@@ -558,6 +586,8 @@ interface RuriState {
   setActive(id: string | null): void;
   setRapid(on: boolean): void;
   setProjectsOpen(on: boolean): void;
+  /** Open a chat's shell pane, or put it away (its shells keep running). */
+  setShellOpen(channelId: string, open: boolean): void;
   setSettingsOpen(on: boolean): void;
   clearPicked(): void;
   dismissError(): void;
@@ -619,6 +649,7 @@ function seen(unread: Record<string, boolean>, id: string | null): Record<string
 export const useRuri = create<RuriState>((set) => ({
   connected: false,
   projects: [],
+  sidebar: { order: [], folders: [] },
   activeId: HOME_ID,
   transcripts: {},
   loaded: {},
@@ -642,6 +673,7 @@ export const useRuri = create<RuriState>((set) => ({
   sweeps: {},
   bridges: {},
   secrets: [],
+  vault: { installed: false, enrolled: false, ok: false, collections: [], syncing: false },
   skills: [],
   commands: [],
   commandsFor: null,
@@ -652,6 +684,7 @@ export const useRuri = create<RuriState>((set) => ({
   queued: {},
   queueHeld: {},
   terminals: {},
+  shellOpen: {},
   usage: {},
   contexts: {},
   unsent: {},
@@ -673,7 +706,8 @@ export const useRuri = create<RuriState>((set) => ({
   starredModels: [],
   smallModel: "",
   memoryModel: "",
-  defaultModel: DEFAULT_MODEL,
+  defaultModel: HARNESS_DEFAULT_MODEL,
+  defaultEffort: DEFAULT_EFFORT,
   user: "",
   harnesses: [],
   harnessesChecking: false,
@@ -715,6 +749,8 @@ export const useRuri = create<RuriState>((set) => ({
   setRapid: (on) => set({ rapid: on, projectsOpen: false }),
   // closing either page puts the open chat back in front of you, and with
   // it whatever finished there while the page stood over it (see "event")
+  setShellOpen: (channelId, open) =>
+    set((s) => (!!s.shellOpen[channelId] === open ? s : { shellOpen: { ...s.shellOpen, [channelId]: open } })),
   setProjectsOpen: (on) =>
     set((s) => ({
       projectsOpen: on,
@@ -1067,6 +1103,7 @@ function laid<T>(changes: Array<Change<T>>, value: T): T {
 }
 
 const projectChanges: Array<Change<Project[]>> = [];
+const sidebarChanges: Array<Change<SidebarLayout>> = [];
 const queueChanges = new Map<string, Array<Change<QueuedPrompt[]>>>();
 
 /** Send a change to the project list, and show it now. */
@@ -1081,6 +1118,36 @@ function changeProjects(
   }
   projectChanges.push({ apply, shows, until: Date.now() + CHANGE_MS });
   useRuri.setState((s) => ({ projects: apply(s.projects) }));
+}
+
+/**
+ * Send a change to the sidebar's arrangement, and show it now. The change
+ * is the same function the server runs (shared/sidebar.ts), so what shows
+ * is what it will keep; and since each of them done twice is done once,
+ * the server's copy shows a change when making it again changes nothing.
+ */
+function changeSidebar(message: ClientMessage, change: (layout: SidebarLayout) => SidebarLayout): void {
+  // against the projects there are: one opened a moment ago may not be in
+  // this window's copy of the layout yet
+  const tidy = (layout: SidebarLayout) =>
+    tidyLayout(
+      layout,
+      useRuri.getState().projects.map((p) => p.id),
+    );
+  const apply = (layout: SidebarLayout) => change(tidy(layout));
+  const now = tidy(useRuri.getState().sidebar);
+  // carried back to where it stood: nothing to say
+  if (sameLayout(change(now), now)) return;
+  if (!send(message)) {
+    showError("Not connected — that did not go through; try again once ruri is back.");
+    return;
+  }
+  sidebarChanges.push({
+    apply,
+    shows: (layout) => sameLayout(apply(layout), tidy(layout)),
+    until: Date.now() + CHANGE_MS,
+  });
+  useRuri.setState((s) => ({ sidebar: apply(s.sidebar) }));
 }
 
 /** Send a change to a chat's queue, and show it now. */
@@ -1144,6 +1211,47 @@ export function setProjectAccount(projectId: string, account: ClaudeAccount): vo
       }),
     (projects) => accountOf(projects.find((p) => p.id === projectId)) === account,
   );
+}
+
+/** Live components for one project, over the setting in Settings: on, off,
+ *  or back to following the setting (server/mycelium.ts). */
+export function setProjectLive(projectId: string, choice: "on" | "off" | "default"): void {
+  changeProjects(
+    { type: "set_mycelium", projectId, mycelium: choice },
+    (projects) =>
+      onProject(projects, projectId, (p) => {
+        const { mycelium: _was, ...rest } = p;
+        return choice === "default" ? rest : { ...rest, mycelium: choice };
+      }),
+    (projects) => (projects.find((p) => p.id === projectId)?.mycelium ?? "default") === choice,
+  );
+}
+
+/** Carry a project or a sidebar folder somewhere else: into `folderId` or
+ *  the top level, before `beforeId` there or at the end. */
+export function moveInSidebar(id: string, place: SidebarPlace): void {
+  changeSidebar({ type: "sidebar_move", id, ...place }, (layout) => moveInLayout(layout, id, place));
+}
+
+/** A new sidebar folder — around a project, when one is named, else empty
+ *  at the top. Its id, made here so the sidebar can show it (and open its
+ *  name for typing) before the server has heard of it. */
+export function newFolder(projectId?: string, name = NEW_FOLDER_NAME): string {
+  const folderId = crypto.randomUUID();
+  changeSidebar({ type: "folder_add", folderId, name, ...(projectId ? { projectId } : {}) }, (layout) =>
+    folderAdded(layout, { id: folderId, name }, projectId),
+  );
+  return folderId;
+}
+
+/** Rename a sidebar folder, or fold it shut or open. */
+export function changeFolder(folderId: string, patch: { name?: string; collapsed?: boolean }): void {
+  changeSidebar({ type: "folder_set", folderId, ...patch }, (layout) => folderSet(layout, folderId, patch));
+}
+
+/** Take a sidebar folder away; its projects stay where it stood. */
+export function dropFolder(folderId: string): void {
+  changeSidebar({ type: "folder_remove", folderId }, (layout) => folderRemoved(layout, folderId));
 }
 
 /** A project's Claude account: work unless it says personal. */
@@ -1275,6 +1383,21 @@ export function mergeQueued(channelId: string, itemId: string, intoId: string): 
       return items.filter((item) => item !== from).map((item) => (item === into ? merged : item));
     },
     (items) => !items.some((item) => item.id === itemId),
+  );
+}
+
+/** Send one queued prompt now (its card held down): the running turn
+ *  stops for it, as it does for a prompt sent to cut in. On screen it
+ *  leads the line at once, until the server shows it there or sent. */
+export function sendQueuedNow(channelId: string, itemId: string): void {
+  changeQueue(
+    { type: "queue_now", projectId: channelId, itemId },
+    channelId,
+    (items) => {
+      const moving = items.find((item) => item.id === itemId);
+      return moving ? [moving, ...items.filter((item) => item !== moving)] : items;
+    },
+    (items) => items[0]?.id === itemId || !items.some((item) => item.id === itemId),
   );
 }
 
@@ -1758,6 +1881,7 @@ function apply(msg: ServerMessage): void {
       Object.assign(serverStatuses, msg.statuses);
       setState((s) => ({
         projects: laid(projectChanges, msg.projects),
+        sidebar: laid(sidebarChanges, msg.sidebar ?? { order: [], folders: [] }),
         transcripts: Object.fromEntries(
           Object.entries(msg.transcripts).map(([id, tail]) => {
             const held = s.loaded[id] ? s.transcripts[id] : undefined;
@@ -1785,6 +1909,7 @@ function apply(msg: ServerMessage): void {
         components: msg.components,
         componentDirs: msg.componentDirs,
         secrets: msg.secrets,
+        vault: msg.vault,
         queued: Object.fromEntries(Object.entries(msg.queued).map(([id, items]) => [id, queueOf(id, items)])),
         queueHeld: msg.queuesHeld,
         usage: msg.usage,
@@ -1809,6 +1934,7 @@ function apply(msg: ServerMessage): void {
         smallModel: msg.smallModel,
         memoryModel: msg.memoryModel,
         defaultModel: msg.defaultModel,
+        defaultEffort: msg.defaultEffort ?? DEFAULT_EFFORT,
         user: msg.user,
         harnesses: msg.harnesses ?? [],
         harnessesChecking: msg.harnessesChecking === true,
@@ -1871,6 +1997,10 @@ function apply(msg: ServerMessage): void {
         projects,
         activeId: stillShown(s.projects, projects, s.activeId),
       }));
+      break;
+    }
+    case "sidebar": {
+      setState({ sidebar: laid(sidebarChanges, msg.sidebar) });
       break;
     }
     case "queued": {
@@ -1984,7 +2114,14 @@ function apply(msg: ServerMessage): void {
       break;
     }
     case "terminal_tabs": {
-      setState((s) => ({ terminals: { ...s.terminals, [msg.projectId]: msg.tabs } }));
+      setState((s) => {
+        if (msg.tabs.length > 0) return { terminals: { ...s.terminals, [msg.projectId]: msg.tabs } };
+        // its last shell was quit, or its last tab closed: the pane goes
+        // with it, and the row is forgotten — opening the pane again asks
+        // for one, and gets a fresh tab
+        const { [msg.projectId]: _gone, ...terminals } = s.terminals;
+        return { terminals, shellOpen: { ...s.shellOpen, [msg.projectId]: false } };
+      });
       break;
     }
     case "usage": {
@@ -2073,6 +2210,10 @@ function apply(msg: ServerMessage): void {
       setState({ secrets: msg.items });
       break;
     }
+    case "vault": {
+      setState({ vault: msg.state });
+      break;
+    }
     case "skill_body": {
       setState({ skillBody: { name: msg.name, body: msg.body } });
       break;
@@ -2116,6 +2257,10 @@ function apply(msg: ServerMessage): void {
     }
     case "default_model": {
       setState({ defaultModel: msg.model });
+      break;
+    }
+    case "default_effort": {
+      setState({ defaultEffort: msg.effort });
       break;
     }
     case "home_reset": {

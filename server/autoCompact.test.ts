@@ -41,10 +41,15 @@ describe("ruri compacts a chat before its harness would", () => {
     // Gemini CLI compresses at seven tenths: ruri goes first
     expect(autoCompactDue(chatAt(125_000, { harness: "gemini" }), "c1")).toContain("63%");
     expect(autoCompactDue(chatAt(125_000, { harness: "codex" }), "c1")).toBeUndefined();
-    // a million-token window, with the soft limit off
-    process.env["RURI_COMPACT_SOFT_TOKENS"] = "off";
+    // a million-token window: nothing at 500k, nothing at 800k — whether to
+    // compact there is the agent's call — and ruri's only at the top of it
+    delete process.env["RURI_COMPACT_SOFT_TOKENS"];
     expect(autoCompactDue(chatAt(500_000, { window: 1_000_000 }), "c1")).toBeUndefined();
-    expect(autoCompactDue(chatAt(820_000, { window: 1_000_000 }), "c1")).toContain("of 1M");
+    expect(autoCompactDue(chatAt(560_000, { window: 1_000_000 }), "c1")).toBeUndefined();
+    expect(autoCompactDue(chatAt(820_000, { window: 1_000_000 }), "c1")).toBeUndefined();
+    expect(autoCompactDue(chatAt(905_000, { window: 1_000_000 }), "c1")).toContain("of 1M");
+    // a harness that compacts sooner keeps its share, however big the window
+    expect(autoCompactDue(chatAt(820_000, { window: 1_000_000, harness: "codex" }), "c1")).toContain("of 1M");
   });
 
   test("never while an agent the session started is still running, nor when the user turned it off", () => {
@@ -55,20 +60,25 @@ describe("ruri compacts a chat before its harness would", () => {
 });
 
 describe("the soft limit", () => {
-  test("550k unless the env or the preference says otherwise, or off", () => {
+  test("none unless the env or the preference names one", () => {
     delete process.env["RURI_COMPACT_SOFT_TOKENS"];
-    expect(softCompactTokens(chatAt(0))).toBe(550_000);
+    expect(softCompactTokens(chatAt(0))).toBeUndefined();
     expect(softCompactTokens(chatAt(0, { prefs: { "ruri-compact-soft-tokens": "300k" } }))).toBe(300_000);
-    expect(softCompactTokens(chatAt(0, { prefs: { "ruri-compact-soft-tokens": "nonsense" } }))).toBe(550_000);
+    expect(softCompactTokens(chatAt(0, { prefs: { "ruri-compact-soft-tokens": "nonsense" } }))).toBeUndefined();
     process.env["RURI_COMPACT_SOFT_TOKENS"] = "250000";
     expect(softCompactTokens(chatAt(0, { prefs: { "ruri-compact-soft-tokens": "300k" } }))).toBe(250_000);
     process.env["RURI_COMPACT_SOFT_TOKENS"] = "off";
     expect(softCompactTokens(chatAt(0))).toBeUndefined();
   });
 
-  test("whichever comes first: within 5% of the soft limit, or the harness's share of the window", () => {
+  test("whichever comes first: within 5% of a soft limit the user set, or the top of the window", () => {
+    // with none set, the top of the window: all but 100k of a big one,
+    // four fifths of a small one
     delete process.env["RURI_COMPACT_SOFT_TOKENS"];
-    // a 1M window: 522k (5% under 550k) comes before 800k
+    expect(autoCompactPoint(chatAt(0, { window: 1_000_000 }), "c1")).toEqual({ tokens: 900_000 });
+    expect(autoCompactPoint(chatAt(0), "c1")).toEqual({ tokens: 160_000 });
+    process.env["RURI_COMPACT_SOFT_TOKENS"] = "550k";
+    // a 1M window: 522k (5% under 550k) comes before 900k
     expect(autoCompactPoint(chatAt(0, { window: 1_000_000 }), "c1")).toEqual({ tokens: 522_500, soft: 550_000 });
     // a 200k window: its 160k comes first
     expect(autoCompactPoint(chatAt(0), "c1")).toEqual({ tokens: 160_000 });
@@ -85,7 +95,7 @@ describe("the soft limit", () => {
   });
 
   test("a chat climbing past it is compacted once, at the turn's end, and its fresh session carries on", () => {
-    delete process.env["RURI_COMPACT_SOFT_TOKENS"];
+    process.env["RURI_COMPACT_SOFT_TOKENS"] = "550k";
     const ctx = chatAt(0, { window: 1_000_000 });
     const contexts = (ctx.turns as unknown as { contexts: Map<string, { tokens: number }> }).contexts;
     let compactions = 0;

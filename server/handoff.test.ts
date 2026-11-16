@@ -290,7 +290,7 @@ describe("what rides in ahead of a prompt", () => {
       },
     } as unknown as ServerContext;
     expect(catchUp(measured, CHAT, "hello").brief).toBe(
-      "<ruri:context>300k of 1M tokens used (30%). You compact yourself at 500k, 200k from here.</ruri:context>\n",
+      "<ruri:context>300k of 1M tokens used (30%). Your first compaction notice comes at 500k, 200k from here.</ruri:context>\n",
     );
   });
 });

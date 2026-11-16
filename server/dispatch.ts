@@ -494,6 +494,10 @@ export function cutInWith(ctx: ServerContext, channelId: string, entries: QueueE
  * keeps every prompt word for word and every exchange on file, not the
  * harness's own summary. RURI_AUTO_COMPACT_AT sets one share for every
  * harness; the "ruri-auto-compact" preference "off" leaves it to /compact.
+ *
+ * This is for a window that is running out, and nothing sooner: whether to
+ * compact before that is the agent's own call (selfCompaction.ts), made at
+ * the notices it is given on the way up.
  */
 const AUTO_COMPACT_AT: Record<string, number> = {
   claude: 0.8,
@@ -508,32 +512,36 @@ export function autoCompactShare(harness: string): number {
   return Number(process.env["RURI_AUTO_COMPACT_AT"]) || AUTO_COMPACT_AT[harness] || 0.8;
 }
 
-/** ruri's soft limit, in tokens: a chat whose context comes this close to
- *  it compacts at its turn's end, however big its window — a 1M window
- *  would otherwise run to 800k, every call re-reading all of it. Set so its
- *  margin ends above the 500k where an agent writes its handoff note
- *  (selfCompaction.ts LEAD_COMPACT_AT): this is the backstop for one that
- *  didn't, and firing first would throw the note away. */
-export const SOFT_COMPACT_TOKENS = 550_000;
+/** What ruri leaves unused at the top of a big window on a harness that
+ *  compacts only at the very top (Claude Code): a fifth of a million-token
+ *  window is 200k held back for nothing, so there the share gives way to
+ *  this much room. A 200k window keeps its share — four fifths. */
+const TOP_ROOM_TOKENS = 100_000;
+
 /** How near the soft limit counts as reaching it: the next turn would
  *  likely cross it, so the compaction comes before that turn. */
 export const SOFT_MARGIN = 0.05;
 
-/** The soft limit — RURI_COMPACT_SOFT_TOKENS, then the
- *  "ruri-compact-soft-tokens" preference ("550000", "550k", "1M"), else
- *  SOFT_COMPACT_TOKENS; undefined when either says "off". */
+/**
+ * A soft limit, in tokens, for a user who wants one: a chat whose context
+ * comes this close to it is compacted at its turn's end, however big its
+ * window. RURI_COMPACT_SOFT_TOKENS, then the "ruri-compact-soft-tokens"
+ * preference ("550000", "550k", "1M"). There is none unless one of them
+ * names a figure: it used to stand at 550k for everyone, which compacted a
+ * chat just past the 500k where it had been asked to choose for itself.
+ */
 export function softCompactTokens(ctx: ServerContext): number | undefined {
   const env = process.env["RURI_COMPACT_SOFT_TOKENS"]?.trim();
   const said = (env || ctx.prefs.all()["ruri-compact-soft-tokens"])?.trim().toLowerCase();
-  if (said === "off") return undefined;
   const m = said ? /^(\d+(?:\.\d+)?)\s*(k|m)?$/.exec(said) : null;
   const n = m ? Number(m[1]) * (m[2] === "k" ? 1000 : m[2] === "m" ? 1_000_000 : 1) : 0;
-  return n >= 1000 ? Math.round(n) : SOFT_COMPACT_TOKENS;
+  return n >= 1000 ? Math.round(n) : undefined;
 }
 
 /** Where ruri compacts a chat at a turn's end, in tokens, and which limit
- *  that is: its harness's share of the window, or near the soft limit —
- *  whichever comes first. Undefined when ruri's compaction is off. */
+ *  that is: the top of its window as its harness has it, or near a soft
+ *  limit the user set — whichever comes first. Undefined when ruri's
+ *  compaction is off. */
 export function autoCompactPoint(
   ctx: ServerContext,
   channelId: string,
@@ -541,14 +549,21 @@ export function autoCompactPoint(
   if (channelId === HOME_ID || ctx.prefs.all()["ruri-auto-compact"] === "off") return undefined;
   const project = channelProject(ctx, channelId);
   if (!project) return undefined;
-  const hard = Math.round(contextWindow(ctx, channelId) * autoCompactShare(ctx.manager.harnessFor(project)));
+  const window = contextWindow(ctx, channelId);
+  const harness = ctx.manager.harnessFor(project);
+  const share = Math.round(window * autoCompactShare(harness));
+  // a share the user set stands as it is
+  const hard =
+    harness === "claude" && !Number(process.env["RURI_AUTO_COMPACT_AT"])
+      ? Math.max(share, window - TOP_ROOM_TOKENS)
+      : share;
   const soft = softCompactTokens(ctx);
   const near = soft === undefined ? Infinity : Math.round(soft * (1 - SOFT_MARGIN));
   return near < hard ? { tokens: near, soft } : { tokens: hard };
 }
 
 /** Why a chat whose turn just ended should be compacted now — its context
- *  past its share of the window, or near the soft limit — or undefined.
+ *  at the top of its window, or near a soft limit the user set — or undefined.
  *  Never while an agent or a script it started is still running in the
  *  session. */
 export function autoCompactDue(ctx: ServerContext, channelId: string): string | undefined {

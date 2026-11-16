@@ -7,26 +7,28 @@ This layer moves the user between projects: a sidebar row per project (its lead 
 
 ## Where to change what
 
-- **Sidebar project rows (one a project, its lead):** web/src/components/Sidebar.tsx, web/src/components/Player.tsx
+- **Sidebar project rows (one a project, its lead), folders, and the order you drag them into:** web/src/components/Sidebar.tsx, shared/sidebar.ts
 - **Team-at-work dragon and count (row and Projects row):** web/src/components/Sidebar.tsx
 - **Home projects board:** web/src/components/HomeBoard.tsx
 - **Quick switcher (⌘K / right Option):** web/src/components/Switcher.tsx, web/src/lib/fuzzy.ts
-- **Queued prompts list:** web/src/components/Queue.tsx
+- **Queued prompts list, and holding one to send it now:** web/src/components/Queue.tsx
 - **Rapid Fire line:** web/src/components/RapidFire.tsx
 - **Per-chat session controls (model/effort/permission):** web/src/components/SessionControls.tsx
-- **Music player bar:** web/src/components/Player.tsx, web/src/lib/audio.ts
 - **Fuzzy search scoring:** web/src/lib/fuzzy.ts
 - **Background-run notes and timestamps:** web/src/lib/runNote.ts
+- **A project's right-click menu (drawing, folder, live components):** web/src/components/Sidebar.tsx
 
 ## How it works
 
 - **Switch project:** Sidebar row, Switcher Enter, HomeBoard card, or RapidBar hand-off calls setActive/go on the project's lead; the team page opens any teammate or the liaison, and setActive keeps that id (store.ts shownChat) → Chat pane renders that chat's transcript; a retired or refreshed teammate falls back to its lead (stillShown) → The project's row is active while any of its sessions is open → Unread pips and recent-note lines update from store (teammates' turns wear none, leadFor)
 - **Hold and dispatch a queued prompt:** Queue.tsx holds prompt app-side while a turn runs (nothing reaches harness) → User edits, merges (drop on body), reorders (drop on edge), or removes card up to dispatch → Fold can be undone within UNDO_MS (8000ms) → composeInto/send releases the prompt when its turn comes
 - **Rapid Fire pass through ready projects:** Line membership resolved via lib/rapid — each project once, as its lead; all open vs starred-only, hidden excluded → RapidFire hands the ordinary chat pane a different channel to show (builds no pane) → Prompt lands and sits readable, card eases out → Next project's name announces big (the project alone) before its lead's chat rises → Leaving the line restores the prior active chat
+- **Arrange the sidebar:** pointer down on a row or folder lifts it after a few pixels (FolderRow / ProjectRow, the Lift) → the drop names a place: before a row, onto a folder, or out of one → send sidebar_move {id, folderId?, beforeId?} (folder_add / folder_set / folder_remove for folders) → the server changes the one layout value through shared/sidebar.ts and broadcasts sidebar → every window draws it from the store
+- **Send a queued prompt now:** press and hold its card for CUT_IN_HOLD_MS (the composer's cut-in hold), a line filling → queue_now {projectId, itemId} → the server sends it in place of the running turn, the rest keeping their order
 
 ## Key files
 
-- web/src/components/Sidebar.tsx — project rows, team-at-work dragons and counts (teamAtWork), star/hide/remove, Home and Projects rows, account bar
+- web/src/components/Sidebar.tsx — project rows and FolderRow (fold, rename, remove), dragging to arrange, RowMenu (the right-click menu), team-at-work dragons and counts (teamAtWork), star/hide/remove, Home and Projects rows, account bar
 - web/src/components/HomeBoard.tsx — HomeTab/HomeDeck/ProjectsPage grid of per-project cards: the lead's last lines (LeadLines), the whole team's status
 - web/src/components/Switcher.tsx — ⌘K/right-Option fuzzy search over places and projects, each opening its lead
 - web/src/components/Queue.tsx — QueuedList/QueueStandby editable held-prompt cards with drag reorder/merge
@@ -42,11 +44,12 @@ This layer moves the user between projects: a sidebar row per project (its lead 
 - HomeBoard never animates: streaming reply words and anything moving belong only to the open chat.
 - Each project shows once here, as its lead (leadOf): the sidebar row, switcher, rapid fire line and projects board all open the lead, never a teammate. Only the team page opens a teammate or the liaison; then the row stays active. RapidFire must not move the app's active session; leaving the line returns to where the user was.
 - SessionControls picks are per chat (session id / Home channelId), never per project.
-- Queued prompts stay app-side until their turn; editable/removable up to dispatch only.
+- Queued prompts stay app-side until their turn; editable/removable up to dispatch only. A held card (queue_now) is a press that didn't become a drag: the same pointer starts both, so keep the hold cancelled once it moves.
 - Switcher opens on right-Option tap alone; Option held for shortcuts (e.g. ⌥→) must not open it.
 - Finished run notes expire after FINAL_NOTE_MS (25s) so stale results don't linger across opens.
 - Row dragons and counts show the team's work, never the lead's: one predicate (teamAtWork in Sidebar.tsx) — every session but leadOf, liaison included, isBusy — lights a project row's dragon, its count and the Projects row; only the remove confirmation still counts the lead.
 - A question or permission card the lead is waiting on does not light the sidebar row; the unread dot marks the lead's reply instead.
+- The sidebar's order and folders are the server's one value (sidebar in projects.json): change it only by sending sidebar_move / folder_* and never sort rows here — a star marks a project but no longer moves it.
 
 ## What it talks to
 

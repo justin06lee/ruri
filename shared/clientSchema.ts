@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ClientMessage } from "./protocol.js";
+import { EFFORT_LEVELS, type ClientMessage } from "./protocol.js";
 
 /**
  * The wire protocol, checked at runtime. handleMessage used to take
@@ -152,6 +152,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   }),
   z.object({ type: z.literal("queue_edit_cancel"), ...projectId, itemId: id }),
   z.object({ type: z.literal("queue_send"), ...projectId }),
+  z.object({ type: z.literal("queue_now"), ...projectId, itemId: id }),
   z.object({ type: z.literal("remove_event"), ...projectId, eventId: id }),
   z.object({ type: z.literal("agent_log"), ...projectId, key: id }),
   z.object({ type: z.literal("agent_start"), ...projectId, key: id, text, model: label.optional() }),
@@ -208,6 +209,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("set_permission_mode"), ...projectId, mode: permissionMode }),
   z.object({ type: z.literal("set_effort"), ...projectId, effort: z.string().max(32) }),
   z.object({ type: z.literal("set_account"), ...projectId, account: z.enum(["work", "personal"]) }),
+  z.object({ type: z.literal("set_mycelium"), ...projectId, mycelium: z.enum(["on", "off", "default"]) }),
   z.object({
     type: z.literal("idea_add"),
     ...projectId,
@@ -300,8 +302,12 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
     username: label.optional(),
     note: text.optional(),
     secret: z.string().max(100_000).optional(),
+    generate: z.boolean().optional(),
+    collection: label.optional(),
   }),
   z.object({ type: z.literal("secret_remove"), id }),
+  z.object({ type: z.literal("secret_move"), id }),
+  z.object({ type: z.literal("vault_refresh"), full: z.boolean().optional() }),
   z.object({ type: z.literal("skills_refresh"), ...optionalProjectId }),
   z.object({ type: z.literal("commands_refresh"), ...optionalProjectId }),
   z.object({
@@ -330,6 +336,15 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("tracker_review"), ...projectId }),
   z.object({ type: z.literal("toggle_star"), ...projectId }),
   z.object({ type: z.literal("toggle_hidden"), ...projectId }),
+  z.object({ type: z.literal("sidebar_move"), id, folderId: id.optional(), beforeId: id.optional() }),
+  z.object({ type: z.literal("folder_add"), folderId: clientId, name: label, projectId: id.optional() }),
+  z.object({
+    type: z.literal("folder_set"),
+    folderId: id,
+    name: label.optional(),
+    collapsed: z.boolean().optional(),
+  }),
+  z.object({ type: z.literal("folder_remove"), folderId: id }),
   z.object({ type: z.literal("rename_project"), ...projectId, name: label }),
   z.object({ type: z.literal("new_session"), ...projectId }),
   z.object({ type: z.literal("rename_session"), sessionId: id, title: label }),
@@ -339,6 +354,7 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("set_music_dir"), path: filePath }),
   z.object({ type: z.literal("toggle_model_star"), model: label }),
   z.object({ type: z.literal("set_model_role"), model: label, role: modelRole }),
+  z.object({ type: z.literal("set_default_effort"), effort: z.enum(EFFORT_LEVELS) }),
   z.object({ type: z.literal("reset_home") }),
   z.object({ type: z.literal("refresh_models") }),
   z.object({ type: z.literal("check_harnesses"), id: id.optional() }),

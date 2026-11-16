@@ -33,6 +33,30 @@ function exists(file: string): boolean {
   }
 }
 
+/**
+ * What a session is told about anything it runs that takes a while: say
+ * how far along it is. A long job's output is the only thing that tells
+ * one that is working from one that is stuck — to the user, who watches a
+ * background script's page and card (server/scriptWatch.ts), and to the
+ * model itself when it comes back to check. The words are the same in
+ * every session, so the prompt stays cached.
+ */
+export function scriptsBriefing(claude: boolean): string {
+  return [
+    "<ruri:scripts>",
+    claude
+      ? "A command you leave running in the background shows in the chat as a card the user can open: its page shows what it prints as it prints it, each stretch with the time it arrived, and the card shows its newest line and how long it has been quiet. That output is all the user has to tell a job that is working from one that is stuck — and all you have, when you come back to check on it."
+      : "What a long-running command prints is all the user has to tell a job that is working from one that is stuck — and all you have, when you come back to check on it.",
+    "So whatever you run or write that takes more than a few seconds — a build, a test run, a migration, a download, a training or batch job, a loop over many items — make it say how far along it is:",
+    "- a first line saying what it is about to do and how much there is; a last line saying it finished, or failed and why;",
+    "- a line per step or item, with the count when there is one (`[12/340] resizing photos/a.png`), and the time taken so far or an estimate of what is left when it can tell;",
+    "- something at least every few seconds while it works: through a step that is long and silent, a heartbeat (`still indexing… 45s`);",
+    "- as it happens, not all at the end: unbuffered (`python -u` or PYTHONUNBUFFERED=1, `stdbuf -oL`, flush after each line), a tool's own `--progress` or `--verbose` when it has one, and no pipe that holds lines back (`grep --line-buffered`, never `| tail`).",
+    "Plain lines rather than a bar redrawn in place, and don't quiet a tool (`-q`, `--silent`) that would otherwise report its progress on a long run.",
+    "</ruri:scripts>",
+  ].join("\n");
+}
+
 export function sessionBriefing(input: {
   projectDir: string;
   projectName: string;
@@ -141,6 +165,8 @@ export function sessionBriefing(input: {
   if (input.talk) blocks.push(input.talk);
 
   if (input.team) blocks.push(input.team);
+
+  blocks.push(scriptsBriefing(input.claude));
 
   if (input.context) blocks.push(input.context);
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { HOME_ID, MODEL_IMAGE_TYPES, type AttachmentUpload, type Project } from "../../../shared/protocol";
 import { fileToBase64 } from "../lib/files";
 import { keepLocal } from "../lib/localFiles";
@@ -44,11 +44,6 @@ import { Icon } from "./chat/Icon";
 import { NO_QUEUED } from "./chat/empty";
 import { MOD } from "../lib/keys";
 
-/* The shell panel brings xterm with it — a quarter of the app's JavaScript,
-   for a mode most sessions never turn on. It arrives when the `>_` button is
-   pressed instead of on every launch. */
-const TerminalPanel = lazy(() => import("./Terminal").then((m) => ({ default: m.TerminalPanel })));
-
 /** The bar's flex gap, plus a little air, in the fold measurement. */
 const BAR_GAP = 14;
 
@@ -57,7 +52,16 @@ const BAR_GAP = 14;
  * them all: the shell and the sketch pad. Send stays out, and
  * so does stop — those are the ones a hand reaches for.
  */
-function MoreActions({ onShell, onSketch }: { onShell(): void; onSketch?: () => void }) {
+function MoreActions({
+  shell,
+  onShell,
+  onSketch,
+}: {
+  /** The shell pane is open: the same item puts it away. */
+  shell: boolean;
+  onShell(): void;
+  onSketch?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -92,7 +96,7 @@ function MoreActions({ onShell, onSketch }: { onShell(): void; onSketch?: () => 
         <div className="dropdown-menu up more-menu" role="menu">
           <button className="dropdown-item" role="menuitem" onClick={pick(onShell)}>
             <Icon d="M4 17l6-6-6-6M12 19h8" />
-            Shell
+            {shell ? "Put the shell away" : "Shell"}
           </button>
           {onSketch && (
             <button className="dropdown-item" role="menuitem" onClick={pick(onSketch)}>
@@ -110,7 +114,7 @@ function MoreActions({ onShell, onSketch }: { onShell(): void; onSketch?: () => 
  *  stops the turn and goes in its place — rather than queueing behind it.
  *  Long enough that no ordinary press gets there; the ring on the send
  *  button fills over exactly this long. */
-const CUT_IN_HOLD_MS = 600;
+export const CUT_IN_HOLD_MS = 600;
 
 /** The composer's files as the wire takes them: the bytes, a PNG of a
  *  picture the model would not take as it is, and each drawn region cut
@@ -173,10 +177,11 @@ export function Composer({
    *  a chip and its thumbnail read as one thing. */
   const [hot, setHot] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  /** The box has two modes: writing a prompt, and a shell in the project's
-   *  directory. The shell keeps running either way — this only decides
-   *  which one the box is showing. */
-  const [shell, setShell] = useState(false);
+  /** The shell pane is open under this chat (ChatPane puts it there, a
+   *  split at the foot of the pane): the `>_` button opens it and puts it
+   *  away, and the box goes on being a box either way. */
+  const shell = useRuri((s) => s.shellOpen[channelId] === true);
+  const setShellOpen = useRuri((s) => s.setShellOpen);
   const counter = useRef(saved?.counter ?? { image: 0, video: 0, file: 0, region: 0 });
   /** Where the caret was last seen in the prompt — a marker drawn in the
    *  viewer lands there, since the textarea lost focus to the overlay. */
@@ -212,7 +217,7 @@ export function Composer({
     const bar = barRef.current;
     if (!bar) return;
     if (!bar.querySelector(".dropdown.combo, .more-actions")) {
-      const controls = bar.querySelector<HTMLElement>(".composer-controls, .shell-where");
+      const controls = bar.querySelector<HTMLElement>(".composer-controls");
       const actions = bar.querySelector<HTMLElement>(".composer-actions");
       need.current = (controls?.offsetWidth ?? 0) + (actions?.offsetWidth ?? 0) + BAR_GAP;
     }
@@ -220,19 +225,18 @@ export function Composer({
   }, []);
   // Whenever the bar, or what is in it, is laid out again: a label
   // changes, stop comes and goes, the window is resized. The parts are
-  // other elements once the bar folds or the shell takes it, so they are
-  // found again then.
+  // other elements once the bar folds, so they are found again then.
   useLayoutEffect(() => {
     const bar = barRef.current;
     if (!bar) return;
     const observer = new ResizeObserver(look);
     observer.observe(bar);
-    for (const part of bar.querySelectorAll(".composer-controls, .shell-where, .composer-actions")) {
+    for (const part of bar.querySelectorAll(".composer-controls, .composer-actions")) {
       observer.observe(part);
     }
     look();
     return () => observer.disconnect();
-  }, [look, compact, shell]);
+  }, [look, compact]);
 
   // Every keystroke and attachment change lands in the per-channel draft —
   // and on disk, so a half-written prompt is still there after a ⌘Q.
@@ -527,28 +531,26 @@ export function Composer({
     onSent?.();
   };
 
-  /** The box as it was when the shell took its place: the caret, the
-   *  scroll. The textarea is unmounted while the shell shows, and a fresh
-   *  one comes up one row tall with the caret at the start — so on the
-   *  way back it is measured again and put back exactly where it was. */
-  const held = useRef<{ start: number; end: number; top: number } | null>(null);
-  const toggleShell = () => {
-    const area = areaRef.current;
-    if (!shell && area)
-      held.current = { start: area.selectionStart, end: area.selectionEnd, top: area.scrollTop };
-    setShell(!shell);
-  };
-  useLayoutEffect(() => {
-    if (shell) return;
-    const was = held.current;
-    const area = areaRef.current;
-    if (!was || !area) return;
-    held.current = null;
-    area.focus();
-    area.setSelectionRange(was.start, was.end);
-    area.scrollTop = was.top;
-    caretRef.current = was.start;
+  const toggleShell = () => setShellOpen(channelId, !shell);
+  // The pane gone — put away, or its last shell quit — and the keyboard
+  // comes back to the prompt, where it was before the shell took it.
+  const shellWas = useRef(shell);
+  useEffect(() => {
+    if (shellWas.current && !shell) areaRef.current?.focus();
+    shellWas.current = shell;
   }, [shell]);
+  // Ctrl+` opens the shell and puts it away, as it does in an editor. In
+  // the capture phase: a focused shell has the keyboard, and would take it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== "Backquote" || !e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setShellOpen(channelId, useRuri.getState().shellOpen[channelId] !== true);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [channelId, setShellOpen]);
 
   const viewingAtt = atts.find((a) => a.id === viewing);
 
@@ -576,12 +578,7 @@ export function Composer({
             addFiles(e.dataTransfer.files, caretFromPoint(e.clientX, e.clientY) ?? undefined);
           }}
         >
-          {shell && (
-            <Suspense fallback={<div className="terminal" />}>
-              <TerminalPanel channelId={channelId} />
-            </Suspense>
-          )}
-          {!shell && editing && (
+          {editing && (
             <div className="composer-editing">
               <span>rewriting a queued prompt — Enter puts it back in line</span>
               <button
@@ -599,117 +596,113 @@ export function Composer({
               </button>
             </div>
           )}
-          {!shell && (
-            <AttachmentStrip
-              attachments={atts}
-              highlight={hot}
-              onRemove={removeAtt}
-              onView={(a) => {
-                // the caret as the prompt last had it — the viewer is about
-                // to take focus, and a region drawn in there lands right here
-                caretRef.current = areaRef.current?.selectionStart ?? text.length;
-                setViewing(a.id);
+          <AttachmentStrip
+            attachments={atts}
+            highlight={hot}
+            onRemove={removeAtt}
+            onView={(a) => {
+              // the caret as the prompt last had it — the viewer is about
+              // to take focus, and a region drawn in there lands right here
+              caretRef.current = areaRef.current?.selectionStart ?? text.length;
+              setViewing(a.id);
+            }}
+          />
+          <div className="composer-field">
+            <textarea
+              ref={areaRef}
+              rows={1}
+              placeholder="Message ruri…"
+              value={text}
+              onChange={(e) => {
+                const held = holdMarkersAt(e.target.value, e.target.selectionStart);
+                caretRef.current = held.caret;
+                setText(held.text);
+                trackSlash(held.text, held.caret);
+                // a tag's space put in or taken back out: the box is given
+                // new text, and the caret goes where it belongs in it
+                if (held.caret !== e.target.selectionStart || held.text !== e.target.value) {
+                  placeCaret(held.caret);
+                }
+              }}
+              // wherever the caret was when the viewer took focus is where a
+              // region's marker goes
+              // and the caret never stands inside a tag or its spaces
+              onSelect={(e) => {
+                const area = e.currentTarget;
+                const snap = snapSelection(
+                  area.value,
+                  findMarkers(area.value).filter(markerPresent),
+                  area.selectionStart,
+                  area.selectionEnd,
+                  navRef.current === "key" ? lastCaret.current : null,
+                );
+                if (snap) area.setSelectionRange(snap.start, snap.end, area.selectionDirection);
+                lastCaret.current = area.selectionStart === area.selectionEnd ? area.selectionStart : null;
+                caretRef.current = area.selectionStart;
+                trackSlash(area.value, area.selectionStart);
+              }}
+              onMouseDown={() => {
+                navRef.current = "mouse";
+              }}
+              onKeyDown={(e) => {
+                navRef.current = "key";
+                // while the command menu stands, the arrows, Enter, Tab and
+                // Escape are its keys — Enter takes a command rather than
+                // sending a prompt that is half a command's name
+                if (slash && menuKey.current?.(e.key)) {
+                  e.preventDefault();
+                  return;
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (!cutting) {
+                    void submit();
+                    return;
+                  }
+                  // a turn is running: ⌘Enter cuts in at once; plain Enter
+                  // queues on release, or cuts in if held long enough
+                  if (e.metaKey || e.ctrlKey) {
+                    void submit(true);
+                    return;
+                  }
+                  if (e.repeat || hold.current) return;
+                  const held = { timer: 0, cut: false };
+                  held.timer = window.setTimeout(() => {
+                    held.cut = true;
+                    setHolding(false);
+                    void submit(true);
+                  }, CUT_IN_HOLD_MS);
+                  hold.current = held;
+                  setHolding(true);
+                  return;
+                }
+                if ((e.key === "Backspace" || e.key === "Delete") && deleteMarkerAt(e)) e.preventDefault();
+              }}
+              onKeyUp={(e) => {
+                if (e.key === "Enter") release();
+              }}
+              // the key can come up anywhere once the box has lost focus
+              onBlur={release}
+              onPaste={(e) => {
+                const files = [...e.clipboardData.files];
+                if (files.length > 0) {
+                  e.preventDefault();
+                  addFiles(files, areaRef.current?.selectionStart ?? undefined);
+                }
               }}
             />
-          )}
-          {!shell && (
-            <div className="composer-field">
-              <textarea
-                ref={areaRef}
-                rows={1}
-                placeholder="Message ruri…"
-                value={text}
-                onChange={(e) => {
-                  const held = holdMarkersAt(e.target.value, e.target.selectionStart);
-                  caretRef.current = held.caret;
-                  setText(held.text);
-                  trackSlash(held.text, held.caret);
-                  // a tag's space put in or taken back out: the box is given
-                  // new text, and the caret goes where it belongs in it
-                  if (held.caret !== e.target.selectionStart || held.text !== e.target.value) {
-                    placeCaret(held.caret);
-                  }
-                }}
-                // wherever the caret was when the viewer took focus is where a
-                // region's marker goes
-                // and the caret never stands inside a tag or its spaces
-                onSelect={(e) => {
-                  const area = e.currentTarget;
-                  const snap = snapSelection(
-                    area.value,
-                    findMarkers(area.value).filter(markerPresent),
-                    area.selectionStart,
-                    area.selectionEnd,
-                    navRef.current === "key" ? lastCaret.current : null,
-                  );
-                  if (snap) area.setSelectionRange(snap.start, snap.end, area.selectionDirection);
-                  lastCaret.current = area.selectionStart === area.selectionEnd ? area.selectionStart : null;
-                  caretRef.current = area.selectionStart;
-                  trackSlash(area.value, area.selectionStart);
-                }}
-                onMouseDown={() => {
-                  navRef.current = "mouse";
-                }}
-                onKeyDown={(e) => {
-                  navRef.current = "key";
-                  // while the command menu stands, the arrows, Enter, Tab and
-                  // Escape are its keys — Enter takes a command rather than
-                  // sending a prompt that is half a command's name
-                  if (slash && menuKey.current?.(e.key)) {
-                    e.preventDefault();
-                    return;
-                  }
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (!cutting) {
-                      void submit();
-                      return;
-                    }
-                    // a turn is running: ⌘Enter cuts in at once; plain Enter
-                    // queues on release, or cuts in if held long enough
-                    if (e.metaKey || e.ctrlKey) {
-                      void submit(true);
-                      return;
-                    }
-                    if (e.repeat || hold.current) return;
-                    const held = { timer: 0, cut: false };
-                    held.timer = window.setTimeout(() => {
-                      held.cut = true;
-                      setHolding(false);
-                      void submit(true);
-                    }, CUT_IN_HOLD_MS);
-                    hold.current = held;
-                    setHolding(true);
-                    return;
-                  }
-                  if ((e.key === "Backspace" || e.key === "Delete") && deleteMarkerAt(e)) e.preventDefault();
-                }}
-                onKeyUp={(e) => {
-                  if (e.key === "Enter") release();
-                }}
-                // the key can come up anywhere once the box has lost focus
-                onBlur={release}
-                onPaste={(e) => {
-                  const files = [...e.clipboardData.files];
-                  if (files.length > 0) {
-                    e.preventDefault();
-                    addFiles(files, areaRef.current?.selectionStart ?? undefined);
-                  }
-                }}
-              />
-              <MarkerMirror
-                areaRef={areaRef}
-                text={text}
-                present={markerPresent}
-                onMove={(next) => {
-                  setText(next.text);
-                  placeCaret(next.caret);
-                }}
-                onOpen={openMarker}
-                onHover={(marker) => setHot(marker ? (attachmentFor(marker)?.id ?? null) : null)}
-              />
-            </div>
-          )}
+            <MarkerMirror
+              areaRef={areaRef}
+              text={text}
+              present={markerPresent}
+              onMove={(next) => {
+                setText(next.text);
+                placeCaret(next.caret);
+              }}
+              onOpen={openMarker}
+              onHover={(marker) => setHot(marker ? (attachmentFor(marker)?.id ?? null) : null)}
+            />
+          </div>
           {/* a child of the box, not of the field: what the menu has to
               stand clear of is the whole box, and the field's top slides
               down whenever attachments sit above it */}
@@ -741,48 +734,49 @@ export function Composer({
             />
           )}
           <div className="composer-bar" ref={barRef}>
-            {shell ? (
-              <span className="shell-where">{project.name} · shell</span>
-            ) : (
-              <SessionControls project={project} channelId={channelId} compact={compact} />
-            )}
+            <SessionControls project={project} channelId={channelId} compact={compact} />
             <div className="composer-actions">
-              {!shell && (
-                <>
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    multiple
-                    hidden
-                    aria-label="Choose attachments"
-                    onChange={(e) => {
-                      if (e.target.files) addFiles(e.target.files, caretRef.current);
-                      e.target.value = "";
-                    }}
-                  />
-                  <button
-                    className="attach-button"
-                    title="Attach files"
-                    aria-label="Attach files"
-                    onClick={() => fileRef.current?.click()}
-                  >
-                    <Icon d="M8 12l6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9M6 14l8-8" />
-                  </button>
-                </>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                hidden
+                aria-label="Choose attachments"
+                onChange={(e) => {
+                  if (e.target.files) addFiles(e.target.files, caretRef.current);
+                  e.target.value = "";
+                }}
+              />
+              <button
+                className="attach-button"
+                title="Attach files"
+                aria-label="Attach files"
+                onClick={() => fileRef.current?.click()}
+              >
+                <Icon d="M8 12l6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9M6 14l8-8" />
+              </button>
+              {compact && (
+                <MoreActions
+                  shell={shell}
+                  onShell={toggleShell}
+                  onSketch={onSketch ? () => onSketch() : undefined}
+                />
               )}
-              {compact && !shell && (
-                <MoreActions onShell={toggleShell} onSketch={onSketch ? () => onSketch() : undefined} />
-              )}
-              {(!compact || shell) && (
+              {!compact && (
                 <button
                   className={`shell-toggle ${shell ? "active" : ""}`}
-                  title={shell ? "Back to writing a prompt" : "A shell in this project's directory"}
+                  title={
+                    shell
+                      ? "Put the shell away — it keeps running (Ctrl+`)"
+                      : "A shell in this project's directory, under the chat (Ctrl+`)"
+                  }
+                  aria-pressed={shell}
                   onClick={toggleShell}
                 >
-                  <Icon d={shell ? "M4 6h16M4 12h10M4 18h16" : "M4 17l6-6-6-6M12 19h8"} />
+                  <Icon d="M4 17l6-6-6-6M12 19h8" />
                 </button>
               )}
-              {!compact && !shell && onSketch && (
+              {!compact && onSketch && (
                 <button
                   className="sketch-toggle"
                   title="Draw — a sketch to show the model, or open a picture to draw on"
@@ -791,7 +785,7 @@ export function Composer({
                   <Icon d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                 </button>
               )}
-              {busy && !shell && (
+              {busy && (
                 <button
                   className="stop"
                   title="Interrupt the running turn"
@@ -803,25 +797,23 @@ export function Composer({
                   </svg>
                 </button>
               )}
-              {!shell && (
-                <button
-                  className={`send ${holding ? "holding" : ""}`}
-                  title={
-                    cutting
-                      ? `Queue it behind the running turn (Enter) — ${MOD}click, ${MOD}Enter or hold Enter to stop the turn and send this instead`
-                      : "Send (Enter)"
-                  }
-                  onClick={(e) => void submit(cutting && (e.metaKey || e.ctrlKey))}
-                  disabled={!text.trim() && atts.length === 0}
-                >
-                  <Icon d="M12 19V5M5 12l7-7 7 7" />
-                  {holding && (
-                    <svg className="hold-ring" viewBox="0 0 36 36" aria-hidden>
-                      <circle cx="18" cy="18" r="16.5" pathLength="1" />
-                    </svg>
-                  )}
-                </button>
-              )}
+              <button
+                className={`send ${holding ? "holding" : ""}`}
+                title={
+                  cutting
+                    ? `Queue it behind the running turn (Enter) — ${MOD}click, ${MOD}Enter or hold Enter to stop the turn and send this instead`
+                    : "Send (Enter)"
+                }
+                onClick={(e) => void submit(cutting && (e.metaKey || e.ctrlKey))}
+                disabled={!text.trim() && atts.length === 0}
+              >
+                <Icon d="M12 19V5M5 12l7-7 7 7" />
+                {holding && (
+                  <svg className="hold-ring" viewBox="0 0 36 36" aria-hidden>
+                    <circle cx="18" cy="18" r="16.5" pathLength="1" />
+                  </svg>
+                )}
+              </button>
             </div>
           </div>
         </div>

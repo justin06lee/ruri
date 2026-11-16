@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Project, SubagentState, TranscriptEvent } from "../../../shared/protocol";
 import { isAwake } from "../lib/awake";
+import { useNow } from "../lib/beat";
 import { markFor } from "../lib/marks";
+import { clock, printing } from "../lib/quiet";
 import { roughName } from "../lib/models";
 import { Markdown } from "../markdown";
 import {
@@ -63,7 +65,10 @@ function findAgent(s: Ruri, channelId: string, key: string): SubagentState | und
  * did — and every script the model left running in the background; or,
  * with one picked, that agent's own conversation: the brief it was handed,
  * what it said, every tool it ran, live while it works (a script's page is
- * its command and what it has printed). It is also where you start agents
+ * its command and what it has printed, as a conversation nobody can answer:
+ * each stretch of output with the time it began, a line wherever it went
+ * quiet, and under the last whether it is still printing or how long it
+ * has been quiet). It is also where you start agents
  * of your own: a brief and a model, and it goes off to work in the project
  * by itself, reporting back here. Esc steps out — from an agent to the
  * list, from the list to the chat.
@@ -212,6 +217,12 @@ function AgentBrief({ channelId, project }: { channelId: string; project: Projec
   );
 }
 
+/** A stretch of a script's output whose time is known: the server marks
+ *  those by their id (server/scripts.ts). */
+function timed(event: TranscriptEvent): boolean {
+  return event.kind === "assistant" && event.id.includes(":out:");
+}
+
 /** One agent's own conversation, the whole page: the brief it was handed,
  *  everything it said and ran, live while it works — and, for one of your
  *  own, a line to tell it more or stop it. */
@@ -252,6 +263,8 @@ function AgentView({
     }, SCRIPT_REFRESH_MS);
     return () => clearInterval(timer);
   }, [script, running, channelId, agentKey]);
+  // whether it is printing or how long it has been quiet, by the second
+  const now = useNow(1000, script && running);
   // its report, when it said more than its last message did
   const said = log && [...log].reverse().find((e) => e.kind === "assistant");
   const report =
@@ -313,9 +326,16 @@ function AgentView({
         <div className="agent-view-inner">
           <AgentHost.Provider value="page">
             {log && log.length > 0 ? (
-              log.map((event) => (
-                <EventView key={event.id} event={event} project={project} channelId={channelId} />
-              ))
+              log.map((event) =>
+                timed(event) ? (
+                  <div className="script-stretch" key={event.id}>
+                    <time className="script-time">{clock(event.ts)}</time>
+                    <EventView event={event} project={project} channelId={channelId} />
+                  </div>
+                ) : (
+                  <EventView key={event.id} event={event} project={project} channelId={channelId} />
+                ),
+              )
             ) : (
               <div className="board-empty">{log ? "nothing was kept of what this one did" : "opening…"}</div>
             )}
@@ -334,7 +354,13 @@ function AgentView({
               <div className="agent-live">
                 <Spinner />
                 <span className="agent-live-line">
-                  {agent.script ? "running…" : agent.activity ? `${agent.activity}…` : "working…"}
+                  {agent.script
+                    ? ["running", printing(agent.printedAt, agent.startedAt, now, "quiet for")]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : agent.activity
+                      ? `${agent.activity}…`
+                      : "working…"}
                 </span>
               </div>
             )}

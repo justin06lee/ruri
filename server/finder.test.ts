@@ -26,6 +26,13 @@ beforeAll(() => {
   folder("github.com/me/Frontend UI", "package.json");
   folder("github.com/me/hifzy", "package.json");
   folder("github.com/me/ruri", ".git");
+  folder("공항", ".git");
+  folder("황금당근", "package.json");
+  // as an older filesystem hands a name back: decomposed, jamo by jamo
+  folder("github.com/me/\u1112\u1161\u11ab\u1100\u1173\u11af-notes".normalize("NFD"), "README.md");
+  folder("github.com/me/東京メトロ", "package.json");
+  folder("github.com/me/Café Menü", "package.json");
+  folder("github.com/me/заметки", "package.json");
 });
 afterAll(() => {
   fs.rmSync(root, { recursive: true, force: true });
@@ -70,6 +77,30 @@ describe("findProjects", () => {
     const found = findProjects([root], "rri");
     expect(found.find((f) => f.name === "ruri")?.score).toBe(25);
     expect(findProjects([root], "ri").find((f) => f.name === "ruri")?.score).toBe(60);
+  });
+
+  test("names in any script are found, not only Latin ones", () => {
+    expect(findProjects([root], "공항")[0]).toMatchObject({ name: "공항", score: 100, project: true });
+    expect(findProjects([root], "황금당근")[0]).toMatchObject({ name: "황금당근", score: 100 });
+    // a part of the name, as with any other
+    expect(findProjects([root], "황금")[0]).toMatchObject({ name: "황금당근", score: 80 });
+    expect(findProjects([root], "당근")[0]).toMatchObject({ name: "황금당근", score: 60 });
+    expect(names("メトロ")[0]).toBe("github.com/me/東京メトロ");
+    expect(names("ЗАМЕТКИ")[0]).toBe("github.com/me/заметки");
+    // and one script's name never answers to another's
+    expect(findProjects([root], "공항").map((f) => f.name)).toEqual(["공항"]);
+  });
+
+  test("a name spelled composed finds the folder the disk spells decomposed, and the other way", () => {
+    const found = findProjects([root], "한글");
+    expect(found[0]?.name.normalize("NFC")).toBe("한글-notes");
+    expect(found[0]?.score).toBe(80);
+    expect(findProjects([root], "공항".normalize("NFD"))[0]?.name).toBe("공항");
+  });
+
+  test("an accent left off a Latin letter still finds it", () => {
+    expect(names("cafe menu")[0]).toBe("github.com/me/Café Menü");
+    expect(names("CAFÉ")[0]).toBe("github.com/me/Café Menü");
   });
 
   test("an empty query or no match finds nothing; the limit is kept", () => {

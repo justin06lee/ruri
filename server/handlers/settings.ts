@@ -102,6 +102,16 @@ export const settingHandlers = {
     ctx.manager.setEffort(msg.projectId, msg.effort);
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
   },
+  // The effort new chats start at. Chats riding the old default were
+  // pinned to it by the store, so the projects go out with it — and
+  // nothing running changes.
+  set_default_effort: (ctx, _ws, msg) => {
+    if (ctx.store.defaultEffort() === msg.effort) return;
+    ctx.store.setDefaultEffort(msg.effort);
+    ctx.clients.broadcast({ type: "default_effort", effort: ctx.store.defaultEffort() });
+    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+    ctx.clients.broadcast({ type: "home_settings", home: ctx.store.homeSettings() });
+  },
   toggle_model_star: (ctx, _ws, msg) => {
     announceRoles(ctx, ctx.store.cycleModelStar(msg.model));
   },
@@ -119,18 +129,28 @@ export const settingHandlers = {
     // Settings opens within half a minute reuse the last answer.
     if (Date.now() - ctx.models.probedAt > 30_000) ctx.models.probeModels(true);
   },
+  // Each of these goes to wherever the secret lives — the ghostly vault or
+  // ruri's own file — and the vault tells every window when it has landed
+  // (server/vault.ts): a save into the vault is a second or two away.
   secret_save: (ctx, _ws, msg) => {
-    ctx.secrets.upsert({
+    void ctx.vault.save({
       ...(msg.id ? { id: msg.id } : {}),
       name: msg.name,
       ...(msg.username !== undefined ? { username: msg.username } : {}),
       ...(msg.note !== undefined ? { note: msg.note } : {}),
       ...(msg.secret !== undefined ? { secret: msg.secret } : {}),
+      ...(msg.generate ? { generate: true } : {}),
+      ...(msg.collection ? { collection: msg.collection } : {}),
     });
-    ctx.clients.broadcast({ type: "secrets", items: ctx.secrets.meta() });
   },
   secret_remove: (ctx, _ws, msg) => {
-    ctx.secrets.remove(msg.id);
-    ctx.clients.broadcast({ type: "secrets", items: ctx.secrets.meta() });
+    void ctx.vault.remove(msg.id);
+  },
+  secret_move: (ctx, _ws, msg) => {
+    void ctx.vault.move(msg.id);
+  },
+  vault_refresh: (ctx, _ws, msg) => {
+    if (msg.full) void ctx.vault.refresh(true);
+    else ctx.vault.opened();
   },
 } satisfies Partial<Handlers>;

@@ -326,7 +326,7 @@ export function createChatManager(ctx: ServerContext): SessionManager {
         context: owner ? contextBriefing(claude ? undefined : talkEndpoint) : "",
         stack: owner ? stackBriefing(ctx.briefs.get(owner.id)) : "",
         taste: tasteBriefing(ctx),
-        mycelium: owner && mycFor(ctx) ? MYCELIUM_BRIEFING : "",
+        mycelium: owner && mycFor(ctx, owner) ? MYCELIUM_BRIEFING : "",
       });
       return tagged(project.id, {
         transcript: () => ctx.archive.events(project.id),

@@ -17,7 +17,7 @@ This layer is the conversation surface: composing prompts in Composer.tsx and re
 - **Diff display:** web/src/components/Diff.tsx, web/src/components/EventView.tsx
 - **Question / permission cards:** web/src/components/Questions.tsx, web/src/components/PermissionBanner.tsx
 - **Working / thinking indicator:** web/src/components/Thinking.tsx, web/src/components/ChatPane.tsx
-- **Composer terminal tabs:** web/src/components/Terminal.tsx, web/src/components/Composer.tsx
+- **The shell pane under the chat (tabs, resize, Ctrl+`):** web/src/components/Terminal.tsx, web/src/components/ChatPane.tsx, web/src/components/Composer.tsx
 - **Transcript text selection flags:** web/src/components/Selection.tsx, web/src/components/ChatPane.tsx
 - **Carry-on after an agent compacted itself:** web/src/components/EventView.tsx, web/src/components/Exchange.tsx, shared/protocol.ts
 
@@ -26,6 +26,7 @@ This layer is the conversation surface: composing prompts in Composer.tsx and re
 - **Send a prompt:** Type plain text with markers in Composer.tsx textarea → Markers parsed and mirrored as chips via lib/markers.ts and Markers.tsx → Attachments and sketch images appended with region crops from Attachments.tsx → Slash command resolved via CommandMenu.tsx and scripts/commands.ts → Sent through store send; ChatPane.tsx groups reply events into turns via Exchange.tsx groupTurns
 - **Render a reply:** ChatPane.tsx receives flat TranscriptEvent stream → Exchange.tsx groupTurns folds user prompt through following events; compaction stands solo → EventView.tsx renders each event kind with shortened paths and command chips → Markdown goes through lib/markdownHtml.ts with DOMPurify then markdown.tsx components → Code blocks highlight inline or via highlight.worker.ts with cache in highlighter.ts
 - **Answer a question:** Ask/permission event renders QuestionCard in Questions.tsx or PermissionBanner.tsx → One question shown at a time with slide navigation and persisted picks → Answer sent back in harness-native shape via store send
+- **Open and quit the shell:** Ctrl+` or the composer's menu opens the pane along the bottom of ChatPane.tsx (Terminal.tsx; its top edge drags, the height is a remembered pref) → the prompt stays usable above it → exit or ^D closes that tab (the server's terminal tabs message); the last one closing closes the pane and puts the caret back in the prompt
 
 ## Rules and traps
 
@@ -35,3 +36,8 @@ This layer is the conversation surface: composing prompts in Composer.tsx and re
 - Compaction events are solo turns in groupTurns and never fold or host other events.
 - Sketch keeps shapes and redraws at export size with per-channel autosave; it closes only on its own close button, never on Escape.
 - A user event whose text opens with CARRY_ON (shared handoffNote) is ruri's carry-on after a self-compaction: render it as CarryOn, never as the user's bubble or as a letter from its `from` (with `carried` that only says whose job it still is); server continuePrompt must keep opening with CARRY_ON.
+- The shell is a pane of the chat, never a mode of the composer: Composer.tsx only asks for it to open. A channel's tab list can be empty — an empty list means no pane, not a pane to fill.
+
+## What it talks to
+
+- Terminals, agents and integrations — the shell pane's tabs and output (server/terminal.ts); a running script's card line and its timed page come from server/scriptWatch.ts and server/scripts.ts, drawn in web/src/components/chat/AgentCard.tsx and AgentsPage.tsx with web/src/lib/quiet.ts

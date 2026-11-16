@@ -17,13 +17,21 @@ export function channelProject(ctx: ServerContext, channelId: string) {
   if (!found) return undefined;
   const { session, project } = found;
   const model = session.model || project.model;
+  // nobody's pick means the default chosen in Settings, said here so no
+  // reader downstream has to know of it (a stand-in store has none to
+  // say, and the built-in level stands)
+  const effort = session.effort || project.effort || defaultEffortOf(ctx.store);
   return {
     ...project,
     id: channelId,
     ...(model ? { model } : {}),
     ...(session.permissionMode ? { permissionMode: session.permissionMode } : {}),
-    ...(session.effort ? { effort: session.effort } : {}),
+    ...(effort ? { effort } : {}),
   };
+}
+
+function defaultEffortOf(store: { defaultEffort?: () => string }): string | undefined {
+  return store.defaultEffort?.();
 }
 
 /** The project a channel belongs to — boards are keyed by that, not by

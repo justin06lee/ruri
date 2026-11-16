@@ -11,6 +11,8 @@
  *   3. a window attaching later is given the scrollback, capped, ending on
  *      what the shell said last
  *   4. a second window gets the same output as the first
+ *   5. a shell that is quit takes its tab with it, and the last tab going
+ *      leaves the channel with none — until the pane is asked for again
  *
  * Run: bun run terminal-test
  */
@@ -187,6 +189,33 @@ try {
     (await one.until(() => said(one.text(termId).slice(beforeOne)))) &&
     (await two.until(() => said(two.text(termId).slice(beforeTwo))));
   check("both windows hear what the shell says next", bothHeard);
+
+  /* ── 5. a shell that is quit takes its tab with it ────────────────── */
+
+  const lastTabs = (): string[] | undefined =>
+    one.messages.findLast(
+      (m): m is Extract<ServerMessage, { type: "terminal_tabs" }> =>
+        m.type === "terminal_tabs" && m.projectId === channelId,
+    )?.tabs;
+  one.send({ type: "terminal_new", projectId: channelId });
+  await one.until(() => lastTabs()?.length === 2);
+  const second = lastTabs()?.find((id) => id !== termId) ?? "";
+  check("a second tab opens beside the first", lastTabs()?.length === 2 && second !== "", lastTabs());
+  one.send({ type: "terminal_open", projectId: channelId, termId: second, cols: 80, rows: 24 });
+  await one.until(() => one.text(second).length > 0, 20_000);
+  // long enough in that it is a shell quitting, not one that never started
+  await new Promise((r) => setTimeout(r, 2_000));
+  one.send({ type: "terminal_input", projectId: channelId, termId: second, data: "exit\r" });
+  const wentWithIt = await one.until(() => lastTabs()?.length === 1 && lastTabs()?.[0] === termId, 20_000);
+  check("exit closes that shell's tab, and only that one", wentWithIt, lastTabs());
+
+  one.send({ type: "terminal_close", projectId: channelId, termId });
+  const none = await one.until(() => lastTabs()?.length === 0);
+  check("closing the last tab leaves the channel with none", none, lastTabs());
+
+  one.send({ type: "terminal_list", projectId: channelId });
+  const fresh = await one.until(() => lastTabs()?.length === 1);
+  check("asked for again, the pane starts on a fresh tab", fresh, lastTabs());
 
   ws.close();
   later.close();

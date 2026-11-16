@@ -1,18 +1,16 @@
 # ruri — Management: agents, skills and tracking
 
-One layer of ruri's stack, owning `web/src/components/AgentsPage.tsx, web/src/components/Integrations.tsx, web/src/components/Skills.tsx, web/src/components/Ideas.tsx, web/src/components/Tracker.tsx, web/src/components/TalkPage.tsx, web/src/components/Statistics.tsx, web/src/components/Bridge.tsx, web/src/components/figures.ts, web/src/lib/models.ts, scripts/meters.ts, web/src/components/TeamPage.tsx, web/src/components/Hooks.tsx`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
+One layer of ruri's stack, owning `web/src/components/AgentsPage.tsx, web/src/components/Integrations.tsx, web/src/components/Skills.tsx, web/src/components/Ideas.tsx, web/src/components/Tracker.tsx, web/src/components/TalkPage.tsx, web/src/components/Statistics.tsx, web/src/components/Bridge.tsx, web/src/components/figures.ts, web/src/lib/models.ts, scripts/meters.ts, web/src/components/TeamPage.tsx, web/src/components/Hooks.tsx, web/src/lib/quiet.ts, web/src/lib/quiet.test.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer management-pages` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer management-pages add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
 Management layer holds the secondary boards and settings pages: agents/scripts, harness integrations, skills, ideas, tracker review, talk rules, and cost/machine statistics. Pages are thin views over server state via the store's `send`/`useRuri`, with formatting shared in figures.ts and model-name helpers in models.ts. Newcomer idea: ruri never owns harness config here — it displays and delegates to harness CLIs, bmo, ledger, and tracker/talk servers.
 
 ## Where to change what
 
-- **Agents and background scripts:** web/src/components/AgentsPage.tsx
+- **Agents and background scripts; a script's page (timed stretches of what it printed, the quiet between them):** web/src/components/AgentsPage.tsx, web/src/lib/quiet.ts
 - **Harness integrations (MCP servers, plugins):** web/src/components/Integrations.tsx
 - **Skills install/enable view:** web/src/components/Skills.tsx
-- **Ideas board:** web/src/components/Ideas.tsx
-- **Feature tracker review:** web/src/components/Tracker.tsx
-- **Talk permissions and letters; the team page (a lead's members, its liaison, the layers no teammate holds yet):** web/src/components/TalkPage.tsx, web/src/components/TeamPage.tsx
+- **Talk permissions and letters; the team page (a lead's members, its liaison, the layers no teammate holds yet):** web/src/components/TeamPage.tsx
 - **Cost statistics and machine meters:** web/src/components/Statistics.tsx, web/src/components/figures.ts, scripts/meters.ts
 - **Bridge preview strip:** web/src/components/Bridge.tsx
 - **Number formatting:** web/src/components/figures.ts
@@ -29,7 +27,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 ## Key files
 
 - web/src/components/Statistics.tsx — money/machine cost page over ledger and ps sampling
-- web/src/components/AgentsPage.tsx — per-chat agents and running scripts with live log
+- web/src/components/AgentsPage.tsx — per-chat agents and running scripts with live log; a script's log reads as a chat you can't write in: its command, each stretch of output with its time, an info line per silence, and a live "running · printing / quiet for…" line
 - web/src/components/Integrations.tsx — MCP servers/plugins view delegating to harness CLIs
 - web/src/components/Tracker.tsx — hand-test checklist review with finish-to-composer
 - web/src/components/Ideas.tsx — user-written wants board with draft persistence and attachments
@@ -39,6 +37,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - web/src/components/TalkPage.tsx — which projects may reach which (every project's rule, a project's own over it) plus recent letters (figures.ts formats money/counts/spans for every page)
 - web/src/lib/models.ts — harnessName and roughName label helpers
 - web/src/components/Hooks.tsx — the hooks section on the Integrations page: on/off, command, webhook, write-only token, midna's default, test event, recent deliveries
+- web/src/lib/quiet.ts — span / printing / clock: how a script's quiet time and stretch times are worded, shared by the script card (web/src/components/chat/AgentCard.tsx) and its page
 
 ## Rules and traps
 
@@ -49,6 +48,7 @@ Management layer holds the secondary boards and settings pages: agents/scripts, 
 - figures.ts formatting is shared with project cards — change in one place so both pages agree.
 - Bridge picture opens read-only in the viewer; take-over/give-back is the only control.
 - The team page acts only on teammates: the liaison is a lead (actOn refuses it), so its card has no buttons; Stop is disabled unless the member's turn is running (working, waiting on an answer, or at a card).
+- Helpers shared by AgentsPage.tsx and the script card live in web/src/lib (quiet.ts), not in a component file: an exported non-component there trips react-refresh.
 
 ## What it talks to
 

@@ -6,8 +6,8 @@ import type {
   PermissionId,
   PermissionState,
 } from "../../../shared/protocol";
-import { HOME_ID } from "../../../shared/protocol";
-import { accountOf, send, setProjectAccount, useRuri } from "../store";
+import { EFFORT_LEVELS, HOME_ID } from "../../../shared/protocol";
+import { accountOf, send, setProjectAccount, setProjectLive, useRuri } from "../store";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
 import { Icon } from "./chat/Icon";
@@ -24,7 +24,7 @@ import { STAR_PATH } from "../icons";
 import { useNow } from "../lib/beat";
 import { setSessionsMode, useSessionsMode } from "../lib/sessionsMode";
 import { setDesignTaste, useDesignTaste } from "../lib/designTaste";
-import { setLiveComponents, useLiveComponents } from "../lib/liveComponents";
+import { liveChoice, setLiveComponents, useLiveComponents } from "../lib/liveComponents";
 import { setSplitLongPrompts, useSplitLongPrompts } from "../lib/splitPrompts";
 import { roughName } from "../lib/models";
 import { markFor } from "../lib/marks";
@@ -61,6 +61,43 @@ function unlisted(value: string, models: ModelChoice[]): ModelChoice {
     provider,
     providerLabel: provider,
   };
+}
+
+/**
+ * Settings → Models → Default reasoning: the effort new chats and projects
+ * start at, chosen here as the default model is chosen by its tag below.
+ * The levels are the ones the default model says it takes, when it says.
+ */
+function DefaultEffort() {
+  const effort = useRuri((s) => s.defaultEffort);
+  const reported = useRuri((s) => s.models.find((m) => m.value === s.defaultModel)?.reasoningEfforts);
+  const levels: string[] = reported?.length ? reported.map((level) => level.value) : [...EFFORT_LEVELS];
+  // one chosen while another model was the default stays choosable
+  const shown = levels.includes(effort) ? levels : [...levels, effort];
+  return (
+    <div className="settings-row">
+      <span className="settings-label long">
+        Default reasoning
+        <InfoTip>
+          The reasoning effort a new chat or project starts at. Chats already open keep the one they have;
+          each chat&apos;s own is picked in its composer.
+        </InfoTip>
+      </span>
+      <div className="settings-value">
+        <div className="seg">
+          {shown.map((level) => (
+            <button
+              key={level}
+              className={`seg-option ${effort === level ? "active" : ""}`}
+              onClick={() => send({ type: "set_default_effort", effort: level })}
+            >
+              {level === "xhigh" ? "XHigh" : `${level[0]!.toUpperCase()}${level.slice(1)}`}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -223,14 +260,39 @@ function ModelCatalog() {
  * Values are one-way. They go in here and never come back out — not to this
  * page, not to the transcript, not to a model's context. What comes back is
  * the handle, which is all anything else needs to say.
+ *
+ * Where a value is kept is the line at the top. On a machine with a
+ * ghostly vault that answers, a new one goes there — and what the vault's
+ * owner shares with this machine's agent shows up here by itself. With no
+ * vault, it is ruri's own file on this machine, as it always was.
  */
-function Vault() {
+function Vault({ shown }: { shown: boolean }) {
   const secrets = useRuri((s) => s.secrets);
+  const vault = useRuri((s) => s.vault);
   const [editing, setEditing] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [secret, setSecret] = useState("");
   const [note, setNote] = useState("");
+  const [generate, setGenerate] = useState(false);
+  const [collection, setCollection] = useState("");
+  // "read 3m ago" keeps counting while the page is up
+  useNow(30_000, shown);
+
+  // The vault's owner shares and takes back from somewhere else entirely,
+  // so the list is looked at again each time this page comes up (the
+  // server answers that at most once a minute).
+  useEffect(() => {
+    if (shown) send({ type: "vault_refresh" });
+  }, [shown]);
+
+  const usable = vault.installed && vault.enrolled && vault.ok;
+  const edited = editing ? secrets.find((entry) => entry.id === editing) : undefined;
+  /** Whether what is in the form is, or will be, kept in the vault. */
+  const toVault = edited ? edited.store === "ghostly" : usable;
+  /** Worth saying where each one is kept: only when there are two places. */
+  const twoPlaces = vault.enrolled || secrets.some((entry) => entry.store === "ghostly");
+  const pick = !editing && toVault && vault.collections.length > 1;
 
   const clear = () => {
     setEditing(null);
@@ -238,10 +300,16 @@ function Vault() {
     setUsername("");
     setSecret("");
     setNote("");
+    setGenerate(false);
   };
 
+  const makes = toVault && generate;
+  // the vault stores nothing without a value; ruri's own file may hold a
+  // name whose value comes later, as it always could
+  const ready = name.trim() !== "" && (editing !== null || !toVault || makes || secret !== "");
+
   const save = () => {
-    if (!name.trim()) return;
+    if (!ready) return;
     send({
       type: "secret_save",
       ...(editing ? { id: editing } : {}),
@@ -249,43 +317,141 @@ function Vault() {
       username: username.trim(),
       note: note.trim(),
       // blank means "leave the stored value alone"
-      ...(secret ? { secret } : {}),
+      ...(makes ? { generate: true } : secret ? { secret } : {}),
+      ...(pick ? { collection: collection || vault.collections[0]! } : {}),
     });
     clear();
   };
 
   return (
     <div className="vault">
+      <div className="vault-where">
+        {!vault.installed ? (
+          <span className="vault-where-words">
+            Kept in ruri's own file on this machine.
+            <InfoTip>
+              With ghostly, a password vault you run yourself, they are kept in your vault instead: you share
+              each one with ruri from any Bitwarden app, and take it back the same way. Install ghostly on
+              this machine, run <code>ghostly init --server https://your-vault --name ruri</code> once, and
+              press Look again.
+            </InfoTip>
+          </span>
+        ) : !vault.enrolled ? (
+          <span className="vault-where-words">
+            ghostly is on this machine with no agent enrolled, so these are kept in ruri's own file. Run{" "}
+            <code>ghostly init --server https://your-vault --name ruri</code> in a terminal, then look again.
+          </span>
+        ) : (
+          <>
+            <span className={`vault-tag ghostly ${vault.ok ? "" : "off"}`}>ghostly</span>
+            <span className="vault-where-words">
+              {vault.ok
+                ? [vault.server?.replace(/^https?:\/\//, ""), vault.account].filter(Boolean).join(" · ")
+                : `${vault.problem ?? "The vault is not answering."} New ones are kept on this machine until it does.`}
+            </span>
+            <span className="vault-read">
+              {vault.syncing ? "reading…" : vault.syncedAt ? `read ${ago(vault.syncedAt)}` : ""}
+            </span>
+          </>
+        )}
+        <button
+          className="ghost"
+          disabled={vault.syncing}
+          title={
+            vault.enrolled
+              ? "Ask the vault what is shared now, and read every value again"
+              : "Look for ghostly on this machine again"
+          }
+          onClick={() => send({ type: "vault_refresh", full: true })}
+        >
+          {vault.enrolled ? "Refresh" : "Look again"}
+        </button>
+      </div>
+
       {secrets.length > 0 && (
         <Capped className="vault-rows">
-          {secrets.map((entry) => (
-            <div key={entry.id} className="vault-row">
-              <span className="vault-handle">{`{{${entry.name}}}`}</span>
-              {entry.username && <span className="vault-who">{entry.username}</span>}
-              {!entry.hasValue && <span className="vault-who">no value yet</span>}
-              <button
-                className="ghost"
-                title="Edit — the stored value stays unless you type a new one"
-                onClick={() => {
-                  setEditing(entry.id);
-                  setName(entry.name);
-                  setUsername(entry.username ?? "");
-                  setNote(entry.note ?? "");
-                  setSecret("");
-                }}
-              >
-                Edit
-              </button>
-              <button className="ghost" onClick={() => send({ type: "secret_remove", id: entry.id })}>
-                Forget
-              </button>
-            </div>
-          ))}
+          {secrets.map((entry) => {
+            const inVault = entry.store === "ghostly";
+            return (
+              <div key={entry.id} className={`vault-row ${entry.shadowed ? "shadowed" : ""}`}>
+                <span className="vault-handle">{`{{${entry.name}}}`}</span>
+                {entry.username && <span className="vault-who">{entry.username}</span>}
+                {entry.humanOnly ? (
+                  <span
+                    className="vault-who"
+                    title="Marked for master password re-prompt in the vault: ghostly hands it to no agent, so ruri holds no value for it"
+                  >
+                    people only
+                  </span>
+                ) : (
+                  !entry.hasValue && <span className="vault-who">no value yet</span>
+                )}
+                {entry.shadowed && (
+                  <span className="vault-who" title="Another of this name answers to the handle: the vault's">
+                    not used
+                  </span>
+                )}
+                {twoPlaces && (
+                  <span
+                    className={`vault-tag ${inVault ? "ghostly" : ""}`}
+                    title={
+                      inVault
+                        ? entry.collection
+                          ? `In the ghostly vault, in the collection "${entry.collection}"`
+                          : "In the ghostly vault, where only ruri's own account sees it"
+                        : "In ruri's own file on this machine"
+                    }
+                  >
+                    {inVault ? "ghostly" : "this machine"}
+                  </span>
+                )}
+                {!inVault && usable && entry.hasValue && (
+                  <button
+                    className="ghost"
+                    title="Store it in the ghostly vault, then take it out of ruri's file"
+                    onClick={() => send({ type: "secret_move", id: entry.id })}
+                  >
+                    Move to ghostly
+                  </button>
+                )}
+                <button
+                  className="ghost"
+                  title="Edit — the stored value stays unless you type a new one"
+                  onClick={() => {
+                    setEditing(entry.id);
+                    setName(entry.name);
+                    setUsername(entry.username ?? "");
+                    setNote(entry.note ?? "");
+                    setSecret("");
+                    setGenerate(false);
+                  }}
+                >
+                  Edit
+                </button>
+                <button
+                  className="ghost"
+                  title={inVault ? "Move it to the vault's trash, where it can be brought back for 30 days" : undefined}
+                  onClick={() => {
+                    send({ type: "secret_remove", id: entry.id });
+                    if (editing === entry.id) clear();
+                  }}
+                >
+                  Forget
+                </button>
+              </div>
+            );
+          })}
         </Capped>
       )}
 
       <div className="vault-form">
-        <input placeholder="name (deploy-box)" value={name} onChange={(e) => setName(e.target.value)} />
+        <input
+          placeholder="name (deploy-box)"
+          value={name}
+          disabled={edited?.store === "ghostly"}
+          title={edited?.store === "ghostly" ? "One in the vault keeps its name" : undefined}
+          onChange={(e) => setName(e.target.value)}
+        />
         <input
           placeholder="username (optional)"
           value={username}
@@ -293,8 +459,11 @@ function Vault() {
         />
         <input
           type="password"
-          placeholder={editing ? "new value (blank = keep)" : "password or token"}
-          value={secret}
+          placeholder={
+            makes ? "ghostly makes one" : editing ? "new value (blank = keep)" : "password or token"
+          }
+          value={makes ? "" : secret}
+          disabled={makes}
           onChange={(e) => setSecret(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") save();
@@ -305,7 +474,31 @@ function Vault() {
           value={note}
           onChange={(e) => setNote(e.target.value)}
         />
-        <button className="ghost" disabled={!name.trim()} onClick={save}>
+        {pick && (
+          <select
+            value={collection || vault.collections[0]}
+            aria-label="Collection"
+            title="The shared collection it goes in"
+            onChange={(e) => setCollection(e.target.value)}
+          >
+            {vault.collections.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        )}
+        {toVault && (
+          <button
+            className={`seg-option toggle ${generate ? "active" : ""}`}
+            aria-pressed={generate}
+            title="Have the vault make the password, so it is never typed anywhere"
+            onClick={() => setGenerate(!generate)}
+          >
+            Generate
+          </button>
+        )}
+        <button className="ghost" disabled={!ready} onClick={save}>
           {editing ? "Save" : "Add"}
         </button>
         {editing && (
@@ -315,8 +508,15 @@ function Vault() {
         )}
       </div>
 
+      {vault.failed && (
+        <div className="vault-failed" role="alert">
+          {vault.failed}
+        </div>
+      )}
+
       <div className="vault-hint">
         Agents see the names, never the values.
+        {usable && " A new one is kept in your ghostly vault, where you can see it and take it back."}
       </div>
     </div>
   );
@@ -692,8 +892,46 @@ function ClaudeAccountRow() {
   );
 }
 
-/** Settings → General → Live components (server/mycelium.ts): the switch,
- *  and whether myc is on this machine. */
+/** Settings → General → Live components, for the open project: its own
+ *  word over the setting above — on, off, or following it. Only with a
+ *  project open; it holds for every chat in that project. */
+function ProjectLiveComponents() {
+  const project = useRuri((s) => s.projects.find((p) => p.sessions.some((x) => x.id === s.activeId)));
+  const setting = useLiveComponents();
+  const found = useRuri((s) => s.mycelium?.found);
+  if (!project) return null;
+  const choice = liveChoice(project);
+  return (
+    <div className="settings-row">
+      <span className="settings-label">
+        Live components here
+        <InfoTip>
+          For {project.name} alone, whatever the setting above says: every chat in it is told of mycelium, or
+          not, from its next start. A row&apos;s right-click in the sidebar sets it too.
+        </InfoTip>
+      </span>
+      <div className="settings-value">
+        <div className="seg">
+          {(["default", "on", "off"] as const).map((option) => (
+            <button
+              key={option}
+              className={`seg-option ${choice === option ? "active" : ""}`}
+              onClick={() => setProjectLive(project.id, option)}
+            >
+              {option === "default" ? `Default (${setting ? "on" : "off"})` : option === "on" ? "On" : "Off"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* said above already when the setting itself is on */}
+      {choice === "on" && !setting && found === null && <p className="settings-note">myc isn't installed.</p>}
+    </div>
+  );
+}
+
+/** Settings → General → Live components (server/mycelium.ts): the switch
+ *  every project follows unless it says for itself, and whether myc is on
+ *  this machine. */
 function LiveComponents() {
   const live = useLiveComponents();
   const mycelium = useRuri((s) => s.mycelium);
@@ -708,7 +946,8 @@ function LiveComponents() {
         Live components
         <InfoTip>
           Ties each component in the library to its code with mycelium: its files follow it through renames,
-          and the Components page renders it from the code.
+          and the Components page renders it from the code. This is what every project follows; one can be
+          set on its own, here below or from its row in the sidebar.
         </InfoTip>
       </span>
       <div className="settings-value">
@@ -834,6 +1073,7 @@ export function Settings({ onClose }: { onClose(): void }) {
               <SplitLongPrompts />
               <DesignTaste />
               <LiveComponents />
+              <ProjectLiveComponents />
               <ClaudeAccountRow />
             </section>
 
@@ -941,11 +1181,12 @@ export function Settings({ onClose }: { onClose(): void }) {
 
             <section className="settings-group" hidden={section !== "vault"}>
               <h2 className="settings-group-name">Passwords</h2>
-              <Vault />
+              <Vault shown={section === "vault"} />
             </section>
 
             <section className="settings-group" hidden={section !== "models"}>
               <h2 className="settings-group-name">Models</h2>
+              <DefaultEffort />
               <ModelCatalog />
             </section>
 

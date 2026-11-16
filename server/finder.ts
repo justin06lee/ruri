@@ -70,36 +70,54 @@ export interface FoundProject {
   project: boolean;
 }
 
-/** Words the query is made of, lowercased, punctuation stripped. */
-function tokens(text: string): string[] {
+/**
+ * A name as it is compared: one spelling of each character, whatever the
+ * disk or the keyboard gave — a folder's name comes off some filesystems
+ * decomposed (한 as three jamo, é as e and an accent) and a typed one
+ * composed, and the two are the same name. Case goes, and so do the accents
+ * on Latin letters ("cafe" finds "café"); marks in other scripts are part of
+ * the letter and stay.
+ */
+export function foldName(text: string): string {
   return text
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 0);
+    .normalize("NFKD")
+    .replace(/(\p{Script=Latin})\p{M}+/gu, "$1")
+    .normalize("NFKC")
+    .toLowerCase();
+}
+
+/** Anything that isn't a letter or a digit, in any script. */
+const NOT_WORD = /[^\p{L}\p{N}]+/gu;
+
+/** Words the name is made of, punctuation stripped (folded already). */
+function tokens(folded: string): string[] {
+  return folded.split(NOT_WORD).filter((t) => t.length > 0);
 }
 
 /** Every character of `needle` appears in `hay`, in order. */
 function subsequence(needle: string, hay: string): boolean {
+  const want = [...needle];
   let i = 0;
-  for (const c of hay) if (c === needle[i]) i += 1;
-  return i === needle.length;
+  for (const c of hay) if (c === want[i]) i += 1;
+  return i === want.length;
 }
 
-/** How well a folder name answers to the query, 0 when it doesn't. */
+/** How well a folder name answers to the query, 0 when it doesn't. Names
+ *  in any script: 공항 finds 공항, as hifz finds Hifz-App. */
 function scoreName(name: string, query: string): number {
-  const n = name.toLowerCase();
-  const flat = n.replace(/[^a-z0-9]/g, "");
-  const q = query.toLowerCase().trim();
-  const qflat = q.replace(/[^a-z0-9]/g, "");
+  const n = foldName(name);
+  const flat = n.replace(NOT_WORD, "");
+  const q = foldName(query).trim();
+  const qflat = q.replace(NOT_WORD, "");
   if (!qflat) return 0;
   if (n === q || flat === qflat) return 100;
   if (n.startsWith(q) || flat.startsWith(qflat)) return 80;
-  const words = tokens(name);
-  const wanted = tokens(query);
+  const words = tokens(n);
+  const wanted = tokens(q);
   if (wanted.length > 0 && wanted.every((w) => words.some((x) => x === w))) return 75;
   if (n.includes(q) || flat.includes(qflat)) return 60;
   if (wanted.length > 0 && wanted.every((w) => flat.includes(w))) return 50;
-  if (qflat.length >= 3 && subsequence(qflat, flat)) return 25;
+  if ([...qflat].length >= 3 && subsequence(qflat, flat)) return 25;
   return 0;
 }
 

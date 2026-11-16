@@ -28,6 +28,10 @@ import { Scrollback } from "./scrollback.js";
  * this process — but which tabs a project had open is worth keeping, so
  * reopening the panel finds the same row of tabs and each one starts a fresh
  * shell in the project's directory the moment it is looked at.
+ *
+ * A shell that is quit (`exit`, ^D) takes its tab with it, and so does a tab
+ * closed by hand; a channel left with none has no shell pane, until it is
+ * asked for again and gets a first tab.
  */
 
 const EXPECT = "/usr/bin/expect";
@@ -38,9 +42,16 @@ const SCROLLBACK = 200_000;
 /** More tabs than this on one channel is a mistake, not an intention. */
 const MAX_TABS = 12;
 
+/** A shell gone this soon, and unhappily, never started properly: its tab
+ *  stays, with the note, rather than the pane blinking shut unexplained. */
+const FALSE_START_MS = 1_500;
+
 export interface TerminalEvents {
   onData(channelId: string, termId: string, data: string): void;
   onExit(channelId: string, termId: string, note: string): void;
+  /** A channel's row of tabs changed with nobody closing one: a shell was
+   *  quit, and its tab went with it. */
+  onTabs(channelId: string, tabs: string[]): void;
 }
 
 function tabsFile(): string {
@@ -127,8 +138,9 @@ export class Terminals {
   }
 
   /**
-   * This channel's tabs. A channel that has never had one gets its first
-   * here, so opening the panel always has something to attach to.
+   * This channel's tabs. A channel that has none — it never had one, or its
+   * last was closed — gets its first here, so opening the pane always has
+   * something to attach to.
    */
   list(channelId: string): string[] {
     this.load();
@@ -151,7 +163,8 @@ export class Terminals {
 
   /** One more tab on this channel — its shell starts when it is looked at. */
   add(channelId: string): string[] {
-    const open = this.list(channelId);
+    this.load();
+    const open = this.tabs.get(channelId) ?? [];
     if (open.length >= MAX_TABS) return open;
     const next = [...open, this.mint(channelId)];
     this.tabs.set(channelId, next);
@@ -230,13 +243,27 @@ export class Terminals {
     };
     child.stdout?.on("data", push);
     child.stderr?.on("data", push);
+    const started = Date.now();
     child.on("error", () => {
-      this.shells.delete(termId);
+      if (this.shells.get(termId) === entry) this.shells.delete(termId);
       this.events.onExit(channelId, termId, "this shell could not start");
     });
-    child.on("exit", () => {
-      this.shells.delete(termId);
+    child.on("exit", (code) => {
+      // still the tab's shell: it ended itself, rather than being killed
+      // with its tab (kill takes it off the books first) — and a shell
+      // started since on the same tab is not this one's to take down
+      const quit = this.shells.get(termId) === entry;
+      if (quit) this.shells.delete(termId);
       this.events.onExit(channelId, termId, "shell exited");
+      if (!quit || (code !== 0 && Date.now() - started < FALSE_START_MS)) return;
+      // quit from inside: the tab is done with, and goes
+      const open = this.tabs.get(channelId) ?? [];
+      if (!open.includes(termId)) return;
+      const left = open.filter((id) => id !== termId);
+      if (left.length > 0) this.tabs.set(channelId, left);
+      else this.tabs.delete(channelId);
+      this.save();
+      this.events.onTabs(channelId, left);
     });
     // A login shell's startup banner is written for a full-height window and
     // leaves this panel opening on the tail of someone's ASCII art. ^L is a
@@ -278,17 +305,18 @@ export class Terminals {
   }
 
   /**
-   * Close one tab: its shell dies and the tab goes with it. A channel is
-   * never left with none — closing the last one leaves a fresh, unstarted
-   * tab in its place, which is what "the panel is still here" looks like.
+   * Close one tab: its shell dies and the tab goes with it. Closing the
+   * last one leaves the channel with none — the pane goes with it, and the
+   * next time it is asked for (list) it starts on a fresh tab.
    */
   close(channelId: string, termId: string): string[] {
+    this.load();
     this.kill(termId);
-    const open = this.list(channelId).filter((id) => id !== termId);
-    const next = open.length > 0 ? open : [this.mint(channelId)];
-    this.tabs.set(channelId, next);
+    const left = (this.tabs.get(channelId) ?? []).filter((id) => id !== termId);
+    if (left.length > 0) this.tabs.set(channelId, left);
+    else this.tabs.delete(channelId);
     this.save();
-    return next;
+    return left;
   }
 
   /** Everything this channel had: its shells die and its tabs are forgotten

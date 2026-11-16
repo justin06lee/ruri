@@ -14,6 +14,7 @@ import { DEFAULT_CLAUDE_ACCOUNT, DEFAULT_MEMORY_MODEL } from "../shared/protocol
 import { claudeConfigDir } from "./accounts.js";
 import { configPath } from "./configDir.js";
 import { errorMessage, warn } from "./log.js";
+import { latestModel } from "./modelCatalog.js";
 import { describeJob, placeholderJob, SECTION_MAX, SHEET_WORDS, withinBudget } from "./sheetBudget.js";
 
 /**
@@ -47,8 +48,14 @@ export function setSmallModel(model: string | undefined): void {
   configured = model || undefined;
 }
 
+/** The lines the layer falls back on, each named by one of its models:
+ *  what runs is the newest the catalog lists in that line (latestModel),
+ *  so none of these has to be kept up to date. */
+const CODEX_SMALL = "codex:gpt-5.6-luna";
+const CODEX_CAPABLE = "codex:gpt-5.6-sol";
+
 function model(): string {
-  return configured ?? process.env["RURI_SMALL_MODEL"] ?? "codex:gpt-5.6-luna";
+  return configured ?? process.env["RURI_SMALL_MODEL"] ?? latestModel(CODEX_SMALL);
 }
 
 /**
@@ -108,7 +115,7 @@ function restKey(id: string): string {
 function memoryOrder(): string[] {
   const first = memoryModel();
   const claude = !first.includes(":") || first.startsWith("claude:");
-  return [...new Set([first, claude ? "codex:gpt-5.6-sol" : "sonnet", model()])];
+  return [...new Set([first, claude ? latestModel(CODEX_CAPABLE) : "sonnet", model()])];
 }
 
 /**
@@ -138,7 +145,7 @@ function fallbackFor(primary: string): string {
     : primary === "codex"
       ? "codex"
       : "claude";
-  return harness === "claude" ? "codex:gpt-5.6-luna" : "haiku";
+  return harness === "claude" ? latestModel(CODEX_SMALL) : "haiku";
 }
 
 /** Models that just failed, and when they may be tried again — so a spent

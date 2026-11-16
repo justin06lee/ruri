@@ -18,7 +18,11 @@ import * as path from "node:path";
 process.env["RURI_CONFIG_DIR"] = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-settings-"));
 
 const { ProjectStore } = await import("../server/projects.js");
-const { DEFAULT_EFFORT, DEFAULT_MODEL, DEFAULT_PERMISSION_MODE } = await import("../shared/protocol.js");
+const {
+  DEFAULT_EFFORT,
+  HARNESS_DEFAULT_MODEL: DEFAULT_MODEL,
+  DEFAULT_PERMISSION_MODE,
+} = await import("../shared/protocol.js");
 
 let failed = 0;
 function check(name: string, ok: boolean, detail?: unknown): void {
@@ -37,6 +41,7 @@ const member = () => store.addMember(project.id, { name: `m${++members}`, duty: 
 const b = member();
 
 /* ── a fresh project: everything is the built-in default ───────────── */
+// (no catalog has been read here: an unset model is the harness's own alias)
 check("a new project's lead runs on the defaults", store.effectiveSettings(a.id)?.model === DEFAULT_MODEL);
 
 /* ── a pick in one chat stays in that chat ─────────────────────────── */
@@ -270,5 +275,88 @@ manager.setEffort("chat", "high");
 check("an idle session takes a pick at once", reached.join(" ") === "effort:high", reached);
 
 fs.rmSync(process.env["RURI_CONFIG_DIR"]!, { recursive: true, force: true });
+/* ── no model is named here: the catalog says what the default is ──── */
+
+{
+  process.env["RURI_CONFIG_DIR"] = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-settings-catalog-"));
+  const catalog = [
+    { value: "opus", displayName: "Opus 5.5", providerDefault: true },
+    { value: "claude-fable-5-2", displayName: "Fable 5.2" },
+    { value: "fable", displayName: "Fable 5.1" },
+    { value: "haiku", displayName: "Haiku 5.5" },
+  ];
+  const fresh = new ProjectStore();
+  check("nothing is starred out of the box", fresh.starredModels().length === 0, fresh.starredModels());
+  check(
+    "an unset model is the harness's own alias until a catalog is read",
+    fresh.defaultModel() === DEFAULT_MODEL,
+  );
+  check("the first catalog moves no star", fresh.setCatalog(catalog) === false);
+  check("the default is the one the catalog marks", fresh.defaultModel() === "opus", fresh.defaultModel());
+  check(
+    "and is still known at the next launch, before any catalog",
+    new ProjectStore().defaultModel() === "opus",
+  );
+
+  const rider = fresh.add("rider", process.env["RURI_CONFIG_DIR"]!);
+  const picker = fresh.add("picker", process.env["RURI_CONFIG_DIR"]!);
+  fresh.assignModelRole("claude-fable-5-2", "default");
+  fresh.cycleModelStar("fable");
+  fresh.setSessionSettings(picker.sessions[0]!.id, { model: "claude-fable-5-2" });
+  const starter = fresh.add("starter", process.env["RURI_CONFIG_DIR"]!);
+
+  // a newer Fable is listed
+  const newer = [{ value: "claude-fable-5-3", displayName: "Fable 5.3" }, ...catalog];
+  check("a newer model of a starred line moves the star", fresh.setCatalog(newer) === true);
+  check(
+    "the crown follows its line to the newest",
+    fresh.defaultModel() === "claude-fable-5-3",
+    fresh.defaultModel(),
+  );
+  check(
+    "the star follows too, and one left on an older model stays put",
+    fresh.starredModels().includes("claude-fable-5-3") &&
+      !fresh.starredModels().includes("claude-fable-5-2") &&
+      fresh.starredModels().includes("fable"),
+    fresh.starredModels(),
+  );
+  check(
+    "a chat riding the default rides it to the new one",
+    fresh.effectiveSettings(starter.sessions[0]!.id)?.model === "claude-fable-5-3",
+    fresh.effectiveSettings(starter.sessions[0]!.id),
+  );
+  check(
+    "a chat that picked its model keeps its pick",
+    fresh.effectiveSettings(picker.sessions[0]!.id)?.model === "claude-fable-5-2",
+  );
+  check(
+    "one pinned when the crown was set keeps what it was on",
+    fresh.effectiveSettings(rider.sessions[0]!.id)?.model === "opus",
+    fresh.effectiveSettings(rider.sessions[0]!.id),
+  );
+  check("the same catalog again moves nothing", fresh.setCatalog(newer) === false);
+  check("and it all survives a relaunch", new ProjectStore().defaultModel() === "claude-fable-5-3");
+
+  /* ── a default effort, chosen like the default model ─────────────── */
+  check(
+    "the effort new chats start at is the built-in until one is chosen",
+    fresh.defaultEffort() === DEFAULT_EFFORT,
+  );
+  fresh.setDefaultEffort("high");
+  check("chosen, it is the default from here on", fresh.defaultEffort() === "high");
+  check(
+    "a chat riding the old default is pinned to it",
+    fresh.effectiveSettings(starter.sessions[0]!.id)?.effort === DEFAULT_EFFORT,
+  );
+  const after = fresh.add("after", process.env["RURI_CONFIG_DIR"]!);
+  check(
+    "a project made after starts at it",
+    fresh.effectiveSettings(after.sessions[0]!.id)?.effort === "high",
+  );
+  check("it survives a relaunch", new ProjectStore().defaultEffort() === "high");
+  fresh.setDefaultEffort("nonsense");
+  check("a word that is no effort changes nothing", fresh.defaultEffort() === "high");
+}
+
 console.log(failed === 0 ? "\nall passed" : `\n${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

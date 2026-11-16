@@ -953,7 +953,7 @@ function Detail({
   }, [projectId, item.id, item.star]);
   // rendered from its code where it can be (server/mycelium.ts); the
   // picture is what it falls back to, and what the user can switch to
-  const liveOn = useLiveComponents();
+  const liveOn = useLiveComponents(projectId);
   const canLive = liveOn && !item.orphaned && rendersLive(item.root);
   const [showing, setShowing] = useState<"live" | "picture">("live");
   const [liveSaid, setLiveSaid] = useState<string>();
@@ -1462,7 +1462,7 @@ function Library({ projectId }: { projectId: string }) {
 
   // with Live components on, opening the page has what can be tied to the
   // code tied, and counts what the code holds that nobody has named
-  const liveOn = useLiveComponents();
+  const liveOn = useLiveComponents(projectId);
   const unnamed = useRuri((s) => s.mycelium?.unnamed[projectId]);
   useEffect(() => {
     if (liveOn) send({ type: "mycelium_get", projectId, link: true });

@@ -42,7 +42,8 @@ export interface ManagerHost {
   /** Close an open project (matched by name, path, or id) — sidebar entry
    *  and transcripts go; files on disk are never touched. */
   closeProject(query: string): string;
-  listProjects(): Project[];
+  /** Each with the name of the sidebar folder it is in, when it is in one. */
+  listProjects(): Array<Project & { folder?: string }>;
   /** Folders under the workspace root whose names answer to what the user
    *  said, best first (see server/finder.ts). */
   findProjects(query: string): FoundProject[];
@@ -59,15 +60,15 @@ function managerAppend(workspaceDir: string, logPath: string): string {
 You are also ruri's workspace manager — the Home agent of a desktop app whose sidebar holds one row per project: its lead, the one chat the user talks to there, with a team of agents behind it.
 The user's workspace root (where their projects live): ${workspaceDir}
 
-Your tools are few and plain — one thing each, always by the project's name as the user says it:
-- mcp__ruri__find_project(name) — where a folder of that name lives under the workspace root. Fuzzy on the name; answers with full paths, best first, marked [project] when the folder holds a repo or a manifest. This is the ONLY way to locate a project: never guess or assemble a path, and never say a project doesn't exist until find_project has come back empty.
-- mcp__ruri__open_project(path) — put a folder in the sidebar, with its lead. With kickoff_prompt, the lead starts working on it immediately. A project opens once: when it — or another folder of the same name — is already open, you get back "already open", nothing new is opened, and a kickoff_prompt goes to the open one. Tell the user it was already there; don't go looking for another path to open it by.
+Your tools are few and plain — one thing each:
+- mcp__ruri__open_project(path) — put a folder in the sidebar, with its lead. The path is one you know: the user gave it, you have seen it in a listing, or it is a folder straight under the workspace root (a path that isn't absolute is taken from there). With kickoff_prompt, the lead starts working on it immediately. A project opens once: when it — or another folder of the same name — is already open, you get back "already open", nothing new is opened, and a kickoff_prompt goes to the open one. Tell the user it was already there; don't go looking for another path to open it by.
+- mcp__ruri__find_project(name) — for a project you can't place: it walks the whole workspace tree, however deeply nested (github.com/<user>/<repo>), for folders whose names answer to what the user said — fuzzy, in any language — and answers with full paths, best first, marked [project] when the folder holds a repo or a manifest. Reach for it when you don't know where a project lives and looking by hand would mean listing folder after folder; a path you already have needs no lookup. Never open a path you only guessed at, and never say a project doesn't exist until find_project has come back empty.
 - mcp__ruri__new_project(name) — make a fresh folder of that name under the workspace root and open it.
 - mcp__ruri__hide_project(name) / mcp__ruri__unhide_project(name) — tuck an open project under the sidebar's hidden fold, or bring it back. Hidden is still open: its lead, its team, transcripts, everything stays.
 - mcp__ruri__close_project(name) — close an open project: its lead, its team and their transcripts go, the files on disk never do.
 - mcp__ruri__list_projects — what's open right now, hidden ones marked.
 
-When the user names projects they want to work on, that IS the request to open them — don't just list them back or ask permission: find_project once per name, take the best hit (prefer one marked [project]), open_project that path, and when they described concrete work for it pass it as kickoff_prompt. Confirm briefly what you did. Never open folders in Finder or an editor — opening means open_project, nothing else. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's lead. Keep replies short.
+When the user names projects they want to work on, that IS the request to open them — don't just list them back or ask permission: open_project each one, by the path you know or else by find_project's best hit (prefer one marked [project]), and when they described concrete work for it pass it as kickoff_prompt. Asked for everything in a folder, list it once and open what it holds, by those paths. Confirm briefly what you did. Never open folders in Finder or an editor — opening means open_project, nothing else. Prefer opening projects and delegating via kickoff_prompt over doing project work yourself — deep work belongs in each project's lead. Keep replies short.
 
 ${logNote(logPath)}`;
 }
@@ -84,11 +85,11 @@ export function managerProviderSystem(workspaceDir: string, logPath: string): st
 The user's workspace root (your working directory, where their projects live): ${workspaceDir}
 
 You have no direct tool for the sidebar; ruri watches a drop file instead. When the user names projects they want to work on, that IS the request to open them — don't just list them back:
-1. Find each project's directory by searching, never by guessing: the workspace is nested (github.com/<user>/<repo>) and holds more than a listing shows. For each name the user said, run
+1. Know each project's directory, never guess it. A path the user gave, or one you have seen in a listing, is known already. For a name you can't place — the workspace is nested (github.com/<user>/<repo>) and holds more than a listing shows — search rather than list folder after folder:
    find "${workspaceDir}" -maxdepth 6 -type d -iname '*<name>*' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null
    (fd or rg --files are fine too), spelling loosely (a fragment of the name, no spaces). Pick the hit that is a repo — has a .git, a package.json, a Makefile, a README. Never tell the user a project doesn't exist until a search has come back empty.
 2. Append one JSON line per request to the file .ruri/open.jsonl in the workspace root, creating it if missing:
-   {"path": "/absolute/path/to/project", "name": "optional display name", "folder": "optional sidebar group", "kickoff": "optional first prompt — pass the user's described work so the project's lead starts on it immediately"}
+   {"path": "/absolute/path/to/project", "name": "optional display name", "folder": "optional name of the sidebar folder to put it in", "kickoff": "optional first prompt — pass the user's described work so the project's lead starts on it immediately"}
    {"new": "name"} — make a fresh folder of that name under the workspace root and open it
    {"hide": "project name or path"} — tuck an open project under the sidebar's hidden fold (still open, nothing lost); {"unhide": "..."} brings it back
    {"close": "project name or path"} — close an open project (its lead, its team and their transcripts go, files on disk never do)
@@ -175,9 +176,14 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
         "open_project",
         "Open a project in ruri's sidebar, with its lead. Optionally start the lead working right away with kickoff_prompt.",
         {
-          path: z.string().describe("Absolute path (or ~/...) of the project directory"),
+          path: z
+            .string()
+            .describe("The project directory: absolute, ~/..., or relative to the workspace root"),
           name: z.string().optional().describe("Display name (defaults to the directory name)"),
-          folder: z.string().optional().describe("Sidebar group label"),
+          folder: z
+            .string()
+            .optional()
+            .describe("Name of the sidebar folder to put it in — made when there is none of that name"),
           kickoff_prompt: z
             .string()
             .optional()
@@ -209,9 +215,13 @@ export function managerExtras(host: ManagerHost, workspaceDir: string, logPath: 
       ),
       tool(
         "find_project",
-        "Find a project folder under the workspace root by name — fuzzy on the folder name, best first, with full paths, marked [project] when the folder holds a repo or a manifest. Use this before open_project whenever the user names a project; it is how you find where it lives.",
+        "Find a project folder you can't place: walks the whole workspace tree, however deeply nested, and scores every folder name against what the user said — fuzzy, in any language — best first, with full paths, marked [project] when the folder holds a repo or a manifest. For when you don't know where a project lives; a path the user gave, or one you have just seen in a listing, needs no lookup.",
         {
-          name: z.string().describe("The project name as the user said it (a word or two; fragments match)"),
+          name: z
+            .string()
+            .describe(
+              "The project name as the user said it, in whatever script (a word or two; fragments match)",
+            ),
         },
         async (args) => {
           const found = host.findProjects(args.name);

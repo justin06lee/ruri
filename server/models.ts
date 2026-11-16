@@ -22,6 +22,9 @@ export class Models {
   readonly windows = new Map<string, number>();
   /** Told the ids of Claude's catalog whenever a list of it lands. */
   onClaude: ((ids: string[]) => void) | undefined;
+  /** Told the whole catalog, every harness's, whenever it changes — ahead
+   *  of the windows, so what they are told next is already true of it. */
+  onCatalog: ((models: ModelChoice[]) => void) | undefined;
   private probing = false;
   probedAt = 0;
 
@@ -47,7 +50,10 @@ export class Models {
         else this.claudeModels = this.claudeModels.map((m) => this.named(m));
         if (claude.length > 0) this.onClaude?.(claude.map((m) => m.value));
         this.providerModels = harnesses;
-        if (this.allModels().length > 0) this.broadcast({ type: "models", models: this.allModels() });
+        if (this.allModels().length > 0) {
+          this.onCatalog?.(this.allModels());
+          this.broadcast({ type: "models", models: this.allModels() });
+        }
       })
       .finally(() => {
         this.probing = false;
@@ -73,6 +79,7 @@ export class Models {
     if (cleaned.length === 0 || JSON.stringify(cleaned) === JSON.stringify(this.claudeModels)) return;
     this.claudeModels = cleaned;
     this.onClaude?.(cleaned.map((m) => m.value));
+    this.onCatalog?.(this.allModels());
     this.broadcast({ type: "models", models: this.allModels() });
   };
 }

@@ -871,13 +871,15 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   height: 100%;
 }
 
-/* a row's right-click: every project drawing, to pick its own */
-.icon-picker {
+/* a row's right-click (Sidebar.tsx RowMenu): every project drawing, to
+   pick its own; then the folder it is kept in, and live components for
+   this project */
+.row-menu {
   position: fixed;
   z-index: var(--z-popover);
-  display: grid;
-  grid-template-columns: repeat(7, 28px);
-  gap: 2px;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
   padding: 6px;
   background: var(--menu-bg);
   -webkit-backdrop-filter: var(--material);
@@ -885,6 +887,37 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   border-radius: var(--radius-m);
   box-shadow: var(--menu-shadow);
   animation: rise var(--move);
+}
+
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(7, 28px);
+  gap: 2px;
+}
+
+.row-menu-label {
+  padding: 10px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+
+/* a folder's name in the menu: as long as the drawings are wide, no longer */
+.row-menu-name {
+  max-width: 172px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-menu-seg {
+  margin: 0 2px 2px;
+}
+
+.row-menu-seg .seg-option {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .icon-picker button {
@@ -957,6 +990,128 @@ html:not([data-unfocused]) .desktop .sidebar-header {
    follow it, not the far edge */
 .team-row .team-count {
   margin-left: 0;
+}
+
+/* ── sidebar folders, and carrying ────────────────────────────────────
+   (Sidebar.tsx FolderRow, and the carry in Sidebar.) A folder is a row of
+   its own — a chevron where a project has its drawing, the name, how many
+   it holds — over its projects, which stand a step in. */
+.group-label {
+  display: flex;
+  align-items: center;
+}
+
+.group-label .group-add {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin: -4px -2px -4px auto;
+  padding: 2px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--ink-faint);
+  line-height: 0;
+}
+
+.group-label .group-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+.group-label .group-add:hover {
+  color: var(--ink);
+  background: var(--fill);
+  transform: none;
+}
+
+.folder-row .folder-chevron svg {
+  width: 9px;
+  height: 9px;
+  transition: transform var(--quick);
+}
+
+.folder-row.open .folder-chevron svg {
+  transform: rotate(90deg);
+}
+
+.folder-row .row-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.row-count.folder-count {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.folder-row.renaming .folder-count,
+.folder-row.renaming .row-actions {
+  display: none;
+}
+
+.project-row.nested {
+  margin-left: 14px;
+}
+
+/* something lifted: it rides the pointer over the rest, which stay put */
+.side-list .project-row,
+.folder-block {
+  position: relative;
+}
+
+.side-list.lifting,
+.side-list.lifting * {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grabbing;
+}
+
+/* solid, so the rows it is carried over do not read through it */
+.side-list .project-row.lifting,
+.folder-block.lifting {
+  z-index: var(--z-carried);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink) 11%, var(--sidebar-bg));
+  box-shadow: var(--menu-shadow);
+}
+
+.folder-block.lifting > .project-row:last-child {
+  margin-bottom: 0;
+}
+
+/* where it would land: a line in the gap it is nearest, drawn over the
+   carried row — which is right there, on top of that gap... */
+.side-list .drop-before::before,
+.side-list .drop-after::after {
+  content: "";
+  position: absolute;
+  z-index: calc(var(--z-carried) + 1);
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.side-list .drop-before::before {
+  top: -3px;
+}
+
+.side-list .drop-after::after {
+  bottom: -3px;
+}
+
+/* ...or the folder it would go into, ringed: the carried row is over it */
+.folder-row.drop-into {
+  background: var(--selection);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 /* a hidden project, once the fold is open: there, but quieter */
@@ -5297,6 +5452,83 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   color: var(--ink-faint);
 }
 
+/* where they are kept: the ghostly vault and who ruri is on it, or the
+   sentence that says there is none */
+.vault-where {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+
+.vault-where-words {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.5;
+}
+
+.vault-where code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+}
+
+.vault-read {
+  flex-shrink: 0;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* where one row's value is kept */
+.vault-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--ink-faint);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.vault-tag.ghostly {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+.vault-tag.off {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+/* one a same-named secret stands in front of */
+.vault-row.shadowed .vault-handle {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.vault-form select {
+  flex: 0 1 auto;
+  font-size: var(--fs-md);
+}
+
+.vault-form .seg-option.toggle {
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.vault-form .seg-option.toggle.active {
+  background: var(--raised);
+}
+
+/* what the vault refused, in its own words */
+.vault-failed {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .result-line {
   display: flex;
   align-items: center;
@@ -5632,7 +5864,8 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   font-size: var(--fs-md);
 }
 
-/* a script's line is its command, or how it exited: machine words */
+/* a script's line is its command, the newest thing it printed, or how it
+   exited: machine words */
 .agent-card.script .agent-card-line {
   font-family: var(--mono);
   font-size: var(--fs-sm);
@@ -5807,6 +6040,21 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   align-items: center;
   gap: 12px;
   min-width: 0;
+}
+
+/* a script's page: each stretch of its output under the time it came */
+.script-stretch {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.script-time {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .agent-live-line {
@@ -6920,7 +7168,9 @@ html:not([data-unfocused]) .desktop .sidebar-header {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* over the shell pane when one is open at the pane's foot (Terminal.tsx
+     ShellPane sets how tall it stands) */
+  bottom: var(--shell-h, 0px);
   z-index: var(--z-dock);
   pointer-events: none;
 }
@@ -7442,13 +7692,59 @@ button.stop:hover {
   background: color-mix(in srgb, var(--ink) 14%, transparent);
 }
 
-/* ── the composer's shell ─────────────────────────────────────────── */
+/* ── the shell pane ───────────────────────────────────────────────── */
 
-/* The terminal takes the box the prompt would have had — same frame, same
-   width, just taller, so switching modes moves nothing else. */
+/* A split at the foot of the chat (Terminal.tsx ShellPane): the pane is a
+   column, and this is the last thing in it, under the conversation and the
+   composer floating over its end. A shade of its own rather than a rule
+   across the page, and a top edge that drags to resize. */
+.shell-pane {
+  position: relative;
+  flex: none;
+  align-self: stretch;
+  min-height: 120px;
+  max-height: calc(100% - 200px);
+  background: var(--paper-dim);
+  /* above the transcript's tail and the composer's fade, which both end
+     where it begins */
+  z-index: var(--z-dock);
+}
+
+/* the top edge: six pixels that take the pointer, and a short bar that
+   shows on the way to them */
+.shell-resize {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 9px;
+  cursor: row-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.shell-resize::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 36px;
+  height: 3px;
+  margin-left: -18px;
+  border-radius: 2px;
+  background: var(--ink-faint);
+  opacity: 0;
+  transition: opacity var(--quick);
+}
+
+.shell-resize:hover::after,
+.shell-resize:active::after {
+  opacity: 0.55;
+}
+
 .terminal {
-  height: 300px;
-  padding: 8px 4px 4px;
+  height: 100%;
+  padding: 10px 12px 8px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -7540,6 +7836,39 @@ button.stop:hover {
   height: 12px;
 }
 
+/* whose shell it is, at the far end of the row, and the way to put the
+   pane away */
+.term-where {
+  margin-left: auto;
+  padding-right: 4px;
+  font-size: var(--fs-sm);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.term-hide {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+
+.term-hide:hover {
+  opacity: 1;
+}
+
+.term-hide svg {
+  width: 13px;
+  height: 13px;
+}
+
 /* Every open shell stays mounted at the same size — one on top, the rest
    drawing away underneath it. Switching tabs is then instant, and a long
    command keeps painting while you look at another shell. */
@@ -7566,14 +7895,6 @@ button.stop:hover {
 
 .terminal .xterm {
   height: 100%;
-}
-
-/* which shell you're looking at, where the model pickers sit in prompt mode */
-.shell-where {
-  font-size: var(--fs-sm);
-  color: var(--ink-faint);
-  padding-left: 2px;
-  font-variant-numeric: tabular-nums;
 }
 
 .shell-toggle.active {
@@ -8136,6 +8457,33 @@ button.stop:hover {
   border-style: solid;
   border-color: var(--ink);
   background: var(--paper-dim);
+}
+
+/* held down: a line fills along its foot for as long as the hold takes
+   (Queue.tsx, CUT_IN_HOLD_MS), and at the end of it the prompt is sent now.
+   It starts a beat late, so a click is not a flash of it. */
+.queued-card.holding {
+  background: color-mix(in srgb, var(--accent) 7%, var(--paper-dim));
+}
+
+.queued-card.holding::after {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 5px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  animation: queued-hold 480ms linear 120ms forwards;
+}
+
+@keyframes queued-hold {
+  to {
+    transform: scaleX(1);
+  }
 }
 
 /* out of the line while it is rewritten in the composer */
@@ -10419,6 +10767,13 @@ button.primary { min-height: 28px; }
 }
 .settings-label .info-tip {
   margin-left: 4px;
+}
+
+/* a label too long for the column keeps its ⓘ beside it rather than
+   dropping it onto a line of its own */
+.settings-label.long {
+  width: auto;
+  white-space: nowrap;
 }
 
 /* Settings → Models: the provider's hand-drawn mark leads the row, the

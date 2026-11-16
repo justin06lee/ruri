@@ -31,6 +31,7 @@ import type { PendingComponent, RuriServer, ServerContext, StartServerOptions } 
 import { DraftStore } from "./drafts.js";
 import { createTurnTracker } from "./events.js";
 import { UsageGauges } from "./gauges.js";
+import { Ghostly } from "./ghostly.js";
 import { createComponentHost, settleLibraries, stopLiveComponents } from "./handlers/components.js";
 import { createCrewManager } from "./handlers/crew.js";
 import { createManagerHost } from "./handlers/projects.js";
@@ -61,6 +62,7 @@ import { SecretStore } from "./secrets.js";
 import { phonePushOf, servePhonePush, startPhonePush } from "./phonePush.js";
 import { Sharing } from "./sharing.js";
 import { foldDigest } from "./digestFold.js";
+import { setModelCatalog } from "./modelCatalog.js";
 import { onAccount, setMemoryModel, setSmallModel } from "./smallmodel.js";
 import { accountFor } from "./accounts.js";
 import { createSocketServer } from "./socket.js";
@@ -70,6 +72,7 @@ import { Terminals } from "./terminal.js";
 import { TrackerStore } from "./tracker.js";
 import { pushContexts, Turns } from "./turns.js";
 import { HarnessUpdater } from "./updater.js";
+import { Vault } from "./vault.js";
 import { sweepUploads } from "./uploads.js";
 import { startMigration, stopMigration } from "./workers.js";
 
@@ -145,6 +148,12 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // itself paused when none of them can (server/relay.ts).
   const relay = new TerminalRelay(clients.sockets, (termId, held) => ctx.terminals.hold(termId, held));
   clients.onGone = (ws) => relay.forget(ws);
+  // the ghostly vault kept in step with the secrets, when this machine has
+  // one: its values are read into the store's memory (server/vault.ts)
+  const vault = new Vault(secrets, new Ghostly(), () => {
+    clients.broadcast({ type: "secrets", items: secrets.meta() });
+    clients.broadcast({ type: "vault", state: vault.view() });
+  });
   const ctx = {
     options,
     listeningPort: options.port,
@@ -162,6 +171,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
     ideas,
     components,
     secrets,
+    vault,
     prefs,
     drafts,
     checkpoints: createCheckpoints(),
@@ -176,6 +186,8 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
         relay.flush(termId);
         clients.broadcast({ type: "terminal_exit", projectId, termId, note });
       },
+      // a shell quit from inside took its tab with it
+      onTabs: (projectId, tabs) => clients.broadcast({ type: "terminal_tabs", projectId, tabs }),
     }),
     digests: new DigestFolder(archive, (digest, exchanges, channelId) =>
       onAccount(accountFor(store, channelId), () => foldDigest(digest, exchanges)),
@@ -219,6 +231,18 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
   // them over to the plain ones it lists (ProjectStore.foldListedModels)
   ctx.models.onClaude = (ids) => {
     if (ctx.store.foldListedModels(new Set(ids))) announceRoles(ctx, ctx.store.modelRoles());
+  };
+  // The catalog names the models; ruri names none. Each list that lands
+  // goes to the store — which hands a star or a role on to a newer model
+  // of its line — and to the small-tasks layer's stand-ins; the default
+  // may have moved with it (ProjectStore.setCatalog, server/modelCatalog.ts)
+  ctx.models.onCatalog = (models) => {
+    setModelCatalog(models);
+    const was = ctx.store.defaultModel();
+    if (ctx.store.setCatalog(models)) announceRoles(ctx, ctx.store.modelRoles());
+    else if (ctx.store.defaultModel() !== was) {
+      ctx.clients.broadcast({ type: "default_model", model: ctx.store.defaultModel() });
+    }
   };
   ctx.models.probeModels();
   // each model's window as the chats' turns last reported it, so a relaunch
@@ -304,6 +328,9 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
       ctx.clients.broadcast({ type: "harnesses", harnesses, ...(checking ? { checking } : {}) }),
   });
   if (options.updateHarnesses !== false) ctx.updater.start();
+  // the vault's first read, off to the side: a second or two an item, and
+  // nothing waits on it — a chat started before it lands has ruri's own
+  ctx.vault.start();
   ctx.managerHost = createManagerHost(ctx);
 
   const server = createHttpServer(ctx);
@@ -429,6 +456,7 @@ export async function startServer(options: StartServerOptions): Promise<RuriServ
             clearInterval(talkTimer);
             stopMigration(ctx);
             ctx.updater.stop();
+            ctx.vault.stop();
             ctx.terminals.closeAll();
             void options.bridge?.closeAll();
             ctx.manager.disposeAll();

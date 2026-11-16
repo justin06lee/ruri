@@ -1,12 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import {
-  DEFAULT_EFFORT,
-  HOME_ID,
-  leadOf,
-  type Project,
-  type TranscriptEvent,
-} from "../../../shared/protocol";
+import { HOME_ID, leadOf, type Project, type TranscriptEvent } from "../../../shared/protocol";
 import { beat } from "../lib/beat";
 import { StreamingMarkdown } from "../markdown";
 import { useSessionsMode } from "../lib/sessionsMode";
@@ -38,6 +32,11 @@ import { Sketch, type SketchBackground } from "./Sketch";
 import { Skills } from "./Skills";
 import { TeamPage } from "./TeamPage";
 import { Thinking, WorkingLine } from "./Thinking";
+
+/* The shell pane brings xterm with it — a quarter of the app's JavaScript,
+   for something most sessions never open. It arrives when the `>_` button
+   is pressed instead of on every launch. */
+const ShellPane = lazy(() => import("./Terminal").then((m) => ({ default: m.ShellPane })));
 
 /** Turns rendered before the first paint — more than fills a screen; the
  *  rest arrive behind it. */
@@ -242,6 +241,14 @@ function ChatView({
   rapid?: RapidFire;
 }) {
   const pane = (base: string) => paneClass(base, rapid);
+  // the chat's shell, a split at its foot while it is open (Terminal.tsx)
+  const shellOpen = useRuri((s) => s.shellOpen[activeId] === true);
+  const defaultEffort = useRuri((s) => s.defaultEffort);
+  const shell = shellOpen && (
+    <Suspense fallback={<div className="shell-pane" style={{ height: 300 }} />}>
+      <ShellPane channelId={activeId} name={project.name} />
+    </Suspense>
+  );
   // everything the store keeps per chat, in one read
   const {
     transcript,
@@ -952,6 +959,7 @@ function ChatView({
               />
             </div>
           </div>
+          {shell}
         </main>
       );
     }
@@ -1094,7 +1102,7 @@ function ChatView({
                       <span className="working-word">Stopping…</span>
                     </div>
                   ) : (
-                    turn && <WorkingLine turn={turn} effort={project.effort || DEFAULT_EFFORT} />
+                    turn && <WorkingLine turn={turn} effort={project.effort || defaultEffort} />
                   )}
                 </div>
               )}
@@ -1185,6 +1193,7 @@ function ChatView({
             {...(rapid?.on ? { onSent: () => rapid.advance("sent") } : {})}
           />
         </div>
+        {shell}
       </main>
     );
   })();

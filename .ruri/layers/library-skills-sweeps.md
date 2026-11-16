@@ -16,6 +16,7 @@ This layer keeps each project's component library — user names, handles, code 
 - **Agent-taken photographs:** server/photographer.ts, server/handlers/components.ts, server/components.ts
 - **Skills list/toggle/install:** server/skills.ts, server/handlers/skills.ts
 - **Search shared by agents and the page:** shared/librarySearch.ts, server/library.ts
+- **Live components (mycelium), on or off per project:** server/mycelium.ts, server/handlers/components.ts, server/handlers/projects.ts
 
 ## How it works
 
@@ -45,6 +46,7 @@ This layer keeps each project's component library — user names, handles, code 
 - Shots cannot cover login-gated, state-dependent, or non-web UI — route those to photographer agent flow, not shots.ts.
 - Every path a session gives (files, shots, --dir) resolves against its checkout (checkoutFor), never project.path directly — teammates work in worktrees, and copies or reads in the main checkout were the bug.
 - .ruri/components.md is committed: it holds only what lasts (no picture paths, no out-of-date lines, line refs by anchor text) and is written only when it changes — volatile detail goes to the skill, ruri show and the prompt block.
+- Whether live components is on is asked per project, never read from the setting alone: myceliumOn(ctx, project) in server/mycelium.ts — the project's own word (set_mycelium: on / off / default) over the setting in Settings. Turning it off for a project stops its play server.
 
 ## What it talks to
 

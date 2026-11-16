@@ -114,11 +114,27 @@ describe("the setting", () => {
     expect(myceliumOn(prefs())).toBe(false);
     expect(myceliumOn(prefs("on"))).toBe(true);
     expect(findMyc()).toBeNull();
-    expect(mycFor(prefs("on"))).toBeNull();
+    expect(mycFor(prefs("on"), undefined)).toBeNull();
     const { bin } = fakeMyc({});
     process.env["RURI_MYC"] = bin;
-    expect(mycFor(prefs("on"))).toBe(bin);
-    expect(mycFor(prefs("off"))).toBeNull();
+    expect(mycFor(prefs("on"), undefined)).toBe(bin);
+    expect(mycFor(prefs("off"), undefined)).toBeNull();
+  });
+
+  test("a project's own word wins over it, either way; with none it follows the setting", () => {
+    const prefs = (value?: string) => ({
+      prefs: { all: (): Record<string, string> => (value ? { [MYCELIUM_PREF]: value } : {}) },
+    });
+    expect(myceliumOn(prefs(), { mycelium: "on" })).toBe(true);
+    expect(myceliumOn(prefs("on"), { mycelium: "off" })).toBe(false);
+    expect(myceliumOn(prefs("on"), {})).toBe(true);
+    expect(myceliumOn(prefs(), {})).toBe(false);
+    const { bin } = fakeMyc({});
+    process.env["RURI_MYC"] = bin;
+    // on for this project alone, with the setting off
+    expect(mycFor(prefs(), { mycelium: "on" })).toBe(bin);
+    expect(mycFor(prefs(), {})).toBeNull();
+    expect(mycFor(prefs("on"), { mycelium: "off" })).toBeNull();
   });
 });
 

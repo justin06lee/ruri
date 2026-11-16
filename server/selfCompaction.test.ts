@@ -67,7 +67,7 @@ afterEach(() => {
   else process.env["RURI_COMPACT_SOFT_TOKENS"] = savedSoft;
 });
 
-describe("where an agent compacts itself", () => {
+describe("where an agent's first compaction notice comes", () => {
   test("half its window unless the user says otherwise — a share, a size, or off", () => {
     expect(parseCompactAt("0.5")).toEqual({ share: 0.5 });
     expect(parseCompactAt("40%")).toEqual({ share: 0.4 });
@@ -97,34 +97,65 @@ describe("where an agent compacts itself", () => {
     expect(selfCompactAt(chatAt(0), "c1")).toBe(500_000);
   });
 
-  test("never past ruri's soft limit, so the agent's own note gets there first", () => {
+  test("never past where ruri compacts the chat itself, so the choice comes while it is still the agent's", () => {
     delete process.env["RURI_COMPACT_SOFT_TOKENS"];
-    // half a 1M window, told before the backstop at 5% under 550k
+    // no soft limit unless the user sets one: the top of a 1M window is 900k
     expect(selfCompactAt(chatAt(0), "c1")).toBe(500_000);
     expect(selfCompactAt(chatAt(0, { member: true }), "c1")).toBe(150_000);
-    expect(selfCompactAt(chatAt(0, { prefs: { "ruri-self-compact-at": "600k" } }), "c1")).toBe(522_500);
+    expect(selfCompactAt(chatAt(0, { prefs: { "ruri-self-compact-at": "600k" } }), "c1")).toBe(600_000);
+    expect(selfCompactAt(chatAt(0, { prefs: { "ruri-self-compact-at": "950k" } }), "c1")).toBe(900_000);
+    // a soft limit the user set comes first, as it did
+    const soft = { "ruri-compact-soft-tokens": "550k", "ruri-self-compact-at": "600k" };
+    expect(selfCompactAt(chatAt(0, { prefs: soft }), "c1")).toBe(522_500);
   });
 });
 
 describe("an agent knows how full its context is", () => {
-  test("with every prompt: tokens of the window, and how far from compacting itself", () => {
+  test("with every prompt: tokens of the window, and how far from its first notice", () => {
     expect(contextLine(chatAt(412_000), "c1")).toBe(
-      "<ruri:context>412k of 1M tokens used (41%). You compact yourself at 500k, 88k from here.</ruri:context>\n",
+      "<ruri:context>412k of 1M tokens used (41%). Your first compaction notice comes at 500k, 88k from here.</ruri:context>\n",
     );
-    const past = contextLine(chatAt(523_000), "c1");
-    expect(past).toContain("past 500k, where you compact yourself");
-    expect(past).toContain("call mcp__ruri__compact");
-    expect(past).toContain("ruri compacts you at 800k");
-    // a harness without ruri's tools is told the endpoint's call
-    expect(contextLine(chatAt(523_000, { harness: "codex" }), "c1")).toContain('{"do": "compact"}');
     expect(contextLine(chatAt(0), "c1")).toContain("A fresh session");
     expect(contextLine(chatAt(100_000, { prefs: { "ruri-self-compact-at": "off" } }), "c1")).toBe(
-      "<ruri:context>100k of 1M tokens used (10%). ruri compacts you at 800k.</ruri:context>\n",
+      "<ruri:context>100k of 1M tokens used (10%). ruri compacts you at 900k.</ruri:context>\n",
     );
     expect(contextLine(chatAt(100_000), "nobody")).toBe("");
   });
 
-  test("mid-turn, as it climbs: every twentieth of the window, every fortieth past its point", () => {
+  test("a notice is the agent's to weigh: said whole once, then only kept count of", () => {
+    const ctx = chatAt(523_000);
+    const first = contextLine(ctx, "c1");
+    expect(first).toContain("your first compaction notice (500k)");
+    expect(first).toContain("yours to decide");
+    expect(first).toContain("call mcp__ruri__compact");
+    expect(first).toContain("carry on and finish");
+    expect(first).toContain("You hear again at 800k");
+    // nothing orders it to, and nothing says ruri will at this point
+    expect(first).not.toContain("where you compact yourself");
+    // the next line doesn't say it all again
+    const after = contextLine(ctx, "c1");
+    expect(after).toContain("Past your first compaction notice (500k)");
+    expect(after).toContain("The next comes at 800k, 277k from here");
+    expect(after.length).toBeLessThan(first.length / 2);
+    // a harness without ruri's tools is told the endpoint's call
+    expect(contextLine(chatAt(523_000, { harness: "codex" }), "c1")).toContain('{"do": "compact"}');
+  });
+
+  test("the second notice comes at four fifths of the window, ahead of ruri's own compaction", () => {
+    const ctx = chatAt(812_000);
+    const second = contextLine(ctx, "c1");
+    expect(second).toContain("your second compaction notice (800k)");
+    expect(second).toContain("Still yours to decide");
+    expect(second).toContain("ruri compacts you itself at 900k");
+    expect(contextLine(ctx, "c1")).toContain("Past your second compaction notice (800k)");
+    // a 200k window has no room for two: its first notice, then the top of it
+    const small = contextLine(chatAt(110_000, { window: 200_000 }), "c1");
+    expect(small).toContain("your first compaction notice (100k)");
+    expect(small).toContain("ruri compacts you itself at 160k");
+    expect(small).not.toContain("You hear again");
+  });
+
+  test("mid-turn, as it climbs: every twentieth of the window, and at once across a notice", () => {
     const ctx = chatAt(300_000);
     const at = (tokens: number) => {
       (ctx.turns.contexts as Map<string, { tokens: number; window: number }>).set("c1", {
@@ -137,18 +168,37 @@ describe("an agent knows how full its context is", () => {
     expect(at(320_000)).toBeUndefined();
     expect(at(352_000)).toContain("352k of 1M");
     expect(at(380_000)).toBeUndefined();
-    // crossing the point is news at once
-    expect(at(501_000)).toContain("past 500k");
-    expect(at(515_000)).toBeUndefined();
-    expect(at(527_000)).toContain("527k");
+    // crossing a notice is news at once
+    expect(at(501_000)).toContain("your first compaction notice (500k)");
+    // and past it the agent is left to its choice: no more often than before
+    expect(at(527_000)).toBeUndefined();
+    expect(at(552_000)).toContain("Past your first compaction notice");
+    expect(at(790_000)).toContain("790k");
+    expect(at(801_000)).toContain("your second compaction notice (800k)");
+    expect(at(830_000)).toBeUndefined();
     // the step's tool results count before the next call reports them
     contextLine(ctx, "c1");
     (ctx.turns.contexts as Map<string, { tokens: number; window: number }>).set("c1", {
-      tokens: 527_000,
+      tokens: 830_000,
       window: 1_000_000,
     });
     expect(contextNotice(ctx, "c1", 10_000)).toBeUndefined();
-    expect(contextNotice(ctx, "c1", 30_000)).toContain("557k of 1M");
+    expect(contextNotice(ctx, "c1", 60_000)).toContain("890k of 1M");
+  });
+
+  test("compacted under it, the notices come again as it climbs back", () => {
+    const ctx = chatAt(523_000);
+    const set = (tokens: number) =>
+      (ctx.turns.contexts as Map<string, { tokens: number; window: number }>).set("c1", {
+        tokens,
+        window: 1_000_000,
+      });
+    expect(contextLine(ctx, "c1")).toContain("your first compaction notice");
+    startedFresh(ctx, "c1");
+    set(40_000);
+    expect(contextLine(ctx, "c1")).toContain("Your first compaction notice comes at 500k");
+    set(505_000);
+    expect(contextNotice(ctx, "c1")).toContain("your first compaction notice (500k)");
   });
 
   test("a fresh session gets room before it is held to its point, so it can't compact in a loop", () => {
@@ -161,7 +211,7 @@ describe("an agent knows how full its context is", () => {
       window: 1_000_000,
     });
     expect(contextNotice(ctx, "c1")).toBeUndefined();
-    expect(contextLine(ctx, "c1")).toContain("You compact yourself at 61k");
+    expect(contextLine(ctx, "c1")).toContain("Your first compaction notice comes at 61k");
     // with a reading well below it, the point stands
     const roomy = chatAt(0, { prefs: { "ruri-self-compact-at": "50k" } });
     startedFresh(roomy, "c1");
@@ -169,13 +219,16 @@ describe("an agent knows how full its context is", () => {
       tokens: 20_000,
       window: 1_000_000,
     });
-    expect(contextLine(roomy, "c1")).toContain("You compact yourself at 50k");
+    expect(contextLine(roomy, "c1")).toContain("Your first compaction notice comes at 50k");
   });
 
   test("the system prompt's words never carry a figure, so the cache holds", () => {
     expect(contextBriefing()).toBe(contextBriefing());
     expect(contextBriefing()).not.toMatch(/\d+k/);
     expect(contextBriefing()).toContain("mcp__ruri__compact");
+    // the choice is the agent's, in the words it starts with
+    expect(contextBriefing()).toContain("yours to decide");
+    expect(contextBriefing()).toContain("not every job needs compacting");
     expect(contextBriefing("http://127.0.0.1:1/talk/c1")).toContain('{"do": "compact", "file"');
   });
 });

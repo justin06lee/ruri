@@ -41,6 +41,7 @@ import {
   playUrl,
   setExamples,
   settleMycelium,
+  stopPlay,
   stopPlays,
   writeMirror,
 } from "../mycelium.js";
@@ -257,7 +258,7 @@ export function ensureLibrarySkill(ctx: ServerContext, projectId: string): void 
 export function libraryHost(ctx: ServerContext, channelId: string): LibraryHost | undefined {
   const owner = ownerProject(ctx, channelId);
   if (!owner) return undefined;
-  const myc = mycFor(ctx);
+  const myc = mycFor(ctx, owner);
   const open = (): LibraryProject[] =>
     ctx.store.list().map((p) => ({ id: p.id, name: p.name, path: p.path }));
   return {
@@ -348,11 +349,11 @@ function untied(ctx: ServerContext, projectId: string): boolean {
  * (server/mycelium.ts settleMycelium), in the background and one at a
  * time per project: roots found for the entries that have none (`link`, a
  * scan), each rooted entry found again, its files taken from the trace.
- * Nothing happens while the setting is off or myc isn't here.
+ * Nothing happens while it is off for the project or myc isn't here.
  */
 export function libraryMycelium(ctx: ServerContext, projectId: string, opts: { link?: boolean } = {}): Promise<void> {
-  const bin = mycFor(ctx);
   const project = ctx.store.get(projectId);
+  const bin = mycFor(ctx, project);
   if (!bin || !project?.path) return Promise.resolve();
   const busy = settlingMycelium.get(projectId);
   if (busy) {
@@ -410,6 +411,32 @@ export function libraryMycelium(ctx: ServerContext, projectId: string, opts: { l
 /** The playgrounds stopped: the server is closing. */
 export function stopLiveComponents(): void {
   stopPlays();
+}
+
+/** The playgrounds of the projects live components is off for, stopped —
+ *  the setting was flipped, or one project's own word was. */
+function stopIdlePlays(ctx: ServerContext): void {
+  for (const project of ctx.store.list()) {
+    if (project.path && !myceliumOn(ctx, project)) stopPlay(project.path);
+  }
+}
+
+/**
+ * A project's own word on live components changed (set_mycelium), or it
+ * went back to following the setting. On, its library is held up against
+ * the code at once, roots found for what has none; off, its renders stop.
+ * Nothing mycelium wrote into the project is taken out either way.
+ */
+export function liveComponentsChanged(ctx: ServerContext, projectId: string): void {
+  const project = ctx.store.get(projectId);
+  if (!project) return;
+  if (!myceliumOn(ctx, project)) {
+    if (project.path) stopPlay(project.path);
+    return;
+  }
+  if (ctx.components.items(projectId).length > 0) {
+    void libraryMycelium(ctx, projectId, { link: untied(ctx, projectId) });
+  }
 }
 
 /* ── keeping it true to the code ──────────────────────────────────── */
@@ -531,7 +558,7 @@ export function libraryAfterTurn(ctx: ServerContext, projectId: string): void {
     const unnamed = unnamedIn.get(projectId);
     if (unnamed) unnamed.stale = true;
   }
-  if (mycFor(ctx)) {
+  if (mycFor(ctx, project)) {
     const link = untied(ctx, projectId);
     if (moved || link) void libraryMycelium(ctx, projectId, { link });
   }
@@ -909,7 +936,9 @@ export const componentHandlers = {
     pushComponents(ctx, msg.projectId, project?.path);
     // a new root is traced; a new name, handle or note is only written through
     if (msg.root !== undefined) void libraryMycelium(ctx, msg.projectId);
-    else if (project?.path && mycFor(ctx)) writeMirror(project.path, ctx.components.items(msg.projectId));
+    else if (project?.path && mycFor(ctx, project)) {
+      writeMirror(project.path, ctx.components.items(msg.projectId));
+    }
   },
   component_remove: (ctx, _ws, msg) => {
     ctx.components.remove(msg.projectId, msg.componentId);
@@ -929,8 +958,11 @@ export const componentHandlers = {
       };
       ws.send(JSON.stringify(message));
     };
-    if (!myceliumOn(ctx)) stopPlays();
-    if (!msg.projectId || !mycFor(ctx)) return reply();
+    // asked on a flip of the setting too: the renders stop wherever live
+    // components is now off
+    stopIdlePlays(ctx);
+    const asked = msg.projectId ? ctx.store.get(msg.projectId) : undefined;
+    if (!msg.projectId || !mycFor(ctx, asked)) return reply();
     // code that changed with no turn of ruri's (an editor, a pull) is seen
     // here: the page is being opened
     const moved = checkLibrary(ctx, msg.projectId);
@@ -949,7 +981,7 @@ export const componentHandlers = {
     };
     const project = ctx.store.get(msg.projectId);
     if (!project?.path) return reply({ error: "That project isn't open." });
-    if (!myceliumOn(ctx)) return reply({ error: "Live components is off in Settings." });
+    if (!myceliumOn(ctx, project)) return reply({ error: "Live components is off for this project." });
     const bin = findMyc();
     if (!bin) return reply({ error: "myc isn't installed." });
     // what it serves is what mycelium holds: the mirror, as it is now

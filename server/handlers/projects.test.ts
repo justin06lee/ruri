@@ -149,3 +149,128 @@ describe("a project's Claude account", () => {
     expect(broadcasts).toHaveLength(2);
   });
 });
+
+describe("the sidebar's arrangement", () => {
+  type Sent = { type: string; [key: string]: unknown };
+  let sent: Sent[];
+  let ctx: ServerContext;
+  const ids = () => store.list().map((p) => p.name);
+  const idOf = (name: string) => store.list().find((p) => p.name === name)!.id;
+  const types = () => sent.map((m) => m.type);
+
+  beforeEach(() => {
+    for (const dir of ["ruri", "umi", "toji"]) host.openProject({ path: path.join(real, dir) });
+    sent = [];
+    ctx = { store, clients: { broadcast: (m: Sent) => sent.push(m) } } as unknown as ServerContext;
+  });
+
+  test("a project carried before another: the list follows, and outlives a restart", () => {
+    expect(ids()).toEqual(["ruri", "umi", "toji"]);
+    projectHandlers.sidebar_move(ctx, {} as never, {
+      type: "sidebar_move",
+      id: idOf("toji"),
+      beforeId: idOf("ruri"),
+    });
+    expect(ids()).toEqual(["toji", "ruri", "umi"]);
+    // the arrangement, and the projects again since their order moved
+    expect(types()).toEqual(["sidebar", "projects"]);
+    expect(new ProjectStore().list().map((p) => p.name)).toEqual(["toji", "ruri", "umi"]);
+  });
+
+  test("a folder made around a project, folded, renamed, filled and taken away", () => {
+    const [ruri, umi, toji] = [idOf("ruri"), idOf("umi"), idOf("toji")];
+    const folderId = "0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3a";
+    projectHandlers.folder_add(ctx, {} as never, {
+      type: "folder_add",
+      folderId,
+      name: "side jobs",
+      projectId: umi,
+    });
+    expect(store.sidebar()).toEqual({
+      order: [ruri, folderId, toji],
+      folders: [{ id: folderId, name: "side jobs", projects: [umi] }],
+    });
+    // nothing moved in the list: only the arrangement goes out
+    expect(types()).toEqual(["sidebar"]);
+    expect(store.folderName(umi)).toBe("side jobs");
+
+    projectHandlers.folder_set(ctx, {} as never, { type: "folder_set", folderId, collapsed: true });
+    projectHandlers.folder_set(ctx, {} as never, { type: "folder_set", folderId, name: "play" });
+    expect(store.sidebar().folders[0]).toEqual({
+      id: folderId,
+      name: "play",
+      collapsed: true,
+      projects: [umi],
+    });
+
+    // ruri goes into it, ahead of umi: the list's order follows the folder's
+    projectHandlers.sidebar_move(ctx, {} as never, {
+      type: "sidebar_move",
+      id: ruri,
+      folderId,
+      beforeId: umi,
+    });
+    expect(store.sidebar().folders[0]?.projects).toEqual([ruri, umi]);
+    expect(ids()).toEqual(["ruri", "umi", "toji"]);
+    expect(new ProjectStore().sidebar()).toEqual(store.sidebar());
+
+    // the folder itself carried to the end: its projects go with it
+    projectHandlers.sidebar_move(ctx, {} as never, { type: "sidebar_move", id: folderId });
+    expect(ids()).toEqual(["toji", "ruri", "umi"]);
+
+    projectHandlers.folder_remove(ctx, {} as never, { type: "folder_remove", folderId });
+    expect(store.sidebar()).toEqual({ order: [toji, ruri, umi], folders: [] });
+    expect(ids()).toEqual(["toji", "ruri", "umi"]);
+  });
+
+  test("every change is answered with the arrangement, even one that changes nothing", () => {
+    projectHandlers.sidebar_move(ctx, {} as never, { type: "sidebar_move", id: "nope" });
+    projectHandlers.folder_remove(ctx, {} as never, { type: "folder_remove", folderId: "nope" });
+    expect(types()).toEqual(["sidebar", "sidebar"]);
+  });
+
+  test("a project closed leaves the arrangement; one opened joins its end", () => {
+    const folderId = "0b6f6f4e-8f0c-4a8e-9a57-2f1f3c1d2e3b";
+    store.addFolder(folderId, "work", idOf("umi"));
+    store.remove(idOf("umi"));
+    expect(store.sidebar()).toEqual({
+      order: [idOf("ruri"), folderId, idOf("toji")],
+      folders: [{ id: folderId, name: "work", projects: [] }],
+    });
+    host.openProject({ path: path.join(real, "umi") });
+    expect(store.sidebar().order.at(-1)).toBe(idOf("umi"));
+  });
+
+  test("Home opening a project into a folder by name: the one of that name, or a new one", () => {
+    fs.mkdirSync(path.join(real, "공항"), { recursive: true });
+    fs.mkdirSync(path.join(real, "kiln"), { recursive: true });
+    host.openProject({ path: path.join(real, "공항"), folder: "여행" });
+    // the same name as a disk would spell it, decomposed: the same folder
+    host.openProject({ path: path.join(real, "kiln"), folder: "여행".normalize("NFD") });
+    const { folders } = store.sidebar();
+    expect(folders).toHaveLength(1);
+    expect(folders[0]?.projects).toEqual([idOf("공항"), idOf("kiln")]);
+    expect(host.listProjects().find((p) => p.name === "kiln")?.folder).toBe("여행");
+    expect(host.listProjects().find((p) => p.name === "ruri")).not.toHaveProperty("folder");
+  });
+
+  test("a list from before there was an arrangement: starred first, and its group labels as folders", () => {
+    const file = path.join(process.env["RURI_CONFIG_DIR"]!, "projects.json");
+    type Kept = { id: string; starred?: boolean; folder?: string };
+    const saved = JSON.parse(fs.readFileSync(file, "utf8")) as { projects: Kept[]; sidebar?: unknown };
+    delete saved.sidebar;
+    const [ruri, umi, toji] = saved.projects as [Kept, Kept, Kept];
+    umi.starred = true;
+    ruri.folder = "Work";
+    toji.folder = "work";
+    fs.writeFileSync(file, JSON.stringify(saved));
+    const old = new ProjectStore();
+    expect(old.list().map((p) => p.name)).toEqual(["umi", "ruri", "toji"]);
+    const layout = old.sidebar();
+    expect(layout.folders).toHaveLength(1);
+    expect(layout.folders[0]).toMatchObject({ name: "Work", projects: [ruri.id, toji.id] });
+    expect(layout.order).toEqual([umi.id, layout.folders[0]!.id]);
+    // the label was only ever the folder's: it is not kept on the project
+    expect(old.list().every((p) => !("folder" in p))).toBe(true);
+  });
+});

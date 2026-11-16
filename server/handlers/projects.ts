@@ -5,6 +5,7 @@
  * tools.
  */
 import { removeLibrarySkill } from "../library.js";
+import { liveComponentsChanged } from "./components.js";
 import { accountOf } from "../accounts.js";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
@@ -75,10 +76,27 @@ function closeProjectById(ctx: ServerContext, projectId: string): void {
   ctx.ledger.removeProject(projectId);
   ctx.store.remove(projectId);
   ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+  ctx.clients.broadcast({ type: "sidebar", sidebar: ctx.store.sidebar() });
 }
 
 /** A member off its team for good — retired, or cleared for a fresh one
  *  in its place — and everything it accumulated with it. */
+/** The sidebar's arrangement changed, or may have: every window gets it
+ *  whole — the one that asked takes it as the word that its change landed
+ *  (web store, sidebarChanges) — and the projects again when the order
+ *  they are listed in moved with it. */
+function arrange(ctx: ServerContext, change: () => void): void {
+  const order = () =>
+    ctx.store
+      .list()
+      .map((p) => p.id)
+      .join("\n");
+  const before = order();
+  change();
+  ctx.clients.broadcast({ type: "sidebar", sidebar: ctx.store.sidebar() });
+  if (order() !== before) ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+}
+
 export function closeMember(ctx: ServerContext, sessionId: string): void {
   const owner = ctx.store.findSession(sessionId)?.project;
   if (!owner || ctx.store.lead(owner.id)?.id === sessionId) return;
@@ -112,6 +130,7 @@ export function createManagerHost(ctx: ServerContext): ManagerHost {
           return `failed: ${errorMessage(err)}`;
         }
         ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+        ctx.clients.broadcast({ type: "sidebar", sidebar: ctx.store.sidebar() });
         // the sheet its clone brought, if any; its repo is read when someone
         // works in it — Home opening a workspace of projects is not that
         adoptShared(ctx, project.id);
@@ -168,7 +187,11 @@ export function createManagerHost(ctx: ServerContext): ManagerHost {
       closeProjectById(ctx, project.id);
       return `closed: ${project.name} (${project.path}) — files untouched`;
     },
-    listProjects: () => ctx.store.list(),
+    listProjects: () =>
+      ctx.store.list().map((project) => {
+        const folder = ctx.store.folderName(project.id);
+        return folder ? { ...project, folder } : project;
+      }),
     // only the workspace root from Settings — that is where projects live
     findProjects: (query) => findProjects([ctx.store.workspaceDir()], query),
   };
@@ -180,7 +203,32 @@ export const projectHandlers = {
     if (ctx.store.findByPath(msg.path)) return;
     const project = ctx.store.add(msg.name, msg.path, msg.folder);
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+    ctx.clients.broadcast({ type: "sidebar", sidebar: ctx.store.sidebar() });
     adoptShared(ctx, project.id);
+  },
+  // the sidebar rearranged: something carried, a folder made, renamed,
+  // folded or taken away (shared/sidebar.ts)
+  sidebar_move: (ctx, _ws, msg) => {
+    arrange(ctx, () =>
+      ctx.store.moveInSidebar(msg.id, {
+        ...(msg.folderId ? { folderId: msg.folderId } : {}),
+        ...(msg.beforeId ? { beforeId: msg.beforeId } : {}),
+      }),
+    );
+  },
+  folder_add: (ctx, _ws, msg) => {
+    arrange(ctx, () => ctx.store.addFolder(msg.folderId, msg.name, msg.projectId));
+  },
+  folder_set: (ctx, _ws, msg) => {
+    arrange(ctx, () =>
+      ctx.store.setFolder(msg.folderId, {
+        ...(msg.name !== undefined ? { name: msg.name } : {}),
+        ...(msg.collapsed !== undefined ? { collapsed: msg.collapsed } : {}),
+      }),
+    );
+  },
+  folder_remove: (ctx, _ws, msg) => {
+    arrange(ctx, () => ctx.store.removeFolder(msg.folderId));
   },
   catchup_rebuild: (ctx, _ws, msg) => {
     void rebuildCatchup(ctx, msg.projectId);
@@ -294,6 +342,17 @@ export const projectHandlers = {
     if (!project || accountOf(project) === msg.account) return;
     ctx.store.update(project.id, { account: msg.account === "work" ? undefined : msg.account });
     ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+  },
+  // live components for this project, over the setting: a chat's id names
+  // its project. Every chat in it is told of mycelium, or not, from its
+  // next start (server/chats.ts) — nothing running is stopped
+  set_mycelium: (ctx, _ws, msg) => {
+    const project = ctx.store.get(msg.projectId) ?? ctx.store.findSession(msg.projectId)?.project;
+    const next = msg.mycelium === "default" ? undefined : msg.mycelium;
+    if (!project || project.mycelium === next) return;
+    ctx.store.update(project.id, { mycelium: next });
+    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+    liveComponentsChanged(ctx, project.id);
   },
   rename_project: (ctx, _ws, msg) => {
     const name = msg.name.trim();

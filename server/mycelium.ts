@@ -1,7 +1,7 @@
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { MYCELIUM_PREF, type NamedComponent } from "../shared/protocol.js";
+import { liveComponentsFor, MYCELIUM_PREF, type NamedComponent, type Project } from "../shared/protocol.js";
 
 export { rendersLive } from "../shared/protocol.js";
 import { warn } from "./log.js";
@@ -15,9 +15,11 @@ import { findCommand } from "./projectHooks.js";
  * pictures, its note. mycelium knows the code: given a component's root
  * declaration (`file#Symbol`) it traces what the component is made of on
  * every lookup, follows it through renames and moves, and renders it live.
- * With the "Live components" setting on and `myc` on this machine, an entry
- * that has a root is mirrored into the project's `.mycelium/components/`
- * (one way, ruri to mycelium) and its files come from there.
+ * With "Live components" on for a project — the setting in Settings, or the
+ * project's own word over it (Project.mycelium) — and `myc` on this
+ * machine, an entry that has a root is mirrored into the project's
+ * `.mycelium/components/` (one way, ruri to mycelium) and its files come
+ * from there.
  *
  * Everything goes through the `myc` command: mycelium is a Bun library and
  * the server runs in Node. Each call reads the project afresh (seconds on
@@ -32,14 +34,23 @@ export function findMyc(): string | null {
   return findCommand("myc", "RURI_MYC");
 }
 
-/** Off unless turned on: it writes a `.mycelium` folder into projects. */
-export function myceliumOn(ctx: { prefs: Pick<PrefStore, "all"> }): boolean {
-  return ctx.prefs.all()[MYCELIUM_PREF] === "on";
+/** Off unless turned on: it writes a `.mycelium` folder into projects. For
+ *  a project: its own word when it has one, else the setting — with none
+ *  given, the setting alone. */
+export function myceliumOn(
+  ctx: { prefs: Pick<PrefStore, "all"> },
+  project?: Pick<Project, "mycelium">,
+): boolean {
+  return liveComponentsFor(project, ctx.prefs.all()[MYCELIUM_PREF]);
 }
 
-/** The myc to use, or null when the setting is off or it isn't here. */
-export function mycFor(ctx: { prefs: Pick<PrefStore, "all"> }): string | null {
-  return myceliumOn(ctx) ? findMyc() : null;
+/** The myc to use for a project, or null when it is off there or myc
+ *  isn't here. */
+export function mycFor(
+  ctx: { prefs: Pick<PrefStore, "all"> },
+  project: Pick<Project, "mycelium"> | undefined,
+): string | null {
+  return myceliumOn(ctx, project) ? findMyc() : null;
 }
 
 /* ── the command ──────────────────────────────────────────────────── */
@@ -472,7 +483,8 @@ const PLAY_START_MS = 60_000;
 
 const playing = new Map<string, Playing>();
 
-function stopPlay(dir: string): void {
+/** One project's playground stopped: live components went off there. */
+export function stopPlay(dir: string): void {
   const play = playing.get(dir);
   if (!play) return;
   clearTimeout(play.stop);
@@ -522,7 +534,7 @@ export function playUrl(bin: string, dir: string, idleMs = PLAY_IDLE_MS): Promis
   return url;
 }
 
-/** Every playground stopped: the server is closing, or the setting is off. */
+/** Every playground stopped: the server is closing. */
 export function stopPlays(): void {
   for (const dir of [...playing.keys()]) stopPlay(dir);
 }

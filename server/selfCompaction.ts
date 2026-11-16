@@ -8,8 +8,15 @@
  * server/sessions.ts), and a tool tells it any time (mcp__ruri__context,
  * or {"do": "context"} on the talk endpoint for every other harness).
  *
- * At its compaction point — half its window unless the user says
- * otherwise — it is told to write a handoff note and call compact. ruri
+ * Whether to compact is the agent's own call. Twice on the way up it gets
+ * a compaction notice — at its point (half its window unless the user says
+ * otherwise; 500k for a project's own chat) and again at four fifths of the
+ * window — and each time it weighs it: a job with a long way to go is
+ * better carried on by a fresh session, from a handoff note; one nearly
+ * done, or one that needs what the context holds, is better finished as it
+ * is. Not every job needs compacting, and nothing here makes one happen.
+ *
+ * When it does choose to, it writes the note and calls compact. ruri
  * can't take a session's context away mid-turn, so the tool only keeps
  * the note and tells the model to end its turn; at that turn's end ruri
  * compacts the chat the way it always has (dispatch.ts compactChannel:
@@ -21,11 +28,11 @@
  * `from` marked `carried`), and the last words of the turn that finishes
  * the job are its answer (talkTurnEnded).
  *
- * ruri's own compaction at about four fifths of the window, or near its
- * soft limit (550k, so from 522k) if that comes first (dispatch.ts autoCompactDue),
- * stays the backstop for an agent that never
- * gets round to it. The system prompt's words about all this never change
- * (contextBriefing), so the cache holds; the figures ride per turn.
+ * ruri's own compaction (dispatch.ts autoCompactDue) is only for a window
+ * that is running out — the top of it, before the harness would compact
+ * with a summary of its own. The system prompt's words about all this
+ * never change (contextBriefing), so the cache holds; the figures ride per
+ * turn.
  */
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
@@ -45,25 +52,32 @@ import { headsWorkers } from "./workers.js";
 /** The tool names, auto-allowed: they act on the chat's own session. */
 export const CONTEXT_TOOLS = ["mcp__ruri__context", "mcp__ruri__compact"];
 
-/** Where an agent compacts itself unless told otherwise: half its window. */
+/** Where an agent's first compaction notice comes unless told otherwise:
+ *  half its window. */
 export const SELF_COMPACT_SHARE = 0.5;
-/** Where a teammate compacts itself when nothing says otherwise. Every
- *  model call re-reads the whole history, so a teammate's history is most
- *  of what it costs: at half a 1M window they averaged 223k a call
+/** Where a teammate's first notice comes when nothing says otherwise.
+ *  Every model call re-reads the whole history, so a teammate's history is
+ *  most of what it costs: at half a 1M window they averaged 223k a call
  *  (docs/token-efficiency.md, Q2). */
 export const MEMBER_COMPACT_AT = 150_000;
 
-/** Where a lead — or the liaison — of a project run on workers compacts
- *  itself, which is also a One-chat project's own chat. 100k had it
+/** Where a lead — or the liaison — of a project run on workers gets its
+ *  first notice, which is also a One-chat project's own chat. 100k had it
  *  compacting every few exchanges of real work; Justin set it to 500k
- *  (2026-10-30). */
+ *  (2026-10-30) — and made it a notice the agent weighs, not an order
+ *  (2026-11-16). */
 export const LEAD_COMPACT_AT = 500_000;
 
+/** Where the second notice comes: the window most of the way full. */
+export const SECOND_NOTICE_SHARE = 0.8;
+/** A second notice this close to the first, or to where ruri compacts the
+ *  chat itself, says nothing the agent has not just heard — a share of the
+ *  window. */
+const NOTICE_GAP = 0.05;
+
 /** How far the context climbs mid-turn before the model hears it again —
- *  a share of the window — and, past its compaction point, how far
- *  between reminders. */
+ *  a share of the window. A notice is news the moment it is crossed. */
 const TELL_EVERY = 0.05;
-const REMIND_EVERY = 0.025;
 
 /** A note shorter than this is no handoff; one longer than this is the
  *  conversation again, not a note. */
@@ -77,6 +91,10 @@ interface Mind {
   note?: { text: string; at: number };
   /** The context, in tokens, when the model was last told it. */
   told?: number;
+  /** The last compaction notice it was given in full: the first, the
+   *  second, or none yet. Each is said whole once; after that the lines
+   *  only keep count. */
+  noticed?: 0 | 1 | 2;
   /** Compacted, and its fresh session not measured yet (true) — or what
    *  that session held at its first reading. */
   fresh?: true | number;
@@ -107,10 +125,11 @@ export function parseCompactAt(raw: string | undefined): { share?: number; token
   return n <= 1 ? { share: n } : { tokens: Math.round(n) };
 }
 
-/** Where a chat compacts itself, in tokens — RURI_SELF_COMPACT_AT, then the
- *  "ruri-self-compact-at" preference, then MEMBER_COMPACT_AT for a
- *  teammate and half the window for anyone else. Undefined when
- *  it is off ("off" in either), or for a chat that is not a project's. */
+/** Where a chat gets its first compaction notice, in tokens —
+ *  RURI_SELF_COMPACT_AT, then the "ruri-self-compact-at" preference, then
+ *  MEMBER_COMPACT_AT for a teammate, LEAD_COMPACT_AT for a project's own
+ *  chat and half the window for anyone else. Undefined when it is off
+ *  ("off" in either), or for a chat that is not a project's. */
 export function selfCompactAt(ctx: ServerContext, channelId: string): number | undefined {
   if (channelId === HOME_ID || !channelProject(ctx, channelId)) return undefined;
   const env = process.env["RURI_SELF_COMPACT_AT"];
@@ -125,8 +144,8 @@ export function selfCompactAt(ctx: ServerContext, channelId: string): number | u
         ? { tokens: LEAD_COMPACT_AT }
         : { share: SELF_COMPACT_SHARE });
   const window = contextWindow(ctx, channelId);
-  // never past where ruri compacts it anyway (the soft limit, or its share
-  // of the window): the agent's own note gets there first
+  // never past where ruri compacts it anyway (the top of its window, or a
+  // soft limit the user set): the agent hears while the choice is its own
   const backstop = backstopAt(ctx, channelId) ?? window;
   return Math.min(window, backstop, at.tokens ?? Math.round(window * (at.share ?? SELF_COMPACT_SHARE)));
 }
@@ -135,11 +154,12 @@ export function selfCompactAt(ctx: ServerContext, channelId: string): number | u
 const FRESH_ROOM = 0.25;
 
 /**
- * The point the chat is held to now: where it compacts itself, but never
+ * The first notice as the chat is held to it now: at its point, but never
  * less than a quarter of that above what its fresh session started with.
  * A point set low enough that a brief and a system prompt reach it — or a
  * step that brings back more than the room left — would otherwise have a
- * fresh session told to compact before it had done anything, and again.
+ * fresh session asked about compacting before it had done anything, and
+ * again.
  */
 function heldAt(ctx: ServerContext, channelId: string, tokens: number): number | undefined {
   const at = selfCompactAt(ctx, channelId);
@@ -154,6 +174,19 @@ function backstopAt(ctx: ServerContext, channelId: string): number | undefined {
   return autoCompactPoint(ctx, channelId)?.tokens;
 }
 
+/** Where the chat's second notice comes, in tokens: four fifths of its
+ *  window — when that is clear of the first notice and of ruri's own
+ *  compaction, which a small window's is not. */
+function secondNoticeAt(ctx: ServerContext, channelId: string, first: number): number | undefined {
+  const window = contextWindow(ctx, channelId);
+  const second = Math.round(window * SECOND_NOTICE_SHARE);
+  const gap = window * NOTICE_GAP;
+  const backstop = backstopAt(ctx, channelId);
+  if (second < first + gap) return undefined;
+  if (backstop !== undefined && second > backstop - gap) return undefined;
+  return second;
+}
+
 const k = (n: number) =>
   n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(2)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`;
 
@@ -166,30 +199,53 @@ function compactCall(ctx: ServerContext, channelId: string): string {
 
 /**
  * Where the chat's context stands, in words: tokens used of its window, and
- * how that sits with the point where it compacts itself. "" for Home, and
- * for a chat ruri has no reading for yet. `added` is what has come in since
- * the last reading, estimated.
+ * how that sits with its compaction notices. "" for Home, and for a chat
+ * ruri has no reading for yet. `added` is what has come in since the last
+ * reading, estimated. A notice is said in full the first time the chat is
+ * found past it (`given` marks it said); after that the line keeps count
+ * in a few words, so the agent is told once and left to its choice.
  */
-export function contextStanding(ctx: ServerContext, channelId: string, added = 0): string {
+export function contextStanding(ctx: ServerContext, channelId: string, added = 0, given = false): string {
   if (channelId === HOME_ID || !channelProject(ctx, channelId)) return "";
   const read = ctx.turns.contexts.get(channelId)?.tokens ?? ctx.archive.contextTokens(channelId) ?? 0;
   const tokens = read > 0 ? read + added : 0;
   const window = contextWindow(ctx, channelId);
   const at = heldAt(ctx, channelId, tokens);
   const backstop = backstopAt(ctx, channelId);
-  const point = at !== undefined ? ` You compact yourself at ${k(at)}.` : "";
-  if (tokens <= 0) return `A fresh session: nothing measured yet, of a ${k(window)} window.${point}`;
+  const first = at !== undefined ? ` Your first compaction notice comes at ${k(at)}.` : "";
+  if (tokens <= 0) return `A fresh session: nothing measured yet, of a ${k(window)} window.${first}`;
   const used = `${k(tokens)} of ${k(window)} tokens used (${Math.round((tokens / window) * 100)}%).`;
   if (at === undefined) return `${used}${backstop ? ` ruri compacts you at ${k(backstop)}.` : ""}`;
-  if (mind(ctx, channelId).note !== undefined)
+  const one = mind(ctx, channelId);
+  if (one.note !== undefined)
     return `${used} Your compaction is set: ruri compacts you at the end of this turn (once nothing you started is still running in the background) — end it now.`;
-  if (tokens < at) return `${used} You compact yourself at ${k(at)}, ${k(at - tokens)} from here.`;
-  return (
-    `${used} That is past ${k(at)}, where you compact yourself: finish the step you are on, write your handoff note and call ${compactCall(ctx, channelId)} with it — it ends this turn and a fresh session carries on from your note.` +
-    (backstop && backstop > tokens
-      ? ` If you don't, ruri compacts you at ${k(backstop)} from its own brief alone.`
-      : "")
-  );
+  if (tokens < at)
+    return `${used} Your first compaction notice comes at ${k(at)}, ${k(at - tokens)} from here.`;
+  const second = secondNoticeAt(ctx, channelId, at);
+  const level = second !== undefined && tokens >= second ? 2 : 1;
+  const news = level > (one.noticed ?? 0);
+  if (given && news) one.noticed = level;
+  const call = compactCall(ctx, channelId);
+  const itself =
+    backstop && backstop > tokens
+      ? `ruri compacts you itself at ${k(backstop)}, from its own brief alone`
+      : "";
+  if (level === 1) {
+    const next =
+      second !== undefined ? `You hear again at ${k(second)}` : itself ? `Otherwise ${itself}` : "";
+    return news
+      ? `${used} That is your first compaction notice (${k(at)}), and what to do about it is yours to decide. With a long way still to go, a fresh session is worth it: finish the step you are on, write your handoff note and call ${call} with it — it ends this turn and a fresh session carries on from your note. Close to done, or holding context the rest of the job needs, carry on and finish: not every job needs compacting.${next ? ` ${next}.` : ""}`
+      : `${used} Past your first compaction notice (${k(at)}): compact with a handoff note (${call}) when it is worth it, or carry on.${
+          second !== undefined
+            ? ` The next comes at ${k(second)}, ${k(second - tokens)} from here.`
+            : itself
+              ? ` ${itself[0]!.toUpperCase()}${itself.slice(1)}.`
+              : ""
+        }`;
+  }
+  return news
+    ? `${used} That is your second compaction notice (${k(second!)}): the window is most of the way full, and every call re-reads all of it. Still yours to decide — unless what is left is short, finish the step you are on, write your handoff note and call ${call} with it.${itself ? ` If the window runs out first, ${itself}.` : ""}`
+    : `${used} Past your second compaction notice (${k(second!)}): compact with a handoff note (${call}) unless what is left is short.${itself ? ` ${itself[0]!.toUpperCase()}${itself.slice(1)}.` : ""}`;
 }
 
 /** The line that rides in with a prompt (handoff.ts catchUp); it counts as
@@ -198,7 +254,7 @@ export function contextStanding(ctx: ServerContext, channelId: string, added = 0
 export function contextLine(ctx: ServerContext, channelId: string): string {
   let standing: string;
   try {
-    standing = contextStanding(ctx, channelId);
+    standing = contextStanding(ctx, channelId, 0, true);
   } catch {
     return "";
   }
@@ -210,12 +266,11 @@ export function contextLine(ctx: ServerContext, channelId: string): string {
 /**
  * What the model hears mid-turn as its context climbs (a Claude session's
  * PostToolBatch hook): the standing again once it has grown a twentieth of
- * the window since it last heard, and every fortieth once it is past its
- * compaction point. Undefined in between — most steps of most turns.
- * `added` is what the step's tool results bring to the next call — the
- * last reading is the call that asked for them (Codex counts the same way:
- * the last reported total, plus what has come in since at four bytes a
- * token).
+ * the window since it last heard, and at once when it crosses a compaction
+ * notice. Undefined in between — most steps of most turns. `added` is what
+ * the step's tool results bring to the next call — the last reading is the
+ * call that asked for them (Codex counts the same way: the last reported
+ * total, plus what has come in since at four bytes a token).
  */
 export function contextNotice(ctx: ServerContext, channelId: string, added = 0): string | undefined {
   const read = ctx.turns.contexts.get(channelId)?.tokens;
@@ -225,15 +280,18 @@ export function contextNotice(ctx: ServerContext, channelId: string, added = 0):
   if (one.note !== undefined) return undefined;
   const window = contextWindow(ctx, channelId);
   const at = heldAt(ctx, channelId, tokens);
+  const second = at !== undefined ? secondNoticeAt(ctx, channelId, at) : undefined;
+  const level = at === undefined || tokens < at ? 0 : second !== undefined && tokens >= second ? 2 : 1;
   // fallen since it was told — compacted under it some other way (Claude
-  // Code's own, ruri's): it climbs from here
-  if (tokens < (one.told ?? 0)) one.told = tokens;
+  // Code's own, ruri's): it climbs from here, and its notices come again
+  if (tokens < (one.told ?? 0)) {
+    one.told = tokens;
+    if ((one.noticed ?? 0) > level) one.noticed = level;
+  }
   const told = one.told ?? 0;
-  const past = at !== undefined && tokens >= at;
-  const crossed = at !== undefined && told < at && past;
-  const step = (past ? REMIND_EVERY : TELL_EVERY) * window;
-  if (!crossed && tokens - told < step) return undefined;
-  const standing = contextStanding(ctx, channelId, added);
+  const crossed = level > (one.noticed ?? 0);
+  if (!crossed && tokens - told < TELL_EVERY * window) return undefined;
+  const standing = contextStanding(ctx, channelId, added, true);
   if (!standing) return undefined;
   one.told = tokens;
   return `<ruri:context>${standing}</ruri:context>`;
@@ -258,7 +316,7 @@ export function requestCompaction(ctx: ServerContext, channelId: string, raw: st
   const tokens = ctx.turns.contexts.get(channelId)?.tokens ?? ctx.archive.contextTokens(channelId) ?? 0;
   const at = heldAt(ctx, channelId, tokens) ?? Math.round(contextWindow(ctx, channelId) * SELF_COMPACT_SHARE);
   if (tokens < at / 2) {
-    return `Not yet: your context holds ${k(tokens)}, and you compact yourself at ${k(at)}. A compaction now would lose detail for nothing — carry on.`;
+    return `Not yet: your context holds ${k(tokens)}, under half of the ${k(at)} where your first compaction notice comes. A compaction now would lose detail for nothing — carry on.`;
   }
   const work = ctx.manager.backgroundWork(channelId);
   if (work.agents > 0 || work.scripts > 0) {
@@ -284,7 +342,7 @@ export function requestCompaction(ctx: ServerContext, channelId: string, raw: st
 
 /** What the check tool says: the standing, and what compacting does. */
 export function contextReport(ctx: ServerContext, channelId: string): string {
-  const standing = contextStanding(ctx, channelId);
+  const standing = contextStanding(ctx, channelId, 0, true);
   if (!standing) return "ruri keeps no context reading for this chat.";
   mind(ctx, channelId).told = ctx.turns.contexts.get(channelId)?.tokens ?? 0;
   return standing;
@@ -393,6 +451,7 @@ export function selfCompact(
 export function startedFresh(ctx: ServerContext, channelId: string): void {
   const one = mind(ctx, channelId);
   one.told = 0;
+  one.noticed = 0;
   one.fresh = true;
 }
 
@@ -401,13 +460,13 @@ export function contextTools(ctx: ServerContext, channelId: string) {
   return [
     tool(
       "context",
-      "How much of your context window you have used — tokens out of your window — and how far that is from the point where you compact yourself. ruri also tells you at the start of every turn and as it climbs; call this whenever you want to know now.",
+      "How much of your context window you have used — tokens out of your window — and how that sits with your compaction notices. ruri also tells you at the start of every turn and as it climbs; call this whenever you want to know now.",
       {},
       async () => ({ content: [{ type: "text", text: contextReport(ctx, channelId) }] }),
     ),
     tool(
       "compact",
-      "Compact yourself, with a handoff note for the fresh session that carries on. Call it when ruri tells you you have reached your compaction point (or you are close and at a natural break), never on the last step of a job — finish and answer first. ruri keeps the note and you end your turn; then it compacts this conversation (every exchange stays on file and in its brief) and the fresh session is sent your note with word to carry on, with no word needed from anyone. An answer you owe another agent is still owed: the fresh session gives it when it finishes the job.",
+      "Compact yourself, with a handoff note for the fresh session that carries on. Yours to call when a fresh session would serve the rest of the job better than this one: ruri gives you a compaction notice twice as your context climbs, and you weigh it — worth it with a long way still to go, not when you are close to done or need what this context holds. Never on the last step of a job — finish and answer first. ruri keeps the note and you end your turn; then it compacts this conversation (every exchange stays on file and in its brief) and the fresh session is sent your note with word to carry on, with no word needed from anyone. An answer you owe another agent is still owed: the fresh session gives it when it finishes the job.",
       {
         note: z
           .string()
@@ -451,13 +510,14 @@ export function contextBriefing(http?: string): string {
   return [
     "<ruri:context>",
     `Your context window is finite, and you manage it yourself. ruri tells you how much of it you have used — tokens out of your window — in a <ruri:context> line with every prompt${http ? "" : " and again as it climbs mid-turn"}, and ${check}.`,
-    `When a line says you have reached the point where you compact yourself, finish the step you are on, then ${compact}, and end your turn. Your fresh session starts from ruri's brief of the conversation — every prompt word for word, each exchange's full record on file, the repo's state read from git — plus your note, and carries on at once with no word from anyone. The note is what makes it productive: write it for yourself coming to it cold —`,
+    `Twice on the way up, a line is a compaction notice: once partway, and once when the window is most of the way full. What to do about one is yours to decide. Compacting hands the job to a fresh session of you: it starts from ruri's brief of the conversation — every prompt word for word, each exchange's full record on file, the repo's state read from git — plus a handoff note you write, and carries on at once with no word from anyone; after it, no call re-reads the old history. That is worth it when the job has a long way still to go. It is not when you are close to done, or when what you hold in context is what the rest of the job needs — then carry on and finish: not every job needs compacting.`,
+    `To compact: finish the step you are on, then ${compact}, and end your turn. The note is what makes the fresh session productive: write it for yourself coming to it cold —`,
     "- what you are doing and for whom: the user's request, or the agent whose message you are answering and what it needs back;",
     "- how far you got: what is done and verified, what is half-done;",
     "- what comes next, in order;",
     "- the files, commands and decisions that matter, and why;",
     "- what not to redo or retry, and why.",
-    "Don't compact on the last step of a job — finish and answer first. If you never compact yourself, ruri compacts you anyway near the top of your window, from its brief alone.",
+    "Don't compact on the last step of a job — finish and answer first. If the window runs out before you choose, ruri compacts you at the top of it, from its brief alone.",
     "</ruri:context>",
   ].join("\n");
 }

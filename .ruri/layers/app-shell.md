@@ -15,15 +15,13 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - **Fixture eyeball mode:** web/src/fixture.ts, web/src/store.ts
 - **Art tuner dev tool:** vite.config.ts
 - **Shared chat card pieces:** web/src/components/chat/AgentCard.tsx, web/src/components/chat/Icon.tsx, web/src/components/chat/empty.ts
+- **Script progress on agent cards and Agents page:** web/src/components/chat/AgentCard.tsx, web/src/lib/quiet.ts, web/src/components/AgentsPage.tsx, web/src/styles.css
 - **Build, lint and script tests:** vite.config.ts, eslint.config.js, scripts/run-tests.ts
 - **Settings permissions Linux copy:** web/src/components/Settings.tsx
+- **Passwords page and vault view:** web/src/components/Settings.tsx, web/src/store.ts, web/src/styles.css
 - **Terminal and composer Linux keys:** web/src/components/Terminal.tsx, web/src/components/Composer.tsx, web/src/components/Switcher.tsx, web/src/components/Sketch.tsx
 - **Team page roster:** web/src/components/TeamPage.tsx, web/src/components/ChatPane.tsx, web/src/store.ts, web/src/styles.css
 - **Chat pane and continuation display:** web/src/components/ChatPane.tsx, web/src/components/PermissionBanner.tsx, web/src/components/Exchange.tsx, web/src/store.ts
-- **Sidebar project rows and session navigation:** web/src/components/Sidebar.tsx, web/src/components/ChatPane.tsx, web/src/store.ts
-- **Home board and queue:** web/src/components/HomeBoard.tsx, web/src/components/Queue.tsx, web/src/styles.css
-- **Project hooks state and styling:** web/src/store.ts, web/src/styles.css
-- **Packaging and release artifacts:** Makefile, package.json, scripts/build-main.ts, build/
 
 ## How it works
 
@@ -43,12 +41,12 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 - web/src/fixture.ts — canned ?fixture state for UI eyeballing without server
 - web/src/tuner.tsx — dev-only peek-band and hero-frame art placer
 - web/src/lib/beat.ts — slow shared tick clock for self-moving elements
+- web/src/lib/quiet.ts — newest script line and quiet-time readout for running scripts
 - vite.config.ts — dev server plus tuner-save endpoint with dev-origin check
 - web/src/components/TeamPage.tsx — team roster, Stop/Refresh controls, liaison card and unstaffed chips
 - web/src/components/Exchange.tsx — chat exchange rendering with continuation and handoff note
 - web/src/components/ChatPane.tsx — chat pane driving store team actions
-- web/src/components/Sidebar.tsx — project rows staying lit while any of its chats is open
-- web/src/components/HomeBoard.tsx — home board surfacing team state
+- web/src/components/Sidebar.tsx — project rows, folders, drag and row menu, staying lit while any of its chats is open
 
 ## Rules and traps
 
@@ -66,8 +64,11 @@ This layer is the web app shell: entry HTML, React root, global zustand store wi
 ## What it talks to
 
 - Protocol — store.ts types every client/server message from shared/protocol.ts
+- Sidebar folders — the folder layout arrives in the server snapshot and folder changes go back as client messages typed in shared/protocol.ts
 - Appearance — tuner.tsx writes src/peek.ts and styles.css carries theme tokens theme.ts paints into
 - Chat runs and queue — store watchers deliver server transcripts, queue, progress and permissions
+- Background scripts — the newest script line and quiet time arrive from the server over the protocol typed in shared/protocol.ts, and AgentCard and AgentsPage render them
 - Terminals, agents and integrations — prefs.ts cache fronts server/prefs.ts over the socket
 - Project hooks — store.ts and styles.css carry the hooks UI state and styling; the hook logic itself lives in the integrations layer
+- Passwords vault — store.ts carries vault state the server sends over the socket for the Passwords page in Settings
 - Test scripts: composer, windows and previews — ?fixture and ?awake flags exist to be driven by shot/chips scripts

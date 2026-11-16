@@ -1,12 +1,26 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { HOME_ID, leadOf, type Project } from "../../../shared/protocol";
+import { flatOrder, type ProjectFolder, type SidebarPlace, tidyLayout } from "../../../shared/sidebar";
 import { useConfirm } from "./Confirm";
 import { getPref, setPref, watchPref } from "../prefs";
+import { liveChoice, useLiveComponents } from "../lib/liveComponents";
 import { defaultProjectIcon, PROJECT_ICON_NAMES } from "../lib/marks";
 import { ProjectIcon } from "./Marks";
 import { STAR_PATH } from "../icons";
-import { isBusy, prefetchTranscript, renameProject, send, toggleProject, useRuri } from "../store";
+import {
+  changeFolder,
+  dropFolder,
+  isBusy,
+  moveInSidebar,
+  newFolder,
+  prefetchTranscript,
+  renameProject,
+  send,
+  setProjectLive,
+  toggleProject,
+  useRuri,
+} from "../store";
 import { PeekBand } from "./PeekBand";
 import { DragonHead } from "./Thinking";
 
@@ -220,20 +234,57 @@ const HOVER_MS = 90;
  * says when any of its chats is at work, the lead's own turn included —
  * the dragon where the X goes — and how many teammates, beside it.
  */
-/** The grid of project drawings a row's right-click opens, at the pointer.
- *  On the body, so the sidebar's scrolling can't clip it. */
-function IconPicker({
+const CHECK = (
+  <svg
+    className="dropdown-check"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="3"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M20 6L9 17l-5-5" />
+  </svg>
+);
+
+/**
+ * A row's right-click, at the pointer: every project drawing, to pick its
+ * own; the sidebar folder it is kept in; and live components for this
+ * project, over the setting. On the body, so the sidebar's scrolling can't
+ * clip it, and moved back inside the window once it knows how big it is.
+ */
+function RowMenu({
   at,
-  current,
-  onPick,
+  project,
+  icon,
+  onIcon,
+  onNewFolder,
   onClose,
 }: {
   at: { x: number; y: number };
-  current: string;
-  onPick: (name: string) => void;
+  project: Project;
+  icon: string;
+  onIcon: (name: string) => void;
+  /** A new folder around this project, its name open for typing. */
+  onNewFolder: () => void;
   onClose: () => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  const folders = useRuri((s) => s.sidebar.folders);
+  const within = folders.find((f) => f.projects.includes(project.id))?.id;
+  const setting = useLiveComponents();
+  const live = liveChoice(project);
+  const [spot, setSpot] = useState({ left: at.x, top: at.y });
+  useLayoutEffect(() => {
+    const r = box.current?.getBoundingClientRect();
+    if (!r) return;
+    setSpot({
+      left: Math.max(8, Math.min(at.x, window.innerWidth - r.width - 8)),
+      top: Math.max(8, Math.min(at.y, window.innerHeight - r.height - 8)),
+    });
+  }, [at.x, at.y, folders.length]);
   useEffect(() => {
     const away = (e: PointerEvent) => {
       if (!box.current?.contains(e.target as Node)) onClose();
@@ -248,34 +299,143 @@ function IconPicker({
       document.removeEventListener("keydown", key);
     };
   }, [onClose]);
-  const left = Math.min(at.x, window.innerWidth - 236);
-  const top = Math.min(at.y, window.innerHeight - 160);
+  const put = (place: SidebarPlace) => {
+    moveInSidebar(project.id, place);
+    onClose();
+  };
   return createPortal(
     <div
       ref={box}
-      className="icon-picker"
+      className="row-menu"
       role="menu"
-      style={{ left, top }}
+      style={spot}
+      // nothing in here is the row's: not a click on it, not the start of a carry
       onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
     >
-      {PROJECT_ICON_NAMES.map((name) => (
+      <div className="icon-picker">
+        {PROJECT_ICON_NAMES.map((name) => (
+          <button
+            key={name}
+            role="menuitemradio"
+            aria-checked={name === icon}
+            className={name === icon ? "on" : ""}
+            title={name}
+            onClick={() => onIcon(name)}
+          >
+            <ProjectIcon name={name} />
+          </button>
+        ))}
+      </div>
+      <div className="row-menu-label">Folder</div>
+      {folders.map((f) => (
         <button
-          key={name}
+          key={f.id}
           role="menuitemradio"
-          aria-checked={name === current}
-          className={name === current ? "on" : ""}
-          title={name}
-          onClick={() => onPick(name)}
+          aria-checked={f.id === within}
+          className={`dropdown-item ${f.id === within ? "selected" : ""}`}
+          onClick={() => (f.id === within ? onClose() : put({ folderId: f.id }))}
         >
-          <ProjectIcon name={name} />
+          {CHECK}
+          <span className="row-menu-name">{f.name}</span>
         </button>
       ))}
+      {within && (
+        <button role="menuitem" className="dropdown-item" onClick={() => put({})}>
+          {CHECK}
+          No folder
+        </button>
+      )}
+      <button
+        role="menuitem"
+        className="dropdown-item"
+        onClick={() => {
+          onNewFolder();
+          onClose();
+        }}
+      >
+        {CHECK}
+        New folder
+      </button>
+      <div className="row-menu-label">Live components</div>
+      <div className="seg row-menu-seg">
+        {(["default", "on", "off"] as const).map((option) => (
+          <button
+            key={option}
+            className={`seg-option ${live === option ? "active" : ""}`}
+            title={
+              option === "default"
+                ? `Follow the setting in Settings — ${setting ? "on" : "off"} now`
+                : `Live components ${option} for ${project.name}, whatever the setting says`
+            }
+            onClick={() => setProjectLive(project.id, option)}
+          >
+            {option === "default" ? `Default (${setting ? "on" : "off"})` : option === "on" ? "On" : "Off"}
+          </button>
+        ))}
+      </div>
     </div>,
     document.body,
   );
 }
 
-function ProjectRow({ project }: { project: Project }) {
+/** Where something being carried would land if let go now: the row or
+ *  folder that wears the mark, on which edge (or the folder itself, to go
+ *  into it), and the place that is in the layout. */
+interface Drop {
+  markId: string;
+  edge: "before" | "after" | "into";
+  place: SidebarPlace;
+}
+
+/** A project or a folder lifted off the sidebar and being carried. */
+interface Lift {
+  id: string;
+  kind: "project" | "folder";
+  /** How far it has been carried from where it sits. */
+  dy: number;
+  over: Drop | null;
+}
+
+/** The sidebar's pointer handlers, on every row that can be carried: a
+ *  press that moves lifts it, one that doesn't is still a click. */
+interface Carry {
+  down(e: React.PointerEvent<HTMLDivElement>, id: string, kind: Lift["kind"]): void;
+  move(e: React.PointerEvent<HTMLDivElement>): void;
+  up(e: React.PointerEvent<HTMLDivElement>): void;
+  cancel(): void;
+}
+
+/** What a row or a folder's block wears while something is carried: lifted
+ *  itself, or marked on the edge the carried one would land at. */
+function carryClass(lift: Lift | null | undefined, id: string): string {
+  if (!lift) return "";
+  if (lift.id === id) return "lifting";
+  if (lift.over?.markId !== id) return "";
+  return lift.over.edge === "into" ? "drop-into" : `drop-${lift.over.edge}`;
+}
+
+function ProjectRow({
+  project,
+  folderId,
+  carry,
+  lift,
+  onNewFolder,
+}: {
+  project: Project;
+  /** The sidebar folder it stands in, when it stands in one. */
+  folderId?: string;
+  /** Set on the rows that can be carried: every one but the hidden. */
+  carry?: Carry;
+  lift?: Lift | null;
+  /** A new folder around this project. */
+  onNewFolder(projectId: string): void;
+}) {
   const lead = leadOf(project);
   const leadId = lead?.id;
   // lit while any of its chats is open: the lead, or a teammate or the
@@ -305,10 +465,19 @@ function ProjectRow({ project }: { project: Project }) {
   const open = () => {
     if (leadId) setActive(leadId);
   };
+  const lifted = lift?.id === project.id;
   return (
     <div
-      className={`project-row team-row ${active ? "active" : ""} ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${anyBusy ? "busy" : ""}`}
-      title={renaming ? undefined : `${project.path} — double-click to rename`}
+      className={`project-row team-row ${active ? "active" : ""} ${project.starred ? "starred" : ""} ${renaming ? "renaming" : ""} ${project.hidden ? "is-hidden" : ""} ${anyBusy ? "busy" : ""} ${folderId ? "nested" : ""} ${carry ? carryClass(lift, project.id) : ""}`}
+      title={
+        renaming ? undefined : `${project.path} — double-click to rename${carry ? ", drag to move" : ""}`
+      }
+      // how the carrying finds it: the row, the folder it is in, and — in
+      // no folder — its place in the top level
+      data-row={carry ? project.id : undefined}
+      data-in={carry ? (folderId ?? "") : undefined}
+      data-top={carry && !folderId ? project.id : undefined}
+      style={lifted ? { transform: `translateY(${lift!.dy}px)` } : undefined}
       onClick={open}
       // the lead's history asked for while the pointer rests on the row, or
       // the moment it goes down on it — over a network that is most of the
@@ -319,9 +488,13 @@ function ProjectRow({ project }: { project: Project }) {
         hover.current = setTimeout(() => prefetchTranscript(leadId), HOVER_MS);
       }}
       onPointerLeave={() => clearTimeout(hover.current)}
-      onPointerDown={() => {
+      onPointerDown={(e) => {
         if (leadId) prefetchTranscript(leadId);
+        if (!renaming) carry?.down(e, project.id, "project");
       }}
+      onPointerMove={carry?.move}
+      onPointerUp={carry?.up}
+      onPointerCancel={carry?.cancel}
       onDoubleClick={(e) => {
         e.preventDefault();
         setRenaming(true);
@@ -336,14 +509,16 @@ function ProjectRow({ project }: { project: Project }) {
         <ProjectIcon name={icon} />
       </span>
       {picking && (
-        <IconPicker
+        <RowMenu
           at={picking}
-          current={icon}
-          onPick={(name) => {
+          project={project}
+          icon={icon}
+          onIcon={(name) => {
             setIcon(name);
             setPref(iconKey, name);
             setPicking(null);
           }}
+          onNewFolder={() => onNewFolder(project.id)}
           onClose={() => setPicking(null)}
         />
       )}
@@ -443,6 +618,121 @@ function ProjectRow({ project }: { project: Project }) {
   );
 }
 
+/**
+ * A sidebar folder: a row of its own over the projects kept in it. A click
+ * folds it shut or opens it; shut, it says what its projects would have —
+ * a dragon and how many of them are at work, and its name bold while one
+ * of their leads has a reply unread. Double-click renames it, the X takes
+ * it away (its projects stay), and it is carried like a row, its projects
+ * with it.
+ */
+function FolderRow({
+  folder,
+  members,
+  fresh,
+  onNamed,
+  carry,
+  lift,
+}: {
+  folder: ProjectFolder;
+  /** Its projects that are not hidden. */
+  members: Project[];
+  /** Made a moment ago, here: its name is open for typing. */
+  fresh: boolean;
+  onNamed(): void;
+  carry: Carry;
+  lift: Lift | null;
+}) {
+  const shut = folder.collapsed === true;
+  const atWork = useRuri((s) => members.reduce((n, p) => (teamAtWork(s, p) > 0 ? n + 1 : n), 0));
+  const unread = useRuri((s) =>
+    members.some((p) => {
+      const lead = leadOf(p)?.id;
+      return lead ? (s.unread[lead] ?? false) : false;
+    }),
+  );
+  const [renaming, setRenaming] = useState(fresh);
+  const into = lift?.over?.edge === "into" && lift.over.markId === folder.id;
+  return (
+    <div
+      className={`project-row folder-row ${shut ? "" : "open"} ${renaming ? "renaming" : ""} ${into ? "drop-into" : ""}`}
+      title={renaming ? undefined : "Click to fold or open — double-click to rename, drag to move"}
+      data-folder={folder.id}
+      onClick={() => changeFolder(folder.id, { collapsed: !shut })}
+      onDoubleClick={(e) => {
+        e.preventDefault();
+        setRenaming(true);
+      }}
+      onPointerDown={(e) => {
+        if (!renaming) carry.down(e, folder.id, "folder");
+      }}
+      onPointerMove={carry.move}
+      onPointerUp={carry.up}
+      onPointerCancel={carry.cancel}
+    >
+      <span className="team-row-icon folder-chevron" aria-hidden>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+      </span>
+      {renaming ? (
+        <NameEditor
+          value={folder.name}
+          className="project-name"
+          onDone={(name) => {
+            setRenaming(false);
+            onNamed();
+            if (name) changeFolder(folder.id, { name });
+          }}
+        />
+      ) : (
+        <span className={`project-name${shut && unread ? " unread" : ""}`}>{folder.name}</span>
+      )}
+      {shut && atWork > 0 ? (
+        <>
+          <span className="row-count-dragon" title="Something in it is working">
+            <DragonHead />
+          </span>
+          <span className="row-count" title={`${atWork} ${atWork === 1 ? "project" : "projects"} at work`}>
+            {atWork}
+          </span>
+        </>
+      ) : (
+        <span
+          className="row-count folder-count"
+          title={`${members.length} ${members.length === 1 ? "project" : "projects"}`}
+        >
+          {members.length}
+        </span>
+      )}
+      <span className="row-actions">
+        <button
+          className="remove"
+          title="Remove the folder — its projects stay"
+          onClick={(e) => {
+            e.stopPropagation();
+            dropFolder(folder.id);
+          }}
+        >
+          <RemoveIcon busy={false} />
+        </button>
+      </span>
+    </div>
+  );
+}
+
+/** How near the list's top or bottom edge a carry starts it scrolling,
+ *  and how far each move of the pointer scrolls it. */
+const EDGE_PX = 28;
+const EDGE_STEP = 12;
+
 /** Memoised: it takes no props, and everything it needs it selects for
  *  itself — so a re-render of the app around it is never a reason to run. */
 /** The foot of the source list: who is signed in here, and Settings. Settings
@@ -518,11 +808,165 @@ export const Sidebar = memo(function Sidebar() {
     if (ownerHidden) setShowHidden(true);
   }
 
-  // Starred projects pin to the top of the one Projects list — no separate
-  // section, the filled star on the row is the marker.
-  const shown = projects.filter((p) => !p.hidden);
-  const hidden = projects.filter((p) => p.hidden);
-  const ordered = [...shown.filter((p) => p.starred), ...shown.filter((p) => !p.starred)];
+  // The order and the folders are the sidebar's own (shared/sidebar.ts):
+  // dragged into place, and kept by the server. A star marks a row and
+  // moves nothing. Tidied against the projects there are, so a project the
+  // layout has not heard of yet still has a row, at the end.
+  const saved = useRuri((s) => s.sidebar);
+  const layout = useMemo(
+    () =>
+      tidyLayout(
+        saved,
+        projects.map((p) => p.id),
+      ),
+    [saved, projects],
+  );
+  const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
+  const folders = useMemo(() => new Map(layout.folders.map((f) => [f.id, f])), [layout]);
+  const shown = (id: string): Project[] => {
+    const project = byId.get(id);
+    return project && !project.hidden ? [project] : [];
+  };
+  const hidden = flatOrder(layout).flatMap((id) => {
+    const project = byId.get(id);
+    return project?.hidden ? [project] : [];
+  });
+  const anyShown = projects.some((p) => !p.hidden) || layout.folders.length > 0;
+
+  /** The folder made here a moment ago, its name still open for typing. */
+  const [fresh, setFresh] = useState<string | null>(null);
+  const makeFolder = (projectId?: string) => setFresh(newFolder(projectId));
+
+  // ── carrying ──────────────────────────────────────────────────────
+  // Press a row and move, and it lifts: let go between two rows and it
+  // stands there, on a folder and it goes into it. A folder is carried
+  // the same way, its projects with it, along the top level only. The
+  // idiom is the queue's (Queue.tsx): the lifted one rides the pointer,
+  // the rest stay put, and a line marks where it would land.
+  const listRef = useRef<HTMLDivElement>(null);
+  const [lift, setLift] = useState<Lift | null>(null);
+  /** A press that may become a carry — it does once it has moved a little,
+   *  so a click on the row is still a click. */
+  const press = useRef<{
+    id: string;
+    kind: Lift["kind"];
+    x: number;
+    y: number;
+    /** Where the list was scrolled to when the press landed. */
+    scroll: number;
+    live: boolean;
+  } | null>(null);
+  /** A carry ended on this very click: it is not one. */
+  const carried = useRef(false);
+  const scroller = () => listRef.current?.closest<HTMLElement>(".project-list") ?? null;
+
+  /** The place beside something standing in a line of siblings. */
+  const beside = (line: string[], id: string, edge: "before" | "after", carriedId: string): SidebarPlace => {
+    const rest = line.filter((x) => x !== carriedId);
+    const beforeId = edge === "before" ? id : rest[rest.indexOf(id) + 1];
+    return beforeId ? { beforeId } : {};
+  };
+  const besideTop = (id: string, edge: "before" | "after", carriedId: string): Drop => ({
+    markId: id,
+    edge,
+    place: beside(layout.order, id, edge, carriedId),
+  });
+
+  /** Where the carried one would land, with the pointer at this height. */
+  const dropAt = (carriedId: string, kind: Lift["kind"], y: number): Drop | null => {
+    const list = listRef.current;
+    if (!list) return null;
+    const tops = [...list.querySelectorAll<HTMLElement>("[data-top]")].filter(
+      (el) => el.dataset["top"] !== carriedId,
+    );
+    const last = tops.at(-1)?.dataset["top"];
+    if (kind === "folder") {
+      // a folder stands between the top level's blocks, by their halves
+      for (const el of tops) {
+        const r = el.getBoundingClientRect();
+        if (y < r.top + r.height / 2) return besideTop(el.dataset["top"]!, "before", carriedId);
+      }
+      return last ? besideTop(last, "after", carriedId) : null;
+    }
+    const targets = [...list.querySelectorAll<HTMLElement>("[data-row], [data-folder]")].filter(
+      (el) => el.dataset["row"] !== carriedId,
+    );
+    // the first one the pointer has not passed: the one it is on, or the
+    // one below the gap it is in
+    for (const el of targets) {
+      const r = el.getBoundingClientRect();
+      if (y > r.bottom) continue;
+      const folderId = el.dataset["folder"];
+      if (folderId) {
+        // a folder's own row: its top edge is the place before the folder,
+        // the rest of it is the folder
+        if (y < r.top + r.height * 0.25) return besideTop(folderId, "before", carriedId);
+        return { markId: folderId, edge: "into", place: { folderId } };
+      }
+      const rowId = el.dataset["row"]!;
+      const within = el.dataset["in"] || undefined;
+      const edge = y < r.top + r.height / 2 ? "before" : "after";
+      const line = within ? (folders.get(within)?.projects ?? []) : layout.order;
+      return {
+        markId: rowId,
+        edge,
+        place: { ...(within ? { folderId: within } : {}), ...beside(line, rowId, edge, carriedId) },
+      };
+    }
+    // below everything: the end of the top level, out of any folder
+    return last ? besideTop(last, "after", carriedId) : null;
+  };
+
+  const carry: Carry = {
+    down(e, id, kind) {
+      if (e.button !== 0) return;
+      if ((e.target as Element).closest("button, a, input, textarea")) return;
+      press.current = {
+        id,
+        kind,
+        x: e.clientX,
+        y: e.clientY,
+        scroll: scroller()?.scrollTop ?? 0,
+        live: false,
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    move(e) {
+      const p = press.current;
+      if (!p) return;
+      if (!p.live) {
+        if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 5) return;
+        p.live = true;
+        window.getSelection()?.removeAllRanges();
+      }
+      // near the list's top or bottom edge, the list scrolls under it
+      const box = scroller();
+      if (box) {
+        const r = box.getBoundingClientRect();
+        if (e.clientY < r.top + EDGE_PX) box.scrollTop -= EDGE_STEP;
+        else if (e.clientY > r.bottom - EDGE_PX) box.scrollTop += EDGE_STEP;
+      }
+      const dy = e.clientY - p.y + ((box?.scrollTop ?? 0) - p.scroll);
+      setLift({ id: p.id, kind: p.kind, dy, over: dropAt(p.id, p.kind, e.clientY) });
+    },
+    up(e) {
+      const p = press.current;
+      press.current = null;
+      if (!p?.live) return;
+      const over = dropAt(p.id, p.kind, e.clientY);
+      setLift(null);
+      // the click this release is about to be is the end of a carry
+      carried.current = true;
+      setTimeout(() => {
+        carried.current = false;
+      }, 0);
+      if (over) moveInSidebar(p.id, over.place);
+    },
+    cancel() {
+      press.current = null;
+      setLift(null);
+    },
+  };
 
   return (
     <aside className="sidebar">
@@ -535,17 +979,89 @@ export const Sidebar = memo(function Sidebar() {
         <HomeRow />
         <ProjectsRow />
         <RapidRow />
-        {projects.length === 0 && (
+        {projects.length === 0 && layout.folders.length === 0 && (
           <div className="sidebar-empty">
             No projects open.
             <br />
             Tell Home what to work on.
           </div>
         )}
-        {ordered.length > 0 && <div className="group-label">Projects</div>}
-        {ordered.map((p) => (
-          <ProjectRow key={p.id} project={p} />
-        ))}
+        {anyShown && (
+          <div className="group-label">
+            Projects
+            <button
+              className="group-add"
+              title="New folder — drag projects into it, or right-click a project"
+              onClick={() => makeFolder()}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M4 5h5l2 2.5h9V19H4V5z" />
+                <path d="M12 10.5v5M9.5 13h5" />
+              </svg>
+            </button>
+          </div>
+        )}
+        <div
+          className={`side-list ${lift ? "lifting" : ""}`}
+          ref={listRef}
+          onClickCapture={(e) => {
+            if (!carried.current) return;
+            carried.current = false;
+            e.stopPropagation();
+            e.preventDefault();
+          }}
+        >
+          {layout.order.map((id) => {
+            const folder = folders.get(id);
+            if (!folder) {
+              return shown(id).map((p) => (
+                <ProjectRow key={p.id} project={p} carry={carry} lift={lift} onNewFolder={makeFolder} />
+              ));
+            }
+            const members = folder.projects.flatMap(shown);
+            // shut, it still shows the project being looked at: the row
+            // that is open never leaves the sidebar
+            const rows = folder.collapsed
+              ? members.filter((p) => p.sessions.some((x) => x.id === activeId))
+              : members;
+            const lifted = lift?.id === id;
+            return (
+              <div
+                key={id}
+                className={`folder-block ${lift?.over?.edge === "into" ? "" : carryClass(lift, id)}`}
+                data-top={id}
+                style={lifted ? { transform: `translateY(${lift.dy}px)` } : undefined}
+              >
+                <FolderRow
+                  folder={folder}
+                  members={members}
+                  fresh={fresh === id}
+                  onNamed={() => setFresh(null)}
+                  carry={carry}
+                  lift={lift}
+                />
+                {rows.map((p) => (
+                  <ProjectRow
+                    key={p.id}
+                    project={p}
+                    folderId={id}
+                    carry={carry}
+                    lift={lift}
+                    onNewFolder={makeFolder}
+                  />
+                ))}
+              </div>
+            );
+          })}
+        </div>
         {hidden.length > 0 && (
           <>
             <button
@@ -567,7 +1083,7 @@ export const Sidebar = memo(function Sidebar() {
               Hidden
               <span className="hidden-count">{hidden.length}</span>
             </button>
-            {showHidden && hidden.map((p) => <ProjectRow key={p.id} project={p} />)}
+            {showHidden && hidden.map((p) => <ProjectRow key={p.id} project={p} onNewFolder={makeFolder} />)}
           </>
         )}
       </div>

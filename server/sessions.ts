@@ -39,10 +39,11 @@ import { IMAGE_EXTS } from "./mime.js";
 import { readCodexCounts } from "./usage.js";
 import { blockedBy, limitResetsAt, NETWORK } from "./blocked.js";
 import { errorMessage, warn } from "./log.js";
+import { watchScript } from "./scriptWatch.js";
 import {
   DEFAULT_EFFORT,
   DEFAULT_PERMISSION_MODE,
-  DEFAULT_MODEL,
+  HARNESS_DEFAULT_MODEL,
   type AskAnswers,
   type AskQuestions,
   type Attachment,
@@ -689,7 +690,34 @@ export class AgentBook {
     const card = { event, ...(parent ? { parent } : {}) };
     this.cards.set(key, card);
     this.emit(card);
+    this.watch(key);
     this.events.onBackground?.(this.projectId);
+  }
+
+  /** The running scripts whose output is being watched, each with its stop. */
+  private readonly watches = new Map<string, () => void>();
+
+  /**
+   * A script's output is watched for as long as it runs (scriptWatch.ts):
+   * its card carries the newest line it printed and when, so the chat
+   * shows how far along it is and how long it has been quiet. Called
+   * whenever a card changes — the file's name can arrive after the card,
+   * and the end of the script is the end of the watch.
+   */
+  private watch(key: string): void {
+    const agent = this.cards.get(key)?.event.agent;
+    if (!agent?.script) return;
+    const stop = this.watches.get(key);
+    if (agent.status === "running" && agent.output && !stop) {
+      this.watches.set(
+        key,
+        watchScript(agent.output, (line, at) => this.update(key, { activity: line, printedAt: at })),
+      );
+    } else if (agent.status !== "running" && stop) {
+      this.watches.delete(key);
+      // its last look tells the last thing printed, to a card that has ended
+      stop();
+    }
   }
 
   /** What is still running here, agents and scripts apart. */
@@ -790,6 +818,7 @@ export class AgentBook {
     if (!changed) return;
     card.event = { ...card.event, agent: next };
     this.emitSoon(key, card, next.status !== current.status || next.background !== current.background);
+    this.watch(key);
     // one fewer agent at work (or one more gone to the background): the
     // session may be free to close, and the chat's work has changed
     if (
@@ -3519,8 +3548,9 @@ export class SessionManager {
    */
   private readonly deferred = new Map<string, Array<() => void>>();
   private readonly events: SessionEvents;
-  /** What an unset model means — the crowned default, else the built-in. */
-  private defaultModelFor: () => string = () => DEFAULT_MODEL;
+  /** What an unset model means — the crowned default, else the catalog's
+   *  own (the server says: ProjectStore.defaultModel). */
+  private defaultModelFor: () => string = () => HARNESS_DEFAULT_MODEL;
   /** Whether something still wants a channel's process between turns — the
    *  chat open in a window, a prompt queued behind the turn, a retry
    *  waiting to go (the server's to say). */

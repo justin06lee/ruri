@@ -13,10 +13,9 @@ Appearance owns ruri's look: light/dark/ember theming, the sidebar peek band, th
 - **Dragon gauges:** web/src/components/Dragon.tsx, web/src/dragonArt.ts
 - **Settings page:** web/src/components/Settings.tsx, web/src/components/SettingsRows.tsx
 - **Component library gallery (search, filter chips, cards, a component's page):** web/src/components/Components.tsx, web/src/lib/thumbs.ts, shared/librarySearch.ts
-- **Architecture page:** web/src/components/Architecture.tsx
 - **Shared primitives:** web/src/components/Dropdown.tsx, web/src/components/Confirm.tsx, web/src/components/Capped.tsx
 - **Pictures and animation:** web/src/pictures.ts, web/src/lib/effects.ts
-- **Icons, press art, tracing and the feature doodles (kept, not used yet):** web/src/icons.ts, web/src/press.ts, scripts/trace-dragon.py, web/src/lib/featureDoodles.ts
+- **Icons, press art, tracing and the feature doodles (kept, not used yet):** web/src/icons.ts, web/src/press.ts
 
 ## How it works
 

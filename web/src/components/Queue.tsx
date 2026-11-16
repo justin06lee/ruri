@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { handoffNote, type QueuedPrompt, type QueueHold } from "../../../shared/protocol";
-import { composeInto, editQueued, mergeQueued, moveQueued, send, unqueue } from "../store";
+import { composeInto, editQueued, mergeQueued, moveQueued, send, sendQueuedNow, unqueue } from "../store";
 import { TranscriptAttachments } from "./Attachments";
+import { CUT_IN_HOLD_MS } from "./Composer";
 import { MarkerText } from "./Markers";
 
 /** Where a lifted card is about to land: on the edge of another (a place
@@ -29,6 +30,8 @@ function QueuedCard({
   held,
   lift,
   onLift,
+  movable,
+  holding,
   onUndo,
 }: {
   projectId: string;
@@ -37,13 +40,18 @@ function QueuedCard({
    *  a running answer, it is waiting on you. */
   held?: boolean;
   lift?: Lift | null;
-  /** The list's pointer handlers, on every card that can be carried. */
+  /** The list's pointer handlers, on every card that can be pressed: held
+   *  still it is sent now, moved it is carried. */
   onLift?: {
     down(e: React.PointerEvent<HTMLDivElement>, id: string): void;
     move(e: React.PointerEvent<HTMLDivElement>): void;
     up(e: React.PointerEvent<HTMLDivElement>): void;
     cancel(): void;
   };
+  /** There is another card to carry this one past. */
+  movable?: boolean;
+  /** The pointer is down on it and holding: it goes when the line fills. */
+  holding?: boolean;
   /** This card is a fold made a moment ago, and this takes it back. */
   onUndo?: () => void;
 }) {
@@ -57,7 +65,9 @@ function QueuedCard({
   };
   const lifting = lift?.id === item.id;
   const over = lift?.over?.id === item.id ? lift.over.zone : null;
-  const carried = Boolean(onLift) && !item.editing;
+  // one being rewritten, or being cut into tasks, is not in line to go
+  const pressed = Boolean(onLift) && !item.editing && !item.splitting;
+  const carried = pressed && movable === true;
   const handoff = handoffNote(item.text);
 
   return (
@@ -67,6 +77,7 @@ function QueuedCard({
         held ? "standby" : "",
         item.editing ? "editing" : "",
         carried ? "carried" : "",
+        holding ? "holding" : "",
         lifting ? "lifting" : "",
         over === "merge"
           ? "merge-into"
@@ -79,14 +90,31 @@ function QueuedCard({
       data-queued={item.id}
       data-editing={item.editing ? "1" : undefined}
       style={lifting ? { transform: `translateY(${lift!.dy}px)` } : undefined}
-      onPointerDown={carried ? (e) => onLift!.down(e, item.id) : undefined}
-      onPointerMove={carried ? onLift!.move : undefined}
-      onPointerUp={carried ? onLift!.up : undefined}
-      onPointerCancel={carried ? onLift!.cancel : undefined}
+      title={
+        pressed
+          ? held
+            ? "Hold to send it now, ahead of the rest"
+            : "Hold to send it now — the running turn stops, and this goes in its place"
+          : undefined
+      }
+      onPointerDown={pressed ? (e) => onLift!.down(e, item.id) : undefined}
+      onPointerMove={pressed ? onLift!.move : undefined}
+      onPointerUp={pressed ? onLift!.up : undefined}
+      onPointerCancel={pressed ? onLift!.cancel : undefined}
     >
       <div className="queued-head">
         <span className="queued-label">
-          {item.editing ? "Editing in the composer" : item.splitting ? "Sorting into tasks…" : onUndo ? "Combined" : held ? "Standing by" : "Queued"}
+          {item.editing
+            ? "Editing in the composer"
+            : item.splitting
+              ? "Sorting into tasks…"
+              : holding
+                ? "Keep holding to send it now"
+                : onUndo
+                  ? "Combined"
+                  : held
+                    ? "Standing by"
+                    : "Queued"}
         </span>
         {onUndo && (
           <button
@@ -162,6 +190,11 @@ function QueuedCard({
  * the line, so the one nearer the front still reads first. For a few
  * seconds the fold wears an undo that takes it apart again. The card
  * being rewritten sits under the line and takes no part.
+ *
+ * Press a card and hold still, and it is sent now: the running turn stops
+ * and that prompt goes in its place — what holding Enter does to the one
+ * in the composer, for as long (CUT_IN_HOLD_MS), with a line filling
+ * along the card meanwhile. Letting go early, or moving, is not a send.
  */
 export function QueuedList({
   projectId,
@@ -178,6 +211,15 @@ export function QueuedList({
    *  so a click on the card is still a click. */
   const press = useRef<{ id: string; x: number; y: number; live: boolean } | null>(null);
   const movable = items.filter((item) => !item.editing).length > 1;
+  /** The card held down, on its way to being sent now. */
+  const [holding, setHolding] = useState<string | null>(null);
+  const holdTimer = useRef<number | undefined>(undefined);
+  const endHold = () => {
+    clearTimeout(holdTimer.current);
+    holdTimer.current = undefined;
+    setHolding(null);
+  };
+  useEffect(() => () => clearTimeout(holdTimer.current), []);
   /** The fold just made here, while it can still be taken back. */
   const [undoable, setUndoable] = useState<string | null>(null);
   useEffect(() => {
@@ -211,10 +253,20 @@ export function QueuedList({
 
   const onLift = {
     down(e: React.PointerEvent<HTMLDivElement>, id: string) {
-      if (e.button !== 0 || !movable) return;
+      if (e.button !== 0) return;
       if ((e.target as Element).closest("button, a, input, textarea, img, video")) return;
       press.current = { id, x: e.clientX, y: e.clientY, live: false };
       e.currentTarget.setPointerCapture(e.pointerId);
+      // held where it was pressed for as long as Enter is held to cut in
+      clearTimeout(holdTimer.current);
+      setHolding(id);
+      holdTimer.current = window.setTimeout(() => {
+        const p = press.current;
+        if (!p || p.id !== id || p.live) return;
+        press.current = null;
+        endHold();
+        sendQueuedNow(projectId, id);
+      }, CUT_IN_HOLD_MS);
     },
     move(e: React.PointerEvent<HTMLDivElement>) {
       const p = press.current;
@@ -222,6 +274,12 @@ export function QueuedList({
       const dy = e.clientY - p.y;
       if (!p.live) {
         if (Math.hypot(e.clientX - p.x, dy) < 5) return;
+        // moved: a carry, or a slip of the hand — not a hold either way
+        endHold();
+        if (!movable) {
+          press.current = null;
+          return;
+        }
         p.live = true;
         window.getSelection()?.removeAllRanges();
       }
@@ -230,6 +288,7 @@ export function QueuedList({
     up(e: React.PointerEvent<HTMLDivElement>) {
       const p = press.current;
       press.current = null;
+      endHold();
       if (!p?.live) return;
       const over = zoneAt(p.id, e.clientY);
       setLift(null);
@@ -246,6 +305,7 @@ export function QueuedList({
     },
     cancel() {
       press.current = null;
+      endHold();
       setLift(null);
     },
   };
@@ -259,7 +319,9 @@ export function QueuedList({
           item={item}
           held={held}
           lift={lift}
-          onLift={movable ? onLift : undefined}
+          onLift={onLift}
+          movable={movable}
+          holding={holding === item.id}
           {...(undoable === item.id && !item.editing
             ? {
                 onUndo: () => {

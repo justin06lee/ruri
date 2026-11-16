@@ -52,6 +52,7 @@ import type { Terminals } from "./terminal.js";
 import type { TalkBook } from "./talk.js";
 import type { TrackerStore } from "./tracker.js";
 import type { Turns } from "./turns.js";
+import type { Vault } from "./vault.js";
 
 export interface StartServerOptions {
   port: number;
@@ -187,6 +188,9 @@ export interface ServerContext {
   /** The vault: handed to each harness process as $RURI_SECRET_* when it
    *  is built (sessionHost.ts), and to nothing else ruri starts. */
   readonly secrets: SecretStore;
+  /** The ghostly vault kept in step with `secrets`, and where a change
+   *  made on the Passwords page is sent (server/vault.ts). */
+  readonly vault: Vault;
   /** The window's own preferences, kept on this machine rather than in
    *  the window — see server/prefs.ts for why that is not where they
    *  belong. */

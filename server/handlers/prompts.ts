@@ -17,6 +17,7 @@ import { knownCommands, splitCommands } from "../commands.js";
 import type { ClientConn, ServerContext } from "../context.js";
 import {
   cutIn,
+  cutInWith,
   dispatch,
   drainQueue,
   holdsEvent,
@@ -114,6 +115,14 @@ function freshNext(ctx: Parameters<Handler<"draft">>[0], channelId: string): boo
   return ctx.archive.hasPendingBrief(channelId) || !ctx.archive.harnessSession(channelId, harness)?.session;
 }
 
+/** Where a prompt that goes ahead of the line stands: behind the
+ *  sub-prompts riding with the turn and what cut in already, ahead of the
+ *  rest and of the way back to work. */
+function headOfLine(queue: QueueEntry[]): number {
+  const front = queue.findIndex((entry) => !entry.silent && (!entry.cut || entry.resume === true));
+  return front === -1 ? queue.length : front;
+}
+
 /**
  * "Send now" to a teammate or the liaison while its turn is another agent's
  * job: the job is not cut short — that would end it, and its sender would
@@ -131,11 +140,8 @@ function nextAfterJob(
   const sender = onAJob(ctx, channelId);
   if (!sender) return false;
   const queue = ctx.queues.entries.get(channelId) ?? [];
-  // where a cut-in would go: behind the sub-prompts riding with the turn
-  // and what cut in already, ahead of the rest and of the way back to work
-  const front = queue.findIndex((entry) => !entry.silent && (!entry.cut || entry.resume === true));
   const { entries } = promptEntries(ctx, channelId, text, uploads, clientId);
-  queue.splice(front === -1 ? queue.length : front, 0, ...entries);
+  queue.splice(headOfLine(queue), 0, ...entries);
   ctx.queues.entries.set(channelId, queue);
   ctx.queues.broadcastQueue(channelId);
   const why: TranscriptEvent = {
@@ -226,6 +232,46 @@ export const promptHandlers = {
     // since the stop goes out now, in the order it was written.
     if (!ctx.queues.releaseQueue(msg.projectId)) return;
     if (!running(ctx, msg.projectId)) drainQueue(ctx, msg.projectId);
+  },
+  // One card held down: that prompt goes now. With a turn running it cuts
+  // in — the turn stops and this takes its place (or goes next, when the
+  // turn is another agent's job); with none, it leads the queue out.
+  queue_now: (ctx, _ws, msg) => {
+    const channelId = msg.projectId;
+    const queue = ctx.queues.entries.get(channelId);
+    const entry = queue?.find((e) => e.id === msg.itemId && !e.silent && !e.editing && !e.splitting);
+    if (!queue || !entry) return;
+    const rest = queue.filter((e) => e !== entry);
+    ctx.retries.cancelRetry(channelId);
+    if (running(ctx, channelId)) {
+      const sender = onAJob(ctx, channelId);
+      if (!sender) {
+        ctx.queues.entries.set(channelId, rest);
+        cutInWith(ctx, channelId, [entry]);
+        return;
+      }
+      // not cut short, the same as a prompt sent now would not be
+      // (nextAfterJob): it goes next instead
+      rest.splice(headOfLine(rest), 0, entry);
+      ctx.queues.entries.set(channelId, rest);
+      ctx.queues.broadcastQueue(channelId);
+      const why: TranscriptEvent = {
+        kind: "info",
+        id: randomUUID(),
+        text: `Your message goes next: this turn is ${sender}'s job, and sending now would end it. Stop it if you mean to.`,
+        ts: Date.now(),
+      };
+      ctx.archive.append(channelId, why);
+      ctx.clients.pushEvent(channelId, why);
+      return;
+    }
+    // nothing running: the queue was standing by, or is between turns —
+    // this one leads, and the rest follow it in the order they stood
+    rest.splice(headOfLine(rest), 0, entry);
+    ctx.queues.entries.set(channelId, rest);
+    ctx.queues.releaseQueue(channelId);
+    ctx.queues.broadcastQueue(channelId);
+    drainQueue(ctx, channelId);
   },
   queue_move: (ctx, _ws, msg) => {
     const queue = ctx.queues.entries.get(msg.projectId);

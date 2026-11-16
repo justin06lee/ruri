@@ -1,4 +1,5 @@
 /** Types (and the one shared constant) between the ruri server and the web UI. */
+import type { SidebarLayout } from "./sidebar.js";
 
 /** The pseudo-project id of the Home view — the workspace-manager agent. */
 export const HOME_ID = "home";
@@ -24,11 +25,15 @@ export function keepRecent<T extends { kind: string }>(events: T[], max: number)
   return events.slice(cut);
 }
 
-/** The model a session runs on when none is picked and nothing has been
- *  crowned the default in Settings (a third star does that). The built-in
- *  fallback is the newest Fable; an unset model never means "whatever the
- *  CLI feels like". */
-export const DEFAULT_MODEL = "claude-fable-5-1[1m]";
+/**
+ * What an unset model means before any catalog has been read: Claude
+ * Code's own alias for the model it recommends. ruri names no model of its
+ * own — the default is the one crowned in Settings, else the one the
+ * catalog marks as its default (shared/modelLine.ts catalogDefault), kept
+ * from the last time it was read — so this stands only for the first
+ * seconds of a first launch.
+ */
+export const HARNESS_DEFAULT_MODEL = "default";
 
 /** The model that keeps the projects' memory until the user hands the
  *  role to another (server/smallmodel.ts memoryModel). */
@@ -90,7 +95,8 @@ export const SESSIONS_MODE_PREF = "ruri-sessions-mode";
 /** The pref that has sessions hold UI work to the user's design taste
  *  through gusteau ("on"); off when unset (server/gusteau.ts). */
 export const GUSTEAU_PREF = "ruri-gusteau";
-/** The pref that puts mycelium under the component library ("on"): entries
+/** The pref that puts mycelium under the component library ("on") — for
+ *  every project that doesn't say for itself (Project.mycelium): entries
  *  tied to their root in the code, shown and rendered from it; off when
  *  unset (server/mycelium.ts). */
 export const MYCELIUM_PREF = "ruri-mycelium";
@@ -118,9 +124,15 @@ export type TeamAction = "stop" | "restart" | "compact" | "refresh" | "clear" | 
  *  the knob ignore them. */
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 
-/** The effort a session runs at when none is picked — same philosophy as
- *  DEFAULT_MODEL: no ambiguous "default" entry; unset simply means xhigh. */
+/** The effort a session runs at when none is picked and no default has
+ *  been chosen in Settings (set_default_effort): no ambiguous "default"
+ *  entry — unset simply means the default, and the default means this. */
 export const DEFAULT_EFFORT = "xhigh";
+
+/** Whether a word names a reasoning effort a chat can be set to. */
+export function isEffort(value: string | undefined): value is (typeof EFFORT_LEVELS)[number] {
+  return (EFFORT_LEVELS as readonly string[]).includes(value ?? "");
+}
 
 /** The permission mode a project's sessions run in when it hasn't picked
  *  one. Like DEFAULT_MODEL and DEFAULT_EFFORT, unset simply means this —
@@ -133,7 +145,6 @@ export interface Project {
   id: string;
   name: string;
   path: string;
-  folder?: string;
   /** What a new member of its team starts on — the last pick made in the
    *  lead's composer, or for a member. A session that has picked its own
    *  carries it on itself (SessionInfo); these are the fallback, never an
@@ -144,7 +155,9 @@ export interface Project {
   /** Reasoning effort a new member starts at (EFFORT_LEVELS);
    *  DEFAULT_EFFORT (xhigh) when unset. */
   effort?: string;
-  /** Bookmarked: shown in the Starred section above the project tree. */
+  /** Bookmarked: a filled star on its row, and what rapid fire's "starred
+   *  only" keeps. Where it stands in the sidebar is the layout's to say
+   *  (shared/sidebar.ts), not the star's. */
   starred?: boolean;
   /** Tucked away: out of the sidebar, rapid fire, the switcher and the
    *  projects board, but still open — its team and transcripts intact —
@@ -158,8 +171,22 @@ export interface Project {
    *  when unset. Read at every spawn, so a change reaches the next one and
    *  leaves a running session alone (server/accounts.ts). */
   account?: ClaudeAccount;
+  /** Live components for this project, said for itself: on or off whatever
+   *  the setting in Settings says. Unset, it follows the setting
+   *  (liveComponentsFor; server/mycelium.ts). It is the project's, so it
+   *  holds for every chat in it — the library is one per project. */
+  mycelium?: "on" | "off";
   /** Its lead first, then the members of its team. */
   sessions: SessionInfo[];
+}
+
+/** Whether mycelium is under a project's component library: the project's
+ *  own word when it has one, else the setting (MYCELIUM_PREF). */
+export function liveComponentsFor(
+  project: Pick<Project, "mycelium"> | undefined,
+  setting: string | null | undefined,
+): boolean {
+  return project?.mycelium ? project.mycelium === "on" : setting === "on";
 }
 
 /**
@@ -833,9 +860,10 @@ export interface ComponentFile {
 
 /**
  * A credential ruri holds so the model can use it without ever reading it.
- * The value lives on disk under the config dir and never crosses this wire —
- * only its name, so the UI can list what exists. See server/secrets.ts for
- * the two ways it reaches a command.
+ * The value never crosses this wire — only its name, so the UI can list
+ * what exists. It is kept in the ghostly vault when this machine has one,
+ * and otherwise in ruri's own file under the config dir. See
+ * server/secrets.ts for the two ways it reaches a command.
  */
 export interface SecretMeta {
   id: string;
@@ -845,9 +873,50 @@ export interface SecretMeta {
   username?: string;
   /** What it's for — shown to the user, and to the model as a hint. */
   note?: string;
-  /** Whether a value is actually stored (it never leaves the server). */
+  /** Whether a value is actually held (it never leaves the server). */
   hasValue: boolean;
   updated: number;
+  /** Where it is kept: the ghostly vault, or (absent) ruri's own file on
+   *  this machine. One in the vault keeps the name the vault gave it. */
+  store?: "ghostly";
+  /** The vault's owner marked it for people only: it is listed, and ghostly
+   *  hands its value to no agent — so ruri holds none. */
+  humanOnly?: boolean;
+  /** The shared collection it is in; absent for one only the agent's own
+   *  account can see. */
+  collection?: string;
+  /** Another of the same name answers to the handle instead of this one
+   *  (the vault's, where both places hold the name). */
+  shadowed?: boolean;
+}
+
+/**
+ * The ghostly vault as this machine has it (server/vault.ts): whether the
+ * `ghostly` command is here, whether an agent is enrolled, and whether its
+ * vault answered the last time ruri asked. When it is all three, a new
+ * secret is stored there instead of in ruri's own file.
+ */
+export interface VaultState {
+  /** The `ghostly` command was found on this machine. */
+  installed: boolean;
+  /** `ghostly init` has been run here: this machine has an agent. */
+  enrolled: boolean;
+  /** The vault answered and was unlocked, the last time ruri asked. */
+  ok: boolean;
+  /** Why it is not usable, in ghostly's own words. */
+  problem?: string;
+  /** The vault's address, and the agent's account on it. */
+  server?: string;
+  account?: string;
+  /** The collections shared with the agent — where a new secret can go. */
+  collections: string[];
+  /** ruri is asking the vault right now. */
+  syncing: boolean;
+  /** When what is listed was last read from the vault. */
+  syncedAt?: number;
+  /** What went wrong the last time something was saved, moved or forgotten
+   *  — until the next thing that works. */
+  failed?: string;
 }
 
 /**
@@ -1382,6 +1451,10 @@ export interface SubagentState {
   /** Where the harness writes what a script prints, as it prints it —
    *  what the script's page shows. */
   output?: string;
+  /** When a running script last printed anything (server/scriptWatch.ts):
+   *  how its card and its page say it is printing, or how long it has been
+   *  quiet. While it runs, its `activity` is the newest line it printed. */
+  printedAt?: number;
   /** The harness's own name for the agent (Claude's task id, the one its
    *  SendMessage addresses): how a later "carry on" finds this card. */
   agentId?: string;
@@ -2028,6 +2101,11 @@ export type ClientMessage =
   /** Send a queue that has been standing by since a stopped turn, now —
    *  the alternative to waiting for the next prompt to pull it along. */
   | { type: "queue_send"; projectId: string }
+  /** One queued prompt, sent now (its card held down): the running turn is
+   *  stopped and this goes in its place, as a prompt sent to cut in does —
+   *  or, with nothing running, it goes out at once ahead of the rest of a
+   *  queue that was standing by. The others keep their order behind it. */
+  | { type: "queue_now"; projectId: string; itemId: string }
   /** Remove a transcript event (a clicked command chip). A user event takes
    *  the rest of its turn with it. */
   | { type: "remove_event"; projectId: string; eventId: string }
@@ -2103,8 +2181,9 @@ export type ClientMessage =
       attachments?: DraftAttachmentUpload[];
     }
   | { type: "interrupt"; projectId: string }
-  /* ── the composer's terminal mode: tabs of shells per channel ───── */
-  /** What tabs this channel has — answered with `terminal_tabs`. */
+  /* ── the shell pane under a chat: tabs of shells per channel ────── */
+  /** The pane opening: what tabs this channel has — answered with
+   *  `terminal_tabs`, a first tab made when it has none. */
   | { type: "terminal_list"; projectId: string }
   /** Open one more tab on this channel; the answer is the new tab list. */
   | { type: "terminal_new"; projectId: string }
@@ -2112,7 +2191,8 @@ export type ClientMessage =
   | { type: "terminal_open"; projectId: string; termId: string; cols: number; rows: number }
   | { type: "terminal_input"; projectId: string; termId: string; data: string }
   | { type: "terminal_resize"; projectId: string; termId: string; cols: number; rows: number }
-  /** Kill it — the shell is gone and the tab with it, not just hidden. */
+  /** Kill it — the shell is gone and the tab with it, not just hidden.
+   *  The last tab closed leaves none, and the pane goes with it. */
   | { type: "terminal_close"; projectId: string; termId: string }
   | { type: "permission_response"; requestId: string; allow: boolean; always?: boolean }
   /** The answer to an AskUserQuestion card. `answers` absent = dismissed,
@@ -2130,6 +2210,10 @@ export type ClientMessage =
    *  sessions keep theirs; the next one each chat starts (or resumes) runs
    *  on the new account. Answered with `projects`. */
   | { type: "set_account"; projectId: string; account: ClaudeAccount }
+  /** Live components for one project, over the setting in Settings: on,
+   *  off, or "default" to follow the setting again. A chat's id names its
+   *  project. */
+  | { type: "set_mycelium"; projectId: string; mycelium: "on" | "off" | "default" }
   /* ── the ideas board (per PROJECT id, not per session) ──────────── */
   | { type: "idea_add"; projectId: string; text: string; attachments?: AttachmentUpload[] }
   /** `attachments`, when present, is the idea's whole list: one already
@@ -2259,8 +2343,29 @@ export type ClientMessage =
   /* ── the vault ──────────────────────────────────────────────────── */
   /** Save (or overwrite) one credential. An absent `secret` keeps the
    *  stored value and edits only the fields around it. */
-  | { type: "secret_save"; id?: string; name: string; username?: string; note?: string; secret?: string }
+  /** Add or edit a secret. A new one goes to the ghostly vault when this
+   *  machine has one that answers, and to ruri's own file otherwise.
+   *  `generate` has the vault make the password (`secret` is then unused);
+   *  `collection` says which shared collection a new one goes in, when the
+   *  agent can see several. */
+  | {
+      type: "secret_save";
+      id?: string;
+      name: string;
+      username?: string;
+      note?: string;
+      secret?: string;
+      generate?: boolean;
+      collection?: string;
+    }
   | { type: "secret_remove"; id: string }
+  /** Move one of ruri's own into the ghostly vault: stored there, then
+   *  taken out of ruri's file. */
+  | { type: "secret_move"; id: string }
+  /** Ask the vault what is shared now. `full` reads every value again as
+   *  well (the Refresh button); without it only the list is checked, and
+   *  not more than once a minute (the page opening). */
+  | { type: "vault_refresh"; full?: boolean }
   /* ── skills ─────────────────────────────────────────────────────── */
   /** Re-scan global skills and this project's local ones. */
   | { type: "skills_refresh"; projectId?: string }
@@ -2293,6 +2398,18 @@ export type ClientMessage =
    *  and the small model writes a fix-it prompt for the composer. */
   | { type: "tracker_review"; projectId: string }
   | { type: "toggle_star"; projectId: string }
+  /** The sidebar rearranged (shared/sidebar.ts): a project or a folder
+   *  carried to another place — into `folderId` or the top level, before
+   *  `beforeId` there or at the end. */
+  | { type: "sidebar_move"; id: string; folderId?: string; beforeId?: string }
+  /** A new sidebar folder, under an id the window made up so it can show
+   *  it at once. Around `projectId` it takes that project's place, with
+   *  the project in it; otherwise it is empty, at the top. */
+  | { type: "folder_add"; folderId: string; name: string; projectId?: string }
+  /** A folder renamed, or folded shut or opened. */
+  | { type: "folder_set"; folderId: string; name?: string; collapsed?: boolean }
+  /** A folder taken away; its projects stay where it stood. */
+  | { type: "folder_remove"; folderId: string }
   /** Hide a project (or bring it back): it leaves the sidebar's list for
    *  the fold at the bottom, nothing about it closes. */
   | { type: "toggle_hidden"; projectId: string }
@@ -2315,6 +2432,10 @@ export type ClientMessage =
   /** Hand a role to a model outright (the tag dragged onto its row); the
    *  model is starred if it wasn't, and whoever held the role loses it. */
   | { type: "set_model_role"; model: string; role: ModelRole }
+  /** The reasoning effort new chats and projects start at (one of
+   *  EFFORT_LEVELS), as the default model is what they start on. Chats
+   *  that were riding the old default keep it. */
+  | { type: "set_default_effort"; effort: string }
   /** Wipe the Home chat (transcript + session) — it's ephemeral. */
   | { type: "reset_home" }
   /** Re-probe every installed harness's live model catalog. */
@@ -2421,7 +2542,10 @@ export type ClientMessage =
 export type ServerMessage =
   | {
       type: "snapshot";
+      /** In the order the sidebar stands them (ProjectStore keeps them so). */
       projects: Project[];
+      /** The sidebar's order and folders (shared/sidebar.ts). */
+      sidebar: SidebarLayout;
       /** The tail of each channel's transcript (its last TRANSCRIPT_TAIL
        *  events): enough for the Home board's lines. A chat that opens
        *  asks for the whole thing (`transcript_get`). */
@@ -2443,6 +2567,8 @@ export type ServerMessage =
       componentDirs: Record<string, string>;
       /** The vault's names (never its values). */
       secrets: SecretMeta[];
+      /** The ghostly vault as this machine has it, when it has one. */
+      vault: VaultState;
       /** App-side prompt queues per channel (visible entries only). */
       queued: Record<string, QueuedPrompt[]>;
       /** Channels whose queue is standing by, and why. */
@@ -2478,9 +2604,12 @@ export type ServerMessage =
       smallModel: string;
       /** The model that writes and checks the projects' memory. */
       memoryModel: string;
-      /** The model new chats and projects start on: the triple-starred one,
-       *  else DEFAULT_MODEL. Always a real id, never "". */
+      /** The model new chats and projects start on: the one crowned in
+       *  Settings, else the catalog's own default. Always an id, never "". */
       defaultModel: string;
+      /** The reasoning effort new chats and projects start at: the one
+       *  chosen in Settings, else DEFAULT_EFFORT. */
+      defaultEffort: string;
       /** The local account name shown on the sidebar's account bar. */
       user: string;
       /** Every harness on this machine, as the updater last saw it. */
@@ -2504,6 +2633,8 @@ export type ServerMessage =
       remoteDevice?: { id: string; name: string };
     }
   | { type: "projects"; projects: Project[] }
+  /** The sidebar's arrangement, whole, whenever it changes. */
+  | { type: "sidebar"; sidebar: SidebarLayout }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
   /** Sharing changed: turned on or off, a device paired, came or went. */
   | { type: "sharing"; sharing: SharingInfo }
@@ -2546,6 +2677,7 @@ export type ServerMessage =
     }
   /** The vault, names only — values never leave the server. */
   | { type: "secrets"; items: SecretMeta[] }
+  | { type: "vault"; state: VaultState }
   /** Installed skills: every global one, plus the named project's own.
    *  `note` carries what bmo said when a command just ran. */
   | { type: "skills"; projectId?: string; skills: SkillInfo[]; note?: string; busy?: boolean }
@@ -2563,6 +2695,7 @@ export type ServerMessage =
   | { type: "small_model"; model: string }
   | { type: "memory_model"; model: string }
   | { type: "default_model"; model: string }
+  | { type: "default_effort"; effort: string }
   | { type: "integrations"; projectId?: string; integrations: Integrations }
   /** The hooks and their latest deliveries, to every window when either
    *  changes — and `error` to the one whose change was refused. */
@@ -2663,7 +2796,8 @@ export type ServerMessage =
   /** The bridge did something for a channel, or closed: what it is showing
    *  now, or null when there is nothing left to show. */
   | { type: "bridge"; projectId: string; state: BridgeState | null }
-  /** This channel's shell tabs, in the order they are shown. */
+  /** This channel's shell tabs, in the order they are shown. None: its
+   *  last shell was quit or closed, and the pane closes. */
   | { type: "terminal_tabs"; projectId: string; tabs: string[] }
   /** Shell output. `replay` marks the scrollback a fresh attach gets. */
   | { type: "terminal_data"; projectId: string; termId: string; data: string; replay?: boolean }

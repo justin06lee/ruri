@@ -3,7 +3,7 @@
 One layer of ruri's stack, owning `server/terminal.ts, server/handlers/terminal.ts, server/relay.ts, server/scrollback.ts, server/scripts.ts, server/handlers/crew.ts, server/music.ts, server/integrations.ts, server/handlers/integrations.ts, server/handlers/host.ts, server/handlers/settings.ts, server/prefs.ts, scripts/crew-live.ts, scripts/talk.ts, server/projectHooks.ts, server/handlers/hooks.ts, server/projectHooks.test.ts, server/projectHooks.midna.test.ts, scripts/project-hooks.ts, scripts/terminal.ts, server/scriptWatch.ts, server/scriptWatch.test.ts`. The whole stack, and how the layers connect, is in `.ruri/architecture.md`.
 Don't edit this file: ruri writes it. `ruri layer terminals-agents-integrations` prints it with every line numbered, what git says changed in this layer lately and what sessions learned working here; once you have read it that way, put right what your work changed — `ruri layer terminals-agents-integrations add|set|drop <section> …`. Where it and the code disagree, the code is right.
 
-This layer runs everything beside the chat turn: composer pty terminals, background script output, user-started crew agents, folder-backed music serving, harness integrations plus host/settings plumbing, and the project hooks that tell midna (or any command/webhook) when a team is idle or blocked. It is built as small stateful server modules (Terminals, TerminalRelay, Scrollback, PrefStore, HookCenter) fronted by thin socket handlers, with CLI-mediated side effects. Newcomers must grasp that terminals are paced append-streams with backpressure, integration changes apply only at next harness launch, and hooks never block a project.
+This layer runs everything beside the chat turn: composer pty terminals, background script output, user-started crew agents, agent-to-agent talk, folder-backed music serving, harness integrations plus host/settings plumbing, and the project hooks that tell midna (or any command/webhook) when a team is idle or blocked. It is built as small stateful server modules (Terminals, TerminalRelay, Scrollback, PrefStore, HookCenter) fronted by thin socket handlers, with CLI-mediated side effects. Newcomers must grasp that terminals are paced append-streams with backpressure, integration changes apply only at next harness launch, and hooks never block a project.
 
 ## Where to change what
 
@@ -11,13 +11,13 @@ This layer runs everything beside the chat turn: composer pty terminals, backgro
 - **Terminal backpressure / relay:** server/relay.ts, server/terminal.ts, server/scrollback.ts
 - **A background script's card line and page (newest line, quiet time, timed stretches):** server/scriptWatch.ts, server/scripts.ts, server/sessions.ts, server/handlers/crew.ts
 - **Crew agents (start/send/stop/follow):** server/handlers/crew.ts, scripts/crew-live.ts
+- **Agent-to-agent talk's live checks (the feature itself is the chat-runs-queue layer's):** scripts/talk.ts, scripts/talk-replies.ts
 - **MCP servers / plugins / marketplaces:** server/integrations.ts, server/handlers/integrations.ts
 - **Music library and track serving:** server/music.ts, server/handlers/settings.ts
 - **Window preferences:** server/prefs.ts, server/handlers/settings.ts
 - **Settings changes (model, permissions, folders, art):** server/handlers/settings.ts, server/prefs.ts
 - **Passwords page (vault-held secrets in Settings):** server/handlers/settings.ts
 - **Desktop host bridge (picker, permissions, windows):** server/handlers/host.ts
-- **Agent-to-agent talk:** scripts/talk.ts
 - **Project hooks (idle/blocked/test events to midna, commands, webhooks):** server/projectHooks.ts, server/handlers/hooks.ts, scripts/project-hooks.ts
 
 ## How it works
@@ -27,7 +27,6 @@ This layer runs everything beside the chat turn: composer pty terminals, backgro
 - **Crew agent run:** Chat agents page starts agent on its own SessionManager → Card moves along; log holds brief and run output → agent_send follows up on same conversation; agent_stop ends long run → Chat transcript and status hear none of it
 - **Project event to hooks:** projectWatch calls projectBusy at a busy period's start (ledger baseline) → then fireProjectEvent → payload built a tick later (chats that worked + lead, lastSummary ≤600 chars or the card's ask, costUsd = ledger growth, kept under 60 KB) → each global/per-project target delivered on its own: /bin/sh -c with JSON on stdin (midna's CLI by path by default), or POST (midna's envelope for /v1/inbound) → refusals given up, the rest retried 5s/30s/2m/10m with the same id → hook-deliveries.json, broadcast as hooks
 - **Script progress:** AgentBook.watch (server/sessions.ts) starts watchScript on a running script's output file → a look every 2 s marks {offset, ts} when it grew → newest line onto the card (activity, printedAt) at most every 5 s → scriptLog cuts the tail at the marks into timed stretches, a "printed nothing for…" line per silence ≥ 7 s
-- **Shell quit from inside (exit, ^D):** its tab goes → onTabs tells every window → a channel with no tabs has no pane. A shell dying unhappily within 1.5 s keeps its tab
 
 ## Key files
 
@@ -66,4 +65,5 @@ This layer runs everything beside the chat turn: composer pty terminals, backgro
 - Protocol — tabs, permissions, playlists, crew cards, integration rows typed in shared/protocol.ts
 - Server runtime and transport — music served over /music/* same-origin; prefs/config live machine-side
 - Chat runs and queue — server/projectWatch.ts decides idle/blocked and calls projectBusy/fireProjectEvent; delivery and the payload are this layer's
+- Chat runs and queue — agent-to-agent talk messages are routed through server/dispatch.ts
 - Vault — the Passwords page in Settings reads vault-held secrets through server/handlers/settings.ts; the vault layer owns the secret store

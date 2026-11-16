@@ -1627,7 +1627,7 @@
       ]
     },
     "terminals-agents-integrations": {
-      "summary": "This layer runs everything beside the chat turn: composer pty terminals, background script output, user-started crew agents, folder-backed music serving, harness integrations plus host/settings plumbing, and the project hooks that tell midna (or any command/webhook) when a team is idle or blocked. It is built as small stateful server modules (Terminals, TerminalRelay, Scrollback, PrefStore, HookCenter) fronted by thin socket handlers, with CLI-mediated side effects. Newcomers must grasp that terminals are paced append-streams with backpressure, integration changes apply only at next harness launch, and hooks never block a project.",
+      "summary": "This layer runs everything beside the chat turn: composer pty terminals, background script output, user-started crew agents, agent-to-agent talk, folder-backed music serving, harness integrations plus host/settings plumbing, and the project hooks that tell midna (or any command/webhook) when a team is idle or blocked. It is built as small stateful server modules (Terminals, TerminalRelay, Scrollback, PrefStore, HookCenter) fronted by thin socket handlers, with CLI-mediated side effects. Newcomers must grasp that terminals are paced append-streams with backpressure, integration changes apply only at next harness launch, and hooks never block a project.",
       "map": [
         {
           "name": "The shell pane's tabs (the split pane under the chat)",
@@ -1660,6 +1660,13 @@
           "files": [
             "server/handlers/crew.ts",
             "scripts/crew-live.ts"
+          ]
+        },
+        {
+          "name": "Agent-to-agent talk's live checks (the feature itself is the chat-runs-queue layer's)",
+          "files": [
+            "scripts/talk.ts",
+            "scripts/talk-replies.ts"
           ]
         },
         {
@@ -1700,12 +1707,6 @@
           "name": "Desktop host bridge (picker, permissions, windows)",
           "files": [
             "server/handlers/host.ts"
-          ]
-        },
-        {
-          "name": "Agent-to-agent talk",
-          "files": [
-            "scripts/talk.ts"
           ]
         },
         {
@@ -1765,14 +1766,6 @@
             "newest line onto the card (activity, printedAt) at most every 5 s",
             "scriptLog cuts the tail at the marks into timed stretches, a \"printed nothing for…\" line per silence ≥ 7 s"
           ]
-        },
-        {
-          "name": "Shell quit from inside (exit, ^D)",
-          "steps": [
-            "its tab goes",
-            "onTabs tells every window",
-            "a channel with no tabs has no pane. A shell dying unhappily within 1.5 s keeps its tab"
-          ]
         }
       ],
       "files": [
@@ -1809,11 +1802,12 @@
         "Protocol — tabs, permissions, playlists, crew cards, integration rows typed in shared/protocol.ts",
         "Server runtime and transport — music served over /music/* same-origin; prefs/config live machine-side",
         "Chat runs and queue — server/projectWatch.ts decides idle/blocked and calls projectBusy/fireProjectEvent; delivery and the payload are this layer's",
+        "Chat runs and queue — agent-to-agent talk messages are routed through server/dispatch.ts",
         "Vault — the Passwords page in Settings reads vault-held secrets through server/handlers/settings.ts; the vault layer owns the secret store"
       ]
     },
     "server-runtime-transport": {
-      "summary": "This layer is the Node HTTP + WebSocket transport everything else rides on: one port serving the UI, uploads, and the socket every window talks over, assembled once around a shared ServerContext (server/context.ts) in server/server.ts. It moves bytes and enforces origin/token gates, while domain logic lives in handlers and other layers. It also carries each agent's context-usage line and self-compaction with CARRY_ON continuations (the agent decides; ruri compacts by itself only at the top of the window), the team status page, the sidebar layout, the model catalog, and the secret store, which holds ghostly's items in memory beside its own file. A window only sleeps when it cannot be seen at all; a visible-but-unfocused window stays live and keeps receiving streams.",
+      "summary": "This layer is the Node HTTP + WebSocket transport everything else rides on: one port serving the UI, uploads, and the socket every window talks over, assembled once around a shared ServerContext (server/context.ts) in server/server.ts. It moves bytes and enforces origin/token gates, while domain logic lives in handlers and other layers. It also carries each agent's context-usage line and self-compaction with CARRY_ON continuations (the agent decides; ruri compacts by itself only at the top of the window), session-to-session messaging (talk), the team status page, the sidebar layout, the model catalog, and the secret store, which holds ghostly's items in memory beside its own file. A window only sleeps when it cannot be seen at all; a visible-but-unfocused window stays live and keeps receiving streams.",
       "map": [
         {
           "name": "Server assembly and startup",
@@ -1854,6 +1848,13 @@
             "server/uploads.ts",
             "server/mime.ts",
             "scripts/uploads-sweep.ts"
+          ]
+        },
+        {
+          "name": "Chats messaging chats over HTTP (POST /talk/<chat>; the rest is the chat-runs-queue layer's)",
+          "files": [
+            "server/routes.ts",
+            "server/handlers/talk.ts"
           ]
         },
         {
@@ -1943,11 +1944,11 @@
         {
           "name": "Agent self-compaction",
           "steps": [
-            "every prompt carries a usage line (contextLine in server/selfCompaction.ts, via catchUp in server/handoff.ts), repeated mid-turn on PostToolBatch, with a notice near 500k and at 4/5 of the window; the agent decides",
-            "it calls mcp__ruri__compact or {\"do\":\"compact\"} on /talk/<id> (server/routes.ts, server/handlers/talk.ts): the note is stored, the turn not stopped",
-            "at that turn's result (server/chats.ts) selfCompactDue returns the note; carryLetter runs before talkTurnEnded",
-            "the continuation is queued at the head (server/queue.ts), compactChannel runs, its drain sends it into the fresh session",
-            "it opens with CARRY_ON (continuePrompt), recognised by that text plus handoffNote() in shared/protocol.ts; a carried continuation keeps its letter id with carried:true"
+            "every prompt carries a usage line (contextLine, server/selfCompaction.ts), repeated mid-turn, with a notice near 500k and at 4/5 of the window; the agent decides",
+            "it calls mcp__ruri__compact or {\"do\":\"compact\"} on /talk/<id>: the note is stored, the turn not stopped",
+            "at that turn's result selfCompactDue returns the note; carryLetter runs before talkTurnEnded",
+            "the continuation is queued at the head, compactChannel runs, its drain sends it into the fresh session",
+            "it opens with CARRY_ON, recognised by that text plus handoffNote(); a carried one keeps its letter id"
           ]
         }
       ],
@@ -1970,7 +1971,8 @@
         "Transcript fan-out is scoped: live per-chat events go only to windows showing that chat (server/clients.ts); the snapshot and the projects page carry only Home's and the leads' tails (ProjectStore.leadIds) — a team's members are never sent whole, though a window (or a test script) may still view one by id",
         "Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder of its own (bunfig.toml, scripts/test-config.ts), so a test run never touches ~/.config/ruri.",
         "Secrets must never enter model context, logs, or transcripts — only names/placeholders leave server/secrets.ts and server/vault.ts.",
-        "Ghostly items are held in memory only; never write them to the secrets file, logs or transcripts. Tests and scripts keep RURI_GHOSTLY=\"\" (scripts/test-config.ts, scripts/lib/server.ts) or they reach the user's real vault."
+        "Ghostly items are held in memory only; never write them to the secrets file, logs or transcripts.",
+        "Tests and scripts keep RURI_GHOSTLY=\"\" (scripts/test-config.ts, scripts/lib/server.ts) or they reach the user's real vault."
       ],
       "edges": [
         "Protocol — every socket message is typed/validated in shared/protocol.ts and shared/clientSchema.ts",

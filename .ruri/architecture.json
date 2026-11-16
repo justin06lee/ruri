@@ -9,7 +9,7 @@
     "Attachments: images, videos, PDFs, files, region crops, viewer, sketch pad",
     "Edit and rewind: per-harness checkpoints, outside chats brought in as teammates, lost-session auto fresh-start with resend, startup-failure auto-retry",
     "Subagents and background scripts as live cards, agents page, brief-started agents; a running script's card shows its newest line and how long it has been quiet, and its page its output in timed stretches",
-    "Agent messaging with interrupt-or-queue delivery, busy status, jobs handed to another project's lead (ask_project), per-project rules, approvals",
+    "Chats message each other: a project's chat reaches any other project's own chat on the sidebar (its liaison in Team mode), with interrupt-or-queue delivery, busy status, wait/later/none answers, ask_project by name or folder, per-project rules, approvals",
     "Bridge preview and takeover for web pages via hidden CDP browser and native apps via Accessibility (macOS) or X11 + AT-SPI over D-Bus (Linux)",
     "MCP servers, plugins, marketplaces for Claude Code and Codex via Settings; passwords in ruri's own file or a ghostly (Bitwarden) vault, held in memory, used as {{handles}}, never shown to a model",
     "Project memory as an audited log, folded from every finished turn and checked against the code, with project-wide recall by words and meaning, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup; sessions edit a sheet only after reading it, by line number with a stale-read guard",
@@ -1188,7 +1188,7 @@
       ]
     },
     "chat-runs-queue": {
-      "summary": "This layer runs live chat turns: prompt dispatch, the app-side queue, turn progress and transcript delivery over the socket, and the team and talk built on them. A prompt is written, checkpointed, titled, and queued or run; every agent sees its context use and compacts itself past half its window through a handoff-note continuation queued at the head; a finished turn drains the queue or retries.",
+      "summary": "This layer runs live chat turns: prompt dispatch, the app-side queue, turn progress and transcript delivery over the socket, and the team and talk built on them. A prompt is written, checkpointed, titled, and queued or run; every agent sees its context use and may compact itself through a handoff-note continuation queued at the head; a finished turn drains the queue or retries.",
       "map": [
         {
           "name": "sending a prompt (send-now waits behind another agent's job)",
@@ -1286,8 +1286,7 @@
         {
           "name": "self-compact mid-job",
           "steps": [
-            "each prompt carries a usage line (used / window / self-compact point); any agent can check with the context tool",
-            "past its point the agent writes a handoff note and calls the compact tool, which only stores the note and tells it to end its turn",
+            "each prompt carries a usage line; at a compaction notice the agent may write a handoff note and call the compact tool, which only stores the note and tells it to end its turn",
             "at that turn's result in chats.ts, an ok result queues the continuation at the head and runs the compaction, whose drain sends it into the fresh session",
             "a stopped turn drops the note and settles letters as today; a failed turn keeps the note for the next ok turn",
             "if the compacting turn was answering a letter, its letter is carried to the continuation so its last words still answer whoever waits"
@@ -1305,11 +1304,11 @@
         {
           "name": "talk message",
           "steps": [
-            "handlers/talk.ts finds the seat — the sender's own team, or another project's door: its liaison, made on first outside contact — and checks TalkPolicy (mayMessage)",
+            "handlers/talk.ts finds the seat — the sender's own team, or another project's door: its liaison, made on first outside contact; in Sessions mode, where a project is one chat, another project's own chat (leadOf) and no one else — and checks TalkPolicy (mayMessage)",
             "delivered as a prompt marked whose (only RURI_TEAM_MAX makes a sleeping member waitForSlot)",
             "queues behind that chat's work, or cuts in",
-            "at turn end its last word goes back to the sender, unless the turn handed the job on (Pending.for): then the turn the last answer starts (LetterFrom.owes) answers; ask_project goes to another project's liaison",
-            "sending a letter refreshes an open team page for both ends so liaison letters show live"
+            "at turn end its last word goes back to the sender, unless the turn handed the job on (Pending.for): then the turn the last answer starts (LetterFrom.owes) answers",
+            "sending a letter refreshes an open team page for both ends"
           ]
         }
       ],
@@ -1333,7 +1332,8 @@
         "Turn progress lives in turns.ts not the window so the clock survives reload; broadcast deltas throttled to one message a second.",
         "Rewind restores files, branch, transcript, composer prompt and context gauge to the kept exchange, not the tip.",
         "A letter is answered by the last words of the turn that finishes the job: owedLetter() is what a turn owes (its own letter, a carried one, or via an answer's owes); talkTurnEnded settles it only when nothing sent for it is out (TalkBook.outstanding). An answer that leaves the book any other way — a wait in another job, taken out of the queue — goes through answerOnward. Self-compaction marks the carry (carryLetter) at the turn's result, before talkTurnEnded.",
-        "The liaison (session.liaison) is never lead (leadOf skips it) nor a member: code taking 'every non-lead session' as the team must skip it (membersOf, isMember). unattended() covers members and the liaison: held lines let go for letters; the user's 'send now' waits behind a turn on another agent's job (onAJob)."
+        "The liaison (session.liaison) is never lead (leadOf skips it) nor a member: code taking 'every non-lead session' as the team must skip it (membersOf, isMember). unattended() covers members and the liaison: held lines let go for letters; the user's 'send now' waits behind a turn on another agent's job (onAJob).",
+        "Sessions mode: ask handsOn(ctx, chat), never headOf, where delegating is meant; a project's one chat goes by its project alone (titleOf)."
       ],
       "edges": [
         "Protocol — every socket message and transcript event is typed in shared/protocol.ts",

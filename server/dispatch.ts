@@ -183,8 +183,13 @@ function wrapped(ctx: ServerContext, channelId: string, from: LetterFrom, text: 
   // say whose job it is (server/selfCompaction.ts continuePrompt)
   if (from.carried) return text;
   if (!from.answer) {
+    // a lead or a liaison hands the job on — never where a project is one
+    // chat, which answers for itself
     const found = ctx.store.findSession(channelId);
-    const head = !!found && (found.session.liaison === true || leadOf(found.project)?.id === channelId);
+    const head =
+      !sessionsMode(ctx) &&
+      !!found &&
+      (found.session.liaison === true || leadOf(found.project)?.id === channelId);
     return letterPrompt(from, handle, text, head);
   }
   const owed = from.owes ? ctx.talk.pending.get(from.owes) : undefined;

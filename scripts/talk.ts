@@ -1,9 +1,10 @@
 /**
  * Agents talk to agents in other projects.
  *
- * Two projects, a chat in each. The north chat is asked to find out a word
- * only the south project holds (a file in its folder) by messaging the
- * south chat — list_agents, then message_agent, waiting on the answer:
+ * Two projects, each one chat (Sessions mode, the default). The north chat
+ * is asked to find out a word only the south project holds (a file in its
+ * folder) by messaging the south chat — list_agents, then message_agent,
+ * waiting on the answer:
  *   1. in bypass the message goes straight to the south chat, arrives there
  *      marked as the north chat's, and the answer comes back into the tool
  *      call and so into north's reply;
@@ -133,7 +134,8 @@ if (!northProject || !southProject) {
 }
 const north = northProject.sessions[0]!.id;
 const south = southProject.sessions[0]!.id;
-for (const p of [northProject, southProject]) send({ type: "set_model", projectId: p.id, model: "haiku" });
+// a chat's model and permission mode are that chat's own: set by its id
+for (const chat of [north, south]) send({ type: "set_model", projectId: chat, model: "haiku" });
 await settle(500);
 
 /* ── 0. over HTTP, no turns ─────────────────────────────────────────── */
@@ -203,7 +205,7 @@ check("and bypass put no card up", cards.length === 0, cards);
 /* ── 2. outside bypass: a card, and a no stops it ──────────────────── */
 
 const southBefore = (events[south] ?? []).filter((e) => e.kind === "user").length;
-send({ type: "set_permission_mode", projectId: northProject.id, mode: "default" });
+send({ type: "set_permission_mode", projectId: north, mode: "default" });
 await settle(800);
 send({
   type: "send",

@@ -23,6 +23,7 @@ import {
 } from "../../shared/protocol.js";
 import { channelProject, running } from "../channel.js";
 import type { ServerContext } from "../context.js";
+import { sessionsMode } from "../sessionsMode.js";
 import { compactChannel, drainQueue, stopTurn } from "../dispatch.js";
 import type { QueueEntry } from "../queue.js";
 import { projectWatch } from "../projectWatch.js";
@@ -62,6 +63,14 @@ export function headOf(ctx: ServerContext, chat: string): { project: Project; he
   if (!found) return undefined;
   if (found.session.liaison) return { project: found.project, head: "liaison" };
   return leadOf(found.project)?.id === chat ? { project: found.project, head: "lead" } : undefined;
+}
+
+/** Whether a chat hands its jobs on to a team — a lead, or the liaison —
+ *  rather than doing them itself. Never where a project is one chat
+ *  (Sessions mode): that chat is its project's lead by the books, and does
+ *  its own work. */
+export function handsOn(ctx: ServerContext, chat: string): boolean {
+  return !sessionsMode(ctx) && headOf(ctx, chat) !== undefined;
 }
 
 /** A project's members: everyone but its lead and its liaison. */

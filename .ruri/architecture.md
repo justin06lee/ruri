@@ -76,7 +76,7 @@ A desktop app for macOS and Linux for managing projects — each one lead agent 
 - Attachments: images, videos, PDFs, files, region crops, viewer, sketch pad
 - Edit and rewind: per-harness checkpoints, outside chats brought in as teammates, lost-session auto fresh-start with resend, startup-failure auto-retry
 - Subagents and background scripts as live cards, agents page, brief-started agents; a running script's card shows its newest line and how long it has been quiet, and its page its output in timed stretches
-- Agent messaging with interrupt-or-queue delivery, busy status, jobs handed to another project's lead (ask_project), per-project rules, approvals
+- Chats message each other: a project's chat reaches any other project's own chat on the sidebar (its liaison in Team mode), with interrupt-or-queue delivery, busy status, wait/later/none answers, ask_project by name or folder, per-project rules, approvals
 - Bridge preview and takeover for web pages via hidden CDP browser and native apps via Accessibility (macOS) or X11 + AT-SPI over D-Bus (Linux)
 - MCP servers, plugins, marketplaces for Claude Code and Codex via Settings; passwords in ruri's own file or a ghostly (Bitwarden) vault, held in memory, used as {{handles}}, never shown to a model
 - Project memory as an audited log, folded from every finished turn and checked against the code, with project-wide recall by words and meaning, git state block, layered architecture sheets with per-layer session notes and slim project-wide catchup; sessions edit a sheet only after reading it, by line number with a stale-read guard

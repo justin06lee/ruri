@@ -3,7 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { isMember, leadOf, SESSIONS_MODE_PREF, type Project } from "../shared/protocol.js";
-import { projectChatBriefing, sessionsMode } from "./sessionsMode.js";
+import { PLAIN_TALK_TOOLS, projectChatBriefing, sessionsMode } from "./sessionsMode.js";
+import { talkHttpBriefing, talkTools, type TalkHost } from "./talk.js";
 import { sweepTalk } from "./handlers/talk.js";
 
 const withPref = (value?: string) => ({
@@ -41,6 +42,32 @@ describe("the project chat", () => {
   test("the brief: the project chat works alone", () => {
     expect(projectChatBriefing("cobalt")).toContain("Do the work yourself");
     expect(projectChatBriefing("cobalt")).toContain("only when the user asks");
+  });
+
+  test("the brief: the other projects' chats are in reach, by a message that lands where the user sees it", () => {
+    const brief = projectChatBriefing("cobalt");
+    for (const name of PLAIN_TALK_TOOLS) expect(brief).toContain(name);
+    expect(PLAIN_TALK_TOOLS).toContain("mcp__ruri__message_agent");
+    expect(brief).toContain("where the user sees it");
+    expect(brief).not.toContain("liaison");
+  });
+
+  test("the tools, and the same over HTTP, speak of chats on the sidebar: no liaison, no team", () => {
+    const tools = talkTools({} as TalkHost, "chat", false, true);
+    expect(tools.map((t) => `mcp__ruri__${t.name}`).sort()).toEqual([...PLAIN_TALK_TOOLS].sort());
+    const said = [
+      ...tools.map((t) => t.description),
+      talkHttpBriefing("http://x/talk/chat", 20_000, false, true),
+    ].join("\n");
+    expect(said).toContain("on their sidebar");
+    expect(said).not.toContain("liaison");
+    expect(said).not.toContain("teammate");
+    // with a team behind it, the words are the team's
+    expect(
+      talkTools({} as TalkHost, "chat")
+        .map((t) => t.description)
+        .join("\n"),
+    ).toContain("liaison");
   });
 });
 

@@ -1,7 +1,9 @@
 /**
  * Agents talking to agents: a chat's model messaging another's — a
- * teammate in its own project, or another project, through its liaison —
- * and hearing back.
+ * teammate in its own project, or another project — and hearing back.
+ * Another project is reached at its liaison when projects run as teams,
+ * and at its own chat, the one on the user's sidebar, when a project is
+ * one chat (Sessions mode, server/sessionsMode.ts).
  *
  * A message arrives in the other chat as a prompt, marked as whose it is
  * (the user event's `from`), and queues behind whatever that chat is doing
@@ -182,9 +184,10 @@ export function mayMessage(policy: TalkPolicy, from: Seat, to: Seat): boolean {
 
 /* ── what each side reads ─────────────────────────────────────────── */
 
-/** "ruri · Frontend UI" — or just the project, for a chat with no title. */
+/** "ruri · Frontend UI" — or just the project, for a chat told by no
+ *  title: a project's own chat when a project is one chat. */
 export function seatName(project: string, title: string): string {
-  return title ? `${project} · ${title}` : `${project} (an untitled chat)`;
+  return title ? `${project} · ${title}` : project;
 }
 
 /** What a lead or a liaison — which hands its jobs on — is told a sender
@@ -678,22 +681,45 @@ const HEAD_REPLY_DOC =
 const HARD_DOC =
   "For a job handed to a worker: true when it needs Opus — a design call, a hard bug, a review that needs judgment. Otherwise it runs on Sonnet. Ignored for a project still on persistent teammates.";
 
+/** What the tools say of themselves where a project is one chat (Sessions
+ *  mode): the other end is another project's own chat, on the user's
+ *  sidebar, not a liaison or a teammate. */
+const PLAIN_DOC = {
+  list: "List the user's other projects open in ruri — the chats on their sidebar — that you may message: each one's handle, its project and folder, its model, and what its chat is doing right now: idle, or working (for how long, on what, the tool it is running, how many prompts are queued behind it), answering another agent, waiting on an answer, or waiting on the user. Use it to decide whether a message is worth interrupting a chat for. The user decides who you may message.",
+  message:
+    'Send a message to another project\'s chat — the one the user talks to there, on their sidebar — and get its answer back. It arrives in that chat as a prompt marked as yours, where the user sees it and its answer. A chat at work is interrupted for it by default (delivery "queue" waits instead). Use it to ask what that project\'s chat knows or has done, to hand it something to do in its project, or to tell it something it needs. By default you wait for the answer; say reply "none" only when the other chat should just do the work in the background and you need nothing back. Outside bypass mode the user is asked first, on a card.',
+  to: "The project's name, or its handle from list_agents",
+  project:
+    "Hand a job, or a question, to another project by its name — it goes to that project's own chat, the way message_agent does, and is answered the same way (reply \"wait\" by default) — or to a folder by its path, which is opened as a project first if it isn't one yet. Not for your own project: that is this chat. Outside bypass mode the user is asked first, on a card.",
+  projectMessage:
+    "What that project's chat reads. It knows nothing of you: say who you are working for, what you need, and anything it cannot find in its folder.",
+};
+
 /** The talk tools, for the `ruri` MCP server a Claude chat gets. `head`:
  *  the chat is a lead or a liaison, which hands jobs on, and hears back
- *  "later" unless it says otherwise. */
-export function talkTools(host: TalkHost, channelId: string, head = false) {
+ *  "later" unless it says otherwise. `plain`: a project is one chat
+ *  (Sessions mode), and the tools say so. */
+export function talkTools(host: TalkHost, channelId: string, head = false, plain = false) {
   return [
     tool(
       "list_agents",
-      "List the other agents open in ruri that you may message — your project's team, and every other open project (through its liaison, the lead that takes other projects' messages) — with each one's handle, its model, and what it is doing right now: idle, or working (for how long, on what, the tool it is running, how many prompts are queued behind it), answering another agent, waiting on an answer, or waiting on the user. Use it to decide whether a message is worth interrupting a chat for. The user decides who you may message.",
+      plain
+        ? PLAIN_DOC.list
+        : "List the other agents open in ruri that you may message — your project's team, and every other open project (through its liaison, the lead that takes other projects' messages) — with each one's handle, its model, and what it is doing right now: idle, or working (for how long, on what, the tool it is running, how many prompts are queued behind it), answering another agent, waiting on an answer, or waiting on the user. Use it to decide whether a message is worth interrupting a chat for. The user decides who you may message.",
       {},
       async () => ({ content: [{ type: "text", text: host.list(channelId) }] }),
     ),
     tool(
       "message_agent",
-      'Send a message to another agent open in ruri — a teammate in this project, or another project (its liaison gets it) — and get its answer back. It arrives in that chat as a prompt marked as yours. A chat at work is interrupted for it by default (delivery "queue" waits instead). Use it to ask what another agent knows or has done, to hand it something to do in its project, or to tell it something it needs. By default you wait for the answer; say reply "none" only when the other agent should just do the work in the background and you need nothing back. Outside bypass mode the user is asked first, on a card.',
+      plain
+        ? PLAIN_DOC.message
+        : 'Send a message to another agent open in ruri — a teammate in this project, or another project (its liaison gets it) — and get its answer back. It arrives in that chat as a prompt marked as yours. A chat at work is interrupted for it by default (delivery "queue" waits instead). Use it to ask what another agent knows or has done, to hand it something to do in its project, or to tell it something it needs. By default you wait for the answer; say reply "none" only when the other agent should just do the work in the background and you need nothing back. Outside bypass mode the user is asked first, on a card.',
       {
-        to: z.string().describe("The agent's handle from list_agents (or its project and chat name)"),
+        to: z
+          .string()
+          .describe(
+            plain ? PLAIN_DOC.to : "The agent's handle from list_agents (or its project and chat name)",
+          ),
         message: z
           .string()
           .describe(
@@ -726,7 +752,9 @@ export function talkTools(host: TalkHost, channelId: string, head = false) {
     ),
     tool(
       "ask_project",
-      "Hand a job, or a question, to another project: its liaison — the lead that takes other projects' messages — gets it and hands it on to its own team, and answers the way message_agent does (reply \"wait\" by default). Any project open in ruri (list_agents lists them), or a folder path, which is opened as a project — its lead new with it — if it isn't. Not for your own project: there, message a teammate. Outside bypass mode the user is asked first, on a card.",
+      plain
+        ? PLAIN_DOC.project
+        : "Hand a job, or a question, to another project: its liaison — the lead that takes other projects' messages — gets it and hands it on to its own team, and answers the way message_agent does (reply \"wait\" by default). Any project open in ruri (list_agents lists them), or a folder path, which is opened as a project — its lead new with it — if it isn't. Not for your own project: there, message a teammate. Outside bypass mode the user is asked first, on a card.",
       {
         project: z
           .string()
@@ -734,7 +762,9 @@ export function talkTools(host: TalkHost, channelId: string, head = false) {
         message: z
           .string()
           .describe(
-            "What its liaison reads. It knows nothing of you: say who you are working for, what you need, and anything it cannot find in its folder.",
+            plain
+              ? PLAIN_DOC.projectMessage
+              : "What its liaison reads. It knows nothing of you: say who you are working for, what you need, and anything it cannot find in its folder.",
           ),
         reply: head
           ? z.enum(["later", "none"]).optional().describe(HEAD_REPLY_DOC)
@@ -785,20 +815,31 @@ export function talkToolBriefing(head = false): string {
 }
 
 /** The same thing over HTTP, for every other harness. `waitMs` is how
- *  long one call waits on this chat's harness (httpWaitMs); `head`, as for
- *  the tools. */
-export function talkHttpBriefing(endpoint: string, waitMs = HTTP_WAIT_DEFAULT_MS, head = false): string {
+ *  long one call waits on this chat's harness (httpWaitMs); `head` and
+ *  `plain`, as for the tools. */
+export function talkHttpBriefing(
+  endpoint: string,
+  waitMs = HTTP_WAIT_DEFAULT_MS,
+  head = false,
+  plain = false,
+): string {
   const slice = Math.round(waitMs / 1000);
   const allow = slice + 10;
   const call = (body: string) =>
     `  curl -s -X POST ${endpoint} -H 'content-type: application/json' -d '${body}'`;
   return [
     "<ruri:talk>",
-    `Other agents are working in ruri too — your project's team, and the user's other open projects, each reached through its liaison — and you can talk to them, by POSTing JSON to ${endpoint}. Each call answers {"ok": true, "text": "...", ...}; read "text".`,
+    plain
+      ? `The user's other projects are open in ruri too — the chats on their sidebar — and you can message them, by POSTing JSON to ${endpoint}. A message lands in that project's own chat, where the user sees it and its answer. Each call answers {"ok": true, "text": "...", ...}; read "text".`
+      : `Other agents are working in ruri too — your project's team, and the user's other open projects, each reached through its liaison — and you can talk to them, by POSTing JSON to ${endpoint}. Each call answers {"ok": true, "text": "...", ...}; read "text".`,
     '  {"do": "list"} — who you may message, each with a handle',
     '  {"do": "list"} also says what each is doing right now — idle, or working (for how long, on what), answering another agent, waiting on the user',
-    '  {"do": "send", "to": "<handle>", "message": "...", "reply": "wait", "delivery": "interrupt"} — send one a message',
-    '  {"do": "project", "project": "<open project name, or a folder path>", "message": "...", "reply": "wait"} — hand a job or a question to another project, through its liaison (a folder is opened as a project first)',
+    plain
+      ? '  {"do": "send", "to": "<handle, or the project\'s name>", "message": "...", "reply": "wait", "delivery": "interrupt"} — send one a message'
+      : '  {"do": "send", "to": "<handle>", "message": "...", "reply": "wait", "delivery": "interrupt"} — send one a message',
+    plain
+      ? '  {"do": "project", "project": "<open project name, or a folder path>", "message": "...", "reply": "wait"} — the same by the project\'s name; a folder path is opened as a project first'
+      : '  {"do": "project", "project": "<open project name, or a folder path>", "message": "...", "reply": "wait"} — hand a job or a question to another project, through its liaison (a folder is opened as a project first)',
     '  {"do": "wait", "letter": "<id>"} — keep waiting on the answer to a message you sent',
     '"delivery": "interrupt" (the default) stops the turn a busy chat is running so it reads yours now, and sends it back to that work after; "queue" waits in its line instead — for when it is deep in something your message can wait for.',
     call('{"do":"list"}'),

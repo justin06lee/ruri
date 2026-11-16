@@ -96,6 +96,10 @@ const NORTH = [
 const SOUTH = "c-replies-south";
 const WEST = "c-replies-west";
 fs.mkdirSync(path.join(configDir, "sessions"), { recursive: true });
+// projects run as teams here: a liaison is what another project's message
+// reaches only then — where a project is one chat (the default), its own
+// chat is (scripts/talk.ts)
+fs.writeFileSync(path.join(configDir, "prefs.json"), JSON.stringify({ "ruri-sessions-mode": "team" }));
 fs.writeFileSync(
   path.join(configDir, "projects.json"),
   JSON.stringify({

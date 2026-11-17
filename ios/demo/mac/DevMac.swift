@@ -97,7 +97,8 @@ enum DevMac {
 
         var body: some View {
             switch DevMac.screen {
-            case "chat", "chat-live": NavigationStack { MadeChat(live: DevMac.screen == "chat-live") }
+            case "chat", "chat-live", "chat-late":
+                NavigationStack { MadeChat(live: DevMac.screen == "chat-live", late: DevMac.screen == "chat-late") }
             case "project": NavigationStack { ProjectView(name: "orchard") }
             case "pair": PairView()
             case "mac": MacSheet()
@@ -110,6 +111,9 @@ enum DevMac {
     /// watch the screen follow it.
     private struct MadeChat: View {
         var live: Bool
+        /// Its conversation arrives a moment after the screen opens, as a
+        /// real one does from the Mac.
+        var late = false
         @Environment(RuriModel.self) private var model
         @State private var session: ChatSession?
 
@@ -122,8 +126,19 @@ enum DevMac {
                 }
             }
             .task {
-                let made = ChatSession(sample: .sample, model: model)
+                var empty = ChatFrame.sample
+                empty.items = []
+                empty.queue = []
+                let made = ChatSession(sample: late ? empty : .sample, model: model)
                 session = made
+                if late {
+                    try? await Task.sleep(for: .milliseconds(700))
+                    var long = ChatFrame.sample
+                    long.items = (1...40).map { n in
+                        ChatItem(id: "m\(n)", kind: n % 2 == 0 ? .assistant : .user, text: "Message \(n): a line of the conversation, long enough to wrap onto a second line.", at: .now)
+                    }
+                    made.apply(sample: long)
+                }
                 guard live else { return }
                 var frame = ChatFrame.sample
                 frame.state = .working

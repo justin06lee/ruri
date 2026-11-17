@@ -115,6 +115,10 @@ private struct Conversation: View {
     @State private var position = ScrollPosition(edge: .bottom)
     /// The reader is at the end, so what arrives is followed.
     @State private var atEnd = true
+    /// The conversation has been shown from its end once. Until then it
+    /// isn't shown at all: it arrives from the Mac after the screen opens,
+    /// and would otherwise flash from its top.
+    @State private var landed = false
 
     var body: some View {
         let rows = Transcript.rows(session)
@@ -142,7 +146,18 @@ private struct Conversation: View {
             atEnd = now
         }
         .scrollDismissesKeyboard(.interactively)
-        .opacity(session.line == .offline ? 0.5 : 1)
+        .opacity(!landed && !rows.isEmpty ? 0 : session.line == .offline ? 0.5 : 1)
+        // opened on its latest: once the first of it has arrived and been
+        // laid out, straight to the end
+        .task(id: rows.isEmpty) {
+            guard !landed, !rows.isEmpty else { return }
+            for _ in 0..<3 {
+                position.scrollTo(edge: .bottom)
+                try? await Task.sleep(for: .milliseconds(40))
+            }
+            atEnd = true
+            landed = true
+        }
         .overlay {
             if rows.isEmpty {
                 if session.line == .connecting || session.line == .live && session.log.name.isEmpty {

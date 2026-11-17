@@ -138,6 +138,38 @@ final class RuriModel {
         address = nil
     }
 
+    // MARK: the sidebar
+
+    /// Put a project or a folder somewhere, here at once and then on the
+    /// Mac, where every window follows. Should the Mac refuse, the next
+    /// picture puts it back.
+    func move(_ id: String, into folder: String?, before: String?) {
+        guard let layout = report?.sidebar else { return }
+        let moved = layout.moving(id, into: folder, before: before)
+        guard moved != layout else { return }
+        report?.sidebar = moved
+        arrange(SidebarBody(do: .move, id: id, folderId: folder, beforeId: before))
+    }
+
+    /// Fold a folder shut, or open it — on the Mac too.
+    func fold(_ folder: String, _ collapsed: Bool) {
+        guard let layout = report?.sidebar else { return }
+        report?.sidebar = layout.folding(folder, collapsed)
+        arrange(SidebarBody(do: .fold, folderId: folder, collapsed: collapsed))
+    }
+
+    private func arrange(_ body: SidebarBody) {
+        guard client != nil else { return }
+        Task {
+            do {
+                let (client, address, port) = try await line()
+                try await client.sidebar(body, at: address, port: port)
+            } catch {
+                await refresh()
+            }
+        }
+    }
+
     // MARK: the app in front, or not
 
     /// The app came to the front: open the line.

@@ -26,6 +26,7 @@ import {
   type StatusState,
   type TranscriptEvent,
 } from "../shared/protocol.js";
+import type { SidebarLayout } from "../shared/sidebar.js";
 import type { ServerContext } from "./context.js";
 import { warn } from "./log.js";
 import { buildPayload, trimSummary } from "./projectHooks.js";
@@ -79,7 +80,7 @@ function readProject(
   project: Project,
   ids: boolean,
   now: number,
-): { project: StatusProject; needs: StatusNeed[]; lastActive: number } {
+): { id: string; project: StatusProject; needs: StatusNeed[]; lastActive: number } {
   const statuses = ctx.manager.statuses();
   const standing = projectWatch(ctx).standing(project);
   const asks = new Map(standing.asks.map((ask) => [ask.chatId, ask]));
@@ -184,6 +185,7 @@ function readProject(
   return {
     project: {
       name: project.name,
+      ...(project.starred ? { starred: true as const } : {}),
       state,
       doingNow,
       ...(since !== undefined ? { since: iso(since) } : {}),
@@ -193,6 +195,7 @@ function readProject(
     },
     needs,
     lastActive,
+    id: project.id,
   };
 }
 
@@ -206,11 +209,28 @@ export function statusReport(ctx: ServerContext, opts: { ids?: boolean; now?: nu
   read.sort(
     (a, b) => ORDER[a.project.state] - ORDER[b.project.state] || b.lastActive - a.lastActive,
   );
+  const shown = new Set(read.map((r) => r.id));
+  const layout = opts.ids ? shownLayout(ctx, shown) : undefined;
   return {
     computer: computerName(),
     at: new Date(now).toISOString(),
     needsYou: read.flatMap((r) => r.needs).sort((a, b) => a.since.localeCompare(b.since)),
     projects: read.map((r) => r.project),
+    ...(layout ? { sidebar: layout } : {}),
+  };
+}
+
+/** The sidebar's layout with only the projects the phone is shown in it:
+ *  a hidden project's place is nobody's business but the Mac's. */
+function shownLayout(ctx: ServerContext, shown: ReadonlySet<string>): SidebarLayout | undefined {
+  // a stand-in store (the tests') may keep no layout
+  const store = ctx.store as Partial<Pick<ServerContext["store"], "sidebar">>;
+  if (typeof store.sidebar !== "function") return undefined;
+  const layout = store.sidebar();
+  const folders = new Set(layout.folders.map((f) => f.id));
+  return {
+    order: layout.order.filter((id) => folders.has(id) || shown.has(id)),
+    folders: layout.folders.map((f) => ({ ...f, projects: f.projects.filter((id) => shown.has(id)) })),
   };
 }
 

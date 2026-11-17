@@ -172,6 +172,19 @@ struct QueueBody: Encodable, Sendable {
     var itemId: String?
 }
 
+/// What POST /sidebar carries: something moved, or a folder folded.
+struct SidebarBody: Encodable, Sendable {
+    enum What: String, Encodable, Sendable {
+        case move, fold
+    }
+
+    var `do`: What
+    var id: String?
+    var folderId: String?
+    var beforeId: String?
+    var collapsed: Bool?
+}
+
 /// What POST /chat/queue and /chat/stop answer.
 struct DoneAnswer: Decodable, Sendable {
     var ok: Bool

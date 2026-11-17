@@ -1853,6 +1853,8 @@ export interface StatusNeed {
 /** A project, as the phone shows it. */
 export interface StatusProject {
   name: string;
+  /** Starred in the sidebar. */
+  starred?: true;
   state: StatusState;
   /** One line: what needs the user, what stopped, who is at work on what,
    *  or — at rest — the lead's last words. */
@@ -1950,6 +1952,10 @@ export interface StatusReport {
   /** Those needing the user first, then stopped, then at work, then at
    *  rest; each lot by when it was last active. */
   projects: StatusProject[];
+  /** Only with ?ids=1: the sidebar as the Mac arranges it — its folders and
+   *  the order of everything, by id — for the phone to show the same. Only
+   *  the projects in `projects` are named in it. */
+  sidebar?: SidebarLayout;
 }
 
 /** Where a project's events go: a command run with the event on its stdin,

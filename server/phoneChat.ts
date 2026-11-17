@@ -14,6 +14,9 @@
  *                               now ("now") or taken out ("remove"), or a
  *                               queue that is standing by sent on ("send")
  *   POST /chat/stop             { id } — the running turn stopped
+ *   POST /sidebar               { do: "move", id, folderId?, beforeId? } or
+ *                               { do: "fold", folderId, collapsed } — the
+ *                               sidebar arranged, as the window's drag does
  *
  * What the phone is shown is what the user reads in the web app: their
  * prompts and the replies in full, tool calls folded into one line of
@@ -40,6 +43,7 @@ import {
 } from "../shared/protocol.js";
 import { channelProject } from "./channel.js";
 import type { ClientConn, ServerContext } from "./context.js";
+import { projectHandlers } from "./handlers/projects.js";
 import { promptHandlers } from "./handlers/prompts.js";
 import { warn } from "./log.js";
 import type { QueueEntry } from "./queue.js";
@@ -112,7 +116,64 @@ export function readQueueBody(body: Record<string, unknown>): PhoneQueueBody | u
   return { id, do: what, itemId };
 }
 
-const CHAT_PATHS = new Set(["/chat", "/chat/live", "/chat/send", "/chat/queue", "/chat/stop"]);
+/** A socket nobody reads: these handlers answer through what the phone
+ *  watches — the chat's live line, or the status. */
+const nobody = { readyState: WebSocket.CLOSED, send() {} } as unknown as ClientConn;
+
+/** What a phone may do to the sidebar: put a project or a folder somewhere
+ *  (`moveInLayout`'s place), or fold or open a folder. */
+export type PhoneSidebarBody =
+  | { do: "move"; id: string; folderId?: string; beforeId?: string }
+  | { do: "fold"; folderId: string; collapsed: boolean };
+
+const sidebarId = (raw: unknown): string | undefined =>
+  typeof raw === "string" && raw.length > 0 && raw.length <= 200 ? raw : undefined;
+
+/** A /sidebar body, checked — or undefined. */
+export function readSidebarBody(body: Record<string, unknown>): PhoneSidebarBody | undefined {
+  const id = sidebarId(body["id"]);
+  const folderId = sidebarId(body["folderId"]);
+  const beforeId = sidebarId(body["beforeId"]);
+  if (body["do"] === "move" && id) {
+    return { do: "move", id, ...(folderId ? { folderId } : {}), ...(beforeId ? { beforeId } : {}) };
+  }
+  if (body["do"] === "fold" && folderId && typeof body["collapsed"] === "boolean") {
+    return { do: "fold", folderId, collapsed: body["collapsed"] };
+  }
+  return undefined;
+}
+
+/**
+ * The phone's hand on the sidebar, the way the window's drag has one: the
+ * same handlers, so every window sees the change at once and the phone with
+ * its next status. Only what the phone is shown can be named — a hidden
+ * project is the Mac's own business. Answers whether it was done.
+ */
+export function phoneSidebar(ctx: ServerContext, body: PhoneSidebarBody): boolean {
+  const layout = ctx.store.sidebar();
+  const folders = new Set(layout.folders.map((f) => f.id));
+  const shown = (id: string) => folders.has(id) || ctx.store.list().some((p) => p.id === id && !p.hidden);
+  if (body.do === "fold") {
+    if (!folders.has(body.folderId)) return false;
+    void projectHandlers.folder_set(ctx, nobody, {
+      type: "folder_set",
+      folderId: body.folderId,
+      collapsed: body.collapsed,
+    });
+    return true;
+  }
+  if (!shown(body.id) || (body.folderId && !folders.has(body.folderId))) return false;
+  if (body.beforeId && !shown(body.beforeId)) return false;
+  void projectHandlers.sidebar_move(ctx, nobody, {
+    type: "sidebar_move",
+    id: body.id,
+    ...(body.folderId ? { folderId: body.folderId } : {}),
+    ...(body.beforeId ? { beforeId: body.beforeId } : {}),
+  });
+  return true;
+}
+
+const CHAT_PATHS = new Set(["/chat", "/chat/live", "/chat/send", "/chat/queue", "/chat/stop", "/sidebar"]);
 
 /** Whether a request is for a chat, the phone's way. */
 export function isPhoneChatPath(pathname: string): boolean {
@@ -385,10 +446,6 @@ export async function phoneSend(
   return { as: as ?? "other" };
 }
 
-/** A socket nobody reads: these handlers answer through the chat itself,
- *  which the phone is watching (the live line). */
-const nobody = { readyState: WebSocket.CLOSED, send() {} } as unknown as ClientConn;
-
 /**
  * The phone's hand on a chat's queue, the way the web app's cards have
  * one: a prompt held down goes now (it cuts in on a running turn), one is
@@ -480,6 +537,23 @@ export async function servePhoneChat(
       return;
     }
     json(res, 200, await phoneSend(ctx, id, text, clientId, uploads, now));
+    return;
+  }
+  if (url.pathname === "/sidebar") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { allow: "POST" });
+      res.end();
+      return;
+    }
+    const parsed = await readJson(req, 4096);
+    const body = parsed ? readSidebarBody(parsed) : undefined;
+    if (!body) {
+      json(res, 400, {
+        error: 'send { do: "move", id, folderId?, beforeId? } or { do: "fold", folderId, collapsed }',
+      });
+      return;
+    }
+    json(res, 200, { ok: phoneSidebar(ctx, body) });
     return;
   }
   if (url.pathname === "/chat/queue" || url.pathname === "/chat/stop") {

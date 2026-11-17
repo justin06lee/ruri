@@ -342,6 +342,13 @@ final class MacClient: Sendable {
         try await act(body, to: "/chat/queue", at: address, port: port)
     }
 
+    /// Arrange the sidebar, as a drag in the window does: every window sees
+    /// it at once, and this phone with its next status.
+    @discardableResult
+    func sidebar(_ body: SidebarBody, at address: String, port: Int) async throws -> Bool {
+        try await act(body, to: "/sidebar", at: address, port: port)
+    }
+
     /// Stop the turn a chat is running. Its queue stands by.
     func stop(_ chat: String, at address: String, port: Int) async throws {
         try await act(["id": chat], to: "/chat/stop", at: address, port: port)

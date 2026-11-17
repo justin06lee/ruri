@@ -7,15 +7,18 @@ import {
   type ServerMessage,
   type TranscriptEvent,
 } from "../shared/protocol.js";
+import { moveInLayout, setFolder, type SidebarLayout } from "../shared/sidebar.js";
 import type { ServerContext } from "./context.js";
 import {
   nextFrame,
   phoneItems,
   phoneQueue,
   phoneQueueDo,
+  phoneSidebar,
   phoneStop,
   readQueueBody,
   readSendBody,
+  readSidebarBody,
 } from "./phoneChat.js";
 import { SendQueues, type QueueEntry } from "./queue.js";
 
@@ -277,5 +280,82 @@ describe("the phone's hand on a queue", () => {
     phoneStop(w.ctx, CHAT);
     expect(w.interrupted).toEqual([CHAT]);
     expect(w.queues.cutIn.has(CHAT)).toBe(false);
+  });
+});
+
+describe("the phone's hand on the sidebar", () => {
+  /** A store with a real layout: two projects in a folder, one out, one hidden. */
+  function world() {
+    let layout: SidebarLayout = {
+      order: ["f", "c", "hid"],
+      folders: [{ id: "f", name: "Work", projects: ["a", "b"] }],
+    };
+    const projects = [
+      { id: "a", name: "a" },
+      { id: "b", name: "b" },
+      { id: "c", name: "c" },
+      { id: "hid", name: "hid", hidden: true },
+    ];
+    const sent: ServerMessage[] = [];
+    const ctx = {
+      store: {
+        list: () => projects,
+        sidebar: () => layout,
+        moveInSidebar: (id: string, to: { folderId?: string; beforeId?: string }) => {
+          layout = moveInLayout(layout, id, to);
+        },
+        setFolder: (id: string, patch: { name?: string; collapsed?: boolean }) => {
+          layout = setFolder(layout, id, patch);
+        },
+      },
+      clients: { broadcast: (message: ServerMessage) => sent.push(message) },
+    } as unknown as ServerContext;
+    return { ctx, sent, layout: () => layout };
+  }
+
+  test("a body moves something somewhere, or folds a folder", () => {
+    expect(readSidebarBody({ do: "move", id: "a", folderId: "f", beforeId: "b" })).toEqual({
+      do: "move",
+      id: "a",
+      folderId: "f",
+      beforeId: "b",
+    });
+    expect(readSidebarBody({ do: "move", id: "a" })).toEqual({ do: "move", id: "a" });
+    expect(readSidebarBody({ do: "fold", folderId: "f", collapsed: true })).toEqual({
+      do: "fold",
+      folderId: "f",
+      collapsed: true,
+    });
+    expect(readSidebarBody({ do: "move" })).toBeUndefined();
+    expect(readSidebarBody({ do: "fold", folderId: "f" })).toBeUndefined();
+    expect(readSidebarBody({ do: "rename", folderId: "f", name: "x" })).toBeUndefined();
+  });
+
+  test("a project moves out of its folder and into another place, every window told", () => {
+    const w = world();
+    expect(phoneSidebar(w.ctx, { do: "move", id: "b", beforeId: "f" })).toBe(true);
+    expect(w.layout().order).toEqual(["b", "f", "c", "hid"]);
+    expect(w.layout().folders[0]!.projects).toEqual(["a"]);
+    expect(w.sent.some((m) => m.type === "sidebar")).toBe(true);
+    expect(phoneSidebar(w.ctx, { do: "move", id: "c", folderId: "f", beforeId: "a" })).toBe(true);
+    expect(w.layout().folders[0]!.projects).toEqual(["c", "a"]);
+  });
+
+  test("a folder folds and opens", () => {
+    const w = world();
+    expect(phoneSidebar(w.ctx, { do: "fold", folderId: "f", collapsed: true })).toBe(true);
+    expect(w.layout().folders[0]!.collapsed).toBe(true);
+    expect(phoneSidebar(w.ctx, { do: "fold", folderId: "nope", collapsed: true })).toBe(false);
+  });
+
+  test("what the phone isn't shown it can't move, or move things around", () => {
+    const w = world();
+    const before = w.layout();
+    expect(phoneSidebar(w.ctx, { do: "move", id: "hid" })).toBe(false);
+    expect(phoneSidebar(w.ctx, { do: "move", id: "a", beforeId: "hid" })).toBe(false);
+    expect(phoneSidebar(w.ctx, { do: "move", id: "a", folderId: "gone" })).toBe(false);
+    expect(phoneSidebar(w.ctx, { do: "move", id: "nobody" })).toBe(false);
+    expect(w.layout()).toBe(before);
+    expect(w.sent).toEqual([]);
   });
 });

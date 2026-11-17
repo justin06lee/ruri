@@ -11326,3 +11326,14 @@ button.primary { min-height: 28px; }
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
+
+/* the project's own account, in a chat's account menu */
+.account-item-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  color: var(--ink-faint);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  vertical-align: 1px;
+}

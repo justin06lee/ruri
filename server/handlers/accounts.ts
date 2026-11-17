@@ -67,6 +67,28 @@ export function setProjectAccount(ctx: ServerContext, projectId: string, id: str
   return true;
 }
 
+/**
+ * Put one chat on an account of its own, over its project's; with none,
+ * back on its project's for that harness. Picking the account its project
+ * is on is following the project, not pinning it. Whether it was done.
+ */
+export function setChatAccount(
+  ctx: ServerContext,
+  chatId: string,
+  provider: AccountProvider,
+  id: string | undefined,
+): boolean {
+  if (id !== undefined && findAccount(id)?.provider !== provider) return false;
+  if (chatId === HOME_ID) return setProjectAccount(ctx, HOME_ID, id ?? DEFAULT_ACCOUNTS[provider]);
+  const found = ctx.store.findSession(chatId);
+  if (!found) return false;
+  const own = id === undefined || accountOf(found.project, provider) === id ? undefined : id;
+  if (ctx.store.setSessionAccount(chatId, provider, own)) {
+    ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
+  }
+  return true;
+}
+
 export const accountHandlers = {
   // which account the project runs on, for the harness the account is
   // for: a chat's id names its project. Nothing running is stopped — each
@@ -74,6 +96,13 @@ export const accountHandlers = {
   // session there (accounts.ts)
   set_account: (ctx, ws, msg) => {
     if (!setProjectAccount(ctx, msg.projectId, msg.account)) tell(ws, "That account isn't here any more.");
+  },
+  // one chat on an account of its own, over its project's — or back on
+  // its project's. Home is one chat, so its own is Home's
+  set_chat_account: (ctx, ws, msg) => {
+    if (!setChatAccount(ctx, msg.chatId, msg.provider, msg.account)) {
+      tell(ws, "That account isn't here any more.");
+    }
   },
   account_add: (ctx, ws, msg) => {
     let added;
@@ -106,6 +135,13 @@ export const accountHandlers = {
         ...(project.account === gone.id ? { account: undefined } : {}),
       });
       moved = true;
+    }
+    // and a chat on it goes back on its project's
+    for (const project of ctx.store.list()) {
+      for (const session of project.sessions) {
+        if (session.accounts?.[gone.provider] !== gone.id) continue;
+        if (ctx.store.setSessionAccount(session.id, gone.provider, undefined)) moved = true;
+      }
     }
     if (moved) ctx.clients.broadcast({ type: "projects", projects: ctx.store.list() });
     if (ctx.store.homeSettings().accounts?.[gone.provider] === gone.id) {

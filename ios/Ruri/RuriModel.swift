@@ -193,6 +193,41 @@ final class RuriModel {
         }
     }
 
+    /// Run one chat on an account of its own — here at once, then on the
+    /// Mac. Picking its project's account is following the project again.
+    func setChatAccount(_ account: StatusAccount, for chat: String) {
+        guard let project = report?.project(holding: chat),
+              let at = report?.projects.firstIndex(where: { $0.name == project.name }) else { return }
+        let follows = project.accounts?[account.provider] == account.id
+        let mark = { (one: inout StatusChat) in
+            guard one.id == chat else { return }
+            one.accounts = (one.accounts ?? [:]).merging([account.provider: account.id]) { _, new in new }
+        }
+        if var lead = report?.projects[at].lead {
+            mark(&lead)
+            report?.projects[at].lead = lead
+        }
+        for index in report?.projects[at].team.indices ?? 0..<0 {
+            if var member = report?.projects[at].team[index] {
+                mark(&member)
+                report?.projects[at].team[index] = member
+            }
+        }
+        guard client != nil else { return }
+        Task {
+            do {
+                let (client, address, port) = try await line()
+                if try await !client.chatAccount(
+                    follows ? nil : account.id, provider: account.provider, chat: chat, at: address, port: port
+                ) {
+                    await refresh()
+                }
+            } catch {
+                await refresh()
+            }
+        }
+    }
+
     // MARK: the app in front, or not
 
     /// The app came to the front: open the line.

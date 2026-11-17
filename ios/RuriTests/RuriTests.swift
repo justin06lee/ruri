@@ -148,7 +148,8 @@ struct StatusTests {
               "computer": "Mac", "at": "2026-11-17T09:00:00.000Z", "needsYou": [],
               "projects": [
                 { "name": "ruri", "state": "idle", "doingNow": "", "id": "p-ruri",
-                  "lead": { "name": "Lead", "role": "lead", "state": "idle", "lastWords": "", "id": "c-lead" },
+                  "lead": { "name": "Lead", "role": "lead", "state": "idle", "lastWords": "", "id": "c-lead",
+                            "accounts": { "claude": "work", "codex": "codex" } },
                   "team": [], "accounts": { "claude": "personal", "codex": "codex" } }
               ],
               "accounts": [
@@ -166,6 +167,8 @@ struct StatusTests {
         #expect(report.accounts?.last?.signedIn == false)
         let ruri = try #require(report.project(holding: "c-lead"))
         #expect(ruri.accounts?["claude"] == "personal")
+        // its chat on an account of its own
+        #expect(report.chat("c-lead")?.accounts?["claude"] == "work")
         let work = try #require(report.usage(of: "work"))
         #expect(work.fullest?.label == "Fable")
         #expect(work.fullest?.percent == 100)

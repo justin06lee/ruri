@@ -190,6 +190,14 @@ struct SidebarBody: Encodable, Sendable {
     var collapsed: Bool?
 }
 
+/// What POST /chat/account carries: a chat's own account for a harness,
+/// or none — back on its project's.
+struct ChatAccountBody: Encodable, Sendable {
+    var id: String
+    var provider: String
+    var account: String?
+}
+
 /// What POST /chat/queue and /chat/stop answer.
 struct DoneAnswer: Decodable, Sendable {
     var ok: Bool

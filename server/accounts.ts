@@ -11,6 +11,7 @@ import {
   type AccountProvider,
   type HomeSettings,
   type Project,
+  type SessionInfo,
 } from "../shared/protocol.js";
 import { writeJsonAtomic } from "./atomic.js";
 import { configPath } from "./configDir.js";
@@ -169,19 +170,45 @@ export function accountOf(
   return findAccount(pick)?.provider === provider ? pick : DEFAULT_ACCOUNTS[provider];
 }
 
-/** The account a project runs on — found by its id, or by any of its
- *  chats'. Home runs on its own pick; anything not found on the default. */
+/** The account a chat runs a harness on: its own pick while that is an
+ *  account for the harness, else its project's (accountOf). */
+export function chatAccountOf(
+  project: Pick<Project, "account" | "accounts"> | null | undefined,
+  session: Pick<SessionInfo, "accounts"> | null | undefined,
+  provider: AccountProvider = "claude",
+): string {
+  const own = session?.accounts?.[provider];
+  return own && findAccount(own)?.provider === provider ? own : accountOf(project, provider);
+}
+
+/** Every harness's account for a chat, worked out — what a chat's process
+ *  is started with (channelProject carries it as its accounts). */
+export function channelAccounts(
+  project: Pick<Project, "account" | "accounts"> | null | undefined,
+  session?: Pick<SessionInfo, "accounts"> | null,
+): Record<AccountProvider, string> {
+  return {
+    claude: chatAccountOf(project, session, "claude"),
+    codex: chatAccountOf(project, session, "codex"),
+  };
+}
+
+/** The account a chat runs on, by its id — or a project, by its own. Home
+ *  runs on its own pick; anything not found on the default. */
 export function accountFor(
   store: {
     get(id: string): Project | undefined;
-    findSession(id: string): { project: Project } | undefined;
+    findSession(id: string): { project: Project; session?: SessionInfo } | undefined;
     homeSettings?(): HomeSettings;
   },
   id: string,
   provider: AccountProvider = "claude",
 ): string {
   if (id === HOME_ID) return accountOf(store.homeSettings?.(), provider);
-  return accountOf(store.get(id) ?? store.findSession(id)?.project, provider);
+  const project = store.get(id);
+  if (project) return accountOf(project, provider);
+  const found = store.findSession(id);
+  return chatAccountOf(found?.project, found?.session, provider);
 }
 
 /** The folder name an added account gets: its name, plain. */

@@ -34,10 +34,12 @@ export function picksOf(s: { projects: Project[]; home: HomeSettings }, channelI
   return channelId === HOME_ID ? s.home : projectOfChannel(s.projects, channelId);
 }
 
-/** The account a channel runs `provider` on; undefined for a harness ruri
- *  has no accounts for. */
-export function channelAccount(
-  s: { projects: Project[]; home: HomeSettings; accounts: AccountInfo[] },
+type AccountState = { projects: Project[]; home: HomeSettings; accounts: AccountInfo[] };
+
+/** The account a channel's project — or Home — runs `provider` on: what
+ *  a chat of its own follows. */
+export function projectAccount(
+  s: AccountState,
   channelId: string,
   provider: string | undefined,
 ): AccountInfo | undefined {
@@ -45,6 +47,21 @@ export function channelAccount(
   if (!isAccountProvider(harness)) return undefined;
   const id = accountIn(s.accounts, picksOf(s, channelId), harness);
   return s.accounts.find((a) => a.id === id);
+}
+
+/** The account a channel runs `provider` on: the chat's own while that is
+ *  one of the harness's accounts, else its project's (server/accounts.ts
+ *  chatAccountOf). Undefined for a harness ruri has no accounts for. */
+export function channelAccount(
+  s: AccountState,
+  channelId: string,
+  provider: string | undefined,
+): AccountInfo | undefined {
+  const harness = provider ?? "claude";
+  if (!isAccountProvider(harness)) return undefined;
+  const session = projectOfChannel(s.projects, channelId)?.sessions.find((x) => x.id === channelId);
+  const own = s.accounts.find((a) => a.id === session?.accounts?.[harness] && a.provider === harness);
+  return own ?? projectAccount(s, channelId, harness);
 }
 
 /** Picks with this account's said — and the default said by saying nothing. */

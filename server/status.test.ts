@@ -298,6 +298,9 @@ describe("the status report", () => {
       ["codex", "codex"],
     ]);
     expect(withIds.projects[0]!.accounts).toEqual({ claude: "work", codex: "codex" });
+    // each chat with the account it runs on: its own, else its project's
+    expect(withIds.projects[0]!.lead?.accounts).toEqual({ claude: "work", codex: "codex" });
+    expect(plain.projects[0]!.lead?.accounts).toBeUndefined();
   });
 
   test("with ids, the sidebar as the Mac arranges it, a hidden project left out; and the stars", () => {

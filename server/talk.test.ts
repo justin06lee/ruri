@@ -9,6 +9,8 @@ import type {
   ServerMessage,
   TranscriptEvent,
 } from "../shared/protocol.js";
+import { addAccount, claudeSessionEnv } from "./accounts.js";
+import { channelProject } from "./channel.js";
 import type { ServerContext } from "./context.js";
 import {
   answerTalk,
@@ -1000,6 +1002,58 @@ describe("a project that is one chat messages the other projects' chats", () => 
       "Sent to api",
     );
     ctx.talk.setPolicy(defaultPolicy());
+  });
+});
+
+describe("chats on different accounts message each other all the same", () => {
+  let saved: Record<string, string | undefined>;
+  let dir: string;
+  beforeAll(() => {
+    saved = {
+      RURI_CONFIG_DIR: process.env["RURI_CONFIG_DIR"],
+      RURI_PERSONAL_CLAUDE_DIR: process.env["RURI_PERSONAL_CLAUDE_DIR"],
+      CLAUDE_CONFIG_DIR: process.env["CLAUDE_CONFIG_DIR"],
+    };
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-talk-accounts-"));
+    // an accounts.json of this test's own, and every home a folder of it
+    process.env["RURI_CONFIG_DIR"] = path.join(dir, "config");
+    process.env["RURI_PERSONAL_CLAUDE_DIR"] = path.join(dir, "personal");
+    process.env["CLAUDE_CONFIG_DIR"] = path.join(dir, "work");
+  });
+  afterAll(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a message and its answer cross accounts, each side running on its own", async () => {
+    const side = addAccount("claude", "Side");
+    const { ctx, projects, arrive, answer } = sidebar();
+    // web runs on personal; api on work, but its chat on an account of its own
+    projects[0]!.accounts = { claude: "personal" };
+    projects[1]!.sessions[0]!.accounts = { claude: side.id };
+    const home = (chat: string) => claudeSessionEnv(channelProject(ctx, chat)!, undefined, {})["CLAUDE_CONFIG_DIR"];
+    expect(home("web-chat")).toBe(path.join(dir, "personal"));
+    expect(home("api-chat")).toBe(side.dir);
+    // the air chat follows its project, which says nothing: work, its
+    // CLAUDE_CONFIG_DIR left as ruri has it
+    expect(home("air-chat")).toBeUndefined();
+
+    const going = sendLetter(ctx, "web-chat", { to: "api", message: "what port?" });
+    const prompt = arrive("api-chat");
+    expect(prompt.from).toMatchObject({ agent: "web-chat", project: "web" });
+    answer("api-chat", "It listens on 8080.");
+    expect(await going).toMatchObject({ text: "api answered:\n\nIt listens on 8080.", answered: true });
+
+    // and the other way, the answer coming back later as a message
+    await sendLetter(ctx, "api-chat", { to: "web", message: "tell me when done", reply: "later" });
+    arrive("web-chat");
+    answer("web-chat", "Done.");
+    expect(ctx.queues.entries.get("api-chat")![0]!.from).toMatchObject({ agent: "web-chat", answer: true });
+    arrive("api-chat");
+    expect(ctx.talk.pending.size).toBe(0);
   });
 });
 

@@ -356,6 +356,13 @@ final class MacClient: Sendable {
         try await act(["id": project, "account": account], to: "/project/account", at: address, port: port)
     }
 
+    /// Run one chat on an account of its own, or (no account) back on its
+    /// project's, as the account chip in the Mac's prompt box does.
+    @discardableResult
+    func chatAccount(_ account: String?, provider: String, chat: String, at address: String, port: Int) async throws -> Bool {
+        try await act(ChatAccountBody(id: chat, provider: provider, account: account), to: "/chat/account", at: address, port: port)
+    }
+
     /// What is written in a chat's prompt box here: every window's box
     /// takes it.
     func draft(_ text: String, chat: String, at address: String, port: Int) async throws {

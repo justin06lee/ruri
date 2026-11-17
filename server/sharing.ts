@@ -190,6 +190,7 @@ const PHONE_PATHS = new Set([
   "/chat/draft",
   "/sidebar",
   "/project/account",
+  "/chat/account",
   "/phone/push",
   "/phone/push/settings",
 ]);

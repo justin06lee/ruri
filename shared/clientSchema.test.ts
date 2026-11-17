@@ -98,6 +98,7 @@ const samples: { [K in ClientMessage["type"]]: Extract<ClientMessage, { type: K 
   set_permission_mode: { type: "set_permission_mode", projectId: "p", mode: "plan" },
   set_effort: { type: "set_effort", projectId: "p", effort: "high" },
   set_account: { type: "set_account", projectId: "p", account: "personal" },
+  set_chat_account: { type: "set_chat_account", chatId: "c", provider: "claude", account: "personal" },
   account_add: { type: "account_add", provider: "codex", name: "Side" },
   account_rename: { type: "account_rename", id: "personal", name: "Mine" },
   account_remove: { type: "account_remove", id: "side" },

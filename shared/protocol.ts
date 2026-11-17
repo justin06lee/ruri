@@ -86,6 +86,10 @@ export interface SessionInfo {
    *  events go to midna's own hook when this chat is in them. midna hears
    *  of no chat it hasn't asked about. */
   watched?: true;
+  /** This chat's own account per harness, over its project's
+   *  (Project.accounts): unset follows the project, whatever it is put on
+   *  later. Read at every start (server/accounts.ts channelAccounts). */
+  accounts?: Partial<Record<AccountProvider, string>>;
 }
 
 /** The pref that switches a project between a list of chats ("sessions",
@@ -1968,6 +1972,9 @@ export interface StatusChat {
   watched?: true;
   /** Only with ?ids=1. */
   id?: string;
+  /** Only with ?ids=1: the account it runs each harness on — its own, or
+   *  its project's. */
+  accounts?: Partial<Record<AccountProvider, string>>;
 }
 
 /** Something waiting on the user. */
@@ -2396,6 +2403,9 @@ export type ClientMessage =
   /** Run the project (a chat's id names its project; Home's is HOME_ID)
    *  on this account — for the harness the account is for. */
   | { type: "set_account"; projectId: string; account: string }
+  /** Run one chat on this account over its project's; no account is
+   *  that chat back on its project's for that harness. Home's is Home's. */
+  | { type: "set_chat_account"; chatId: string; provider: AccountProvider; account?: string }
   | { type: "account_add"; provider: AccountProvider; name: string }
   | { type: "account_rename"; id: string; name: string }
   /** Forget an account of the user's own; its folder stays on disk. */

@@ -1,30 +1,50 @@
 import SwiftUI
 
-/// Which account a project runs on, picked from the phone: a button in the
-/// bar of the project's screens that names its Claude account, opening onto
-/// each harness's accounts — who each is signed in as and how full its
-/// fullest window is — so the one with room is the one you tap. The Mac
-/// puts the project on it, as its own account chip does; a chat already
-/// running keeps its account until its next start.
+/// Which account a project — or one chat in it — runs on, picked from the
+/// phone: a button in the bar naming the account, opening onto each
+/// harness's accounts with who each is signed in as and how full its
+/// fullest window is, so the one with room is the one you tap. On a
+/// project's screen it picks the project's; on a chat's, that chat's own
+/// (picking the project's is following the project again). The Mac does
+/// it as its own account chip and row menu do; a chat already running
+/// keeps its account until its next start.
 struct AccountMenu: View {
     @Environment(RuriModel.self) private var model
     @Environment(\.palette) private var palette
     var project: StatusProject
+    /// The chat this is for, when it is one chat's rather than the project's.
+    var chat: String?
 
     private var accounts: [StatusAccount] { model.report?.accounts ?? [] }
 
     /// The account the project runs a harness on: its pick while that is
     /// still one of the harness's, else the harness's first.
-    private func current(_ provider: String) -> StatusAccount? {
+    private func projects(_ provider: String) -> StatusAccount? {
         let theirs = accounts.filter { $0.provider == provider }
         return theirs.first { $0.id == project.accounts?[provider] } ?? theirs.first
     }
 
-    /// Under an account's name: who it is, and how full its fullest window.
+    /// What this menu is for runs on: the chat's own, else the project's.
+    private func current(_ provider: String) -> StatusAccount? {
+        guard let chat, let own = model.report?.chat(chat)?.accounts?[provider] else { return projects(provider) }
+        return accounts.first { $0.id == own && $0.provider == provider } ?? projects(provider)
+    }
+
+    /// Under an account's name: who it is, how full its fullest window, and
+    /// — in a chat's menu — which is the project's.
     private func detail(_ account: StatusAccount) -> String {
         if account.signedIn == false { return "Not signed in" }
         let room = model.report?.usage(of: account.id)?.fullest.map { "\($0.label) \($0.percent)%" }
-        return [account.who, room].compactMap { $0 }.joined(separator: " · ")
+        let mark = chat != nil && projects(account.provider)?.id == account.id ? "project's" : nil
+        return [mark, account.who, room].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func pick(_ account: StatusAccount, macId: String) {
+        if let chat {
+            model.setChatAccount(account, for: chat)
+        } else {
+            model.setAccount(account, for: macId)
+        }
     }
 
     var body: some View {
@@ -35,10 +55,10 @@ struct AccountMenu: View {
                     let theirs = accounts.filter { $0.provider == provider }
                     // a harness with one account has nothing to pick between
                     if theirs.count > 1 {
-                        Section(provider == "claude" ? "Claude account" : "Codex account") {
+                        Section(Self.heading(provider, chat: chat != nil)) {
                             ForEach(theirs) { account in
                                 Button {
-                                    model.setAccount(account, for: macId)
+                                    pick(account, macId: macId)
                                 } label: {
                                     if account.id == current(provider)?.id {
                                         Label {
@@ -64,8 +84,13 @@ struct AccountMenu: View {
                     .font(.ruri(.subheadline, .medium))
                     .foregroundStyle(full ? palette.destructive : palette.ink)
             }
-            .accessibilityLabel("Account: \(shown.name)")
+            .accessibilityLabel("\(chat == nil ? "Project's account" : "This chat's account"): \(shown.name)")
             .accessibilityIdentifier("account")
         }
+    }
+
+    static func heading(_ provider: String, chat: Bool) -> String {
+        let harness = provider == "claude" ? "Claude" : "Codex"
+        return chat ? "\(harness) account for this chat" : "\(harness) account for the project"
     }
 }

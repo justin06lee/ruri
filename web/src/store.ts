@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   accountPick,
+  DEFAULT_ACCOUNTS,
   DEFAULT_EFFORT,
   HARNESS_DEFAULT_MODEL,
   HOME_ID,
@@ -64,8 +65,9 @@ import {
   type UsageLimits,
   type VaultState,
   type AccountInfo,
+  type AccountProvider,
 } from "../../shared/protocol";
-import { projectOfChannel, withPick } from "./lib/accounts";
+import { accountIn, projectOfChannel, withPick } from "./lib/accounts";
 import {
   addFolder as folderAdded,
   moveInLayout,
@@ -1270,6 +1272,38 @@ export function setProjectAccount(channelId: string, account: AccountInfo): void
         return next ? { ...rest, accounts: next } : rest;
       }),
     (projects) => accountPick(projects.find((p) => p.id === projectId), account.provider) === account.id,
+  );
+}
+
+/** Run one chat on an account of its own, over its project's — or, with
+ *  none, back on its project's for that harness. Home is one chat: its own
+ *  is Home's. Picking the project's account is following it. */
+export function setChatAccount(channelId: string, provider: AccountProvider, account?: AccountInfo): void {
+  if (channelId === HOME_ID) {
+    const fallback = useRuri.getState().accounts.find((a) => a.id === DEFAULT_ACCOUNTS[provider]);
+    const to = account ?? fallback;
+    if (to) setProjectAccount(HOME_ID, to);
+    return;
+  }
+  const project = projectOfChannel(useRuri.getState().projects, channelId);
+  if (!project) return;
+  const own =
+    account && account.id !== accountIn(useRuri.getState().accounts, project, provider) ? account.id : undefined;
+  changeProjects(
+    { type: "set_chat_account", chatId: channelId, provider, ...(account ? { account: account.id } : {}) },
+    (projects) =>
+      onProject(projects, project.id, (p) => ({
+        ...p,
+        sessions: p.sessions.map((x) => {
+          if (x.id !== channelId) return x;
+          const { accounts: picks, ...rest } = x;
+          const next = { ...picks };
+          if (own) next[provider] = own;
+          else delete next[provider];
+          return Object.keys(next).length > 0 ? { ...rest, accounts: next } : rest;
+        }),
+      })),
+    (projects) => sessionIn(projects, channelId)?.accounts?.[provider] === own,
   );
 }
 

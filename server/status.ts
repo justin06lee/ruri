@@ -31,7 +31,7 @@ import {
   type TranscriptEvent,
 } from "../shared/protocol.js";
 import type { SidebarLayout } from "../shared/sidebar.js";
-import { accountOf } from "./accounts.js";
+import { accountOf, channelAccounts } from "./accounts.js";
 import { accountInfos } from "./accountStatus.js";
 import type { ServerContext } from "./context.js";
 import { warn } from "./log.js";
@@ -151,7 +151,7 @@ function readProject(
       lastWords: trimSummary(hooks?.lastSummary ?? "", WORDS_CHARS),
       ...(ended !== undefined ? { lastActive: iso(ended) } : {}),
       ...(session.watched ? { watched: true as const } : {}),
-      ...(ids ? { id: session.id } : {}),
+      ...(ids ? { id: session.id, accounts: channelAccounts(project, session) } : {}),
     };
     if (state === "working") working.push(chat);
     if (role === "lead") lead = chat;

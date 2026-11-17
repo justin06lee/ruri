@@ -172,6 +172,57 @@ describe("a project's accounts", () => {
     expect(saved.accounts).toEqual({ claude: "personal", codex: side.id });
     expect(saved).not.toHaveProperty("account");
   });
+
+  test("a chat runs on an account of its own over its project's, and follows it again", () => {
+    host.openProject({ path: path.join(real, "ruri") });
+    const project = store.list()[0]!;
+    const chatId = project.sessions[0]!.id;
+    const broadcasts: unknown[] = [];
+    const ctx = {
+      store,
+      clients: { broadcast: (m: unknown) => broadcasts.push(m) },
+    } as unknown as ServerContext;
+    const pick = (account?: string) =>
+      accountHandlers.set_chat_account(ctx, { send: () => {} } as never, {
+        type: "set_chat_account",
+        chatId,
+        provider: "claude",
+        ...(account ? { account } : {}),
+      });
+    pick("personal");
+    expect(store.findSession(chatId)?.session.accounts).toEqual({ claude: "personal" });
+    expect(new ProjectStore().findSession(chatId)?.session.accounts).toEqual({ claude: "personal" });
+    // the project itself stays where it was
+    expect(store.get(project.id)).not.toHaveProperty("accounts");
+    // picking what the project runs on is following the project
+    pick("work");
+    expect(store.findSession(chatId)?.session).not.toHaveProperty("accounts");
+    pick("personal");
+    pick();
+    expect(store.findSession(chatId)?.session).not.toHaveProperty("accounts");
+    expect(broadcasts).toHaveLength(4);
+  });
+
+  test("an account taken away takes the chats on it back to their project's", () => {
+    host.openProject({ path: path.join(real, "ruri") });
+    const project = store.list()[0]!;
+    const chatId = project.sessions[0]!.id;
+    const ctx = {
+      store,
+      clients: { broadcast: () => {} },
+      terminals: { closeChannel: () => {} },
+    } as unknown as ServerContext;
+    const side = addAccount("claude", "Side");
+    accountHandlers.set_chat_account(ctx, {} as never, {
+      type: "set_chat_account",
+      chatId,
+      provider: "claude",
+      account: side.id,
+    });
+    expect(store.findSession(chatId)?.session.accounts).toEqual({ claude: side.id });
+    accountHandlers.account_remove(ctx, {} as never, { type: "account_remove", id: side.id });
+    expect(store.findSession(chatId)?.session).not.toHaveProperty("accounts");
+  });
 });
 
 describe("the sidebar's arrangement", () => {

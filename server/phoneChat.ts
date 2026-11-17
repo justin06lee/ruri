@@ -21,7 +21,10 @@
  *                               sidebar arranged, as the window's drag does
  *   POST /project/account       { id, account } — the project put on an
  *                               account, for that account's harness, as
- *                               the account chip does
+ *                               the row menu does
+ *   POST /chat/account          { id, provider, account? } — one chat on an
+ *                               account of its own, or (no account) back
+ *                               on its project's, as the account chip does
  *
  * What the phone is shown is what the user reads in the web app: their
  * prompts and the replies in full, tool calls folded into one line of
@@ -37,6 +40,7 @@ import { WebSocket } from "ws";
 import { z } from "zod";
 import {
   CARRY_ON,
+  isAccountProvider,
   type Attachment,
   type AttachmentUpload,
   type PhoneAttachment,
@@ -48,7 +52,7 @@ import {
 } from "../shared/protocol.js";
 import { channelProject } from "./channel.js";
 import type { ClientConn, ServerContext } from "./context.js";
-import { setProjectAccount } from "./handlers/accounts.js";
+import { setChatAccount, setProjectAccount } from "./handlers/accounts.js";
 import { projectHandlers } from "./handlers/projects.js";
 import { promptHandlers } from "./handlers/prompts.js";
 import { warn } from "./log.js";
@@ -197,6 +201,7 @@ const CHAT_PATHS = new Set([
   "/chat/draft",
   "/sidebar",
   "/project/account",
+  "/chat/account",
 ]);
 
 /** Whether a request is for a chat, the phone's way. */
@@ -606,6 +611,33 @@ export async function servePhoneChat(
       return;
     }
     json(res, 200, { ok: phoneAccount(ctx, project, account) });
+    return;
+  }
+  if (url.pathname === "/chat/account") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { allow: "POST" });
+      res.end();
+      return;
+    }
+    const parsed = await readJson(req, 4096);
+    const chat = sidebarId(parsed?.["id"]);
+    const provider = parsed?.["provider"];
+    const account = parsed?.["account"];
+    const named = typeof account === "string" ? sidebarId(account) : undefined;
+    if (
+      !chat ||
+      typeof provider !== "string" ||
+      !isAccountProvider(provider) ||
+      (account !== undefined && account !== null && !named)
+    ) {
+      json(res, 400, { error: "send { id, provider, account? }" });
+      return;
+    }
+    if (!reachable(ctx, chat)) {
+      json(res, 404, { error: "no such chat" });
+      return;
+    }
+    json(res, 200, { ok: setChatAccount(ctx, chat, provider, named) });
     return;
   }
   if (url.pathname === "/chat/draft") {

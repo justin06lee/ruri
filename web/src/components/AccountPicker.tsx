@@ -1,14 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import type { UsageLimits } from "../../../shared/protocol";
-import { accountLine, channelAccount, fullest, NEARLY_FULL, windowsOf } from "../lib/accounts";
-import { setProjectAccount, useRuri } from "../store";
+import { HOME_ID, type UsageLimits } from "../../../shared/protocol";
+import {
+  accountLine,
+  channelAccount,
+  fullest,
+  NEARLY_FULL,
+  projectAccount,
+  windowsOf,
+} from "../lib/accounts";
+import { setChatAccount, setProjectAccount, useRuri } from "../store";
 
 /**
  * The account chip: beside the model picker in the prompt box, the account
  * this chat's harness spends from. One click lists that harness's accounts,
  * each with how much of its windows is gone, so the one with room is the one
- * you pick — for the whole project, from its next start on (server/accounts.ts).
- * "Accounts…" goes to Settings, where they are added and signed in to.
+ * you pick — for this chat, from its next start on (server/accounts.ts); the
+ * project's own is marked, picking it is following the project again, and a
+ * chat on another can make its account the project's. "Accounts…" goes to
+ * Settings, where they are added and signed in to.
  */
 
 const CHECK = (
@@ -72,6 +81,10 @@ function PersonIcon() {
 
 export function AccountPicker({ channelId, provider }: { channelId: string; provider: string | undefined }) {
   const current = useRuri((s) => channelAccount(s, channelId, provider));
+  // what the chat's project runs on — Home is its own project
+  const project = useRuri((s) =>
+    channelId === HOME_ID ? undefined : projectAccount(s, channelId, provider),
+  );
   const accounts = useRuri((s) => s.accounts);
   const usage = useRuri((s) => s.usage);
   const setSettingsOpen = useRuri((s) => s.setSettingsOpen);
@@ -104,7 +117,8 @@ export function AccountPicker({ channelId, provider }: { channelId: string; prov
       <button
         className={`dropdown-trigger account-trigger ${open ? "open" : ""} ${full ? "full" : ""}`}
         title={[
-          `Account: ${current.name}${said ? ` (${said})` : ""}`,
+          `This chat's account: ${current.name}${said ? ` (${said})` : ""}`,
+          ...(project && project.id !== current.id ? [`the project's is ${project.name}`] : []),
           ...(top ? [`${top.label} ${Math.round(top.percent)}% used`] : []),
           "Click for the others and how much room each has",
         ].join(" — ")}
@@ -139,18 +153,35 @@ export function AccountPicker({ channelId, provider }: { channelId: string; prov
                 onClick={() => {
                   setOpen(false);
                   if (off) setSettingsOpen(true, "accounts");
-                  else if (a.id !== current.id) setProjectAccount(channelId, a);
+                  else if (a.id !== current.id) setChatAccount(channelId, a.provider, a);
                 }}
               >
                 {CHECK}
                 <span className="account-item-words">
-                  <span className="account-item-name">{a.name}</span>
+                  <span className="account-item-name">
+                    {a.name}
+                    {project?.id === a.id && <span className="account-item-tag">project</span>}
+                  </span>
                   {accountLine(a) && <span className="account-item-who">{accountLine(a)}</span>}
                 </span>
                 {!off && <AccountMeters limits={usage[a.usage]} />}
               </button>
             );
           })}
+          {project && project.id !== current.id && (
+            <button
+              className="dropdown-item account-manage"
+              title={`Every chat in the project that has no account of its own runs on ${current.name}`}
+              onClick={() => {
+                setOpen(false);
+                setProjectAccount(channelId, current);
+                setChatAccount(channelId, current.provider);
+              }}
+            >
+              {CHECK}
+              Make {current.name} the project's
+            </button>
+          )}
           <button
             className="dropdown-item account-manage"
             onClick={() => {

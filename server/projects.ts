@@ -25,6 +25,7 @@ import {
   DEFAULT_MEMORY_MODEL,
   DEFAULT_PERMISSION_MODE,
   HARNESS_DEFAULT_MODEL,
+  type AccountProvider,
   type HomeSettings,
   isEffort,
   leadOf,
@@ -693,6 +694,20 @@ export class ProjectStore {
     }
     this.save();
     return project;
+  }
+
+  /** A chat's own account for a harness, over its project's; none puts
+   *  it back on its project's. Whether it changed anything. */
+  setSessionAccount(sessionId: string, provider: AccountProvider, account: string | undefined): boolean {
+    const session = this.findSession(sessionId)?.session;
+    if (!session || session.accounts?.[provider] === account) return false;
+    const next = { ...session.accounts };
+    if (account) next[provider] = account;
+    else delete next[provider];
+    if (Object.keys(next).length > 0) session.accounts = next;
+    else delete session.accounts;
+    this.save();
+    return true;
   }
 
   /** The project that owns a session id, plus the session itself. */

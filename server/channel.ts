@@ -2,12 +2,13 @@
  * A "channel" id is HOME_ID or a session id; sessions run with their
  * parent project's cwd/model/permission mode but keep their own state.
  */
+import { channelAccounts } from "./accounts.js";
 import type { ServerContext } from "./context.js";
 import { HOME_ID, homeProject } from "./manager.js";
 
 /**
  * A channel as a Project: the owning project with the channel's own id —
- * and the chat's own model, effort and mode over the project's defaults,
+ * and the chat's own model, effort, mode and accounts over the project's,
  * so everything downstream (sessions, windows, forks) sees what this
  * chat actually runs on without knowing there are two layers.
  */
@@ -24,6 +25,8 @@ export function channelProject(ctx: ServerContext, channelId: string) {
   return {
     ...project,
     id: channelId,
+    // the chat's own account over its project's, worked out once here
+    accounts: channelAccounts(project, session),
     ...(model ? { model } : {}),
     ...(session.permissionMode ? { permissionMode: session.permissionMode } : {}),
     ...(effort ? { effort } : {}),

@@ -210,6 +210,12 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("set_effort"), ...projectId, effort: z.string().max(32) }),
   z.object({ type: z.literal("set_account"), ...projectId, account: z.string().min(1).max(64) }),
   z.object({
+    type: z.literal("set_chat_account"),
+    chatId: id,
+    provider: z.enum(["claude", "codex"]),
+    account: z.string().min(1).max(64).optional(),
+  }),
+  z.object({
     type: z.literal("account_add"),
     provider: z.enum(["claude", "codex"]),
     name: z.string().trim().min(1).max(64),

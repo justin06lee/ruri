@@ -12,6 +12,8 @@ import {
   addAccount,
   carryCodexSession,
   carrySession,
+  channelAccounts,
+  chatAccountOf,
   claudeHome,
   claudeHomes,
   claudeProjectDirIn,
@@ -255,6 +257,40 @@ describe("the accounts ruri knows", () => {
     // the pick from before there were providers is Claude's
     expect(accountOf({ account: "personal" }, "claude")).toBe("personal");
     expect(accountOf({ account: "personal", accounts: { claude: "work" } }, "claude")).toBe("work");
+  });
+
+  test("a chat's own pick goes over its project's; one since removed is the project's again", () => {
+    const side = addAccount("claude", "Side");
+    const project = { accounts: { claude: "personal" } };
+    expect(chatAccountOf(project, { accounts: { claude: side.id } }, "claude")).toBe(side.id);
+    expect(chatAccountOf(project, {}, "claude")).toBe("personal");
+    expect(chatAccountOf(project, { accounts: { claude: "codex" } }, "claude")).toBe("personal");
+    expect(channelAccounts(project, { accounts: { claude: side.id } })).toEqual({
+      claude: side.id,
+      codex: "codex",
+    });
+    removeAccount(side.id);
+    expect(chatAccountOf(project, { accounts: { claude: side.id } }, "claude")).toBe("personal");
+    // by a chat's id, the chat's own; by the project's, the project's
+    const projects: Project[] = [
+      {
+        id: "p",
+        name: "p",
+        path: "/p",
+        accounts: { claude: "personal" },
+        sessions: [{ id: "lead" }, { id: "other", accounts: { claude: "work" } }],
+      },
+    ];
+    const store = {
+      get: (id: string) => projects.find((p) => p.id === id),
+      findSession: (id: string) => {
+        const found = projects.find((p) => p.sessions.some((s) => s.id === id));
+        return found && { project: found, session: found.sessions.find((s) => s.id === id)! };
+      },
+    };
+    expect(accountFor(store, "p")).toBe("personal");
+    expect(accountFor(store, "lead")).toBe("personal");
+    expect(accountFor(store, "other")).toBe("work");
   });
 
   test("Home runs on its own pick", () => {

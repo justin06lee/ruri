@@ -51,6 +51,9 @@ struct StatusChat: Codable, Hashable, Sendable {
     var lastActive: Date?
     /// The chat's id (asked for with ?ids=1): what its conversation is read by.
     var id: String?
+    /// The account it runs each harness on — its own, or its project's —
+    /// by harness (with ?ids=1).
+    var accounts: [String: String]?
 }
 
 /// Something waiting on the user.
@@ -233,6 +236,12 @@ struct StatusReport: Codable, Hashable, Sendable {
     /// The project a chat is in: its lead, or one of its team.
     func project(holding chat: String) -> StatusProject? {
         projects.first { $0.lead?.id == chat || $0.team.contains { $0.id == chat } }
+    }
+
+    /// A chat, by its id.
+    func chat(_ id: String) -> StatusChat? {
+        guard let project = project(holding: id) else { return nil }
+        return project.lead?.id == id ? project.lead : project.team.first { $0.id == id }
     }
 
     /// An account's limits, when the Mac has a reading of them.

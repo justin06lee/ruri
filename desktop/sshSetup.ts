@@ -14,22 +14,16 @@
  * <why>.
  */
 import { spawn } from "node:child_process";
-import * as fs from "node:fs";
-import { configPath } from "../server/configDir.js";
 import type { Pairing } from "../server/sharing.js";
+import { lastSaid, quote, refused, sshArgs, sshEnv, sshProgram, type SshLogin } from "../server/ssh.js";
 
 /** Where ruri's source is cloned from to install it on a computer that
  *  has none. */
 const SOURCE = "https://github.com/justin06lee/ruri";
 
-export interface SetupTarget {
-  /** The account to sign in as. */
-  user: string;
-  address: string;
+export interface SetupTarget extends SshLogin {
   /** What this device is called there. */
   device: string;
-  /** A password, when a key won't do; never written anywhere. */
-  password?: string;
 }
 
 /** How a setup came out. */
@@ -41,9 +35,6 @@ export type SetupOutcome =
       needs?: "password";
       error: string;
     };
-
-/** A value as one single-quoted shell word. */
-const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
 /** The script that runs on the other computer, its values filled in. */
 export function hostScript(target: Pick<SetupTarget, "device">): string {
@@ -159,56 +150,16 @@ printf 'RURI-RESULT %s\\n' "$BODY"
 `;
 }
 
-/** The helper ssh asks for a password: it says the one in its
- *  environment, which only that ssh is given. */
-function askpass(): string {
-  const file = configPath("ssh-askpass");
-  if (!fs.existsSync(file)) {
-    fs.mkdirSync(configPath(), { recursive: true });
-    fs.writeFileSync(file, `#!/bin/sh\nprintf '%s\\n' "$RURI_SSH_PASSWORD"\n`, { mode: 0o700 });
-  }
-  return file;
-}
-
-/** Whether ssh's complaint means the sign-in itself was refused. */
-const refused = (stderr: string) =>
-  /Permission denied|Authentication failed|Too many authentication/i.test(stderr);
-
 /**
- * Set a computer up and pair with it, over SSH. `onStep` hears each line
- * the far side says it is on. Runs `ssh` from PATH unless RURI_SSH names
- * another program taking the same arguments (the scenario test runs the
- * script locally that way).
+ * Set a computer up and pair with it, over SSH (server/ssh.ts signs in).
+ * `onStep` hears each line the far side says it is on.
  */
 export function setUpOverSsh(target: SetupTarget, onStep: (step: string) => void): Promise<SetupOutcome> {
   return new Promise((resolve) => {
-    const args = [
-      "-T",
-      "-o",
-      "ConnectTimeout=10",
-      "-o",
-      "StrictHostKeyChecking=accept-new",
-      "-o",
-      "ServerAliveInterval=15",
-      ...(target.password
-        ? [
-            "-o",
-            "NumberOfPasswordPrompts=1",
-            "-o",
-            "PreferredAuthentications=publickey,keyboard-interactive,password",
-          ]
-        : ["-o", "BatchMode=yes"]),
-      `${target.user}@${target.address}`,
-      "sh -s",
-    ];
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    if (target.password) {
-      env["SSH_ASKPASS"] = askpass();
-      env["SSH_ASKPASS_REQUIRE"] = "force";
-      env["RURI_SSH_PASSWORD"] = target.password;
-      env["DISPLAY"] ??= ":0";
-    }
-    const child = spawn(process.env["RURI_SSH"] ?? "ssh", args, { env, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(sshProgram(), sshArgs(target), {
+      env: sshEnv(target),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     let stdout = "";
     let stderr = "";
     let pending = "";
@@ -256,11 +207,7 @@ export function setUpOverSsh(target: SetupTarget, onStep: (step: string) => void
         });
         return;
       }
-      const said = stderr
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => l && !l.startsWith("Warning: Permanently added"))
-        .pop();
+      const said = lastSaid(stderr);
       resolve({
         ok: false,
         error: said

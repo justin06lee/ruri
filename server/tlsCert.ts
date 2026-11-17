@@ -6,7 +6,7 @@
  * paired with carries the certificate's fingerprint, and the device trusts
  * that one certificate and nothing else for that computer (desktop/remote.ts).
  * So the line is encrypted end to end on any network — a café's, a LAN, a
- * mesh — and nothing in the middle can stand in for the host.
+ * tailnet — and nothing in the middle can stand in for the host.
  *
  * Node can make the key but not the certificate around it, and a library
  * for one is a megabyte of someone else's ASN.1. A self-signed certificate

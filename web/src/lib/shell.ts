@@ -20,7 +20,7 @@ export interface PairedHost {
 export interface Peer {
   name: string;
   addresses: string[];
-  via: Array<"makima" | "tailscale" | "lan" | "paired">;
+  via: Array<"tailscale" | "lan" | "paired">;
   online: boolean;
   os?: string;
   /** ruri with sharing on answered here — and `hostId` if this device is

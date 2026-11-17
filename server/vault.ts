@@ -1,7 +1,21 @@
-import type { VaultState } from "../shared/protocol.js";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import type { VaultJob, VaultState } from "../shared/protocol.js";
 import { GhostlyError, type Ghostly, type GhostlyItem } from "./ghostly.js";
 import { errorMessage, warn } from "./log.js";
 import type { GhostlyRecord, SecretStore } from "./secrets.js";
+import { readTailnet, type Tailnet, type TailnetDevice } from "./tailnet.js";
+import { findVaults, type Fetch } from "./vaultFinder.js";
+import {
+  agentPasswordFile,
+  agentScript,
+  copyForAWhile,
+  runScript,
+  serverScript,
+  signupsScript,
+  type Outcome,
+  type Where,
+} from "./vaultSetup.js";
 
 /**
  * The vault, kept in step: what the ghostly vault shares with this
@@ -27,12 +41,32 @@ import type { GhostlyRecord, SecretStore } from "./secrets.js";
  * A vault that does not answer leaves what ruri already holds alone, as
  * ghostly itself does from its cached copy: chats keep working through an
  * outage. Only a list that came back without an item takes it away.
+ *
+ * Getting a vault at all is on the same page: the user's devices on their
+ * tailnet, which of them serve a vault (server/vaultFinder.ts), and one
+ * job at a time to act on that — ruri enrolled with a vault found there,
+ * a vault set up on a device that has none, ghostly installed here
+ * (server/vaultSetup.ts). The tailnet is looked at when the page opens,
+ * not more than once a minute, and when asked.
  */
 
 /** The list alone is checked this often on its own… */
 const RELIST_MS = 15 * 60_000;
-/** …and no more than this often because a page asked. */
+/** …and no more than this often because a page asked. The tailnet, too. */
 const PAGE_MS = 60_000;
+/** The lines a job's card keeps. */
+const JOB_LINES = 40;
+/** The agent's account on a vault: <name>@ghostly.local. */
+const AGENT_NAME = "ruri";
+
+/** What the setup side reaches for; a test's stand-ins replace any of them. */
+export interface VaultHelpers {
+  readTailnet: () => Promise<Tailnet>;
+  /** How a vault is asked about itself (the real fetch, unless a test's). */
+  fetch?: Fetch;
+  run: (where: Where, script: string, onLine: (line: string) => void) => Promise<Outcome>;
+  copy: (value: string) => Promise<void>;
+}
 
 /** What the Passwords page sends to add or edit one. */
 export interface SecretPatch {
@@ -60,14 +94,22 @@ export class Vault {
    *  — where a save that was refused stays said until something works. */
   private readFailed = false;
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** The tailnet as last read, with what the page is not shown: addresses. */
+  private devices: TailnetDevice[] = [];
+  private looking: Promise<void> | null = null;
+  /** The device a server job is about, and who signed in to it. */
+  private jobAt: { host: string; user?: string } | null = null;
+  private readonly helpers: VaultHelpers;
 
   constructor(
     private readonly secrets: SecretStore,
     private readonly ghostly: Ghostly,
     /** Told after anything that changes what a window shows. */
     private readonly changed: () => void,
+    helpers: Partial<VaultHelpers> = {},
   ) {
     this.state = { ...NONE, installed: ghostly.where() !== null };
+    this.helpers = { readTailnet, run: runScript, copy: copyForAWhile, ...helpers };
   }
 
   view(): VaultState {
@@ -102,8 +144,11 @@ export class Vault {
     this.changed();
   }
 
-  /** A page opened: the list, unless the vault was asked within the minute. */
+  /** A page opened: the list, unless the vault was asked within the minute
+   *  — and the tailnet, unless it was looked at within the minute. */
   opened(): void {
+    const seen = this.state.tailnet?.at;
+    if (!this.looking && (!seen || Date.now() - seen >= PAGE_MS)) void this.look();
     if (this.state.syncing || this.queued) return;
     if (Date.now() - this.askedAt < PAGE_MS) return;
     void this.refresh(false);
@@ -131,7 +176,7 @@ export class Vault {
     if (this.ghostly.where() === null) {
       // not here (or no longer): nothing of the vault's is held
       this.secrets.setGhostly([]);
-      this.state = { ...NONE, ...(this.state.failed ? { failed: this.state.failed } : {}) };
+      this.state = { ...NONE, ...this.kept() };
       this.changed();
       return;
     }
@@ -168,11 +213,7 @@ export class Vault {
       if (err instanceof GhostlyError && err.unenrolled) {
         // no agent on this machine: nothing of the vault's can be held
         this.secrets.setGhostly([]);
-        this.state = {
-          ...NONE,
-          installed: true,
-          ...(this.state.failed ? { failed: this.state.failed } : {}),
-        };
+        this.state = { ...NONE, installed: true, ...this.kept() };
       } else {
         this.state = { ...this.state, ok: false, problem: said };
         warn("vault", said, "ghostly");
@@ -230,6 +271,12 @@ export class Vault {
     this.secrets.setGhostly(records);
     if (failed.length === 0) return undefined;
     return `ghostly could not read ${failed.map((name) => `"${name}"`).join(", ")}: ${why}`;
+  }
+
+  /** What outlasts the vault going away: what was said, the tailnet, the job. */
+  private kept(): Partial<VaultState> {
+    const { failed, tailnet, job } = this.state;
+    return { ...(failed ? { failed } : {}), ...(tailnet ? { tailnet } : {}), ...(job ? { job } : {}) };
   }
 
   /** Run one change; what goes wrong is said on the page, not thrown. */
@@ -380,5 +427,193 @@ export class Vault {
       this.secrets.noteGhostly(made.id, local.note);
       this.secrets.remove(local.id);
     });
+  }
+
+  /* ── finding a vault, and setting one up ─────────────────────────── */
+
+  /** Look at the tailnet again: which devices are on, which serve a vault. */
+  look(): Promise<void> {
+    if (this.looking) return this.looking;
+    const before = this.state.tailnet;
+    this.set({ tailnet: { ...(before ?? { state: "connected", devices: [] }), looking: true } });
+    this.looking = (async () => {
+      try {
+        const tailnet = await this.helpers.readTailnet();
+        this.devices = tailnet.devices;
+        const found = await findVaults({
+          tailnet,
+          ...(this.helpers.fetch ? { fetch: this.helpers.fetch } : {}),
+        });
+        this.set({ tailnet: { ...found, user: os.userInfo().username, looking: false } });
+      } catch (err) {
+        warn("vault", `looking at the tailnet: ${errorMessage(err)}`, "tailnet");
+        this.set({ tailnet: { ...(before ?? { state: "off", devices: [] }), looking: false } });
+      } finally {
+        this.looking = null;
+      }
+    })();
+    return this.looking;
+  }
+
+  private get busy(): boolean {
+    return this.state.job?.running === true;
+  }
+
+  /** A new job's card, replacing whatever card was up. */
+  private begin(job: Omit<VaultJob, "running" | "since" | "lines">, lines: string[] = []): void {
+    this.set({ job: { ...job, running: true, since: Date.now(), lines: lines.slice(-JOB_LINES) } });
+  }
+
+  /** One more line on the job's card. */
+  private say(line: string): void {
+    const job = this.state.job;
+    if (job) this.set({ job: { ...job, lines: [...job.lines, line].slice(-JOB_LINES) } });
+  }
+
+  /** The job stopped: where it stands, or why it could not go on. */
+  private end(patch: Partial<VaultJob>): void {
+    const job = this.state.job;
+    if (!job) return;
+    const { error: _was, needsPassword: _asked, ...rest } = job;
+    this.set({ job: { ...rest, ...patch, running: false } });
+  }
+
+  /**
+   * Enroll ruri's agent with the vault at `server` — or check again how
+   * far that has got: `ghostly init` picks up where it left off, and
+   * stops at each step only the owner can do, which the card then says.
+   */
+  enroll(server: string, name = AGENT_NAME): Promise<void> {
+    if (this.busy) return Promise.resolve();
+    const was = this.state.job;
+    const again = was?.kind === "enroll" && was.server === server;
+    const device = this.state.tailnet?.devices.find((d) => d.vault?.server === server)?.name;
+    this.begin(
+      {
+        kind: "enroll",
+        server,
+        email: `${name}@ghostly.local`,
+        ...(device ? { device } : {}),
+        ...(again && was.stage ? { stage: was.stage } : {}),
+        ...(again && was.fingerprint ? { fingerprint: was.fingerprint } : {}),
+      },
+      again ? was.lines : [],
+    );
+    this.say(again ? "Checking again" : `Enrolling ruri with the vault on ${device ?? server}`);
+    return this.then(async () => {
+      try {
+        if (this.ghostly.where() === null) {
+          throw new GhostlyError("ghostly is not installed on this machine", "install it first");
+        }
+        const got = await this.ghostly.init(server, name);
+        this.say(
+          {
+            done: "Enrolled",
+            account: "Waiting for its account to be made",
+            confirm: "Waiting for it to be confirmed",
+            collection: "Waiting for a collection to be shared with it",
+          }[got.stage],
+        );
+        this.end({ stage: got.stage, ...(got.fingerprint ? { fingerprint: got.fingerprint } : {}) });
+        if (got.stage === "done") await this.pull(true);
+      } catch (err) {
+        this.end({ error: err instanceof GhostlyError ? err.said : errorMessage(err) });
+      }
+    });
+  }
+
+  /** Where a server job's scripts run: here, or signed in to the device. */
+  private where(host: string, user: string | undefined, password: string | undefined): Where | null {
+    const device = this.devices.find((d) => d.host === host);
+    if (!device) return null;
+    if (device.self) return { local: true };
+    return {
+      local: false,
+      login: {
+        user: user || os.userInfo().username,
+        address: device.addresses[0] ?? device.host,
+        ...(password ? { password } : {}),
+      },
+    };
+  }
+
+  /** Set a vault up on a device of the tailnet: here, or over SSH. */
+  async setUp(host: string, user?: string, password?: string): Promise<void> {
+    if (this.busy) return;
+    const where = this.where(host, user, password);
+    const name = this.devices.find((d) => d.host === host)?.name ?? host;
+    const signIn = where && !where.local ? where.login.user : undefined;
+    this.jobAt = { host, ...(signIn ? { user: signIn } : {}) };
+    this.begin({ kind: "server", device: name, ...(signIn ? { user: signIn } : {}) });
+    if (!where) {
+      this.end({ error: `${name} isn't on the tailnet any more. Look again.` });
+      return;
+    }
+    this.say(where.local ? "Setting a vault up on this machine" : `Signing in to ${name} as ${signIn}`);
+    const out = await this.helpers.run(where, serverScript(), (line) => this.say(line));
+    if (out.done && out.url) {
+      this.say(`The vault is up at ${out.url}`);
+      this.end({ stage: "signups", server: out.url });
+      void this.look();
+    } else {
+      this.end({ error: out.error ?? "It stopped.", ...(out.needsPassword ? { needsPassword: true } : {}) });
+    }
+  }
+
+  /** Close signups on the vault just set up, once the owner has an account. */
+  async signupsOff(password?: string): Promise<void> {
+    const job = this.state.job;
+    if (this.busy || job?.kind !== "server" || job.stage !== "signups" || !this.jobAt) return;
+    const where = this.where(this.jobAt.host, this.jobAt.user, password);
+    this.begin({ ...job }, job.lines);
+    if (!where) {
+      this.end({ error: `${job.device ?? "That device"} isn't on the tailnet any more. Look again.` });
+      return;
+    }
+    const out = await this.helpers.run(where, signupsScript(), (line) => this.say(line));
+    if (out.done) {
+      this.say("Signups are closed: only addresses you invite can make an account now");
+      this.end({ stage: "done" });
+    } else {
+      this.end({ error: out.error ?? "It stopped.", ...(out.needsPassword ? { needsPassword: true } : {}) });
+    }
+  }
+
+  /** Install ghostly on this machine, then look for it again. */
+  async install(): Promise<void> {
+    if (this.busy) return;
+    this.begin({ kind: "agent", device: os.hostname().replace(/\.local$/i, "") });
+    this.say("Installing ghostly on this machine");
+    const out = await this.helpers.run({ local: true }, agentScript(), (line) => this.say(line));
+    if (out.done) {
+      this.end({ stage: "done" });
+      await this.refresh(true);
+    } else {
+      this.end({ error: out.error ?? "It stopped." });
+    }
+  }
+
+  /** Put the agent's password on this machine's clipboard for a while,
+   *  to make its account with. It never goes to the page. */
+  async copyPassword(): Promise<void> {
+    const job = this.state.job;
+    if (job?.kind !== "enroll" || job.stage !== "account") return;
+    try {
+      const value = fs.readFileSync(agentPasswordFile(), "utf8").trim();
+      if (!value) throw new Error("ghostly has not made the agent's password yet");
+      await this.helpers.copy(value);
+      if (this.state.job === job) this.set({ job: { ...job, copied: Date.now() } });
+    } catch (err) {
+      if (this.state.job === job) this.set({ job: { ...job, error: errorMessage(err) } });
+    }
+  }
+
+  /** Put the card away. One still running is left to finish first. */
+  closeJob(): void {
+    if (this.busy || !this.state.job) return;
+    const { job: _gone, ...rest } = this.state;
+    this.state = rest;
+    this.jobAt = null;
+    this.changed();
   }
 }

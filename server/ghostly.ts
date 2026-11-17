@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { errorMessage } from "./log.js";
@@ -62,6 +63,9 @@ export class GhostlyError extends Error {
     /** ghostly's exit code: 1 a failure, 2 a command it did not understand,
      *  3 an enrollment waiting on the owner. */
     readonly code = 1,
+    /** Everything it printed on the way (the last of it), for what an
+     *  enrollment waiting on the owner says it is waiting for. */
+    readonly printed = "",
   ) {
     super(message);
     this.name = "GhostlyError";
@@ -78,9 +82,19 @@ export class GhostlyError extends Error {
   }
 }
 
-/** How long one command may take. A status is several runs of bw and a sync. */
+/** How long one command may take. A status is several runs of bw and a
+ *  sync; an enrollment, a sign-in and a sync or two besides. */
 const TIMEOUT_MS = 45_000;
 const STATUS_TIMEOUT_MS = 90_000;
+const INIT_TIMEOUT_MS = 120_000;
+
+/** How far `ghostly init` got: enrolled, or waiting on the owner for one
+ *  of the steps only a person can do in the vault's web app. */
+export interface GhostlyEnrollment {
+  stage: "done" | "account" | "confirm" | "collection";
+  /** The phrase the vault's confirm dialog should show, at "confirm". */
+  fingerprint?: string;
+}
 
 /**
  * Where ghostly is on this machine, if it is. RURI_GHOSTLY names one to
@@ -88,7 +102,16 @@ const STATUS_TIMEOUT_MS = 90_000;
  * set, so they never reach a real vault.
  */
 export function findGhostly(): string | null {
-  return findCommand("ghostly", "RURI_GHOSTLY");
+  const found = findCommand("ghostly", "RURI_GHOSTLY");
+  if (found || process.env["RURI_GHOSTLY"] !== undefined) return found;
+  // where ghostly's own installer puts it: bun's global folder
+  const bun = path.join(os.homedir(), ".bun", "bin", "ghostly");
+  try {
+    fs.accessSync(bun, fs.constants.X_OK);
+    return bun;
+  } catch {
+    return null;
+  }
 }
 
 /** ghostly starts with `#!/usr/bin/env bun`, and runs bw on Node when it
@@ -121,10 +144,11 @@ function failure(stderr: string, code: number): GhostlyError {
       lines.at(-1) ?? `ghostly stopped with code ${code} and said nothing`,
       undefined,
       code,
+      stderr,
     );
   }
   const message = lines[at]!.slice("ghostly:".length).trim();
-  return new GhostlyError(message || `ghostly stopped with code ${code}`, lines[at + 1], code);
+  return new GhostlyError(message || `ghostly stopped with code ${code}`, lines[at + 1], code, stderr);
 }
 
 export class Ghostly {
@@ -213,6 +237,28 @@ export class Ghostly {
       ...(typeof raw.problem === "string" && raw.problem ? { problem: raw.problem } : {}),
       collections: strings(raw.collections),
     };
+  }
+
+  /**
+   * Enroll this machine's agent with the vault at `server`, as
+   * <name>@ghostly.local — or carry on with one begun before: ghostly
+   * picks up where it left off. Run with no terminal, it stops at the
+   * first step that waits on the owner and says which (exit code 3).
+   */
+  async init(server: string, name: string): Promise<GhostlyEnrollment> {
+    try {
+      // "=", so a value that begins with a dash is still the value
+      await this.run(["init", `--server=${server}`, `--name=${name}`], { timeoutMs: INIT_TIMEOUT_MS });
+      return { stage: "done" };
+    } catch (err) {
+      if (!(err instanceof GhostlyError) || err.code !== 3) throw err;
+      if (/confirm/i.test(err.message)) {
+        const phrase = /must read\s+(\S+)/i.exec(err.printed)?.[1];
+        return { stage: "confirm", ...(phrase ? { fingerprint: phrase } : {}) };
+      }
+      if (/collection/i.test(err.message)) return { stage: "collection" };
+      return { stage: "account" };
+    }
   }
 
   /** Everything shared with the agent, without a single secret. */

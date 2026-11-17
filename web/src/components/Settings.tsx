@@ -12,6 +12,7 @@ import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
 import { Icon } from "./chat/Icon";
 import { Devices } from "./Devices";
+import { VaultDevices } from "./VaultDevices";
 import { GreetingEditor } from "./GreetingEditor";
 import { Integrations } from "./Integrations";
 import { Row, Switch } from "./SettingsRows";
@@ -331,15 +332,14 @@ function Vault({ shown }: { shown: boolean }) {
             Kept in ruri's own file on this machine.
             <InfoTip>
               With ghostly, a password vault you run yourself, they are kept in your vault instead: you share
-              each one with ruri from any Bitwarden app, and take it back the same way. Install ghostly on
-              this machine, run <code>ghostly init --server https://your-vault --name ruri</code> once, and
-              press Look again.
+              each one with ruri from any Bitwarden app, and take it back the same way. Install ghostly here,
+              then pick the vault it should use from your tailnet below, or set one up on a device there.
             </InfoTip>
           </span>
         ) : !vault.enrolled ? (
           <span className="vault-where-words">
-            ghostly is on this machine with no agent enrolled, so these are kept in ruri's own file. Run{" "}
-            <code>ghostly init --server https://your-vault --name ruri</code> in a terminal, then look again.
+            ghostly is on this machine, not yet enrolled with a vault, so these are kept in ruri's own file.
+            Pick a vault on your tailnet below, or set one up there.
           </span>
         ) : (
           <>
@@ -347,12 +347,24 @@ function Vault({ shown }: { shown: boolean }) {
             <span className="vault-where-words">
               {vault.ok
                 ? [vault.server?.replace(/^https?:\/\//, ""), vault.account].filter(Boolean).join(" · ")
-                : `${vault.problem ?? "The vault is not answering."} New ones are kept on this machine until it does.`}
+                : vault.job?.kind === "enroll" && vault.job.stage !== "done"
+                  ? "Enrolling ruri with a vault, below. Until it's done, new ones are kept on this machine."
+                  : `${vault.problem ?? "The vault is not answering."} New ones are kept on this machine until it does.`}
             </span>
             <span className="vault-read">
               {vault.syncing ? "reading…" : vault.syncedAt ? `read ${ago(vault.syncedAt)}` : ""}
             </span>
           </>
+        )}
+        {!vault.installed && (
+          <button
+            className="ghost"
+            disabled={vault.job?.running}
+            title="Run ghostly's installer on this machine (it needs bun)"
+            onClick={() => send({ type: "vault_install" })}
+          >
+            Install ghostly
+          </button>
         )}
         <button
           className="ghost"
@@ -364,9 +376,11 @@ function Vault({ shown }: { shown: boolean }) {
           }
           onClick={() => send({ type: "vault_refresh", full: true })}
         >
-          {vault.enrolled ? "Refresh" : "Look again"}
+          Refresh
         </button>
       </div>
+
+      <VaultDevices vault={vault} />
 
       {secrets.length > 0 && (
         <Capped className="vault-rows">

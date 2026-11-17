@@ -13,9 +13,17 @@ export const TOKEN = process.env["RURI_TOKEN"] ?? randomBytes(16).toString("hex"
 
 /** The environment a spawned server (or app) should run with. */
 export function serverEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  // a test server updates nobody's CLIs (server/updater.ts) and asks
-  // nobody's vault what it holds (server/ghostly.ts)
-  return { ...process.env, RURI_TOKEN: TOKEN, RURI_NO_HARNESS_UPDATES: "1", RURI_GHOSTLY: "", ...extra };
+  // a test server updates nobody's CLIs (server/updater.ts), asks
+  // nobody's vault what it holds (server/ghostly.ts) and looks at nobody's
+  // tailnet (server/tailnet.ts)
+  return {
+    ...process.env,
+    RURI_TOKEN: TOKEN,
+    RURI_NO_HARNESS_UPDATES: "1",
+    RURI_GHOSTLY: "",
+    RURI_TAILSCALE: "",
+    ...extra,
+  };
 }
 
 /** The socket URL for a server started with serverEnv(). */

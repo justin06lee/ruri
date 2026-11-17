@@ -917,6 +917,89 @@ export interface VaultState {
   /** What went wrong the last time something was saved, moved or forgotten
    *  — until the next thing that works. */
   failed?: string;
+  /** The user's devices on their tailnet, and which serve a vault — once
+   *  the Passwords page has looked (server/vaultFinder.ts). */
+  tailnet?: VaultTailnet;
+  /** Enrolling ruri with a vault, or setting ghostly up somewhere: one at
+   *  a time, shown as a card until it is closed. */
+  job?: VaultJob;
+}
+
+/** One of the user's devices on their tailnet, as the Passwords page lists it. */
+export interface VaultDevice {
+  /** What the tailnet calls it: "midna". */
+  name: string;
+  /** Its tailnet name: "midna.tail1234.ts.net". */
+  host: string;
+  /** "macOS", "linux"…, as Tailscale says. */
+  os?: string;
+  online: boolean;
+  /** The machine this ruri runs on. */
+  self: boolean;
+  /** Tailscale SSH is on there: setting it up needs no key or password. */
+  ssh: boolean;
+  /** A vault answered there: its address, and what serves it ("Vaultwarden"). */
+  vault?: { server: string; software: string };
+}
+
+/** The tailnet as the Passwords page last looked at it. */
+export interface VaultTailnet {
+  /** "none": no Tailscale on this machine. "off": installed, not connected. */
+  state: "none" | "off" | "connected";
+  /** The tailnet's own domain, when connected. */
+  name?: string;
+  devices: VaultDevice[];
+  /** The account SSH signs in as unless the page says another: this
+   *  machine's own. */
+  user?: string;
+  /** Looking right now. */
+  looking: boolean;
+  /** When it was last looked at. */
+  at?: number;
+}
+
+/**
+ * A job on the Passwords page (server/vaultSetup.ts):
+ *  - "enroll": ruri's agent joining a vault (`ghostly init`). The steps
+ *    only a person can do — in the vault's own web app — are said one
+ *    `stage` at a time, and "Check again" runs it once more;
+ *  - "server": a vault set up on a device (`ghostly-server install`),
+ *    here or over SSH, then the owner's account made and signups closed;
+ *  - "agent": ghostly itself installed on this machine.
+ */
+export interface VaultJob {
+  kind: "enroll" | "server" | "agent";
+  /** The device it is about. */
+  device?: string;
+  /** The vault's address, once there is one. */
+  server?: string;
+  /** The agent's account on that vault ("ruri@ghostly.local"), for enroll. */
+  email?: string;
+  /** The account signed in as over SSH, for a server on another device. */
+  user?: string;
+  /** Running right now. */
+  running: boolean;
+  /** When the run in progress (or the last) began. */
+  since: number;
+  /** What it has said, newest last — at most the last 40 lines. */
+  lines: string[];
+  /**
+   * Where it stands, between runs:
+   *  - "account": invite the agent, then make its account (enroll);
+   *  - "confirm": confirm it in the organization, by the fingerprint (enroll);
+   *  - "collection": share a collection with it (enroll);
+   *  - "signups": the vault is up — make your account, then close signups (server);
+   *  - "done": finished.
+   */
+  stage?: "account" | "confirm" | "collection" | "signups" | "done";
+  /** The phrase the vault's confirm dialog should show, for "confirm". */
+  fingerprint?: string;
+  /** The agent's password was put on this machine's clipboard at this time. */
+  copied?: number;
+  /** Why it stopped. */
+  error?: string;
+  /** SSH turned the key away: a password would let it go on. */
+  needsPassword?: boolean;
 }
 
 /**
@@ -2398,6 +2481,27 @@ export type ClientMessage =
    *  well (the Refresh button); without it only the list is checked, and
    *  not more than once a minute (the page opening). */
   | { type: "vault_refresh"; full?: boolean }
+  /** Look at the tailnet again: which devices are on, which serve a vault. */
+  | { type: "vault_look" }
+  /** Enroll ruri's agent with the vault at `server` (`ghostly init`), or
+   *  check again how far that has got. `name` makes its account
+   *  <name>@ghostly.local. */
+  | { type: "vault_enroll"; server: string; name?: string }
+  /** Set a vault up on a device of the tailnet (by its tailnet name): here,
+   *  or over SSH as `user`, with `password` when a key won't do — used for
+   *  that one sign-in and never kept. */
+  | { type: "vault_setup"; host: string; user?: string; password?: string }
+  /** Close signups on the vault just set up: from now on only addresses
+   *  invited to an organization can register. `password` as for
+   *  vault_setup, when the device's SSH wants one again. */
+  | { type: "vault_signups_off"; password?: string }
+  /** Install ghostly on this machine. */
+  | { type: "vault_install" }
+  /** Put the agent's password on this machine's clipboard for 30 seconds,
+   *  to make its account with — it never comes to the page. */
+  | { type: "vault_copy_password" }
+  /** Put the job's card away. One still running is left to finish. */
+  | { type: "vault_job_close" }
   /* ── skills ─────────────────────────────────────────────────────── */
   /** Re-scan global skills and this project's local ones. */
   | { type: "skills_refresh"; projectId?: string }

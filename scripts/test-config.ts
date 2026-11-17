@@ -16,6 +16,8 @@ import * as path from "node:path";
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ruri-test-config-"));
 process.env["RURI_CONFIG_DIR"] = dir;
 // …and no ghostly: a server made in a test must never ask the user's own
-// vault what it holds (server/ghostly.ts). A test of it names a stand-in.
+// vault what it holds (server/ghostly.ts), nor look at their tailnet for
+// one (server/tailnet.ts). A test of either names a stand-in.
 process.env["RURI_GHOSTLY"] = "";
+process.env["RURI_TAILSCALE"] = "";
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));

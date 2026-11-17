@@ -25,7 +25,7 @@ const clock = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: "2-dig
  * devices may run their chats on the computer this window is onto, the
  * six words that pair one more, and who has been let in (server/sharing.ts).
  * And the window's own, which only the desktop app has: the user's other
- * computers as this device sees them (makima, Tailscale, the LAN) — one
+ * computers as this device sees them (Tailscale, the LAN) — one
  * click sets one up over SSH and pairs, no words to type — and which
  * computer this window is onto (desktop/remote.ts).
  */
@@ -61,7 +61,7 @@ export function Devices() {
           <span className="settings-label">
             Share
             <InfoTip>
-              {`Your paired devices run their chats on ${name}, using its processor and memory, over your network, Tailscale or makima.`}
+              {`Your paired devices run their chats on ${name}, using its processor and memory, over your network or Tailscale.`}
               {remoteDevice === null && !/Mac/.test(navigator.userAgent)
                 ? " Closing this window leaves ruri running for them."
                 : ""}
@@ -294,7 +294,6 @@ function PhonePairing({ name, now }: { name: string; now: number }) {
 }
 
 const VIA_WORD: Record<Peer["via"][number], string> = {
-  makima: "makima",
   tailscale: "Tailscale",
   lan: "this network",
   paired: "paired",
@@ -331,7 +330,7 @@ function ThisDevice() {
   const shell = ruriShell;
   const { computer, using } = state;
 
-  // a computer typed in by its address, for one no mesh or LAN shows
+  // a computer typed in by its address, for one neither the tailnet nor the LAN shows
   const typed: Peer | null = byAddress.trim()
     ? { name: byAddress.trim(), addresses: [byAddress.trim()], via: [], online: true }
     : null;
@@ -371,14 +370,14 @@ function ThisDevice() {
         id="devices-computers"
         title="Computers"
         count={peers?.length}
-        info="Your other computers, found on makima, Tailscale and this network."
+        info="Your other computers, found on your tailnet and this network."
         actions={
           <button className="ghost" disabled={looking} onClick={look}>
             {looking ? "Looking…" : "Look again"}
           </button>
         }
       >
-        {peers === null && <p className="fold-empty">Looking on makima, Tailscale and this network…</p>}
+        {peers === null && <p className="fold-empty">Looking on your tailnet and this network…</p>}
         {peers?.length === 0 && <p className="fold-empty">None found. Add one by its address below.</p>}
         {list.map((peer) => {
           const id = peer.via.length ? `peer:${peer.name}` : `addr:${peer.name}`;

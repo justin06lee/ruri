@@ -11095,3 +11095,54 @@ button.primary { min-height: 28px; }
 .fold-body .int-add {
   margin: 8px 0 0;
 }
+
+/* Settings → Passwords: a job on the tailnet's card — what it printed as
+   it went, then the step the owner does next in the vault's web app */
+.vault-job {
+  gap: 10px;
+}
+.vault-job-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+.vault-job-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 600;
+}
+.vault-job-lines {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.vault-job-todo {
+  margin: 0;
+  padding-left: 20px;
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+.vault-job-todo li + li {
+  margin-top: 4px;
+}
+.vault-job code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+}
+.vault-job a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.vault-job-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

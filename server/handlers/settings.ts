@@ -153,4 +153,27 @@ export const settingHandlers = {
     if (msg.full) void ctx.vault.refresh(true);
     else ctx.vault.opened();
   },
+  // Finding a vault on the tailnet and setting one up: one job at a time,
+  // its card on every window (server/vault.ts, server/vaultSetup.ts).
+  vault_look: (ctx) => {
+    void ctx.vault.look();
+  },
+  vault_enroll: (ctx, _ws, msg) => {
+    void ctx.vault.enroll(msg.server, ...(msg.name ? [msg.name] : []));
+  },
+  vault_setup: (ctx, _ws, msg) => {
+    void ctx.vault.setUp(msg.host, msg.user, msg.password);
+  },
+  vault_signups_off: (ctx, _ws, msg) => {
+    void ctx.vault.signupsOff(msg.password);
+  },
+  vault_install: (ctx) => {
+    void ctx.vault.install();
+  },
+  vault_copy_password: (ctx) => {
+    void ctx.vault.copyPassword();
+  },
+  vault_job_close: (ctx) => {
+    ctx.vault.closeJob();
+  },
 } satisfies Partial<Handlers>;

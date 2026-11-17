@@ -169,7 +169,7 @@ struct ChatRow: View {
 }
 
 /// Before a name: the spinner while it works, a dot in the accent while it
-/// waits on you, a mark where it stopped — and nothing at rest.
+/// waits on you, a mark where it stopped, and a faint zzz at rest.
 struct StateGlyph: View {
     var state: StatusState
     @Environment(\.palette) private var palette
@@ -189,7 +189,10 @@ struct StateGlyph: View {
                 .foregroundStyle(palette.destructive)
                 .accessibilityLabel("Stopped")
         case .idle:
-            Color.clear
+            Image(systemName: "zzz")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(palette.inkFaint)
+                .accessibilityLabel("Idle")
         }
     }
 }

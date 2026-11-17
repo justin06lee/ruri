@@ -46,7 +46,7 @@ The Node HTTP + WebSocket transport everything rides on: one port serving the UI
 - The port is identity (origin for stored prefs) — claim it via server/port.ts, never silently fall to an ephemeral port.
 - Transcript fan-out is scoped: live per-chat events go only to windows showing that chat (server/clients.ts); the snapshot and the projects page carry only Home's and the leads' tails (ProjectStore.leadIds) — a team's members are never sent whole, though a window (or a test script) may still view one by id
 - Persist carefully: uploads as URL-backed files, never inline base64 in transcript events; every store fixes its config folder when it is made, so a put-off write lands where the store was read — and bun test preloads a folder, account homes and no claude/codex CLI of its own (scripts/test-config.ts), so a test never touches ~/.config/ruri or the user's sign-ins.
-- Synced drafts carry only text; attachments stay on the device they were added on. A project's account is read only through accountOf/accountFor (server/accounts.ts): picks are accounts.{claude,codex}, the old account field is Claude's.
+- Synced drafts carry only text; attachments stay on their device. Read a chat's account only through channelProject / accountFor (server/accounts.ts): its own pick over its project's accounts.{claude,codex}.
 - Secrets never enter model context, logs or transcripts (only names leave secrets.ts and vault.ts); ghostly's are held in memory, never on disk. Setup-script tests need a sandbox PATH and a refusing tailscale stand-in.
 
 ## What it talks to

@@ -8,6 +8,7 @@ import {
 import { markFor } from "../lib/marks";
 import { roughName } from "../lib/models";
 import { pickSetting, useRuri } from "../store";
+import { AccountPicker } from "./AccountPicker";
 import { ComboDropdown, Dropdown } from "./Dropdown";
 import { ModelIcon, PickIcon } from "./Marks";
 
@@ -28,8 +29,10 @@ const EFFORT_OPTIONS = EFFORT_LEVELS.map((level) => ({
   icon: <PickIcon kind="effort" value={level} />,
 }));
 
-/** The composer's three pickers. `channelId` is who the pick is for — this
- *  chat (its session id) or Home — never the project: a pick is per chat. */
+/** The composer's pickers: model, account, effort, permissions.
+ *  `channelId` is who the pick is for — this chat (its session id) or Home
+ *  — never the project: a pick is per chat. The account is the one
+ *  exception, the project's for every chat in it (AccountPicker). */
 export function SessionControls({
   project,
   channelId,
@@ -93,6 +96,8 @@ export function SessionControls({
   const effortValue = supportedEffort ? pickedEffort : (fallbackEffort ?? pickedEffort);
   const pickEffort = (effort: string) => pickSetting(channelId, "effort", effort);
   const pickMode = (mode: string) => pickSetting(channelId, "permissionMode", mode);
+  // the harness the chat runs, which says whose accounts are offered
+  const harness = selected?.provider ?? "claude";
   if (compact) {
     return (
       <div className="composer-controls">
@@ -127,6 +132,9 @@ export function SessionControls({
               : []),
           ]}
         />
+        {/* the account stays a chip of its own even here: which one has
+            room is the thing to see at a glance */}
+        <AccountPicker channelId={channelId} provider={harness} />
       </div>
     );
   }
@@ -139,6 +147,7 @@ export function SessionControls({
         options={modelOptions}
         onSelect={pickModel}
       />
+      <AccountPicker channelId={channelId} provider={harness} />
       {effortOptions.length > 0 && (
         <Dropdown
           up

@@ -76,13 +76,18 @@ export const accountHandlers = {
     if (!setProjectAccount(ctx, msg.projectId, msg.account)) tell(ws, "That account isn't here any more.");
   },
   account_add: (ctx, ws, msg) => {
+    let added;
     try {
-      addAccount(msg.provider, msg.name);
+      added = addAccount(msg.provider, msg.name);
     } catch (err) {
       tell(ws, `The account couldn't be added: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
     broadcastAccounts(ctx);
+    // a folder taken as it was may already be signed in to
+    void refreshAccount(added.id).then((changed) => {
+      if (changed) broadcastAccounts(ctx);
+    });
   },
   account_rename: (ctx, _ws, msg) => {
     if (renameAccount(msg.id, msg.name)) broadcastAccounts(ctx);

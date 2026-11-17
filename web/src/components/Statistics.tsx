@@ -15,6 +15,7 @@
  */
 import { memo, useEffect, useMemo } from "react";
 import { HOME_ID, leadOf, type AgentProcess, type Project, type Totals } from "../../../shared/protocol";
+import { usageName } from "../lib/accounts";
 import { useRuri, watchMeters } from "../store";
 import { Capped } from "./Capped";
 import { money, shortCount, span, sum, NONE } from "./figures";
@@ -305,6 +306,7 @@ export function StatisticsPage() {
   const projects = useRuri((s) => s.projects);
   const stats = useRuri((s) => s.stats);
   const usage = useRuri((s) => s.usage);
+  const accounts = useRuri((s) => s.accounts);
   // the meters run for exactly as long as this page is up, and not a
   // moment longer (server/resources.ts)
   useEffect(() => watchMeters(), []);
@@ -317,13 +319,8 @@ export function StatisticsPage() {
     const many = Object.keys(usage).length > 1;
     const out: Array<{ key: string; label: string; percent: number; resets?: string; title: string }> = [];
     for (const [provider, limit] of Object.entries(usage)) {
-      // with both Claude sign-ins read, each says which it is
-      const name =
-        provider === "claude-personal"
-          ? "claude (personal)"
-          : provider === "claude" && "claude-personal" in usage
-            ? "claude (work)"
-            : provider;
+      // with more than one of a harness's accounts read, each says which
+      const name = usageName(accounts, usage, provider);
       const lead = many ? `${name} · ` : "";
       const add = (name: string, percent: number | undefined, at: number | undefined) => {
         if (percent === undefined) return;
@@ -348,7 +345,7 @@ export function StatisticsPage() {
       }
     }
     return out;
-  }, [usage]);
+  }, [usage, accounts]);
 
   const today = sum(ids.map((id) => stats[id]?.today ?? NONE));
   const week = sum(ids.map((id) => stats[id]?.week ?? NONE));

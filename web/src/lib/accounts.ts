@@ -7,6 +7,7 @@ import {
   type AccountProvider,
   type HomeSettings,
   type Project,
+  type UsageLimits,
 } from "../../../shared/protocol";
 
 /**
@@ -60,4 +61,65 @@ export function withPick(
 /** A plan as people say it: "max" → "Max". */
 export function planName(plan: string | undefined): string | undefined {
   return plan ? plan.charAt(0).toUpperCase() + plan.slice(1) : undefined;
+}
+
+/** Who an account is, in a few words: the email and plan, or that it
+ *  isn't signed in. */
+export function accountLine(account: AccountInfo): string {
+  if (account.signedIn === false) return "not signed in";
+  return [account.who, planName(account.plan), account.org].filter(Boolean).join(" · ");
+}
+
+/** One limit window of an account's, as the meters draw it. */
+export interface Window {
+  key: string;
+  label: string;
+  percent: number;
+  resets?: number;
+}
+
+/** An account's windows that have a reading: 5 hours, the week, and the
+ *  premium model's week when the harness has one. */
+export function windowsOf(limits: UsageLimits | undefined): Window[] {
+  if (!limits) return [];
+  const out: Window[] = [];
+  const add = (key: string, label: string, percent: number | undefined, resets: number | undefined) => {
+    if (percent !== undefined) out.push({ key, label, percent, ...(resets !== undefined ? { resets } : {}) });
+  };
+  add("fiveHour", "5h", limits.fiveHour, limits.resets?.fiveHour);
+  add("weekly", "week", limits.weekly, limits.resets?.weekly);
+  if (limits.scoped) add("scoped", limits.scoped.label, limits.scoped.percent, limits.resets?.scoped);
+  return out;
+}
+
+/** Past this a window is as good as gone, and says so in red. */
+export const NEARLY_FULL = 90;
+
+/** The fullest of an account's windows, for a word on how much room it has. */
+export function fullest(limits: UsageLimits | undefined): Window | undefined {
+  return windowsOf(limits).reduce<Window | undefined>(
+    (top, w) => (!top || w.percent > top.percent ? w : top),
+    undefined,
+  );
+}
+
+/** What a usage key is called where every account's windows are listed:
+ *  the harness, and the account when the harness has more than one read. */
+export function usageName(accounts: AccountInfo[], usage: Record<string, UsageLimits>, key: string): string {
+  const account = accounts.find((a) => a.usage === key);
+  const provider = account?.provider ?? key.split(":")[0]!.replace(/-personal$/, "");
+  const siblings = Object.keys(usage).filter(
+    (k) =>
+      (accounts.find((a) => a.usage === k)?.provider ?? k.split(":")[0]!.replace(/-personal$/, "")) ===
+      provider,
+  );
+  if (siblings.length < 2) return provider;
+  return `${provider} (${(account?.name ?? key.split(":")[1] ?? "personal").toLowerCase()})`;
+}
+
+/** How full an account's fullest window is, in a word for a menu: "Fable
+ *  100%"; nothing when there is no reading. */
+export function usageWord(limits: UsageLimits | undefined): string {
+  const top = fullest(limits);
+  return top ? `${top.label} ${Math.round(top.percent)}%` : "";
 }

@@ -7,8 +7,8 @@ import type {
   PermissionState,
 } from "../../../shared/protocol";
 import { EFFORT_LEVELS, HOME_ID } from "../../../shared/protocol";
-import { accountIn } from "../lib/accounts";
-import { send, setProjectAccount, setProjectLive, useRuri } from "../store";
+import { send, setProjectLive, useRuri } from "../store";
+import { Accounts } from "./Accounts";
 import { BandEditor } from "./BandEditor";
 import { Capped } from "./Capped";
 import { Icon } from "./chat/Icon";
@@ -792,6 +792,7 @@ const SETTINGS_SECTIONS = [
   { id: "folders", name: "Folders", icon: "M3 5h6l2 2h10v12H3z" },
   { id: "devices", name: "Devices", icon: "M3 4h15v11H3zM7 19h7M10 15v4M18 9h4v12h-6v-6" },
   { id: "vault", name: "Passwords", icon: "M14 8a5 5 0 1 0 0 .1M14 8h8M18 8v4M21 8v3" },
+  { id: "accounts", name: "Accounts", icon: "M12 4.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2zM4.5 20a7.5 7.5 0 0 1 15 0" },
   { id: "models", name: "Models", icon: "M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6" },
   { id: "harnesses", name: "Harnesses", icon: "M4 5h16v14H4zM7 9l3 3-3 3M13 15h4" },
   {
@@ -873,41 +874,6 @@ function DesignTaste() {
   );
 }
 
-/** Settings → General → Claude account (server/accounts.ts): which sign-in
- *  the open project's Claude sessions run on. Only with a project open. */
-function ClaudeAccountRow() {
-  const project = useRuri((s) => s.projects.find((p) => p.sessions.some((x) => x.id === s.activeId)));
-  const accounts = useRuri((s) => s.accounts);
-  if (!project) return null;
-  const current = accountIn(accounts, project, "claude");
-  return (
-    <div className="settings-row">
-      <span className="settings-label">
-        Claude account
-        <InfoTip>
-          Which Claude sign-in {project.name}&apos;s chats, teammates and agents run on. A chat already running
-          keeps its account; its next start, or its next resume, is on this one.
-        </InfoTip>
-      </span>
-      <div className="settings-value">
-        <div className="seg">
-          {accounts
-            .filter((a) => a.provider === "claude")
-            .map((option) => (
-              <button
-                key={option.id}
-                className={`seg-option ${current === option.id ? "active" : ""}`}
-                onClick={() => setProjectAccount(project.id, option)}
-              >
-                {option.name}
-              </button>
-            ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /** Settings → General → Live components, for the open project: its own
  *  word over the setting above — on, off, or following it. Only with a
  *  project open; it holds for every chat in that project. */
@@ -985,7 +951,8 @@ function LiveComponents() {
 }
 
 export function Settings({ onClose }: { onClose(): void }) {
-  const [section, setSection] = useState<string>("general");
+  // where something that opened Settings sent you, else General
+  const [section, setSection] = useState<string>(() => useRuri.getState().settingsAt ?? "general");
   const sessionsMode = useSessionsMode();
   const workspaceDir = useRuri((s) => s.workspaceDir);
   const canPickFolder = useRuri((s) => s.canPickFolder);
@@ -1090,7 +1057,6 @@ export function Settings({ onClose }: { onClose(): void }) {
               <DesignTaste />
               <LiveComponents />
               <ProjectLiveComponents />
-              <ClaudeAccountRow />
             </section>
 
             <section className="settings-group" hidden={section !== "appearance"}>
@@ -1198,6 +1164,11 @@ export function Settings({ onClose }: { onClose(): void }) {
             <section className="settings-group" hidden={section !== "vault"}>
               <h2 className="settings-group-name">Passwords</h2>
               <Vault shown={section === "vault"} />
+            </section>
+
+            <section className="settings-group" hidden={section !== "accounts"}>
+              <h2 className="settings-group-name">Accounts</h2>
+              <Accounts shown={section === "accounts"} />
             </section>
 
             <section className="settings-group" hidden={section !== "models"}>

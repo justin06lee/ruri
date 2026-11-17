@@ -11146,3 +11146,183 @@ button.primary { min-height: 28px; }
   justify-content: flex-end;
   gap: 6px;
 }
+
+/* ── accounts ─────────────────────────────────────────────────────────
+   The account chip beside the model picker (AccountPicker.tsx) and
+   Settings → Accounts (Accounts.tsx): which sign-in a project spends from,
+   and how much room each one has left. */
+
+.account-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* a window nearly gone shows on the chip itself, before it is opened */
+.account-trigger.full {
+  color: var(--diff-del-ink);
+}
+
+.account-menu {
+  min-width: 340px;
+  left: 0;
+  right: auto;
+}
+
+.account-item {
+  padding: 6px 8px;
+}
+
+.account-item-words {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.account-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-item-who {
+  font-size: 11px;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-item.off .account-item-name {
+  color: var(--ink-faint);
+}
+
+.account-manage {
+  margin-top: 4px;
+  color: var(--ink-faint);
+}
+
+/* how much of each window is gone, as small bars */
+.account-meters {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.account-meters.none {
+  font-style: italic;
+}
+
+.account-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.account-meter-name {
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-meter-track {
+  position: relative;
+  width: 28px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  overflow: hidden;
+}
+
+.account-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--ink-soft);
+}
+
+.account-meter-percent {
+  min-width: 3ch;
+  text-align: right;
+}
+
+.account-meter.full {
+  color: var(--diff-del-ink);
+}
+
+.account-meter.full .account-meter-fill {
+  background: var(--diff-del-ink);
+}
+
+/* Settings → Accounts: under a row, how much room it has and who runs on it */
+.account-row-room {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 8px;
+}
+
+.account-row-using {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.account-name-input {
+  font-size: 13px;
+  padding: 2px 6px;
+  min-width: 160px;
+}
+
+.account-add {
+  padding: 8px 0 4px;
+}
+
+/* a sign-in's own shell, under its row */
+.account-sign-in {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 12px;
+}
+
+.account-sign-in-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.account-sign-in-head span {
+  flex: 1;
+}
+
+.lone-shell {
+  height: 240px;
+  border-radius: var(--radius-m);
+  background: var(--paper-dim);
+}
+
+.lone-shell-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* the row menu's word on how full an account is */
+.row-menu-room {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}

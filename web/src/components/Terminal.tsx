@@ -145,6 +145,21 @@ function TerminalView({ channelId, termId, shown }: { channelId: string; termId:
   return <div className={`terminal-view ${shown ? "" : "hidden"}`} ref={hostRef} />;
 }
 
+/**
+ * One shell on its own, outside the pane: the Accounts page's sign-in, with
+ * the harness's login typed into it by the server (Terminals.run), so the
+ * link it prints and anything it asks is right under the account.
+ */
+export function LoneShell({ channelId, termId }: { channelId: string; termId: string }) {
+  return (
+    <div className="terminal lone-shell">
+      <div className="lone-shell-body">
+        <TerminalView channelId={channelId} termId={termId} shown />
+      </div>
+    </div>
+  );
+}
+
 function TerminalPanel({
   channelId,
   name,

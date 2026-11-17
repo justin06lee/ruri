@@ -1,9 +1,10 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { HOME_ID, leadOf, type Project } from "../../../shared/protocol";
+import { ACCOUNT_PROVIDERS, HOME_ID, leadOf, type Project } from "../../../shared/protocol";
 import { flatOrder, type ProjectFolder, type SidebarPlace, tidyLayout } from "../../../shared/sidebar";
 import { useConfirm } from "./Confirm";
 import { getPref, setPref, watchPref } from "../prefs";
+import { accountIn, usageWord } from "../lib/accounts";
 import { liveChoice, useLiveComponents } from "../lib/liveComponents";
 import { defaultProjectIcon, PROJECT_ICON_NAMES } from "../lib/marks";
 import { ProjectIcon } from "./Marks";
@@ -17,6 +18,7 @@ import {
   prefetchTranscript,
   renameProject,
   send,
+  setProjectAccount,
   setProjectLive,
   toggleProject,
   useRuri,
@@ -276,6 +278,8 @@ function RowMenu({
   const within = folders.find((f) => f.projects.includes(project.id))?.id;
   const setting = useLiveComponents();
   const live = liveChoice(project);
+  const accounts = useRuri((s) => s.accounts);
+  const usage = useRuri((s) => s.usage);
   const [spot, setSpot] = useState({ left: at.x, top: at.y });
   useLayoutEffect(() => {
     const r = box.current?.getBoundingClientRect();
@@ -362,6 +366,41 @@ function RowMenu({
         {CHECK}
         New folder
       </button>
+      {ACCOUNT_PROVIDERS.map((provider) => {
+        const theirs = accounts.filter((a) => a.provider === provider);
+        // a harness with one account has nothing to pick between
+        if (theirs.length < 2) return null;
+        const on = accountIn(accounts, project, provider);
+        return (
+          <div key={provider} role="group">
+            <div className="row-menu-label">{provider === "claude" ? "Claude account" : "Codex account"}</div>
+            {theirs.map((a) => (
+              <button
+                key={a.id}
+                role="menuitemradio"
+                aria-checked={a.id === on}
+                className={`dropdown-item ${a.id === on ? "selected" : ""}`}
+                title={
+                  a.signedIn === false
+                    ? `${a.name} isn't signed in — sign in in Settings, Accounts`
+                    : undefined
+                }
+                disabled={a.signedIn === false}
+                onClick={() => {
+                  if (a.id !== on) setProjectAccount(project.id, a);
+                  onClose();
+                }}
+              >
+                {CHECK}
+                <span className="row-menu-name">{a.name}</span>
+                {usageWord(usage[a.usage]) && (
+                  <span className="row-menu-room">{usageWord(usage[a.usage])}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        );
+      })}
       <div className="row-menu-label">Live components</div>
       <div className="seg row-menu-seg">
         {(["default", "on", "off"] as const).map((option) => (

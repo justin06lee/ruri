@@ -521,6 +521,8 @@ interface RuriState {
   projectsOpen: boolean;
   /** Settings has the whole pane when it's open — it outgrew a dialog. */
   settingsOpen: boolean;
+  /** The section Settings opens on when something sends you to one. */
+  settingsAt: string | null;
   /** What the agents are costing this machine — only while the statistics
    *  page is up to ask for it (server/resources.ts). */
   resources: Resources | undefined;
@@ -623,7 +625,9 @@ interface RuriState {
   setProjectsOpen(on: boolean): void;
   /** Open a chat's shell pane, or put it away (its shells keep running). */
   setShellOpen(channelId: string, open: boolean): void;
-  setSettingsOpen(on: boolean): void;
+  /** Open or close Settings — at `section`, when it is something sending
+   *  you to one (the account chip's "Accounts…"). */
+  setSettingsOpen(on: boolean, section?: string): void;
   clearPicked(): void;
   dismissError(): void;
 }
@@ -734,6 +738,7 @@ export const useRuri = create<RuriState>((set) => ({
   rapid: false,
   projectsOpen: false,
   settingsOpen: false,
+  settingsAt: null,
   resources: undefined,
   draftBumps: {},
   workspaceDir: "",
@@ -795,9 +800,10 @@ export const useRuri = create<RuriState>((set) => ({
       unread: on ? s.unread : seen(s.unread, s.activeId),
     })),
   closeSkillBody: () => set({ skillBody: null }),
-  setSettingsOpen: (on) =>
+  setSettingsOpen: (on, section) =>
     set((s) => ({
       settingsOpen: on,
+      settingsAt: on ? (section ?? null) : null,
       projectsOpen: false,
       unread: on ? s.unread : seen(s.unread, s.activeId),
     })),

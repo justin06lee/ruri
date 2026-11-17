@@ -53,6 +53,11 @@ final class ChatSession {
     private(set) var dropped: Set<String> = []
     /// Something asked of the Mac that it couldn't do, in words to show.
     var problem: String?
+    /// When the prompt box was last typed in here: words from another device
+    /// don't land on top of what is being written.
+    private var typedAt = Date.distantPast
+    /// What was typed, on its way to the Mac.
+    private var drafting: Task<Void, Never>?
 
     private let model: RuriModel
     private var task: Task<Void, Never>?
@@ -175,6 +180,39 @@ final class ChatSession {
         )
         outbox.append(outgoing)
         deliver(outgoing.id)
+    }
+
+    // MARK: the prompt box, the same on every device
+
+    /// The box was typed in: the Mac hears it half a second after the typing
+    /// pauses, and every window's box takes it.
+    func typed(_ text: String) {
+        typedAt = .now
+        drafting?.cancel()
+        guard !made, text != log.draft else {
+            drafting = nil
+            return
+        }
+        drafting = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            do {
+                let (client, address, port) = try await model.line()
+                try await client.draft(text, chat: chat, at: address, port: port)
+            } catch {
+                // a Mac from before boxes were shared, or one out of reach:
+                // the words stay in this phone's box
+            }
+            if !Task.isCancelled { drafting = nil }
+        }
+    }
+
+    /// Words another device wrote in the box, for this one to take — nil
+    /// while it is being typed in here, or what was typed is still on its
+    /// way, or there is nothing new.
+    func draftFromElsewhere(replacing current: String) -> String? {
+        guard drafting == nil, Date.now.timeIntervalSince(typedAt) > 2, log.draft != current else { return nil }
+        return log.draft
     }
 
     // MARK: the queue, and stopping

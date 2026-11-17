@@ -83,6 +83,8 @@ struct ChatFrame: Codable, Sendable {
     var queue: [ChatQueued]
     /// The queue is standing by since a turn was stopped or fell over.
     var held: Bool?
+    /// What is written in the chat's prompt box and not sent, on any device.
+    var draft: String?
     var items: [ChatItem]?
     var upsert: [ChatItem]?
     var remove: [String]?
@@ -116,6 +118,8 @@ struct ChatLog: Equatable, Sendable {
     /// The queue is standing by: it moves with the next prompt, or when it
     /// is sent on.
     var held = false
+    /// What is written in the chat's prompt box and not sent, on any device.
+    var draft = ""
     private(set) var items: [ChatItem] = []
 
     /// Take one frame: the whole list replaces what is held; otherwise what
@@ -127,6 +131,7 @@ struct ChatLog: Equatable, Sendable {
         state = frame.state
         queue = frame.queue
         held = frame.held ?? false
+        draft = frame.draft ?? ""
         if let whole = frame.items {
             items = whole
             return

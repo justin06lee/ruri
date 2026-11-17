@@ -349,6 +349,12 @@ final class MacClient: Sendable {
         try await act(body, to: "/sidebar", at: address, port: port)
     }
 
+    /// What is written in a chat's prompt box here: every window's box
+    /// takes it.
+    func draft(_ text: String, chat: String, at address: String, port: Int) async throws {
+        try await act(["id": chat, "text": text], to: "/chat/draft", at: address, port: port)
+    }
+
     /// Stop the turn a chat is running. Its queue stands by.
     func stop(_ chat: String, at address: String, port: Int) async throws {
         try await act(["id": chat], to: "/chat/stop", at: address, port: port)

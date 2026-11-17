@@ -1926,6 +1926,9 @@ export interface PhoneChatFrame {
    *  moves again with the next prompt, or when it is sent on
    *  (POST /chat/queue { do: "send" }). */
   held?: true;
+  /** What is written in the chat's prompt box and not sent, on any device
+   *  (its words; attachments stay where they were added). */
+  draft?: string;
   items?: PhoneChatItem[];
   upsert?: PhoneChatItem[];
   remove?: string[];
@@ -2647,6 +2650,9 @@ export type ServerMessage =
   | { type: "projects"; projects: Project[] }
   /** The sidebar's arrangement, whole, whenever it changes. */
   | { type: "sidebar"; sidebar: SidebarLayout }
+  /** A chat's unsent prompt changed on another device (another window, or
+   *  the phone): the composer takes it unless it is being typed in. */
+  | { type: "composer_draft"; projectId: string; text: string }
   | { type: "folder_picked"; path: string | null; target?: PickTarget }
   /** Sharing changed: turned on or off, a device paired, came or went. */
   | { type: "sharing"; sharing: SharingInfo }

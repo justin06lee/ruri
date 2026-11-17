@@ -389,13 +389,14 @@ export const promptHandlers = {
     if (running(ctx, msg.projectId)) projectWatch(ctx).userEnded(msg.projectId);
     stopTurn(ctx, msg.projectId);
   },
-  draft: (ctx, _ws, msg) => {
+  draft: (ctx, ws, msg) => {
     // Every keystroke's worth of unsent prompt, held for the next
     // launch. Bytes arrive once, the first time an attachment is seen;
     // after that the client sends metadata alone and the file it already
     // stored stands. Nothing is deleted here — the ids are the ones the
     // prompt will send under, so a cleared draft must not take the file
     // a just-sent transcript event points at.
+    const before = ctx.drafts.get(msg.projectId)?.text ?? "";
     const held = ctx.drafts.get(msg.projectId)?.attachments ?? [];
     const attachments = msg.attachments?.flatMap((att) => {
       const { data, regions, ...meta } = att;
@@ -405,6 +406,11 @@ export const promptHandlers = {
       return stored ? [{ ...meta, ...drawn, url: stored.url }] : [];
     });
     ctx.drafts.set(msg.projectId, msg.text, attachments);
+    // every other window, and the phone at its next frame, writes on
+    // from here
+    if (msg.text !== before) {
+      ctx.clients.broadcastOthers({ type: "composer_draft", projectId: msg.projectId, text: msg.text }, ws);
+    }
     // a prompt that will start a fresh session is ranked against the
     // project as it goes: its meaning, ready before it is sent
     if (msg.text.trim().length >= 8 && freshNext(ctx, msg.projectId)) ctx.embedder.warm([msg.text], "query");

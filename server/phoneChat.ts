@@ -14,6 +14,8 @@
  *                               now ("now") or taken out ("remove"), or a
  *                               queue that is standing by sent on ("send")
  *   POST /chat/stop             { id } — the running turn stopped
+ *   POST /chat/draft            { id, text } — the chat's unsent prompt,
+ *                               written here; every window's box takes it
  *   POST /sidebar               { do: "move", id, folderId?, beforeId? } or
  *                               { do: "fold", folderId, collapsed } — the
  *                               sidebar arranged, as the window's drag does
@@ -173,7 +175,15 @@ export function phoneSidebar(ctx: ServerContext, body: PhoneSidebarBody): boolea
   return true;
 }
 
-const CHAT_PATHS = new Set(["/chat", "/chat/live", "/chat/send", "/chat/queue", "/chat/stop", "/sidebar"]);
+const CHAT_PATHS = new Set([
+  "/chat",
+  "/chat/live",
+  "/chat/send",
+  "/chat/queue",
+  "/chat/stop",
+  "/chat/draft",
+  "/sidebar",
+]);
 
 /** Whether a request is for a chat, the phone's way. */
 export function isPhoneChatPath(pathname: string): boolean {
@@ -272,6 +282,7 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
     state: waiting || status === "permission" ? "needs-you" : status === "working" ? "working" : "idle",
     queue,
     ...(queue.length && ctx.queues.held.has(chatId) ? { held: true as const } : {}),
+    ...(ctx.drafts.get(chatId)?.text.trim() ? { draft: ctx.drafts.get(chatId)!.text } : {}),
     items: phoneItems(ctx.archive.events(chatId), draft),
   };
 }
@@ -443,6 +454,8 @@ export async function phoneSend(
   }
   // the answer comes a microtask after the prompt is taken
   await new Promise((resolve) => setImmediate(resolve));
+  // what was written went out: the prompt box is empty everywhere now
+  if (as !== "failed") phoneDraft(ctx, chat, "");
   return { as: as ?? "other" };
 }
 
@@ -471,6 +484,15 @@ export function phoneQueueDo(ctx: ServerContext, body: PhoneQueueBody): boolean 
     });
   }
   return true;
+}
+
+/** The chat's unsent prompt, written on the phone: kept as a window's is
+ *  (its attachments stand), and every window's composer takes it. */
+export function phoneDraft(ctx: ServerContext, chat: string, text: string): void {
+  const held = ctx.drafts.get(chat);
+  if ((held?.text ?? "") === text) return;
+  ctx.drafts.set(chat, text, held?.attachments);
+  ctx.clients.broadcast({ type: "composer_draft", projectId: chat, text });
 }
 
 /** The running turn stopped, as the web app's stop button stops it: the
@@ -554,6 +576,27 @@ export async function servePhoneChat(
       return;
     }
     json(res, 200, { ok: phoneSidebar(ctx, body) });
+    return;
+  }
+  if (url.pathname === "/chat/draft") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { allow: "POST" });
+      res.end();
+      return;
+    }
+    const parsed = await readJson(req, PROMPT_MAX * 4 + 1024);
+    const chat = parsed?.["id"];
+    const text = parsed?.["text"];
+    if (typeof chat !== "string" || !chat || typeof text !== "string" || text.length > PROMPT_MAX) {
+      json(res, 400, { error: "send { id, text }" });
+      return;
+    }
+    if (!reachable(ctx, chat)) {
+      json(res, 404, { error: "no such chat" });
+      return;
+    }
+    phoneDraft(ctx, chat, text);
+    json(res, 200, { ok: true });
     return;
   }
   if (url.pathname === "/chat/queue" || url.pathname === "/chat/stop") {

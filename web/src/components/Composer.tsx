@@ -5,6 +5,7 @@ import { keepLocal } from "../lib/localFiles";
 import {
   clearComposerDraft,
   composerDrafts,
+  quietBump,
   send,
   sendPrompt,
   setComposerDraft,
@@ -454,7 +455,8 @@ export function Composer({
         setText(holdMarkers(fresh.text));
         setAtts((prev) => (prev === fresh.atts ? prev : fresh.atts));
         counter.current = fresh.counter;
-        requestAnimationFrame(() => areaRef.current?.focus());
+        // words from another device arrive without taking the focus
+        if (!quietBump(channelId)) requestAnimationFrame(() => areaRef.current?.focus());
       }),
     [channelId],
   );

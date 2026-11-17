@@ -4,6 +4,7 @@ import UIKit
 /// What this iPhone hears from the Mac, and when it hears it quietly.
 struct NotificationsView: View {
     @Environment(RuriModel.self) private var model
+    @Environment(\.palette) private var palette
     @Environment(\.openURL) private var openURL
 
     private var notifications: Notifications { model.notifications }
@@ -48,6 +49,7 @@ struct NotificationsView: View {
                 } footer: {
                     Text("Notifications are off for ruri on this iPhone.")
                 }
+                .formRows(palette)
             }
             Section {
                 Toggle("Finished", isOn: binding(\.finished))
@@ -55,6 +57,7 @@ struct NotificationsView: View {
             } footer: {
                 Text("When a project's work is done, or a chat asks you something.")
             }
+            .formRows(palette)
             Section {
                 Toggle("Quiet Hours", isOn: binding(\.quiet))
                 if notifications.prefs.quiet {
@@ -78,11 +81,13 @@ struct NotificationsView: View {
                                 await notifications.sync()
                             }
                         }
-                        .font(.footnote)
+                        .font(.ruri(.footnote))
                     }
                 }
             }
+            .formRows(palette)
         }
+        .formSurface(palette)
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
         .task { await notifications.wake() }

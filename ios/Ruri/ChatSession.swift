@@ -34,6 +34,11 @@ final class ChatSession {
         var id: String
         var text: String
         var attachments: [Attachment] = []
+        /// Sent to cut in on the turn that was running.
+        var now = false
+        /// A turn was running when it was sent: it is headed for the queue,
+        /// and is shown there from the start.
+        var behind = false
         var state: State
     }
 
@@ -41,6 +46,13 @@ final class ChatSession {
     private(set) var log = ChatLog()
     private(set) var line: Line = .connecting
     private(set) var outbox: [Outgoing] = []
+    /// Queued prompts this phone has just asked the Mac to send now, until
+    /// the Mac's next word on the queue says how they stand.
+    private(set) var hurried: Set<String> = []
+    /// Queued prompts this phone has just asked the Mac to take out.
+    private(set) var dropped: Set<String> = []
+    /// Something asked of the Mac that it couldn't do, in words to show.
+    var problem: String?
 
     private let model: RuriModel
     private var task: Task<Void, Never>?
@@ -48,15 +60,37 @@ final class ChatSession {
     /// fetched from the Mac, so a bubble doesn't fetch what it just showed.
     private let files = NSCache<NSString, NSData>()
 
+    /// Made up, for a look at the screen without a Mac: it never opens a line.
+    private let made: Bool
+
     init(chat: String, model: RuriModel) {
         self.chat = chat
         self.model = model
+        made = false
     }
+
+    #if DEBUG
+    /// A conversation that is only its sample: Xcode's canvas, and the app
+    /// run for a look at it (ios/demo/mac.sh).
+    init(sample: ChatFrame, model: RuriModel) {
+        chat = sample.chat
+        self.model = model
+        made = true
+        log.apply(sample)
+        line = .live
+    }
+
+    /// The sample moves on: a frame as the Mac would send one.
+    func apply(sample frame: ChatFrame) {
+        log.apply(frame)
+        settle()
+    }
+    #endif
 
     // MARK: the line
 
     func open() {
-        guard task == nil, line != .gone, line != .readOnly else { return }
+        guard !made, task == nil, line != .gone, line != .readOnly else { return }
         task = Task { await stayLive() }
     }
 
@@ -85,7 +119,8 @@ final class ChatSession {
                         log.apply(frame)
                         settle()
                     }
-                    line = .live
+                    // said only when it changes: every word here redraws the chat
+                    if line != .live { line = .live }
                     wait = .seconds(1)
                 }
                 // the Mac closed the line: open it again
@@ -111,25 +146,94 @@ final class ChatSession {
         }
     }
 
-    /// Prompts the chat has taken — said, or in its queue — leave the outbox.
+    /// Prompts the chat has taken — said, or in its queue — leave the outbox,
+    /// and what was asked of a queued prompt is forgotten once it has gone.
     private func settle() {
         outbox.removeAll { outgoing in
             if case .failed = outgoing.state { return false }
             return log.holds(outgoing.id)
         }
+        let waiting = Set(log.queue.map(\.id))
+        if !hurried.isSubset(of: waiting) { hurried.formIntersection(waiting) }
+        if !dropped.isSubset(of: waiting) { dropped.formIntersection(waiting) }
     }
 
     // MARK: sending
 
-    func send(_ text: String, attachments: [Attachment] = []) {
+    /// Whether a prompt sent now would wait behind a turn.
+    var busy: Bool { log.state != .idle }
+
+    /// Send a prompt. With a turn running it waits in the queue behind it —
+    /// or, sent `now`, cuts in: the turn stops and this goes in its place.
+    func send(_ text: String, attachments: [Attachment] = [], now: Bool = false) {
         let words = Attaching.prompt(text, naming: attachments)
         guard !words.isEmpty else { return }
         for attachment in attachments { files.setObject(attachment.data as NSData, forKey: attachment.id as NSString) }
         let outgoing = Outgoing(
-            id: UUID().uuidString.lowercased(), text: words, attachments: attachments, state: .sending
+            id: UUID().uuidString.lowercased(), text: words, attachments: attachments, now: now && busy,
+            behind: busy, state: .sending
         )
         outbox.append(outgoing)
         deliver(outgoing.id)
+    }
+
+    // MARK: the queue, and stopping
+
+    /// A queued prompt held down: it goes now, cutting in on a running turn.
+    func sendNow(_ id: String) {
+        guard !hurried.contains(id), !dropped.contains(id) else { return }
+        hurried.insert(id)
+        act(undo: { self.hurried.remove(id) }) { client, address, port in
+            try await client.queue(QueueBody(id: self.chat, do: .now, itemId: id), at: address, port: port)
+        }
+    }
+
+    /// Take a prompt out of the queue.
+    func remove(_ id: String) {
+        guard !dropped.contains(id) else { return }
+        dropped.insert(id)
+        act(undo: { self.dropped.remove(id) }) { client, address, port in
+            try await client.queue(QueueBody(id: self.chat, do: .remove, itemId: id), at: address, port: port)
+        }
+    }
+
+    /// Send on a queue that has been standing by since a stop.
+    func sendOn() {
+        act(undo: {}) { client, address, port in
+            try await client.queue(QueueBody(id: self.chat, do: .send), at: address, port: port)
+        }
+    }
+
+    /// Stop the turn that is running. What is queued stands by.
+    func stop() {
+        act(undo: {}) { client, address, port in
+            try await client.stop(self.chat, at: address, port: port)
+        }
+    }
+
+    /// Ask the Mac for something small; on a failure put the screen back
+    /// and say why.
+    private func act(
+        undo: @escaping @MainActor () -> Void,
+        _ ask: @escaping @MainActor (MacClient, String, Int) async throws -> Void
+    ) {
+        guard !made else { return }
+        Task {
+            do {
+                let (client, address, port) = try await model.line()
+                try await ask(client, address, port)
+            } catch {
+                undo()
+                switch error as? MacError {
+                case .outdated: problem = "Update ruri on your Mac to do this from your iPhone."
+                case .noChat: problem = "This chat isn't open anymore."
+                case .readOnly, .notPaired: problem = "This iPhone can't do that here."
+                default:
+                    model.lostTheMac()
+                    problem = "Couldn't reach your Mac."
+                }
+            }
+        }
     }
 
     func retry(_ id: String) {
@@ -151,7 +255,8 @@ final class ChatSession {
                 do {
                     let (client, address, port) = try await model.line()
                     let went = try await client.send(
-                        outgoing.text, attachments: outgoing.attachments, to: chat, id: id, at: address, port: port
+                        outgoing.text, attachments: outgoing.attachments, now: outgoing.now, to: chat, id: id,
+                        at: address, port: port
                     )
                     mark(id, went == .failed ? .failed("ruri couldn't take it.") : .sent(went))
                     settle()

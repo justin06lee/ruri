@@ -1903,6 +1903,8 @@ export interface PhoneQueued {
   id: string;
   text: string;
   attachments?: PhoneAttachment[];
+  /** It cut in: the running turn is stopping, and this goes the moment it has. */
+  now?: true;
 }
 
 /**
@@ -1918,6 +1920,10 @@ export interface PhoneChatFrame {
   project: string;
   state: "working" | "needs-you" | "idle";
   queue: PhoneQueued[];
+  /** The queue is standing by since a turn was stopped or fell over: it
+   *  moves again with the next prompt, or when it is sent on
+   *  (POST /chat/queue { do: "send" }). */
+  held?: true;
   items?: PhoneChatItem[];
   upsert?: PhoneChatItem[];
   remove?: string[];

@@ -163,6 +163,8 @@ describe("a key scoped to the status", () => {
       ["/sharing/invite", "POST"],
       ["/chat?id=x", "GET"],
       ["/chat/send", "POST"],
+      ["/chat/queue", "POST"],
+      ["/chat/stop", "POST"],
       ["/phone/push", "POST"],
       ["/phone/push/settings", "POST"],
     ] as const) {

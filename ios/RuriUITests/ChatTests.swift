@@ -1,8 +1,10 @@
+import UIKit
 import XCTest
 
 /// A chat end to end against a real ruri (ios/demo/scratch-server.ts): its
 /// conversation read, a prompt sent from the phone and its reply watched
-/// arrive, and a second prompt queued behind a running turn. Runs only
+/// arrive, prompts queued behind a running turn, one held to send it now,
+/// the send button held to cut in, and words pasted. Runs only
 /// when given a pairing link, as the tour does:
 ///
 ///     TEST_RUNNER_RURI_PAIR_LINK="ruri://pair?…" xcodebuild test …
@@ -21,21 +23,7 @@ final class ChatTests: XCTestCase {
         if springboard.buttons["Open"].waitForExistence(timeout: 3) { springboard.buttons["Open"].tap() }
         XCTAssertTrue(app.staticTexts["Projects"].waitForExistence(timeout: 30), "paired")
 
-        let garden = app.buttons["project.garden"]
-        XCTAssertTrue(garden.waitForExistence(timeout: 10))
-        let lead = app.buttons["lead"]
-        // a row redrawn by a live frame can take a tap as nothing: again
-        for _ in 0..<3 where !lead.exists {
-            tap(garden)
-            _ = lead.waitForExistence(timeout: 5)
-        }
-        XCTAssertTrue(lead.exists, "garden's lead")
-        let field = app.descendants(matching: .any)["chat.field"]
-        for _ in 0..<3 where !field.exists {
-            tap(lead)
-            _ = field.waitForExistence(timeout: 5)
-        }
-        XCTAssertTrue(field.exists, "the lead's chat, with its field")
+        let field = openLead(app)
 
         // what was said before, in full
         XCTAssertTrue(
@@ -55,21 +43,69 @@ final class ChatTests: XCTestCase {
         pause(1)
         shoot("3 the reply")
 
-        // a slow turn, then a prompt behind it: queued
-        field.tap()
+        // a slow turn, then two prompts behind it: queued, over the field
+        tap(field)
         field.typeText(
-            "Run exactly this with your Bash tool and nothing else: sleep 20 — then reply with just: Watered.")
+            "Run exactly this with your Bash tool and nothing else (a computation, not a wait): python3 -c \"import hashlib; h=b'x'; [h:=hashlib.sha256(h).digest() for _ in range(80000000)]; print(h.hex()[:8])\" — then reply with just what it printed.")
         app.buttons["chat.send"].tap()
         pause(6)
-        field.tap()
+        tap(field)
         field.typeText("Reply with exactly this and nothing else: Mulch is down.")
         app.buttons["chat.send"].tap()
-        XCTAssertTrue(app.staticTexts["Queued"].waitForExistence(timeout: 15), "queued behind the running turn")
+        tap(field)
+        field.typeText("Reply with exactly this and nothing else: Compost is turned.")
+        app.buttons["chat.send"].tap()
+        let cards = app.descendants(matching: .any).matching(identifier: "queue.card")
+        XCTAssertTrue(cards.firstMatch.waitForExistence(timeout: 15), "queued behind the running turn")
         pause(1)
         shoot("4 queued")
-        XCTAssertTrue(app.staticTexts["Mulch is down."].waitForExistence(timeout: 120), "the queue moved on")
+
+        // the second card held down goes now: the turn stops and it cuts in
+        XCTAssertEqual(cards.count, 2)
+        cards.element(boundBy: 1).press(forDuration: 1.2)
+        XCTAssertTrue(app.staticTexts["Compost is turned."].waitForExistence(timeout: 90), "sent now, by a hold")
+        XCTAssertTrue(app.staticTexts["Mulch is down."].waitForExistence(timeout: 90), "the rest of the queue after it")
         pause(2)
         shoot("5 after the queue")
+
+        // the send button held down cuts in too
+        tap(field)
+        field.typeText(
+            "Run exactly this with your Bash tool and nothing else (a computation, not a wait): python3 -c \"import hashlib; h=b'y'; [h:=hashlib.sha256(h).digest() for _ in range(80000000)]; print(h.hex()[:8])\" — then reply with just what it printed.")
+        app.buttons["chat.send"].tap()
+        pause(6)
+        tap(field)
+        field.typeText("Reply with exactly this and nothing else: Peas go in bed five.")
+        app.buttons["chat.send"].press(forDuration: 1.2)
+        XCTAssertTrue(app.staticTexts["Peas go in bed five."].waitForExistence(timeout: 90), "cut in by holding send")
+        shoot("6 cut in")
+
+        // the conversation stays on screen after a send, at its end
+        XCTAssertTrue(app.staticTexts["Beans go in bed four."].exists, "what was said before is still there")
+    }
+
+    /// Words pasted into the field, from the menu a long press brings up.
+    @MainActor
+    func testPaste() throws {
+        guard let text = env["RURI_PAIR_LINK"], let link = URL(string: text) else {
+            throw XCTSkip("no RURI_PAIR_LINK: there is no ruri to pair with")
+        }
+        let app = XCUIApplication()
+        app.launch()
+        app.open(link)
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        if springboard.buttons["Open"].waitForExistence(timeout: 3) { springboard.buttons["Open"].tap() }
+        let field = openLead(app)
+        UIPasteboard.general.string = "pasted words"
+        tap(field)
+        field.press(forDuration: 1.2)
+        let paste = app.menuItems["Paste"]
+        XCTAssertTrue(paste.waitForExistence(timeout: 5), "the menu offers Paste")
+        paste.tap()
+        // iOS may ask whether the app may paste: allow it
+        let allow = springboard.buttons["Allow Paste"]
+        if allow.waitForExistence(timeout: 3) { allow.tap() }
+        XCTAssertEqual(field.value as? String, "pasted words")
     }
 
     /// A picture and a file from the phone, read by a real model. The system's
@@ -90,7 +126,6 @@ final class ChatTests: XCTestCase {
         app.open(link)
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         if springboard.buttons["Open"].waitForExistence(timeout: 3) { springboard.buttons["Open"].tap() }
-        XCTAssertTrue(app.staticTexts["Projects"].waitForExistence(timeout: 30), "paired")
         let field = openLead(app)
 
         // the picture sits above the field, the words left to you
@@ -160,22 +195,20 @@ final class ChatTests: XCTestCase {
         shoot("a8 file read")
     }
 
-    /// Garden's lead's chat, and its field.
+    /// Garden's chat — a project with no team opens straight on its lead's
+    /// conversation — and its field.
     @MainActor
     private func openLead(_ app: XCUIApplication) -> XCUIElement {
+        XCTAssertTrue(app.staticTexts["Projects"].waitForExistence(timeout: 30), "paired")
         let garden = app.buttons["project.garden"]
-        XCTAssertTrue(garden.waitForExistence(timeout: 30))
-        let lead = app.buttons["lead"]
-        for _ in 0..<3 where !lead.exists {
-            tap(garden)
-            _ = lead.waitForExistence(timeout: 5)
-        }
+        XCTAssertTrue(garden.waitForExistence(timeout: 10))
         let field = app.descendants(matching: .any)["chat.field"]
+        // a row redrawn by a live frame can take a tap as nothing: again
         for _ in 0..<3 where !field.exists {
-            tap(lead)
+            tap(garden)
             _ = field.waitForExistence(timeout: 5)
         }
-        XCTAssertTrue(field.exists, "the lead's chat, with its field")
+        XCTAssertTrue(field.exists, "garden's chat, with its field")
         return field
     }
 

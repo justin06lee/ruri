@@ -4,42 +4,43 @@ import SwiftUI
 /// code its Settings → Devices shows, or paste the link.
 struct PairView: View {
     @Environment(RuriModel.self) private var model
+    @Environment(\.palette) private var palette
     @State private var scanning = false
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer()
+            Spacer(minLength: 12)
             Image("Mark")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 112)
+                .frame(width: 96)
                 .accessibilityHidden(true)
             Text("ruri")
-                .font(.largeTitle.bold())
-                .padding(.top, 18)
-            Text("What your Mac is working on, at a glance.")
-                .foregroundStyle(.secondary)
+                .font(.ruri(.largeTitle, .bold))
+                .padding(.top, 16)
+            Text("What your Mac is working on, and a way to talk to it.")
+                .font(.ruri(.callout))
+                .foregroundStyle(palette.inkSoft)
                 .multilineTextAlignment(.center)
                 .padding(.top, 4)
-            Spacer()
+            Spacer(minLength: 12)
             VStack(alignment: .leading, spacing: 14) {
                 Step(number: 1, text: "On your Mac, open ruri's Settings, then Devices.")
                 Step(number: 2, text: "Choose Pair a phone.")
                 Step(number: 3, text: "Scan the code with this iPhone's camera.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 8)
-            Spacer()
-            VStack(spacing: 14) {
+            .padding(18)
+            .card(palette.raised)
+            Spacer(minLength: 12)
+            VStack(spacing: 12) {
                 if QRScanner.isAvailable {
                     Button {
                         scanning = true
                     } label: {
                         Label("Scan Code", systemImage: "qrcode.viewfinder")
-                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                    .buttonStyle(PrimaryButton())
                 }
                 PasteButton(payloadType: String.self) { texts in
                     let text = texts.first ?? ""
@@ -47,14 +48,17 @@ struct PairView: View {
                 }
                 .labelStyle(.titleAndIcon)
                 .buttonBorderShape(.capsule)
+                .tint(palette.ink)
                 Text("Away from home, turn on Tailscale on this iPhone and your Mac.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(.ruri(.footnote))
+                    .foregroundStyle(palette.inkSoft)
                     .multilineTextAlignment(.center)
                     .padding(.top, 4)
             }
         }
         .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(palette.ground.ignoresSafeArea())
         .sheet(isPresented: $scanning) {
             ScanSheet { code in
                 scanning = false
@@ -67,14 +71,16 @@ struct PairView: View {
 private struct Step: View {
     var number: Int
     var text: String
+    @Environment(\.palette) private var palette
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text("\(number)")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.tint)
-                .frame(width: 18)
+                .font(.ruri(.subheadline, .bold))
+                .foregroundStyle(palette.inkFaint)
+                .frame(width: 16)
             Text(text)
+                .font(.ruri(.callout))
         }
     }
 }

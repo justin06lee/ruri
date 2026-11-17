@@ -84,6 +84,14 @@ extension StatusReport {
             report.projects[at].macId = "p-\(report.projects[at].name)"
             report.projects[at].starred = ["lighthouse", "atlas"].contains(report.projects[at].name) ? true : nil
         }
+        report.usage = [
+            StatusUsage(
+                name: "Claude", fiveHour: 34, weekly: 12, scoped: .init(label: "Fable", percent: 92),
+                resets: .init(fiveHour: now.addingTimeInterval(4_200), weekly: now.addingTimeInterval(5 * 86_400)),
+                at: now
+            ),
+            StatusUsage(name: "Codex", fiveHour: 3, weekly: 41, at: now),
+        ]
         report.sidebar = SidebarLayout(
             order: ["f-work", "p-garden", "p-atlas"],
             folders: [SidebarLayout.Folder(id: "f-work", name: "C & Tech", projects: ["p-lighthouse", "p-orchard"])]

@@ -101,6 +101,31 @@ struct StatusProject: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// One harness's limits, as the Mac's gauges read them: percent used.
+struct StatusUsage: Codable, Hashable, Sendable, Identifiable {
+    struct Scoped: Codable, Hashable, Sendable {
+        var label: String
+        var percent: Int
+    }
+
+    struct Resets: Codable, Hashable, Sendable {
+        var fiveHour: Date?
+        var weekly: Date?
+        var scoped: Date?
+    }
+
+    /// "Claude", "Claude (personal)", "Codex".
+    var name: String
+    var fiveHour: Int?
+    var weekly: Int?
+    /// The weekly window of the account's premium model.
+    var scoped: Scoped?
+    var resets: Resets?
+    var at: Date?
+
+    var id: String { name }
+}
+
 /// The sidebar as the Mac arranges it: the top level in order — folders and
 /// the projects in none, by id — and each folder's projects.
 /// (shared/sidebar.ts's SidebarLayout.)
@@ -166,6 +191,8 @@ struct StatusReport: Codable, Hashable, Sendable {
     var projects: [StatusProject]
     /// With ?ids=1, from a Mac that keeps one: how its sidebar is arranged.
     var sidebar: SidebarLayout?
+    /// How much of each harness's limits is used.
+    var usage: [StatusUsage]?
 
     func project(named name: String) -> StatusProject? {
         projects.first { $0.name == name }

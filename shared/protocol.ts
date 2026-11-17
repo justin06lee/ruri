@@ -1850,6 +1850,19 @@ export interface StatusNeed {
   chatId?: string;
 }
 
+/** One harness's limits, for the phone. Percent used, 0–100; each reset
+ *  and the reading's time ISO 8601. */
+export interface StatusUsage {
+  /** "Claude", "Claude (personal)", "Codex". */
+  name: string;
+  fiveHour?: number;
+  weekly?: number;
+  /** The weekly window of the account's premium model ("Fable"). */
+  scoped?: { label: string; percent: number };
+  resets?: { fiveHour?: string; weekly?: string; scoped?: string };
+  at?: string;
+}
+
 /** A project, as the phone shows it. */
 export interface StatusProject {
   name: string;
@@ -1955,6 +1968,10 @@ export interface StatusReport {
   /** Those needing the user first, then stopped, then at work, then at
    *  rest; each lot by when it was last active. */
   projects: StatusProject[];
+  /** How much of each harness's limits is used, as the Mac's gauges show
+   *  it: Claude's work account, its personal one, Codex — those it has a
+   *  reading for. */
+  usage?: StatusUsage[];
   /** Only with ?ids=1: the sidebar as the Mac arranges it — its folders and
    *  the order of everything, by id — for the phone to show the same. Only
    *  the projects in `projects` are named in it. */

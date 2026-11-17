@@ -239,6 +239,7 @@ struct PrimaryButton: ButtonStyle {
             .font(.ruri(.body, .medium))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, minHeight: 50)
+            // the screen's one leading action: solid, as the system's are
             .background(palette.accent, in: .capsule)
             .opacity(configuration.isPressed ? 0.75 : enabled ? 1 : 0.4)
     }
@@ -253,7 +254,52 @@ struct QuietButton: ButtonStyle {
             .font(.ruri(.body, .medium))
             .foregroundStyle(palette.ink)
             .frame(maxWidth: .infinity, minHeight: 50)
-            .background(palette.fill, in: .capsule)
+            .glass(Capsule(), fallback: palette.fill)
             .opacity(configuration.isPressed ? 0.6 : 1)
     }
+}
+
+// MARK: glass
+
+extension View {
+    /// Liquid Glass in `shape`, where the system has it (iOS 26), lit by
+    /// the finger when it is something to press. (A tint barely shows on
+    /// it: what leads a screen is drawn solid instead.) Before it, the same shape filled with
+    /// `fallback`.
+    @ViewBuilder
+    func glass<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = true, fallback: Color) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(glassOf(tint, interactive), in: shape)
+        } else {
+            background(fallback, in: shape)
+        }
+    }
+
+    /// Glass pieces near each other drawn as one material (iOS 26).
+    @ViewBuilder
+    func glassGroup(spacing: CGFloat = 2) -> some View {
+        if #available(iOS 26, *) {
+            GlassEffectContainer(spacing: spacing) { self }
+        } else {
+            self
+        }
+    }
+
+    /// The bar over a screen: the system's own glass edge on iOS 26, the
+    /// theme's page before it.
+    @ViewBuilder
+    func barBackground(_ color: Color) -> some View {
+        if #available(iOS 26, *) {
+            self
+        } else {
+            toolbarBackground(color, for: .navigationBar)
+        }
+    }
+}
+
+@available(iOS 26, *)
+private func glassOf(_ tint: Color?, _ interactive: Bool) -> Glass {
+    var glass = Glass.regular
+    if let tint { glass = glass.tint(tint) }
+    return glass.interactive(interactive)
 }

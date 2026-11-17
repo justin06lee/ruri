@@ -37,6 +37,7 @@ struct Composer: View {
             }
             box
         }
+        .glassGroup()
         .padding(.horizontal, 12)
         .padding(.top, 6)
         .padding(.bottom, 8)
@@ -100,12 +101,18 @@ struct Composer: View {
             tap: { stops ? session.stop() : send(now: false) },
             hold: { send(now: true) }
         ) { pressed, progress in
+            let live = stops || !empty
             ZStack {
-                Circle()
-                    .fill(stops || !empty ? palette.ink : palette.inkFaint)
+                // the one control that leads is solid ink, as the system's
+                // own send is solid; with nothing to send it is clear glass
+                if live {
+                    Circle().fill(palette.ink)
+                } else {
+                    Color.clear.glass(Circle(), fallback: palette.fill)
+                }
                 Image(systemName: stops ? "stop.fill" : "arrow.up")
                     .font(.system(size: stops ? 12 : 15, weight: .bold))
-                    .foregroundStyle(palette.paper)
+                    .foregroundStyle(live ? palette.paper : palette.inkFaint)
                 // the hold, filling round the button
                 Circle()
                     .trim(from: 0, to: progress)
@@ -197,7 +204,7 @@ private struct QueueDock: View {
                             .font(.ruri(.footnote, .medium))
                             .padding(.horizontal, 14)
                             .frame(minHeight: 32)
-                            .background(palette.fill, in: .capsule)
+                            .glass(Capsule(), fallback: palette.fill)
                             .foregroundStyle(palette.ink)
                             .accessibilityIdentifier("queue.send")
                     }
@@ -301,8 +308,8 @@ private struct QueuedCard: View {
                     .frame(width: 44, height: 44)
             }
         }
-        .background(palette.paperDim)
         .clipShape(.rect(cornerRadius: 18, style: .continuous))
+        .glass(RoundedRectangle(cornerRadius: 18, style: .continuous), fallback: palette.paperDim)
         .frame(maxWidth: 320, alignment: .trailing)
     }
 }
@@ -327,7 +334,7 @@ private struct Notice: View {
             .foregroundStyle(palette.inkSoft)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .card(palette.paperDim, radius: 14)
+            .glass(RoundedRectangle(cornerRadius: 14, style: .continuous), interactive: false, fallback: palette.paperDim)
         }
         .buttonStyle(.plain)
         .transition(.opacity)

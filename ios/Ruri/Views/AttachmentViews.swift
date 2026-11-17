@@ -145,7 +145,7 @@ struct AttachButton: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(palette.inkSoft)
                 .frame(width: 34, height: 34)
-                .background(palette.fill, in: .circle)
+                .glass(Circle(), fallback: palette.fill)
                 // a thumb's worth of room round a small mark
                 .frame(width: 40, height: 44)
                 .contentShape(.rect)

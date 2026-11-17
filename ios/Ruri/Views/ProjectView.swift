@@ -62,7 +62,7 @@ struct ProjectView: View {
         }
         .background(palette.ground.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(palette.ground, for: .navigationBar)
+        .barBackground(palette.ground)
     }
 
     /// A chat's row, opening its conversation when the Mac named it.

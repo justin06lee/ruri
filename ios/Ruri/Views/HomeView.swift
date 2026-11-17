@@ -156,7 +156,7 @@ private struct Masthead: View {
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(palette.ink)
                     .frame(width: 44, height: 44)
-                    .background(palette.raised, in: .circle)
+                    .glass(Circle(), fallback: palette.raised)
             }
             .accessibilityLabel("Your Mac")
         }

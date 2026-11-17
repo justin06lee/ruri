@@ -48,7 +48,7 @@ struct ChatView: View {
                 ChatTitle(name: name, state: session?.log.state ?? .idle, line: session?.line ?? .connecting)
             }
         }
-        .toolbarBackground(palette.paper, for: .navigationBar)
+        .barBackground(palette.paper)
         .onAppear {
             if session == nil { session = made ?? ChatSession(chat: route.id, model: model) }
             session?.open()
@@ -179,7 +179,7 @@ private struct Conversation: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(palette.ink)
                             .frame(width: 36, height: 36)
-                            .fieldSurface(palette, radius: 18)
+                            .glass(Circle(), fallback: palette.raised)
                             .frame(width: 44, height: 44)
                     }
                     .accessibilityLabel("Jump to the latest")

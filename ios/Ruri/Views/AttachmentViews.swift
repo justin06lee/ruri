@@ -84,6 +84,33 @@ final class AttachmentPicking {
         }
     }
 
+    /// What was pasted into the field: each item's picture, or else whatever
+    /// file it is.
+    func load(providers: [NSItemProvider]) async {
+        loading += providers.count
+        for provider in providers {
+            defer { loading -= 1 }
+            let types = provider.registeredContentTypes
+            guard let type = types.first(where: { $0.conforms(to: .image) }) ?? types.first,
+                  let data = await Self.data(from: provider, as: type)
+            else {
+                problem = "That couldn't be pasted."
+                continue
+            }
+            let kind = Attaching.kind(of: type)
+            let stem = provider.suggestedName ?? "\(kind == .image ? "pasted" : "file")-\(Attaching.nextNumber(kind, among: ready))"
+            let ext = type.preferredFilenameExtension ?? "dat"
+            let name = (stem as NSString).pathExtension.isEmpty ? "\(stem).\(ext)" : stem
+            await add(data, type: type, name: name)
+        }
+    }
+
+    private static func data(from provider: NSItemProvider, as type: UTType) async -> Data? {
+        await withCheckedContinuation { continuation in
+            _ = provider.loadDataRepresentation(for: type) { data, _ in continuation.resume(returning: data) }
+        }
+    }
+
     #if DEBUG
     /// The UI test's way past the system's pickers, which run outside the app.
     func attachForTest() async {
@@ -99,6 +126,7 @@ final class AttachmentPicking {
 /// The plus beside the field: the library, the camera, or a file.
 struct AttachButton: View {
     var picking: AttachmentPicking
+    @Environment(\.palette) private var palette
 
     @State private var choosingPhotos = false
     @State private var photos: [PhotosPickerItem] = []
@@ -113,14 +141,17 @@ struct AttachButton: View {
             }
             Button("Choose File", systemImage: "folder") { choosingFiles = true }
         } label: {
-            Image(systemName: "plus.circle.fill")
-                .font(.system(size: 30))
-                .symbolRenderingMode(.hierarchical)
+            Image(systemName: "plus")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(palette.inkSoft)
+                .frame(width: 34, height: 34)
+                .background(palette.fill, in: .circle)
+                // a thumb's worth of room round a small mark
+                .frame(width: 40, height: 44)
+                .contentShape(.rect)
         }
-        .tint(.primary)
         .accessibilityLabel("Attach")
         .accessibilityIdentifier("chat.attach")
-        .padding(.bottom, 2)
         .photosPicker(
             isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: Attaching.maxCount,
             selectionBehavior: .ordered, matching: .any(of: [.images, .videos]), preferredItemEncoding: .current
@@ -191,6 +222,7 @@ private struct CameraPicker: UIViewControllerRepresentable {
 /// What is attached so far, above the field, each with a way to take it off.
 struct AttachmentStrip: View {
     var picking: AttachmentPicking
+    @Environment(\.palette) private var palette
 
     var body: some View {
         if !picking.ready.isEmpty || picking.loading > 0 {
@@ -204,7 +236,7 @@ struct AttachmentStrip: View {
                     if picking.loading > 0 {
                         ProgressView()
                             .frame(width: Pending.side, height: Pending.side)
-                            .background(Color(.systemGray5), in: .rect(cornerRadius: 12, style: .continuous))
+                            .background(palette.fill, in: .rect(cornerRadius: 12, style: .continuous))
                     }
                 }
                 // room for the corner of the button that takes one off
@@ -246,6 +278,7 @@ private struct Preview: View {
     var kind: ChatAttachment.Kind
     var name: String
     var data: Data?
+    @Environment(\.palette) private var palette
 
     var body: some View {
         if kind == .image, let data, let image = UIImage(data: data) {
@@ -261,14 +294,14 @@ private struct Preview: View {
                 Image(systemName: kind == .video ? "play.rectangle" : kind == .image ? "photo" : "doc")
                     .font(.title3)
                 Text(name)
-                    .font(.caption2)
+                    .font(.ruri(.caption2))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             .padding(6)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(palette.inkSoft)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.systemGray5))
+            .background(palette.bubble)
         }
     }
 }

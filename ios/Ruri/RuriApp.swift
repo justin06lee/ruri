@@ -3,13 +3,24 @@ import SwiftUI
 @main
 struct RuriApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @State private var model = RuriModel()
+    @State private var model: RuriModel
     @Environment(\.scenePhase) private var phase
+
+    init() {
+        Typeface.register()
+        #if targetEnvironment(macCatalyst)
+        // run on a Mac for a look at it (ios/demo/mac.sh)
+        _model = State(initialValue: DevMac.model())
+        #else
+        _model = State(initialValue: RuriModel())
+        #endif
+    }
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            root
                 .environment(model)
+                .themed()
                 // a pairing code scanned with the Camera app opens here
                 .onOpenURL { url in
                     Task { await model.pair(url.absoluteString) }
@@ -22,6 +33,17 @@ struct RuriApp: App {
             default: break
             }
         }
+    }
+}
+
+extension RuriApp {
+    @ViewBuilder
+    private var root: some View {
+        #if targetEnvironment(macCatalyst)
+        DevMac.Root().task { await DevMac.start(model) }
+        #else
+        RootView()
+        #endif
     }
 }
 
@@ -49,15 +71,15 @@ struct RootView: View {
         .overlay {
             if case .pairing(let name) = model.pairing {
                 ZStack {
-                    Color.black.opacity(0.15).ignoresSafeArea()
+                    Color.black.opacity(0.2).ignoresSafeArea()
                     VStack(spacing: 14) {
                         ProgressView()
                             .controlSize(.large)
                         Text("Pairing with \(name)…")
-                            .font(.subheadline)
+                            .font(.ruri(.subheadline, .medium))
                     }
                     .padding(28)
-                    .background(.regularMaterial, in: .rect(cornerRadius: 20))
+                    .background(.regularMaterial, in: .rect(cornerRadius: 22, style: .continuous))
                 }
                 .transition(.opacity)
             }

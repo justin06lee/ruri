@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Where a chat's screen is reached from: the chat, and what to call it
 /// until the Mac says.
@@ -7,36 +8,49 @@ struct ChatRoute: Hashable {
     var name: String
 }
 
-/// One chat's conversation, as the web app shows it: the prompts on the
-/// right, the replies in full, each run of tool calls folded into a line
-/// of steps — live — and a field at the foot to send it a prompt.
+/// One chat's conversation, as the Mac shows it: the prompts on the right,
+/// the replies in full, each run of tool calls folded into a line of steps
+/// — live — with what is queued and the field to write in at its foot.
 struct ChatView: View {
     @Environment(RuriModel.self) private var model
     @Environment(\.scenePhase) private var phase
+    @Environment(\.palette) private var palette
     var route: ChatRoute
+    /// A conversation made up beforehand, for a look at the screen.
+    var made: ChatSession?
 
     @State private var session: ChatSession?
-    @State private var draft = ""
-    @State private var attachments = AttachmentPicking()
-    @FocusState private var typing: Bool
+
+    /// What the bar calls it: a teammate by its own name, a project's one
+    /// chat — its lead — by the project's.
+    private var name: String {
+        guard let log = session?.log, !log.name.isEmpty else { return route.name }
+        return log.name == "Lead" && !log.project.isEmpty ? log.project : log.name
+    }
 
     var body: some View {
-        Group {
+        ZStack {
+            palette.paper.ignoresSafeArea()
             if let session {
-                conversation(session)
-            } else {
-                Color.clear
+                if session.line == .gone {
+                    Unavailable(
+                        symbol: "bubble.left.and.bubble.right", title: "Not open",
+                        words: "This chat isn't open in ruri anymore."
+                    )
+                } else {
+                    Conversation(session: session, name: name)
+                }
             }
         }
-        .navigationTitle(session?.log.name.isEmpty == false ? session!.log.name : route.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if let session { StateMark(state: session.log.state) }
+            ToolbarItem(placement: .principal) {
+                ChatTitle(name: name, state: session?.log.state ?? .idle, line: session?.line ?? .connecting)
             }
         }
+        .toolbarBackground(palette.paper, for: .navigationBar)
         .onAppear {
-            if session == nil { session = ChatSession(chat: route.id, model: model) }
+            if session == nil { session = made ?? ChatSession(chat: route.id, model: model) }
             session?.open()
         }
         .onDisappear { session?.close() }
@@ -49,60 +63,177 @@ struct ChatView: View {
         }
         .onChange(of: model.network) { session?.reopen() }
     }
+}
 
-    @ViewBuilder
-    private func conversation(_ session: ChatSession) -> some View {
-        if session.line == .gone {
-            ContentUnavailableView(
-                "Not Open",
-                systemImage: "bubble.left.and.bubble.right",
-                description: Text("This chat isn't open in ruri anymore.")
-            )
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    let rows = Self.rows(session)
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                        RowView(row: row, session: session)
-                            .padding(.top, index == 0 ? 12 : Self.gap(rows[index - 1], row))
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-            }
-            .defaultScrollAnchor(.bottom)
-            .scrollDismissesKeyboard(.interactively)
-            .opacity(session.line == .offline ? 0.45 : 1)
-            .overlay {
-                if session.log.items.isEmpty, session.outbox.isEmpty {
-                    if session.line == .connecting || session.line == .live && session.log.name.isEmpty {
-                        ProgressView()
-                    } else if session.line == .live {
-                        Text("Nothing said here yet")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                composer(session)
-            }
+/// The chat's name in the bar, and under it how it stands when that is
+/// worth saying.
+private struct ChatTitle: View {
+    var name: String
+    var state: ChatState
+    var line: ChatSession.Line
+    @Environment(\.palette) private var palette
+
+    private var words: String? {
+        switch line {
+        case .offline: return "Mac asleep or offline"
+        case .connecting: return "Connecting…"
+        default: break
+        }
+        switch state {
+        case .working: return "Working…"
+        case .needsYou: return "Waiting on you"
+        case .idle: return nil
         }
     }
 
-    // MARK: the rows
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(name)
+                .font(.ruri(.headline, .bold))
+                .foregroundStyle(palette.ink)
+                .lineLimit(1)
+            if let words {
+                Text(words)
+                    .font(.ruri(.caption2))
+                    .foregroundStyle(state == .needsYou && line == .live ? palette.accent : palette.inkSoft)
+                    .lineLimit(1)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.snappy(duration: 0.2), value: words)
+        .accessibilityElement(children: .combine)
+    }
+}
 
-    enum Row: Identifiable {
+/// The conversation and its foot. It keeps to its end while the reader is
+/// there — a reply being written stays in view, and so does a prompt just
+/// sent — and stays where it is once they have scrolled up to read.
+private struct Conversation: View {
+    var session: ChatSession
+    var name: String
+    @Environment(\.palette) private var palette
+    @State private var position = ScrollPosition(edge: .bottom)
+    /// The reader is at the end, so what arrives is followed.
+    @State private var atEnd = true
+
+    var body: some View {
+        let rows = Transcript.rows(session)
+        ScrollView {
+            // every row is laid out, not only those in view: a lazy stack
+            // kept to its end loses its place when rows change under it
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    RowView(row: row, session: session)
+                        .equatable()
+                        .padding(.top, index == 0 ? 0 : Transcript.gap(rows[index - 1], row))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollPosition($position)
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .defaultScrollAnchor(atEnd ? .bottom : .top, for: .sizeChanges)
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentSize.height - geometry.visibleRect.maxY < 56
+        } action: { _, now in
+            atEnd = now
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .opacity(session.line == .offline ? 0.5 : 1)
+        .overlay {
+            if rows.isEmpty {
+                if session.line == .connecting || session.line == .live && session.log.name.isEmpty {
+                    ProgressView()
+                } else if session.line == .live {
+                    Text("Nothing said here yet")
+                        .font(.ruri(.callout))
+                        .foregroundStyle(palette.inkSoft)
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                if !atEnd {
+                    Button {
+                        toEnd()
+                    } label: {
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(palette.ink)
+                            .frame(width: 36, height: 36)
+                            .fieldSurface(palette, radius: 18)
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Jump to the latest")
+                    .accessibilityIdentifier("chat.latest")
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+                if session.line == .readOnly {
+                    ReadOnlyNote { session.reopen() }
+                } else {
+                    Composer(session: session, placeholder: "Message \(name)…", sent: toEnd)
+                }
+            }
+            .animation(.snappy(duration: 0.2), value: atEnd)
+        }
+    }
+
+    private func toEnd() {
+        atEnd = true
+        withAnimation(.snappy(duration: 0.3)) { position.scrollTo(edge: .bottom) }
+    }
+}
+
+/// In place of the field, on a phone that may only read.
+private struct ReadOnlyNote: View {
+    var again: () -> Void
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text("This iPhone can only read. To send from here, open ruri on your Mac, go to Settings → Devices → Paired devices, and click Allow to send next to this iPhone.")
+                .font(.ruri(.footnote))
+                .foregroundStyle(palette.inkSoft)
+                .multilineTextAlignment(.center)
+            Button("Try Again", action: again)
+                .font(.ruri(.footnote, .medium))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(16)
+        .card(palette.paperDim)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+}
+
+// MARK: the rows
+
+/// What a conversation shows, in order: what was said, the spinner while a
+/// turn works, and prompts sent from here that the chat doesn't hold yet.
+/// What waits in the queue stands over the field instead (Composer).
+enum Transcript {
+    /// A prompt on its way: light enough to compare on every redraw, which
+    /// the files it carries are not.
+    struct Sending: Equatable {
+        var id: String
+        var text: String
+        var attachments: [ChatAttachment]
+        var failed: String?
+    }
+
+    enum Row: Identifiable, Equatable {
         case item(ChatItem)
-        case queued(ChatQueued)
-        case outgoing(ChatSession.Outgoing)
-        case typing
+        case sending(Sending)
+        case working
 
         var id: String {
             switch self {
             case .item(let item): item.id
-            case .queued(let queued): "queued:\(queued.id)"
-            case .outgoing(let outgoing): "out:\(outgoing.id)"
-            case .typing: "typing"
+            case .sending(let sending): "out:\(sending.id)"
+            case .working: "working"
             }
         }
 
@@ -110,132 +241,74 @@ struct ChatView: View {
         var side: Int {
             switch self {
             case .item(let item): item.kind == .user ? 0 : item.kind == .note ? 2 : 1
-            case .queued, .outgoing: 0
-            case .typing: 1
+            case .sending: 0
+            case .working: 1
             }
         }
     }
 
+    @MainActor
     static func rows(_ session: ChatSession) -> [Row] {
         var rows = session.log.items.map(Row.item)
-        // at work: the spinner under what it is on, above what waits
+        // at work: the spinner under what it is on
         let writing = session.log.items.last?.pending == true
-        if session.log.state == .working, !writing { rows.append(.typing) }
-        rows += session.log.queue.map(Row.queued)
-        rows += session.outbox.filter { !session.log.holds($0.id) }.map(Row.outgoing)
+        if session.log.state == .working, !writing { rows.append(.working) }
+        for outgoing in session.outbox where !session.log.holds(outgoing.id) {
+            var failed: String?
+            if case .failed(let why) = outgoing.state { failed = why }
+            // one headed for the queue is shown there, unless it failed
+            if outgoing.behind, failed == nil { continue }
+            rows.append(
+                .sending(Sending(id: outgoing.id, text: outgoing.text, attachments: outgoing.attachments.map(\.shown), failed: failed))
+            )
+        }
         return rows
     }
 
     static func gap(_ before: Row, _ row: Row) -> CGFloat {
-        before.side == row.side ? 6 : 16
-    }
-
-    // MARK: the field
-
-    @ViewBuilder
-    private func composer(_ session: ChatSession) -> some View {
-        Group {
-            if session.line == .readOnly {
-                VStack(spacing: 6) {
-                    Text("This iPhone can only read. To send from here, open ruri on your Mac, go to Settings → Devices → Paired devices, and click Allow to send next to this iPhone.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    Button("Try Again") { session.reopen() }
-                        .font(.footnote)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                AttachmentStrip(picking: attachments)
-                HStack(alignment: .bottom, spacing: 8) {
-                    AttachButton(picking: attachments)
-                    TextField("Message", text: $draft, axis: .vertical)
-                        .lineLimit(1...6)
-                        .focused($typing)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 19, style: .continuous)
-                                .strokeBorder(Color(.separator), lineWidth: 1)
-                        )
-                        .accessibilityIdentifier("chat.field")
-                    Button {
-                        session.send(draft, attachments: attachments.ready)
-                        draft = ""
-                        attachments.clear()
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 30))
-                            .symbolRenderingMode(.hierarchical)
-                    }
-                    .tint(.primary)
-                    .disabled(
-                        attachments.loading > 0
-                            || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.ready.isEmpty
-                    )
-                    .accessibilityLabel("Send")
-                    .accessibilityIdentifier("chat.send")
-                    .padding(.bottom, 2)
-                }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-        }
-        .background(.bar)
-        #if DEBUG
-        .task { await attachments.attachForTest() }
-        #endif
+        before.side == row.side ? 8 : 18
     }
 }
 
-/// How the chat stands, in the toolbar: a spinner while it works, a raised
-/// hand while it waits on you, nothing at rest.
-private struct StateMark: View {
-    var state: ChatState
-
-    var body: some View {
-        switch state {
-        case .working:
-            WorkingSpinner()
-        case .needsYou:
-            Image(systemName: "hand.raised")
-                .foregroundStyle(.orange)
-                .accessibilityLabel("Waiting on you")
-        case .idle:
-            EmptyView()
-        }
-    }
-}
-
-private struct RowView: View {
-    var row: ChatView.Row
+private struct RowView: View, Equatable {
+    var row: Transcript.Row
     var session: ChatSession
+
+    nonisolated static func == (a: RowView, b: RowView) -> Bool {
+        a.row == b.row && a.session === b.session
+    }
 
     var body: some View {
         switch row {
         case .item(let item):
             switch item.kind {
-            case .user: Bubble(text: item.text, from: item.from, attachments: item.attachments ?? [], session: session)
+            case .user:
+                Bubble(text: item.text, from: item.from, attachments: item.attachments ?? [], session: session)
             case .assistant: Reply(item: item)
             case .steps: Steps(item: item)
-            case .note:
-                Text(item.text)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .multilineTextAlignment(.center)
+            case .note: Note(text: item.text)
             }
-        case .queued(let queued):
-            Bubble(text: queued.text, under: "Queued", faded: true, attachments: queued.attachments ?? [], session: session)
-        case .outgoing(let outgoing):
-            Outgoing(outgoing: outgoing, session: session)
-        case .typing:
+        case .sending(let sending):
+            Outgoing(sending: sending, session: session)
+        case .working:
             WorkingSpinner()
                 .padding(.vertical, 4)
         }
+    }
+}
+
+/// ruri's own line: a turn stopped, or on an error.
+private struct Note: View {
+    var text: String
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        Text(text)
+            .font(.ruri(.footnote))
+            .foregroundStyle(palette.inkSoft)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 2)
     }
 }
 
@@ -248,17 +321,19 @@ private struct Bubble: View {
     var failed = false
     var attachments: [ChatAttachment] = []
     var session: ChatSession?
+    @Environment(\.palette) private var palette
 
     private var words: String {
         attachments.isEmpty ? text : Attaching.afterMarkers(text)
     }
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 3) {
+        VStack(alignment: .trailing, spacing: 4) {
             if let from {
                 Text("From \(from)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.ruri(.caption))
+                    .foregroundStyle(palette.inkSoft)
+                    .padding(.trailing, 6)
             }
             if let session, !attachments.isEmpty {
                 ForEach(attachments) { attachment in
@@ -268,109 +343,158 @@ private struct Bubble: View {
             }
             // a prompt that is only its files has nothing more to say
             if !words.isEmpty {
-                MarkdownText(source: words, font: .body, fill: false)
+                MarkdownText(source: words, font: .ruri(.body), fill: false)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 8)
-                    .background(Color(.systemGray5), in: .rect(cornerRadius: 18, style: .continuous))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(palette.bubble, in: .rect(cornerRadius: 20, style: .continuous))
                     .opacity(faded ? 0.55 : 1)
+                    .contextMenu {
+                        Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = words }
+                    }
             }
             if let under {
                 Text(under)
-                    .font(.caption2)
-                    .foregroundStyle(failed ? .red : .secondary)
+                    .font(.ruri(.caption2))
+                    .foregroundStyle(failed ? palette.destructive : palette.inkSoft)
+                    .padding(.trailing, 6)
             }
         }
-        .frame(maxWidth: 300, alignment: .trailing)
+        // room on the left says whose it is, however long it runs
+        .padding(.leading, 44)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 
 /// A reply, in full, across the screen — with the spinner while it is
-/// still being written.
+/// still being written, and a way to copy it once it is.
 private struct Reply: View {
     var item: ChatItem
+    @Environment(\.palette) private var palette
+    @State private var copied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            MarkdownText(source: item.text, font: .body)
+            MarkdownText(source: item.text, font: .ruri(.body))
                 .textSelection(.enabled)
-            if item.pending == true { WorkingSpinner() }
+            if item.pending == true {
+                WorkingSpinner()
+            } else {
+                Button {
+                    UIPasteboard.general.string = item.text
+                    copied = true
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(palette.inkFaint)
+                        .frame(width: 30, height: 30, alignment: .leading)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(copied ? "Copied" : "Copy reply")
+                .task(id: copied) {
+                    guard copied else { return }
+                    try? await Task.sleep(for: .seconds(1.6))
+                    copied = false
+                }
+            }
         }
     }
 }
 
-/// A run of tool calls as one quiet line, each step on a tap.
+/// A run of tool calls as one quiet chip, each step on a tap.
 private struct Steps: View {
     var item: ChatItem
+    @Environment(\.palette) private var palette
     @State private var open = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Button {
-                withAnimation(.snappy) { open.toggle() }
+                withAnimation(.snappy(duration: 0.2)) { open.toggle() }
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: "wrench.and.screwdriver")
+                        .font(.system(size: 10, weight: .medium))
                     Text(item.text)
                     Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
+                        .font(.system(size: 9, weight: .bold))
                         .rotationEffect(.degrees(open ? 90 : 0))
                 }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+                .font(.ruriMono(.caption))
+                .foregroundStyle(palette.inkSoft)
+                .padding(.horizontal, 10)
+                .frame(minHeight: 28)
+                .background(palette.paperDim, in: .rect(cornerRadius: 8, style: .continuous))
+                // taller to the finger than to the eye
+                .padding(.vertical, 6)
+                .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .padding(.vertical, -6)
             if open {
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array((item.steps ?? []).enumerated()), id: \.offset) { _, step in
                         Text(step)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                            .font(.ruriMono(.caption))
+                            .foregroundStyle(palette.inkSoft)
                             .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .padding(.leading, 2)
+                .padding(10)
+                .background(palette.paperDim, in: .rect(cornerRadius: 8, style: .continuous))
+                .transition(.opacity)
             }
         }
     }
 }
 
-/// A prompt sent from here, until the chat has it: sending, queued, or
-/// not sent — a tap to try again.
+/// A prompt sent from here, until the chat has it: sending, or not sent —
+/// a tap to try again.
 private struct Outgoing: View {
-    var outgoing: ChatSession.Outgoing
+    var sending: Transcript.Sending
     var session: ChatSession
     @State private var asking = false
 
-    private var under: String {
-        switch outgoing.state {
-        case .sending: "Sending…"
-        case .sent(.queued): "Queued"
-        case .sent: "Sent"
-        case .failed: "Not Sent · Tap to Try Again"
-        }
-    }
-
-    private var failed: Bool {
-        if case .failed = outgoing.state { true } else { false }
-    }
-
     var body: some View {
         Bubble(
-            text: outgoing.text, under: under, faded: outgoing.state == .sending, failed: failed,
-            attachments: outgoing.attachments.map(\.shown), session: session
+            text: sending.text, under: sending.failed == nil ? "Sending…" : "Not sent · tap to try again",
+            faded: sending.failed == nil, failed: sending.failed != nil,
+            attachments: sending.attachments, session: session
         )
-            .contentShape(.rect)
-            .onTapGesture { if failed { asking = true } }
-            .confirmationDialog(
-                failedWords ?? "", isPresented: $asking, titleVisibility: failedWords == nil ? .hidden : .visible
-            ) {
-                Button("Try Again") { session.retry(outgoing.id) }
-                Button("Delete", role: .destructive) { session.discard(outgoing.id) }
-            }
+        .contentShape(.rect)
+        .onTapGesture { if sending.failed != nil { asking = true } }
+        .confirmationDialog(
+            sending.failed ?? "", isPresented: $asking, titleVisibility: sending.failed == nil ? .hidden : .visible
+        ) {
+            Button("Try Again") { session.retry(sending.id) }
+            Button("Delete", role: .destructive) { session.discard(sending.id) }
+        }
     }
+}
 
-    private var failedWords: String? {
-        if case .failed(let why) = outgoing.state { why } else { nil }
+/// A screen with nothing to show, and why.
+struct Unavailable: View {
+    var symbol: String
+    var title: String
+    var words: String
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(palette.inkFaint)
+                .padding(.bottom, 4)
+            Text(title)
+                .font(.ruri(.title3, .bold))
+            Text(words)
+                .font(.ruri(.callout))
+                .foregroundStyle(palette.inkSoft)
+                .multilineTextAlignment(.center)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

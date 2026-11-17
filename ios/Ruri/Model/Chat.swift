@@ -58,6 +58,8 @@ struct ChatQueued: Codable, Hashable, Sendable, Identifiable {
     var id: String
     var text: String
     var attachments: [ChatAttachment]?
+    /// It cut in: the running turn is stopping, and this goes the moment it has.
+    var now: Bool?
 }
 
 /// How the chat stands.
@@ -79,6 +81,8 @@ struct ChatFrame: Codable, Sendable {
     var project: String
     var state: ChatState
     var queue: [ChatQueued]
+    /// The queue is standing by since a turn was stopped or fell over.
+    var held: Bool?
     var items: [ChatItem]?
     var upsert: [ChatItem]?
     var remove: [String]?
@@ -109,6 +113,9 @@ struct ChatLog: Equatable, Sendable {
     var project = ""
     var state: ChatState = .idle
     var queue: [ChatQueued] = []
+    /// The queue is standing by: it moves with the next prompt, or when it
+    /// is sent on.
+    var held = false
     private(set) var items: [ChatItem] = []
 
     /// Take one frame: the whole list replaces what is held; otherwise what
@@ -119,6 +126,7 @@ struct ChatLog: Equatable, Sendable {
         project = frame.project
         state = frame.state
         queue = frame.queue
+        held = frame.held ?? false
         if let whole = frame.items {
             items = whole
             return
@@ -148,4 +156,23 @@ struct SendBody: Encodable, Sendable {
     var text: String
     var clientId: String
     var attachments: [Attachment]?
+    /// Cut in on the turn that is running, rather than wait behind it.
+    var now: Bool?
+}
+
+/// What POST /chat/queue carries: a queued prompt sent now or taken out,
+/// or a queue that is standing by sent on.
+struct QueueBody: Encodable, Sendable {
+    enum What: String, Encodable, Sendable {
+        case now, remove, send
+    }
+
+    var id: String
+    var `do`: What
+    var itemId: String?
+}
+
+/// What POST /chat/queue and /chat/stop answer.
+struct DoneAnswer: Decodable, Sendable {
+    var ok: Bool
 }

@@ -272,7 +272,15 @@ final class RuriModel {
         do {
             let (mac, key) = try await MacClient.pair(link, deviceName: Self.deviceName)
             forget()
-            try Keychain.save(key, account: mac.deviceId)
+            do {
+                try Keychain.save(key, account: mac.deviceId)
+            } catch {
+                // the Mac took the code, but this phone couldn't keep its key
+                pairing = .failed(
+                    "\(link.name) paired this iPhone, but the iPhone couldn't keep its key. Remove it on \(link.name) (Settings → Devices), then make a new code and try again."
+                )
+                return
+            }
             save(mac)
             self.key = key
             client = MacClient(fingerprint: mac.fingerprint, key: key)

@@ -1,72 +1,80 @@
 import SwiftUI
 
-/// Home: what needs you, then every project — its name and what it is doing
-/// now. The title is the Mac's name; while the line is down it says so,
-/// and how old the picture is.
+/// Home, the Mac's sidebar made a screen: what needs you, then every
+/// project — its name and what it is doing now. Over them, the Mac's name
+/// and whether the line to it is live; while it is down, how old the
+/// picture is.
 struct HomeView: View {
     @Environment(RuriModel.self) private var model
+    @Environment(\.palette) private var palette
     @State private var showingMac = false
     @State private var path = NavigationPath()
     @State private var opener = Opener.shared
 
     var body: some View {
         NavigationStack(path: $path) {
-            List {
-                if model.link == .unpaired {
-                    UnpairedSection()
-                }
-                if let report = model.report {
-                    if !report.needsYou.isEmpty {
-                        Section("Needs you") {
-                            ForEach(report.needsYou) { need in
-                                NavigationLink(value: need.project) {
-                                    NeedRow(need: need)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Masthead { showingMac = true }
+                    if model.link == .unpaired {
+                        UnpairedCard()
+                    }
+                    if let report = model.report {
+                        Group {
+                            if !report.needsYou.isEmpty {
+                                RowSection(title: "Needs you") {
+                                    ForEach(report.needsYou) { need in
+                                        NavigationLink(value: Destination.need(need)) {
+                                            NeedRow(need: need)
+                                        }
+                                        .buttonStyle(RowPress())
+                                        .accessibilityIdentifier("need.\(need.project)")
+                                    }
                                 }
-                                .accessibilityIdentifier("need.\(need.project)")
+                            }
+                            if !report.projects.isEmpty {
+                                RowSection(title: "Projects") {
+                                    ForEach(report.projects) { project in
+                                        NavigationLink(value: Destination.project(project)) {
+                                            ProjectRow(project: project)
+                                        }
+                                        .buttonStyle(RowPress())
+                                        .accessibilityIdentifier("project.\(project.name)")
+                                    }
+                                }
                             }
                         }
-                    }
-                    Section("Projects") {
-                        ForEach(report.projects) { project in
-                            NavigationLink(value: project.name) {
-                                ProjectRow(project: project)
-                            }
-                            .accessibilityIdentifier("project.\(project.name)")
-                        }
+                        .grayedWhenOffline(model.link)
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 32)
             }
-            .grayedWhenOffline(model.link)
+            .background(palette.ground.ignoresSafeArea())
             .overlay {
                 if let report = model.report, report.projects.isEmpty {
-                    ContentUnavailableView(
-                        "No Projects Open",
-                        systemImage: "square.stack",
-                        description: Text("Projects you open in ruri on \(report.computer) show up here.")
+                    Unavailable(
+                        symbol: "square.stack", title: "No projects open",
+                        words: "Projects you open in ruri on \(report.computer) show up here."
                     )
                 } else if model.report == nil {
                     NoPicture()
                 }
             }
-            .navigationTitle(model.report?.computer ?? model.mac?.name ?? "ruri")
-            .freshness()
+            .navigationTitle("ruri")
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(for: Destination.Route.self) { route in
+                switch route {
+                case .chat(let chat): ChatView(route: chat)
+                case .project(let name): ProjectView(name: name)
+                }
+            }
+            // a project's own rows open its chats
             .navigationDestination(for: ChatRoute.self) { route in
                 ChatView(route: route)
             }
-            .navigationDestination(for: String.self) { name in
-                ProjectView(name: name)
-            }
             .refreshable { await model.refresh() }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingMac = true
-                    } label: {
-                        Image(systemName: "desktopcomputer")
-                    }
-                    .accessibilityLabel("Your Mac")
-                }
-            }
             .sheet(isPresented: $showingMac) {
                 MacSheet()
             }
@@ -76,7 +84,93 @@ struct HomeView: View {
             guard let project else { return }
             opener.project = nil
             showingMac = false
-            path = NavigationPath([project])
+            let found = model.report?.project(named: project)
+            path = NavigationPath([found.map(Destination.project) ?? .project(project)])
+        }
+    }
+}
+
+/// Where a row on the home screen leads: straight to the conversation when
+/// there is one chat to open, else to the project.
+enum Destination {
+    /// A project with a team opens on its chats; one that is only its lead
+    /// opens that conversation.
+    static func project(_ project: StatusProject) -> Route {
+        if project.team.isEmpty, let chat = project.lead?.id {
+            return .chat(ChatRoute(id: chat, name: project.name))
+        }
+        return .project(project.name)
+    }
+
+    /// What needs you opens on the chat that is waiting.
+    static func need(_ need: StatusNeed) -> Route {
+        if let chat = need.chatId {
+            return .chat(ChatRoute(id: chat, name: need.who == "Lead" ? need.project : need.who))
+        }
+        return .project(need.project)
+    }
+
+    enum Route: Hashable {
+        case chat(ChatRoute)
+        case project(String)
+    }
+}
+
+/// The app's name over the Mac's, and the way to the Mac's sheet.
+private struct Masthead: View {
+    var showMac: () -> Void
+    @Environment(RuriModel.self) private var model
+    @Environment(\.palette) private var palette
+    @State private var now = Date.now
+
+    private var mac: String { model.report?.computer ?? model.mac?.name ?? "your Mac" }
+
+    private var words: String {
+        switch model.link {
+        case .live: mac
+        case .connecting: model.report == nil ? "Finding \(mac)…" : "Connecting to \(mac)…"
+        case .offline: model.asleepWords(now: now)
+        case .unpaired: "Not paired"
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("ruri")
+                    .font(.ruri(.largeTitle, .bold))
+                    .foregroundStyle(palette.ink)
+                    .accessibilityAddTraits(.isHeader)
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(model.link == .live ? Color(hex: 0x30B855) : palette.inkFaint.opacity(0.6))
+                        .frame(width: 7, height: 7)
+                    Text(words)
+                        .font(.ruri(.footnote))
+                        .foregroundStyle(palette.inkSoft)
+                        .lineLimit(1)
+                        .contentTransition(.opacity)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("home.status")
+            }
+            Spacer(minLength: 8)
+            Button(action: showMac) {
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(palette.ink)
+                    .frame(width: 44, height: 44)
+                    .background(palette.raised, in: .circle)
+            }
+            .accessibilityLabel("Your Mac")
+        }
+        .padding(.top, 6)
+        .task(id: model.link) {
+            // the age counts on while the line is down
+            while model.link == .offline, !Task.isCancelled {
+                now = .now
+                try? await Task.sleep(for: .seconds(1))
+            }
         }
     }
 }
@@ -84,21 +178,23 @@ struct HomeView: View {
 /// Before the Mac's first picture has come.
 private struct NoPicture: View {
     @Environment(RuriModel.self) private var model
+    @Environment(\.palette) private var palette
 
     var body: some View {
         switch model.link {
         case .connecting, .live:
             ProgressView()
         case .offline:
-            ContentUnavailableView {
-                Label("\(model.mac?.name ?? "Your Mac") Is Asleep or Offline", systemImage: "moon.zzz")
-            } description: {
-                Text(
-                    (model.heard.map { "Last seen \(Ago.long($0)). " } ?? "")
+            VStack(spacing: 18) {
+                Unavailable(
+                    symbol: "moon.zzz", title: "\(model.mac?.name ?? "Your Mac") is asleep or offline",
+                    words: (model.heard.map { "Last seen \(Ago.long($0)). " } ?? "")
                         + "Away from home, keep Tailscale on, on this iPhone and the Mac."
                 )
-            } actions: {
+                .frame(maxHeight: 220)
                 Button("Try Again") { Task { await model.refresh() } }
+                    .buttonStyle(QuietButton())
+                    .frame(width: 160)
             }
         case .unpaired:
             EmptyView()
@@ -107,68 +203,23 @@ private struct NoPicture: View {
 }
 
 /// The Mac no longer knows this phone: it was removed there.
-private struct UnpairedSection: View {
+private struct UnpairedCard: View {
     @Environment(RuriModel.self) private var model
+    @Environment(\.palette) private var palette
 
     var body: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Not Paired", systemImage: "link")
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Not paired", systemImage: "link")
+                    .font(.ruri(.body, .bold))
                 Text("\(model.mac?.name ?? "Your Mac") no longer knows this iPhone. Make a new code there to pair again.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.ruri(.subheadline))
+                    .foregroundStyle(palette.inkSoft)
             }
-            .padding(.vertical, 4)
             Button("Pair Again") { model.unpair() }
+                .buttonStyle(PrimaryButton())
         }
-    }
-}
-
-extension View {
-    /// Under the title, while the line is down: that it is, and how old the
-    /// picture is.
-    func freshness() -> some View {
-        modifier(Freshness())
-    }
-}
-
-private struct Freshness: ViewModifier {
-    @Environment(RuriModel.self) private var model
-    @State private var now = Date.now
-
-    private var words: String? {
-        switch model.link {
-        case .live: nil
-        case .connecting: model.report == nil ? nil : "Connecting…"
-        case .offline: model.asleepWords(now: now)
-        case .unpaired: "Not paired"
-        }
-    }
-
-    func body(content: Content) -> some View {
-        Group {
-            if #available(iOS 26, *) {
-                content.navigationSubtitle(words ?? "")
-            } else {
-                content.safeAreaInset(edge: .top, spacing: 0) {
-                    if let words {
-                        Text(words)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 4)
-                            .background(.bar)
-                    }
-                }
-            }
-        }
-        .task(id: model.link) {
-            // the age counts on while the line is down
-            while model.link == .offline, !Task.isCancelled {
-                now = .now
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
+        .padding(16)
+        .card(palette.raised)
     }
 }

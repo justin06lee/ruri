@@ -125,7 +125,7 @@ extension MarkdownBlock {
         )) ?? AttributedString(text)
         for run in result.runs {
             guard let intent = run.inlinePresentationIntent, intent.contains(.code) else { continue }
-            result[run.range].font = .system(.subheadline, design: .monospaced)
+            result[run.range].font = .ruriMono(.subheadline)
             result[run.range].backgroundColor = Color(.tertiarySystemFill)
         }
         return result
@@ -145,7 +145,7 @@ extension MarkdownBlock {
             return AttributedString((number.map { "\($0). " } ?? "• ")) + Self.attributed(text)
         case .code(_, let text):
             var code = AttributedString(text)
-            code.font = .system(.subheadline, design: .monospaced)
+            code.font = .ruriMono(.subheadline)
             return code
         case .rule:
             return AttributedString()
@@ -159,14 +159,14 @@ struct MarkdownText: View {
     var source: String
     var whole = true
     var lineLimit: Int?
-    var font: Font = .subheadline
+    var font: Font = .ruri(.subheadline)
     /// Across the whole width; false hugs the text, for a bubble.
     var fill = true
 
     var body: some View {
-        let blocks = MarkdownParser.parse(source)
+        let blocks = MarkdownCache.blocks(source)
         if whole {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                     MarkdownBlockView(block: block, font: font)
                 }
@@ -184,44 +184,69 @@ struct MarkdownText: View {
     }
 }
 
+/// Blocks already parsed, by their source: a conversation is drawn again
+/// with every word that arrives, and what was said before hasn't changed.
+@MainActor
+enum MarkdownCache {
+    private final class Parsed {
+        let blocks: [MarkdownBlock]
+        init(_ blocks: [MarkdownBlock]) { self.blocks = blocks }
+    }
+
+    private static let cache: NSCache<NSString, Parsed> = {
+        let cache = NSCache<NSString, Parsed>()
+        cache.countLimit = 600
+        return cache
+    }()
+
+    static func blocks(_ source: String) -> [MarkdownBlock] {
+        let key = source as NSString
+        if let held = cache.object(forKey: key) { return held.blocks }
+        let blocks = MarkdownParser.parse(source)
+        cache.setObject(Parsed(blocks), forKey: key)
+        return blocks
+    }
+}
+
 private struct MarkdownBlockView: View {
     var block: MarkdownBlock
     var font: Font
+    @Environment(\.palette) private var palette
 
     var body: some View {
         switch block {
         case .heading(let level, let text):
             Text(MarkdownBlock.attributed(text))
-                .font(level == 1 ? .headline : .subheadline.weight(.semibold))
-                .padding(.top, 2)
+                .font(level == 1 ? .ruri(.title3, .bold) : level == 2 ? .ruri(.headline, .bold) : .ruri(.callout, .bold))
+                .padding(.top, 4)
         case .paragraph(let text):
-            Text(MarkdownBlock.attributed(text)).font(font)
+            Text(MarkdownBlock.attributed(text)).font(font).lineSpacing(3)
         case .item(let depth, let number, let text):
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(number.map { "\($0)." } ?? "•")
                     .font(font)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.inkFaint)
                     .monospacedDigit()
                     .frame(minWidth: 16, alignment: .trailing)
-                Text(MarkdownBlock.attributed(text)).font(font)
+                Text(MarkdownBlock.attributed(text)).font(font).lineSpacing(3)
             }
             .padding(.leading, CGFloat(depth) * 14)
         case .code(_, let text):
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(text)
-                    .font(.system(.footnote, design: .monospaced))
+                    .font(.ruriMono(.footnote))
                     .fixedSize(horizontal: true, vertical: false)
-                    .padding(10)
+                    .padding(12)
             }
-            .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(palette.paperDim, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         case .quote(let text):
-            HStack(spacing: 8) {
-                Capsule().fill(.quaternary).frame(width: 3)
-                Text(MarkdownBlock.attributed(text)).font(font).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Capsule().fill(palette.fill).frame(width: 3)
+                Text(MarkdownBlock.attributed(text)).font(font).lineSpacing(3).foregroundStyle(palette.inkSoft)
             }
             .fixedSize(horizontal: false, vertical: true)
         case .rule:
-            Divider()
+            palette.hairline.frame(height: 1)
         }
     }
 }

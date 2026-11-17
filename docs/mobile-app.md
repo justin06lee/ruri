@@ -23,7 +23,8 @@ Justin asked for both (2026-10-27): each chat's whole conversation, live, and a 
 - `GET /chat?id=<chat>`: the chat's last 150 things said: his prompts and the replies in full, each run of tool calls folded into one "N steps" line, and a note where a turn stopped. It also gives the chat's state (working, needs you, idle) and the prompts waiting in its queue. Chat ids come from `/status?ids=1`.
 - `GET /chat/live?id=<chat>`: the same over SSE. The first frame is whole; after that a frame carries only what is new or changed (`upsert`) and what is gone (`remove`), or the whole list again when the order changed. A reply being written comes as a `pending` item. Reconnecting sends the whole conversation again, so nothing missed is lost.
 - `POST /chat/send` with `{ id, text, clientId, attachments? }`: sent the way the web composer sends (the `send` handler). `attachments` are `{ id, kind, mediaType, name, n, data }` with the file as base64, at most 20; the conversation hands them back with a `url`, and a phone's key may `GET /uploads/*` to fetch them. It answers `event` (sent now), `queued` (behind the running turn) or `failed`. The same `clientId` sent twice is answered, not run twice, so the phone can retry after a dropped line.
-- **Scope.** A phone code now pairs with the key scope `phone`: the status and these three routes. A phone paired before keeps the scope `status`. Its key does not quietly gain sending, and `/chat*` refuses it with "pair it again".
+- `POST /chat/send` with `now: true` cuts in: the running turn stops and the prompt goes in its place, as holding Enter does on the Mac. `POST /chat/queue` with `{ id, do, itemId? }` is the phone's hand on the queue: `now` sends one queued prompt now (it cuts in on a running turn, the `queue_now` handler), `remove` takes one out, `send` sends on a queue standing by since a stop; only the user's own prompts the frame shows can be named. `POST /chat/stop` with `{ id }` stops the turn, its queue standing by. Each answers `{ ok }`. A frame's queued prompt carries `now` while it is cutting in, and the frame `held` while the queue stands by.
+- **Scope.** A phone code now pairs with the key scope `phone`: the status and these routes. A phone paired before keeps the scope `status`. Its key does not quietly gain sending, and `/chat*` refuses it with "pair it again".
 
 ## v3: notifications
 
@@ -64,7 +65,8 @@ Justin asked (2026-10-28) to hear when a session finishes or asks something, thr
 
 ## Look
 
-Apple-native and quiet, in system colours, with light and dark modes. Taste rule 0: show the state and what needs him, and hide the internals.
-- Home is a grouped list. "Needs you" sits on top with an orange dot and the question in full. Below it are the projects, each with a small dot (green working, grey idle, red blocked, orange needs you) and one line of what it is doing now, in secondary text. The title bar shows the Mac's name, plus "updated 12s ago" when the app is offline.
-- A project screen shows the lead's latest words in a card, then the teammates, each with its name, duty, state and last words, in one or two lines that expand on tap.
+ruri's own look, made for a phone (redone 2026-11-17; the first cut was a stock grouped list). Taste rule 0 still holds: show the state and what needs him, and hide the internals.
+- Its typeface is the Mac's, Space Grotesk (bundled, OFL), and its colours are the Mac's tokens (`web/src/styles.css`) in three themes — light, dark and ember — picked under Your Mac → Appearance, Automatic by default. Surfaces are told apart by shade, not lines: cards a shade off the ground, no rules between sections.
+- Home is a masthead (ruri, the Mac's name with a live dot) over two cards of rows: Needs you, then Projects, each with its state (a spinner at work, a dot in the accent when it needs you, a red mark where it stopped) and one line of what it is doing. A project with no team opens straight on its conversation.
+- A chat is the Mac's transcript: the user's prompts in grey bubbles on the right, replies across the screen in full, tool calls as a chip of steps, ruri's own notes centred. The field sits on glass (iOS 26) or a raised sheet at the foot, with what is queued standing over it as cards.
 - No IDs, tokens, costs, models, file paths or logs by default. The API leaves them out unless asked (`?ids=1`).

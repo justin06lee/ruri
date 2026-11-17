@@ -1,6 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import { CARRY_ON, type PhoneChatFrame, type TranscriptEvent } from "../shared/protocol.js";
-import { nextFrame, phoneItems, readSendBody } from "./phoneChat.js";
+import {
+  CARRY_ON,
+  type LetterFrom,
+  type PhoneChatFrame,
+  type ProjectStatus,
+  type ServerMessage,
+  type TranscriptEvent,
+} from "../shared/protocol.js";
+import type { ServerContext } from "./context.js";
+import {
+  nextFrame,
+  phoneItems,
+  phoneQueue,
+  phoneQueueDo,
+  phoneStop,
+  readQueueBody,
+  readSendBody,
+} from "./phoneChat.js";
+import { SendQueues, type QueueEntry } from "./queue.js";
 
 const at = 1_700_000_000_000;
 
@@ -111,8 +128,16 @@ describe("nextFrame", () => {
 });
 
 describe("a send from the phone", () => {
-  const file = { id: "a-1", kind: "image" as const, mediaType: "image/png", name: "x.png", n: 1, data: "aGk=" };
-  const send = (more: Record<string, unknown>) => readSendBody({ id: "c", text: "hi", clientId: "p", ...more });
+  const file = {
+    id: "a-1",
+    kind: "image" as const,
+    mediaType: "image/png",
+    name: "x.png",
+    n: 1,
+    data: "aGk=",
+  };
+  const send = (more: Record<string, unknown>) =>
+    readSendBody({ id: "c", text: "hi", clientId: "p", ...more });
 
   test("words, files or both", () => {
     expect(send({})?.uploads).toEqual([]);
@@ -136,5 +161,121 @@ describe("a send from the phone", () => {
   test("only the fields it may set get through", () => {
     const body = send({ attachments: [{ ...file, url: "/x", picture: "aGk=", regions: [] }] });
     expect(Object.keys(body!.uploads[0]!).sort()).toEqual(["data", "id", "kind", "mediaType", "n", "name"]);
+  });
+
+  test("cuts in only when it says so", () => {
+    expect(send({})?.now).toBe(false);
+    expect(send({ now: true })?.now).toBe(true);
+    expect(send({ now: "yes" })?.now).toBe(false);
+  });
+});
+
+describe("the phone's hand on a queue", () => {
+  const CHAT = "chat";
+  const entry = (id: string, extra: Partial<QueueEntry> = {}): QueueEntry => ({
+    id,
+    text: `prompt ${id}`,
+    uploads: [],
+    silent: false,
+    ...extra,
+  });
+  /** Another agent's message, as the queue holds one. */
+  const letter: LetterFrom = {
+    agent: "x",
+    project: "yagami",
+    title: "",
+    letter: "l1",
+    reply: "none",
+    depth: 1,
+  };
+
+  /** A server with one chat in it: its queue real, the rest only what the
+   *  queue's handlers touch. */
+  function world(status: ProjectStatus, queue: QueueEntry[], held = false) {
+    const sent: ServerMessage[] = [];
+    const interrupted: string[] = [];
+    const queues = new SendQueues((message) => sent.push(message));
+    queues.entries.set(CHAT, queue);
+    if (held) queues.held.set(CHAT, { by: "stop" });
+    const ctx = {
+      queues,
+      retries: { cancelRetry: () => {} },
+      manager: {
+        statuses: () => ({ [CHAT]: status }),
+        interrupt: (id: string) => interrupted.push(id),
+      },
+      clients: { broadcast: (message: ServerMessage) => sent.push(message) },
+      store: { isMember: () => false, findSession: () => undefined },
+    } as unknown as ServerContext;
+    const line = () => (queues.entries.get(CHAT) ?? []).map((e) => e.id);
+    return { ctx, queues, interrupted, line };
+  }
+
+  test("a body names a chat, what to do, and which prompt", () => {
+    expect(readQueueBody({ id: "c", do: "now", itemId: "p" })).toEqual({ id: "c", do: "now", itemId: "p" });
+    expect(readQueueBody({ id: "c", do: "remove", itemId: "p" })).toEqual({
+      id: "c",
+      do: "remove",
+      itemId: "p",
+    });
+    expect(readQueueBody({ id: "c", do: "send", itemId: "ignored" })).toEqual({ id: "c", do: "send" });
+    expect(readQueueBody({ id: "c", do: "now" })).toBeUndefined();
+    expect(readQueueBody({ id: "c", do: "shuffle", itemId: "p" })).toBeUndefined();
+    expect(readQueueBody({ do: "send" })).toBeUndefined();
+    expect(readQueueBody({ id: 4, do: "send" })).toBeUndefined();
+  });
+
+  test("it is shown its own prompts only, the one cutting in marked", () => {
+    const shown = phoneQueue([
+      entry("silent", { silent: true }),
+      entry("letter", { from: letter }),
+      entry("cut", { cut: true }),
+      entry("plain"),
+    ]);
+    expect(shown).toEqual([
+      { id: "cut", text: "prompt cut", now: true },
+      { id: "plain", text: "prompt plain" },
+    ]);
+  });
+
+  test("a prompt sent now stops the running turn and stands first", () => {
+    const w = world("working", [entry("1"), entry("2"), entry("3")]);
+    expect(phoneQueueDo(w.ctx, { id: CHAT, do: "now", itemId: "3" })).toBe(true);
+    expect(w.interrupted).toEqual([CHAT]);
+    expect(w.line()).toEqual(["3", "1", "2"]);
+    expect(phoneQueue(w.queues.entries.get(CHAT)!)[0]).toMatchObject({ id: "3", now: true });
+  });
+
+  test("a prompt taken out is gone, the rest as they stood", () => {
+    const w = world("working", [entry("1"), entry("2")]);
+    expect(phoneQueueDo(w.ctx, { id: CHAT, do: "remove", itemId: "1" })).toBe(true);
+    expect(w.line()).toEqual(["2"]);
+    expect(w.interrupted).toEqual([]);
+  });
+
+  test("what it isn't shown it can't touch: another agent's message, ruri's own, or nothing at all", () => {
+    const w = world("working", [entry("letter", { from: letter }), entry("silent", { silent: true })]);
+    for (const itemId of ["letter", "silent", "nobody"]) {
+      expect(phoneQueueDo(w.ctx, { id: CHAT, do: "remove", itemId })).toBe(false);
+      expect(phoneQueueDo(w.ctx, { id: CHAT, do: "now", itemId })).toBe(false);
+    }
+    expect(w.line()).toEqual(["letter", "silent"]);
+    expect(w.interrupted).toEqual([]);
+  });
+
+  test("a queue is sent on only while it stands by", () => {
+    const moving = world("working", [entry("1")]);
+    expect(phoneQueueDo(moving.ctx, { id: CHAT, do: "send" })).toBe(false);
+    const standing = world("working", [entry("1")], true);
+    expect(phoneQueueDo(standing.ctx, { id: CHAT, do: "send" })).toBe(true);
+    expect(standing.queues.held.has(CHAT)).toBe(false);
+  });
+
+  test("stop ends the running turn and takes back a cut-in", () => {
+    const w = world("working", [entry("1", { cut: true })]);
+    w.queues.cutIn.add(CHAT);
+    phoneStop(w.ctx, CHAT);
+    expect(w.interrupted).toEqual([CHAT]);
+    expect(w.queues.cutIn.has(CHAT)).toBe(false);
   });
 });

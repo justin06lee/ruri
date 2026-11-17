@@ -6,9 +6,14 @@
  *   GET  /chat?id=<chat>        the chat's recent conversation, once
  *   GET  /chat/live?id=<chat>   the same as server-sent events: a whole
  *                               frame on connect, then what changed
- *   POST /chat/send             { id, text, clientId, attachments? } → where
- *                               it went; attachments are { id, kind,
- *                               mediaType, name, n, data } in base64
+ *   POST /chat/send             { id, text, clientId, attachments?, now? } →
+ *                               where it went; attachments are { id, kind,
+ *                               mediaType, name, n, data } in base64; `now`
+ *                               cuts in on the turn that is running
+ *   POST /chat/queue            { id, do, itemId? } — a queued prompt sent
+ *                               now ("now") or taken out ("remove"), or a
+ *                               queue that is standing by sent on ("send")
+ *   POST /chat/stop             { id } — the running turn stopped
  *
  * What the phone is shown is what the user reads in the web app: their
  * prompts and the replies in full, tool calls folded into one line of
@@ -29,6 +34,7 @@ import {
   type PhoneAttachment,
   type PhoneChatFrame,
   type PhoneChatItem,
+  type PhoneQueued,
   type PhoneSent,
   type TranscriptEvent,
 } from "../shared/protocol.js";
@@ -36,6 +42,7 @@ import { channelProject } from "./channel.js";
 import type { ClientConn, ServerContext } from "./context.js";
 import { promptHandlers } from "./handlers/prompts.js";
 import { warn } from "./log.js";
+import type { QueueEntry } from "./queue.js";
 import { readBody } from "./sharing.js";
 
 /** How many things said the phone is given — the screen's worth and more. */
@@ -75,19 +82,37 @@ export interface PhoneSendBody {
   text: string;
   clientId: string;
   uploads: AttachmentUpload[];
+  /** Sent to cut in: the running turn stops and this goes in its place. */
+  now: boolean;
 }
 
 /** A /chat/send body, checked — or undefined. A prompt may be files alone. */
 export function readSendBody(body: Record<string, unknown>): PhoneSendBody | undefined {
-  const { id, text, clientId, attachments } = body;
+  const { id, text, clientId, attachments, now } = body;
   if (typeof id !== "string" || typeof text !== "string" || typeof clientId !== "string") return undefined;
   if (text.length > PROMPT_MAX || clientId.length === 0 || clientId.length > 100) return undefined;
   const uploads = phoneUploads.safeParse(attachments ?? []);
   if (!uploads.success || (!text.trim() && uploads.data.length === 0)) return undefined;
-  return { id, text, clientId, uploads: uploads.data };
+  return { id, text, clientId, uploads: uploads.data, now: now === true };
 }
 
-const CHAT_PATHS = new Set(["/chat", "/chat/live", "/chat/send"]);
+/** What a phone may do to a chat's queue: send one prompt now, take one
+ *  out, or send on a queue that is standing by. */
+export type PhoneQueueBody =
+  { id: string; do: "now" | "remove"; itemId: string } | { id: string; do: "send" };
+
+/** A /chat/queue body, checked — or undefined. */
+export function readQueueBody(body: Record<string, unknown>): PhoneQueueBody | undefined {
+  const { id, itemId } = body;
+  const what = body["do"];
+  if (typeof id !== "string" || id.length === 0 || id.length > 200) return undefined;
+  if (what === "send") return { id, do: "send" };
+  if (what !== "now" && what !== "remove") return undefined;
+  if (typeof itemId !== "string" || itemId.length === 0 || itemId.length > 200) return undefined;
+  return { id, do: what, itemId };
+}
+
+const CHAT_PATHS = new Set(["/chat", "/chat/live", "/chat/send", "/chat/queue", "/chat/stop"]);
 
 /** Whether a request is for a chat, the phone's way. */
 export function isPhoneChatPath(pathname: string): boolean {
@@ -128,7 +153,8 @@ export function phoneItems(events: TranscriptEvent[], draft?: { id: string; text
   };
   for (const event of events) {
     if (event.kind === "tool") {
-      if (!steps) items.push((steps = { id: event.id, kind: "steps", text: "", steps: [], at: iso(event.ts) }));
+      if (!steps)
+        items.push((steps = { id: event.id, kind: "steps", text: "", steps: [], at: iso(event.ts) }));
       steps.steps!.push(oneLine(event.summary ? `${event.name}: ${event.summary}` : event.name));
       continue;
     }
@@ -155,7 +181,13 @@ export function phoneItems(events: TranscriptEvent[], draft?: { id: string; text
   }
   fold();
   if (draft?.text.trim()) {
-    items.push({ id: `draft:${draft.id}`, kind: "assistant", text: cut(draft.text), at: iso(Date.now()), pending: true });
+    items.push({
+      id: `draft:${draft.id}`,
+      kind: "assistant",
+      text: cut(draft.text),
+      at: iso(Date.now()),
+      pending: true,
+    });
   }
   return items.slice(-ITEMS_MAX);
 }
@@ -171,17 +203,30 @@ export function phoneFrame(ctx: ServerContext, chatId: string): PhoneChatFrame |
   const waiting = [...ctx.permissions.values()].some(
     (request) => request.projectId === chatId && request.kind !== "component",
   );
-  const queue = (ctx.queues.entries.get(chatId) ?? [])
-    .filter((entry) => !entry.silent && !entry.from)
-    .map((entry) => ({ id: entry.id, text: cut(entry.text), ...phoneAttachments(entry.attachments) }));
+  const queue = phoneQueue(ctx.queues.entries.get(chatId) ?? []);
   return {
     chat: chatId,
     name: session.title || project.name,
     project: project.name,
     state: waiting || status === "permission" ? "needs-you" : status === "working" ? "working" : "idle",
     queue,
+    ...(queue.length && ctx.queues.held.has(chatId) ? { held: true as const } : {}),
     items: phoneItems(ctx.archive.events(chatId), draft),
   };
+}
+
+/** The user's own prompts waiting in a chat's queue, as the phone shows
+ *  them: not ruri's silent ones, nor another agent's messages. One that
+ *  cut in is marked — it goes the moment the stopped turn is over. */
+export function phoneQueue(entries: QueueEntry[]): PhoneQueued[] {
+  return entries
+    .filter((entry) => !entry.silent && !entry.from)
+    .map((entry) => ({
+      id: entry.id,
+      text: cut(entry.text),
+      ...phoneAttachments(entry.attachments),
+      ...(entry.cut ? { now: true as const } : {}),
+    }));
 }
 
 /* ── the live line ─────────────────────────────────────────────────── */
@@ -310,6 +355,7 @@ export async function phoneSend(
   text: string,
   clientId: string,
   uploads: AttachmentUpload[] = [],
+  now = false,
 ): Promise<PhoneSent> {
   let as: PhoneSent["as"] | undefined;
   // the handler answers a window over its socket: here, a stand-in that
@@ -328,6 +374,7 @@ export async function phoneSend(
       text,
       clientId,
       ...(uploads.length ? { attachments: uploads } : {}),
+      ...(now ? { now: true } : {}),
     });
   } catch (err) {
     warn("phone", err, "send");
@@ -338,6 +385,43 @@ export async function phoneSend(
   return { as: as ?? "other" };
 }
 
+/** A socket nobody reads: these handlers answer through the chat itself,
+ *  which the phone is watching (the live line). */
+const nobody = { readyState: WebSocket.CLOSED, send() {} } as unknown as ClientConn;
+
+/**
+ * The phone's hand on a chat's queue, the way the web app's cards have
+ * one: a prompt held down goes now (it cuts in on a running turn), one is
+ * taken out, or a queue standing by since a stop is sent on. Only the
+ * prompts the phone is shown can be named. Answers whether it was done.
+ */
+export function phoneQueueDo(ctx: ServerContext, body: PhoneQueueBody): boolean {
+  const chat = body.id;
+  if (body.do === "send") {
+    if (!ctx.queues.held.has(chat)) return false;
+    void promptHandlers.queue_send(ctx, nobody, { type: "queue_send", projectId: chat });
+    return true;
+  }
+  const shown = phoneQueue(ctx.queues.entries.get(chat) ?? []).some((entry) => entry.id === body.itemId);
+  if (!shown) return false;
+  if (body.do === "now") {
+    void promptHandlers.queue_now(ctx, nobody, { type: "queue_now", projectId: chat, itemId: body.itemId });
+  } else {
+    void promptHandlers.queue_remove(ctx, nobody, {
+      type: "queue_remove",
+      projectId: chat,
+      itemId: body.itemId,
+    });
+  }
+  return true;
+}
+
+/** The running turn stopped, as the web app's stop button stops it: the
+ *  queue stands by rather than being thrown away. */
+export function phoneStop(ctx: ServerContext, chat: string): void {
+  void promptHandlers.interrupt(ctx, nobody, { type: "interrupt", projectId: chat });
+}
+
 /* ── over HTTP ─────────────────────────────────────────────────────── */
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
@@ -345,8 +429,29 @@ function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-/** Answer /chat, /chat/live or /chat/send; the caller has checked who is
- *  asking. */
+/** A POST's body as an object, or undefined for what isn't one. */
+async function readJson(
+  req: http.IncomingMessage,
+  max: number,
+): Promise<Record<string, unknown> | undefined> {
+  try {
+    const parsed = JSON.parse(await readBody(req, max)) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether the phone may act on this chat: one that is open, and not hidden. */
+function reachable(ctx: ServerContext, chat: string): boolean {
+  const found = ctx.store.findSession(chat);
+  return Boolean(found && !found.project.hidden && channelProject(ctx, chat));
+}
+
+/** Answer /chat, /chat/live, /chat/send, /chat/queue or /chat/stop; the
+ *  caller has checked who is asking. */
 export async function servePhoneChat(
   ctx: ServerContext,
   req: http.IncomingMessage,
@@ -359,25 +464,54 @@ export async function servePhoneChat(
       res.end();
       return;
     }
-    let body: PhoneSendBody | undefined;
-    try {
-      const parsed = JSON.parse(await readBody(req, SEND_MAX)) as unknown;
-      body = parsed && typeof parsed === "object" ? readSendBody(parsed as Record<string, unknown>) : undefined;
-    } catch {
+    const parsed = await readJson(req, SEND_MAX);
+    if (!parsed) {
       json(res, 400, { error: "bad request" });
       return;
     }
+    const body = readSendBody(parsed);
     if (!body) {
-      json(res, 400, { error: "send { id, text, clientId, attachments? }" });
+      json(res, 400, { error: "send { id, text, clientId, attachments?, now? }" });
       return;
     }
-    const { id, text, clientId, uploads } = body;
-    const found = ctx.store.findSession(id);
-    if (!found || found.project.hidden || !channelProject(ctx, id)) {
+    const { id, text, clientId, uploads, now } = body;
+    if (!reachable(ctx, id)) {
       json(res, 404, { error: "no such chat" });
       return;
     }
-    json(res, 200, await phoneSend(ctx, id, text, clientId, uploads));
+    json(res, 200, await phoneSend(ctx, id, text, clientId, uploads, now));
+    return;
+  }
+  if (url.pathname === "/chat/queue" || url.pathname === "/chat/stop") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { allow: "POST" });
+      res.end();
+      return;
+    }
+    const parsed = await readJson(req, 4096);
+    const queue = parsed && url.pathname === "/chat/queue" ? readQueueBody(parsed) : undefined;
+    const chat = url.pathname === "/chat/queue" ? queue?.id : parsed?.["id"];
+    if (typeof chat !== "string" || !chat) {
+      json(res, 400, {
+        error:
+          url.pathname === "/chat/queue"
+            ? 'send { id, do: "now" | "remove" | "send", itemId? }'
+            : "send { id }",
+      });
+      return;
+    }
+    if (!reachable(ctx, chat)) {
+      json(res, 404, { error: "no such chat" });
+      return;
+    }
+    if (queue) {
+      // a prompt that already went, or a queue already moving, is no error:
+      // the phone's picture was a beat behind
+      json(res, 200, { ok: phoneQueueDo(ctx, queue) });
+      return;
+    }
+    phoneStop(ctx, chat);
+    json(res, 200, { ok: true });
     return;
   }
   if (req.method !== "GET" && req.method !== "HEAD") {

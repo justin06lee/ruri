@@ -315,19 +315,58 @@ final class MacClient: Sendable {
     /// Send a prompt into a chat, under the phone's own id for it: sent
     /// twice — after a dropped line — the Mac answers rather than runs it.
     func send(
-        _ text: String, attachments: [Attachment] = [], to chat: String, id: String, at address: String, port: Int
+        _ text: String, attachments: [Attachment] = [], now: Bool = false, to chat: String, id: String,
+        at address: String, port: Int
     ) async throws -> SentAs {
         // files take as long as they take: this is silence, not the whole send
         var request = try request(address, port: port, path: "/chat/send", timeout: attachments.isEmpty ? 20 : 120)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try JSONEncoder().encode(
-            SendBody(id: chat, text: text, clientId: id, attachments: attachments.isEmpty ? nil : attachments)
+            SendBody(
+                id: chat, text: text, clientId: id, attachments: attachments.isEmpty ? nil : attachments,
+                now: now ? true : nil
+            )
         )
         let (data, response) = try await session.data(for: request, delegate: pinned)
         try Self.checkChat(response)
         guard let answer = try? JSONDecoder().decode(SendAnswer.self, from: data) else { throw MacError.newer }
         return answer.as
+    }
+
+    /// A hand on a chat's queue: one prompt sent now or taken out, or a queue
+    /// standing by sent on. False when there was nothing to do it to — the
+    /// prompt had gone already.
+    @discardableResult
+    func queue(_ body: QueueBody, at address: String, port: Int) async throws -> Bool {
+        try await act(body, to: "/chat/queue", at: address, port: port)
+    }
+
+    /// Stop the turn a chat is running. Its queue stands by.
+    func stop(_ chat: String, at address: String, port: Int) async throws {
+        try await act(["id": chat], to: "/chat/stop", at: address, port: port)
+    }
+
+    /// A small POST about a chat, answered { ok }. A Mac whose ruri is from
+    /// before the phone could do this refuses the path: outdated.
+    @discardableResult
+    private func act(_ body: some Encodable, to path: String, at address: String, port: Int) async throws -> Bool {
+        var request = try request(address, port: port, path: path, timeout: 15)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONEncoder().encode(body)
+        let (data, response) = try await session.data(for: request, delegate: pinned)
+        switch (response as? HTTPURLResponse)?.statusCode {
+        case 200: return (try? JSONDecoder().decode(DoneAnswer.self, from: data).ok) ?? true
+        case 401: throw MacError.notPaired
+        // the door refuses a path it doesn't know for this key
+        case 403, 405: throw MacError.outdated
+        case 404:
+            // the chat is gone — or, from a ruri before these routes, the path
+            let said = (try? JSONDecoder().decode(Refusal.self, from: data).error) ?? ""
+            throw said == "no such chat" ? MacError.noChat : MacError.outdated
+        default: throw MacError.unreachable
+        }
     }
 
     /// A file a chat's prompt came with, from where the Mac serves it.

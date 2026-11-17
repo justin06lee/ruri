@@ -39,8 +39,9 @@ final class TourTests: XCTestCase {
         pause(5)
         shoot("2 home")
 
+        // what needs you opens on the chat that is waiting
         tap(lighthouse)
-        XCTAssertTrue(app.staticTexts["Lead"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["chat.field"].waitForExistence(timeout: 10))
         pause(4)
         shoot("3 a question")
         back(app)
@@ -61,7 +62,7 @@ final class TourTests: XCTestCase {
         shoot("4 a team")
         back(app)
 
-        app.collectionViews.firstMatch.swipeDown(velocity: .slow)
+        app.scrollViews.firstMatch.swipeDown(velocity: .slow)
         pause(4)
         shoot("5 home again")
 
@@ -77,9 +78,12 @@ final class TourTests: XCTestCase {
         if let cue = env["RURI_DEMO_CUE"] {
             FileManager.default.createFile(
                 atPath: (cue as NSString).deletingLastPathComponent + "/down", contents: Data())
+            let status = app.descendants(matching: .any)["home.status"]
             XCTAssertTrue(
-                app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Mac asleep or offline'")).firstMatch
-                    .waitForExistence(timeout: 90),
+                status.waitForExistence(timeout: 10)
+                    && XCTWaiter.wait(
+                        for: [expectation(for: NSPredicate(format: "label CONTAINS 'Mac asleep or offline'"), evaluatedWith: status)],
+                        timeout: 90) == .completed,
                 "the line is down, and the screen says so")
             pause(2)
             shoot("7 offline")

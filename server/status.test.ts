@@ -1,3 +1,4 @@
+import type { SidebarLayout } from "../shared/sidebar.js";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import * as http from "node:http";
@@ -234,6 +235,23 @@ describe("the status report", () => {
     expect(ruri.lead?.id).toBe("ruri-lead");
     expect(withIds.needsYou[0]!.chatId).toBe("site-lead");
     expect(withIds.needsYou[0]!.projectId).toBe("p-site");
+  });
+
+  test("with ids, the sidebar as the Mac arranges it, a hidden project left out; and the stars", () => {
+    const w = world();
+    (w.ctx.store as unknown as { sidebar: () => SidebarLayout }).sidebar = () => ({
+      order: ["f-work", "p-mira", "p-old"],
+      folders: [{ id: "f-work", name: "Work", collapsed: true, projects: ["p-site", "p-old", "p-ruri"] }],
+    });
+    (w.ctx.store.list().find((p) => p.id === "p-mira") as { starred?: boolean }).starred = true;
+    expect(statusReport(w.ctx, { now: w.now() }).sidebar).toBeUndefined();
+    const report = statusReport(w.ctx, { ids: true, now: w.now() });
+    expect(report.sidebar).toEqual({
+      order: ["f-work", "p-mira"],
+      folders: [{ id: "f-work", name: "Work", collapsed: true, projects: ["p-site", "p-ruri"] }],
+    });
+    expect(report.projects.find((p) => p.name === "mira")!.starred).toBe(true);
+    expect(report.projects.find((p) => p.name === "ruri")!.starred).toBeUndefined();
   });
 });
 

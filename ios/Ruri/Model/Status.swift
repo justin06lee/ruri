@@ -87,8 +87,71 @@ struct StatusProject: Codable, Hashable, Sendable, Identifiable {
     var lead: StatusChat?
     /// Its teammates, and its liaison once it has one.
     var team: [StatusChat]
+    /// Starred in the sidebar.
+    var starred: Bool?
+    /// How the Mac knows it (asked for with ?ids=1): what the sidebar's
+    /// layout names it by.
+    var macId: String?
 
     var id: String { name }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, state, doingNow, since, lead, team, starred
+        case macId = "id"
+    }
+}
+
+/// The sidebar as the Mac arranges it: the top level in order — folders and
+/// the projects in none, by id — and each folder's projects.
+/// (shared/sidebar.ts's SidebarLayout.)
+struct SidebarLayout: Codable, Hashable, Sendable {
+    struct Folder: Codable, Hashable, Sendable, Identifiable {
+        var id: String
+        var name: String
+        var collapsed: Bool?
+        var projects: [String]
+    }
+
+    var order: [String]
+    var folders: [Folder]
+
+    func folder(_ id: String) -> Folder? { folders.first { $0.id == id } }
+
+    /// The folder a project is in, if any.
+    func folder(holding project: String) -> Folder? { folders.first { $0.projects.contains(project) } }
+
+    /// Something put somewhere, as the Mac does it (moveInLayout): a project
+    /// into `folder` (else the top level), before `before` there (else at
+    /// the end); a folder only ever along the top level. Anything that
+    /// doesn't make sense changes nothing.
+    func moving(_ id: String, into folder: String? = nil, before: String? = nil) -> SidebarLayout {
+        let isFolder = folders.contains { $0.id == id }
+        guard isFolder || order.contains(id) || self.folder(holding: id) != nil, before != id else { return self }
+        let into = isFolder ? nil : folder
+        if let into, self.folder(into) == nil { return self }
+        var order = order.filter { $0 != id }
+        var folders = folders.map { folder in
+            var folder = folder
+            folder.projects.removeAll { $0 == id }
+            return folder
+        }
+        func put(_ list: inout [String]) {
+            if let before, let at = list.firstIndex(of: before) { list.insert(id, at: at) } else { list.append(id) }
+        }
+        if let into, let at = folders.firstIndex(where: { $0.id == into }) {
+            put(&folders[at].projects)
+        } else {
+            put(&order)
+        }
+        folders.sort { (order.firstIndex(of: $0.id) ?? .max) < (order.firstIndex(of: $1.id) ?? .max) }
+        return SidebarLayout(order: order, folders: folders)
+    }
+
+    func folding(_ id: String, _ collapsed: Bool) -> SidebarLayout {
+        var layout = self
+        if let at = layout.folders.firstIndex(where: { $0.id == id }) { layout.folders[at].collapsed = collapsed }
+        return layout
+    }
 }
 
 /// Every open project's state, and what needs the user.
@@ -101,6 +164,8 @@ struct StatusReport: Codable, Hashable, Sendable {
     var needsYou: [StatusNeed]
     /// Those needing the user first, then stopped, at work, at rest.
     var projects: [StatusProject]
+    /// With ?ids=1, from a Mac that keeps one: how its sidebar is arranged.
+    var sidebar: SidebarLayout?
 
     func project(named name: String) -> StatusProject? {
         projects.first { $0.name == name }

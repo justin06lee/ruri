@@ -59,6 +59,8 @@ struct NeedRow: View {
 /// what it is doing now.
 struct ProjectRow: View {
     var project: StatusProject
+    /// In a folder: set in under its name.
+    var indented = false
     @Environment(\.palette) private var palette
 
     var body: some View {
@@ -71,6 +73,12 @@ struct ProjectRow: View {
                         .font(.ruri(.body, .medium))
                         .foregroundStyle(palette.ink)
                         .lineLimit(1)
+                    if project.starred == true {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(palette.inkSoft)
+                            .accessibilityLabel("Starred")
+                    }
                     Spacer(minLength: 8)
                     if let since = project.since {
                         Text(Ago.short(since))
@@ -86,7 +94,7 @@ struct ProjectRow: View {
                 .foregroundStyle(palette.inkSoft)
             }
         }
-        .padding(.leading, 10)
+        .padding(.leading, indented ? 28 : 10)
         .padding(.trailing, 14)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)

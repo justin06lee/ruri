@@ -8,7 +8,7 @@ extension StatusReport {
     static var sample: StatusReport {
         let now = Date.now
         let ago = { (minutes: Double) in now.addingTimeInterval(-minutes * 60) }
-        return StatusReport(
+        var report = StatusReport(
             computer: "Justin's MacBook Pro",
             at: now,
             needsYou: [
@@ -80,6 +80,15 @@ extension StatusReport {
                 ),
             ]
         )
+        for at in report.projects.indices {
+            report.projects[at].macId = "p-\(report.projects[at].name)"
+            report.projects[at].starred = ["lighthouse", "atlas"].contains(report.projects[at].name) ? true : nil
+        }
+        report.sidebar = SidebarLayout(
+            order: ["f-work", "p-garden", "p-atlas"],
+            folders: [SidebarLayout.Folder(id: "f-work", name: "C & Tech", projects: ["p-lighthouse", "p-orchard"])]
+        )
+        return report
     }
 }
 

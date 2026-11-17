@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Home, the Mac's sidebar made a screen: what needs you, then every
-/// project — its name and what it is doing now. Over them, the Mac's name
+/// project as the sidebar arranges it — folders, order and stars — each
+/// with what it is doing now. Over them, the Mac's name
 /// and whether the line to it is live; while it is down, how old the
 /// picture is.
 struct HomeView: View {
@@ -33,15 +34,7 @@ struct HomeView: View {
                                 }
                             }
                             if !report.projects.isEmpty {
-                                RowSection(title: "Projects") {
-                                    ForEach(report.projects) { project in
-                                        NavigationLink(value: Destination.project(project)) {
-                                            ProjectRow(project: project)
-                                        }
-                                        .buttonStyle(RowPress())
-                                        .accessibilityIdentifier("project.\(project.name)")
-                                    }
-                                }
+                                SidebarList(report: report)
                             }
                         }
                         .grayedWhenOffline(model.link)

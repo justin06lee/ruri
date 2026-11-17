@@ -22,8 +22,8 @@ struct PushRegistrarTests {
         var registered = 0
         let registrar = PushRegistrar(defaults: scratch(), env: "sandbox")
         var posted: [String] = []
-        registrar.mac = "mac1"
-        registrar.deliver = { token, env in
+        registrar.macs = ["mac1"]
+        registrar.deliver = { _, token, env in
             posted.append("\(env):\(token)")
             // a delivery that pokes the launch again changes nothing
             launch.registerOnce { registered += 1 }
@@ -41,25 +41,53 @@ struct PushRegistrarTests {
     @Test func postsAgainOnlyForANewTokenOrANewMac() async {
         let defaults = scratch()
         let registrar = PushRegistrar(defaults: defaults, env: "production")
-        var posts = 0
-        registrar.deliver = { _, _ in posts += 1 }
+        var posted: [String] = []
+        registrar.deliver = { mac, _, _ in posted.append(mac) }
         await registrar.received(token)
-        #expect(posts == 0)  // no Mac yet
-        await registrar.macChanged("mac1")
-        #expect(posts == 1)
+        #expect(posted.isEmpty)  // no Mac yet
+        await registrar.macsChanged(["mac1"])
+        #expect(posted == ["mac1"])
         await registrar.received(token)
-        await registrar.macChanged("mac1")
-        #expect(posts == 1)
+        await registrar.macsChanged(["mac1"])
+        #expect(posted == ["mac1"])
+        // a second computer paired: only it needs the token
+        await registrar.macsChanged(["mac1", "mac2"])
+        #expect(posted == ["mac1", "mac2"])
+        // a new token goes to both
         await registrar.received(Data(repeating: 0x11, count: 32))
-        #expect(posts == 2)
-        await registrar.macChanged("mac2")
-        #expect(posts == 3)
-        // the next launch remembers what the Mac confirmed
+        #expect(posted == ["mac1", "mac2", "mac1", "mac2"])
+        // one forgotten: the other has it already
+        await registrar.macsChanged(["mac2"])
+        #expect(posted.count == 4)
+        // the next launch remembers what each confirmed
         let next = PushRegistrar(defaults: defaults, env: "production")
-        next.mac = "mac2"
-        next.deliver = { _, _ in posts += 1 }
+        next.macs = ["mac1", "mac2"]
+        next.deliver = { mac, _, _ in posted.append(mac) }
         await next.received(Data(repeating: 0x11, count: 32))
-        #expect(posts == 3)
+        #expect(posted.count == 4)
+    }
+
+    @Test func oneMacOutOfReachDoesntHoldUpTheOthers() async {
+        let registrar = PushRegistrar(defaults: scratch(), env: "production")
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var took: [String] = []
+        registrar.macs = ["asleep", "awake"]
+        registrar.deliver = { mac, _, _ in
+            if mac == "asleep" { throw MacError.unreachable }
+            took.append(mac)
+        }
+        await registrar.received(token, now: start)
+        #expect(took == ["awake"])
+        #expect(registrar.due("asleep", now: start.addingTimeInterval(60)) == false)
+        #expect(registrar.due("asleep", now: start.addingTimeInterval(16 * 60)))
+        #expect(registrar.due("awake", now: start.addingTimeInterval(16 * 60)) == false)
+    }
+
+    @Test func readsWhatTheOneMacConfirmedBefore() throws {
+        let defaults = scratch()
+        let one = PushRegistrar.Confirmed(token: "abc", mac: "mac1", env: "production", at: .now)
+        defaults.set(try JSONEncoder().encode(one), forKey: "push.confirmed")
+        #expect(PushRegistrar(defaults: defaults, env: "production").confirmed("mac1") == one)
     }
 
     @Test func aFailureWaitsBeforeTryingAgain() async {
@@ -67,8 +95,8 @@ struct PushRegistrarTests {
         let start = Date(timeIntervalSince1970: 1_800_000_000)
         var tries = 0
         var fail = true
-        registrar.mac = "mac1"
-        registrar.deliver = { _, _ in
+        registrar.macs = ["mac1"]
+        registrar.deliver = { _, _, _ in
             tries += 1
             if fail { throw MacError.unreachable }
         }
@@ -176,5 +204,50 @@ struct QuietHoursTests {
         let first = (quiet["windows"] as! [[String: Any]])[0]
         #expect(first["start"] as? Double == 100_000)
         #expect(first["end"] as? Double == 200_000)
+        #expect(json["named"] as? Bool == false)
+        let named = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(PushSettingsBody(prefs, windows: [window], named: true))
+        ) as! [String: Any]
+        #expect(named["named"] as? Bool == true)
+    }
+}
+
+/// The settings go to every computer paired, each once, and again when a
+/// second one makes them name themselves.
+@MainActor
+struct NotificationsTests {
+    @Test func eachMacIsToldOnce() async {
+        let notifications = Notifications(defaults: scratch())
+        var told: [String: Bool] = [:]
+        notifications.deliver = { mac, body in told[mac] = body.named }
+        notifications.macs = ["mac1"]
+        await notifications.sync()
+        #expect(told == ["mac1": false])
+        told = [:]
+        await notifications.sync()
+        #expect(told.isEmpty)
+        // a second computer: both name themselves now
+        notifications.macs = ["mac1", "mac2"]
+        await notifications.sync()
+        #expect(told == ["mac1": true, "mac2": true])
+    }
+
+    @Test func oneSlowToAnswerDoesntHoldUpOnePairedMeanwhile() async {
+        let notifications = Notifications(defaults: scratch())
+        var told: [String] = []
+        var release: CheckedContinuation<Void, Never>?
+        notifications.deliver = { mac, _ in
+            if mac == "asleep" { await withCheckedContinuation { release = $0 } }
+            told.append(mac)
+        }
+        notifications.macs = ["asleep"]
+        let first = Task { await notifications.sync() }
+        while release == nil { await Task.yield() }
+        notifications.macs = ["asleep", "new"]
+        await notifications.sync()
+        #expect(told == ["new"])
+        release?.resume()
+        await first.value
+        #expect(told == ["new", "asleep"])
     }
 }

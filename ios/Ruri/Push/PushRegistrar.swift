@@ -16,9 +16,10 @@ final class PushLaunch {
     }
 }
 
-/// Hands this phone's push token to the paired Mac — only when it is new,
-/// the Mac is new, or the Mac hasn't had it confirmed in a week. A token
-/// iOS hands over again, unchanged, is no news: nothing is sent.
+/// Hands this phone's push token to every paired computer — to each only
+/// when it is new, the computer is new, or that one hasn't had it confirmed
+/// in a week. A token iOS hands over again, unchanged, is no news: nothing
+/// is sent.
 @MainActor
 final class PushRegistrar {
     static let shared = PushRegistrar()
@@ -32,7 +33,7 @@ final class PushRegistrar {
         #endif
     }()
 
-    /// What the Mac last confirmed it has.
+    /// What a computer last confirmed it has.
     struct Confirmed: Codable, Equatable {
         var token: String
         var mac: String
@@ -40,27 +41,33 @@ final class PushRegistrar {
         var at: Date
     }
 
-    /// Hands the token to the paired Mac; throws when it couldn't.
-    typealias Deliver = @MainActor (_ token: String, _ env: String) async throws -> Void
+    /// Hands the token to the paired computer `mac` (its device id); throws
+    /// when it couldn't.
+    typealias Deliver = @MainActor (_ mac: String, _ token: String, _ env: String) async throws -> Void
 
     /// How often a confirmed token is handed over again anyway.
     static let reconfirmAfter: TimeInterval = 7 * 24 * 3600
     /// How long after a failed try the next one waits.
     static let retryAfter: TimeInterval = 15 * 60
 
-    /// The paired Mac's device id, and how to reach it; nil while unpaired.
-    var mac: String?
+    /// The paired computers' device ids; none while unpaired.
+    var macs: [String] = []
     var deliver: Deliver?
     /// How many times the token has been handed over, this launch.
     private(set) var posts = 0
 
     private let defaults: UserDefaults
     private let env: String
-    private var sending = false
-    private var failedAt: Date?
+    /// The computers being handed the token now.
+    private var sending: Set<String> = []
+    /// When a try failed, by computer.
+    private var failedAt: [String: Date] = [:]
 
     private static let tokenKey = "push.token"
-    private static let confirmedKey = "push.confirmed"
+    /// What each computer confirmed.
+    private static let confirmedKey = "push.confirmedAll"
+    /// What the one Mac confirmed, before there could be more.
+    private static let oneConfirmedKey = "push.confirmed"
 
     init(defaults: UserDefaults = .standard, env: String = PushRegistrar.env) {
         self.defaults = defaults
@@ -70,9 +77,21 @@ final class PushRegistrar {
     /// The token iOS gave last, as hex.
     var token: String? { defaults.string(forKey: Self.tokenKey) }
 
-    var confirmed: Confirmed? {
-        guard let data = defaults.data(forKey: Self.confirmedKey) else { return nil }
-        return try? JSONDecoder().decode(Confirmed.self, from: data)
+    /// What `mac` last confirmed it has.
+    func confirmed(_ mac: String) -> Confirmed? {
+        allConfirmed[mac]
+    }
+
+    private var allConfirmed: [String: Confirmed] {
+        if let data = defaults.data(forKey: Self.confirmedKey),
+           let all = try? JSONDecoder().decode([Confirmed].self, from: data)
+        {
+            return Dictionary(all.map { ($0.mac, $0) }) { _, last in last }
+        }
+        guard let data = defaults.data(forKey: Self.oneConfirmedKey),
+              let one = try? JSONDecoder().decode(Confirmed.self, from: data)
+        else { return [:] }
+        return [one.mac: one]
     }
 
     /// iOS handed over a token (didRegisterForRemoteNotifications): keep
@@ -81,48 +100,66 @@ final class PushRegistrar {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         if hex != token {
             defaults.set(hex, forKey: Self.tokenKey)
-            failedAt = nil
+            failedAt = [:]
         }
         await sync(now: now)
     }
 
-    /// The paired Mac changed (paired, unpaired): it may need the token.
-    func macChanged(_ id: String?, now: Date = .now) async {
-        guard id != mac else { return }
-        mac = id
-        failedAt = nil
+    /// The paired computers changed (one paired, one forgotten): a new one
+    /// needs the token.
+    func macsChanged(_ ids: [String], now: Date = .now) async {
+        guard ids != macs else { return }
+        for id in ids where !macs.contains(id) { failedAt[id] = nil }
+        macs = ids
         await sync(now: now)
     }
 
     /// The app came to the front: a try that failed may go again now —
-    /// the Mac may have let this phone send since.
+    /// a computer may have let this phone send since.
     func retryNow() {
-        failedAt = nil
+        failedAt = [:]
     }
 
-    /// Whether the Mac needs the token handed over.
-    func due(now: Date = .now) -> Bool {
-        guard let token, let mac else { return false }
-        if let failedAt, now.timeIntervalSince(failedAt) < Self.retryAfter { return false }
-        guard let confirmed, confirmed.token == token, confirmed.mac == mac, confirmed.env == env else { return true }
+    /// Whether `mac` needs the token handed over.
+    func due(_ mac: String, now: Date = .now) -> Bool {
+        guard let token, macs.contains(mac) else { return false }
+        if let failed = failedAt[mac], now.timeIntervalSince(failed) < Self.retryAfter { return false }
+        guard let confirmed = confirmed(mac), confirmed.token == token, confirmed.env == env else { return true }
         return now.timeIntervalSince(confirmed.at) > Self.reconfirmAfter
     }
 
-    /// Hand the token over if the Mac needs it. Returns whether it did.
+    /// Hand the token to each computer that needs it, all at once: one
+    /// asleep doesn't hold up the rest. Returns whether any took it.
     @discardableResult
     func sync(now: Date = .now) async -> Bool {
-        guard !sending, due(now: now), let token, let mac, let deliver else { return false }
-        sending = true
-        defer { sending = false }
+        guard let token, deliver != nil else { return false }
+        let due = macs.filter { !sending.contains($0) && self.due($0, now: now) }
+        guard !due.isEmpty else { return false }
+        sending.formUnion(due)
+        return await withTaskGroup(of: Bool.self) { group in
+            for mac in due {
+                group.addTask { await self.hand(token, to: mac, now: now) }
+            }
+            var took = false
+            for await one in group where one { took = true }
+            return took
+        }
+    }
+
+    /// Hand the token to one computer; whether it took it.
+    private func hand(_ token: String, to mac: String, now: Date) async -> Bool {
+        defer { sending.remove(mac) }
+        guard let deliver else { return false }
         posts += 1
         do {
-            try await deliver(token, env)
-            let confirmed = Confirmed(token: token, mac: mac, env: env, at: now)
-            defaults.set(try JSONEncoder().encode(confirmed), forKey: Self.confirmedKey)
-            failedAt = nil
+            try await deliver(mac, token, env)
+            var all = allConfirmed
+            all[mac] = Confirmed(token: token, mac: mac, env: env, at: now)
+            defaults.set(try JSONEncoder().encode(Array(all.values)), forKey: Self.confirmedKey)
+            failedAt[mac] = nil
             return true
         } catch {
-            failedAt = now
+            failedAt[mac] = now
             return false
         }
     }

@@ -111,11 +111,12 @@ struct PairingAnswer: Decodable, Sendable {
     var fingerprint: String
 }
 
-/// The Mac this phone is paired with. Its key is kept apart, in the
-/// keychain.
-struct PairedMac: Codable, Equatable, Sendable {
+/// A computer this phone is paired with — a Mac, or ruri on Linux. Its key
+/// is kept apart, in the keychain.
+struct PairedMac: Codable, Equatable, Sendable, Identifiable {
     var name: String
-    /// How the Mac knows this phone — never shown.
+    /// How the computer knows this phone — never shown. Each pairing has its
+    /// own, so it is also how the phone tells its computers apart.
     var deviceId: String
     var addresses: [String]
     var port: Int
@@ -123,11 +124,67 @@ struct PairedMac: Codable, Equatable, Sendable {
     var pairedAt: Date
     /// The address that answered last, tried first next time.
     var lastAddress: String?
+    /// What it runs on, as Node says (`darwin`, `linux`), once it has said.
+    var platform: String?
+
+    var id: String { deviceId }
 
     /// The addresses in the order to try them: the last one to answer first.
     var tryOrder: [String] {
         guard let lastAddress else { return addresses }
         return [lastAddress] + addresses.filter { $0 != lastAddress }
+    }
+
+    /// What it is called in passing: a Mac, unless it has said it isn't one.
+    var kind: String { platform == nil || platform == "darwin" ? "Mac" : "computer" }
+
+    /// Its picture in a list.
+    var symbol: String { kind == "Mac" ? "desktopcomputer" : "server.rack" }
+}
+
+/// The computers this phone is paired with, and which one it shows — kept
+/// in UserDefaults, their keys in the keychain.
+struct PairedMacs: Codable, Equatable, Sendable {
+    var macs: [PairedMac] = []
+    /// The one shown, by its device id.
+    var current: String?
+
+    /// The one shown: the one named, else the first.
+    var shown: PairedMac? {
+        macs.first { $0.deviceId == current } ?? macs.first
+    }
+
+    /// A pairing kept: in place of one it pairs with again (the same
+    /// certificate — re-paired after being removed there), else after the
+    /// rest; and shown. Answers the one it replaced.
+    @discardableResult
+    mutating func add(_ mac: PairedMac) -> PairedMac? {
+        let replaced = macs.first { $0.fingerprint == mac.fingerprint || $0.deviceId == mac.deviceId }
+        if let at = macs.firstIndex(where: { $0.fingerprint == mac.fingerprint || $0.deviceId == mac.deviceId }) {
+            macs[at] = mac
+        } else {
+            macs.append(mac)
+        }
+        current = mac.deviceId
+        return replaced
+    }
+
+    /// What it learned of one of them since: where it answers, its name.
+    mutating func update(_ mac: PairedMac) {
+        guard let at = macs.firstIndex(where: { $0.deviceId == mac.deviceId }) else { return }
+        macs[at] = mac
+    }
+
+    /// What a computer is called in a list: its name, and its door's port
+    /// when another paired has the same name — two ruris on one computer.
+    func label(_ mac: PairedMac) -> String {
+        macs.contains { $0.deviceId != mac.deviceId && $0.name == mac.name } ? "\(mac.name) · \(mac.port)" : mac.name
+    }
+
+    /// A pairing gone; the next one is shown in its place.
+    mutating func remove(_ id: String) {
+        macs.removeAll { $0.deviceId == id }
+        if current == id { current = macs.first?.deviceId }
     }
 }
 
@@ -139,6 +196,8 @@ struct Hello: Decodable, Sendable {
     var name: String?
     var addresses: [String]?
     var port: Int?
+    /// What it runs on (`darwin`, `linux`); a ruri from before says nothing.
+    var platform: String?
 }
 
 /// What the door says when it refuses: { ok: false, error }.

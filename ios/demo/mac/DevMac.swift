@@ -32,9 +32,18 @@ enum DevMac {
     static func model() -> RuriModel {
         switch screen {
         case nil, "pair": RuriModel()
-        default: RuriModel(demo: .sample)
+        default: RuriModel(demo: .sample, others: others)
         }
     }
+
+    /// The made-up computers paired beside the sample's: a Linux box on the
+    /// tailnet.
+    static let others = [
+        PairedMac(
+            name: "tenet", deviceId: "demo-tenet", addresses: [], port: 0, fingerprint: "demo-tenet",
+            pairedAt: .now, lastAddress: nil, platform: "linux"
+        )
+    ]
 
     /// A window the size of an iPhone, and the pairing link `mac.sh run`
     /// was given.
@@ -46,7 +55,7 @@ enum DevMac {
             scene.titlebar?.titleVisibility = .hidden
             scene.titlebar?.toolbar = nil
         }
-        watchForCues()
+        watchForCues(model)
         guard screen == nil, let link = UserDefaults.standard.string(forKey: "pairLink") else { return }
         UserDefaults.standard.removeObject(forKey: "pairLink")
         await model.pair(link)
@@ -56,9 +65,13 @@ enum DevMac {
     /// into another: `shot <path>` writes a JPEG of the window there, drawn
     /// by the app itself (no leave to record the screen needed), and
     /// `type <words>` puts words into the prompt's field as typing would.
+    /// For more than one computer: `pair <link>` pairs another, `switch <n>`
+    /// shows the nth paired (from 0), `forget <n>` unpairs it, `open <n>
+    /// <project>` is a notification from the nth tapped, and `state <path>`
+    /// writes what the model holds there, as JSON.
     ///
     ///     echo "shot /tmp/home.jpg" > /tmp/ruri-phone-cue
-    private static func watchForCues() {
+    private static func watchForCues(_ model: RuriModel) {
         let cue = "/tmp/ruri-phone-cue"
         Task { @MainActor in
             while !Task.isCancelled {
@@ -79,6 +92,28 @@ enum DevMac {
                 } else if line.hasPrefix("type "), let field = field(in: window) {
                     field.becomeFirstResponder()
                     field.insertText(rest.replacingOccurrences(of: "\\n", with: "\n"))
+                } else if line.hasPrefix("pair ") {
+                    await model.pair(rest)
+                } else if line.hasPrefix("switch "), let n = Int(rest), model.macs.indices.contains(n) {
+                    model.switchTo(model.macs[n].deviceId)
+                } else if line.hasPrefix("open "), let n = Int(rest.prefix { $0 != " " }), model.macs.indices.contains(n) {
+                    // as a tapped notification from the nth computer would
+                    Opener.shared.mac = model.macs[n].deviceId
+                    Opener.shared.project = String(rest.drop { $0 != " " }.dropFirst())
+                } else if line.hasPrefix("forget "), let n = Int(rest), model.macs.indices.contains(n) {
+                    model.unpair(model.macs[n].deviceId)
+                } else if line.hasPrefix("state "), !rest.isEmpty {
+                    let state: [String: Any] = [
+                        "shown": model.mac?.deviceId ?? "",
+                        "macs": model.macs.map { ["id": $0.deviceId, "name": $0.name, "platform": $0.platform ?? "", "port": $0.port] as [String: Any] },
+                        "link": "\(model.link)",
+                        "computer": model.report?.computer ?? "",
+                        "projects": model.report?.projects.map(\.name) ?? [],
+                        "pairing": "\(model.pairing)",
+                    ]
+                    if let data = try? JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys]) {
+                        try? data.write(to: URL(fileURLWithPath: rest))
+                    }
                 }
             }
         }
@@ -101,6 +136,7 @@ enum DevMac {
                 NavigationStack { MadeChat(live: DevMac.screen == "chat-live", late: DevMac.screen == "chat-late") }
             case "project": NavigationStack { ProjectView(name: "orchard") }
             case "pair": PairView()
+            case "pair-another": PairSheet()
             case "mac": MacSheet()
             default: RootView()
             }

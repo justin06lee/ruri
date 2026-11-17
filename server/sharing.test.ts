@@ -321,6 +321,17 @@ describe("a phone's QR code", () => {
       scope: "phone",
     });
     expect((await ask("/status", paired.key)).status).toBe(200);
+    // what it is told of this computer: what it runs on too, so a phone
+    // paired with several knows a Mac from the rest; a stranger, nothing
+    expect(JSON.parse((await ask("/remote/hello", paired.key)).body)).toMatchObject({
+      service: "ruri",
+      paired: true,
+      platform: process.platform,
+    });
+    expect(JSON.parse((await ask("/remote/hello", undefined)).body)).toEqual({
+      service: "ruri",
+      paired: false,
+    });
     // a phone's key reaches the chats too: through the door, to a chat
     // that isn't one
     expect((await ask("/chat?id=no-such-chat", paired.key)).status).toBe(404);

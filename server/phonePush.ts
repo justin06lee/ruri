@@ -33,7 +33,7 @@ import type { ServerContext } from "./context.js";
 import { errorMessage, isMissing, warn } from "./log.js";
 import { lastSummary, trimSummary } from "./projectHooks.js";
 import { onProjectEvent, type ProjectEvent } from "./projectWatch.js";
-import { readBody } from "./sharing.js";
+import { computerName, readBody } from "./sharing.js";
 
 /* ── the settings a phone keeps here ───────────────────────────────── */
 
@@ -61,6 +61,9 @@ export interface PushSettings {
     startMinute: number;
     endMinute: number;
   };
+  /** The phone is paired with more than one computer: this one names
+   *  itself under each notification's title. */
+  named?: boolean;
 }
 
 /** Quiet from 21:30 until 05:30 — the phone moves the end to Fajr. */
@@ -186,6 +189,7 @@ export function readSettings(raw: unknown): PushSettings | undefined {
     finished: body["finished"],
     needsInput: body["needsInput"],
     quiet: { on: quiet["on"], mode, windows, startMinute, endMinute },
+    ...(body["named"] === true ? { named: true } : {}),
   };
 }
 
@@ -424,12 +428,41 @@ export function heldPayload(held: Held): ApnsMessage {
   };
 }
 
+/**
+ * A message as one phone gets it: the pairing it came through, which the
+ * phone knows this computer by — a tap switches the phone to it — and, for
+ * a phone paired with more than one computer, this one's name under the
+ * title, its threads apart from the others'.
+ */
+export function addressed(message: ApnsMessage, deviceId: string, name?: string): ApnsMessage {
+  const aps = (message.payload["aps"] ?? {}) as Record<string, unknown>;
+  const alert = aps["alert"] as Record<string, unknown> | undefined;
+  return {
+    ...message,
+    payload: {
+      ...message.payload,
+      device: deviceId,
+      ...(name && alert
+        ? {
+            aps: {
+              ...aps,
+              alert: { ...alert, subtitle: name },
+              "thread-id": `${name} · ${String(aps["thread-id"] ?? "")}`,
+            },
+          }
+        : {}),
+    },
+  };
+}
+
 /** What the phones' side of things needs of the rest of the server. */
 export interface PushDeps {
   send: ApnsSend;
   /** Whether a device is still paired with a key scoped "phone". */
   isPhone(deviceId: string): boolean;
   now?: () => number;
+  /** This computer's name, for a phone paired with more than one. */
+  name?: () => string;
 }
 
 export class PhonePush {
@@ -554,7 +587,8 @@ export class PhonePush {
   private async deliver(deviceId: string, device: PushDevice, message: ApnsMessage): Promise<void> {
     const token = device.token;
     if (!token) return;
-    const answer = await this.deps.send({ token, env: device.env }, message);
+    const name = device.settings.named ? (this.deps.name ?? computerName)() : undefined;
+    const answer = await this.deps.send({ token, env: device.env }, addressed(message, deviceId, name));
     if (answer.ok) return;
     // a token APNs no longer knows: the app is gone, or it has a new one,
     // which it will send

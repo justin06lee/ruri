@@ -652,7 +652,14 @@ export class Sharing {
       const seat = this.deviceFor(req);
       json(res, 200, {
         service: "ruri",
-        ...(seat ? { name: computerName(), addresses: reachableAddresses(), port: this.port() } : {}),
+        ...(seat
+          ? {
+              name: computerName(),
+              addresses: reachableAddresses(),
+              port: this.port(),
+              platform: process.platform,
+            }
+          : {}),
         paired: Boolean(seat),
       });
       return;

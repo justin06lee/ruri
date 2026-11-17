@@ -2,8 +2,14 @@ import Foundation
 import Network
 import Observation
 
-/// Everything the screens show: the Mac this phone is paired with, the last
-/// picture it sent, and whether the line to it is live.
+/// Everything the screens show: the computers this phone is paired with,
+/// the one it shows, the last picture that one sent, and whether the line
+/// to it is live.
+///
+/// One computer is shown at a time, and only its line is open: switching
+/// closes it, shows the next one's last picture at once, and opens that
+/// one's. Every paired computer has the push token and the notification
+/// settings, so each tells the phone of its own projects.
 ///
 /// While the app is in front, the live status stays open, and is opened
 /// again — the Mac found again first, if need be — whenever it drops. In the
@@ -28,7 +34,12 @@ final class RuriModel {
         case failed(String)
     }
 
+    /// The one shown.
     private(set) var mac: PairedMac?
+    /// Every computer paired, in the order paired.
+    var macs: [PairedMac] { paired.macs }
+    /// What one is called in a list: its name, told apart from another's.
+    func label(_ mac: PairedMac) -> String { paired.label(mac) }
     private(set) var report: StatusReport?
     /// When the Mac was last heard from: what the picture is true as of.
     private(set) var heard: Date?
@@ -48,55 +59,59 @@ final class RuriModel {
     private let paths = NWPathMonitor()
     private var lastPath: String?
     private var watching = false
+    private var paired = PairedMacs()
+    /// Made-up data, for a look at the screens: nothing is reached or kept.
+    private let demo: Bool
 
+    /// One pairing, kept before there could be more.
     private static let macKey = "pairedMac"
+    private static let macsKey = "pairedMacs"
 
-    init(demo: StatusReport? = nil) {
+    init(demo: StatusReport? = nil, others: [PairedMac] = []) {
         notifications = Notifications()
+        self.demo = demo != nil
         if let demo {
-            mac = PairedMac(
-                name: demo.computer, deviceId: "", addresses: [], port: 0, fingerprint: "",
-                pairedAt: .now, lastAddress: nil
+            let shown = PairedMac(
+                name: demo.computer, deviceId: "demo", addresses: [], port: 0, fingerprint: "demo",
+                pairedAt: .now, lastAddress: nil, platform: "darwin"
             )
+            paired = PairedMacs(macs: [shown] + others, current: shown.deviceId)
+            mac = shown
             report = demo
             heard = .now
             link = .live
             return
         }
-        guard let data = UserDefaults.standard.data(forKey: Self.macKey),
-              let mac = try? JSONDecoder().decode(PairedMac.self, from: data),
-              let key = Keychain.read(account: mac.deviceId)
-        else { return }
-        self.mac = mac
-        self.key = key
-        client = MacClient(fingerprint: mac.fingerprint, key: key)
-        if let kept = Self.readKept() {
-            report = kept.report
-            heard = kept.heard
-        }
+        paired = Self.readPaired()
+        // a pairing whose key this phone no longer has is no pairing
+        paired.macs.removeAll { Keychain.read(account: $0.deviceId) == nil }
+        if let shown = paired.shown { show(shown) }
+        writePaired()
         watchNetwork()
-        hearFrom(mac)
+        hearFromAll()
     }
 
     // MARK: notifications
 
-    /// Point the push token and the notification settings at `mac`.
-    private func hearFrom(_ mac: PairedMac?) {
+    /// Point the push token and the notification settings at every paired
+    /// computer: each tells this phone of its own projects.
+    private func hearFromAll() {
         let registrar = PushRegistrar.shared
-        registrar.deliver = { [weak self] token, env in
+        registrar.deliver = { [weak self] mac, token, env in
             guard let self else { throw MacError.notPaired }
-            let (client, address, port) = try await self.line()
+            let (client, address, port) = try await self.line(to: mac)
             try await client.pushToken(token, env: env, at: address, port: port)
         }
-        notifications.deliver = { [weak self] body in
+        notifications.deliver = { [weak self] mac, body in
             guard let self else { throw MacError.notPaired }
-            let (client, address, port) = try await self.line()
+            let (client, address, port) = try await self.line(to: mac)
             try await client.pushSettings(body, at: address, port: port)
         }
-        notifications.mac = mac?.deviceId
+        let ids = macs.map(\.deviceId)
+        notifications.macs = ids
         Task {
-            await registrar.macChanged(mac?.deviceId)
-            if mac != nil, awake { await notifications.wake() }
+            await registrar.macsChanged(ids)
+            if !ids.isEmpty, awake { await notifications.wake() }
         }
     }
 
@@ -131,6 +146,19 @@ final class RuriModel {
     func line() async throws -> (client: MacClient, address: String, port: Int) {
         guard let client, let mac else { throw MacError.notPaired }
         return (client, try await reach(client, mac), mac.port)
+    }
+
+    /// The way to any paired computer, by its device id: the one shown
+    /// goes by its own line; another is found afresh, for the moment — a
+    /// prompt on its way when the phone switched still reaches its chat.
+    func line(to id: String?) async throws -> (client: MacClient, address: String, port: Int) {
+        guard let id, id != mac?.deviceId else { return try await line() }
+        guard let other = macs.first(where: { $0.deviceId == id }),
+              let key = Keychain.read(account: id)
+        else { throw MacError.notPaired }
+        let client = MacClient(fingerprint: other.fingerprint, key: key)
+        let (address, _) = try await client.find(other.tryOrder, port: other.port)
+        return (client, address, other.port)
     }
 
     /// A chat's line lost the Mac: look for it afresh next time.
@@ -259,9 +287,13 @@ final class RuriModel {
         guard let client, let mac else { return }
         do {
             let address = try await reach(client, mac)
-            take(try await client.status(at: address, port: mac.port))
+            let report = try await client.status(at: address, port: mac.port)
+            // switched to another computer meanwhile: this one's picture is stale news
+            guard mac.deviceId == self.mac?.deviceId else { return }
+            take(report)
             if link != .live { restart() }
         } catch {
+            guard mac.deviceId == self.mac?.deviceId else { return }
             lost(error)
         }
     }
@@ -280,6 +312,8 @@ final class RuriModel {
             do {
                 let address = try await reach(client, mac)
                 for try await news in client.live(at: address, port: mac.port) {
+                    // switched away: what the last computer says is no longer shown
+                    if Task.isCancelled { return }
                     switch news {
                     case .report(let report): take(report)
                     case .heard: heard = .now
@@ -314,23 +348,30 @@ final class RuriModel {
     /// Where the Mac answers: the address that answered last, else whichever
     /// of its addresses answers first — learning where else it is now.
     private func reach(_ client: MacClient, _ mac: PairedMac) async throws -> String {
-        if let address { return address }
+        if let address, mac.deviceId == self.mac?.deviceId { return address }
         let (address, hello) = try await client.find(mac.tryOrder, port: mac.port)
-        self.address = address
-        var known = mac
+        guard var known = macs.first(where: { $0.deviceId == mac.deviceId }) else { return address }
+        let shown = mac.deviceId == self.mac?.deviceId
+        if shown { self.address = address }
         known.lastAddress = address
         if let addresses = hello.addresses, !addresses.isEmpty { known.addresses = addresses }
         if let name = hello.name { known.name = name }
         if let port = hello.port { known.port = port }
-        if known != self.mac { save(known) }
+        if let platform = hello.platform { known.platform = platform }
+        if known != macs.first(where: { $0.deviceId == mac.deviceId }) {
+            paired.update(known)
+            if shown { self.mac = known }
+            writePaired()
+        }
         return address
     }
 
     /// What the screens say while nothing answers: the Mac is asleep or off
     /// every network this phone is on, and when it was last heard from.
     func asleepWords(now: Date = .now) -> String {
-        guard let heard else { return "Mac asleep or offline" }
-        return "Mac asleep or offline · last seen \(Ago.long(heard, now: now))"
+        let kind = mac?.kind ?? "Mac"
+        guard let heard else { return "\(kind) asleep or offline" }
+        return "\(kind) asleep or offline · last seen \(Ago.long(heard, now: now))"
     }
 
     private func take(_ report: StatusReport) {
@@ -345,10 +386,49 @@ final class RuriModel {
         keep()
     }
 
+    // MARK: switching
+
+    /// Show another paired computer: its last picture at once, then its
+    /// line. A chat open on the last one closes with the screen.
+    func switchTo(_ id: String) {
+        guard id != mac?.deviceId, let next = macs.first(where: { $0.deviceId == id }) else { return }
+        keep()
+        if demo {
+            mac = next
+            report?.computer = next.name
+            return
+        }
+        guard show(next) else {
+            unpair(id)
+            return
+        }
+        writePaired()
+        restart()
+    }
+
+    /// Make `next` the one shown: its key, its client, its last picture.
+    /// False when this phone has lost its key for it.
+    @discardableResult
+    private func show(_ next: PairedMac) -> Bool {
+        guard let key = Keychain.read(account: next.deviceId) else { return false }
+        liveTask?.cancel()
+        liveTask = nil
+        paired.current = next.deviceId
+        mac = next
+        self.key = key
+        client = MacClient(fingerprint: next.fingerprint, key: key)
+        address = nil
+        let kept = Self.readKept(next.deviceId)
+        report = kept?.report
+        heard = kept?.heard
+        link = .connecting
+        return true
+    }
+
     // MARK: pairing
 
-    /// Pair with the Mac a scanned or pasted code names — in place of any
-    /// paired before.
+    /// Pair with the computer a scanned or pasted code names, and show it.
+    /// The ones paired before stay; one paired again takes its old place.
     func pair(_ text: String) async {
         let link: PairingLink
         do {
@@ -361,7 +441,6 @@ final class RuriModel {
         pairing = .pairing(link.name)
         do {
             let (mac, key) = try await MacClient.pair(link, deviceName: Self.deviceName)
-            forget()
             do {
                 try Keychain.save(key, account: mac.deviceId)
             } catch {
@@ -371,49 +450,70 @@ final class RuriModel {
                 )
                 return
             }
-            save(mac)
-            self.key = key
-            client = MacClient(fingerprint: mac.fingerprint, key: key)
+            keep()
+            if let replaced = paired.add(mac), replaced.deviceId != mac.deviceId {
+                Keychain.delete(account: replaced.deviceId)
+                try? FileManager.default.removeItem(at: Self.keptURL(replaced.deviceId))
+            }
+            show(mac)
             address = mac.lastAddress
+            writePaired()
             watchNetwork()
-            self.link = .connecting
             pairing = .idle
             restart()
-            hearFrom(mac)
+            hearFromAll()
             await refresh()
         } catch {
             pairing = .failed(Self.words(for: error, pairingWith: link.name))
         }
     }
 
-    /// Forget the Mac: its key goes from this phone. (The Mac still lists
-    /// this phone until it is removed there.)
-    func unpair() {
-        forget()
-        pairing = .idle
-        hearFrom(nil)
-    }
-
-    private func forget() {
-        liveTask?.cancel()
-        liveTask = nil
-        if let mac { Keychain.delete(account: mac.deviceId) }
-        UserDefaults.standard.removeObject(forKey: Self.macKey)
-        try? FileManager.default.removeItem(at: Self.keptURL)
-        mac = nil
-        key = nil
-        client = nil
-        address = nil
-        report = nil
-        heard = nil
-        link = .connecting
-    }
-
-    private func save(_ mac: PairedMac) {
-        self.mac = mac
-        if let data = try? JSONEncoder().encode(mac) {
-            UserDefaults.standard.set(data, forKey: Self.macKey)
+    /// Forget a computer — the one shown, unless another is named: its key
+    /// goes from this phone, and the next one paired is shown in its place.
+    /// (The computer still lists this phone until it is removed there.)
+    func unpair(_ id: String? = nil) {
+        guard let id = id ?? mac?.deviceId else { return }
+        Keychain.delete(account: id)
+        try? FileManager.default.removeItem(at: Self.keptURL(id))
+        paired.remove(id)
+        if id == mac?.deviceId {
+            liveTask?.cancel()
+            liveTask = nil
+            mac = nil
+            key = nil
+            client = nil
+            address = nil
+            report = nil
+            heard = nil
+            link = .connecting
+            if let next = paired.shown, show(next) { restart() }
         }
+        writePaired()
+        pairing = .idle
+        hearFromAll()
+    }
+
+    private func writePaired() {
+        guard !demo else { return }
+        if let data = try? JSONEncoder().encode(paired) {
+            UserDefaults.standard.set(data, forKey: Self.macsKey)
+        }
+    }
+
+    /// The computers paired — the one Mac paired before there could be
+    /// more, and its last picture, taken into the list the first time.
+    private static func readPaired() -> PairedMacs {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: macsKey), let paired = try? JSONDecoder().decode(PairedMacs.self, from: data) {
+            return paired
+        }
+        guard let data = defaults.data(forKey: macKey), let mac = try? JSONDecoder().decode(PairedMac.self, from: data)
+        else { return PairedMacs() }
+        try? FileManager.default.moveItem(at: oldKeptURL, to: keptURL(mac.deviceId))
+        defaults.removeObject(forKey: macKey)
+        let paired = PairedMacs(macs: [mac], current: mac.deviceId)
+        if let data = try? JSONEncoder().encode(paired) { defaults.set(data, forKey: macsKey) }
+        return paired
     }
 
     /// How this phone is listed on the Mac.
@@ -446,21 +546,28 @@ final class RuriModel {
         var heard: Date
     }
 
-    private static var keptURL: URL {
+    /// Where the one Mac's picture was kept before there could be more.
+    private static var oldKeptURL: URL {
         URL.applicationSupportDirectory.appending(path: "status.json")
     }
 
+    /// Each computer's, by its device id.
+    static func keptURL(_ id: String) -> URL {
+        let safe = String(id.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "-" })
+        return URL.applicationSupportDirectory.appending(path: "status-\(safe).json")
+    }
+
     private func keep() {
-        guard let report, let heard else { return }
-        let url = Self.keptURL
+        guard !demo, let mac, let report, let heard else { return }
+        let url = Self.keptURL(mac.deviceId)
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true
         )
         try? StatusReport.encoder().encode(Kept(report: report, heard: heard)).write(to: url, options: .atomic)
     }
 
-    private static func readKept() -> Kept? {
-        guard let data = try? Data(contentsOf: keptURL) else { return nil }
+    private static func readKept(_ id: String) -> Kept? {
+        guard let data = try? Data(contentsOf: keptURL(id)) else { return nil }
         return try? StatusReport.decoder().decode(Kept.self, from: data)
     }
 }

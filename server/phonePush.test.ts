@@ -128,6 +128,38 @@ describe("telling the phones", () => {
       sound: "default",
     });
     expect(sent[0]!.message.payload["projectId"]).toBe("id-orchard");
+    // the pairing it came through: a tap switches the phone to this computer
+    expect(sent[0]!.message.payload["device"]).toBe("d1");
+  });
+
+  test("a phone paired with more than one computer hears which one, in threads of its own", async () => {
+    const sent: Array<{ target: ApnsTarget; message: ApnsMessage }> = [];
+    const center = new PhonePush(
+      {
+        send: async (target, message) => {
+          sent.push({ target, message });
+          return { ok: true };
+        },
+        isPhone: () => true,
+        now: () => new Date(2026, 9, 28, 14, 0).getTime(),
+        name: () => "tenet",
+      },
+      path.join(dir, "phone-push.json"),
+    );
+    center.register("one", TOKEN, "production");
+    center.register("many", OTHER, "production");
+    center.configure("many", { ...DEFAULT_SETTINGS, named: true });
+    await center.tell(notice());
+    const to = (token: string) => sent.find((s) => s.target.token === token)!.message;
+    expect(aps(to(TOKEN))["alert"]).toEqual({ title: "orchard", body: "Shipped the fix." });
+    expect(aps(to(TOKEN))["thread-id"]).toBe("orchard");
+    expect(aps(to(OTHER))["alert"]).toEqual({
+      title: "orchard",
+      subtitle: "tenet",
+      body: "Shipped the fix.",
+    });
+    expect(aps(to(OTHER))["thread-id"]).toBe("tenet · orchard");
+    expect(to(OTHER).payload["device"]).toBe("many");
   });
 
   test("each kind can be turned off", async () => {
@@ -238,6 +270,8 @@ describe("quiet hours", () => {
 
   test("settings from a phone are checked", () => {
     expect(readSettings(nights("batch"))).toEqual(nights("batch"));
+    expect(readSettings({ ...nights("batch"), named: true })?.named).toBe(true);
+    expect(readSettings({ ...nights("batch"), named: "yes" })).toEqual(nights("batch"));
     expect(readSettings({ ...DEFAULT_SETTINGS, finished: "yes" })).toBeUndefined();
     expect(
       readSettings({ ...DEFAULT_SETTINGS, quiet: { ...DEFAULT_SETTINGS.quiet, mode: "loud" } }),

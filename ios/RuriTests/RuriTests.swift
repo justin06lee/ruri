@@ -56,6 +56,50 @@ struct PairingLinkTests {
         #expect(mac.tryOrder == ["127.0.0.1", "a", "b", "c"])
     }
 
+    @Test func keepsEveryComputerPaired() {
+        func mac(_ id: String, _ fingerprint: String, _ name: String = "Mac") -> PairedMac {
+            PairedMac(
+                name: name, deviceId: id, addresses: ["a"], port: 7775, fingerprint: fingerprint,
+                pairedAt: .now, lastAddress: nil
+            )
+        }
+        var paired = PairedMacs()
+        #expect(paired.shown == nil)
+        paired.add(mac("d1", "f1", "studio"))
+        #expect(paired.add(mac("d2", "f2", "tenet")) == nil)
+        // the last paired is shown; the first stays
+        #expect(paired.macs.map(\.deviceId) == ["d1", "d2"])
+        #expect(paired.shown?.name == "tenet")
+        // the same computer paired again takes its old place, under its new id
+        #expect(paired.add(mac("d3", "f1", "studio"))?.deviceId == "d1")
+        #expect(paired.macs.map(\.deviceId) == ["d3", "d2"])
+        #expect(paired.current == "d3")
+        // two ruris on one computer are told apart by their doors
+        #expect(paired.label(paired.macs[1]) == "tenet")
+        var twin = mac("d4", "f4", "tenet")
+        twin.port = 7776
+        paired.add(twin)
+        #expect(paired.label(paired.macs[1]) == "tenet · 7775")
+        #expect(paired.label(twin) == "tenet · 7776")
+        paired.remove("d4")
+        // the one shown forgotten: the next is shown
+        paired.current = "d3"
+        paired.remove("d3")
+        #expect(paired.shown?.deviceId == "d2")
+        paired.remove("d2")
+        #expect(paired.shown == nil)
+    }
+
+    @Test func aComputerSaysWhatItIs() {
+        var mac = PairedMac(
+            name: "tenet", deviceId: "d", addresses: [], port: 7775, fingerprint: "f", pairedAt: .now, lastAddress: nil
+        )
+        #expect(mac.kind == "Mac")
+        mac.platform = "linux"
+        #expect(mac.kind == "computer")
+        #expect(mac.symbol == "server.rack")
+    }
+
     @Test func writesAddressesAsURLs() {
         #expect(MacClient.url("192.168.1.20", port: 7775, path: "/status")?.absoluteString == "https://192.168.1.20:7775/status")
         #expect(MacClient.url("fe80::1", port: 7775, path: "/status")?.absoluteString == "https://[fe80::1]:7775/status")

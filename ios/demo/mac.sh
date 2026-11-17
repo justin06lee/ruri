@@ -6,11 +6,13 @@
 # and no notifications, and Xcode's asset catalog and previews are left out.
 #
 #   ios/demo/mac.sh check          type-check only, as the phone's build would
+#   ios/demo/mac.sh test           run the unit tests (RuriTests), with the
+#                                  command-line tools' Swift Testing
 #   ios/demo/mac.sh build          build/mac/Ruri.app
 #   ios/demo/mac.sh run [link]     build, then open it (paired by a ruri://pair
 #                                  link, when given one)
 #   ios/demo/mac.sh demo <screen>  build, then open it on made-up data: home,
-#                                  project, chat, pair or mac
+#                                  project, chat, pair, pair-another or mac
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -36,6 +38,46 @@ check() {
   # shellcheck disable=SC2086
   swiftc -typecheck $FLAGS $SOURCES
   echo "checked"
+}
+
+# The unit tests, built into one binary with the app: the module's @main
+# gives way to Swift Testing's runner, and `@testable import Ruri` goes,
+# the tests being in the module themselves. (The UI tests need Xcode.)
+test() {
+  TESTING=/Library/Developer/CommandLineTools/Library/Developer/Frameworks
+  PLUGINS=/Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing
+  [ -d "$TESTING/Testing.framework" ] || {
+    echo "no Swift Testing in the command-line tools: $TESTING" >&2
+    exit 1
+  }
+  WORK=$OUT/tests
+  rm -rf "$WORK"
+  mkdir -p "$WORK/src"
+  for f in $SOURCES; do sed 's/^@main$//' "$f" >"$WORK/src/$(echo "$f" | tr / _)"; done
+  for f in RuriTests/*.swift; do sed '/@testable import Ruri/d' "$f" >"$WORK/src/test_$(basename "$f")"; done
+  cat >"$WORK/src/zz_main.swift" <<'SWIFT'
+import Foundation
+import Testing
+
+@main
+enum Tests {
+    static func main() async {
+        let failed: CInt = await Testing.__swiftPMEntryPoint(passing: nil)
+        exit(failed)
+    }
+}
+SWIFT
+  echo "building $(ls RuriTests/*.swift | wc -l | tr -d ' ') test files with the app…"
+  # shellcheck disable=SC2086
+  swiftc $FLAGS -Onone -F "$TESTING" -plugin-path "$PLUGINS" \
+    -Xlinker -rpath -Xlinker "$TESTING" -Xlinker -rpath -Xlinker /Library/Developer/CommandLineTools/Library/Developer/usr/lib \
+    "$WORK"/src/*.swift -o "$WORK/run" 2>&1 | grep -v -e warning -e '^ *[0-9]* |' -e '^ *|' -e note: || true
+  [ -x "$WORK/run" ] || {
+    echo "the tests didn't build" >&2
+    exit 1
+  }
+  echo "running…"
+  "$WORK/run"
 }
 
 build() {
@@ -79,6 +121,7 @@ PLIST
 
 case "${1:-run}" in
 check) check ;;
+test) test ;;
 build) build ;;
 run)
   build
@@ -92,7 +135,7 @@ demo)
   open -g "$APP"
   ;;
 *)
-  sed -n '2,14p' "$0" >&2
+  sed -n '2,16p' "$0" >&2
   exit 2
   ;;
 esac

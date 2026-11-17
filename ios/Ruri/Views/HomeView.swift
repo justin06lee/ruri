@@ -4,11 +4,11 @@ import SwiftUI
 /// project as the sidebar arranges it — folders, order and stars — each
 /// with what it is doing now. Over them, the Mac's name
 /// and whether the line to it is live; while it is down, how old the
-/// picture is.
+/// picture is. The name switches to another paired computer, or pairs one.
 struct HomeView: View {
     @Environment(RuriModel.self) private var model
     @Environment(\.palette) private var palette
-    @State private var showingMac = false
+    @State private var sheet: HomeSheet?
     @State private var path = NavigationPath()
     @State private var opener = Opener.shared
 
@@ -16,9 +16,9 @@ struct HomeView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    Masthead { showingMac = true }
+                    Masthead(showMac: { sheet = .mac }, pairAnother: { sheet = .pair })
                     if model.link == .unpaired {
-                        UnpairedCard()
+                        UnpairedCard { sheet = .pair }
                     }
                     if let report = model.report {
                         Group {
@@ -89,19 +89,43 @@ struct HomeView: View {
                 ChatView(route: route)
             }
             .refreshable { await model.refresh() }
-            .sheet(isPresented: $showingMac) {
-                MacSheet()
+            .sheet(item: $sheet) { shown in
+                switch shown {
+                case .mac: MacSheet { sheet = .pair }
+                case .pair: PairSheet()
+                }
             }
         }
         // a tapped notification opens its project
-        .onChange(of: opener.project, initial: true) { _, project in
-            guard let project else { return }
-            opener.project = nil
-            showingMac = false
-            let found = model.report?.project(named: project)
-            path = NavigationPath([found.map(Destination.project) ?? .project(project)])
+        .onChange(of: opener.project, initial: true) { _, _ in open() }
+        // another computer: its own screens, from home
+        .onChange(of: model.mac?.deviceId) { _, _ in
+            path = NavigationPath()
+            open()
         }
     }
+
+    /// Open the project a tapped notification names — on the computer that
+    /// sent it, switched to first (which comes back here).
+    private func open() {
+        guard let project = opener.project else { return }
+        if let mac = opener.mac, mac != model.mac?.deviceId, model.macs.contains(where: { $0.deviceId == mac }) {
+            sheet = nil
+            model.switchTo(mac)
+            return
+        }
+        opener.project = nil
+        opener.mac = nil
+        sheet = nil
+        let found = model.report?.project(named: project)
+        path = NavigationPath([found.map(Destination.project) ?? .project(project)])
+    }
+}
+
+/// The sheets over home: the computer's, and pairing another.
+enum HomeSheet: String, Identifiable {
+    case mac, pair
+    var id: String { rawValue }
 }
 
 /// Where a row on the home screen leads: straight to the conversation when
@@ -130,14 +154,22 @@ enum Destination {
     }
 }
 
-/// The app's name over the Mac's, and the way to the Mac's sheet.
+/// The app's name over the Mac's, and the way to the Mac's sheet. The
+/// Mac's name opens the computers this phone is paired with: one picked is
+/// shown, or another paired.
 private struct Masthead: View {
     var showMac: () -> Void
+    var pairAnother: () -> Void
     @Environment(RuriModel.self) private var model
     @Environment(\.palette) private var palette
     @State private var now = Date.now
 
-    private var mac: String { model.report?.computer ?? model.mac?.name ?? "your Mac" }
+    private var mac: String { model.mac.map(model.label) ?? model.report?.computer ?? "your Mac" }
+
+    /// The computer shown, picked from the menu.
+    private var shown: Binding<String> {
+        Binding { model.mac?.deviceId ?? "" } set: { model.switchTo($0) }
+    }
 
     private var words: String {
         switch model.link {
@@ -155,18 +187,33 @@ private struct Masthead: View {
                     .font(.ruri(.largeTitle, .bold))
                     .foregroundStyle(palette.ink)
                     .accessibilityAddTraits(.isHeader)
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(model.link == .live ? Color(hex: 0x30B855) : palette.inkFaint.opacity(0.6))
-                        .frame(width: 7, height: 7)
-                    Text(words)
-                        .font(.ruri(.footnote))
-                        .foregroundStyle(palette.inkSoft)
-                        .lineLimit(1)
-                        .contentTransition(.opacity)
+                Menu {
+                    Picker("Computer", selection: shown) {
+                        ForEach(model.macs) { mac in
+                            Label(model.label(mac), systemImage: mac.symbol).tag(mac.deviceId)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    Button("Pair Another Computer…", systemImage: "plus", action: pairAnother)
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(model.link == .live ? Color(hex: 0x30B855) : palette.inkFaint.opacity(0.6))
+                            .frame(width: 7, height: 7)
+                        Text(words)
+                            .font(.ruri(.footnote))
+                            .foregroundStyle(palette.inkSoft)
+                            .lineLimit(1)
+                            .contentTransition(.opacity)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(palette.inkFaint)
+                            .accessibilityHidden(true)
+                    }
+                    .contentShape(.rect)
                 }
-                .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("home.status")
+                .accessibilityHint("Switches to another computer, or pairs one")
             }
             Spacer(minLength: 8)
             Button(action: showMac) {
@@ -216,8 +263,10 @@ private struct NoPicture: View {
     }
 }
 
-/// The Mac no longer knows this phone: it was removed there.
+/// The Mac no longer knows this phone: it was removed there. Paired again,
+/// it takes its old place.
 private struct UnpairedCard: View {
+    var pairAgain: () -> Void
     @Environment(RuriModel.self) private var model
     @Environment(\.palette) private var palette
 
@@ -230,7 +279,7 @@ private struct UnpairedCard: View {
                     .font(.ruri(.subheadline))
                     .foregroundStyle(palette.inkSoft)
             }
-            Button("Pair Again") { model.unpair() }
+            Button("Pair Again", action: pairAgain)
                 .buttonStyle(PrimaryButton())
         }
         .padding(16)

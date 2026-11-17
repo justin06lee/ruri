@@ -60,6 +60,9 @@ final class ChatSession {
     private var drafting: Task<Void, Never>?
 
     private let model: RuriModel
+    /// The computer the chat is on, by its device id: what is on its way
+    /// still reaches it should the phone switch to another.
+    private let machine: String?
     private var task: Task<Void, Never>?
     /// Attachments already in hand, by id: those sent from here, and those
     /// fetched from the Mac, so a bubble doesn't fetch what it just showed.
@@ -71,6 +74,7 @@ final class ChatSession {
     init(chat: String, model: RuriModel) {
         self.chat = chat
         self.model = model
+        machine = model.mac?.deviceId
         made = false
     }
 
@@ -80,6 +84,7 @@ final class ChatSession {
     init(sample: ChatFrame, model: RuriModel) {
         chat = sample.chat
         self.model = model
+        machine = nil
         made = true
         log.apply(sample)
         line = .live
@@ -118,7 +123,7 @@ final class ChatSession {
         var wait: Duration = .seconds(1)
         while !Task.isCancelled {
             do {
-                let (client, address, port) = try await model.line()
+                let (client, address, port) = try await model.line(to: machine)
                 for try await news in client.chatLive(chat, at: address, port: port) {
                     if case .frame(let frame) = news {
                         log.apply(frame)
@@ -197,7 +202,7 @@ final class ChatSession {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
             do {
-                let (client, address, port) = try await model.line()
+                let (client, address, port) = try await model.line(to: machine)
                 try await client.draft(text, chat: chat, at: address, port: port)
             } catch {
                 // a Mac from before boxes were shared, or one out of reach:
@@ -258,7 +263,7 @@ final class ChatSession {
         guard !made else { return }
         Task {
             do {
-                let (client, address, port) = try await model.line()
+                let (client, address, port) = try await model.line(to: machine)
                 try await ask(client, address, port)
             } catch {
                 undo()
@@ -291,7 +296,7 @@ final class ChatSession {
             var tries = 0
             while let outgoing = outbox.first(where: { $0.id == id }) {
                 do {
-                    let (client, address, port) = try await model.line()
+                    let (client, address, port) = try await model.line(to: machine)
                     let went = try await client.send(
                         outgoing.text, attachments: outgoing.attachments, now: outgoing.now, to: chat, id: id,
                         at: address, port: port
@@ -320,7 +325,7 @@ final class ChatSession {
     /// An attachment's bytes: in hand, or from the Mac.
     func file(_ attachment: ChatAttachment) async throws -> Data {
         if let held = files.object(forKey: attachment.id as NSString) { return held as Data }
-        let (client, address, port) = try await model.line()
+        let (client, address, port) = try await model.line(to: machine)
         let data = try await client.attachment(attachment.url, at: address, port: port)
         files.setObject(data as NSData, forKey: attachment.id as NSString)
         return data

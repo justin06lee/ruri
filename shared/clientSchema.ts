@@ -308,6 +308,28 @@ export const clientMessageSchema: z.ZodType<ClientMessage> = z.discriminatedUnio
   z.object({ type: z.literal("secret_remove"), id }),
   z.object({ type: z.literal("secret_move"), id }),
   z.object({ type: z.literal("vault_refresh"), full: z.boolean().optional() }),
+  z.object({ type: z.literal("vault_look") }),
+  z.object({
+    type: z.literal("vault_enroll"),
+    server: z.string().url().max(500),
+    name: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9._-]{0,62}$/i)
+      .optional(),
+  }),
+  z.object({
+    type: z.literal("vault_setup"),
+    host: z.string().min(1).max(253),
+    user: z
+      .string()
+      .regex(/^[a-z_][a-z0-9._-]{0,31}$/i)
+      .optional(),
+    password: z.string().max(1_000).optional(),
+  }),
+  z.object({ type: z.literal("vault_signups_off"), password: z.string().max(1_000).optional() }),
+  z.object({ type: z.literal("vault_install") }),
+  z.object({ type: z.literal("vault_copy_password") }),
+  z.object({ type: z.literal("vault_job_close") }),
   z.object({ type: z.literal("skills_refresh"), ...optionalProjectId }),
   z.object({ type: z.literal("commands_refresh"), ...optionalProjectId }),
   z.object({

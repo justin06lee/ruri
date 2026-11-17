@@ -3,7 +3,7 @@
  *
  * ruri's own window talks to the server on 127.0.0.1, and nothing else may.
  * Sharing opens a second door, on every network this computer is on — a
- * LAN, Tailscale, makima, whatever carries packets — so a laptop or a small
+ * LAN, a tailnet, whatever carries packets — so a laptop or a small
  * board can run its chats here, on this machine's processor and memory, and
  * be nothing but a window itself.
  *
@@ -19,8 +19,8 @@
  * scanning a QR code whose certificate fingerprint it pins before it hands
  * back the code's one-time ticket (phoneCode, pairTicket) — for a key that
  * reads the status alone (scope "status"). Devices on the same
- * LAN find it by a broadcast it answers; ones on a mesh, from the mesh's
- * own list of machines.
+ * LAN find it by a broadcast it answers; ones on the tailnet, from
+ * Tailscale's own list of machines (server/tailnet.ts).
  *
  * What comes in through it is served exactly as the local window is — the
  * same routes (server/routes.ts), the same socket (server/socket.ts) — with
@@ -235,8 +235,8 @@ const INNER_INTERFACE = /^(lo|docker|br-|veth|virbr|vmnet|vboxnet|lxc|lxd|cni|fl
 
 /**
  * Where another device might reach this computer: its IPv4 address on
- * every network it is on — the LAN's, a Tailscale or makima mesh's — and
- * then its name, which a mesh's DNS or the LAN's mDNS may answer for. The
+ * every network it is on — the LAN's, the tailnet's — and then its
+ * name, which Tailscale's MagicDNS or the LAN's mDNS may answer for. The
  * device tries them all at once and keeps the first that answers.
  */
 export function reachableAddresses(): string[] {

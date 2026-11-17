@@ -1,24 +1,19 @@
 /**
  * The user's other computers, as this device can see them: the machines on
- * their makima mesh and their tailnet (each mesh's own list — broadcasts
- * don't cross a mesh), and ruris on the same LAN that answer a broadcast.
+ * their tailnet (Tailscale's own list — broadcasts don't cross it), and
+ * ruris on the same LAN that answer a broadcast.
  * Each is then asked whether ruri is there with sharing on, and whether it
  * is one this device is already paired with (desktop/remote.ts) — which is
  * what Settings → Devices lists, to set one up over SSH or pair with words.
  */
-import { execFile } from "node:child_process";
 import * as dgram from "node:dgram";
-import * as fs from "node:fs";
-import * as http from "node:http";
 import * as os from "node:os";
-import { promisify } from "node:util";
 import { DISCOVERY_ASK, DISCOVERY_PORT, SHARING_PORT } from "../server/sharing.js";
+import { readTailnet } from "../server/tailnet.js";
 import type { Remote, Spot } from "./remote.js";
 
-const execFileAsync = promisify(execFile);
-
 /** How a computer was found. */
-export type Via = "makima" | "tailscale" | "lan" | "paired";
+export type Via = "tailscale" | "lan" | "paired";
 
 /** One of the user's computers. */
 export interface Peer {
@@ -26,9 +21,9 @@ export interface Peer {
   /** Where it can be reached, the most direct first. */
   addresses: string[];
   via: Via[];
-  /** The mesh says it is up (a LAN answer means it is). */
+  /** Tailscale says it is up (a LAN answer means it is). */
   online: boolean;
-  /** Its OS, where the mesh says. */
+  /** Its OS, where Tailscale says. */
   os?: string;
   /** ruri with sharing on answered here. */
   ruri?: {
@@ -39,73 +34,22 @@ export interface Peer {
   };
 }
 
-/** makima's peers, from the socket its owner may read (no root). */
-function makimaPeers(): Promise<Peer[]> {
-  const socketPath = "/etc/makima/makimad-gui.sock";
-  if (!fs.existsSync(socketPath)) return Promise.resolve([]);
-  return new Promise((resolve) => {
-    const req = http.get(
-      { socketPath, path: "/api/status", headers: { host: "makimad" }, timeout: 2_000 },
-      (res) => {
-        let text = "";
-        res.on("data", (chunk: Buffer) => (text += chunk.toString()));
-        res.on("end", () => {
-          try {
-            const status = JSON.parse(text) as {
-              peers?: Array<{ name?: string; address?: string; online?: boolean }>;
-            };
-            resolve(
-              (status.peers ?? []).flatMap((p) =>
-                p.name && p.address
-                  ? [
-                      {
-                        name: p.name,
-                        addresses: [p.address],
-                        via: ["makima" as const],
-                        online: p.online === true,
-                      },
-                    ]
-                  : [],
-              ),
-            );
-          } catch {
-            resolve([]);
-          }
-        });
-      },
-    );
-    req.on("error", () => resolve([]));
-    req.on("timeout", () => req.destroy());
-  });
-}
-
-/** Tailscale's peers, from its own CLI (the Mac app keeps it in the bundle). */
+/** Tailscale's peers (server/tailnet.ts reads its own CLI). */
 async function tailscalePeers(): Promise<Peer[]> {
-  for (const bin of ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]) {
-    try {
-      const { stdout } = await execFileAsync(bin, ["status", "--json"], { timeout: 3_000, encoding: "utf8" });
-      const status = JSON.parse(stdout) as {
-        Peer?: Record<string, { HostName?: string; TailscaleIPs?: string[]; Online?: boolean; OS?: string }>;
-      };
-      return Object.values(status.Peer ?? {}).flatMap((p) => {
-        const v4 = (p.TailscaleIPs ?? []).filter((ip) => !ip.includes(":"));
-        return p.HostName && v4.length
-          ? [
-              {
-                name: p.HostName,
-                addresses: v4,
-                via: ["tailscale" as const],
-                online: p.Online === true,
-                ...(p.OS ? { os: p.OS } : {}),
-              },
-            ]
-          : [];
-      });
-    } catch {
-      // not installed, not running, or not this path: the next, or none
-    }
-  }
-  return [];
+  const tailnet = await readTailnet();
+  return tailnet.devices.flatMap((d) =>
+    !d.self && d.addresses.length
+      ? [
+          {
+            name: d.name,
+            addresses: [...d.addresses],
+            via: ["tailscale" as const],
+            online: d.online,
+            ...(d.os ? { os: d.os } : {}),
+          },
+        ]
+      : [],
+  );
 }
 
 /** The broadcast address of every LAN this device is on. */
@@ -162,9 +106,9 @@ function lanPeers(waitMs = 900): Promise<Peer[]> {
 /** A machine's name as a person says it: no ".local" on the end. */
 const plain = (name: string) => name.replace(/\.local$/i, "");
 
-/** The same machine under its different names: case, ".local", ".makima"
- *  and a tailnet's lowercasing aside. */
-const key = (name: string) => name.toLowerCase().replace(/\.(local|makima)$/, "");
+/** The same machine under its different names: case, ".local" and a
+ *  tailnet's lowercasing aside. */
+const key = (name: string) => name.toLowerCase().replace(/\.local$/, "");
 
 /**
  * Every computer this device can see, merged by name, and ruri looked for
@@ -172,10 +116,10 @@ const key = (name: string) => name.toLowerCase().replace(/\.(local|makima)$/, ""
  * paired host's own, or sharing's usual port at each address it has.
  */
 export async function discover(remote: Remote): Promise<Peer[]> {
-  const [mesh, tail, lan] = await Promise.all([makimaPeers(), tailscalePeers(), lanPeers()]);
+  const [tail, lan] = await Promise.all([tailscalePeers(), lanPeers()]);
   const self = key(os.hostname());
   const peers = new Map<string, Peer>();
-  for (const peer of [...mesh, ...tail, ...lan]) {
+  for (const peer of [...tail, ...lan]) {
     if (key(peer.name) === self) continue;
     const had = peers.get(key(peer.name));
     if (!had) {
@@ -193,7 +137,7 @@ export async function discover(remote: Remote): Promise<Peer[]> {
     had.os ??= peer.os;
     had.ruri ??= peer.ruri;
   }
-  // a paired computer is listed even when no mesh or LAN shows it
+  // a paired computer is listed even when neither the tailnet nor the LAN shows it
   for (const host of remote.hosts()) {
     if (![...peers.values()].some((p) => p.addresses.some((a) => host.addresses.includes(a)))) {
       peers.set(`paired:${host.id}`, {

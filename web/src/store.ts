@@ -180,6 +180,7 @@ function hasDraft(draft: ComposerDraft | undefined): boolean {
 /** Write a channel's draft — the one door every composer change goes
  *  through, so what's on screen is what a relaunch brings back. */
 export function setComposerDraft(channelId: string, draft: ComposerDraft): void {
+  if (composerDrafts.get(channelId)?.text !== draft.text) typedAt.set(channelId, Date.now());
   composerDrafts.set(channelId, draft);
   if (draft.text.trim() || draft.atts.length > 0) draftedChannels.add(channelId);
   else if (!draftedChannels.has(channelId)) return;
@@ -260,6 +261,36 @@ async function liveAttachment(
   } catch {
     return null;
   }
+}
+
+/** When each channel's draft was last changed in this window: words from
+ *  another device never land on top of what is being typed here. */
+const typedAt = new Map<string, number>();
+const TYPING_MS = 2_000;
+/** Drafts another device changed: the composer takes their words without
+ *  taking the focus. */
+const quietBumps = new Set<string>();
+
+/** Whether the composer's latest bump came from another device. */
+export function quietBump(channelId: string): boolean {
+  return quietBumps.delete(channelId);
+}
+
+/** A chat's unsent prompt, changed on another device (another window, the
+ *  phone): taken into this window's composer — its attachments kept —
+ *  unless this window was typed in a moment ago. */
+function draftFromElsewhere(channelId: string, text: string): void {
+  if (Date.now() - (typedAt.get(channelId) ?? 0) < TYPING_MS) return;
+  const prev = composerDrafts.get(channelId);
+  if ((prev?.text ?? "") === text) return;
+  composerDrafts.set(channelId, {
+    text,
+    atts: prev?.atts ?? [],
+    counter: prev?.counter ?? { image: 0, video: 0, file: 0, region: 0 },
+  });
+  if (text.trim() || prev?.atts.length) draftedChannels.add(channelId);
+  quietBumps.add(channelId);
+  bumpDraft(channelId);
 }
 
 /** Tell a mounted composer its channel's draft changed underneath it. */
@@ -2001,6 +2032,10 @@ function apply(msg: ServerMessage): void {
     }
     case "sidebar": {
       setState({ sidebar: laid(sidebarChanges, msg.sidebar) });
+      break;
+    }
+    case "composer_draft": {
+      draftFromElsewhere(msg.projectId, msg.text);
       break;
     }
     case "queued": {

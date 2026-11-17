@@ -8,9 +8,10 @@ import {
   type TranscriptEvent,
 } from "../shared/protocol.js";
 import { moveInLayout, setFolder, type SidebarLayout } from "../shared/sidebar.js";
-import type { ServerContext } from "./context.js";
+import type { ClientConn, ServerContext } from "./context.js";
 import {
   nextFrame,
+  phoneDraft,
   phoneItems,
   phoneQueue,
   phoneQueueDo,
@@ -20,6 +21,7 @@ import {
   readSendBody,
   readSidebarBody,
 } from "./phoneChat.js";
+import { promptHandlers } from "./handlers/prompts.js";
 import { SendQueues, type QueueEntry } from "./queue.js";
 
 const at = 1_700_000_000_000;
@@ -357,5 +359,63 @@ describe("the phone's hand on the sidebar", () => {
     expect(phoneSidebar(w.ctx, { do: "move", id: "nobody" })).toBe(false);
     expect(w.layout()).toBe(before);
     expect(w.sent).toEqual([]);
+  });
+});
+
+describe("a prompt box the same on every device", () => {
+  /** Drafts as the server keeps them, and what each window is told. */
+  function world() {
+    const drafts = new Map<string, { text: string; attachments?: { id: string }[] }>();
+    const told: Array<{ to: string; message: ServerMessage }> = [];
+    const windows = ["a", "b"];
+    const ctx = {
+      drafts: {
+        get: (id: string) => drafts.get(id),
+        set: (id: string, text: string, attachments?: { id: string }[]) =>
+          drafts.set(id, { text, ...(attachments ? { attachments } : {}) }),
+      },
+      clients: {
+        broadcast: (message: ServerMessage) => windows.forEach((to) => told.push({ to, message })),
+        broadcastOthers: (message: ServerMessage, except: ClientConn | undefined) =>
+          windows
+            .filter((to) => to !== (except as unknown as { name: string }).name)
+            .forEach((to) => told.push({ to, message })),
+      },
+      embedder: { warm: () => {} },
+      // the handler looks ahead to a fresh session only for a chat it knows
+      store: { findSession: () => undefined },
+    } as unknown as ServerContext;
+    const window = (name: string) => ({ name }) as unknown as ClientConn;
+    return { ctx, drafts, told, window };
+  }
+
+  test("written in one window, every other window is told — and not the one writing", () => {
+    const w = world();
+    void promptHandlers.draft(w.ctx, w.window("a"), {
+      type: "draft",
+      projectId: "c",
+      text: "half a thought",
+    });
+    expect(w.drafts.get("c")?.text).toBe("half a thought");
+    expect(w.told).toEqual([
+      { to: "b", message: { type: "composer_draft", projectId: "c", text: "half a thought" } },
+    ]);
+    // the same words again (only its files changed) tell nobody
+    void promptHandlers.draft(w.ctx, w.window("a"), {
+      type: "draft",
+      projectId: "c",
+      text: "half a thought",
+    });
+    expect(w.told.length).toBe(1);
+  });
+
+  test("written on the phone, every window is told, the files already there kept", () => {
+    const w = world();
+    w.drafts.set("c", { text: "", attachments: [{ id: "f1" }] });
+    phoneDraft(w.ctx, "c", "from the train");
+    expect(w.drafts.get("c")).toEqual({ text: "from the train", attachments: [{ id: "f1" }] });
+    expect(w.told.map((t) => t.to)).toEqual(["a", "b"]);
+    phoneDraft(w.ctx, "c", "from the train");
+    expect(w.told.length).toBe(2);
   });
 });

@@ -165,6 +165,7 @@ describe("a key scoped to the status", () => {
       ["/chat/send", "POST"],
       ["/chat/queue", "POST"],
       ["/chat/stop", "POST"],
+      ["/chat/draft", "POST"],
       ["/sidebar", "POST"],
       ["/phone/push", "POST"],
       ["/phone/push/settings", "POST"],

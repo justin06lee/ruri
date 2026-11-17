@@ -108,6 +108,14 @@ export class Clients {
     }
   };
 
+  /** To every window but `except`: what that one did, told to the rest. */
+  broadcastOthers = (message: ServerMessage, except: ClientConn | undefined): void => {
+    const payload = JSON.stringify(message);
+    for (const client of this.sockets) {
+      if (client !== except && writable(client)) client.send(payload);
+    }
+  };
+
   touch = (channelId: string): void => {
     this.revisions.set(channelId, (this.revisions.get(channelId) ?? 0) + 1);
   };

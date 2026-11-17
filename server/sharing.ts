@@ -187,6 +187,7 @@ const PHONE_PATHS = new Set([
   "/chat/send",
   "/chat/queue",
   "/chat/stop",
+  "/chat/draft",
   "/sidebar",
   "/phone/push",
   "/phone/push/settings",

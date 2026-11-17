@@ -50,6 +50,14 @@ struct Composer: View {
             .ignoresSafeArea(edges: .bottom)
             .allowsHitTesting(false)
         }
+        // the box is the same on every device: what is typed here goes out,
+        // and what was typed elsewhere comes in when nobody is typing here
+        .onChange(of: draft) { _, now in
+            if now != session.log.draft { session.typed(now) }
+        }
+        .onChange(of: session.log.draft, initial: true) {
+            if let words = session.draftFromElsewhere(replacing: draft) { draft = words }
+        }
         .animation(.snappy(duration: 0.25), value: session.log.queue)
         .animation(.snappy(duration: 0.25), value: session.problem)
         #if DEBUG

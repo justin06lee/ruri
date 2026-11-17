@@ -86,12 +86,26 @@ extension StatusReport {
         }
         report.usage = [
             StatusUsage(
-                name: "Claude", fiveHour: 34, weekly: 12, scoped: .init(label: "Fable", percent: 92),
+                name: "Claude (Work)", account: "work", provider: "claude",
+                fiveHour: 34, weekly: 66, scoped: .init(label: "Fable", percent: 100),
                 resets: .init(fiveHour: now.addingTimeInterval(4_200), weekly: now.addingTimeInterval(5 * 86_400)),
                 at: now
             ),
-            StatusUsage(name: "Codex", fiveHour: 3, weekly: 41, at: now),
+            StatusUsage(
+                name: "Claude (Personal)", account: "personal", provider: "claude",
+                fiveHour: 12, weekly: 31, scoped: .init(label: "Fable", percent: 41), at: now
+            ),
+            StatusUsage(name: "Codex", account: "codex", provider: "codex", fiveHour: 3, weekly: 41, at: now),
         ]
+        report.accounts = [
+            StatusAccount(id: "work", name: "Work", provider: "claude", signedIn: true, who: "me@work.dev"),
+            StatusAccount(id: "personal", name: "Personal", provider: "claude", signedIn: true, who: "me@home.dev"),
+            StatusAccount(id: "side", name: "Side gig", provider: "claude", signedIn: false),
+            StatusAccount(id: "codex", name: "Codex", provider: "codex", signedIn: true, who: "me@home.dev"),
+        ]
+        for at in report.projects.indices {
+            report.projects[at].accounts = ["claude": report.projects[at].name == "garden" ? "personal" : "work", "codex": "codex"]
+        }
         report.sidebar = SidebarLayout(
             order: ["f-work", "p-garden", "p-atlas"],
             folders: [SidebarLayout.Folder(id: "f-work", name: "C & Tech", projects: ["p-lighthouse", "p-orchard"])]

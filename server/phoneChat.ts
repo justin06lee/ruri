@@ -19,6 +19,9 @@
  *   POST /sidebar               { do: "move", id, folderId?, beforeId? } or
  *                               { do: "fold", folderId, collapsed } — the
  *                               sidebar arranged, as the window's drag does
+ *   POST /project/account       { id, account } — the project put on an
+ *                               account, for that account's harness, as
+ *                               the account chip does
  *
  * What the phone is shown is what the user reads in the web app: their
  * prompts and the replies in full, tool calls folded into one line of
@@ -45,6 +48,7 @@ import {
 } from "../shared/protocol.js";
 import { channelProject } from "./channel.js";
 import type { ClientConn, ServerContext } from "./context.js";
+import { setProjectAccount } from "./handlers/accounts.js";
 import { projectHandlers } from "./handlers/projects.js";
 import { promptHandlers } from "./handlers/prompts.js";
 import { warn } from "./log.js";
@@ -175,6 +179,15 @@ export function phoneSidebar(ctx: ServerContext, body: PhoneSidebarBody): boolea
   return true;
 }
 
+/** The phone's account menu: a project it is shown put on an account, the
+ *  way the account chip does it — every window sees it at once, and the
+ *  phone with its next status. Answers whether it was done. */
+export function phoneAccount(ctx: ServerContext, projectId: string, account: string): boolean {
+  const project = ctx.store.get(projectId);
+  if (!project || project.hidden) return false;
+  return setProjectAccount(ctx, project.id, account);
+}
+
 const CHAT_PATHS = new Set([
   "/chat",
   "/chat/live",
@@ -183,6 +196,7 @@ const CHAT_PATHS = new Set([
   "/chat/stop",
   "/chat/draft",
   "/sidebar",
+  "/project/account",
 ]);
 
 /** Whether a request is for a chat, the phone's way. */
@@ -576,6 +590,22 @@ export async function servePhoneChat(
       return;
     }
     json(res, 200, { ok: phoneSidebar(ctx, body) });
+    return;
+  }
+  if (url.pathname === "/project/account") {
+    if (req.method !== "POST") {
+      res.writeHead(405, { allow: "POST" });
+      res.end();
+      return;
+    }
+    const parsed = await readJson(req, 4096);
+    const project = sidebarId(parsed?.["id"]);
+    const account = sidebarId(parsed?.["account"]);
+    if (!project || !account) {
+      json(res, 400, { error: "send { id, account }" });
+      return;
+    }
+    json(res, 200, { ok: phoneAccount(ctx, project, account) });
     return;
   }
   if (url.pathname === "/chat/draft") {

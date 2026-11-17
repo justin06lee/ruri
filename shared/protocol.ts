@@ -1987,8 +1987,12 @@ export interface StatusNeed {
 /** One harness's limits, for the phone. Percent used, 0–100; each reset
  *  and the reading's time ISO 8601. */
 export interface StatusUsage {
-  /** "Claude", "Claude (personal)", "Codex". */
+  /** "Claude", "Codex" — and the account's own name beside it once a
+   *  harness has more than one read: "Claude (Personal)". */
   name: string;
+  /** Whose windows these are: an account's id, and its harness. */
+  account?: string;
+  provider?: string;
   fiveHour?: number;
   weekly?: number;
   /** The weekly window of the account's premium model ("Fable"). */
@@ -2014,6 +2018,17 @@ export interface StatusProject {
   team: StatusChat[];
   /** Only with ?ids=1. */
   id?: string;
+  /** Only with ?ids=1: the account it runs each harness on. */
+  accounts?: Partial<Record<AccountProvider, string>>;
+}
+
+/** An account, as the phone's account menu shows it (only with ?ids=1). */
+export interface StatusAccount {
+  id: string;
+  name: string;
+  provider: AccountProvider;
+  signedIn?: boolean;
+  who?: string;
 }
 
 /** One thing said in a chat, as the phone shows it (server/phoneChat.ts). */
@@ -2102,14 +2117,15 @@ export interface StatusReport {
   /** Those needing the user first, then stopped, then at work, then at
    *  rest; each lot by when it was last active. */
   projects: StatusProject[];
-  /** How much of each harness's limits is used, as the Mac's gauges show
-   *  it: Claude's work account, its personal one, Codex — those it has a
-   *  reading for. */
+  /** How much of each account's limits is used, as the Mac's gauges show
+   *  it — those it has a reading for, in the Accounts page's order. */
   usage?: StatusUsage[];
   /** Only with ?ids=1: the sidebar as the Mac arranges it — its folders and
    *  the order of everything, by id — for the phone to show the same. Only
    *  the projects in `projects` are named in it. */
   sidebar?: SidebarLayout;
+  /** Only with ?ids=1: every account a project can be put on. */
+  accounts?: StatusAccount[];
 }
 
 /** Where a project's events go: a command run with the event on its stdin,

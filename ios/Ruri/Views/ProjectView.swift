@@ -55,6 +55,11 @@ struct ProjectView: View {
                 }
                 .refreshable { await model.refresh() }
                 .navigationTitle(project.name)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        AccountMenu(project: project)
+                    }
+                }
             } else {
                 Unavailable(symbol: "square.stack", title: "Not open", words: "\(name) isn't open in ruri anymore.")
                     .navigationTitle(name)

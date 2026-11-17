@@ -256,6 +256,8 @@ describe("the status report", () => {
     expect(statusReport(w.ctx, { now: w.now() }).usage).toEqual([
       {
         name: "Claude",
+        account: "work",
+        provider: "claude",
         fiveHour: 34,
         weekly: 12,
         scoped: { label: "Fable", percent: 16 },
@@ -263,6 +265,39 @@ describe("the status report", () => {
         at: "2026-11-17T09:00:00.000Z",
       },
     ]);
+  });
+
+  test("each account read is named by its account once a harness has more than one", () => {
+    const w = world();
+    (w.ctx as unknown as { usage: { limits: Record<string, UsageLimits> } }).usage = {
+      limits: {
+        "claude-personal": { weekly: 31 },
+        claude: { weekly: 66, scoped: { label: "Fable", percent: 100 } },
+        codex: { fiveHour: 5 },
+        // an account since removed: no one's to show
+        "claude:gone": { weekly: 1 },
+      },
+    };
+    const usage = statusReport(w.ctx, { now: w.now() }).usage!;
+    expect(usage.map((u) => [u.name, u.account])).toEqual([
+      ["Claude (Work)", "work"],
+      ["Claude (Personal)", "personal"],
+      ["Codex", "codex"],
+    ]);
+  });
+
+  test("with ids, every account and the one each project runs each harness on", () => {
+    const w = world();
+    const plain = statusReport(w.ctx, { now: w.now() });
+    expect(plain.accounts).toBeUndefined();
+    expect(plain.projects.every((p) => p.accounts === undefined)).toBe(true);
+    const withIds = statusReport(w.ctx, { ids: true, now: w.now() });
+    expect(withIds.accounts?.map((a) => [a.id, a.provider])).toEqual([
+      ["work", "claude"],
+      ["personal", "claude"],
+      ["codex", "codex"],
+    ]);
+    expect(withIds.projects[0]!.accounts).toEqual({ claude: "work", codex: "codex" });
   });
 
   test("with ids, the sidebar as the Mac arranges it, a hidden project left out; and the stars", () => {

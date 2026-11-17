@@ -3,6 +3,7 @@ import {
   CARRY_ON,
   type LetterFrom,
   type PhoneChatFrame,
+  type Project,
   type ProjectStatus,
   type ServerMessage,
   type TranscriptEvent,
@@ -15,6 +16,7 @@ import {
   phoneItems,
   phoneQueue,
   phoneQueueDo,
+  phoneAccount,
   phoneSidebar,
   phoneStop,
   readQueueBody,
@@ -359,6 +361,35 @@ describe("the phone's hand on the sidebar", () => {
     expect(phoneSidebar(w.ctx, { do: "move", id: "nobody" })).toBe(false);
     expect(w.layout()).toBe(before);
     expect(w.sent).toEqual([]);
+  });
+});
+
+describe("the phone's account menu", () => {
+  test("a project it is shown goes on an account; a hidden one, or no account, doesn't", () => {
+    const projects: Project[] = [
+      { id: "a", name: "a", path: "/a", sessions: [{ id: "a-lead" }] },
+      { id: "hid", name: "hid", path: "/hid", hidden: true, sessions: [] },
+    ];
+    const sent: ServerMessage[] = [];
+    const ctx = {
+      store: {
+        list: () => projects,
+        get: (id: string) => projects.find((p) => p.id === id),
+        findSession: () => undefined,
+        update: (id: string, patch: Partial<Project>) =>
+          Object.assign(
+            projects.find((p) => p.id === id)!,
+            patch,
+          ),
+      },
+      clients: { broadcast: (message: ServerMessage) => sent.push(message) },
+    } as unknown as ServerContext;
+    expect(phoneAccount(ctx, "a", "personal")).toBe(true);
+    expect(projects[0]!.accounts).toEqual({ claude: "personal" });
+    expect(sent.map((m) => m.type)).toEqual(["projects"]);
+    expect(phoneAccount(ctx, "hid", "personal")).toBe(false);
+    expect(phoneAccount(ctx, "a", "nobody")).toBe(false);
+    expect(phoneAccount(ctx, "nope", "work")).toBe(false);
   });
 });
 

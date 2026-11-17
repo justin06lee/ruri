@@ -92,13 +92,29 @@ struct StatusProject: Codable, Hashable, Sendable, Identifiable {
     /// How the Mac knows it (asked for with ?ids=1): what the sidebar's
     /// layout names it by.
     var macId: String?
+    /// The account it runs each harness on, by harness ("claude", "codex"),
+    /// from a Mac that has accounts (with ?ids=1).
+    var accounts: [String: String]?
 
     var id: String { name }
 
     private enum CodingKeys: String, CodingKey {
-        case name, state, doingNow, since, lead, team, starred
+        case name, state, doingNow, since, lead, team, starred, accounts
         case macId = "id"
     }
+}
+
+/// A sign-in a harness can run on, as the Mac's Accounts page lists it.
+struct StatusAccount: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    /// What the user calls it: "Work", "Personal".
+    var name: String
+    /// "claude" or "codex".
+    var provider: String
+    /// Unset until the Mac has looked.
+    var signedIn: Bool?
+    /// Who it is signed in as: an email.
+    var who: String?
 }
 
 /// One harness's limits, as the Mac's gauges read them: percent used.
@@ -114,8 +130,12 @@ struct StatusUsage: Codable, Hashable, Sendable, Identifiable {
         var scoped: Date?
     }
 
-    /// "Claude", "Claude (personal)", "Codex".
+    /// "Claude", "Codex" — with the account's name beside it once a
+    /// harness has more than one: "Claude (Personal)".
     var name: String
+    /// Whose windows these are: the account's id, and its harness.
+    var account: String?
+    var provider: String?
     var fiveHour: Int?
     var weekly: Int?
     /// The weekly window of the account's premium model.
@@ -123,7 +143,16 @@ struct StatusUsage: Codable, Hashable, Sendable, Identifiable {
     var resets: Resets?
     var at: Date?
 
-    var id: String { name }
+    var id: String { account ?? name }
+
+    /// The fullest of its windows, in a word: "Fable 100%".
+    var fullest: (label: String, percent: Int)? {
+        var windows: [(label: String, percent: Int)] = []
+        if let fiveHour { windows.append(("5h", fiveHour)) }
+        if let weekly { windows.append(("week", weekly)) }
+        if let scoped { windows.append((scoped.label, scoped.percent)) }
+        return windows.max { $0.percent < $1.percent }
+    }
 }
 
 /// The sidebar as the Mac arranges it: the top level in order — folders and
@@ -191,11 +220,24 @@ struct StatusReport: Codable, Hashable, Sendable {
     var projects: [StatusProject]
     /// With ?ids=1, from a Mac that keeps one: how its sidebar is arranged.
     var sidebar: SidebarLayout?
-    /// How much of each harness's limits is used.
+    /// How much of each account's limits is used.
     var usage: [StatusUsage]?
+    /// With ?ids=1, from a Mac that has them: every account a project can
+    /// be put on.
+    var accounts: [StatusAccount]?
 
     func project(named name: String) -> StatusProject? {
         projects.first { $0.name == name }
+    }
+
+    /// The project a chat is in: its lead, or one of its team.
+    func project(holding chat: String) -> StatusProject? {
+        projects.first { $0.lead?.id == chat || $0.team.contains { $0.id == chat } }
+    }
+
+    /// An account's limits, when the Mac has a reading of them.
+    func usage(of account: String) -> StatusUsage? {
+        usage?.first { $0.account == account }
     }
 
     func needs(of project: String) -> [StatusNeed] {

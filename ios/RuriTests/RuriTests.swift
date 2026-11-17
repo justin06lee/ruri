@@ -142,6 +142,36 @@ struct StatusTests {
         #expect(abs(since.timeIntervalSince1970 - 1_792_612_737.123) < 0.001)
     }
 
+    @Test func readsAccounts() throws {
+        let json = """
+            {
+              "computer": "Mac", "at": "2026-11-17T09:00:00.000Z", "needsYou": [],
+              "projects": [
+                { "name": "ruri", "state": "idle", "doingNow": "", "id": "p-ruri",
+                  "lead": { "name": "Lead", "role": "lead", "state": "idle", "lastWords": "", "id": "c-lead" },
+                  "team": [], "accounts": { "claude": "personal", "codex": "codex" } }
+              ],
+              "accounts": [
+                { "id": "work", "name": "Work", "provider": "claude", "signedIn": true, "who": "me@work.dev" },
+                { "id": "personal", "name": "Personal", "provider": "claude", "signedIn": false }
+              ],
+              "usage": [
+                { "name": "Claude (Work)", "account": "work", "provider": "claude", "weekly": 66,
+                  "scoped": { "label": "Fable", "percent": 100 } }
+              ]
+            }
+            """
+        let report = try StatusReport.decoder().decode(StatusReport.self, from: Data(json.utf8))
+        #expect(report.accounts?.map(\.id) == ["work", "personal"])
+        #expect(report.accounts?.last?.signedIn == false)
+        let ruri = try #require(report.project(holding: "c-lead"))
+        #expect(ruri.accounts?["claude"] == "personal")
+        let work = try #require(report.usage(of: "work"))
+        #expect(work.fullest?.label == "Fable")
+        #expect(work.fullest?.percent == 100)
+        #expect(report.usage(of: "personal") == nil)
+    }
+
     @Test func keepsWhatItReads() throws {
         let report = try StatusReport.decoder().decode(StatusReport.self, from: Data(Self.json.utf8))
         let again = try StatusReport.decoder().decode(

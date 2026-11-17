@@ -170,6 +170,29 @@ final class RuriModel {
         }
     }
 
+    // MARK: accounts
+
+    /// Run a project on an account — here at once, then on the Mac, where
+    /// every window follows. Should the Mac refuse, the next picture puts
+    /// it back.
+    func setAccount(_ account: StatusAccount, for project: String) {
+        guard let at = report?.projects.firstIndex(where: { $0.macId == project }) else { return }
+        report?.projects[at].accounts = (report?.projects[at].accounts ?? [:]).merging(
+            [account.provider: account.id]
+        ) { _, new in new }
+        guard client != nil else { return }
+        Task {
+            do {
+                let (client, address, port) = try await line()
+                if try await !client.account(account.id, project: project, at: address, port: port) {
+                    await refresh()
+                }
+            } catch {
+                await refresh()
+            }
+        }
+    }
+
     // MARK: the app in front, or not
 
     /// The app came to the front: open the line.

@@ -47,6 +47,12 @@ struct ChatView: View {
             ToolbarItem(placement: .principal) {
                 ChatTitle(name: name, state: session?.log.state ?? .idle, line: session?.line ?? .connecting)
             }
+            // the project's account, one tap away from its conversation
+            if let project = model.report?.project(holding: route.id) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    AccountMenu(project: project)
+                }
+            }
         }
         .barBackground(palette.paper)
         .onAppear {

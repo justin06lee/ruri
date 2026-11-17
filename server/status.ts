@@ -18,7 +18,10 @@
 import type * as http from "node:http";
 import {
   CARRY_ON,
+  ACCOUNT_PROVIDERS,
+  type AccountProvider,
   type Project,
+  type StatusAccount,
   type StatusChat,
   type StatusNeed,
   type StatusProject,
@@ -28,6 +31,8 @@ import {
   type TranscriptEvent,
 } from "../shared/protocol.js";
 import type { SidebarLayout } from "../shared/sidebar.js";
+import { accountOf } from "./accounts.js";
+import { accountInfos } from "./accountStatus.js";
 import type { ServerContext } from "./context.js";
 import { warn } from "./log.js";
 import { buildPayload, trimSummary } from "./projectHooks.js";
@@ -192,7 +197,7 @@ function readProject(
       ...(since !== undefined ? { since: iso(since) } : {}),
       ...(lead ? { lead } : {}),
       team,
-      ...(ids ? { id: project.id } : {}),
+      ...(ids ? { id: project.id, accounts: picksOf(project) } : {}),
     },
     needs,
     lastActive,
@@ -218,24 +223,52 @@ export function statusReport(ctx: ServerContext, opts: { ids?: boolean; now?: nu
     needsYou: read.flatMap((r) => r.needs).sort((a, b) => a.since.localeCompare(b.since)),
     projects: read.map((r) => r.project),
     ...(layout ? { sidebar: layout } : {}),
+    ...(opts.ids ? { accounts: accountsOf() } : {}),
     ...usageOf(ctx),
   };
 }
 
-const USAGE_NAMES: Record<string, string> = { claude: "Claude", "claude-personal": "Claude (personal)", codex: "Codex" };
+/** The account a project runs each harness on. */
+function picksOf(project: Project): Partial<Record<AccountProvider, string>> {
+  return Object.fromEntries(ACCOUNT_PROVIDERS.map((p) => [p, accountOf(project, p)]));
+}
+
+function accountsOf(): StatusAccount[] {
+  return accountInfos().map((a) => ({
+    id: a.id,
+    name: a.name,
+    provider: a.provider,
+    ...(a.signedIn !== undefined ? { signedIn: a.signedIn } : {}),
+    ...(a.who ? { who: a.who } : {}),
+  }));
+}
+
+const HARNESS_NAMES: Record<string, string> = { claude: "Claude", codex: "Codex" };
 
 /** The gauges' readings, as the phone shows them: named, with ISO times. */
 function usageOf(ctx: ServerContext): { usage?: StatusUsage[] } {
   // a stand-in context (the tests') may have no gauges
   const limits = (ctx as Partial<Pick<ServerContext, "usage">>).usage?.limits ?? {};
-  const usage = Object.entries(limits).flatMap(([key, l]): StatusUsage[] => {
+  const accounts = accountInfos();
+  // the Accounts page's order; a reading kept from an account since removed
+  // is no one's to show
+  const keys = accounts.map((a) => a.usage).filter((key) => key in limits);
+  const read = (provider: string) => keys.filter((key) => accounts.find((a) => a.usage === key)?.provider === provider);
+  const usage = keys.flatMap((key): StatusUsage[] => {
+    const l = limits[key]!;
+    const account = accounts.find((a) => a.usage === key)!;
     if (l.fiveHour === undefined && l.weekly === undefined && !l.scoped) return [];
     const resets = Object.fromEntries(
       Object.entries(l.resets ?? {}).flatMap(([k, ms]) => (ms ? [[k, iso(ms)!]] : [])),
     ) as StatusUsage["resets"];
     return [
       {
-        name: USAGE_NAMES[key] ?? key,
+        name:
+          read(account.provider).length > 1
+            ? `${HARNESS_NAMES[account.provider]} (${account.name})`
+            : HARNESS_NAMES[account.provider]!,
+        account: account.id,
+        provider: account.provider,
         ...(l.fiveHour !== undefined ? { fiveHour: Math.round(l.fiveHour) } : {}),
         ...(l.weekly !== undefined ? { weekly: Math.round(l.weekly) } : {}),
         ...(l.scoped ? { scoped: { label: l.scoped.label, percent: Math.round(l.scoped.percent) } } : {}),

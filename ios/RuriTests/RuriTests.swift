@@ -175,6 +175,13 @@ struct StatusTests {
         #expect(report.usage(of: "personal") == nil)
     }
 
+    @Test func listsWhatIsWorking() throws {
+        let report = try StatusReport.decoder().decode(StatusReport.self, from: Data(Self.json.utf8))
+        // the iPhone app teammate is at work: named by its project and itself
+        #expect(report.working.map(\.chat.name) == ["ruri · iPhone app"])
+        #expect(report.working.map(\.title) == ["iPhone app"])
+    }
+
     @Test func keepsWhatItReads() throws {
         let report = try StatusReport.decoder().decode(StatusReport.self, from: Data(Self.json.utf8))
         let again = try StatusReport.decoder().decode(

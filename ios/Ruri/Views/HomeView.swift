@@ -22,6 +22,24 @@ struct HomeView: View {
                     }
                     if let report = model.report {
                         Group {
+                            // every chat at work, wherever it is — and still
+                            // in its place in the list below
+                            let working = report.working
+                            if !working.isEmpty {
+                                RowSection(title: "Working now") {
+                                    ForEach(working, id: \.chat.name) { item in
+                                        if let id = item.id {
+                                            NavigationLink(value: ChatRoute(id: id, name: item.title)) {
+                                                ChatRow(chat: item.chat, opens: true)
+                                            }
+                                            .buttonStyle(RowPress())
+                                            .accessibilityIdentifier("working.\(item.chat.name)")
+                                        } else {
+                                            ChatRow(chat: item.chat)
+                                        }
+                                    }
+                                }
+                            }
                             if let usage = report.usage, !usage.isEmpty {
                                 UsageCard(usage: usage)
                             }

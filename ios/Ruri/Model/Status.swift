@@ -238,6 +238,22 @@ struct StatusReport: Codable, Hashable, Sendable {
         projects.first { $0.lead?.id == chat || $0.team.contains { $0.id == chat } }
     }
 
+    /// Every chat at work, project by project in the report's order: each
+    /// named for the home's "Working now" — a lead by its project, a
+    /// teammate by its project and its own name.
+    var working: [(id: String?, title: String, chat: StatusChat)] {
+        projects.flatMap { project in
+            ([project.lead].compactMap { $0 } + project.team)
+                .filter { $0.state == .working }
+                .map { chat in
+                    let title = chat.role == .lead ? project.name : chat.name
+                    var shown = chat
+                    shown.name = chat.role == .lead ? project.name : "\(project.name) · \(chat.name)"
+                    return (id: chat.id, title: title, chat: shown)
+                }
+        }
+    }
+
     /// A chat, by its id.
     func chat(_ id: String) -> StatusChat? {
         guard let project = project(holding: id) else { return nil }
